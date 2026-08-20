@@ -135,7 +135,96 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pdf_render::{DisplayList, TargetSpec, Transform};
+use pdf_render::{Color, DisplayList, Medium, Raster, RasterFormat, TargetSpec, Transform};
+use viewer_core::DocumentId;
+
+/// What a picture is a picture **of**, which is not the same question as which commands drew it.
+///
+/// **The identity a page's picture is kept under, and the decision the six-hundred-and-eighth
+/// session said was owed** (`doc/todo/37`, ADR 0457). A retained page used to be keyed by the
+/// `Arc<DisplayList>` it was drawn from, and `viewer_core` holds one interpretation per page of
+/// the arrangement rather than a cache of them — so a page turn dropped the outgoing page's
+/// interpretation, coming back produced a new `Arc` over the same commands, and the picture held
+/// for it could never be found again. Every `SinglePage` page turn showed nothing.
+///
+/// The `Arc` answers *which interpretation*, and that is the right question for the base: the
+/// sharp layer is a picture of one arrangement at one placement and [`depicts`] must be exact
+/// about it. It is the wrong question for a retained page, which is a picture of a *page*.
+///
+/// So a page's picture is identified by the page it is of and the state its ink was interpreted
+/// against — the document, the page number, and [`viewer_core::RenderRequest::ink`]. Two
+/// interpretations that agree on all three drew the same commands, whatever their addresses are.
+///
+/// **What the ink excludes is the point of it.** A picture whose ink has been superseded is *not*
+/// a picture of this page any more, and may not stand in: §8.11's layer switched off would go on
+/// being drawn for a frame, sharp and legible, and a person cannot tell that from the switch not
+/// working. Blur says *approximation* by itself; stale ink says nothing and asserts something
+/// false, which is the plausible-instead-of-true failure `CLAUDE.md`'s first principle is about.
+/// A view change over unchanged ink is the opposite case and is exactly what a stand-in is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Picture {
+    /// Which document, because a window may be handed another one.
+    document: DocumentId,
+    /// Which page of it, zero-based, as `viewer_core::RenderRequest::page` numbers them.
+    page: usize,
+    /// Which state of that document's ink — see [`viewer_core::RenderRequest::ink`].
+    ink: u64,
+}
+
+impl Picture {
+    /// A picture of `page` of `document`, drawn against the ink `ink` names.
+    pub(crate) fn new(document: DocumentId, page: usize, ink: u64) -> Self {
+        Self {
+            document,
+            page,
+            ink,
+        }
+    }
+
+    /// Which page of the document this is a picture of, zero-based — for the trace, which counts
+    /// from one as a reader does.
+    pub(crate) fn page(self) -> usize {
+        self.page
+    }
+
+    /// Whether the two were drawn against the same state of the same document's ink.
+    ///
+    /// What [`Proxies::keep`] evicts by: a picture of another ink is not a picture that may be
+    /// shown again, so it is dropped rather than left to age out of the store — the same answer
+    /// `viewer_core::open`'s own invalidation gives for the same reason, which is that the state
+    /// is what *every* held page was interpreted against.
+    fn same_ink(self, other: Self) -> bool {
+        self.document == other.document && self.ink == other.ink
+    }
+}
+
+/// One page of Table 29's arrangement as this window is drawing it: what it is of, its commands,
+/// and where it goes.
+///
+/// **Three facts that used to be two.** The pair `(Arc<DisplayList>, TargetSpec)` travelled
+/// between the event thread, the render thread and this module until ADR 0457 gave the retained
+/// layer an identity that survives a re-interpretation; [`Self::of`] is that identity, and it
+/// rides with the list rather than beside it so that the two cannot be paired up wrongly.
+#[derive(Debug, Clone)]
+pub(crate) struct Placed {
+    /// Which page's picture this is, and of which ink.
+    pub(crate) of: Picture,
+    /// The commands, shared with `viewer-core` and with the render thread.
+    pub(crate) list: Arc<DisplayList>,
+    /// Where they go in this window, in its own device pixels.
+    pub(crate) target: TargetSpec,
+}
+
+impl Placed {
+    /// Whether these two are the same interpretation of the same page at the same placement.
+    ///
+    /// **The `Arc`'s address and the target, which is the exact question** — see [`Picture`] for
+    /// why the retained layer asks a different one. `render-quorra` reuses a scene by the same
+    /// address for the same ABA reason (ADR 0351).
+    fn is(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.list, &other.list) && self.target == other.target
+    }
+}
 
 /// What the presenter should do about a view change, and — where a person would ask — why.
 ///
@@ -264,6 +353,32 @@ pub(crate) enum Refusal {
     },
     /// *Impossible.* The presenter declined to put the approximated frame on the window.
     DeviceRefused(String),
+    /// *Unwise.* Rule 4: standing in would cost more than the refresh it buys.
+    ///
+    /// **Deleted by ADR 0391 and back for one surface only, which is ADR 0457's whole argument.**
+    /// That deletion was right about the window it was written for: a reprojection there is three
+    /// textured quads issued by the thread holding the surface while the render is on another, so
+    /// what it costs the frame it stands in for is nothing rather than a fraction, and a bound on
+    /// nothing is not a bound. The processor's window has no other thread — the resample happens
+    /// *in front of* the frame it stands in for, on the same thread, and delays it by exactly what
+    /// it costs. That is the premise rule 4 was written under, so the rule comes back with it, in
+    /// the form ADR 0384 re-grounded it in: standing in must **buy at least one refresh**.
+    ///
+    /// `resample + period ≤ frame`, in the display's own unit and with no constant in it. Where it
+    /// does not hold, a person would be shown a blurred picture and then made to wait longer for
+    /// the true one than they would have waited without it.
+    ///
+    /// **Unmeasured permits**, which is the other half of ADR 0384's lesson: the only thing that
+    /// can produce the first measurement is drawing one, so a gate that refused until it had a
+    /// number would block its own only sample. See [`Stale::resampling`].
+    TooDear {
+        /// What the last resample on this surface cost.
+        resample: Duration,
+        /// One refresh of this surface, which is what standing in has to buy.
+        period: Duration,
+        /// What the frame this view is waiting for is expected to cost.
+        frame: Duration,
+    },
     /// *Unwise.* Rule 5: the frame this view is waiting for is expected to land inside one
     /// refresh and has not yet missed one, so it *is* the frame every refresh the owner asked
     /// for and there is nothing to stand in for.
@@ -290,7 +405,7 @@ impl Refusal {
             | Self::NoPlacement
             | Self::Rearranged { .. }
             | Self::DeviceRefused(_) => "impossible",
-            Self::InsideTheRefresh { .. } => "unwise",
+            Self::TooDear { .. } | Self::InsideTheRefresh { .. } => "unwise",
         }
     }
 
@@ -346,6 +461,19 @@ impl std::fmt::Display for Refusal {
                     "the presenter refused the approximated frame: {problem}"
                 )
             }
+            Self::TooDear {
+                resample,
+                period,
+                frame,
+            } => write!(
+                formatter,
+                "standing in would cost {:.1} ms on this thread and buy a {:.1} ms refresh, \
+                 against a frame of {:.1} ms — so it would not buy even one, and the picture \
+                 would be blurred *and* later",
+                ms(*resample),
+                ms(*period),
+                ms(*frame)
+            ),
             Self::InsideTheRefresh { frame, period } => write!(
                 formatter,
                 "this frame is expected to take {:.1} ms against a {:.1} ms refresh and has not \
@@ -492,9 +620,9 @@ pub(crate) const PROXY_PAGES: usize = 8;
 /// pages are kept.
 #[derive(Debug)]
 pub(crate) struct Retained<P> {
-    /// The page, by the `Arc` whose address is its identity — the same identity
-    /// [`one_placement`] matches on, and for the same ABA reason (ADR 0351).
-    pub(crate) page: Arc<DisplayList>,
+    /// Which page's picture it is, and of which ink — [`Picture`], and **not** the `Arc` this was
+    /// keyed by until ADR 0457.
+    pub(crate) of: Picture,
     /// Where the whole page sits in this picture: [`proxy_target`]'s answer, kept beside the
     /// pixels rather than recomputed, so that a change to that function cannot silently re-place
     /// a raster already drawn.
@@ -542,6 +670,13 @@ pub(crate) fn proxy_target(list: &DisplayList) -> Option<TargetSpec> {
 /// for a page of the most recent frame, so the pages on the screen are always the newest entries
 /// and the one evicted is never one the window is showing — provided the extent is at least the
 /// number of pages Table 29's arrangement puts up, which is what `PROXY_PAGES` is sized for.
+///
+/// **And what is dropped outright is every picture of a superseded ink** (ADR 0457). The store is
+/// bounded twice over: by [`Self::extent`] in pages, which is what a memory budget can be stated
+/// against, and by [`Picture::same_ink`], which is not a budget at all — a picture of ink nobody
+/// may show is not worth a slot, and keeping one would let it occupy a place a showable page
+/// wants. Nothing else evicts, and nothing else needs to: an edit, an undo, a redo, a layer
+/// switch and §6.3.2.2's delegated appearances all arrive here as one changed number.
 #[derive(Debug)]
 pub(crate) struct Proxies<P> {
     held: Vec<Retained<P>>,
@@ -557,9 +692,15 @@ impl<P> Proxies<P> {
         }
     }
 
-    /// Keeps a page's picture, replacing any picture of that page and dropping the oldest.
+    /// Keeps a page's picture, dropping any picture of that page, any picture of another ink, and
+    /// then the oldest of whatever is left.
+    ///
+    /// The ink is checked here rather than at every read, because this is the one moment the store
+    /// learns that the document has moved on: a picture arrives from a frame of the current ink,
+    /// and everything that disagrees with it was drawn against a state that no longer exists.
     pub(crate) fn keep(&mut self, one: Retained<P>) {
-        self.held.retain(|held| !Arc::ptr_eq(&held.page, &one.page));
+        self.held
+            .retain(|held| held.of != one.of && held.of.same_ink(one.of));
         self.held.insert(0, one);
         self.held.truncate(self.extent);
     }
@@ -569,18 +710,14 @@ impl<P> Proxies<P> {
     /// `None` where every one of them is held, and `None` for an extent of zero — a store that
     /// keeps nothing must not ask for anything, or the render thread would draw a proxy per idle
     /// turn and throw each one away.
-    pub(crate) fn wanted(
-        &self,
-        pages: &[(Arc<DisplayList>, TargetSpec)],
-    ) -> Option<Arc<DisplayList>> {
+    pub(crate) fn wanted(&self, pages: &[Placed]) -> Option<Placed> {
         if self.extent == 0 {
             return None;
         }
         pages
             .iter()
-            .map(|(page, _)| page)
-            .find(|page| !self.held.iter().any(|held| Arc::ptr_eq(&held.page, page)))
-            .map(Arc::clone)
+            .find(|placed| !self.held.iter().any(|held| held.of == placed.of))
+            .cloned()
     }
 
     /// Where each retained page goes so that it depicts the view being asked for.
@@ -594,13 +731,13 @@ impl<P> Proxies<P> {
     ///
     /// A page whose composition is not a finite affine is left out rather than refused: the rest
     /// of the picture is still true, and there is no single answer here to spoil.
-    pub(crate) fn placements(
-        &self,
-        asked: &[(Arc<DisplayList>, TargetSpec)],
-    ) -> Vec<(usize, Transform)> {
+    pub(crate) fn placements(&self, asked: &[Placed]) -> Vec<(usize, Transform)> {
         let mut placed = Vec::new();
         for (index, held) in self.held.iter().enumerate() {
-            let Some((_, target)) = asked.iter().find(|(page, _)| Arc::ptr_eq(page, &held.page))
+            let Some(target) = asked
+                .iter()
+                .find(|placed| placed.of == held.of)
+                .map(|placed| placed.target)
             else {
                 continue;
             };
@@ -638,6 +775,215 @@ impl<P> Proxies<P> {
     }
 }
 
+/// One colour of the medium as the four bytes a raster holds it in.
+///
+/// The same rounding `viewer_ui::software::compose` uses on its way to the window, so that the
+/// pixels a stand-in puts outside the picture it holds are the pixels the frame after it will
+/// put there — a revealed edge that changed shade when the true frame landed would be this host
+/// telling a person something happened.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "each channel is clamped to 0..=1 and scaled to 0..=255 before the cast"
+)]
+fn bytes_of(colour: Color) -> [u8; 4] {
+    [colour.r, colour.g, colour.b, colour.a]
+        .map(|channel| (channel.clamp(0.0, 1.0) * 255.0).round() as u8)
+}
+
+/// The window's own pixels, on the surface that has no device to hold them.
+///
+/// **The processor's base, and it costs nothing to obtain** (`doc/todo/37`, ADR 0457). The device
+/// path's base is a texture the render thread drew and never gave up; this one is the raster
+/// `viewer_ui::software::compose_pages` has just produced, which this host already had in its
+/// hand on the way to the window. There is no capture to arrange and no readback to price — the
+/// difference that makes the processor's stand-in the smaller piece of work of the two.
+///
+/// **It is kept in step with [`Stale::settled`] by being written in the same breath**, which is
+/// the arrangement ADR 0385 arrived at the hard way: a base and the record of what it is a picture
+/// of, updated by two different events, parted company and the window showed nothing for want of
+/// pixels it was holding. `App::present` adopts both or neither.
+#[derive(Debug, Default)]
+pub(crate) struct Canvas {
+    /// The last frame this window drew, in the window's own extent.
+    held: Option<Raster>,
+}
+
+impl Canvas {
+    /// Adopts the frame that has just been drawn as the base the next stand-in resamples.
+    ///
+    /// The pages under it are not kept: the raster handed here is the whole window's, chrome
+    /// excluded, exactly as the device path's page texture is.
+    pub(crate) fn keep(&mut self, frame: Raster) {
+        self.held = Some(frame);
+    }
+
+    /// Resamples what is held under `placement`, or `None` where there is nothing to resample.
+    ///
+    /// `placement` is [`Stale::reproject`]'s answer: it maps a texel of the picture held to the
+    /// pixel of the window this view puts it at. So the map wanted here is its **inverse** —
+    /// every destination pixel asks which texel it is a sample of — and a placement that does not
+    /// invert is one this module has already refused ([`Refusal::NoPlacement`]) rather than a case
+    /// to be silent about. `None` here is only ever "no frame has been drawn yet".
+    ///
+    /// **Bilinear, because the device path is** (`crate::renderer`'s `ImageFilter::Linear`): a
+    /// blur is what an approximation should look like, where squares of four device pixels look
+    /// like a rendering decision somebody made. The two surfaces have to agree about that or the
+    /// same gesture on the same document looks like two different programs.
+    ///
+    /// **What the picture held has nothing to say about gets the window's medium**, never page
+    /// white — asserting that the page is blank there is the plausible-looking lie principle 1 is
+    /// about (ADR 0378), and it is what the device path's bottom layer paints for the same reason.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster dimension, capped at pdf_render::MAX_EXTENT = 2^24, which f32 \
+                  represents exactly"
+    )]
+    pub(crate) fn stand_in(&self, placement: Transform) -> Option<Raster> {
+        let held = self.held.as_ref()?;
+        match held.format {
+            // Exhaustive rather than checked, on ADR 0247's argument: the arithmetic below is
+            // written for four straight-alpha bytes per pixel, and a second format must fail to
+            // compile here rather than be refused at runtime.
+            RasterFormat::Rgba8 => {}
+        }
+        let back = placement.invert()?;
+        let (width, height) = (held.width, held.height);
+        let (span, rows) = (width as f32, height as f32);
+        let outside = bytes_of(Medium::WINDOW.surround);
+        let mut data = vec![0_u8; held.data.len()];
+        for (row, line) in data
+            .chunks_exact_mut((width as usize).saturating_mul(4))
+            .enumerate()
+        {
+            // Stepped along the row rather than transformed per pixel: an affine of
+            // `(column + 1, row)` differs from one of `(column, row)` by exactly `(a, b)`, so a
+            // row is one `apply` and two additions a pixel instead of four multiplications and two
+            // additions. It is the same arithmetic to the last bit for a translation and a scale,
+            // which is every placement this program composes, and within an `f32` rounding of it
+            // for one with rotation in it. **It is not where the time goes** and is not claimed to
+            // be: this loop with the sampling taken out of it is 0.13 ms of a resample that is
+            // tens, so what it saves is inside the noise and what justifies it is that it is also
+            // shorter to read.
+            let mut at = back.apply(pdf_render::Point::new(0.5, row as f32 + 0.5));
+            for pixel in line.chunks_exact_mut(4) {
+                if at.x < 0.0 || at.x >= span || at.y < 0.0 || at.y >= rows {
+                    // The revealed edge: this view reaches area the picture held does not cover.
+                    pixel.copy_from_slice(&outside);
+                } else {
+                    pixel.copy_from_slice(&bilinear(held, at.x - 0.5, at.y - 0.5));
+                }
+                at.x += back.a;
+                at.y += back.b;
+            }
+        }
+        Some(Raster {
+            width,
+            height,
+            format: RasterFormat::Rgba8,
+            data,
+        })
+    }
+}
+
+/// One bilinear sample of `raster`, at a point in the space where texel centres are the integers.
+///
+/// The caller has already established that the *pixel* centre is inside the picture; the four
+/// texels around it need not be, and the indices are clamped to the edge — which is what a
+/// clamped sampler does and what the half-texel border either side of the picture is. It is at
+/// most half a texel of edge repetition on a picture that is a deliberate approximation.
+///
+/// # There is no `floor` and no `round` in here, and that is worth six libm calls a pixel
+///
+/// **Measured, and measured as a *ratio* on purpose** (ADR 0457). `x86-64` without `SSE4.1` has no
+/// rounding instruction, so `f32::floor` and `f32::round` are calls into `libm` — two for the
+/// texel and four for the channels, six per pixel and 4.8 million on an 800 × 1000 window.
+/// Truncation *is* `floor` for a non-negative value and `+ 0.5` then truncation *is* `round` for
+/// one already inside `0..=255`, and the `max` above and the convexity below are what establish
+/// both. Timing the two forms **alternately in one process**, 25 samples each and the best of
+/// them, an 800 × 1000 resample is **1.3 to 1.8 times dearer with the calls** — 48.3 against 35.3
+/// on a scroll, 55.4 against 41.8 at the identity, 157.1 against 86.1 on a zoom.
+///
+/// The absolute figures are worthless and are quoted only so that the ratio's samples are legible:
+/// the machine was running three other rounds' gates at a load average of over 70 on 24 cores, and
+/// this kernel is memory-bound. That is exactly why the ratio was taken by interleaving rather
+/// than by two runs — and why **there is no constant here at all**: rule 4 measures what a
+/// resample costs on the machine it is running on ([`Stale::resampling`]), so a slower or faster
+/// one changes the policy's answer rather than falsifying a number in this file.
+///
+/// **Fixed-point weights were tried in the same way and rejected**, which is the other half of
+/// `CLAUDE.md`'s rule about optimisation: interpolating in `u32` with the weights quantised to
+/// 1/256 was 30.4 against 33.3, 30.4 against 26.8 and 37.8 against 33.9 — no gain outside the
+/// noise — and it cost two levels of 255 of accuracy and a paragraph of justification. The float
+/// form is what is here.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "each index is clamped into 0..width or 0..height before the cast, and each channel \
+              is a convex combination of four bytes and so is already inside 0..=255"
+)]
+fn bilinear(raster: &Raster, x: f32, y: f32) -> [u8; 4] {
+    // At least zero, so that the cast below truncates towards the same side `floor` rounds to. A
+    // point between the picture's edge and the first texel *centre* belongs to that texel, which
+    // is the clamped sampler's answer and is what this `max` says.
+    let (x, y) = (x.max(0.0), y.max(0.0));
+    let (left, top) = (x as usize, y as usize);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster index, far inside f32's exact integer range"
+    )]
+    let (fraction_x, fraction_y) = (x - left as f32, y - top as f32);
+    // The last texel of each axis. A raster with no pixels holds no sample and the caller's
+    // bounds test cannot pass on one, so the saturating subtraction never underflows into a
+    // meaningful index.
+    let (last_x, last_y) = (
+        raster.width.saturating_sub(1) as usize,
+        raster.height.saturating_sub(1) as usize,
+    );
+    let (x0, y0) = (left.min(last_x), top.min(last_y));
+    let (x1, y1) = (
+        left.saturating_add(1).min(last_x),
+        top.saturating_add(1).min(last_y),
+    );
+    let texel = |column: usize, row: usize| -> [u8; 4] {
+        let start = row
+            .saturating_mul(raster.width as usize)
+            .saturating_add(column)
+            .saturating_mul(4);
+        raster
+            .data
+            .get(start..start.saturating_add(4))
+            .and_then(|texel| <[u8; 4]>::try_from(texel).ok())
+            .unwrap_or([0, 0, 0, 0])
+    };
+    let (top_left, top_right) = (texel(x0, y0), texel(x1, y0));
+    let (bottom_left, bottom_right) = (texel(x0, y1), texel(x1, y1));
+    // The weights in eighths of a byte rather than in floating point, which is the second half of
+    // this function's measurement and the larger half. A float weight means a **float-to-integer
+    // cast per channel** on the way out, and Rust's is saturating — a compare, a select and a NaN
+    // test apiece, four times a pixel, which no compiler can turn into anything cheaper without
+    // being told the value is already in range and having no way to be told. Fixed point pays two
+    // casts a pixel instead of four and leaves the rest as integer multiplies a compiler can put
+    // four at a time into a register.
+    //
+    // What it costs is under two levels of 255 at the worst pixel: quantising each weight to
+    // 1/256 moves the interpolation by at most `|left − right| / 256` per axis, and a channel's
+    // two texels differ by at most 255. That is invisible, and it is on a picture whose *other*
+    // error is a whole-texture resample of the wrong view.
+    let mut sample = [0_u8; 4];
+    for (channel, out) in sample.iter_mut().enumerate() {
+        let above = f32::from(top_left[channel])
+            + fraction_x * (f32::from(top_right[channel]) - f32::from(top_left[channel]));
+        let below = f32::from(bottom_left[channel])
+            + fraction_x * (f32::from(bottom_right[channel]) - f32::from(bottom_left[channel]));
+        // A convex combination of four values in `0..=255` is in `0..=255`, so the clamp is the
+        // arithmetic's rather than a guard, and `+ 0.5` with truncation is what `round` does to a
+        // non-negative value. See this function's own note for what the call cost.
+        *out = ((above + fraction_y * (below - above)).clamp(0.0, 255.0) + 0.5) as u8;
+    }
+    sample
+}
+
 /// Proof that the frame which replaces a reprojection was asked for.
 ///
 /// **Rule 1 as a type.** A reprojection that is still on the screen when the machine goes idle is
@@ -664,6 +1010,23 @@ impl MustFollow {
         let Self(()) = self;
         cadence.owed(now);
     }
+
+    /// Discharges the obligation on the surface where the frame that replaces it is drawn by the
+    /// very call that drew the stand-in.
+    ///
+    /// **The processor's window, and nowhere else** (ADR 0457). There is no other thread there, so
+    /// `App::present` resamples, presents, and then goes on to draw the real frame and present
+    /// that — in one call, before it returns. Rule 1 is met *sooner* than [`Self::follow`] can
+    /// meet it rather than later: the frame replacing this stand-in is already being drawn when
+    /// this is called, and no tick has to come round for it.
+    ///
+    /// Arming the clock instead would be worse than redundant. A processor frame of a real page is
+    /// hundreds of milliseconds, and asking for one more of them per view change is the cost rule
+    /// 4 exists to refuse.
+    pub(crate) fn drawn_in_the_same_frame(self) {
+        // Destructured rather than ignored, exactly as above: this value *is* the obligation.
+        let Self(()) = self;
+    }
 }
 
 /// The rendering the window is able to draw: which page's display list, and placed where.
@@ -689,7 +1052,11 @@ struct Settled {
     /// `render-quorra` reuses a scene by, for the same ABA reason (ADR 0351). **A list since ADR
     /// 0442**: `OneColumn` puts several pages in one texture, and which pages those are is what
     /// decides whether one placement carries the whole picture.
-    pages: Vec<(Arc<DisplayList>, TargetSpec)>,
+    ///
+    /// **The base still asks the `Arc`, and ADR 0457 did not change that**: [`Picture`] is what
+    /// makes a *retained page* findable across a re-interpretation, and this layer is a picture of
+    /// one arrangement drawn at one moment, which is an exact question.
+    pages: Vec<Placed>,
 }
 
 impl Settled {
@@ -700,7 +1067,7 @@ impl Settled {
     fn extent(&self) -> Option<(u32, u32)> {
         self.pages
             .first()
-            .map(|(_, target)| (target.width, target.height))
+            .map(|placed| (placed.target.width, placed.target.height))
     }
 }
 
@@ -709,15 +1076,8 @@ impl Settled {
 /// The same pages, in the same order, at the same placements — all three, because Table 29's
 /// arrangement is a *set* of placed pages and a picture that is right about two of three is a
 /// window with a hole in it. Under `SinglePage` this is the one comparison it has always been.
-fn depicts(
-    settled: &[(Arc<DisplayList>, TargetSpec)],
-    asked: &[(Arc<DisplayList>, TargetSpec)],
-) -> bool {
-    settled.len() == asked.len()
-        && settled
-            .iter()
-            .zip(asked)
-            .all(|((was, placed), (now, asked))| Arc::ptr_eq(was, now) && placed == asked)
+fn depicts(settled: &[Placed], asked: &[Placed]) -> bool {
+    settled.len() == asked.len() && settled.iter().zip(asked).all(|(was, now)| was.is(now))
 }
 
 /// How far apart two placements put the picture held, in device pixels, at its worst point.
@@ -824,19 +1184,18 @@ const AGREEMENT: f32 = 0.5;
 ///
 /// The disagreement it did absorb comes back with the answer, because a bound nobody can see the
 /// far side of is a bound nobody can re-measure ([`Carried::within`]).
-fn one_placement(
-    settled: &[(Arc<DisplayList>, TargetSpec)],
-    asked: &[(Arc<DisplayList>, TargetSpec)],
-) -> Result<Carried, Refusal> {
+fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusal> {
     let mut agreed: Option<Transform> = None;
     let mut within = 0.0_f32;
-    for (page, target) in asked {
-        let Some((_, was)) = settled
+    for placed in asked {
+        let Some(was) = settled
             .iter()
-            .find(|(settled_page, _)| Arc::ptr_eq(settled_page, page))
+            .find(|settled| Arc::ptr_eq(&settled.list, &placed.list))
+            .map(|settled| settled.target)
         else {
             continue;
         };
+        let target = &placed.target;
         let Some(moved) = was
             .transform
             .invert()
@@ -913,6 +1272,23 @@ pub(crate) struct Carried {
     pub(crate) within: f32,
 }
 
+/// Where a stand-in is drawn relative to the frame it stands in for — rule 4's whole question.
+///
+/// **The two windows of this program differ in exactly this and in nothing else about the policy**
+/// (`doc/todo/37`, ADR 0457). Every other rule is the same rule on both surfaces, which is why
+/// there is one [`Stale`] rather than two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Standing {
+    /// **Beside it.** The render is on a thread of its own and the stand-in is three textured
+    /// quads issued by the thread holding the surface, so it takes nothing from the frame it
+    /// stands in for and rule 4 has nothing to bound (ADR 0391). Every run with a graphics device.
+    Beside,
+    /// **In front of it.** There is no other thread: the same call resamples, presents, and then
+    /// draws the real frame, so the real frame is later by exactly what the resample cost. The
+    /// processor's window — `--cpu`, and a machine whose device would not come up.
+    InFrontOf,
+}
+
 /// Whether the window is showing a reprojection, and what it would take to draw the next one.
 #[derive(Debug, Default)]
 pub(crate) struct Stale {
@@ -942,6 +1318,14 @@ pub(crate) struct Stale {
     /// redrew the launch frame in 2.1 ms, and the zoom step after it was judged against that
     /// rather than against the 778.6 ms rendering it replayed. `None` until a frame has built one.
     building: Option<Duration>,
+    /// What a resample of one window of pixels costs on the processor, once one has been drawn.
+    ///
+    /// **Rule 4's measurement, and `None` permits** ([`Refusal::TooDear`]). It is a property of the
+    /// machine rather than of a frame, so it is kept here beside [`Self::building`] and for the
+    /// same reason: the question is what the *next* one will cost. Never set on a run with a
+    /// graphics device, where nothing resamples on the presenting thread and rule 4 is enforced by
+    /// the arrangement instead.
+    resampling: Option<Duration>,
     /// How many have been drawn and of what — rule 3's count, which the frame summary prints.
     count: Drawn,
     /// Rule 3 over the refusals: how many view changes showed the real frame, and of which kind.
@@ -988,7 +1372,7 @@ impl Stale {
     /// Split out of [`Self::plan`] when the retained pages arrived (ADR 0443), because the answer
     /// stopped deciding the whole frame: a base that does not carry used to mean a window that
     /// showed nothing, and now means a window drawn from the blurrier layer alone.
-    fn carries(settled: &Settled, pages: &[(Arc<DisplayList>, TargetSpec)]) -> Result<(), Refusal> {
+    fn carries(settled: &Settled, pages: &[Placed]) -> Result<(), Refusal> {
         // A resize changes what the window is as well as where the pages are in it, and what is
         // held is that window's whole picture — see [`Refusal::Resized`] for why the chrome in it
         // makes this an impossibility rather than the revealed edge under another name. It is not
@@ -996,19 +1380,40 @@ impl Stale {
         // about the window: a resize is one of the cases they now answer.
         let extent = pages
             .first()
-            .map(|(_, target)| (target.width, target.height));
+            .map(|placed| (placed.target.width, placed.target.height));
         if extent.is_some() && settled.extent() != extent {
             return Err(Refusal::Resized);
         }
         one_placement(&settled.pages, pages).map(|_| ())
     }
 
+    /// **Rule 4.** Whether standing in buys at least the refresh it costs, on this surface.
+    ///
+    /// `Ok(())` for [`Standing::Beside`] without looking at anything, because there is nothing to
+    /// look at: a cost that is structurally zero is not a cost to bound. `Ok(())` for an
+    /// unmeasured resample, because drawing one is the only thing that can produce the number.
+    fn affordable(&self, standing: Standing, period: Duration) -> Result<(), Refusal> {
+        let (Standing::InFrontOf, Some(resample)) = (standing, self.resampling) else {
+            return Ok(());
+        };
+        let frame = self.expected();
+        if resample.saturating_add(period) > frame {
+            return Err(Refusal::TooDear {
+                resample,
+                period,
+                frame,
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn plan(
         &self,
-        pages: &[(Arc<DisplayList>, TargetSpec)],
+        pages: &[Placed],
         covered: usize,
         period: Duration,
         drawing: bool,
+        standing: Standing,
     ) -> Plan {
         let Some(settled) = self.settled.as_ref() else {
             return Plan::Refused(Refusal::NothingRendered);
@@ -1045,10 +1450,7 @@ impl Stale {
             return Plan::Refused(why.clone());
         }
         // Rule 5: a frame the machine delivers inside one refresh *is* the frame every refresh
-        // the owner asked for, so there is nothing to stand in for. **Rule 4 used to be the next
-        // question and there is no next question**: a reprojection is issued by the thread holding
-        // the surface while the render runs on another, so what standing in costs the real frame
-        // is nothing rather than a fraction, and a bound on nothing is not a bound (ADR 0391).
+        // the owner asked for, so there is nothing to stand in for.
         //
         // It gates the retained pages exactly as it gates the base, and for the same reason: a
         // blurred page shown for one refresh and replaced is worse than the refresh spent waiting.
@@ -1057,6 +1459,15 @@ impl Stale {
                 frame: self.expected(),
                 period,
             });
+        }
+        // Rule 4, and it is a question again on exactly one surface (ADR 0457). On the window with
+        // a device this reads nothing and refuses nothing — the render is on another thread and
+        // what standing in costs it is zero, which ADR 0391 is right that no bound improves. On
+        // the processor's window the resample is in front of the frame rather than beside it, so
+        // it has to buy the refresh it spends. The two are one call because the *rule* is one
+        // rule; what differs is the arrangement it is asked about.
+        if let Err(why) = self.affordable(standing, period) {
+            return Plan::Refused(why);
         }
         Plan::Approximate(match base {
             Ok(()) if covered > 0 => Stand {
@@ -1152,18 +1563,22 @@ impl Stale {
     /// `built` says whether this frame made its picture or replayed one the device already had.
     /// **Only a frame that built one updates the prediction** ([`Self::building`]): a replay
     /// measures the replay, and rule 5 is a question about what the *next* render will cost.
-    pub(crate) fn settled(
-        &mut self,
-        pages: &[(Arc<DisplayList>, TargetSpec)],
-        cost: Duration,
-        built: bool,
-    ) {
+    pub(crate) fn settled(&mut self, pages: &[Placed], cost: Duration, built: bool) {
         if built {
             self.building = Some(cost);
         }
         self.settled = Some(Settled {
             pages: pages.to_vec(),
         });
+    }
+
+    /// Records what a resample of one window of pixels cost on the processor — rule 4's sample.
+    ///
+    /// Taken from the stand-in that was actually drawn, on the surface it was drawn on, rather
+    /// than from anything this file assumed: ADR 0384's defect was a bar built out of an assumed
+    /// cost, and the fix is not a better assumption but a measurement of the thing itself.
+    pub(crate) fn resampled(&mut self, cost: Duration) {
+        self.resampling = Some(cost);
     }
 
     /// Records that this frame was not a reprojection, whatever else it was.
@@ -1206,16 +1621,13 @@ impl Stale {
     ///
     /// The three ways there is no picture are the three ways a rendering is unusable: there has
     /// never been one, the page changed, or the window did.
-    pub(crate) fn reproject(
-        &self,
-        pages: &[(Arc<DisplayList>, TargetSpec)],
-    ) -> Result<Carried, Refusal> {
+    pub(crate) fn reproject(&self, pages: &[Placed]) -> Result<Carried, Refusal> {
         let Some(settled) = self.settled.as_ref() else {
             return Err(Refusal::NothingRendered);
         };
         let extent = pages
             .first()
-            .map(|(_, target)| (target.width, target.height));
+            .map(|placed| (placed.target.width, placed.target.height));
         if extent.is_some() && settled.extent() != extent {
             return Err(Refusal::Resized);
         }
@@ -1229,8 +1641,40 @@ mod tests {
     use std::time::Duration;
 
     use pdf_render::{DisplayList, Size, TargetSpec, Transform};
+    use viewer_core::DocumentId;
 
-    use super::{AGREEMENT, Plan, Proxies, Refusal, Retained, Source, Stale, Stand};
+    use super::{
+        AGREEMENT, Picture, Placed, Plan, Proxies, Refusal, Retained, Source, Stale, Stand,
+        Standing,
+    };
+
+    /// Where the stand-in is drawn relative to the frame it stands in for, in every test that is
+    /// not about rule 4: the window with a graphics device, which is the one every case here was
+    /// written for.
+    const BESIDE: Standing = Standing::Beside;
+
+    /// A page of a document as these tests hold one: its commands, and which page of what it is.
+    ///
+    /// **The second half is what ADR 0457 added**, and it is why this is a type rather than an
+    /// `Arc`: the identity a retained picture is kept under is the page and the ink rather than
+    /// the address of the commands, so a test that means "another page" has to be able to say so
+    /// in the terms the code now uses.
+    #[derive(Clone)]
+    struct Sheet {
+        of: Picture,
+        list: Arc<DisplayList>,
+    }
+
+    impl Sheet {
+        /// This page, placed — one entry of Table 29's arrangement.
+        fn placed(&self, target: TargetSpec) -> Placed {
+            Placed {
+                of: self.of,
+                list: Arc::clone(&self.list),
+                target,
+            }
+        }
+    }
 
     /// No retained page has pixels for the view being asked for, which is what every case written
     /// before ADR 0443 assumed and what a run with `--proxy-pages 0` is.
@@ -1247,22 +1691,32 @@ mod tests {
         }
     }
 
-    fn page() -> Arc<DisplayList> {
-        Arc::new(DisplayList::new(Size::new(595.0, 842.0)))
+    /// A fresh page of a fresh document's arrangement — A4, with a page number nothing else has.
+    ///
+    /// The number comes from a counter rather than from an argument so that two pages made here
+    /// are two *pages*, which is what a page-turn case is about. The ink is zero throughout: no
+    /// test in this file edits a document, and a case about the ink says so by naming it.
+    fn page() -> Sheet {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        Sheet {
+            of: Picture::new(DocumentId(1), NEXT.fetch_add(1, Ordering::Relaxed), 0),
+            list: Arc::new(DisplayList::new(Size::new(595.0, 842.0))),
+        }
     }
 
     /// Table 29's default arrangement: one page, at a magnification.
     ///
     /// Every test but the column's below asks about this, because `SinglePage` is what the table
     /// states as its own default and what every document that says nothing opens in.
-    fn alone(page: &Arc<DisplayList>, magnification: f32) -> Vec<(Arc<DisplayList>, TargetSpec)> {
-        vec![(Arc::clone(page), view(magnification))]
+    fn alone(page: &Sheet, magnification: f32) -> Vec<Placed> {
+        vec![page.placed(view(magnification))]
     }
 
     /// One page at a placement stated outright, for the two cases a magnification cannot express:
     /// a window that changed shape, and a transform that does not invert.
-    fn at(page: &Arc<DisplayList>, target: TargetSpec) -> Vec<(Arc<DisplayList>, TargetSpec)> {
-        vec![(Arc::clone(page), target)]
+    fn at(page: &Sheet, target: TargetSpec) -> Vec<Placed> {
+        vec![page.placed(target)]
     }
 
     /// A column of `pages`, laid out as `viewer_core::layout` lays one out: each page under the
@@ -1272,24 +1726,19 @@ mod tests {
     /// The gap is 8 and it is **not** multiplied by the magnification, which is that module's own
     /// documented choice — "a gap is a thing a person sees" — and the whole reason a zoom in a
     /// column is not one affine of itself.
-    fn column(
-        pages: &[Arc<DisplayList>],
-        magnification: f32,
-        scroll: f32,
-    ) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+    fn column(pages: &[Sheet], magnification: f32, scroll: f32) -> Vec<Placed> {
         let mut placed = Vec::new();
         let mut top = -scroll;
         for page in pages {
-            placed.push((
-                Arc::clone(page),
-                TargetSpec {
+            placed.push(
+                page.placed(TargetSpec {
                     width: 800,
                     height: 1000,
                     transform: Transform::scale(magnification, -magnification)
                         .then(Transform::translate(0.0, 842.0 * magnification))
                         .then(Transform::translate(0.0, top)),
-                },
-            ));
+                }),
+            );
             top += 842.0 * magnification + 8.0;
         }
         placed
@@ -1308,7 +1757,7 @@ mod tests {
     /// that page's, and the pages the arrangement no longer shows are dropped.
     struct Column {
         viewer: viewer_core::Viewer,
-        held: Vec<(usize, Arc<DisplayList>, TargetSpec)>,
+        held: Vec<(usize, Picture, Arc<DisplayList>, TargetSpec)>,
     }
 
     impl Column {
@@ -1327,7 +1776,7 @@ mod tests {
                 held: Vec::new(),
             };
             column.send(viewer_core::Command::Open {
-                id: viewer_core::DocumentId(1),
+                id: DocumentId(1),
                 bytes,
                 password: None,
                 fragment: None,
@@ -1339,19 +1788,20 @@ mod tests {
         }
 
         /// Sends one command and folds what it asked to be drawn into the arrangement held.
-        fn send(&mut self, command: viewer_core::Command) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+        fn send(&mut self, command: viewer_core::Command) -> Vec<Placed> {
             let events: Vec<_> = self.viewer.handle(command).collect();
             for event in events {
                 if let viewer_core::Event::NeedsRender(request) = event {
+                    // The identity the host builds, out of the request that asked for the
+                    // render — `crate::surface::App::arrangement` composes exactly this.
+                    let of = Picture::new(request.document, request.page, request.ink);
+                    let entry = (request.page, of, request.list, request.target);
                     match self
                         .held
                         .binary_search_by_key(&request.page, |(at, ..)| *at)
                     {
-                        Ok(at) => self.held[at] = (request.page, request.list, request.target),
-                        Err(at) => {
-                            self.held
-                                .insert(at, (request.page, request.list, request.target));
-                        }
+                        Ok(at) => self.held[at] = entry,
+                        Err(at) => self.held.insert(at, entry),
                     }
                 }
             }
@@ -1361,22 +1811,23 @@ mod tests {
             // window's own extent. A page the arrangement has scrolled off has no geometry, which
             // is what says a request this host still holds has left the screen (ADR 0442).
             let mut placed = Vec::new();
-            self.held.retain(|(page, list, target)| {
+            self.held.retain(|(page, of, list, target)| {
                 let viewer_core::Answer::Geometry(geometry) =
                     self.viewer.query(viewer_core::Query::PageGeometry(*page))
                 else {
                     return false;
                 };
-                placed.push((
-                    Arc::clone(list),
-                    TargetSpec {
+                placed.push(Placed {
+                    of: *of,
+                    list: Arc::clone(list),
+                    target: TargetSpec {
                         width: 800,
                         height: 1000,
                         transform: target
                             .transform
                             .then(Transform::translate(geometry.origin.0, geometry.origin.1)),
                     },
-                ));
+                });
                 true
             });
             placed
@@ -1496,7 +1947,7 @@ mod tests {
 
     /// A frame that missed the refresh by a long way, which is the case the feature is for: the
     /// view moved, the page did not, and the machine will be most of a second.
-    fn slow(stale: &mut Stale, page: &Arc<DisplayList>) {
+    fn slow(stale: &mut Stale, page: &Sheet) {
         stale.settled(&alone(page, 1.0), Duration::from_millis(700), true);
     }
 
@@ -1516,7 +1967,7 @@ mod tests {
         slow(&mut stale, &page);
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in(),
             "a slow frame and a new magnification is what this exists for"
         );
@@ -1524,7 +1975,7 @@ mod tests {
         assert!(stale.showing_approximation());
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, BESIDE)
                 .stands_in(),
             "the same view again while the render is still out: the same three quads, which is \
              what a picture every refresh means"
@@ -1532,7 +1983,7 @@ mod tests {
         // And the view the *rendering* is of goes up as it is, which is the answer that must not
         // be given to any other view.
         assert_eq!(
-            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, DRAWING),
+            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, DRAWING, BESIDE),
             Plan::Render
         );
         drop(follow);
@@ -1551,7 +2002,7 @@ mod tests {
         let mut stale = Stale::default();
         stale.settled(&alone(&page, 1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED),
+            stale.plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
@@ -1561,7 +2012,7 @@ mod tests {
         stale.settled(&alone(&page, 1.0), REFRESH * 2, true);
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in()
         );
     }
@@ -1581,13 +2032,13 @@ mod tests {
         stale.settled(&alone(&page, 1.0), REFRESH / 4, true);
         assert!(
             !stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in(),
             "the prediction says this one lands in time, so the first tick waits for it"
         );
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, BESIDE)
                 .stands_in(),
             "and the tick after it, with the render still out, has watched it miss"
         );
@@ -1619,7 +2070,7 @@ mod tests {
             stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
                 stale
-                    .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                    .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
                     .stands_in(),
                 "{frame} ms is {} refreshes and must be stood in for",
                 cost.as_secs_f64() / REFRESH.as_secs_f64()
@@ -1630,7 +2081,7 @@ mod tests {
         stale.settled(&alone(&page, 1.0), REFRESH * 3, true);
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in(),
             "a run that has drawn none must still be able to draw its first"
         );
@@ -1657,7 +2108,7 @@ mod tests {
             stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
                 stale
-                    .plan(&alone(&page, 1.3), NONE_HELD, period, LANDED)
+                    .plan(&alone(&page, 1.3), NONE_HELD, period, LANDED, BESIDE)
                     .stands_in(),
                 "{frame} ms misses a 8.333 ms refresh, and standing in now costs that frame \
                  nothing at all"
@@ -1690,7 +2141,7 @@ mod tests {
         );
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in(),
             "the zoom after a harmless redraw is the one the owner waited through"
         );
@@ -1699,7 +2150,7 @@ mod tests {
         assert_eq!(stale.expected(), REFRESH / 2);
         assert!(
             !stale
-                .plan(&alone(&page, 1.3), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 1.3), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in()
         );
     }
@@ -1716,11 +2167,11 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &first);
         assert_eq!(
-            stale.plan(&alone(&second, 1.0), NONE_HELD, REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.0), NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
-            stale.plan(&alone(&second, 1.3), NONE_HELD, REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.3), NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
@@ -1738,7 +2189,7 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert_eq!(
-            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED),
+            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Render,
             "the view already on the screen is drawn, not approximated — and not refused either"
         );
@@ -1747,7 +2198,7 @@ mod tests {
             ..view(1.2)
         };
         assert_eq!(
-            stale.plan(&at(&page, resized), NONE_HELD, REFRESH, LANDED),
+            stale.plan(&at(&page, resized), NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Refused(Refusal::Resized)
         );
         assert_eq!(
@@ -1766,7 +2217,7 @@ mod tests {
         slow(&mut stale, &page);
         assert!(
             stale
-                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in()
         );
         let moved = stale
@@ -1853,7 +2304,7 @@ mod tests {
             let asked = view(magnification);
             assert!(
                 stale
-                    .plan(&at(&page, asked), NONE_HELD, REFRESH, DRAWING)
+                    .plan(&at(&page, asked), NONE_HELD, REFRESH, DRAWING, BESIDE)
                     .stands_in(),
                 "the view keeps moving and the frame stays slow"
             );
@@ -1890,7 +2341,7 @@ mod tests {
         stale.real();
         assert!(
             stale
-                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED)
+                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED, BESIDE)
                 .stands_in()
         );
         let moved = stale
@@ -1922,15 +2373,19 @@ mod tests {
         let settled = column(&pages, 1.0, 0.0);
         stale.settled(&settled, Duration::from_millis(700), true);
         let asked = column(&pages, 1.0, 240.0);
-        assert!(stale.plan(&asked, NONE_HELD, REFRESH, LANDED).stands_in());
+        assert!(
+            stale
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE)
+                .stands_in()
+        );
         let moved = stale
             .reproject(&asked)
             .expect("a column that scrolled")
             .placement;
         let corner = pdf_render::Point::new(100.0, 700.0);
-        for (index, ((_, was), (_, now))) in settled.iter().zip(&asked).enumerate() {
-            let through = moved.apply(was.transform.apply(corner));
-            let directly = now.transform.apply(corner);
+        for (index, (was, now)) in settled.iter().zip(&asked).enumerate() {
+            let through = moved.apply(was.target.transform.apply(corner));
+            let directly = now.target.transform.apply(corner);
             assert!(
                 (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
                 "page {index}: {through:?} {directly:?}"
@@ -1960,7 +2415,13 @@ mod tests {
         );
         assert_eq!(refused.kind(), "impossible");
         assert_eq!(
-            stale.plan(&column(&pages, 1.25, 0.0), NONE_HELD, REFRESH, LANDED),
+            stale.plan(
+                &column(&pages, 1.25, 0.0),
+                NONE_HELD,
+                REFRESH,
+                LANDED,
+                BESIDE
+            ),
             Plan::Refused(refused)
         );
         // And the single page it is not about.
@@ -1972,7 +2433,13 @@ mod tests {
         );
         assert!(
             alone_stale
-                .plan(&column(&pages[..1], 1.25, 0.0), NONE_HELD, REFRESH, LANDED)
+                .plan(
+                    &column(&pages[..1], 1.25, 0.0),
+                    NONE_HELD,
+                    REFRESH,
+                    LANDED,
+                    BESIDE
+                )
                 .stands_in(),
             "one page has one placement and always did"
         );
@@ -1994,11 +2461,15 @@ mod tests {
         );
         let asked = column(&pages, 1.0, 100.0);
         assert_ne!(
-            stale.plan(&asked, NONE_HELD, REFRESH, LANDED),
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Render,
             "a third page on the screen is not the frame that showed two"
         );
-        assert!(stale.plan(&asked, NONE_HELD, REFRESH, LANDED).stands_in());
+        assert!(
+            stale
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE)
+                .stands_in()
+        );
         assert!(
             stale.reproject(&asked).is_ok(),
             "the two pages in both pictures agree on one placement"
@@ -2022,7 +2493,13 @@ mod tests {
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736, 2.488] {
             assert!(
                 stale
-                    .plan(&alone(&page, magnification), NONE_HELD, REFRESH, DRAWING)
+                    .plan(
+                        &alone(&page, magnification),
+                        NONE_HELD,
+                        REFRESH,
+                        DRAWING,
+                        BESIDE
+                    )
                     .stands_in(),
                 "{magnification}: nothing about a frame's atlas reaches a texture already drawn"
             );
@@ -2092,7 +2569,7 @@ mod tests {
         slow(&mut stale, &page);
         for _ in 0..100 {
             assert_eq!(
-                stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED),
+                stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, BESIDE),
                 Plan::Render,
                 "the same view, redrawn: quorra replays it and nothing is being stood in for"
             );
@@ -2102,12 +2579,12 @@ mod tests {
 
     /// A store of pictures whose "pixels" are the page's index, so that a placement can be
     /// checked against the page it belongs to without a graphics device.
-    fn retaining(pages: &[Arc<DisplayList>]) -> Proxies<usize> {
+    fn retaining(pages: &[Sheet]) -> Proxies<usize> {
         let mut proxies = Proxies::new(pages.len());
         for (index, page) in pages.iter().enumerate() {
             proxies.keep(Retained {
-                page: Arc::clone(page),
-                target: super::proxy_target(page).expect("a page with an extent"),
+                of: page.of,
+                target: super::proxy_target(&page.list).expect("a page with an extent"),
                 pixels: index,
             });
         }
@@ -2128,12 +2605,12 @@ mod tests {
         let second = page();
         let mut stale = Stale::default();
         slow(&mut stale, &first);
-        let held = retaining(&[Arc::clone(&second)]);
+        let held = retaining(std::slice::from_ref(&second));
         let asked = alone(&second, 1.0);
         let under = held.placements(&asked);
         assert_eq!(under.len(), 1, "the incoming page's own picture is held");
         assert_eq!(
-            stale.plan(&asked, under.len(), REFRESH, LANDED),
+            stale.plan(&asked, under.len(), REFRESH, LANDED, BESIDE),
             Plan::Approximate(Stand {
                 from: Source::RetainedPages,
                 instead_of_the_base: Some(Refusal::AnotherPage),
@@ -2141,7 +2618,7 @@ mod tests {
             "the sharp layer is still impossible and says so; the window still moves"
         );
         assert_eq!(
-            stale.plan(&asked, NONE_HELD, REFRESH, LANDED),
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE),
             Plan::Refused(Refusal::AnotherPage),
             "and with nothing retained it is the refusal it always was"
         );
@@ -2157,7 +2634,7 @@ mod tests {
     #[test]
     fn a_retained_page_lands_where_the_view_puts_that_page() {
         let page = page();
-        let held = retaining(&[Arc::clone(&page)]);
+        let held = retaining(std::slice::from_ref(&page));
         let corner = pdf_render::Point::new(100.0, 700.0);
         for magnification in [0.3_f32, 1.0, 2.5] {
             let asked = alone(&page, magnification);
@@ -2165,7 +2642,7 @@ mod tests {
             let (index, moved) = placed.first().copied().expect("one page, one placement");
             let proxy = held.get(index).expect("the index it handed back").target;
             let through = moved.apply(proxy.transform.apply(corner));
-            let directly = asked[0].1.transform.apply(corner);
+            let directly = asked[0].target.transform.apply(corner);
             assert!(
                 (through.x - directly.x).abs() < 1e-2 && (through.y - directly.y).abs() < 1e-2,
                 "{magnification}: {through:?} {directly:?}"
@@ -2189,10 +2666,11 @@ mod tests {
         let corner = pdf_render::Point::new(100.0, 700.0);
         for (index, moved) in placed {
             let retained = held.get(index).expect("the index it handed back");
-            let (_, target) = asked
+            let target = asked
                 .iter()
-                .find(|(page, _)| Arc::ptr_eq(page, &retained.page))
-                .expect("a page of the arrangement");
+                .find(|placed| placed.of == retained.of)
+                .expect("a page of the arrangement")
+                .target;
             let through = moved.apply(retained.target.transform.apply(corner));
             let directly = target.transform.apply(corner);
             assert!(
@@ -2201,7 +2679,7 @@ mod tests {
             );
         }
         assert_eq!(
-            stale.plan(&asked, 2, REFRESH, LANDED),
+            stale.plan(&asked, 2, REFRESH, LANDED, BESIDE),
             Plan::Approximate(Stand {
                 from: Source::RetainedPages,
                 instead_of_the_base: Some(match stale.reproject(&asked) {
@@ -2221,7 +2699,7 @@ mod tests {
         let mut stale = Stale::default();
         stale.settled(&alone(&first, 1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&alone(&second, 1.0), 1, REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.0), 1, REFRESH, LANDED, BESIDE),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
@@ -2269,20 +2747,17 @@ mod tests {
     fn the_store_keeps_the_newest_pages_and_asks_for_what_it_has_not_got() {
         let pages = [page(), page(), page()];
         let mut proxies: Proxies<usize> = Proxies::new(2);
-        let arrangement: Vec<(Arc<DisplayList>, TargetSpec)> = pages
-            .iter()
-            .map(|page| (Arc::clone(page), view(1.0)))
-            .collect();
+        let arrangement: Vec<Placed> = pages.iter().map(|page| page.placed(view(1.0))).collect();
         for (index, page) in pages.iter().enumerate() {
             assert!(
                 proxies
                     .wanted(&arrangement)
-                    .is_some_and(|asked| Arc::ptr_eq(&asked, page)),
+                    .is_some_and(|asked| asked.of == page.of),
                 "the first page with no picture, in the arrangement's own order"
             );
             proxies.keep(Retained {
-                page: Arc::clone(page),
-                target: super::proxy_target(page).expect("a page with an extent"),
+                of: page.of,
+                target: super::proxy_target(&page.list).expect("a page with an extent"),
                 pixels: index,
             });
         }
@@ -2340,6 +2815,177 @@ mod tests {
                 );
             }
         }
+    }
+
+    impl Sheet {
+        /// The same page of the same document, interpreted again — a **new** `Arc` over the same
+        /// commands, which is what `viewer_core` hands back when a page leaves the arrangement
+        /// and comes back to it.
+        fn interpreted_again(&self) -> Self {
+            Self {
+                of: self.of,
+                list: Arc::new(DisplayList::new(Size::new(595.0, 842.0))),
+            }
+        }
+
+        /// The same page after something changed its ink: an edit, an undo, a layer switched.
+        fn after_an_edit(&self) -> Self {
+            Self {
+                of: Picture {
+                    ink: self.of.ink.saturating_add(1),
+                    ..self.of
+                },
+                list: Arc::new(DisplayList::new(Size::new(595.0, 842.0))),
+            }
+        }
+    }
+
+    /// **The `SinglePage` page turn, which is what ADR 0457 is for.** A page left and returned to
+    /// is interpreted again and arrives as a different `Arc` over the same commands; the picture
+    /// retained for it was found by that address until this session, so every such turn showed
+    /// nothing at all and printed `another page — nothing to show`.
+    ///
+    /// Both halves are asserted here because the second is what makes the first safe: the same
+    /// page under changed **ink** is a different picture and must not be found.
+    #[test]
+    fn a_page_returned_to_finds_its_picture_and_a_page_edited_does_not() {
+        let page = page();
+        let held = retaining(std::slice::from_ref(&page));
+        let again = page.interpreted_again();
+        assert!(
+            !Arc::ptr_eq(&page.list, &again.list),
+            "a page turn produces a new interpretation, which is the whole premise"
+        );
+        assert_eq!(
+            held.placements(&alone(&again, 1.0)).len(),
+            1,
+            "the same page of the same document under the same ink is the same picture"
+        );
+        assert!(
+            held.placements(&alone(&page.after_an_edit(), 1.0))
+                .is_empty(),
+            "changed ink is a different picture, and a stand-in may not assert the old one"
+        );
+    }
+
+    /// And a picture of superseded ink is *dropped* rather than left to age out, because a slot it
+    /// occupies is a slot a showable page wants.
+    #[test]
+    fn a_picture_of_superseded_ink_leaves_the_store_when_the_next_one_arrives() {
+        let (first, second) = (page(), page());
+        let mut proxies = retaining(&[first.clone(), second.clone()]);
+        assert_eq!(proxies.len(), 2);
+        let edited = second.after_an_edit();
+        proxies.keep(Retained {
+            of: edited.of,
+            target: super::proxy_target(&edited.list).expect("a page with an extent"),
+            pixels: 9,
+        });
+        assert_eq!(
+            proxies.len(),
+            1,
+            "both pictures of the ink that has gone are dropped, not one of them"
+        );
+        assert!(proxies.placements(&alone(&first, 1.0)).is_empty());
+        assert_eq!(proxies.placements(&alone(&edited, 1.0)).len(), 1);
+    }
+
+    /// **Rule 4, back on one surface and on one surface only** (ADR 0391 deleted it, ADR 0457
+    /// restored it for the processor's window). A resample there is drawn *in front of* the frame
+    /// it stands in for, on the same thread, so it has to buy the refresh it spends.
+    ///
+    /// The three states are the whole rule: unmeasured permits, because drawing one is the only
+    /// thing that can produce the number; a resample that buys a refresh is drawn; one that does
+    /// not is refused, and the refusal carries all three durations it judged.
+    #[test]
+    fn a_resample_in_front_of_the_frame_has_to_buy_the_refresh_it_spends() {
+        let page = page();
+        let mut stale = Stale::default();
+        // A frame of four refreshes: rule 5 says it misses, so rule 4 is the next question.
+        stale.settled(&alone(&page, 1.0), REFRESH * 4, true);
+        let asked = alone(&page, 1.2);
+        assert!(
+            stale
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::InFrontOf)
+                .stands_in(),
+            "unmeasured permits, or the gate would block its own only sample"
+        );
+        stale.resampled(REFRESH * 2);
+        assert!(
+            stale
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::InFrontOf)
+                .stands_in(),
+            "two refreshes of resample plus one of refresh, against a frame of four: it buys one"
+        );
+        stale.resampled(REFRESH * 4);
+        assert_eq!(
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::InFrontOf),
+            Plan::Refused(Refusal::TooDear {
+                resample: REFRESH * 4,
+                period: REFRESH,
+                frame: REFRESH * 4,
+            }),
+            "a resample as dear as the frame makes the picture blurred *and* later"
+        );
+        assert_eq!(
+            stale.refusals().unwise,
+            0,
+            "counted by the caller, not here"
+        );
+        // And the window with a device is untouched by any of it: what a stand-in costs the frame
+        // it stands in for there is structurally nothing, and a bound on nothing is not a bound.
+        assert!(
+            stale
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE)
+                .stands_in(),
+            "rule 4 must not reach the surface ADR 0391 deleted it for"
+        );
+    }
+
+    /// A window of pixels, one colour, for the resample to move about.
+    fn canvas(width: u32, height: u32, colour: [u8; 4]) -> super::Canvas {
+        let mut canvas = super::Canvas::default();
+        canvas.keep(pdf_render::Raster {
+            width,
+            height,
+            format: pdf_render::RasterFormat::Rgba8,
+            data: colour.repeat((width as usize).saturating_mul(height as usize)),
+        });
+        canvas
+    }
+
+    /// **The processor's stand-in is the same picture the device's is**, which is the property
+    /// that keeps one gesture from looking like two programs: at the identity it is the frame
+    /// itself, unchanged, because a bilinear sample at texel centres is the texel.
+    #[test]
+    fn a_resample_at_the_identity_is_the_picture_it_holds() {
+        let held = canvas(8, 4, [200, 100, 50, 255]);
+        let picture = held.stand_in(Transform::IDENTITY).expect("a frame is held");
+        assert_eq!(picture.width, 8);
+        assert_eq!(picture.height, 4);
+        assert_eq!(picture.data, [200, 100, 50, 255].repeat(32));
+    }
+
+    /// A translation moves the pixels by it, and **what the picture held has nothing to say about
+    /// gets the window's medium** — never page white, which would assert that the page is blank
+    /// there (ADR 0378). The revealed edge is the case the device path's bottom layer paints.
+    #[test]
+    fn a_scroll_moves_the_pixels_and_the_revealed_edge_is_the_medium() {
+        let held = canvas(4, 4, [255, 255, 255, 255]);
+        // The view moved up by two pixels: every texel is drawn two rows higher, and the bottom
+        // two rows of the window are area the picture held does not cover.
+        let picture = held
+            .stand_in(Transform::translate(0.0, -2.0))
+            .expect("a frame is held");
+        let row = |index: usize| &picture.data[index * 4 * 4..(index + 1) * 4 * 4];
+        assert_eq!(row(0), [255, 255, 255, 255].repeat(4), "still the page");
+        let medium = super::bytes_of(pdf_render::Medium::WINDOW.surround);
+        assert_eq!(row(3), medium.repeat(4), "the edge this scroll revealed");
+        assert_ne!(
+            medium,
+            [255, 255, 255, 255],
+            "or the case is not being made"
+        );
     }
 
     /// Rule 2, as far as a test can reach it: nothing outside this window's own binary names the

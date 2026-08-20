@@ -56,8 +56,13 @@
 //!   §12.5.6.12, §12.5.6.15 and §12.5.6.16 each say a reader "**should** provide predefined
 //!   icon appearances" for the names their tables list — a recommendation, and an invention
 //!   with only a recommendation behind it is a mark the document never described.
-//! - `Caret`, `Redact`, `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no
-//!   geometry of their own.
+//! - `Redact`, `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no geometry of
+//!   their own.
+//! - `Caret` is refused for a **third** reason and shared the second one's sentence until the
+//!   six-hundred-and-twenty-second session (ADR 0457). §12.5.6.11's Table 183 states geometry
+//!   and a symbol; what it does not state is the caret, and its `/RD` row says the pilcrow is
+//!   "displayed along with the caret" rather than instead of it. [`construct`]'s arm has the
+//!   reading.
 //!
 //! Guessing at either would put marks on the page the document never described, which is the
 //! failure principle 5 exists to prevent.
@@ -302,6 +307,23 @@ pub(crate) fn construct(
         b"Stamp" => Err(Refusal::NotDerivable(
             "its clause recommends rather than requires a predefined icon, and Table 184's \
              standard names are legends rather than symbols",
+        )),
+        // **§12.5.6.11 is not the catch-all's case, and this program said it was until the
+        // six-hundred-and-twenty-second session.** Table 183 states geometry — `/RD`, in the same
+        // left, top, right, bottom order [`insets`] has read for §12.5.6.8's Table 180 and
+        // §12.5.6.6's Table 177 all along — and it states a symbol by name and by character: "P A
+        // new paragraph symbol (¶) shall be associated with the caret". What is stated nowhere is
+        // the **caret**, and `/RD`'s own sentence is what keeps the refusal whole: the difference
+        // it measures "can occur. When a paragraph symbol specified by Sy is displayed along with
+        // the caret", so the pilcrow accompanies the mark rather than standing in for it, and
+        // drawing it alone would put a mark on the page beside the mark nobody can derive.
+        //
+        // The refusal is therefore unchanged and only its *sentence* moves — which is the half a
+        // person reads. §12.5.6.11's ledger row had already reasoned this out and had gone on to
+        // say that no source in this tree names `/RD`, which `insets` disproves in one grep.
+        b"Caret" => Err(Refusal::NotDerivable(
+            "its clause states no artwork for the caret itself, and Table 183's paragraph symbol \
+             is displayed along with the caret rather than instead of it",
         )),
         _ => Err(Refusal::NotDerivable("its clause states no geometry")),
     };

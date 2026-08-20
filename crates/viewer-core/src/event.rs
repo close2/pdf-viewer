@@ -306,4 +306,24 @@ pub struct RenderRequest {
     pub list: Arc<DisplayList>,
     /// What to draw into, and the transform from page space to it.
     pub target: TargetSpec,
+    /// Which state of the document's ink [`Self::list`] was interpreted against.
+    ///
+    /// **Two lists of the same page under the same ink are the same picture**, and this is the
+    /// only thing that says so. [`Self::list`] identifies an *interpretation*: a page that leaves
+    /// the arrangement and comes back is interpreted again and arrives as a different `Arc` over
+    /// the same commands, which is indistinguishable — by the `Arc` alone — from a page whose ink
+    /// genuinely changed. A host holding pixels of a page it drew earlier has to be able to tell
+    /// those apart, and no host can derive the answer: what changes the ink is §8.11's layer
+    /// switch, §12.5.5's appearance under the pointer, §12.7.5's field value, §6.3.2.2's
+    /// delegated widgets and §12.6.4's actions, and which of a host's commands reaches one of
+    /// those is this crate's business rather than a host's.
+    ///
+    /// It counts changes rather than naming them, and it is per document — `crate::open::Open`
+    /// increments it in the one place that already decides what "the ink is stale" means. So the
+    /// identity of a page's picture is `(document, page, ink)`: equal means the same commands,
+    /// different means a picture to throw away.
+    ///
+    /// It says nothing about the *target*: the same ink at a new magnification is the same
+    /// picture at a different size, which is exactly the case [`Self::list`] is shared for.
+    pub ink: u64,
 }

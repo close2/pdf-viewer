@@ -2320,6 +2320,9 @@ impl Viewer {
         };
         let mut requests = Vec::new();
         let mut refusals = Vec::new();
+        // Read once, outside the loop, because it is a fact about the document rather than about
+        // one of its pages: every request this pass makes is of the same ink.
+        let ink = open.ink;
         for on_screen in &mut open.on_screen {
             let Some(interpreted) = on_screen.interpreted.as_ref() else {
                 continue;
@@ -2358,6 +2361,7 @@ impl Viewer {
                 page: on_screen.page,
                 list,
                 target,
+                ink,
             }));
         }
         self.next_token = token;

@@ -468,6 +468,22 @@ fn a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol() {
             !caret.is_complete(),
             "{entries}: and its absence is reported"
         );
+        // **And the report says why in this clause's own terms**, which it did not until the
+        // six-hundred-and-twenty-second session: a caret fell to `construct`'s catch-all and a
+        // person was told "its clause states no geometry" about a table that states four numbers
+        // of it, in the order `appearance::insets` reads for §12.5.6.8 and §12.5.6.6. The
+        // behaviour was right and the sentence was not, and only the sentence reaches a reader —
+        // which is why this test now asserts one. ADR 0457.
+        let said = format!("{:?}", caret.unsupported);
+        assert!(
+            said.contains("no artwork for the caret itself")
+                && said.contains("along with the caret rather than instead of it"),
+            "{entries}: the report is the catch-all's rather than this clause's: {said}"
+        );
+        assert!(
+            !said.contains("states no geometry"),
+            "{entries}: Table 183 states /RD, which is geometry: {said}"
+        );
     }
 }
 

@@ -79,16 +79,22 @@ fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
 ///
 /// The error is a sentence rather than a type because both of its sources are already strings by
 /// the time they reach the caller, which formats them into one report.
+///
+/// **The composed raster comes back rather than being dropped**, because it is this window's base:
+/// the pixels a stand-in for the next view change resamples (ADR 0457). It is the picture without
+/// the chrome, which is what the device path's base is too — the chrome is drawn in window pixels
+/// and does not move with the page.
 fn on_the_processor(
     surface: &mut SoftwareSurface,
     pages: &[(&pdf_render::DisplayList, TargetSpec)],
     overlays: &[&pdf_render::DisplayList],
-) -> Result<(), String> {
+) -> Result<pdf_render::Raster, String> {
     let raster = viewer_ui::software::compose_pages(pages)
         .map_err(|problem| format!("the processor: {problem}"))?;
     surface
         .present(&raster, overlays)
-        .map_err(|problem| format!("presenting the processor's page {problem}"))
+        .map_err(|problem| format!("presenting the processor's page {problem}"))?;
+    Ok(raster)
 }
 
 /// How this window's pixels reach it: with a graphics device, or without one.
@@ -103,14 +109,26 @@ pub(crate) enum Surface {
     Device(Box<crate::renderer::Window>),
     /// The processor's raster copied onto the window, with the overlays composited into it
     /// first. `--cpu`, and a device that would not come up.
-    Processor(SoftwareSurface),
+    ///
+    /// **It carries the last frame's pixels beside the surface** (ADR 0457), which the device
+    /// path's variant does not need to: there the base is a texture `crate::renderer` never gave
+    /// up, and here it is the raster this host composed on its way to the window. Both are the
+    /// same fact — the window's own picture, chrome excluded — held wherever it already exists.
+    Processor {
+        /// What copies a raster onto a window with no device behind it.
+        surface: SoftwareSurface,
+        /// The frame it last copied, for [`crate::stale::Canvas::stand_in`] to resample.
+        held: crate::stale::Canvas,
+    },
 }
 
 impl std::fmt::Debug for Surface {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Device(window) => formatter.debug_tuple("Device").field(window).finish(),
-            Self::Processor(surface) => formatter.debug_tuple("Processor").field(surface).finish(),
+            Self::Processor { surface, .. } => {
+                formatter.debug_tuple("Processor").field(surface).finish()
+            }
         }
     }
 }
@@ -134,7 +152,7 @@ impl App {
     fn device_window(&mut self) -> Option<&mut crate::renderer::Window> {
         match self.state.as_mut()?.surface {
             Surface::Device(ref mut window) => Some(window),
-            Surface::Processor(_) => None,
+            Surface::Processor { .. } => None,
         }
     }
 
@@ -156,7 +174,7 @@ impl App {
     /// and nothing about it is approximated.
     fn on_the_device(
         &mut self,
-        pages: &[(Arc<pdf_render::DisplayList>, TargetSpec)],
+        pages: &[crate::stale::Placed],
         stand_in: bool,
         chrome: &Overlays,
         stages: &mut Stages,
@@ -165,7 +183,7 @@ impl App {
         self.adopt(now, stages);
         // The magnification is the arrangement's rather than one page's: every page of a column
         // is placed at the same magnification by `viewer_core::layout`, so the first states it.
-        let coverage = coverage_for(pages.first()?.1.transform);
+        let coverage = coverage_for(pages.first()?.target.transform);
         let overlays = chrome.owned();
         let drawing = {
             let window = self.device_window()?;
@@ -181,15 +199,12 @@ impl App {
             // the targets by value, because a resize is a different frame at the same transform.
             // The *count* is compared with them: a scroll that brings a further row of a column
             // onto the screen leaves every page already up exactly where it was.
-            let of_this_view =
-                window.shown().is_some_and(|shown| {
-                    shown.pages.len() == pages.len()
-                        && shown.pages.iter().zip(pages).all(
-                            |((drawn, placed), (asked, target))| {
-                                Arc::ptr_eq(drawn, asked) && placed == target
-                            },
-                        )
-                });
+            let of_this_view = window.shown().is_some_and(|shown| {
+                shown.pages.len() == pages.len()
+                    && shown.pages.iter().zip(pages).all(|(drawn, asked)| {
+                        Arc::ptr_eq(&drawn.list, &asked.list) && drawn.target == asked.target
+                    })
+            });
             if !of_this_view {
                 window.ask(pages.to_vec(), overlays, coverage, now);
             }
@@ -212,9 +227,15 @@ impl App {
         // Every rule that makes an approximation defensible is in `crate::stale` rather than
         // here. The period is the one number rule 5 is measured against (ADR 0384), and `drawing`
         // is its second way of knowing that a frame has missed (ADR 0391).
-        let planned = self
-            .stale
-            .plan(pages, under.len(), self.cadence.period(), drawing);
+        let planned = self.stale.plan(
+            pages,
+            under.len(),
+            self.cadence.period(),
+            drawing,
+            // Beside rather than in front of: `crate::renderer` draws on a thread of its own, so
+            // three textured quads take nothing from the frame they stand in for (ADR 0391).
+            crate::stale::Standing::Beside,
+        );
         let stand = match planned {
             crate::stale::Plan::Render => {
                 return self.put_up(Some(Transform::IDENTITY), &[], stages);
@@ -435,24 +456,31 @@ impl App {
         let edge = self.inset() as f32;
         let pages = self.arrangement(edge, width, height);
         let first = pages.first()?;
-        stages.page = first.0.saturating_add(1);
+        stages.page = first.of.page().saturating_add(1);
         stages.pages = pages.len();
-        stages.commands = pages.iter().map(|(_, list, _)| list.commands().len()).sum();
-        let placed: Vec<(Arc<pdf_render::DisplayList>, TargetSpec)> = pages
+        stages.commands = pages
             .iter()
-            .map(|(_, list, target)| (Arc::clone(list), *target))
-            .collect();
+            .map(|placed| placed.list.commands().len())
+            .sum();
 
         // §12.4.4: a transition in flight substitutes its own picture of *two* pages for the
         // arrangement, and it is a display list, so everything below this line is unchanged by it
         // — which is the point of shaping a frame in `viewer_core::transition` rather than
         // compositing here. A transition runs in §12.4.4's presentation mode, which shows one
         // page, so it stands in for the whole arrangement rather than for one entry of it.
-        let (playing, drawn) = self.frame_to_draw(&first.1, first.2, width, height);
+        let (playing, drawn) = self.frame_to_draw(&first.list, first.target, width, height);
         let transitioning = playing.is_some();
-        let for_the_device = match playing {
-            Some(frame) => vec![(frame, drawn)],
-            None => placed,
+        let identity = first.of;
+        let for_the_frame = match playing {
+            // The transition's own picture, under the identity of the page it is a transition
+            // *to*: it is never a stand-in for anything — `Stale::forget` sees to that below —
+            // so the identity here is what keeps the type honest rather than something read.
+            Some(frame) => vec![crate::stale::Placed {
+                of: identity,
+                list: frame,
+                target: drawn,
+            }],
+            None => pages,
         };
 
         let chrome = Overlays::of(self, edge, width, height);
@@ -465,30 +493,150 @@ impl App {
         }
 
         if self.device_window().is_some() {
-            return self.on_the_device(&for_the_device, !transitioning, &chrome, stages);
+            return self.on_the_device(&for_the_frame, !transitioning, &chrome, stages);
         }
 
-        // No device: the processor's window is this run's only path, and it draws to completion
-        // here exactly as it always did.
+        // No device: the processor's window draws its frame on this very thread, so the stand-in
+        // goes up **in front of** that frame rather than beside it (ADR 0457). Everything about
+        // the decision is `crate::stale`'s; what is here is the order, and the order is the whole
+        // of rule 1 on this surface — the resample is presented, and then the true frame is drawn
+        // and presented by the same call, before it returns.
         let overlays = chrome.lists();
-        let borrowed: Vec<(&pdf_render::DisplayList, TargetSpec)> = for_the_device
+        if !transitioning {
+            self.stand_in_on_the_processor(&for_the_frame, &overlays, stages);
+        }
+        let borrowed: Vec<(&pdf_render::DisplayList, TargetSpec)> = for_the_frame
             .iter()
-            .map(|(list, target)| (list.as_ref(), *target))
+            .map(|placed| (placed.list.as_ref(), placed.target))
             .collect();
         let fell_back = std::time::Instant::now();
-        let Some(Surface::Processor(surface)) = self.state.as_mut().map(|state| &mut state.surface)
+        let Some(Surface::Processor { surface, held }) =
+            self.state.as_mut().map(|state| &mut state.surface)
         else {
             return None;
         };
         let outcome = on_the_processor(surface, &borrowed, &overlays);
         stages.fallback = fell_back.elapsed();
-        if let Err(problem) = outcome {
-            return Some(Rendered::Failed(problem));
-        }
+        let frame = match outcome {
+            Ok(frame) => frame,
+            Err(problem) => return Some(Rendered::Failed(problem)),
+        };
         if !transitioning {
-            self.stale.settled(&for_the_device, began.elapsed(), true);
+            // The base and the record of what it is a picture of, adopted together — see
+            // [`crate::stale::Canvas`] for the defect that arrangement exists to make
+            // unrepresentable.
+            held.keep(frame);
+            // **What this frame cost, and not what this tick did**, which is rule 5's whole
+            // subject: the stand-in above is not part of what the next render will take, and a
+            // prediction that included it would grow every time it fired (ADR 0384).
+            let drawing = began.elapsed().saturating_sub(
+                stages
+                    .stood_in
+                    .map_or(std::time::Duration::ZERO, |(_, cost)| cost),
+            );
+            self.stale.settled(&for_the_frame, drawing, true);
         }
         Some(Rendered::Presented)
+    }
+
+    /// Puts the last frame's own pixels up, moved to where this view puts them, before drawing the
+    /// real frame — the processor's window, which has no other thread to draw on.
+    ///
+    /// **Every rule that makes this defensible is `crate::stale`'s and none of them is new**
+    /// (`doc/todo/37`, ADR 0457). Rule 5 decides whether the frame about to be drawn will miss the
+    /// refresh; rule 4 decides whether the resample buys the refresh it spends, which is a
+    /// question again on this surface and only on this surface; rule 3 says what was shown, in the
+    /// trace and in the summary's count; and rule 1 is met by the caller, which draws the true
+    /// frame before it returns.
+    ///
+    /// The retained low-resolution pages are deliberately **not** here: they are drawn by an idle
+    /// render thread, and this window has none. So the picture is the base alone, which is
+    /// [`crate::stale::Source::LastFrame`], and a page turn on this surface is still refused —
+    /// `doc/todo/37` carries what that would take.
+    fn stand_in_on_the_processor(
+        &mut self,
+        pages: &[crate::stale::Placed],
+        overlays: &[&pdf_render::DisplayList],
+        stages: &mut Stages,
+    ) {
+        // A window that has never drawn is not a view change; see `Stale::has_rendering`.
+        if !self.stale.has_rendering() {
+            return;
+        }
+        let planned = self.stale.plan(
+            pages,
+            // No retained pages on this surface: nothing draws them here.
+            0,
+            self.cadence.period(),
+            // Nothing is out: on this surface a render is this call, so there is never one still
+            // being drawn when the tick comes round. Rule 5's *prediction* is the whole of what
+            // answers here, which is what it was written for.
+            false,
+            crate::stale::Standing::InFrontOf,
+        );
+        let stand = match planned {
+            // The picture held already depicts this view: the frame below will draw it again and
+            // there is nothing to stand in for.
+            crate::stale::Plan::Render => return,
+            crate::stale::Plan::Approximate(stand) => stand,
+            crate::stale::Plan::Refused(why) => {
+                let trace = self.trace;
+                self.stale.declined(&why, trace);
+                return;
+            }
+        };
+        let carried = match self.stale.reproject(pages) {
+            Ok(carried) => carried,
+            Err(why) => {
+                let trace = self.trace;
+                self.stale.declined(&why, trace);
+                return;
+            }
+        };
+        crate::stale::absorbed(carried, pages.len(), self.trace);
+        let began = std::time::Instant::now();
+        let Some(Surface::Processor { surface, held }) =
+            self.state.as_mut().map(|state| &mut state.surface)
+        else {
+            return;
+        };
+        // `None` is a canvas with no frame in it, which `has_rendering` above has already ruled
+        // out, and a placement that does not invert, which `reproject` refuses before this point.
+        let Some(picture) = held.stand_in(carried.placement) else {
+            return;
+        };
+        // The two halves are timed apart and reported apart, because they are two different
+        // questions: what a resample of a window of pixels costs is this program's to improve, and
+        // what a copy onto the window costs is the frame's own price and is paid again by the true
+        // frame a moment later. Rule 4 is judged on the **sum**, which is what the person waits.
+        let resampled = began.elapsed();
+        let refused = surface.present(&picture, overlays).err();
+        let cost = began.elapsed();
+        if let Some(problem) = refused {
+            let why = crate::stale::Refusal::DeviceRefused(problem.to_string());
+            let trace = self.trace;
+            self.stale.declined(&why, trace);
+            return;
+        }
+        // Rule 4's only possible sample, taken from the thing itself.
+        self.stale.resampled(cost);
+        stages.stood_in = Some((stand.from, cost));
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "{}: this view's frame is expected to cost {:.1} ms against a {:.1} ms refresh, \
+                 so it misses, and the last frame's own pixels stand in while it is drawn on this \
+                 thread (resample {:.2} ms, present {:.2} ms — rule 4 judges their sum)",
+                stand.from.word(),
+                self.stale.expected().as_secs_f64() * 1e3,
+                self.cadence.period().as_secs_f64() * 1e3,
+                resampled.as_secs_f64() * 1e3,
+                cost.saturating_sub(resampled).as_secs_f64() * 1e3,
+            ),
+        );
+        // Rule 1, as a value that cannot be dropped. The frame replacing this one is not asked of
+        // a clock: the caller draws it before it returns, which is sooner than a tick.
+        self.stale.drawn(stand.from).drawn_in_the_same_frame();
     }
 
     /// Table 29's arrangement as this window is about to draw it: every page, placed.
@@ -504,22 +652,20 @@ impl App {
     /// Each target is the *window's* extent with the page's placement composed into its transform,
     /// which is the one thing this host adds to what the core said: the core centres and scrolls
     /// the arrangement, and the panel's edge is the host's own.
-    fn arrangement(
-        &mut self,
-        edge: f32,
-        width: u32,
-        height: u32,
-    ) -> Vec<(usize, Arc<pdf_render::DisplayList>, TargetSpec)> {
+    fn arrangement(&mut self, edge: f32, width: u32, height: u32) -> Vec<crate::stale::Placed> {
         let mut placed = Vec::with_capacity(self.requests.len());
         for request in &self.requests {
             let Answer::Geometry(geometry) = self.viewer.query(Query::PageGeometry(request.page))
             else {
                 continue;
             };
-            placed.push((
-                request.page,
-                Arc::clone(&request.list),
-                TargetSpec {
+            placed.push(crate::stale::Placed {
+                // What a picture of this page is a picture *of*, carried from the request that
+                // asked for it: the document, the page, and the state of the ink it was
+                // interpreted against (ADR 0457).
+                of: crate::stale::Picture::new(request.document, request.page, request.ink),
+                list: Arc::clone(&request.list),
+                target: TargetSpec {
                     width,
                     height,
                     transform: request.target.transform.then(Transform::translate(
@@ -527,12 +673,12 @@ impl App {
                         geometry.origin.1,
                     )),
                 },
-            ));
+            });
         }
         // What the arrangement dropped is dropped here, so that a thousand-page document scrolled
         // from end to end holds one request per page on the screen rather than one per page read.
         self.requests
-            .retain(|request| placed.iter().any(|(page, _, _)| *page == request.page));
+            .retain(|request| placed.iter().any(|placed| placed.of.page() == request.page));
         placed
     }
 
@@ -665,7 +811,10 @@ impl App {
     /// The window written to by the processor, or a sentence saying why there is not one.
     fn software(window: &Arc<Window>) -> Option<Surface> {
         match SoftwareSurface::new(Arc::clone(window)) {
-            Ok(surface) => Some(Surface::Processor(surface)),
+            Ok(surface) => Some(Surface::Processor {
+                surface,
+                held: crate::stale::Canvas::default(),
+            }),
             Err(problem) => {
                 eprintln!(
                     "this window cannot be drawn on without a graphics device: {problem}\n\

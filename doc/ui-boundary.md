@@ -43,6 +43,17 @@ still owed: the tier-2 host draws the arrangement now, and what it needed in ord
 already answered — `Query::PageGeometry` says `Answer::None` for a page the arrangement does not
 show, so a host holding one render request per page learns from that question alone which of them
 have scrolled off. Three hosts on all six of Table 29's values, one message between them (ADR 0442).
+**The six-hundred-and-twenty-second added one field**, `RenderRequest::ink`, and it is the kind of
+addition this section exists to make a round justify. A host that keeps pixels of a page it drew
+earlier — a tier-1 raster, a tier-2 window's own stand-in — has to be able to tell a *re-interpretation
+of unchanged ink* from an *interpretation of changed ink*, and the `Arc<DisplayList>` cannot: a page
+that leaves Table 29's arrangement and comes back arrives as a new address over the same commands.
+Nor can a host derive it, which is the argument for putting it here rather than counting commands on
+the far side: what changes a page's ink is §8.11's layer switch, §12.5.5's appearance under the
+pointer, §12.7.5's field value, §6.3.2.2's delegated widgets and §12.6.4's actions, and which of a
+host's commands reaches one of those is this crate's business. `crate::open::Open::stale` already was
+the one place that decided it and now says so in a number. ADR 0457.
+
 **And the six-hundred-and-ninth added nothing and changed one variant's shape**, which is the
 third time that mechanism has been preferred to a message and the second in four rounds:
 `Answer::Selected`'s `text` is a `std::borrow::Cow<'a, str>`, because a drag may now cross a page
