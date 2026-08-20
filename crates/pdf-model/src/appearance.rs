@@ -56,13 +56,24 @@
 //!   §12.5.6.12, §12.5.6.15 and §12.5.6.16 each say a reader "**should** provide predefined
 //!   icon appearances" for the names their tables list — a recommendation, and an invention
 //!   with only a recommendation behind it is a mark the document never described.
-//! - `Redact`, `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no geometry of
-//!   their own.
+//! - `Screen`, `Movie`, `PrinterMark`, `TrapNet` and `Watermark` state no geometry of their own.
 //! - `Caret` is refused for a **third** reason and shared the second one's sentence until the
 //!   six-hundred-and-twenty-second session (ADR 0457). §12.5.6.11's Table 183 states geometry
 //!   and a symbol; what it does not state is the caret, and its `/RD` row says the pilcrow is
 //!   "displayed along with the caret" rather than instead of it. [`construct`]'s arm has the
 //!   reading.
+//! - `Redact` is refused for a **fourth**, and was the second subtype to be told it stated no
+//!   geometry while its table stated some (ADR 0461). §12.5.6.23's Table 195 states
+//!   `/QuadPoints`, in §12.5.6.10's own words, and `/Rect` where that is absent — so the region
+//!   is stated and it is not a mark. What is unstated is any appearance for an *unapplied*
+//!   redaction: every overlay entry in that table begins after the content has been removed, and
+//!   removing it is the one edit §7.5.6's incremental update cannot express.
+//!
+//! **Six subtypes shared one sentence and it was false of two of them**, which is worth its own
+//! line because no ledger sweep can see it: a catch-all names no blocker, no missing vocabulary
+//! and no absent architecture, so it passes every sweep `doc/habits.md` lists while being wrong
+//! about whichever member is least like the rest. Both corrections came from reading the *table*
+//! of one grouped subtype against the sentence the group shares.
 //!
 //! Guessing at either would put marks on the page the document never described, which is the
 //! failure principle 5 exists to prevent.
@@ -324,6 +335,25 @@ pub(crate) fn construct(
         b"Caret" => Err(Refusal::NotDerivable(
             "its clause states no artwork for the caret itself, and Table 183's paragraph symbol \
              is displayed along with the caret rather than instead of it",
+        )),
+        // **§12.5.6.23 is not the catch-all's case either, and it is the caret's defect a second
+        // time in the same arm** (ADR 0461). Table 195 states `/QuadPoints`, an array
+        // "specifying the coordinates of n quadrilaterals in default user space" and referred by
+        // that row to Table 182 — which is the entry [`text_markup`] draws §12.5.6.10 from — and
+        // the same row names what happens without it: "If this entry is not present, the Rect
+        // entry denotes the content region that is intended to be removed". So the region is
+        // stated twice over and "states no geometry" was false of it.
+        //
+        // What is stated nowhere is any artwork for the annotation **in the state this program
+        // sees it**, which is before it has been applied: every appearance entry in Table 195 —
+        // `/IC`, `/RO`, `/OverlayText`, `/Repeat`, `/DA`, `/Q` — is conditioned on "after the
+        // affected content has been removed", and removal is a phase whose verb is *destroy*
+        // ("that portion of the image data shall be destroyed"), which §7.5.6's incremental update
+        // cannot express. §12.5.6.23's ledger row had reasoned all of this out and the sentence a
+        // person reads still said the opposite of it.
+        b"Redact" => Err(Refusal::NotDerivable(
+            "its clause states the region to be removed rather than a mark to draw, and Table \
+             195's overlay entries all describe the page after the content has been removed",
         )),
         _ => Err(Refusal::NotDerivable("its clause states no geometry")),
     };

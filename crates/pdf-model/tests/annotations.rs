@@ -487,6 +487,57 @@ fn a_caret_is_reported_whether_or_not_it_asks_for_a_paragraph_symbol() {
     }
 }
 
+/// A redaction with no appearance stream is reported rather than drawn, and the report is
+/// §12.5.6.23's rather than the catch-all's.
+///
+/// **The caret's defect a second time in the same arm** (ADR 0461). §12.5.6.23 states the region
+/// twice — Table 195's `/QuadPoints` is an array "specifying the coordinates of n quadrilaterals in
+/// default user space", referred by that row to Table 182, which is the entry §12.5.6.10 is drawn
+/// from here; and "If this entry is not present, the Rect entry denotes the content region that is
+/// intended to be removed". So a person was told "its clause states no geometry" about a clause
+/// that states it in two places.
+///
+/// What is genuinely unstated is any artwork for the annotation *before* it is applied, which is
+/// the only state this program sees one in: every overlay entry in Table 195 begins "after the
+/// affected content has been removed". The behaviour is therefore unchanged and only the sentence
+/// moves — the half a person reads.
+///
+/// Both spellings are asserted, with and without `/QuadPoints`, because the two are the clause's
+/// own alternative and neither may fall to the catch-all.
+#[test]
+fn a_redaction_is_reported_in_its_own_clause_s_terms() {
+    for entries in [
+        "<< /Type /Annot /Subtype /Redact /Rect [20 20 60 60] /F 4 >>",
+        "<< /Type /Annot /Subtype /Redact /Rect [20 20 60 60] /F 4 \
+         /QuadPoints [20 60 60 60 20 20 60 20] >>",
+        "<< /Type /Annot /Subtype /Redact /Rect [20 20 60 60] /F 4 /IC [1 0 0] \
+         /OverlayText (gone) /Q 1 >>",
+    ] {
+        let redaction = interpret(pdf_with(
+            entries,
+            "/BBox [0 0 10 10]",
+            "1 0 0 rg 0 0 10 10 re f",
+        ));
+        assert!(
+            redaction.display_list.commands().is_empty(),
+            "{entries}: an unapplied redaction's mark is stated nowhere, so nothing may be drawn"
+        );
+        assert!(
+            !redaction.is_complete(),
+            "{entries}: and its absence is reported"
+        );
+        let said = format!("{:?}", redaction.unsupported);
+        assert!(
+            said.contains("the region to be removed rather than a mark to draw"),
+            "{entries}: the report is the catch-all's rather than this clause's: {said}"
+        );
+        assert!(
+            !said.contains("states no geometry"),
+            "{entries}: Table 195 states /QuadPoints and names /Rect in its place: {said}"
+        );
+    }
+}
+
 /// A text annotation with no appearance stream draws the icon Table 175's `/Name` selects.
 ///
 /// §12.5.6.4 states the obligation — "Interactive PDF processors shall provide predefined icon

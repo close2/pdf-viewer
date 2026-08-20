@@ -372,7 +372,8 @@ fn usage() {
     eprintln!("                so that a view change reaching area the last frame has no pixels");
     eprintln!("                for — a zoom out, a scroll, a page turn — shows something rather");
     eprintln!("                than the window's background. 0 turns it off; each page costs one");
-    eprintln!("                render on the idle render thread and under a megabyte.");
+    eprintln!("                render on the idle drawing thread and under a megabyte. It works");
+    eprintln!("                the same way with --cpu, which has a thread of its own.");
     eprintln!("  --backend B   which driver stack talks to the GPU, not which GPU: vulkan, dx12,");
     eprintln!("                metal or gl. What to reach for when one stack on this machine is");
     eprintln!("                broken and another is not. Refused, rather than quietly ignored,");

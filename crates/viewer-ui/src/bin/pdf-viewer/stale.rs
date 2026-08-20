@@ -20,7 +20,7 @@
 //! | 1. never the last word | [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one. **`Stale::plan`'s half of this is gone and is not missed**: it used to refuse to approximate the view already approximated, so that the event thread drew the real frame instead, and since ADR 0391 there is no instead — the render is on another thread whatever this tick decides |
 //! | 2. nothing that judges a picture ever sees one | this module is a **private module of a binary**: no library, no gate, no oracle, no harness can link to it, and nothing below it knows a reprojection exists |
 //! | 3. it says so | the frame line's outcome word is [`Source::word`] — which since ADR 0443 says *which* layer filled the picture, because a whole page at a fraction of the resolution is a different amount of wrong from the last frame moved — [`Stale::count`] is what the summary prints, split the same three ways, and since ADR 0385 every *refusal* says so too, by name and by kind ([`Refusal`]) |
-//! | 4. it costs the real frame nothing | **structural since ADR 0391**: the render is on a thread of its own, so a reprojection is three textured quads on the *presenting* thread and takes nothing from the frame it stands in for |
+//! | 4. it does not make the real frame later | **the render is on a thread of its own on both surfaces since ADR 0461**, so a stand-in is drawn *beside* the frame it stands in for rather than in front of it. On the device that settles it: three textured quads take nothing the frame was going to use (ADR 0391). On the processor a resample is tens of milliseconds of the *presenting* thread and can still overrun the render beside it, so [`Stale::affordable`] bounds the overrun at zero — `resample + period ≤ frame`, unmeasured permits, no constant ([`Standing`]) |
 //! | 5. it does not fire when it is not needed | [`Stale::missed`] — the frame did not land inside the surface's own refresh, which is the owner's word *miss*, known two ways |
 //!
 //! # The base is the last rendering's own texture, and that is ADR 0391
@@ -67,9 +67,18 @@
 //! **And that premise is what ADR 0391 removed.** A reprojection no longer delays anything: it
 //! happens on the thread holding the surface while the render runs on another, so what it costs
 //! the real frame is nothing at all rather than a small fraction. A bound on a cost that is
-//! structurally zero is not a bound, so rule 4 is enforced by the *arrangement* and this file
-//! carries no test of it. Deleting it is the same discipline that put it here — a number nobody
-//! can measure a purpose for is a number to remove.
+//! structurally zero is not a bound, so rule 4 is enforced by the *arrangement* on that surface.
+//!
+//! **On the processor's window it is a question again, and ADR 0461 re-derived it rather than
+//! restoring it.** ADR 0457 brought the rule back for a window that had no second thread, where a
+//! resample genuinely delayed the frame by the whole of what it cost. That window has a composing
+//! thread now (`crate::composer`), so a resample runs *beside* the render: the frame is presented
+//! at the first tick after both are finished, and standing in costs it `max(0, resample − frame)`
+//! rather than `resample`. The inequality did not move — `resample + period ≤ frame` — because
+//! "buys the refresh it spends" and "is up a refresh before the true frame lands" are the same
+//! arithmetic read from the two ends. What moved is the *size* of being wrong about it, and that
+//! is a reason to keep the rule cheap rather than to delete it: it costs one comparison of two
+//! measurements and it has no constant in it.
 //!
 //! What remains is the thing the owner asked for — *"we should still try to render a correct image
 //! every frame, but if we miss, we should interpolate"* — with the unit the display's:
@@ -105,9 +114,10 @@
 //! gates, `viewer-core`'s headless harness, `Query::Frame`, `render_at`, `viewer-confined`'s
 //! worker and every diagnostic artefact in this tree are compiled without a line of it. **Nothing
 //! crosses into a library at all any more**: `render-quorra` draws a window's frame into two
-//! textures and hands them back, and `crate::renderer` puts them on a window under placements this
-//! file computes. Neither knows what a reprojection is, and the test at the foot of this file
-//! walks every `.rs` outside `viewer-ui/src/bin` to say so.
+//! textures and hands them back, `viewer_ui::software::compose_pages` draws one into a raster and
+//! hands that back, and `crate::renderer` and `crate::composer` put them on a window under
+//! placements this file computes. None of the three knows what a reprojection is, and the test at
+//! the foot of this file walks every `.rs` outside `viewer-ui/src/bin` to say so.
 //!
 //! # What a revealed edge shows, and what now shows there instead
 //!
@@ -119,7 +129,8 @@
 //!
 //! **The second layer is a picture of the *page*, and that is what fills it** (ADR 0443). A
 //! [`Proxies`] entry is a whole page drawn once into a raster whose longer side is
-//! [`PROXY_EDGE`] pixels, produced on the render thread when it has nothing else to do, and
+//! [`PROXY_EDGE`] pixels, produced on whichever thread draws this window's pages when it has
+//! nothing else to do — `crate::renderer`'s or `crate::composer`'s — and
 //! placed under the base by the same `settled⁻¹ ∘ asked` composition. The two are complementary
 //! rather than competing, which is the whole argument for the construction: a whole-page picture
 //! is near the right resolution exactly when the view is zoomed out, which is when the margin
@@ -353,24 +364,32 @@ pub(crate) enum Refusal {
     },
     /// *Impossible.* The presenter declined to put the approximated frame on the window.
     DeviceRefused(String),
-    /// *Unwise.* Rule 4: standing in would cost more than the refresh it buys.
+    /// *Unwise.* Rule 4: the resample would not be finished a refresh before the frame it stands
+    /// in for.
     ///
-    /// **Deleted by ADR 0391 and back for one surface only, which is ADR 0457's whole argument.**
-    /// That deletion was right about the window it was written for: a reprojection there is three
-    /// textured quads issued by the thread holding the surface while the render is on another, so
-    /// what it costs the frame it stands in for is nothing rather than a fraction, and a bound on
-    /// nothing is not a bound. The processor's window has no other thread — the resample happens
-    /// *in front of* the frame it stands in for, on the same thread, and delays it by exactly what
-    /// it costs. That is the premise rule 4 was written under, so the rule comes back with it, in
-    /// the form ADR 0384 re-grounded it in: standing in must **buy at least one refresh**.
+    /// **Deleted by ADR 0391, back for one surface in ADR 0457, and re-derived in ADR 0461.** The
+    /// deletion was right about the window it was written for: a stand-in there is three textured
+    /// quads issued by the thread holding the surface while the render is on another, so what it
+    /// costs the frame it stands in for is nothing and a bound on nothing is not a bound. ADR 0457
+    /// brought it back for the processor's window because that window had no other thread and its
+    /// resample delayed the frame by exactly what it cost.
+    ///
+    /// **That window has a composing thread now, and the rule survives its own premise.** The
+    /// resample runs on the presenting thread beside the render rather than in front of it, so
+    /// what standing in costs the real frame is `max(0, resample − frame)`: nothing at all while
+    /// the resample finishes first, and the overrun where it does not. So the question is no
+    /// longer *does it buy the refresh it spends* but *is it up in time to be seen at all* — and
+    /// both are the same inequality, which is why the arithmetic did not move:
     ///
     /// `resample + period ≤ frame`, in the display's own unit and with no constant in it. Where it
-    /// does not hold, a person would be shown a blurred picture and then made to wait longer for
-    /// the true one than they would have waited without it.
+    /// does not hold, a person would be shown a blurred picture for less than one refresh and then
+    /// made to wait longer for the true one than they would have waited without it.
     ///
     /// **Unmeasured permits**, which is the other half of ADR 0384's lesson: the only thing that
     /// can produce the first measurement is drawing one, so a gate that refused until it had a
-    /// number would block its own only sample. See [`Stale::resampling`].
+    /// number would block its own only sample. See [`Stale::resampling`] — and [`Stale::declined`]
+    /// for why a refusal then gives that sample up, which is the same lesson about every sample
+    /// after the first.
     TooDear {
         /// What the last resample on this surface cost.
         resample: Duration,
@@ -467,12 +486,13 @@ impl std::fmt::Display for Refusal {
                 frame,
             } => write!(
                 formatter,
-                "standing in would cost {:.1} ms on this thread and buy a {:.1} ms refresh, \
-                 against a frame of {:.1} ms — so it would not buy even one, and the picture \
-                 would be blurred *and* later",
+                "standing in would cost {:.1} ms on this thread against a frame of {:.1} ms being \
+                 drawn on another, so it would not be up a whole {:.1} ms refresh before the true \
+                 one — the picture would be blurred for less than a refresh and the frame later \
+                 by the overrun",
                 ms(*resample),
-                ms(*period),
-                ms(*frame)
+                ms(*frame),
+                ms(*period)
             ),
             Self::InsideTheRefresh { frame, period } => write!(
                 formatter,
@@ -795,14 +815,13 @@ fn bytes_of(colour: Color) -> [u8; 4] {
 ///
 /// **The processor's base, and it costs nothing to obtain** (`doc/todo/37`, ADR 0457). The device
 /// path's base is a texture the render thread drew and never gave up; this one is the raster
-/// `viewer_ui::software::compose_pages` has just produced, which this host already had in its
-/// hand on the way to the window. There is no capture to arrange and no readback to price — the
-/// difference that makes the processor's stand-in the smaller piece of work of the two.
+/// `viewer_ui::software::compose_pages` produced, which `crate::composer` already had in its hand
+/// on the way to the window. There is no capture to arrange and no readback to price.
 ///
 /// **It is kept in step with [`Stale::settled`] by being written in the same breath**, which is
 /// the arrangement ADR 0385 arrived at the hard way: a base and the record of what it is a picture
 /// of, updated by two different events, parted company and the window showed nothing for want of
-/// pixels it was holding. `App::present` adopts both or neither.
+/// pixels it was holding. `Composer::collect` adopts both or neither.
 #[derive(Debug, Default)]
 pub(crate) struct Canvas {
     /// The last frame this window drew, in the window's own extent.
@@ -818,71 +837,143 @@ impl Canvas {
         self.held = Some(frame);
     }
 
-    /// Resamples what is held under `placement`, or `None` where there is nothing to resample.
+    /// The frame on hand, for the tick that presents it unchanged.
     ///
-    /// `placement` is [`Stale::reproject`]'s answer: it maps a texel of the picture held to the
-    /// pixel of the window this view puts it at. So the map wanted here is its **inverse** —
-    /// every destination pixel asks which texel it is a sample of — and a placement that does not
-    /// invert is one this module has already refused ([`Refusal::NoPlacement`]) rather than a case
-    /// to be silent about. `None` here is only ever "no frame has been drawn yet".
+    /// A rendering of the view being asked for goes to the window as it is: there is nothing to
+    /// resample, and walking every pixel of the window to copy it would be this surface paying for
+    /// a transform the other one gets from a textured quad.
+    pub(crate) fn frame(&self) -> Option<&Raster> {
+        self.held.as_ref()
+    }
+
+    /// Draws the layers a stand-in is made of into one window raster, bottom upwards.
+    ///
+    /// **The same four layers `crate::renderer` puts on the other surface, in the same order**, and
+    /// that is what makes one gesture look like one program rather than two: the medium
+    /// everywhere, then the retained pages each under its own placement, then the base over them —
+    /// the chrome being the presenter's and composited after this.
+    ///
+    /// - `base` is [`Stale::reproject`]'s answer, and maps a texel of the picture held to the pixel
+    ///   of the window this view puts it at. `None` is a picture drawn from the retained pages
+    ///   alone: a page turn, a `GoTo`, a resize, a zoom in a column.
+    /// - `under` is one raster and one placement per retained page — **one placement per page
+    ///   rather than one for the picture**, which is what lets this layer answer the cases the one
+    ///   over it refuses ([`Proxies::placements`]).
+    ///
+    /// `None` where neither layer had anything to draw, which is a picture the caller must not
+    /// present: a window that has not been drawn to is not the same thing as a window somebody
+    /// emptied.
     ///
     /// **Bilinear, because the device path is** (`crate::renderer`'s `ImageFilter::Linear`): a
     /// blur is what an approximation should look like, where squares of four device pixels look
-    /// like a rendering decision somebody made. The two surfaces have to agree about that or the
-    /// same gesture on the same document looks like two different programs.
+    /// like a rendering decision somebody made.
     ///
-    /// **What the picture held has nothing to say about gets the window's medium**, never page
-    /// white — asserting that the page is blank there is the plausible-looking lie principle 1 is
-    /// about (ADR 0378), and it is what the device path's bottom layer paints for the same reason.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a raster dimension, capped at pdf_render::MAX_EXTENT = 2^24, which f32 \
-                  represents exactly"
-    )]
-    pub(crate) fn stand_in(&self, placement: Transform) -> Option<Raster> {
-        let held = self.held.as_ref()?;
-        match held.format {
-            // Exhaustive rather than checked, on ADR 0247's argument: the arithmetic below is
-            // written for four straight-alpha bytes per pixel, and a second format must fail to
-            // compile here rather than be refused at runtime.
-            RasterFormat::Rgba8 => {}
+    /// **What no layer covers gets the window's medium**, never page white — asserting that the
+    /// page is blank there is the plausible-looking lie principle 1 is about (ADR 0378), and it is
+    /// what the device path's bottom layer paints for the same reason.
+    pub(crate) fn stand_in(
+        &self,
+        extent: (u32, u32),
+        base: Option<Transform>,
+        under: &[(&Raster, Transform)],
+    ) -> Option<Raster> {
+        let held = self.held.as_ref().zip(base);
+        if held.is_none() && under.is_empty() {
+            return None;
         }
-        let back = placement.invert()?;
-        let (width, height) = (held.width, held.height);
-        let (span, rows) = (width as f32, height as f32);
-        let outside = bytes_of(Medium::WINDOW.surround);
-        let mut data = vec![0_u8; held.data.len()];
-        for (row, line) in data
-            .chunks_exact_mut((width as usize).saturating_mul(4))
-            .enumerate()
-        {
-            // Stepped along the row rather than transformed per pixel: an affine of
-            // `(column + 1, row)` differs from one of `(column, row)` by exactly `(a, b)`, so a
-            // row is one `apply` and two additions a pixel instead of four multiplications and two
-            // additions. It is the same arithmetic to the last bit for a translation and a scale,
-            // which is every placement this program composes, and within an `f32` rounding of it
-            // for one with rotation in it. **It is not where the time goes** and is not claimed to
-            // be: this loop with the sampling taken out of it is 0.13 ms of a resample that is
-            // tens, so what it saves is inside the noise and what justifies it is that it is also
-            // shorter to read.
-            let mut at = back.apply(pdf_render::Point::new(0.5, row as f32 + 0.5));
-            for pixel in line.chunks_exact_mut(4) {
-                if at.x < 0.0 || at.x >= span || at.y < 0.0 || at.y >= rows {
-                    // The revealed edge: this view reaches area the picture held does not cover.
-                    pixel.copy_from_slice(&outside);
-                } else {
-                    pixel.copy_from_slice(&bilinear(held, at.x - 0.5, at.y - 0.5));
-                }
-                at.x += back.a;
-                at.y += back.b;
-            }
-        }
-        Some(Raster {
+        let (width, height) = extent;
+        let pixels = (width as usize).checked_mul(height as usize)?;
+        let mut picture = Raster {
             width,
             height,
             format: RasterFormat::Rgba8,
-            data,
-        })
+            data: bytes_of(Medium::WINDOW.surround).repeat(pixels),
+        };
+        // The blurrier layer first, so that the sharp one is drawn over it wherever it has pixels
+        // — the ordering `crate::renderer`'s layer list states, and the reason neither layer has
+        // to know about the other.
+        for (layer, placement) in under {
+            paint(&mut picture, layer, *placement);
+        }
+        if let Some((layer, placement)) = held {
+            paint(&mut picture, layer, placement);
+        }
+        Some(picture)
+    }
+}
+
+/// Draws one layer's texels into `picture` under `placement`, leaving what it does not cover.
+///
+/// `placement` maps a texel of `layer` to a pixel of `picture`, so the map wanted here is its
+/// **inverse** — every destination pixel asks which texel it is a sample of — and a placement that
+/// does not invert is one this module has already refused ([`Refusal::NoPlacement`]) rather than a
+/// case to be silent about.
+///
+/// **Only the pixels the layer reaches are visited**, which is what makes a picture of several
+/// layers cost what its layers cover rather than a window per layer: the four corners of the layer
+/// under an affine bound its image exactly, because an affine image of a rectangle is a
+/// parallelogram and a parallelogram is inside the box of its vertices.
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a raster dimension, capped at pdf_render::MAX_EXTENT = 2^24, which f32 represents \
+              exactly; each bound is clamped into 0..width or 0..height before its cast"
+)]
+fn paint(picture: &mut Raster, layer: &Raster, placement: Transform) {
+    match layer.format {
+        // Exhaustive rather than checked, on ADR 0247's argument: the arithmetic below is written
+        // for four straight-alpha bytes per pixel, and a second format must fail to compile here
+        // rather than be refused at runtime.
+        RasterFormat::Rgba8 => {}
+    }
+    let Some(back) = placement.invert() else {
+        return;
+    };
+    let (span, rows) = (layer.width as f32, layer.height as f32);
+    let corners = [(0.0, 0.0), (span, 0.0), (0.0, rows), (span, rows)]
+        .map(|(x, y)| placement.apply(pdf_render::Point::new(x, y)));
+    let least = |read: fn(&pdf_render::Point) -> f32, limit: u32| -> u32 {
+        let found = corners.iter().map(read).fold(f32::INFINITY, f32::min);
+        found.max(0.0).min(limit as f32) as u32
+    };
+    let most = |read: fn(&pdf_render::Point) -> f32, limit: u32| -> u32 {
+        let found = corners.iter().map(read).fold(f32::NEG_INFINITY, f32::max);
+        (found.max(0.0).min(limit as f32).ceil()) as u32
+    };
+    let (left, right) = (
+        least(|point| point.x, picture.width),
+        most(|point| point.x, picture.width),
+    );
+    let (top, bottom) = (
+        least(|point| point.y, picture.height),
+        most(|point| point.y, picture.height),
+    );
+    let stride = (picture.width as usize).saturating_mul(4);
+    for row in top..bottom {
+        let start = (row as usize).saturating_mul(stride);
+        let Some(line) = picture.data.get_mut(start..start.saturating_add(stride)) else {
+            continue;
+        };
+        // Stepped along the row rather than transformed per pixel: an affine of
+        // `(column + 1, row)` differs from one of `(column, row)` by exactly `(a, b)`, so a row is
+        // one `apply` and two additions a pixel instead of four multiplications and two additions.
+        // It is the same arithmetic to the last bit for a translation and a scale, which is every
+        // placement this program composes, and within an `f32` rounding of it for one with
+        // rotation in it. **It is not where the time goes** and is not claimed to be: this loop
+        // with the sampling taken out of it is 0.13 ms of a resample that is tens, so what it
+        // saves is inside the noise and what justifies it is that it is also shorter to read.
+        let mut at = back.apply(pdf_render::Point::new(left as f32 + 0.5, row as f32 + 0.5));
+        for column in left..right {
+            if at.x >= 0.0 && at.x < span && at.y >= 0.0 && at.y < rows {
+                let from = (column as usize).saturating_mul(4);
+                if let Some(pixel) = line.get_mut(from..from.saturating_add(4)) {
+                    pixel.copy_from_slice(&bilinear(layer, at.x - 0.5, at.y - 0.5));
+                }
+            }
+            at.x += back.a;
+            at.y += back.b;
+        }
     }
 }
 
@@ -1009,23 +1100,6 @@ impl MustFollow {
         // the whole of what the method does.
         let Self(()) = self;
         cadence.owed(now);
-    }
-
-    /// Discharges the obligation on the surface where the frame that replaces it is drawn by the
-    /// very call that drew the stand-in.
-    ///
-    /// **The processor's window, and nowhere else** (ADR 0457). There is no other thread there, so
-    /// `App::present` resamples, presents, and then goes on to draw the real frame and present
-    /// that — in one call, before it returns. Rule 1 is met *sooner* than [`Self::follow`] can
-    /// meet it rather than later: the frame replacing this stand-in is already being drawn when
-    /// this is called, and no tick has to come round for it.
-    ///
-    /// Arming the clock instead would be worse than redundant. A processor frame of a real page is
-    /// hundreds of milliseconds, and asking for one more of them per view change is the cost rule
-    /// 4 exists to refuse.
-    pub(crate) fn drawn_in_the_same_frame(self) {
-        // Destructured rather than ignored, exactly as above: this value *is* the obligation.
-        let Self(()) = self;
     }
 }
 
@@ -1272,21 +1346,25 @@ pub(crate) struct Carried {
     pub(crate) within: f32,
 }
 
-/// Where a stand-in is drawn relative to the frame it stands in for — rule 4's whole question.
+/// What drawing a stand-in costs the thread that presents — rule 4's whole question.
 ///
-/// **The two windows of this program differ in exactly this and in nothing else about the policy**
-/// (`doc/todo/37`, ADR 0457). Every other rule is the same rule on both surfaces, which is why
-/// there is one [`Stale`] rather than two.
+/// **The two windows of this program differ in exactly this and in nothing else** (`doc/todo/37`,
+/// ADR 0461). They used to differ in the *arrangement* as well — one drew its stand-in beside the
+/// frame it stood in for and the other in front of it — and since the processor's window has a
+/// composing thread of its own both draw beside. What is left is the price, and the price is four
+/// orders of magnitude apart, which is why there is still an answer to give here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Standing {
-    /// **Beside it.** The render is on a thread of its own and the stand-in is three textured
-    /// quads issued by the thread holding the surface, so it takes nothing from the frame it
-    /// stands in for and rule 4 has nothing to bound (ADR 0391). Every run with a graphics device.
-    Beside,
-    /// **In front of it.** There is no other thread: the same call resamples, presents, and then
-    /// draws the real frame, so the real frame is later by exactly what the resample cost. The
-    /// processor's window — `--cpu`, and a machine whose device would not come up.
-    InFrontOf,
+    /// **Three textured quads**, issued by the thread holding the surface while the device draws
+    /// on another. Tenths of a millisecond, and nothing the frame it stands in for was going to
+    /// use — a bound on that is not a bound (ADR 0391). Every run with a graphics device.
+    Quads,
+    /// **A window of pixels, resampled by the processor** on the thread that presents. Tens of
+    /// milliseconds: the render is on another thread, so what standing in can cost the real frame
+    /// is `max(0, resample − frame)` rather than the whole of the resample — bounded rather than
+    /// zero, which is why rule 4 stays a question here. `--cpu`, and a machine whose device would
+    /// not come up.
+    Resample,
 }
 
 /// Whether the window is showing a reprojection, and what it would take to draw the next one.
@@ -1389,11 +1467,11 @@ impl Stale {
 
     /// **Rule 4.** Whether standing in buys at least the refresh it costs, on this surface.
     ///
-    /// `Ok(())` for [`Standing::Beside`] without looking at anything, because there is nothing to
+    /// `Ok(())` for [`Standing::Quads`] without looking at anything, because there is nothing to
     /// look at: a cost that is structurally zero is not a cost to bound. `Ok(())` for an
     /// unmeasured resample, because drawing one is the only thing that can produce the number.
     fn affordable(&self, standing: Standing, period: Duration) -> Result<(), Refusal> {
-        let (Standing::InFrontOf, Some(resample)) = (standing, self.resampling) else {
+        let (Standing::Resample, Some(resample)) = (standing, self.resampling) else {
             return Ok(());
         };
         let frame = self.expected();
@@ -1532,6 +1610,22 @@ impl Stale {
             crate::trace::Topic::Frames,
             format_args!("no reprojection ({}): {why}", why.kind()),
         );
+        // **Rule 4's sample is spent by the refusal it makes, and this is ADR 0384's defect found
+        // in a new place** (ADR 0461). [`Self::resampling`] held the *last* resample for the rest
+        // of the run, so one sample taken while the machine was busy refused every view change
+        // after it — and refusing is exactly what stops another sample being taken. A run measured
+        // in the six-hundred-and-twenty-seventh session shows it: a stand-in of 348.7 ms under a
+        // load average of 56, and every page turn for the remaining five seconds refused against
+        // that number while frames of 45 ms went by.
+        //
+        // "Unmeasured permits" answered the *first* sample and nothing after it. So a refusal
+        // gives up its own reason: the next view change permits, measures, and decides on a number
+        // that is about the machine as it is now. The cost of being wrong is what rule 4 bounds —
+        // `max(0, resample − frame)` on one view change — and the cost of being locked shut is the
+        // whole feature, which is the trade ADR 0384 already made once.
+        if matches!(why, Refusal::TooDear { .. }) {
+            self.resampling = None;
+        }
     }
 
     /// Says that the sharp layer was refused and the retained pages stood in, and counts it.
@@ -1648,10 +1742,9 @@ mod tests {
         Standing,
     };
 
-    /// Where the stand-in is drawn relative to the frame it stands in for, in every test that is
-    /// not about rule 4: the window with a graphics device, which is the one every case here was
-    /// written for.
-    const BESIDE: Standing = Standing::Beside;
+    /// What a stand-in costs the presenting thread, in every test that is not about rule 4: the
+    /// window with a graphics device, which is the one every case here was written for.
+    const QUADS: Standing = Standing::Quads;
 
     /// A page of a document as these tests hold one: its commands, and which page of what it is.
     ///
@@ -1967,7 +2060,7 @@ mod tests {
         slow(&mut stale, &page);
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in(),
             "a slow frame and a new magnification is what this exists for"
         );
@@ -1975,7 +2068,7 @@ mod tests {
         assert!(stale.showing_approximation());
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, QUADS)
                 .stands_in(),
             "the same view again while the render is still out: the same three quads, which is \
              what a picture every refresh means"
@@ -1983,7 +2076,7 @@ mod tests {
         // And the view the *rendering* is of goes up as it is, which is the answer that must not
         // be given to any other view.
         assert_eq!(
-            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, DRAWING, BESIDE),
+            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, DRAWING, QUADS),
             Plan::Render
         );
         drop(follow);
@@ -2002,7 +2095,7 @@ mod tests {
         let mut stale = Stale::default();
         stale.settled(&alone(&page, 1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
@@ -2012,7 +2105,7 @@ mod tests {
         stale.settled(&alone(&page, 1.0), REFRESH * 2, true);
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in()
         );
     }
@@ -2032,13 +2125,13 @@ mod tests {
         stale.settled(&alone(&page, 1.0), REFRESH / 4, true);
         assert!(
             !stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in(),
             "the prediction says this one lands in time, so the first tick waits for it"
         );
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, QUADS)
                 .stands_in(),
             "and the tick after it, with the render still out, has watched it miss"
         );
@@ -2070,7 +2163,7 @@ mod tests {
             stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
                 stale
-                    .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
+                    .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS)
                     .stands_in(),
                 "{frame} ms is {} refreshes and must be stood in for",
                 cost.as_secs_f64() / REFRESH.as_secs_f64()
@@ -2081,7 +2174,7 @@ mod tests {
         stale.settled(&alone(&page, 1.0), REFRESH * 3, true);
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in(),
             "a run that has drawn none must still be able to draw its first"
         );
@@ -2108,7 +2201,7 @@ mod tests {
             stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
                 stale
-                    .plan(&alone(&page, 1.3), NONE_HELD, period, LANDED, BESIDE)
+                    .plan(&alone(&page, 1.3), NONE_HELD, period, LANDED, QUADS)
                     .stands_in(),
                 "{frame} ms misses a 8.333 ms refresh, and standing in now costs that frame \
                  nothing at all"
@@ -2141,7 +2234,7 @@ mod tests {
         );
         assert!(
             stale
-                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in(),
             "the zoom after a harmless redraw is the one the owner waited through"
         );
@@ -2150,7 +2243,7 @@ mod tests {
         assert_eq!(stale.expected(), REFRESH / 2);
         assert!(
             !stale
-                .plan(&alone(&page, 1.3), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 1.3), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in()
         );
     }
@@ -2167,11 +2260,11 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &first);
         assert_eq!(
-            stale.plan(&alone(&second, 1.0), NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&alone(&second, 1.0), NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
-            stale.plan(&alone(&second, 1.3), NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&alone(&second, 1.3), NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
@@ -2189,7 +2282,7 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert_eq!(
-            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Render,
             "the view already on the screen is drawn, not approximated — and not refused either"
         );
@@ -2198,7 +2291,7 @@ mod tests {
             ..view(1.2)
         };
         assert_eq!(
-            stale.plan(&at(&page, resized), NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&at(&page, resized), NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Refused(Refusal::Resized)
         );
         assert_eq!(
@@ -2217,7 +2310,7 @@ mod tests {
         slow(&mut stale, &page);
         assert!(
             stale
-                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in()
         );
         let moved = stale
@@ -2304,7 +2397,7 @@ mod tests {
             let asked = view(magnification);
             assert!(
                 stale
-                    .plan(&at(&page, asked), NONE_HELD, REFRESH, DRAWING, BESIDE)
+                    .plan(&at(&page, asked), NONE_HELD, REFRESH, DRAWING, QUADS)
                     .stands_in(),
                 "the view keeps moving and the frame stays slow"
             );
@@ -2341,7 +2434,7 @@ mod tests {
         stale.real();
         assert!(
             stale
-                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in()
         );
         let moved = stale
@@ -2375,7 +2468,7 @@ mod tests {
         let asked = column(&pages, 1.0, 240.0);
         assert!(
             stale
-                .plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in()
         );
         let moved = stale
@@ -2420,7 +2513,7 @@ mod tests {
                 NONE_HELD,
                 REFRESH,
                 LANDED,
-                BESIDE
+                QUADS
             ),
             Plan::Refused(refused)
         );
@@ -2438,7 +2531,7 @@ mod tests {
                     NONE_HELD,
                     REFRESH,
                     LANDED,
-                    BESIDE
+                    QUADS
                 )
                 .stands_in(),
             "one page has one placement and always did"
@@ -2461,13 +2554,13 @@ mod tests {
         );
         let asked = column(&pages, 1.0, 100.0);
         assert_ne!(
-            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Render,
             "a third page on the screen is not the frame that showed two"
         );
         assert!(
             stale
-                .plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in()
         );
         assert!(
@@ -2498,7 +2591,7 @@ mod tests {
                         NONE_HELD,
                         REFRESH,
                         DRAWING,
-                        BESIDE
+                        QUADS
                     )
                     .stands_in(),
                 "{magnification}: nothing about a frame's atlas reaches a texture already drawn"
@@ -2569,7 +2662,7 @@ mod tests {
         slow(&mut stale, &page);
         for _ in 0..100 {
             assert_eq!(
-                stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, BESIDE),
+                stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED, QUADS),
                 Plan::Render,
                 "the same view, redrawn: quorra replays it and nothing is being stood in for"
             );
@@ -2610,7 +2703,7 @@ mod tests {
         let under = held.placements(&asked);
         assert_eq!(under.len(), 1, "the incoming page's own picture is held");
         assert_eq!(
-            stale.plan(&asked, under.len(), REFRESH, LANDED, BESIDE),
+            stale.plan(&asked, under.len(), REFRESH, LANDED, QUADS),
             Plan::Approximate(Stand {
                 from: Source::RetainedPages,
                 instead_of_the_base: Some(Refusal::AnotherPage),
@@ -2618,7 +2711,7 @@ mod tests {
             "the sharp layer is still impossible and says so; the window still moves"
         );
         assert_eq!(
-            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE),
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS),
             Plan::Refused(Refusal::AnotherPage),
             "and with nothing retained it is the refusal it always was"
         );
@@ -2679,7 +2772,7 @@ mod tests {
             );
         }
         assert_eq!(
-            stale.plan(&asked, 2, REFRESH, LANDED, BESIDE),
+            stale.plan(&asked, 2, REFRESH, LANDED, QUADS),
             Plan::Approximate(Stand {
                 from: Source::RetainedPages,
                 instead_of_the_base: Some(match stale.reproject(&asked) {
@@ -2699,7 +2792,7 @@ mod tests {
         let mut stale = Stale::default();
         stale.settled(&alone(&first, 1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&alone(&second, 1.0), 1, REFRESH, LANDED, BESIDE),
+            stale.plan(&alone(&second, 1.0), 1, REFRESH, LANDED, QUADS),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
@@ -2890,15 +2983,16 @@ mod tests {
         assert_eq!(proxies.placements(&alone(&edited, 1.0)).len(), 1);
     }
 
-    /// **Rule 4, back on one surface and on one surface only** (ADR 0391 deleted it, ADR 0457
-    /// restored it for the processor's window). A resample there is drawn *in front of* the frame
-    /// it stands in for, on the same thread, so it has to buy the refresh it spends.
+    /// **Rule 4, on one surface and on one surface only** (ADR 0391 deleted it, ADR 0457 restored
+    /// it for the processor's window, ADR 0461 re-derived it once that window had a composing
+    /// thread). A resample there runs on the presenting thread beside the frame it stands in for,
+    /// so it has to be finished a refresh before that frame lands or it is a picture nobody sees.
     ///
     /// The three states are the whole rule: unmeasured permits, because drawing one is the only
-    /// thing that can produce the number; a resample that buys a refresh is drawn; one that does
-    /// not is refused, and the refusal carries all three durations it judged.
+    /// thing that can produce the number; a resample finished in time is drawn; one that is not is
+    /// refused, and the refusal carries all three durations it judged.
     #[test]
-    fn a_resample_in_front_of_the_frame_has_to_buy_the_refresh_it_spends() {
+    fn a_resample_beside_the_frame_has_to_be_up_before_it() {
         let page = page();
         let mut stale = Stale::default();
         // A frame of four refreshes: rule 5 says it misses, so rule 4 is the next question.
@@ -2906,37 +3000,57 @@ mod tests {
         let asked = alone(&page, 1.2);
         assert!(
             stale
-                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::InFrontOf)
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::Resample)
                 .stands_in(),
             "unmeasured permits, or the gate would block its own only sample"
         );
         stale.resampled(REFRESH * 2);
         assert!(
             stale
-                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::InFrontOf)
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::Resample)
                 .stands_in(),
-            "two refreshes of resample plus one of refresh, against a frame of four: it buys one"
+            "two refreshes of resample plus one of refresh, against a frame of four: it is up a \
+             whole refresh before the true one"
         );
         stale.resampled(REFRESH * 4);
         assert_eq!(
-            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::InFrontOf),
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::Resample),
             Plan::Refused(Refusal::TooDear {
                 resample: REFRESH * 4,
                 period: REFRESH,
                 frame: REFRESH * 4,
             }),
-            "a resample as dear as the frame makes the picture blurred *and* later"
+            "a resample as long as the frame lands with it, so nobody sees it and the frame is \
+             late by the overrun"
         );
         assert_eq!(
             stale.refusals().unwise,
             0,
             "counted by the caller, not here"
         );
+        // **And the refusal gives up the sample it refused on** (ADR 0461). A measurement taken
+        // while the machine was busy would otherwise refuse every view change after it, and
+        // refusing is what stops another one being taken — ADR 0384's defect a layer along. The
+        // caller is what says the refusal happened, so the caller is where it is given up.
+        stale.declined(
+            &Refusal::TooDear {
+                resample: REFRESH * 4,
+                period: REFRESH,
+                frame: REFRESH * 4,
+            },
+            crate::trace::Trace::off(std::time::Instant::now()),
+        );
+        assert!(
+            stale
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, Standing::Resample)
+                .stands_in(),
+            "the next view change measures again rather than deciding on a spent number"
+        );
         // And the window with a device is untouched by any of it: what a stand-in costs the frame
         // it stands in for there is structurally nothing, and a bound on nothing is not a bound.
         assert!(
             stale
-                .plan(&asked, NONE_HELD, REFRESH, LANDED, BESIDE)
+                .plan(&asked, NONE_HELD, REFRESH, LANDED, QUADS)
                 .stands_in(),
             "rule 4 must not reach the surface ADR 0391 deleted it for"
         );
@@ -2954,13 +3068,43 @@ mod tests {
         canvas
     }
 
+    /// One raster of a colour, as a layer under a stand-in.
+    fn sheet(width: u32, height: u32, colour: [u8; 4]) -> pdf_render::Raster {
+        pdf_render::Raster {
+            width,
+            height,
+            format: pdf_render::RasterFormat::Rgba8,
+            data: colour.repeat((width as usize).saturating_mul(height as usize)),
+        }
+    }
+
+    /// No layers at all is not a picture, and the caller must not present one: a window that has
+    /// not been drawn to is not the same thing as a window somebody emptied.
+    #[test]
+    fn a_stand_in_of_no_layers_is_not_a_picture() {
+        assert!(
+            super::Canvas::default()
+                .stand_in((8, 4), Some(Transform::IDENTITY), &[])
+                .is_none(),
+            "a base asked for with no frame held is nothing to draw"
+        );
+        assert!(
+            canvas(8, 4, [1, 2, 3, 255])
+                .stand_in((8, 4), None, &[])
+                .is_none(),
+            "and neither is a frame held with no layer naming it"
+        );
+    }
+
     /// **The processor's stand-in is the same picture the device's is**, which is the property
     /// that keeps one gesture from looking like two programs: at the identity it is the frame
     /// itself, unchanged, because a bilinear sample at texel centres is the texel.
     #[test]
     fn a_resample_at_the_identity_is_the_picture_it_holds() {
         let held = canvas(8, 4, [200, 100, 50, 255]);
-        let picture = held.stand_in(Transform::IDENTITY).expect("a frame is held");
+        let picture = held
+            .stand_in((8, 4), Some(Transform::IDENTITY), &[])
+            .expect("a frame is held");
         assert_eq!(picture.width, 8);
         assert_eq!(picture.height, 4);
         assert_eq!(picture.data, [200, 100, 50, 255].repeat(32));
@@ -2975,7 +3119,7 @@ mod tests {
         // The view moved up by two pixels: every texel is drawn two rows higher, and the bottom
         // two rows of the window are area the picture held does not cover.
         let picture = held
-            .stand_in(Transform::translate(0.0, -2.0))
+            .stand_in((4, 4), Some(Transform::translate(0.0, -2.0)), &[])
             .expect("a frame is held");
         let row = |index: usize| &picture.data[index * 4 * 4..(index + 1) * 4 * 4];
         assert_eq!(row(0), [255, 255, 255, 255].repeat(4), "still the page");
@@ -2986,6 +3130,60 @@ mod tests {
             [255, 255, 255, 255],
             "or the case is not being made"
         );
+    }
+
+    /// **The revealed edge is filled by the retained page, and the base still wins where it has
+    /// pixels** — the four-layer order `crate::renderer` puts on the other surface, drawn by the
+    /// processor for the window that has no device (ADR 0461).
+    ///
+    /// The scroll of the case above, with a whole page under it: the rows the base has moved off
+    /// show the page rather than the medium, and the rows it still covers are unchanged. That is
+    /// what makes the two layers complementary rather than competing.
+    #[test]
+    fn a_retained_page_fills_what_the_moved_base_no_longer_covers() {
+        let held = canvas(4, 4, [255, 255, 255, 255]);
+        let page = sheet(4, 4, [10, 20, 30, 255]);
+        let picture = held
+            .stand_in(
+                (4, 4),
+                Some(Transform::translate(0.0, -2.0)),
+                &[(&page, Transform::IDENTITY)],
+            )
+            .expect("a frame is held");
+        let row = |index: usize| &picture.data[index * 4 * 4..(index + 1) * 4 * 4];
+        assert_eq!(
+            row(0),
+            [255, 255, 255, 255].repeat(4),
+            "the sharp layer is drawn over the blurred one wherever it has pixels"
+        );
+        assert_eq!(
+            row(3),
+            [10, 20, 30, 255].repeat(4),
+            "and the edge the scroll revealed is the retained page rather than the medium"
+        );
+    }
+
+    /// A picture made of the retained pages alone — a page turn, where nothing about the outgoing
+    /// page's pixels is true of the incoming one at any placement.
+    ///
+    /// The page is placed at half scale in the corner of the window, so the assertion is also
+    /// about the thing a layered composition can get wrong: what the layer does *not* cover is
+    /// left alone rather than cleared.
+    #[test]
+    fn a_page_turn_is_drawn_from_the_retained_page_and_the_medium() {
+        let held = canvas(4, 4, [255, 255, 255, 255]);
+        let page = sheet(2, 2, [10, 20, 30, 255]);
+        let picture = held
+            .stand_in((4, 4), None, &[(&page, Transform::IDENTITY)])
+            .expect("a retained page is a picture");
+        let at = |column: usize, row: usize| {
+            let start = (row * 4 + column) * 4;
+            &picture.data[start..start + 4]
+        };
+        assert_eq!(at(0, 0), [10, 20, 30, 255], "the page, where it is placed");
+        assert_eq!(at(1, 1), [10, 20, 30, 255], "its far corner");
+        let medium = super::bytes_of(pdf_render::Medium::WINDOW.surround);
+        assert_eq!(at(3, 3), medium, "and the window beside it");
     }
 
     /// Rule 2, as far as a test can reach it: nothing outside this window's own binary names the

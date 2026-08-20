@@ -1,14 +1,16 @@
-# A frame that says it is stale — the one window it does not cover yet
+# A frame that says it is stale — the same shape on both windows
 
-Status: **built for both windows** (ADR 0378, extended by ADR 0383, rule 5 corrected by ADR 0384,
-the base's lifetime by ADR 0385, the retained low-resolution page by ADR 0443, and **the processor's
-window and the identity of a page's picture by ADR 0457**), each after the owner found it did not
+Status: **built for both windows, and since ADR 0461 they are the same arrangement** (ADR 0378,
+extended by ADR 0383, rule 5 corrected by ADR 0384, the base's lifetime by ADR 0385, the retained
+low-resolution page by ADR 0443, the processor's window and the identity of a page's picture by ADR
+0457, and **a composing thread for that window by ADR 0461**), each after the owner found it did not
 fire on a real one. A view change whose last frame was slow
 now shows the pixels already on the screen, moved to where the new view puts them, and the real
 frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
 was refused**, and `crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries the five rules with the
 thing that enforces each.
-Priority: 37 — one surface of two.
+Priority: 37 — both surfaces, one policy, and the only thing they still differ in is what a
+stand-in costs the thread that presents.
 Witness: `tmp/Entwurf.pdf` — **not in the repository**, so no test may name that path. The costs
 this file used to quote are ADR 0378's and both have since moved; ADR 0383 measured them again on
 the same witness, and the *reason* they moved is worth more than either pair of numbers.
@@ -76,6 +78,13 @@ reaches two rules here and the sections below were written before it.*
   reads more sharply now: a resample on the processor really would cost the frame it stands in
   for, so a round that builds that path is reintroducing the premise and owes an argument for
   whatever it puts back.
+
+  *ADR 0457 put it back for the processor's window on exactly that premise, and ADR 0461 then gave
+  that window a thread too — which removed the premise and left the rule standing on a second one.
+  What a resample costs the frame it stands in for is now `max(0, resample − frame)`: nothing while
+  it finishes first, the overrun where it does not. "A bound on a structurally zero cost is not a
+  bound" is still right; a resample of a window of pixels on the presenting thread is not that
+  cost.*
 - **Rule 5 gained a second instrument.** A miss is still a frame that does not land inside one
   refresh, and it is now *observed* as well as predicted: a render still being drawn when the next
   tick comes round has missed that refresh, whatever the last one cost. The prediction is what
@@ -110,45 +119,64 @@ view changes (ADR 0444, and the section at the head of this file). What replaced
 bound with a derivation rather than a threshold: half a device pixel, at the worst corner of the
 picture. What would remove the refusal rather than bound it is a placement *per page* — the presenter putting up
 one textured quad per page instead of one for the frame — and that is a change to
-`crate::renderer`'s three layers rather than to the policy. Nobody has asked for it; a zoom in a
-column shows the previous frame unmoved for one render, which is what every view change did before
-ADR 0378.
+`crate::renderer`'s three layers rather than to the policy.
+
+**It was priced in the six-hundred-and-twenty-seventh session and declined** (ADR 0461), and the
+last sentence of this paragraph is what the pricing corrected. It read *"a zoom in a column shows
+the previous frame unmoved for one render, which is what every view change did before ADR 0378"* —
+true when written and false since ADR 0443 built the retained pages: six zoom steps fire this
+refusal seven times on the device and the layer underneath answered **all seven**, so what is shown
+is the incoming arrangement at 512 pixels rather than the previous frame unmoved. That changes the
+value of the change from *a picture instead of nothing* to *a sharp layer instead of a blurred one*,
+which is what the decision turned on.
 
 ## What is left
 
-**Both of the items this section carried are taken** — the processor's window and the identity of a
-page's picture, in the six-hundred-and-twenty-second session (ADR 0457), after the base's comparison
-went in the six-hundred-and-ninth. What remains is the two open questions at the foot of this
-section, neither of which is a defect.
+**Nothing this file has named as owed.** The two items are taken (ADR 0457) and both of the open
+questions are answered in the six-hundred-and-twenty-seventh session (ADR 0461) — one by building
+it, one by pricing it and declining. What is below is the argument each rests on, and one lead this
+round did not follow.
 
 **The processor's window has a stand-in since the six-hundred-and-twenty-second session** (ADR
-0457), and what it needed was the resample and rule 4 back — the sections below are kept because
-their *argument* is what the code rests on, and what running it corrected is here.
+0457) and **a composing thread of its own since the six-hundred-and-twenty-seventh** (ADR 0461).
+The sections below are kept because their *argument* is what the code rests on; what running them
+corrected is here.
 
-- **The shape is not the device path's shape and could not be.** There is no other thread there, so
-  the stand-in is drawn **in front of** the frame it stands in for rather than beside it: one call
-  resamples, presents, and then draws the true frame and presents that, before it returns. Rule 1 is
-  therefore met *sooner* than a clock could meet it — `MustFollow::drawn_in_the_same_frame` is the
-  discharge — and the alternative, standing in on one tick and rendering on the next, would have
-  needed a second mechanism to stop the loop standing in for ever.
-- **Rule 4 is back for that surface and only that surface**, which is the argument this file said
-  the round would owe: the premise ADR 0391 deleted it under is genuinely reintroduced, so the rule
-  returns in ADR 0384's form — `resample + period ≤ frame`, unmeasured permits, no constant.
-  `crate::stale::Standing` is what asks it of one arrangement and not the other, and the device path
-  gains no gate.
+- ~~**The shape is not the device path's shape and could not be.**~~ **It is now, and "could not
+  be" was a statement about the round's size rather than about the design.** `crate::composer` is
+  `crate::renderer`'s arrangement over `render-cpu`: the event thread adopts, asks and places, and
+  the rasterisation happens beside it. `MustFollow::drawn_in_the_same_frame` is deleted with the
+  arrangement it discharged.
+- **Rule 4 stays a question on that surface and only that surface, and ADR 0461 re-derived it
+  rather than keeping it.** The premise ADR 0457 restored it under — the resample delays the frame
+  by the whole of what it costs — is gone with the thread; what is left is that a resample is tens
+  of milliseconds of the **presenting** thread, so standing in costs the real frame
+  `max(0, resample − frame)`. The inequality is unchanged, because *buys the refresh it spends* and
+  *is up a refresh before the true frame lands* are the same arithmetic read from opposite ends.
+  `crate::stale::Standing` says which surface pays what, and the device path gains no gate.
+- **A refusal now gives up the sample it refused on**, which is ADR 0384's defect found a layer
+  along: `Stale::resampling` held the last resample for the rest of the run, so one sample taken
+  while the machine was busy refused every view change after it — and refusing is what stops another
+  sample being taken. Unmeasured permits answered the first sample and nothing after it.
 - **The cost is the machine's and is not written down here.** `Stale::resampling` holds whatever the
   run measured and the frame line prints the resample and the copy apart, so the next round
   re-measures without instrumenting anything. What *is* written down, in `bilinear`'s own doc
   comment, is the one optimisation that showed a number — `f32::floor` and `f32::round` are `libm`
   calls on this target, six a pixel — and the one that did not and was therefore rejected.
-- **The retained low-resolution pages are still device-only**, because they are drawn by a render
-  thread that is idle and this window has none. So a page turn under `--cpu` is still
-  `Refusal::AnotherPage`, said out loud. Giving that surface the second layer means giving it a
-  render thread, which is `doc/todo/36`'s work done again for the other window and is what is left
-  of this item.
+- ~~**The retained low-resolution pages are still device-only.**~~ **They are on both surfaces**
+  (ADR 0461), drawn by an idle composing thread exactly as the other window's are drawn by an idle
+  render thread, and `--proxy-pages` reaches both. A `SinglePage` page turn under `--cpu` printed
+  `another page` three times in a measured run before and none after.
 - ~~**Its refusal already says which kind it is** … a round that builds this path deletes both
   lines.~~ Both were deleted before this round reached them, for two different reasons: ADR 0391
   removed `Refusal::NoDevice`, and this session removed the state it described.
+
+**A lead this round did not follow.** A rendering that lands while the view is still moving is never
+put up on the *device* path either — `Plan::Refused` presents nothing, and the pixels are only ever
+seen through a stand-in composed from them. It does no harm there, because the only judged refusal
+is `InsideTheRefresh` and that bounds its own wait to one refresh; the processor needed
+`Composer::unshown` because rule 4 refuses exactly when the frame is slow. Whether the device path
+has a case where it matters is a question nobody has asked with a trace in front of them.
 
 **The identity of a page's picture is decided** (ADR 0457), which is the second thing this section
 owed. It is `(document, page, ink)` — `crate::stale::Picture` — and not the address of the
@@ -161,12 +189,21 @@ rather than a key change: blur says *approximation* by itself, and a §8.11 laye
 on being drawn sharp says nothing and asserts something false. The memory bound is unchanged —
 `PROXY_PAGES` × `PROXY_EDGE` — and the same bytes now buy more.
 
-**What is still open here**, and neither is a defect:
+**Both of the questions this section used to leave open are answered** (ADR 0461):
 
-- **A render thread for the processor's window**, which would give it the retained pages and would
-  make rule 4 a question again rather than an answer.
-- **A placement per page in the presenter**, which is what would remove `Refusal::Rearranged` rather
-  than bound it — see the section on Table 29's column above. Nobody has asked for it.
+- ~~**A render thread for the processor's window.**~~ **Built.** It gave that window the retained
+  pages and left rule 4 a question with a *new derivation* rather than making it an answer, which
+  is the one thing the question expected and did not get: a resample is not free, it is only no
+  longer added to the frame. The measurements are in ADR 0461 — the event thread's median tick over
+  a `--cpu` scroll fell from 58.3 ms to 0.3 ms and the present rate did not move.
+- ~~**A placement per page in the presenter.**~~ **Priced and declined**, with the numbers in ADR
+  0461. Six zoom steps in a column fire `Refusal::Rearranged` seven times on the device, and the
+  retained pages answered **all seven** — so what it would buy is the sharp layer instead of a
+  512-pixel page, rather than a picture instead of a blank window, which is what it would have
+  bought before ADR 0443. What it would cost is one texture per page where `render-quorra` draws one
+  per *frame* — an ask to quorra, or N renders — three times the page half of a frame's memory in a
+  column of three, and `stale::AGREEMENT` with 609's test and the measurement they carry. A later
+  round may still take it; it starts from that price rather than from this sentence.
 
 ## What is deliberately not here
 
