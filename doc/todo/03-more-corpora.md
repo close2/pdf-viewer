@@ -1021,6 +1021,97 @@ lightest live reference's.
 **What this chunk leaves: 43 944 crawled documents unranked**, in archive-sized pieces. Four
 rounds running, the crawl's head has been a defect no curated corpus states.
 
+### 20. The chunk the six-hundred-and-twenty-fifth took: ten archives, and two extents
+
+**Taken: `0669`, `0915`, `1530`, `2391`, `3129`, `4113`, `5220`, `6204`, `7311` and `7926`, whole,
+10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+`pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
+minus the lightest live reference's. Both binaries built first, which is 619's note taken rather
+than re-learnt, and all **26** documents named by ADRs 0438, 0448, 0451, 0454 and 0456 reproduce
+to the thousandth before anything else was read.
+
+- **Two defects of this tree, and both are about an *extent*** — where a thing ends, and which
+  thing owns the answer. ADR 0459. `0669424.pdf` at **−7.223** refused three `/FontFile2` programs
+  for a Flate stream that ends without RFC 1951's final block, each of which decodes to exactly
+  its `/Length1`; §9.9's Table 125 states that length in **decoded** bytes, so the program is
+  whole and what stopped short is the filter's marker. `4113230.pdf` at **−112.626** — the deepest
+  row of the ten thousand, and silent — fills one path with two tiling patterns in turn and drew
+  only the first, because `DisplayList::add_clip` interns and the second cell's box arrived
+  carrying the *first* cell's identifier, which the copier read as a clip already in force.
+- **The length is not the whole of the first condition, and the corpus said so before any gate
+  did.** `issue13316_reduced.pdf` decodes to 168 808 bytes under a `/Length1` of 168 808 and draws
+  **A C E F** where six CJK glyphs belong: its damage is `Corrupt` rather than `Truncated`, and
+  only the second means every byte produced is the producer's. Both conditions are now asked.
+- **The population of the first is a census over the whole crawl with an instrument that is not
+  this tree's** (trap 8): **140 embedded font streams in 8 documents** end before the final block,
+  the 138 `/FontFile2`s all reach their `/Length1`, and the two `/FontFile`s fall short of the sum
+  of the three lengths — so `7557616.pdf` stays refused and the Type 1 arm has a real negative
+  witness.
+- **The reach is measured rather than argued**: all thirty-two ranked archives ranked whole before
+  and after, **39 rows of 32 000 move**, and **two of the six documents the font fix moves are in
+  archives an earlier chunk took** — `6696243.pdf` in 615's `6696` and `7680832.pdf` in 603's
+  `7680`. That is the fourth round running that a fix has reached back. Four of the 39 are the head
+  documents; **23 are tiling-pattern pages moving by at most 1.34**, eighteen toward agreement and
+  five away by at most 0.64, every one silent and every one carrying more than one `PatternType 1`;
+  and the other twelve are the instrument — nine with our own panel identical and a *reference*
+  panel differing between runs, three with a panel absent from the earlier run.
+- **The positive head is 613's finding and not ours** — `poppler` alone drawing almost nothing —
+  read out of `doc/traps/oracle-and-references.md` rather than derived again; eight of the ten
+  deepest positive rows are that shape, and `2391466.pdf` **+23.749** is the note's other half,
+  `ghostscript` on a different page box (612 × 792 against 504 × 360).
+
+**What the head still holds**, each named so the next round does not re-derive it:
+
+- **`7926872.pdf` −41.731 is a round of its own, and the clause has an answer nobody has used.**
+  Its inline image is `/W 1200 /H 1790 /CS /RGB /BPC 8 /F /FlateDecode` with no `/L`, so
+  `inline_image`'s answer 3 runs — the forward search the module's own comment calls "the one
+  guess" — and the first `EI` token stands 24 822 bytes into 2.9 MB of Flate. 477 217 samples of
+  6 444 000 are drawn and 1.4 MB of the photograph is tokenised as operators. §8.9.7 makes the
+  bytes "a stream object's data" and every filter it admits states its own end-of-data, so a
+  **filtered** extent is derivable rather than searchable. `pdf_syntax::Pump` already counts
+  consumed input on its Flate engine and does not expose it; `DCTDecode` and `CCITTFaxDecode` do
+  not go through it at all.
+- **Five silent rows diagnosed no further than their numbers.** `6204475.pdf` −12.710 (209
+  commands), `5220184.pdf` −8.911 (685), `3129942.pdf` −6.879 (8189), `0915159.pdf` −4.244, and
+  two positives where all three references agree within 1.2 and we are far above them:
+  `1530098.pdf` **+47.699** (ours 100.877 against 54.365 / 53.178 / 53.806) and `7926547.pdf`
+  **+44.797**. None is called a family here: a structure count is evidence about where to look and
+  never about who is right (trap 9).
+- **`1530064.pdf` −15.950 is `doc/todo/49`'s** — `MAX_TILES` reached, and a stroke whose colour is
+  a tiling pattern, which §8.7.3's ledger row already prices.
+- **619's four and 615's two are still open**, and **65 rows of the 10 000 produce no number**, the
+  same three shapes 613, 615 and 619 opened by hand.
+
+**The re-runnable check for each document this chunk fixed**, because a fix on a document no gate
+covers is invisible to a merge (623). `$R` is
+`cargo build --release -p pdf-model --example render_at` plus
+`cargo build --release -p pdf-sandbox --bins`, and `$C` is
+`corpus-cache/safedocs/cc-main-2021-31`:
+
+```sh
+cargo run --release -q -p pdf-model --example open_one -- $C/0669/0669424.pdf 1
+# expect: 26 commands, unsupported []          (was: 941 text operations lost to three fonts)
+cargo run --release -q -p pdf-model --example open_one -- $C/6942/6942406.pdf 1
+cargo run --release -q -p pdf-model --example open_one -- $C/6696/6696243.pdf 1
+cargo run --release -q -p pdf-model --example open_one -- $C/4100/4100967.pdf 1
+cargo run --release -q -p pdf-model --example open_one -- $C/7680/7680832.pdf 1
+cargo run --release -q -p pdf-model --example open_one -- $C/3990/3990014.pdf 1
+# expect for all five: unsupported []          (was: /FontFile2 decoded only as far as its damage)
+$R $C/4113/4113230.pdf 1 1.0 /tmp/a.png && magick /tmp/a.png -alpha off -colorspace Gray \
+  -format "%[fx:(1-mean)*255]" info:
+# expect: 157.2 (three references 157.601 / 157.338 / 157.821); was 44.7
+$R $C/0669/0669424.pdf 1 1.0 /tmp/a.png && magick /tmp/a.png -alpha off -colorspace Gray \
+  -format "%[fx:(1-mean)*255]" info:
+# expect: 10.1 (three references 14.217 / 9.997 / 14.160); was 2.774
+```
+
+And the negative twin, which is the one a merge is likeliest to lose because it is a page that
+must **stay** blank — it is a gate, and named here so the pair is read together:
+`cargo test -p pdf-model --test silent_fonts` covers `issue13316_reduced.pdf`.
+
+**What this chunk leaves: 33 944 crawled documents unranked**, in archive-sized pieces. Five rounds
+running, the crawl's head has been a defect no curated corpus states.
+
 
 ## What not to do
 

@@ -264,14 +264,19 @@ pub fn without_subpaths(path: &Path, repeats: &Repeats) -> Option<Path> {
 /// Where a display list stood before a pattern cell was drawn.
 ///
 /// Taken before the cell's content stream runs and handed to [`Cell::drawn`] afterwards, which
-/// is what tells a clip or a soft mask the cell built — and which therefore travels with it —
-/// from one that was already in force and is shared by every copy of the cell.
+/// is what tells a soft mask the cell built — and which therefore travels with it — from one
+/// that was already in force and is shared by every copy of the cell.
+///
+/// **It counted clips too until the six-hundred-and-twenty-fifth session, and a count cannot
+/// answer that question about a clip.** [`DisplayList::add_clip`] hands back the identifier of an
+/// equal clip already in the table, so a second tiling whose cell states the same box as a first
+/// one's gets that first cell's identifier — which is *below* this mark although the cell built
+/// it. See [`Displaced::is_the_cells_own`] for what asks instead, and why a soft mask is not
+/// affected: [`DisplayList::add_soft_mask`] appends unconditionally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mark {
     /// Commands the list held.
     commands: usize,
-    /// Clips it held.
-    clips: usize,
     /// Soft masks it held.
     soft_masks: usize,
 }
@@ -282,7 +287,6 @@ impl Mark {
     pub fn of(list: &DisplayList) -> Self {
         Self {
             commands: list.command_count(),
-            clips: list.clip_count(),
             soft_masks: list.soft_mask_count(),
         }
     }
@@ -321,6 +325,13 @@ impl Mark {
 pub struct Cell {
     /// Where the list stood before the cell was drawn.
     at: Mark,
+    /// The clip the cell was drawn *inside*, which bounds the whole tiling rather than the cell.
+    ///
+    /// It and its ancestors are exactly the clips in force when the cell began, so "is this clip
+    /// the cell's own" is "is this clip none of those" — a question about the chain rather than
+    /// about when an identifier was minted. `None` where the cell was given no clip at all, in
+    /// which case every clip its commands name is one it built.
+    base: Option<ClipId>,
     /// What it drew, taken once — a copy displaced is a copy of *this*, never of the list as it
     /// stands after the sites already placed. Getting that wrong doubles the tiling per site,
     /// which is why the template is owned here rather than re-read per repetition.
@@ -328,11 +339,12 @@ pub struct Cell {
 }
 
 impl Cell {
-    /// The cell a display list has just drawn, since `at`.
+    /// The cell a display list has just drawn, since `at`, inside the clip `base`.
     #[must_use]
-    pub fn drawn(list: &DisplayList, at: Mark) -> Self {
+    pub fn drawn(list: &DisplayList, at: Mark, base: Option<ClipId>) -> Self {
         Self {
             at,
+            base,
             commands: list
                 .commands()
                 .get(at.commands..)
@@ -376,6 +388,7 @@ impl Cell {
                 list,
                 by,
                 cell: self.at,
+                base: self.base,
                 clips: BTreeMap::new(),
                 masks: BTreeMap::new(),
             };
@@ -395,8 +408,10 @@ struct Displaced<'a> {
     list: &'a mut DisplayList,
     /// Applied after each command's own transform.
     by: Transform,
-    /// Which clips and masks are the cell's own; see [`Mark`].
+    /// Which soft masks are the cell's own; see [`Mark`].
     cell: Mark,
+    /// The clip the tiling was given, which decides which clips are the cell's own.
+    base: Option<ClipId>,
     /// The displaced copy of each of the cell's clips, so a chain is copied once per repetition
     /// however many commands name it.
     clips: BTreeMap<usize, ClipId>,
@@ -494,6 +509,43 @@ impl Displaced<'_> {
         Ok(())
     }
 
+    /// Whether `id` names a clip the cell built, rather than one that bounds the whole tiling.
+    ///
+    /// **The question is asked of the clips that were in force, because those are the ones that
+    /// can be enumerated.** A tiling is given one clip and the cell's graphics state begins with
+    /// it, so what bounds the whole tiling is that clip and its ancestors — a short, closed chain
+    /// — and every other clip a cell's commands name is one the cell put there. `None` where the
+    /// tiling was given no clip at all, in which case there is nothing in force to share.
+    ///
+    /// **The alternative was an identifier's position, and a table that interns cannot be asked
+    /// that way.** [`DisplayList::add_clip`] hands back the identifier of an equal clip already
+    /// in the table, so a cell that states the same box a previous cell stated is handed the
+    /// previous cell's identifier — one minted before this cell began — and looked, by position,
+    /// like a clip that was already in force. What that cost is a page: `4113230.pdf` of the
+    /// `SafeDocs` crawl fills one path with two tiling patterns in turn, each a full-bleed
+    /// photograph, and the second one's every site kept the *first* pattern's first-site box —
+    /// which is off the page, so the second photograph vanished and the first stayed visible
+    /// under it (session 625).
+    ///
+    /// **Asking it the other way round — "does this clip descend from the one in force" — is not
+    /// the same question and is too narrow.** A cell may build a clip whose chain is rooted
+    /// somewhere else entirely: a soft mask's group is interpreted in a clip context of its own,
+    /// and its commands are displaced with the cell. `issue8565.pdf` is the corpus page that says
+    /// so, one radial gradient under a cell the size of the page.
+    ///
+    /// The walk terminates because a clip's parent is added to the table before the clip itself
+    /// and therefore has a strictly smaller identifier.
+    fn is_the_cells_own(&self, id: ClipId) -> bool {
+        let mut at = self.base;
+        while let Some(current) = at {
+            if current == id {
+                return false;
+            }
+            at = self.list.clip(current).and_then(|clip| clip.parent);
+        }
+        true
+    }
+
     /// The displaced copy of one clip chain, built outermost first.
     ///
     /// The walk terminates because a clip's parent is added to the list before the clip itself
@@ -502,7 +554,7 @@ impl Displaced<'_> {
         let mut chain: Vec<ClipId> = Vec::new();
         let mut at = id;
         loop {
-            if at.index() < self.cell.clips || self.clips.contains_key(&at.index()) {
+            if !self.is_the_cells_own(at) || self.clips.contains_key(&at.index()) {
                 break;
             }
             chain.push(at);
@@ -1074,7 +1126,7 @@ mod repetition {
             blend: BlendMode::Normal,
         });
 
-        let cell = Cell::drawn(&list, at);
+        let cell = Cell::drawn(&list, at, Some(outer));
         assert_eq!(cell.len(), 1, "the cell drew one command");
         let copied = cell
             .repeat(&mut list, Transform::translate(3.0, 0.0))
@@ -1144,7 +1196,7 @@ mod repetition {
             blend: BlendMode::Normal,
         });
 
-        let cell = Cell::drawn(&list, at);
+        let cell = Cell::drawn(&list, at, None);
         cell.repeat(&mut list, Transform::translate(0.0, 5.0))
             .expect("a copy fits");
 
@@ -1171,7 +1223,7 @@ mod repetition {
     fn an_empty_cell_copies_nothing() {
         let (mut list, _) = list_with_an_outer_clip();
         let at = Mark::of(&list);
-        let cell = Cell::drawn(&list, at);
+        let cell = Cell::drawn(&list, at, None);
         assert!(cell.is_empty(), "the cell drew nothing");
         assert_eq!(
             cell.repeat(&mut list, Transform::translate(1.0, 1.0))
@@ -1179,6 +1231,76 @@ mod repetition {
             0
         );
         assert_eq!(list.commands().len(), 0, "and nothing was appended");
+    }
+
+    /// A second tiling whose cell states the same box as the first still gets a clip per site.
+    ///
+    /// [`DisplayList::add_clip`] hands back the identifier of an equal clip already in the table,
+    /// so the second cell's box arrives with the *first* cell's identifier — one minted before
+    /// this cell's [`Mark`] was taken. Deciding provenance by position therefore called it a clip
+    /// that was already in force, left it where the first cell's first site had put it, and gave
+    /// every site of the second tiling that one box.
+    ///
+    /// `4113230.pdf` of the `SafeDocs` crawl is what that draws (session 625): a title page filling
+    /// one path with two full-bleed photographs in turn, whose second photograph disappeared
+    /// because the box it was clipped to belonged to a site off the top of the page.
+    #[test]
+    fn a_second_cell_stating_the_first_cells_box_still_moves_it() {
+        let (mut list, outer) = list_with_an_outer_clip();
+        let box_of_the_cell = || Clip {
+            path: square(Point::new(0.0, 0.0), Point::new(3.0, 3.0)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            parent: Some(outer),
+        };
+
+        let first_at = Mark::of(&list);
+        let first_box = list
+            .add_clip(box_of_the_cell())
+            .expect("the first cell's box");
+        list.push(clipped_fill(first_box));
+        Cell::drawn(&list, first_at, Some(outer))
+            .repeat(&mut list, Transform::translate(3.0, 0.0))
+            .expect("a copy fits");
+
+        let second_at = Mark::of(&list);
+        let second_box = list
+            .add_clip(box_of_the_cell())
+            .expect("the second cell's box");
+        assert_eq!(
+            second_box, first_box,
+            "the fixture is only a fixture if the table interned it"
+        );
+        list.push(clipped_fill(second_box));
+        Cell::drawn(&list, second_at, Some(outer))
+            .repeat(&mut list, Transform::translate(3.0, 0.0))
+            .expect("a copy fits");
+
+        let copy = list.commands().last().expect("the second tiling's copy");
+        let copied = copy.clip().expect("the copy is clipped");
+        assert_ne!(
+            copied, second_box,
+            "the second cell's box is the cell's own and moves with it"
+        );
+        let moved = list.clip(copied).expect("it is in the table");
+        assert!(
+            (moved.transform.e - 3.0).abs() < 1e-6,
+            "by the site's displacement: {:?}",
+            moved.transform
+        );
+    }
+
+    /// A black fill of a small square under `clip`.
+    fn clipped_fill(clip: crate::display_list::ClipId) -> Command {
+        Command::Fill {
+            path: Arc::new(square(Point::new(0.0, 0.0), Point::new(2.0, 2.0))),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: Some(clip),
+            mask: None,
+            blend: BlendMode::Normal,
+        }
     }
 
     /// Two copies of one cell are two copies of the *cell*, not of the list as it stands.
@@ -1191,7 +1313,7 @@ mod repetition {
         let (mut list, _) = list_with_an_outer_clip();
         let at = Mark::of(&list);
         list.push(fill_of(square(Point::new(0.0, 0.0), Point::new(1.0, 1.0))));
-        let cell = Cell::drawn(&list, at);
+        let cell = Cell::drawn(&list, at, None);
 
         for site in [1.0, 2.0, 3.0, 4.0] {
             let copied = cell
