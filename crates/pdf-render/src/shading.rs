@@ -76,6 +76,55 @@ impl Shading {
         }
     }
 
+    /// The rectangle, in the shading's own coordinates, outside which it paints nothing.
+    ///
+    /// ISO 32000-2 §11.6.4.2 states what a `sh` marks, and it is a property of the shading
+    /// rather than of the path that stands in for one:
+    ///
+    /// > For objects painted with the sh operator (8.7.4.2, "Shading operator"), the shape
+    /// > shall be 1.0 inside and 0.0 outside the bounds of the shading's painti ng geometry,
+    /// > disregarding the Background entry in the shading dictionary (see 8.7.4.3, "Shading
+    /// > dictionaries").
+    ///
+    /// `None` where those bounds are not a rectangle in this space. An axial shading paints
+    /// an infinite strip either side of its axis and a radial one an expanding cone, both
+    /// unbounded whatever `/Extend` says, so neither has one; a type 1 shading's is its
+    /// `/Domain`, which the interpreter already applies as §8.7.4.5.2's clip. What is left is
+    /// the mesh types, whose geometry is exactly the triangles the file states.
+    ///
+    /// # Why a caller wants it rather than the page
+    ///
+    /// A `sh` has no path — §8.7.4.2: "This operator does not require the creation of a
+    /// pattern dictionary or a path and works without reference to the current colour in the
+    /// graphics state" — so a display list has to fill *something*, and a page-sized rectangle
+    /// is the obvious stand-in. It is the wrong one inside a tiling pattern's cell, because
+    /// [`crate::Cell::repeat`] displaces every command's geometry and the page is not part of
+    /// the figure being moved: the site whose shading lands on the page is the site whose
+    /// stand-in rectangle has just left it. A rectangle taken from the shading's own
+    /// coordinates travels with the shading and is therefore over it at every site.
+    #[must_use]
+    pub fn painting_bounds(&self) -> Option<[f32; 4]> {
+        let ShadingKind::Mesh { triangles, .. } = self.kind.as_ref() else {
+            return None;
+        };
+        let mut bounds: Option<[f32; 4]> = None;
+        for point in triangles.iter().flat_map(|triangle| triangle.points) {
+            if !point.x.is_finite() || !point.y.is_finite() {
+                return None;
+            }
+            bounds = Some(match bounds {
+                None => [point.x, point.y, point.x, point.y],
+                Some([x0, y0, x1, y1]) => [
+                    x0.min(point.x),
+                    y0.min(point.y),
+                    x1.max(point.x),
+                    y1.max(point.y),
+                ],
+            });
+        }
+        bounds
+    }
+
     /// Returns this shading with every colour's alpha scaled by `alpha`.
     ///
     /// A shading is the one paint whose colours are not a single [`Color`] the caller can

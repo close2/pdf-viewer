@@ -763,21 +763,11 @@ impl Interpreter<'_> {
             Ok(shading) => {
                 // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
                 let clip = self.domain_clip(&shading, clip);
-                let mut path = Path::new();
-                path.push(PathCommand::MoveTo(Point::new(0.0, 0.0)));
-                path.push(PathCommand::LineTo(Point::new(self.page.width, 0.0)));
-                path.push(PathCommand::LineTo(Point::new(
-                    self.page.width,
-                    self.page.height,
-                )));
-                path.push(PathCommand::LineTo(Point::new(0.0, self.page.height)));
-                path.push(PathCommand::Close);
+                let (path, transform) = self.shading_surface(&shading);
 
                 self.list.push(Command::Fill {
                     path: Arc::new(path),
-                    // The page rectangle is already in page space, so it needs no further
-                    // transform; the shading carries its own.
-                    transform: Transform::IDENTITY,
+                    transform,
                     fill_rule: FillRule::NonZero,
                     // §11.6.4.4's non-stroking constant applies to `sh` as to any other
                     // non-stroking painting operation.
@@ -791,6 +781,66 @@ impl Interpreter<'_> {
                 name: format!("/{label}: {error}"),
             }),
         }
+    }
+
+    /// The surface a `sh` fills, and the transform that places it.
+    ///
+    /// ISO 32000-2 §8.7.4.2 gives the operator no path at all:
+    ///
+    /// > This operator does not require the creation of a pattern dictionary or a path and
+    /// > works without reference to the current colour in the graphics state.
+    ///
+    /// A display list fills paths, so one has to stand in for "wherever the shading marks".
+    /// [`pdf_render::Shading::painting_bounds`] is §11.6.4.2's answer to where that is, and it
+    /// is used wherever the shading has one; the page rectangle is the fallback for the
+    /// shadings whose geometry is unbounded — axial and radial — where nothing smaller is
+    /// true.
+    ///
+    /// # Why the page is not good enough on its own
+    ///
+    /// A `sh` inside a tiling pattern's cell is part of a figure the lattice repeats, and
+    /// [`pdf_render::Cell::repeat`] displaces each copy's geometry — the shading with it, so
+    /// that "every site would show the first site's gradient" does not happen. A page
+    /// rectangle is displaced by the same lattice step while being no part of the figure, so
+    /// the site whose shading arrives on the page is the site whose rectangle has just left
+    /// it, and the tiling draws nothing at all. `0423269.pdf` in the `SafeDocs` crawl is two
+    /// mesh-filled backgrounds lost that way, silently, because a shading that paints outside
+    /// its own surface is not a refusal anything can report.
+    ///
+    /// # Why the rectangle is grown
+    ///
+    /// The mesh's own bounds pass through its outermost vertices, so an outline laid exactly
+    /// on them shares an edge with the triangles it is there to admit — and a shared edge is
+    /// counted twice, because coverage multiplies: two halves composite as a quarter, which is
+    /// the arithmetic [`Interpreter::unclip_redundant`] documents for a cell's box. The margin
+    /// only has to be non-zero, since it is the shading's own alpha and the current clip that
+    /// bound the mark; a sixteenth of the geometry's own extent is that in whatever units the
+    /// shading states, and costs nothing because it paints nothing.
+    fn shading_surface(&self, shading: &Shading) -> (Path, Transform) {
+        /// The share of a mesh's own extent the outline is grown by on each side.
+        const MARGIN: f32 = 1.0 / 16.0;
+
+        let (corners, transform) = match shading.painting_bounds() {
+            Some([x0, y0, x1, y1]) => {
+                let margin = (x1 - x0).abs().max((y1 - y0).abs()) * MARGIN;
+                (
+                    [x0 - margin, y0 - margin, x1 + margin, y1 + margin],
+                    shading.transform,
+                )
+            }
+            None => (
+                [0.0, 0.0, self.page.width, self.page.height],
+                Transform::IDENTITY,
+            ),
+        };
+        let [x0, y0, x1, y1] = corners;
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(x0, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y0)));
+        path.push(PathCommand::LineTo(Point::new(x1, y1)));
+        path.push(PathCommand::LineTo(Point::new(x0, y1)));
+        path.push(PathCommand::Close);
+        (path, transform)
     }
 
     /// Resolves a pattern name, for `scn` in a `/Pattern` colour space.

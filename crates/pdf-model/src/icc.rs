@@ -358,8 +358,8 @@ impl Profile {
     /// displayed with the darkest colour that the output profile for the display device
     /// (screen or print) can produce". That sentence is what the code below implements, and
     /// it settles the design question the arithmetic cannot: the black to be aligned is the
-    /// one *the source colour space* describes, which is why it is found by pushing full
-    /// ink through this profile.
+    /// one *the source colour space* describes, which is why it is found at the end of this
+    /// profile's own device range rather than read off the display's.
     ///
     /// The same note observes that BPC is "very similar to what switching between absolute
     /// and relative colorimetric rendering intents does at the highlight end" — the reason
@@ -370,8 +370,9 @@ impl Profile {
     /// black points meets the stated goal, but it is not a transcription of the standard.
     /// Worth knowing if the numbers in the last few percent ever have to be defended.
     ///
-    /// Full ink is used rather than a `bkpt` tag because the CMYK profiles that need this
-    /// most often carry no such tag, and one that is absent cannot be honoured.
+    /// The device range is walked rather than a `bkpt` tag read, because the CMYK profiles
+    /// that need this most often carry no such tag, and one that is absent cannot be
+    /// honoured.
     ///
     /// This yields a *colorimetric* black point: the darkest colour the profile itself says
     /// the space reaches, which is what the application note's wording asks for. An
@@ -384,8 +385,29 @@ impl Profile {
         if !matches!(self.transform, Transform::Lut(_)) {
             return None;
         }
-        let full_ink = vec![1.0f32; self.channels];
-        let black = self.connection(&full_ink);
+        // **Which end of the device range is dark is a property of the space, not of the
+        // profile**, and this read the subtractive answer for every space until the
+        // six-hundred-and-fifteenth session. Full ink is black in `CMYK`, `2CLR`.. `FCLR`
+        // and a `Separation`'s colourant; in `RGB` and `GRAY` — ICC's own header signatures
+        // for the additive spaces — every component at 1.0 is *white*. So an RGB scanner
+        // profile had its white point taken as its black, and where the two differed by a
+        // rounding — which is every profile whose white corner is not D50 to the bit — the
+        // span below was a thousandth of a unit wide and stretched the whole page onto
+        // black. `2268885.pdf` in the `SafeDocs` crawl is a floor plan drawn as a negative for
+        // that reason, with nothing reported.
+        //
+        // Both ends are evaluated and the darker taken, which needs no table of which
+        // signature is which and is what the application note's wording asks for directly:
+        // the darkest colour the source space describes. `Y` is luminance, so it is the axis
+        // that decides.
+        let black = [vec![0.0f32; self.channels], vec![1.0f32; self.channels]]
+            .into_iter()
+            .map(|end| self.connection(&end))
+            .min_by(|left, right| {
+                left.get(1)
+                    .unwrap_or(&0.0)
+                    .total_cmp(right.get(1).unwrap_or(&0.0))
+            })?;
         // Compensation aligns a *range*, so it needs one: the colour found has to be
         // darker than the white it is being stretched away from, on every axis. A profile
         // whose fullest ink is no darker than its white describes no range to align — and
@@ -1126,6 +1148,52 @@ mod tests {
             r > 80 && g > 80 && b > 80,
             "without compensation the same colour stays the grey the profile describes, \
              got {r},{g},{b}"
+        );
+    }
+
+    /// The darkest colour a profile reaches is at the end of the range its *space* darkens
+    /// towards, and for `RGB` that is zero rather than one.
+    ///
+    /// The same fixture as the test above with its two grid points swapped, which is what an
+    /// additive space writes: nothing in is black and everything in is white. Compensation
+    /// must therefore stretch the *zero* end onto the display's black and leave full input
+    /// where the profile put it — and the failure this pins is not a slightly wrong colour
+    /// but the whole page. Taking the one end as black gives a span of a few thousandths
+    /// between "black" and D50 white, and dividing by it puts every input on zero:
+    /// `2268885.pdf` in the crawl is a floor plan drawn as its own negative for that reason,
+    /// with nothing reported (ADR 0451).
+    #[test]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    fn an_additive_profiles_black_is_the_zero_end_of_its_range() {
+        let dark = [
+            (0.096_42 * 32768.0) as u16,
+            3277,
+            (0.082_49 * 32768.0) as u16,
+        ];
+        let white = [
+            (0.964_2 * 32768.0) as u16,
+            32768,
+            (0.824_9 * 32768.0) as u16,
+        ];
+        // Grid point zero is the darkest this space reaches, which is how `RGB` and `GRAY`
+        // are written and the opposite of the subtractive fixture above.
+        let clut = [dark[0], dark[1], dark[2], white[0], white[1], white[2]];
+        let profile = Profile::parse(&lut16_profile(*b"GRAY", *b"XYZ ", &clut, 3))
+            .expect("the assembled profile parses");
+
+        assert_eq!(
+            bytes(profile.to_rgb(&[0.0])),
+            (0, 0, 0),
+            "compensation must bring the profile's darkest colour to the display's"
+        );
+        assert_eq!(
+            bytes(profile.to_rgb(&[1.0])),
+            (255, 255, 255),
+            "and must leave the profile's white where it is rather than stretching onto it"
         );
     }
 

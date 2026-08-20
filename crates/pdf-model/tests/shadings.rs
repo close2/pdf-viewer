@@ -1262,3 +1262,64 @@ fn a_window_of_a_magnified_page_draws_what_the_whole_page_has_there() {
         "the shading paints this window in colours that vary"
     );
 }
+
+/// §8.7.4.2 with §11.6.4.2: a `sh` inside a tiling pattern's cell paints at *every* site.
+///
+/// `sh` is given no path — "[t]his operator does not require the creation of a pattern
+/// dictionary or a path" — so a display list, which fills paths, has to stand something in for
+/// "wherever the shading marks". A page-sized rectangle is right only while the command stays
+/// where it was drawn, and inside a cell it does not: the cell is interpreted once and its
+/// commands are *copied* to every site, each copy displaced by the lattice step, so a page
+/// rectangle is carried off the page while the shading beside it is carried on to it.
+///
+/// The fixture is the smallest arrangement where that separates. The pattern's matrix shifts
+/// its space by half the page, so the fill spans two columns: the site the interpreter draws
+/// is the left half and the site the lattice copies is the right half, one whole step away.
+/// With the surface taken from the shading's own painting geometry both halves paint; with a
+/// page rectangle the copied half paints nothing, which is what `0423269.pdf` in the `SafeDocs`
+/// crawl does with two mesh backgrounds (ADR 0451).
+#[test]
+fn a_shading_operator_inside_a_tiling_cell_paints_at_every_site() {
+    // Two triangles filling the cell's whole square, every corner red. Eight bits each for
+    // the flag, both coordinates and all three components, as in the mesh tests above.
+    let mesh_data = "00 00 00 FF0000 00 FF 00 FF0000 00 FF FF FF0000 \
+                     00 00 00 FF0000 00 FF FF FF0000 00 00 FF FF0000 >";
+    let cell = "/Sh0 sh";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /Pattern << /P0 6 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {content} >>\nstream\n/Pattern cs /P0 scn\n\
+         0 0 100 100 re\nf\nendstream\nendobj\n\
+         5 0 obj\n<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 100 0 100 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {mesh} >>\nstream\n{mesh_data}\nendstream\nendobj\n\
+         6 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 100 100] \
+         /XStep 100 /YStep 100 /Matrix [1 0 0 1 50 0] \
+         /Resources << /Shading << /Sh0 5 0 R >> >> /Length {cell_length} >>\n\
+         stream\n{cell}\nendstream\nendobj\n",
+        content = "/Pattern cs /P0 scn\n0 0 100 100 re\nf".len() + 1,
+        mesh = mesh_data.len(),
+        cell_length = cell.len(),
+    );
+    let raster = render(assemble(&body));
+
+    // The half the interpreter drew, and the half the lattice copied. Both are the cell's
+    // own mesh, so both are red to the same byte.
+    let left = pixel(&raster, 25, 50);
+    let right = pixel(&raster, 75, 50);
+    assert_eq!(
+        left.3, 255,
+        "the site the cell was interpreted at must paint"
+    );
+    assert_eq!(
+        right, left,
+        "a copied site paints the same figure as the interpreted one: {left:?} against \
+         {right:?}"
+    );
+    assert!(
+        left.0 > 200 && left.1 < 60 && left.2 < 60,
+        "the mesh is red throughout: {left:?}"
+    );
+}

@@ -248,8 +248,8 @@ const MAX_PAGELESS: usize = 6;
 /// and **nothing on it is a feature**: 4 malformed streams, 3 bit depths the unpacker refuses,
 /// one `/Mask` that is not an image mask and so is outside what Table 87 defines the entry to
 /// hold, one JBIG2 with a segment type ISO/IEC 14492 does not define, one 212-megapixel JPEG
-/// 2000 scan larger than the sandbox is given room to decode, and one `/SMask` — 34862×4332
-/// against a 2×2 image — whose combined grid `image::MAX_MASK_GRID` refuses.
+/// 2000 scan larger than the sandbox is given room to decode, and one `/SMask` whose combined
+/// grid `image::combined_grid` refuses.
 ///
 /// The `CompositedInParts` row is §11.6.2, which says the portions of one object are not
 /// composited with one another: `B` fills and strokes one path, and this renderer emits two
