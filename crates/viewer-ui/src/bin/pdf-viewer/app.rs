@@ -135,6 +135,15 @@ pub(crate) struct App {
     /// that will not load, which is what the project owner needed it to be and what it was not.
     /// ADR 0221.
     pub(crate) processor: bool,
+    /// How many whole pages this window retains a low-resolution picture of, from
+    /// `--proxy-pages`.
+    ///
+    /// **A host's setting and it could not be anything else** (`doc/todo/37`, ADR 0443). The
+    /// pictures are stand-ins, so rule 2 keeps everything that makes one inside this binary: a
+    /// count that became a `Command` or a field of a boundary type would make a wrong picture
+    /// visible to the tree that judges pictures. It sits beside [`Self::processor`] and
+    /// [`Self::backend`] for the same reason those do.
+    pub(crate) proxy_pages: usize,
     /// The driver stack asked for, from `--backend` or from
     /// [`DEFAULT_BACKEND`](crate::arguments::DEFAULT_BACKEND).
     ///

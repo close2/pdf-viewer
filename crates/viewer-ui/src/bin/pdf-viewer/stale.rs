@@ -19,7 +19,7 @@
 //! |---|---|
 //! | 1. never the last word | [`MustFollow`] cannot be dropped without arming the clock that asks for the frame replacing it, and `about_to_wait` will not let the loop come to rest on one. **`Stale::plan`'s half of this is gone and is not missed**: it used to refuse to approximate the view already approximated, so that the event thread drew the real frame instead, and since ADR 0391 there is no instead — the render is on another thread whatever this tick decides |
 //! | 2. nothing that judges a picture ever sees one | this module is a **private module of a binary**: no library, no gate, no oracle, no harness can link to it, and nothing below it knows a reprojection exists |
-//! | 3. it says so | the frame line's outcome word is `approximated`, [`Stale::count`] is what the summary prints — and since ADR 0385 every *refusal* says so too, by name and by kind ([`Refusal`]) |
+//! | 3. it says so | the frame line's outcome word is [`Source::word`] — which since ADR 0443 says *which* layer filled the picture, because a whole page at a fraction of the resolution is a different amount of wrong from the last frame moved — [`Stale::count`] is what the summary prints, split the same three ways, and since ADR 0385 every *refusal* says so too, by name and by kind ([`Refusal`]) |
 //! | 4. it costs the real frame nothing | **structural since ADR 0391**: the render is on a thread of its own, so a reprojection is three textured quads on the *presenting* thread and takes nothing from the frame it stands in for |
 //! | 5. it does not fire when it is not needed | [`Stale::missed`] — the frame did not land inside the surface's own refresh, which is the owner's word *miss*, known two ways |
 //!
@@ -109,13 +109,28 @@
 //! file computes. Neither knows what a reprojection is, and the test at the foot of this file
 //! walks every `.rs` outside `viewer-ui/src/bin` to say so.
 //!
-//! # What a revealed edge shows
+//! # What a revealed edge shows, and what now shows there instead
 //!
-//! A scroll or a zoom out moves pixels off the region the old rendering covered, and there is
-//! nothing true to put there. The window shows its own background — the medium layer
-//! [`crate::renderer`] puts under the page — and **not** page white: white would be an assertion
-//! that the page is blank there, which is the plausible-looking lie principle 1 is about, while
-//! the medium is what this window shows wherever it has no page. ADR 0378.
+//! A scroll or a zoom out moves pixels off the region the old rendering covered. The base is a
+//! picture of the *window*, so what it does not cover it has nothing to say about, and until the
+//! six-hundred-and-eighth session the window put its own background there — never page white,
+//! which would assert that the page is blank there, which is the plausible-looking lie principle
+//! 1 is about (ADR 0378).
+//!
+//! **The second layer is a picture of the *page*, and that is what fills it** (ADR 0443). A
+//! [`Proxies`] entry is a whole page drawn once into a raster whose longer side is
+//! [`PROXY_EDGE`] pixels, produced on the render thread when it has nothing else to do, and
+//! placed under the base by the same `settled⁻¹ ∘ asked` composition. The two are complementary
+//! rather than competing, which is the whole argument for the construction: a whole-page picture
+//! is near the right resolution exactly when the view is zoomed out, which is when the margin
+//! appears, and it is badly blurred exactly when the sharp base already covers the view.
+//!
+//! It also answers the case this file was not looking at: **a page turn and a `GoTo` have no base
+//! at all**, because nothing about the outgoing page's pixels is true of the incoming one at any
+//! placement. A page whose proxy is retained has pixels there where the base has none, so
+//! [`Plan::Approximate`] carries a [`Source`] saying *which* layer filled the picture — rule 3
+//! grew that distinction in the same session, because "approximated from the last frame" and
+//! "approximated from a low-resolution page" are different amounts of wrong.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -135,14 +150,15 @@ use pdf_render::{DisplayList, TargetSpec, Transform};
 /// asked for — which is every frame of a document nobody is touching.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Plan {
-    /// Stand in for the frame this view is waiting for, with the rendering already held.
+    /// Stand in for the frame this view is waiting for, from the layers named.
     ///
-    /// **It carries nothing**, since ADR 0391. It used to carry the view being asked for, which
-    /// the caller already has; what a stand-in actually needs is the *placement* that carries the
-    /// rendering onto that view, and the only way to obtain one is [`Stale::reproject`], which
-    /// composes it against the rendering itself. A payload a caller could pass on instead would
-    /// be a second route to a placement, and there is deliberately one.
-    Reproject,
+    /// **It carries no placement**, since ADR 0391, and it carries no pixels: what a stand-in
+    /// actually needs is the *placements* that carry the pictures held onto this view, and the
+    /// only ways to obtain one are [`Stale::reproject`] for the base and [`Proxies::placements`]
+    /// for the pages under it — each composed against the picture it is of. A payload a caller
+    /// could pass on instead would be a second route to a placement, and there is deliberately
+    /// one apiece.
+    Approximate(Stand),
     /// Put the rendering up as it is: it already depicts the view being asked for, so this is not
     /// a view change and there is nothing to say about it.
     Render,
@@ -153,6 +169,56 @@ pub(crate) enum Plan {
     /// asks for is the one thing left: keep the picture the window has, keep the clock armed, and
     /// let the tick that follows carry the rendering.
     Refused(Refusal),
+}
+
+/// What a stand-in is made of, and what it is missing.
+///
+/// **Rule 3 as a value rather than as a sentence somebody remembered to print.** A frame line
+/// saying only `approximated` stopped saying what it was showing the moment there were two
+/// sources of approximate pixels, so the plan carries the source and the presenter cannot draw
+/// one without naming it.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Stand {
+    /// Which layers have pixels for this view.
+    pub(crate) from: Source,
+    /// Why the last rendering does not carry onto this view, where it does not.
+    ///
+    /// `Some` is a picture drawn from the retained pages alone — a page turn, a `GoTo`, a resize,
+    /// a zoom in a column — and it is still a refusal of the *sharp* layer, so it is said out loud
+    /// and counted ([`Stale::without_base`]). What it is no longer is a blank window.
+    pub(crate) instead_of_the_base: Option<Refusal>,
+}
+
+/// Which of the two approximate layers filled the picture — rule 3's distinction.
+///
+/// The order is the amount of wrong: the last frame moved is blurred by the magnification and no
+/// more, the pages under it are a whole page at [`PROXY_EDGE`] pixels along its longer side, and
+/// a picture made of those alone is the blurrier of the two everywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Source {
+    /// The last rendering's own texture, moved — and nothing under it, because no retained page
+    /// has pixels for this view.
+    LastFrame,
+    /// The last rendering, moved, over the retained pages that fill what it does not cover.
+    LastFrameOverPages,
+    /// The retained pages alone: nothing about the last rendering is true of this view.
+    RetainedPages,
+}
+
+impl Source {
+    /// The frame line's outcome word — rule 3, in the place a person actually reads.
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Self::LastFrame => "approximated",
+            Self::LastFrameOverPages => "approximated, over a retained page",
+            Self::RetainedPages => "approximated from a retained page",
+        }
+    }
+
+    /// Whether the last rendering's own texture is one of the layers.
+    pub(crate) fn has_base(self) -> bool {
+        matches!(self, Self::LastFrame | Self::LastFrameOverPages)
+    }
 }
 
 /// Why a view change was not stood in for.
@@ -299,12 +365,49 @@ pub(crate) struct Refusals {
     pub(crate) impossible: u64,
     /// Refusals that were a judgement between two measurements.
     pub(crate) unwise: u64,
+    /// Refusals of the *sharp* layer that the retained pages stood in for anyway.
+    ///
+    /// **Counted apart from the two above, because it answers a different question** (ADR 0443).
+    /// Those two are view changes the window did not move for; this one moved, from the blurrier
+    /// source, and a person reading a trace of a page turn needs to be able to tell "nothing was
+    /// shown" from "a low-resolution page was shown". It is deliberately not in [`Self::total`].
+    pub(crate) proxied: u64,
 }
 
 impl Refusals {
     /// Every view change this run showed the real frame for rather than standing in.
     pub(crate) fn total(self) -> u64 {
         self.impossible.saturating_add(self.unwise)
+    }
+}
+
+/// How many stand-ins this run drew, split by what they were made of — rule 3's count.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Drawn {
+    /// The last rendering's own texture, moved, with nothing under it.
+    pub(crate) last_frame: u64,
+    /// The same, over retained pages filling what it did not cover.
+    pub(crate) over_pages: u64,
+    /// Retained pages alone, where the last rendering said nothing about the view.
+    pub(crate) pages_only: u64,
+}
+
+impl Drawn {
+    /// Every stand-in, whatever it was made of.
+    pub(crate) fn total(self) -> u64 {
+        self.last_frame
+            .saturating_add(self.over_pages)
+            .saturating_add(self.pages_only)
+    }
+
+    /// Records one of `from`.
+    fn record(&mut self, from: Source) {
+        let counter = match from {
+            Source::LastFrame => &mut self.last_frame,
+            Source::LastFrameOverPages => &mut self.over_pages,
+            Source::RetainedPages => &mut self.pages_only,
+        };
+        *counter = counter.saturating_add(1);
     }
 }
 
@@ -318,7 +421,216 @@ impl Refusals {
 impl Plan {
     /// Whether the window is to stand in for the frame rather than wait for it.
     fn stands_in(&self) -> bool {
-        matches!(self, Self::Reproject)
+        matches!(self, Self::Approximate(_))
+    }
+}
+
+/// The longer side, in device pixels, of the retained low-resolution picture of a whole page.
+///
+/// **Chosen from a measurement, and the measurement said the opposite of what was expected.**
+/// `doc/todo/37` illustrated the idea with "an eighth of device scale" and said outright that the
+/// scale was still open. What decides it is what a proxy *costs*, and on this machine's Radeon
+/// 890M — `cargo run --release -p render-quorra --example zoom_frame`, sequence
+/// `1.188,0.152,0.304,0.456,0.608,0.912,1.216` — **the cost is flat in the scale**:
+///
+/// | page | 91 × 128 | 362 × 512 | 724 × 1024 |
+/// |---|---|---|---|
+/// | `doc/ISO_32000-2_sponsored_EC3.pdf` p60 | 21.8 ms | 24.6 ms | 24.6 ms |
+/// | `doc/PDF20_AN001-BPC.pdf` p1 (160 commands) | 4.2 ms | 1.9 ms | 3.1 ms |
+///
+/// and on the project owner's own witness, 58 029 commands, a sixty-four-fold range of pixels
+/// moved the frame from 406.4 ms at 254 × 72 to 408.2 ms at 2027 × 576. **What a frame of a page
+/// costs is walking its display list, not covering its pixels**, so buying sharpness here is free
+/// in time. The binding constraint is therefore **memory**: 512 gives 362 × 512 × 4 = 741 376
+/// bytes for an A4 page, against 8 192 000 for *one* of the two window textures a single frame
+/// already holds, and half the linear resolution of a page filling an 800 × 1000 window — soft,
+/// unmistakably a stand-in, and unmistakably the page.
+///
+/// **A fixed edge rather than a fraction of the current magnification, for a second reason the
+/// ladder showed.** A run that drew the same page at seven scales made quorra throw its whole
+/// glyph atlas away — `repacked` on the last rung — and the real frame after a repack cost 411 ms
+/// where the one after a single proxy cost 82. A proxy scale that followed the zoom would put a
+/// new glyph size in the atlas at every step; one fixed edge puts in one, once, per page.
+pub(crate) const PROXY_EDGE: u32 = 512;
+
+/// How many pages this host retains a low-resolution picture of, when nobody says otherwise.
+///
+/// **A default is a decision, so this one is chosen from a measurement rather than picked**, and
+/// the measurement separates two costs that look like one. Drawing a page's picture is paid
+/// **once per page shown**, whatever this number is — the render thread draws it while idle, and
+/// the frame after it pays what a rebuilt scene costs instead of what a replay does:
+///
+/// | page | the proxy | the frame after it | that frame as a replay |
+/// |---|---|---|---|
+/// | `doc/ISO_32000-2_sponsored_EC3.pdf` p60 | 21.9 ms | 2.1 ms | 1.1 ms |
+/// | the owner's witness, 58 029 commands | 411.0 ms | 82.0 ms | 1.9 ms |
+///
+/// **What *this* number costs is memory alone**, at 741 KB a page, and what it buys is not
+/// drawing a page's picture a second time after an eviction — so a larger extent is strictly
+/// cheaper in renders and strictly dearer in bytes. Eight is where the whole retained set, 5.9 MB
+/// for A4, is still smaller than one of the two window textures a frame holds anyway: a budget
+/// stated against something this program already spends rather than a round number. It covers the
+/// gestures that actually land on a held page — `Left` and `Right` about where a person is, a
+/// continuous column's rows, a `GoTo` back where they came from — and a `GoTo` into a thousand
+/// pages is beyond any extent, which is why the curve is here rather than further out.
+///
+/// The price to know about is neither of the two above: **a view change arriving while a page's
+/// picture is being drawn waits for it to finish**, up to 411 ms on that witness. The window
+/// still answers at once, from the layers this module is about; what is late is the real frame.
+/// One page per idle turn is what bounds it (`crate::renderer`). `--proxy-pages 0` turns the
+/// whole of it off.
+pub(crate) const PROXY_PAGES: usize = 8;
+
+/// A whole page, drawn once at [`PROXY_EDGE`], and what it is a picture of.
+///
+/// Generic in its pixels so that one policy serves both threads and the tests: the render thread
+/// holds `Arc<wgpu::Texture>` and so does the presenter, and neither of them is what decides which
+/// pages are kept.
+#[derive(Debug)]
+pub(crate) struct Retained<P> {
+    /// The page, by the `Arc` whose address is its identity — the same identity
+    /// [`one_placement`] matches on, and for the same ABA reason (ADR 0351).
+    pub(crate) page: Arc<DisplayList>,
+    /// Where the whole page sits in this picture: [`proxy_target`]'s answer, kept beside the
+    /// pixels rather than recomputed, so that a change to that function cannot silently re-place
+    /// a raster already drawn.
+    pub(crate) target: TargetSpec,
+    /// Whatever holds the pixels on the thread this lives on.
+    pub(crate) pixels: P,
+}
+
+/// Where a whole page goes in its own retained picture, or `None` for a page with no extent.
+///
+/// The same `TargetSpec::for_page` the core builds a render request with (`viewer_core::Viewer`),
+/// at a smaller scale — which is what makes the composition below exact rather than approximate:
+/// both are affine maps out of the same page's user space, so `proxy⁻¹ ∘ asked` is the map from
+/// this raster's texels to the window's pixels and nothing has to agree about anything else.
+pub(crate) fn proxy_target(list: &DisplayList) -> Option<TargetSpec> {
+    let size = list.page_size;
+    let longest = size.width.max(size.height);
+    if !longest.is_finite() || longest <= 0.0 {
+        return None;
+    }
+    let scale = f64::from(PROXY_EDGE) / f64::from(longest);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a ratio of two page dimensions, far inside f32's range"
+    )]
+    let scale = scale as f32;
+    // The budget is the square of the edge and one pixel: `TargetSpec::for_page` rounds each
+    // dimension **up**, so that the raster contains the page rather than clipping the fraction of
+    // a row at its edge (ADR 0064), and a page whose longer side divides exactly still lands one
+    // pixel over when the ratio is not exact in `f32`. Stated here so that a page of an absurd
+    // aspect ratio is refused by that function rather than allocated for.
+    let edge = u64::from(PROXY_EDGE).saturating_add(1);
+    TargetSpec::for_page(list, scale, edge.saturating_mul(edge)).ok()
+}
+
+/// Every page this window is holding a low-resolution picture of, newest first.
+///
+/// **The extent is the host's setting and could not be anything else** (`doc/todo/37`, ADR 0443).
+/// A stand-in is a wrong picture, so rule 2 keeps everything that makes one inside a private
+/// module of a binary: the count may not become a `Command`, a field of a boundary type or
+/// anything a gate, an oracle or a harness could link to. It is a flag beside `--cpu` and
+/// `--backend`, and `PROXY_PAGES` is what it defaults to.
+///
+/// **Newest first, oldest dropped, and that is a choice with a reason.** A proxy is produced only
+/// for a page of the most recent frame, so the pages on the screen are always the newest entries
+/// and the one evicted is never one the window is showing — provided the extent is at least the
+/// number of pages Table 29's arrangement puts up, which is what `PROXY_PAGES` is sized for.
+#[derive(Debug)]
+pub(crate) struct Proxies<P> {
+    held: Vec<Retained<P>>,
+    extent: usize,
+}
+
+impl<P> Proxies<P> {
+    /// A store that will hold `extent` pages. Zero is the feature turned off.
+    pub(crate) fn new(extent: usize) -> Self {
+        Self {
+            held: Vec::new(),
+            extent,
+        }
+    }
+
+    /// Keeps a page's picture, replacing any picture of that page and dropping the oldest.
+    pub(crate) fn keep(&mut self, one: Retained<P>) {
+        self.held.retain(|held| !Arc::ptr_eq(&held.page, &one.page));
+        self.held.insert(0, one);
+        self.held.truncate(self.extent);
+    }
+
+    /// The first page of `pages` with no picture yet, which is what the render thread draws next.
+    ///
+    /// `None` where every one of them is held, and `None` for an extent of zero — a store that
+    /// keeps nothing must not ask for anything, or the render thread would draw a proxy per idle
+    /// turn and throw each one away.
+    pub(crate) fn wanted(
+        &self,
+        pages: &[(Arc<DisplayList>, TargetSpec)],
+    ) -> Option<Arc<DisplayList>> {
+        if self.extent == 0 {
+            return None;
+        }
+        pages
+            .iter()
+            .map(|(page, _)| page)
+            .find(|page| !self.held.iter().any(|held| Arc::ptr_eq(&held.page, page)))
+            .map(Arc::clone)
+    }
+
+    /// Where each retained page goes so that it depicts the view being asked for.
+    ///
+    /// One placement per page that is in both this store and the arrangement, as an index into
+    /// [`Self::get`] — **not one affine for the whole picture**, which is the difference between
+    /// this layer and the base. The base is one texture of the window and so needs one placement
+    /// true of every page in it ([`Refusal::Rearranged`]); these are one texture *per page*, so a
+    /// zoom in a column places each of them correctly and the arrangement's gap never comes into
+    /// it.
+    ///
+    /// A page whose composition is not a finite affine is left out rather than refused: the rest
+    /// of the picture is still true, and there is no single answer here to spoil.
+    pub(crate) fn placements(
+        &self,
+        asked: &[(Arc<DisplayList>, TargetSpec)],
+    ) -> Vec<(usize, Transform)> {
+        let mut placed = Vec::new();
+        for (index, held) in self.held.iter().enumerate() {
+            let Some((_, target)) = asked.iter().find(|(page, _)| Arc::ptr_eq(page, &held.page))
+            else {
+                continue;
+            };
+            let Some(moved) = held
+                .target
+                .transform
+                .invert()
+                .map(|back| back.then(target.transform))
+            else {
+                continue;
+            };
+            if [moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
+                .iter()
+                .all(|coefficient| coefficient.is_finite())
+            {
+                placed.push((index, moved));
+            }
+        }
+        placed
+    }
+
+    /// The page at an index [`Self::placements`] handed back.
+    pub(crate) fn get(&self, index: usize) -> Option<&Retained<P>> {
+        self.held.get(index)
+    }
+
+    /// How many pages are held, for the trace.
+    pub(crate) fn len(&self) -> usize {
+        self.held.len()
+    }
+
+    /// How many this store will hold — the host's setting, carried to the render thread.
+    pub(crate) fn extent(&self) -> usize {
+        self.extent
     }
 }
 
@@ -487,8 +799,8 @@ pub(crate) struct Stale {
     /// redrew the launch frame in 2.1 ms, and the zoom step after it was judged against that
     /// rather than against the 778.6 ms rendering it replayed. `None` until a frame has built one.
     building: Option<Duration>,
-    /// How many have been drawn — rule 3's count, which the frame summary prints.
-    count: u64,
+    /// How many have been drawn and of what — rule 3's count, which the frame summary prints.
+    count: Drawn,
     /// Rule 3 over the refusals: how many view changes showed the real frame, and of which kind.
     refusals: Refusals,
 }
@@ -528,9 +840,30 @@ impl Stale {
     ///
     /// `period` is the surface's own refresh, which is what rule 5 is measured against; `drawing`
     /// is whether a render asked for at an earlier tick is still out.
+    /// Whether the last rendering carries onto this view, and why not where it does not.
+    ///
+    /// Split out of [`Self::plan`] when the retained pages arrived (ADR 0443), because the answer
+    /// stopped deciding the whole frame: a base that does not carry used to mean a window that
+    /// showed nothing, and now means a window drawn from the blurrier layer alone.
+    fn carries(settled: &Settled, pages: &[(Arc<DisplayList>, TargetSpec)]) -> Result<(), Refusal> {
+        // A resize changes what the window is as well as where the pages are in it, and what is
+        // held is that window's whole picture — see [`Refusal::Resized`] for why the chrome in it
+        // makes this an impossibility rather than the revealed edge under another name. It is not
+        // an impossibility for the retained pages, which are pictures of a *page* and know nothing
+        // about the window: a resize is one of the cases they now answer.
+        let extent = pages
+            .first()
+            .map(|(_, target)| (target.width, target.height));
+        if extent.is_some() && settled.extent() != extent {
+            return Err(Refusal::Resized);
+        }
+        one_placement(&settled.pages, pages).map(|_| ())
+    }
+
     pub(crate) fn plan(
         &self,
         pages: &[(Arc<DisplayList>, TargetSpec)],
+        covered: usize,
         period: Duration,
         drawing: bool,
     ) -> Plan {
@@ -554,34 +887,48 @@ impl Stale {
         if depicts(&settled.pages, pages) {
             return Plan::Render;
         }
-        // A resize changes what the window is as well as where the pages are in it, and what is
-        // held is that window's whole picture — see [`Refusal::Resized`] for why the chrome in it
-        // makes this an impossibility rather than the revealed edge under another name.
-        let extent = pages
-            .first()
-            .map(|(_, target)| (target.width, target.height));
-        if extent.is_some() && settled.extent() != extent {
-            return Plan::Refused(Refusal::Resized);
-        }
         // Whether one placement is true of every page in the picture — **asked before rule 5**,
         // because a page turn and a rearrangement are impossibilities and rule 5 is a judgement
         // about two measurements. Nothing about the outgoing pages' pixels says anything true
         // about the incoming ones, at any placement.
-        if let Err(why) = one_placement(&settled.pages, pages) {
-            return Plan::Refused(why);
+        let base = Self::carries(settled, pages);
+        // Nothing true to draw from either layer is the refusal this has always been. **The
+        // condition gained its second half in ADR 0443**: a page turn with a retained picture of
+        // the incoming page is no longer a window that shows nothing, so an impossibility for the
+        // base alone is not a refusal of the frame.
+        if let Err(why) = &base
+            && covered == 0
+        {
+            return Plan::Refused(why.clone());
         }
         // Rule 5: a frame the machine delivers inside one refresh *is* the frame every refresh
         // the owner asked for, so there is nothing to stand in for. **Rule 4 used to be the next
         // question and there is no next question**: a reprojection is issued by the thread holding
         // the surface while the render runs on another, so what standing in costs the real frame
         // is nothing rather than a fraction, and a bound on nothing is not a bound (ADR 0391).
+        //
+        // It gates the retained pages exactly as it gates the base, and for the same reason: a
+        // blurred page shown for one refresh and replaced is worse than the refresh spent waiting.
         if !self.missed(period, drawing) {
             return Plan::Refused(Refusal::InsideTheRefresh {
                 frame: self.expected(),
                 period,
             });
         }
-        Plan::Reproject
+        Plan::Approximate(match base {
+            Ok(()) if covered > 0 => Stand {
+                from: Source::LastFrameOverPages,
+                instead_of_the_base: None,
+            },
+            Ok(()) => Stand {
+                from: Source::LastFrame,
+                instead_of_the_base: None,
+            },
+            Err(why) => Stand {
+                from: Source::RetainedPages,
+                instead_of_the_base: Some(why),
+            },
+        })
     }
 
     /// Forgets what the window is showing, so that nothing is reprojected from it.
@@ -610,9 +957,9 @@ impl Stale {
     /// render it stood in for. It takes nothing from the render now, so there is nothing for a
     /// measurement of it to decide, and a number nobody can name a purpose for is a number to
     /// remove. What it costs is still *reported*, on the frame line, where a person reads it.
-    pub(crate) fn drawn(&mut self) -> MustFollow {
+    pub(crate) fn drawn(&mut self, from: Source) -> MustFollow {
         self.showing = true;
-        self.count = self.count.saturating_add(1);
+        self.count.record(from);
         MustFollow(())
     }
 
@@ -630,6 +977,24 @@ impl Stale {
         trace.say(
             crate::trace::Topic::Frames,
             format_args!("no reprojection ({}): {why}", why.kind()),
+        );
+    }
+
+    /// Says that the sharp layer was refused and the retained pages stood in, and counts it.
+    ///
+    /// **Beside [`Self::declined`] rather than inside it, because the two are different facts.**
+    /// That one is a view change the window did not move for; this one moved, from the blurrier
+    /// source, and the summary keeps them apart so that a person reading a trace of a page turn
+    /// can tell "nothing was shown" from "a low-resolution page was shown".
+    pub(crate) fn without_base(&mut self, why: &Refusal, held: usize, trace: crate::trace::Trace) {
+        self.refusals.proxied = self.refusals.proxied.saturating_add(1);
+        trace.say(
+            crate::trace::Topic::Frames,
+            format_args!(
+                "no reprojection ({}): {why} — {held} retained low-resolution page(s) stand in \
+                 instead",
+                why.kind()
+            ),
         );
     }
 
@@ -672,8 +1037,8 @@ impl Stale {
         self.showing
     }
 
-    /// How many reprojections this run has drawn — rule 3's count.
-    pub(crate) fn count(&self) -> u64 {
+    /// How many stand-ins this run has drawn and of what — rule 3's count.
+    pub(crate) fn count(&self) -> Drawn {
         self.count
     }
 
@@ -722,7 +1087,11 @@ mod tests {
 
     use pdf_render::{DisplayList, Size, TargetSpec, Transform};
 
-    use super::{Plan, Refusal, Stale};
+    use super::{Plan, Proxies, Refusal, Retained, Source, Stale, Stand};
+
+    /// No retained page has pixels for the view being asked for, which is what every case written
+    /// before ADR 0443 assumed and what a run with `--proxy-pages 0` is.
+    const NONE_HELD: usize = 0;
 
     /// A page's placement at a magnification, as `App::present` composes one: scale, y flip,
     /// translation of the page's origin in the window.
@@ -805,7 +1174,7 @@ mod tests {
     /// the obligation rather than the plan.
     ///
     /// **`Plan` used to answer `Render` for a view already approximated**, so that the event
-    /// thread would draw the real frame there and then. Since ADR 0391 it answers `Reproject`
+    /// thread would draw the real frame there and then. Since ADR 0391 it answers `Approximate`
     /// again — the render is on another thread whatever this tick decides, and answering `Render`
     /// for a view the *rendering* is not of would put the old view up unmoved, which is a jump
     /// backwards on the screen. So what stops the loop resting on a stand-in is the value that
@@ -816,20 +1185,24 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert!(
-            stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
+            stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .stands_in(),
             "a slow frame and a new magnification is what this exists for"
         );
-        let follow = stale.drawn();
+        let follow = stale.drawn(Source::LastFrame);
         assert!(stale.showing_approximation());
         assert!(
-            stale.plan(&alone(&page, 1.2), REFRESH, DRAWING).stands_in(),
+            stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING)
+                .stands_in(),
             "the same view again while the render is still out: the same three quads, which is \
              what a picture every refresh means"
         );
         // And the view the *rendering* is of goes up as it is, which is the answer that must not
         // be given to any other view.
         assert_eq!(
-            stale.plan(&alone(&page, 1.0), REFRESH, DRAWING),
+            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, DRAWING),
             Plan::Render
         );
         drop(follow);
@@ -848,7 +1221,7 @@ mod tests {
         let mut stale = Stale::default();
         stale.settled(&alone(&page, 1.0), REFRESH / 2, true);
         assert_eq!(
-            stale.plan(&alone(&page, 1.2), REFRESH, LANDED),
+            stale.plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED),
             Plan::Refused(Refusal::InsideTheRefresh {
                 frame: REFRESH / 2,
                 period: REFRESH,
@@ -856,7 +1229,11 @@ mod tests {
             "a view whose frame lands inside the refresh must show that frame, and say so"
         );
         stale.settled(&alone(&page, 1.0), REFRESH * 2, true);
-        assert!(stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in());
+        assert!(
+            stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .stands_in()
+        );
     }
 
     /// **Rule 5's second way of knowing, and it is ADR 0391's.** A prediction can be wrong; a
@@ -873,11 +1250,15 @@ mod tests {
         let mut stale = Stale::default();
         stale.settled(&alone(&page, 1.0), REFRESH / 4, true);
         assert!(
-            !stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
+            !stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .stands_in(),
             "the prediction says this one lands in time, so the first tick waits for it"
         );
         assert!(
-            stale.plan(&alone(&page, 1.2), REFRESH, DRAWING).stands_in(),
+            stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING)
+                .stands_in(),
             "and the tick after it, with the render still out, has watched it miss"
         );
     }
@@ -907,7 +1288,9 @@ mod tests {
             );
             stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
-                stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
+                stale
+                    .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                    .stands_in(),
                 "{frame} ms is {} refreshes and must be stood in for",
                 cost.as_secs_f64() / REFRESH.as_secs_f64()
             );
@@ -916,7 +1299,9 @@ mod tests {
         // depend on a measurement only a reprojection can produce.
         stale.settled(&alone(&page, 1.0), REFRESH * 3, true);
         assert!(
-            stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
+            stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .stands_in(),
             "a run that has drawn none must still be able to draw its first"
         );
     }
@@ -941,11 +1326,13 @@ mod tests {
             let cost = Duration::from_secs_f64(frame / 1e3);
             stale.settled(&alone(&page, 1.0), cost, true);
             assert!(
-                stale.plan(&alone(&page, 1.3), period, LANDED).stands_in(),
+                stale
+                    .plan(&alone(&page, 1.3), NONE_HELD, period, LANDED)
+                    .stands_in(),
                 "{frame} ms misses a 8.333 ms refresh, and standing in now costs that frame \
                  nothing at all"
             );
-            drop(stale.drawn());
+            drop(stale.drawn(Source::LastFrame));
             stale.real();
         }
     }
@@ -972,13 +1359,19 @@ mod tests {
             "a replay says what a replay costs and nothing about the next render"
         );
         assert!(
-            stale.plan(&alone(&page, 1.2), REFRESH, LANDED).stands_in(),
+            stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, LANDED)
+                .stands_in(),
             "the zoom after a harmless redraw is the one the owner waited through"
         );
         // A frame that genuinely built a cheap picture *does* move it.
         stale.settled(&alone(&page, 1.0), REFRESH / 2, true);
         assert_eq!(stale.expected(), REFRESH / 2);
-        assert!(!stale.plan(&alone(&page, 1.3), REFRESH, LANDED).stands_in());
+        assert!(
+            !stale
+                .plan(&alone(&page, 1.3), NONE_HELD, REFRESH, LANDED)
+                .stands_in()
+        );
     }
 
     /// A different page is not this page moved, and no placement makes it one.
@@ -993,11 +1386,11 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &first);
         assert_eq!(
-            stale.plan(&alone(&second, 1.0), REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.0), NONE_HELD, REFRESH, LANDED),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
-            stale.plan(&alone(&second, 1.3), REFRESH, LANDED),
+            stale.plan(&alone(&second, 1.3), NONE_HELD, REFRESH, LANDED),
             Plan::Refused(Refusal::AnotherPage)
         );
         assert_eq!(
@@ -1015,7 +1408,7 @@ mod tests {
         let mut stale = Stale::default();
         slow(&mut stale, &page);
         assert_eq!(
-            stale.plan(&alone(&page, 1.0), REFRESH, LANDED),
+            stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED),
             Plan::Render,
             "the view already on the screen is drawn, not approximated — and not refused either"
         );
@@ -1024,7 +1417,7 @@ mod tests {
             ..view(1.2)
         };
         assert_eq!(
-            stale.plan(&at(&page, resized), REFRESH, LANDED),
+            stale.plan(&at(&page, resized), NONE_HELD, REFRESH, LANDED),
             Plan::Refused(Refusal::Resized)
         );
         assert_eq!(
@@ -1041,7 +1434,11 @@ mod tests {
         let page = page();
         let mut stale = Stale::default();
         slow(&mut stale, &page);
-        assert!(stale.plan(&alone(&page, 2.0), REFRESH, LANDED).stands_in());
+        assert!(
+            stale
+                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED)
+                .stands_in()
+        );
         let moved = stale
             .reproject(&alone(&page, 2.0))
             .expect("a doubled magnification");
@@ -1123,7 +1520,9 @@ mod tests {
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736] {
             let asked = view(magnification);
             assert!(
-                stale.plan(&at(&page, asked), REFRESH, DRAWING).stands_in(),
+                stale
+                    .plan(&at(&page, asked), NONE_HELD, REFRESH, DRAWING)
+                    .stands_in(),
                 "the view keeps moving and the frame stays slow"
             );
             let moved = stale
@@ -1137,7 +1536,7 @@ mod tests {
                 (through.x - directly.x).abs() < 1e-3 && (through.y - directly.y).abs() < 1e-3,
                 "{magnification}: {through:?} {directly:?}"
             );
-            drop(stale.drawn());
+            drop(stale.drawn(Source::LastFrame));
         }
     }
 
@@ -1152,11 +1551,15 @@ mod tests {
         let page = page();
         let mut stale = Stale::default();
         slow(&mut stale, &page);
-        drop(stale.drawn());
+        drop(stale.drawn(Source::LastFrame));
         // The frame for the 1.2× view finally lands, while the person has already asked for 2×.
         stale.settled(&alone(&page, 1.2), Duration::from_millis(700), true);
         stale.real();
-        assert!(stale.plan(&alone(&page, 2.0), REFRESH, LANDED).stands_in());
+        assert!(
+            stale
+                .plan(&alone(&page, 2.0), NONE_HELD, REFRESH, LANDED)
+                .stands_in()
+        );
         let moved = stale
             .reproject(&alone(&page, 2.0))
             .expect("the view moved on");
@@ -1185,7 +1588,7 @@ mod tests {
         let settled = column(&pages, 1.0, 0.0);
         stale.settled(&settled, Duration::from_millis(700), true);
         let asked = column(&pages, 1.0, 240.0);
-        assert!(stale.plan(&asked, REFRESH, LANDED).stands_in());
+        assert!(stale.plan(&asked, NONE_HELD, REFRESH, LANDED).stands_in());
         let moved = stale.reproject(&asked).expect("a column that scrolled");
         let corner = pdf_render::Point::new(100.0, 700.0);
         for (index, ((_, was), (_, now))) in settled.iter().zip(&asked).enumerate() {
@@ -1220,7 +1623,7 @@ mod tests {
         );
         assert_eq!(refused.kind(), "impossible");
         assert_eq!(
-            stale.plan(&column(&pages, 1.25, 0.0), REFRESH, LANDED),
+            stale.plan(&column(&pages, 1.25, 0.0), NONE_HELD, REFRESH, LANDED),
             Plan::Refused(refused)
         );
         // And the single page it is not about.
@@ -1232,7 +1635,7 @@ mod tests {
         );
         assert!(
             alone_stale
-                .plan(&column(&pages[..1], 1.25, 0.0), REFRESH, LANDED)
+                .plan(&column(&pages[..1], 1.25, 0.0), NONE_HELD, REFRESH, LANDED)
                 .stands_in(),
             "one page has one placement and always did"
         );
@@ -1254,11 +1657,11 @@ mod tests {
         );
         let asked = column(&pages, 1.0, 100.0);
         assert_ne!(
-            stale.plan(&asked, REFRESH, LANDED),
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED),
             Plan::Render,
             "a third page on the screen is not the frame that showed two"
         );
-        assert!(stale.plan(&asked, REFRESH, LANDED).stands_in());
+        assert!(stale.plan(&asked, NONE_HELD, REFRESH, LANDED).stands_in());
         assert!(
             stale.reproject(&asked).is_ok(),
             "the two pages in both pictures agree on one placement"
@@ -1282,15 +1685,15 @@ mod tests {
         for magnification in [1.2_f32, 1.44, 1.728, 2.0736, 2.488] {
             assert!(
                 stale
-                    .plan(&alone(&page, magnification), REFRESH, DRAWING)
+                    .plan(&alone(&page, magnification), NONE_HELD, REFRESH, DRAWING)
                     .stands_in(),
                 "{magnification}: nothing about a frame's atlas reaches a texture already drawn"
             );
             assert!(stale.reproject(&alone(&page, magnification)).is_ok());
-            drop(stale.drawn());
+            drop(stale.drawn(Source::LastFrame));
         }
         assert_eq!(stale.refusals().total(), 0);
-        assert_eq!(stale.count(), 5);
+        assert_eq!(stale.count().total(), 5);
     }
 
     /// Rule 3 over the refusals, which is what reaches the summary: every one of them is either an
@@ -1352,12 +1755,260 @@ mod tests {
         slow(&mut stale, &page);
         for _ in 0..100 {
             assert_eq!(
-                stale.plan(&alone(&page, 1.0), REFRESH, LANDED),
+                stale.plan(&alone(&page, 1.0), NONE_HELD, REFRESH, LANDED),
                 Plan::Render,
                 "the same view, redrawn: quorra replays it and nothing is being stood in for"
             );
         }
         assert_eq!(stale.refusals().total(), 0);
+    }
+
+    /// A store of pictures whose "pixels" are the page's index, so that a placement can be
+    /// checked against the page it belongs to without a graphics device.
+    fn retaining(pages: &[Arc<DisplayList>]) -> Proxies<usize> {
+        let mut proxies = Proxies::new(pages.len());
+        for (index, page) in pages.iter().enumerate() {
+            proxies.keep(Retained {
+                page: Arc::clone(page),
+                target: super::proxy_target(page).expect("a page with an extent"),
+                pixels: index,
+            });
+        }
+        proxies
+    }
+
+    /// **The case `doc/todo/37` said this construction pays for, and it is the strongest one.** A
+    /// page turn and a `GoTo` have no base at all — nothing about the outgoing page's pixels is
+    /// true of the incoming one at any placement — so before ADR 0443 the window showed the page
+    /// being left, frozen, for the whole of the render. A retained picture of the page arriving
+    /// is the only thing that can stand in there.
+    ///
+    /// Both halves are asserted, because the difference between them is the feature: with no
+    /// retained page the refusal is exactly what it always was.
+    #[test]
+    fn a_page_turn_shows_a_retained_page_where_one_is_held() {
+        let first = page();
+        let second = page();
+        let mut stale = Stale::default();
+        slow(&mut stale, &first);
+        let held = retaining(&[Arc::clone(&second)]);
+        let asked = alone(&second, 1.0);
+        let under = held.placements(&asked);
+        assert_eq!(under.len(), 1, "the incoming page's own picture is held");
+        assert_eq!(
+            stale.plan(&asked, under.len(), REFRESH, LANDED),
+            Plan::Approximate(Stand {
+                from: Source::RetainedPages,
+                instead_of_the_base: Some(Refusal::AnotherPage),
+            }),
+            "the sharp layer is still impossible and says so; the window still moves"
+        );
+        assert_eq!(
+            stale.plan(&asked, NONE_HELD, REFRESH, LANDED),
+            Plan::Refused(Refusal::AnotherPage),
+            "and with nothing retained it is the refusal it always was"
+        );
+    }
+
+    /// A retained page is placed where the *view* puts that page, which is what makes the layer
+    /// under the base line up with it rather than merely appear.
+    ///
+    /// Read as a property of a point on the page — carried through the proxy's own target and
+    /// then through the placement — because that is where the correctness lives: the two targets
+    /// are built by the same `TargetSpec::for_page` out of the same page, so their composition is
+    /// exact and a test that compared transforms would be re-deriving the arithmetic.
+    #[test]
+    fn a_retained_page_lands_where_the_view_puts_that_page() {
+        let page = page();
+        let held = retaining(&[Arc::clone(&page)]);
+        let corner = pdf_render::Point::new(100.0, 700.0);
+        for magnification in [0.3_f32, 1.0, 2.5] {
+            let asked = alone(&page, magnification);
+            let placed = held.placements(&asked);
+            let (index, moved) = placed.first().copied().expect("one page, one placement");
+            let proxy = held.get(index).expect("the index it handed back").target;
+            let through = moved.apply(proxy.transform.apply(corner));
+            let directly = asked[0].1.transform.apply(corner);
+            assert!(
+                (through.x - directly.x).abs() < 1e-2 && (through.y - directly.y).abs() < 1e-2,
+                "{magnification}: {through:?} {directly:?}"
+            );
+        }
+    }
+
+    /// **The zoom in a column, which the base refuses and this layer answers** (ADR 0442's
+    /// `Refusal::Rearranged`). The window puts its pages up as one texture under one placement, so
+    /// no single affine carries a column whose gap does not scale; a retained page is one texture
+    /// *per page*, so each is placed by its own composition and the gap never enters into it.
+    #[test]
+    fn a_zoom_of_a_column_places_every_retained_page_by_itself() {
+        let pages = [page(), page()];
+        let held = retaining(&pages);
+        let mut stale = Stale::default();
+        stale.settled(&column(&pages, 1.0, 0.0), Duration::from_millis(700), true);
+        let asked = column(&pages, 1.25, 0.0);
+        let placed = held.placements(&asked);
+        assert_eq!(placed.len(), 2, "both pages of the column are held");
+        let corner = pdf_render::Point::new(100.0, 700.0);
+        for (index, moved) in placed {
+            let retained = held.get(index).expect("the index it handed back");
+            let (_, target) = asked
+                .iter()
+                .find(|(page, _)| Arc::ptr_eq(page, &retained.page))
+                .expect("a page of the arrangement");
+            let through = moved.apply(retained.target.transform.apply(corner));
+            let directly = target.transform.apply(corner);
+            assert!(
+                (through.x - directly.x).abs() < 1e-2 && (through.y - directly.y).abs() < 1e-2,
+                "page {index}: {through:?} {directly:?}"
+            );
+        }
+        assert_eq!(
+            stale.plan(&asked, 2, REFRESH, LANDED),
+            Plan::Approximate(Stand {
+                from: Source::RetainedPages,
+                instead_of_the_base: Some(Refusal::Rearranged {
+                    first: match stale.reproject(&asked) {
+                        Err(Refusal::Rearranged { first, .. }) => first,
+                        other => panic!("a zoom of a column rearranges: {other:?}"),
+                    },
+                    then: match stale.reproject(&asked) {
+                        Err(Refusal::Rearranged { then, .. }) => then,
+                        other => panic!("a zoom of a column rearranges: {other:?}"),
+                    },
+                }),
+            }),
+        );
+    }
+
+    /// **Rule 5 gates this layer exactly as it gates the base**, and for the same reason: a
+    /// blurred page shown for one refresh and replaced is worse than the refresh spent waiting.
+    #[test]
+    fn a_frame_inside_the_refresh_is_not_stood_in_for_by_a_retained_page_either() {
+        let first = page();
+        let second = page();
+        let mut stale = Stale::default();
+        stale.settled(&alone(&first, 1.0), REFRESH / 2, true);
+        assert_eq!(
+            stale.plan(&alone(&second, 1.0), 1, REFRESH, LANDED),
+            Plan::Refused(Refusal::InsideTheRefresh {
+                frame: REFRESH / 2,
+                period: REFRESH,
+            }),
+            "a page turn whose frame lands in time shows that frame, retained page or not"
+        );
+    }
+
+    /// Rule 3's new distinction: the three sources are three different amounts of wrong and the
+    /// frame line says which, so no two of them may print the same word — and the tally keeps
+    /// them apart.
+    #[test]
+    fn every_source_says_which_layers_filled_the_picture() {
+        let every = [
+            Source::LastFrame,
+            Source::LastFrameOverPages,
+            Source::RetainedPages,
+        ];
+        let mut said: Vec<&str> = every.iter().map(|from| from.word()).collect();
+        said.sort_unstable();
+        said.dedup();
+        assert_eq!(said.len(), every.len(), "two sources printed the same word");
+        assert!(Source::LastFrame.has_base() && Source::LastFrameOverPages.has_base());
+        assert!(!Source::RetainedPages.has_base());
+        let mut stale = Stale::default();
+        for from in every {
+            drop(stale.drawn(from));
+        }
+        let drawn = stale.count();
+        assert_eq!(
+            (drawn.last_frame, drawn.over_pages, drawn.pages_only),
+            (1, 1, 1)
+        );
+        assert_eq!(drawn.total(), 3);
+    }
+
+    /// The store keeps the newest and drops the oldest, and asks for the first page of the
+    /// arrangement it has no picture of.
+    ///
+    /// **The eviction order is what keeps a page on the screen from being thrown away**: a
+    /// picture is produced only for a page of the most recent frame, so the pages showing are
+    /// always the newest entries — provided the extent is at least as large as the arrangement,
+    /// which is what `PROXY_PAGES` is sized for.
+    #[test]
+    fn the_store_keeps_the_newest_pages_and_asks_for_what_it_has_not_got() {
+        let pages = [page(), page(), page()];
+        let mut proxies: Proxies<usize> = Proxies::new(2);
+        let arrangement: Vec<(Arc<DisplayList>, TargetSpec)> = pages
+            .iter()
+            .map(|page| (Arc::clone(page), view(1.0)))
+            .collect();
+        for (index, page) in pages.iter().enumerate() {
+            assert!(
+                proxies
+                    .wanted(&arrangement)
+                    .is_some_and(|asked| Arc::ptr_eq(&asked, page)),
+                "the first page with no picture, in the arrangement's own order"
+            );
+            proxies.keep(Retained {
+                page: Arc::clone(page),
+                target: super::proxy_target(page).expect("a page with an extent"),
+                pixels: index,
+            });
+        }
+        assert_eq!(proxies.len(), 2, "the extent is a bound and it binds");
+        assert_eq!(
+            proxies.placements(&arrangement).len(),
+            2,
+            "the two newest, and the oldest is gone"
+        );
+        // And a store that keeps nothing asks for nothing, or the render thread would draw a
+        // picture per idle turn and throw every one of them away.
+        let empty: Proxies<usize> = Proxies::new(0);
+        assert!(empty.wanted(&arrangement).is_none());
+    }
+
+    /// The retained picture is the *whole page*, bounded by [`super::PROXY_EDGE`] on its longer
+    /// side — which is what makes it complementary to the base rather than a second copy of it.
+    ///
+    /// A crop of a real frame would not do, and this is the property that says so: at a high
+    /// magnification a window frame is a crop of the page, while this is the page whatever the
+    /// view is doing.
+    #[test]
+    fn a_retained_picture_is_the_whole_page_within_the_stated_edge() {
+        for (width, height) in [(595.0_f32, 842.0_f32), (842.0, 595.0), (200.0, 200.0)] {
+            let page = Arc::new(DisplayList::new(Size::new(width, height)));
+            let target = super::proxy_target(&page).expect("a page with an extent");
+            // Within a pixel either way: `TargetSpec::for_page` rounds **up** so that the raster
+            // contains the page (ADR 0064), and the ratio of two page dimensions is not exact in
+            // `f32` — so a longer side that divides exactly still lands one row over. The edge is
+            // a budget to spend rather than a ceiling to stay under, which is why the floor is
+            // asserted as well as the ceiling.
+            assert!(
+                (super::PROXY_EDGE - 1..=super::PROXY_EDGE + 1)
+                    .contains(&target.width.max(target.height)),
+                "{width}x{height} became {}x{}",
+                target.width,
+                target.height
+            );
+            // The whole page: its two far corners land inside the raster, which is what a crop
+            // would fail.
+            let corners = [
+                pdf_render::Point::new(0.0, 0.0),
+                pdf_render::Point::new(width, height),
+            ];
+            for corner in corners {
+                let in_raster = target.transform.apply(corner);
+                assert!(
+                    in_raster.x >= -0.5
+                        && in_raster.y >= -0.5
+                        && in_raster.x
+                            <= f32::from(u16::try_from(target.width).expect("small")) + 0.5
+                        && in_raster.y
+                            <= f32::from(u16::try_from(target.height).expect("small")) + 0.5,
+                    "{corner:?} left the raster at {in_raster:?}"
+                );
+            }
+        }
     }
 
     /// Rule 2, as far as a test can reach it: nothing outside this window's own binary names the

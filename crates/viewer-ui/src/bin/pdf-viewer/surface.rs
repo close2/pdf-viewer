@@ -204,25 +204,22 @@ impl App {
             // The clock stays armed, so page one arrives on the tick after it is drawn rather
             // than waiting for an event that is not coming.
             self.cadence.owed(now);
-            return self.put_up(Transform::IDENTITY, stages);
+            return self.put_up(Some(Transform::IDENTITY), &[], stages);
         }
+        // Which retained pages have pixels for this view — asked before the plan, because whether
+        // a page turn is a refusal or a blurred picture depends on it (ADR 0443).
+        let under = self.device_window()?.underlay(pages);
         // Every rule that makes an approximation defensible is in `crate::stale` rather than
         // here. The period is the one number rule 5 is measured against (ADR 0384), and `drawing`
         // is its second way of knowing that a frame has missed (ADR 0391).
-        let planned = self.stale.plan(pages, self.cadence.period(), drawing);
-        let placement = match planned {
-            crate::stale::Plan::Render => Transform::IDENTITY,
-            crate::stale::Plan::Reproject => match self.stale.reproject(pages) {
-                Ok(moved) => {
-                    stages.approximated = true;
-                    moved
-                }
-                Err(why) => {
-                    let trace = self.trace;
-                    self.stale.declined(&why, trace);
-                    return None;
-                }
-            },
+        let planned = self
+            .stale
+            .plan(pages, under.len(), self.cadence.period(), drawing);
+        let stand = match planned {
+            crate::stale::Plan::Render => {
+                return self.put_up(Some(Transform::IDENTITY), &[], stages);
+            }
+            crate::stale::Plan::Approximate(stand) => stand,
             crate::stale::Plan::Refused(why) => {
                 let trace = self.trace;
                 self.stale.declined(&why, trace);
@@ -234,7 +231,29 @@ impl App {
                 return None;
             }
         };
-        self.put_up(placement, stages)
+        // The sharp layer, where the plan says there is one. Asked through `Stale::reproject` and
+        // nowhere else, so that no caller can compose against anything but the last rendering.
+        let base = if stand.from.has_base() {
+            match self.stale.reproject(pages) {
+                Ok(moved) => Some(moved),
+                Err(why) => {
+                    let trace = self.trace;
+                    self.stale.declined(&why, trace);
+                    return None;
+                }
+            }
+        } else {
+            // Rule 3: the refusal of the sharp layer is said and counted even though the window
+            // is about to move, because "a low-resolution page was shown" and "nothing was shown"
+            // are two answers and a person reading a page turn's trace needs to know which.
+            if let Some(why) = &stand.instead_of_the_base {
+                let trace = self.trace;
+                self.stale.without_base(why, under.len(), trace);
+            }
+            None
+        };
+        stages.approximated = Some(stand.from);
+        self.put_up(base, &under, stages)
     }
 
     /// Takes whatever the render thread has finished, and records what it is.
@@ -310,13 +329,22 @@ impl App {
     /// `None` where nothing was put up — there is no frame yet, or the swapchain said to try
     /// again — and `None` for a reprojection as well, deliberately: the core is told what became
     /// of its request by the frame that *answers* it, and a stand-in answers nothing.
-    fn put_up(&mut self, placement: Transform, stages: &mut Stages) -> Option<Rendered> {
+    fn put_up(
+        &mut self,
+        placement: Option<Transform>,
+        under: &[(usize, Transform)],
+        stages: &mut Stages,
+    ) -> Option<Rendered> {
         let began = std::time::Instant::now();
         let expected = self.stale.expected();
         let period = self.cadence.period();
-        let (outcome, cost) = {
+        let (outcome, cost, retained) = {
             let window = self.device_window()?;
-            (window.present(placement), window.last_present())
+            (
+                window.present(placement, under),
+                window.last_present(),
+                window.retained(),
+            )
         };
         match outcome {
             Ok(true) => {}
@@ -352,32 +380,35 @@ impl App {
                 .saturating_add(cost.record_wall)
                 .saturating_add(cost.present_wall);
         }
-        if !stages.approximated {
+        let Some(from) = stages.approximated else {
             // A rendering reached the window. **Whether it landed at *this* tick is deliberately
             // not asked**: a tick that put the same rendering up again has still presented one,
             // which is what the core's acknowledgement and the launch timeline both read, and
             // what the summary counts as a correct frame.
             return Some(Rendered::Presented);
-        }
-        // Rule 3 twice over: the frame line says `approximated`, and this says what it is an
-        // approximation *of* — which frame it stands in for and what putting it up cost. There is
-        // no readback in it and no upload behind it any more, which is why the third number this
-        // line used to carry is gone with them (ADR 0391).
+        };
+        // Rule 3 twice over: the frame line carries [`crate::stale::Source::word`], and this says
+        // what the picture is an approximation *of* — which frame it stands in for, which layers
+        // filled it, and what putting it up cost. There is no readback in it and no upload behind
+        // it any more, which is why the third number this line used to carry is gone with them
+        // (ADR 0391).
         self.trace.say(
             Topic::Frames,
             format_args!(
-                "approximated: this view's frame is expected to cost {:.1} ms against a {:.1} ms \
-                 refresh, so it misses, and the last rendering's own texture stands in under a \
-                 composed placement (present {:.2} ms); the real frame is being drawn",
+                "{}: this view's frame is expected to cost {:.1} ms against a {:.1} ms refresh, \
+                 so it misses, and {} of {retained} retained low-resolution page(s) stand in \
+                 under composed placements (present {:.2} ms); the real frame is being drawn",
+                from.word(),
                 expected.as_secs_f64() * 1e3,
                 period.as_secs_f64() * 1e3,
+                under.len(),
                 began.elapsed().as_secs_f64() * 1e3,
             ),
         );
         // Rule 1, as a value that cannot be dropped: the frame that replaces this one is asked
         // for here, in the same expression that records it — of the clock rather than of the
         // window, so that a view still moving is answered again on the next tick.
-        self.stale.drawn().follow(&mut self.cadence, began);
+        self.stale.drawn(from).follow(&mut self.cadence, began);
         None
     }
 
@@ -566,6 +597,7 @@ impl App {
         let presenter = match crate::renderer::Window::split(
             renderer,
             (size.width.max(1), size.height.max(1)),
+            self.proxy_pages,
         ) {
             Ok(presenter) => presenter,
             Err(renderer) => {
@@ -805,25 +837,25 @@ impl App {
         // Rule 1's other half: *every* frame that is not a reprojection clears the flag, a frame
         // that drew nothing included. A flag that could outlive the redraw answering it would
         // leave `about_to_wait` asking for a frame that never comes, which is a spinning loop.
-        if !stages.approximated {
+        if stages.approximated.is_none() {
             self.stale.real();
         }
         // What the window actually put up, which is what `doc/todo/36`'s rule 6 counts: a
         // rendering and a reprojection are both presents and a frame that drew nothing is not
         // one. The clock is moved on by exactly these, so an idle window — which produces none —
         // never advances it and never wakes for it.
-        stages.presented = stages.approximated
+        stages.presented = stages.approximated.is_some()
             || matches!(outcome, Some(Rendered::Presented | Rendered::Raster(_)));
         if stages.presented {
             self.cadence.presented(std::time::Instant::now());
             self.settle_cadence();
         }
-        let outcome_said = match &outcome {
-            None if stages.approximated => "approximated".to_owned(),
-            None => "nothing to show".to_owned(),
-            Some(Rendered::Presented) => "presented".to_owned(),
-            Some(Rendered::Failed(why)) => format!("failed: {why}"),
-            Some(Rendered::Raster(_)) => "a raster".to_owned(),
+        let outcome_said = match (&outcome, stages.approximated) {
+            (None, Some(from)) => from.word().to_owned(),
+            (None, None) => "nothing to show".to_owned(),
+            (Some(Rendered::Presented), _) => "presented".to_owned(),
+            (Some(Rendered::Failed(why)), _) => format!("failed: {why}"),
+            (Some(Rendered::Raster(_)), _) => "a raster".to_owned(),
         };
         let trace = self.trace;
         self.frames.frame(trace, &stages, &outcome_said);

@@ -1,8 +1,9 @@
 # A frame that says it is stale — the one window it does not cover yet
 
 Status: **built for the window with a graphics device** (ADR 0378, extended by ADR 0383, rule 5
-corrected by ADR 0384 and the base's lifetime by ADR 0385, each after the owner found it did not
-fire on a real one), which is every run without `--cpu`. A view change whose last frame was slow
+corrected by ADR 0384, the base's lifetime by ADR 0385, and **the retained low-resolution page by
+ADR 0443**, each after the owner found it did not fire on a real one), which is every run without
+`--cpu`. A view change whose last frame was slow
 now shows the pixels already on the screen, moved to where the new view puts them, and the real
 frame replaces it — the frame line says `approximated`, the summary counts them **and counts what
 was refused**, and `crates/viewer-ui/src/bin/pdf-viewer/stale.rs` carries the five rules with the
@@ -153,6 +154,45 @@ Not progressive rendering (`doc/todo/16`'s road C), not a page turn — nothing 
 page's pixels says anything true about the incoming one — and not §12.4.4's transitions, which are
 already a picture of two pages moving. ADR 0378 has each argument.
 
+## The retained page was built in the six-hundred-and-eighth session — ADR 0443
+
+**Everything the two sections below asked for exists**, in `crate::stale`'s `Proxies` and
+`crate::renderer`'s idle turn: a whole page at `PROXY_EDGE` pixels along its longer side, drawn on
+the render thread when nothing else is asked of it, placed under the base by the same composition,
+one placement per page. The extent is `--proxy-pages N`, the host's flag, defaulting to
+`PROXY_PAGES`; both constants carry the measurement that chose them and ADR 0443 has the tables.
+The two sections below are kept because their *argument* is what the code rests on; four of their
+claims have been corrected by running it and the corrections are here.
+
+- **"A page turn and a `GoTo` have no base at all" is true only under `SinglePage`.** Both
+  specification documents open in `OneColumn`, where the incoming arrangement shares a page with
+  the outgoing one, so the base carries — and what the retained layer adds there is *the other page
+  of the pair*, which used to vanish for the length of the render. The frame line says which:
+  `approximated, over a retained page`.
+- **The `SinglePage` page turn is still not answered, and the reason is the identity.** A retained
+  picture is keyed by the `Arc<DisplayList>` it was drawn from, and `viewer_core::open` keeps "one
+  entry rather than a cache of them" — so a page turn drops the outgoing page's interpretation and
+  returning to it produces a new `Arc` with no picture held. Every such turn prints `another page —
+  nothing to show`. **What is owed is a decision rather than a mechanism**: whether a stand-in may
+  be a picture of a *superseded* interpretation of the same page. That is a different kind of wrong
+  from blur — a layer toggled off would still be drawn for one frame — and it needs the argument
+  rule 2's siblings all got, not a key changed in passing.
+- **The scale was free in time and the file's illustration was the wrong axis.** "An eighth of
+  device scale" assumed the cost was pixels; it is the display-list walk, flat over a sixty-fourfold
+  range of raster sizes. What binds is memory, and the second thing the ladder showed: a proxy scale
+  that followed the zoom would put a new glyph size in quorra's atlas at every step, and a repack
+  costs the next real frame its whole geometry.
+- **`Refusal::Rearranged` fires on scrolls, and that is about the base rather than this layer.**
+  ADR 0442 compares each page's `settled⁻¹ ∘ asked` exactly, on the argument that a threshold would
+  be a number nobody measured a purpose for. On a real column a scroll produces two placements that
+  print identically to three decimals and are not equal, because the composition goes through an
+  inverse in `f32` — so the sharp layer is refused for most view changes in a continuous layout and
+  this round's layer hides it. **The purpose is now measured**: a placement wrong by less than half
+  a device pixel moves no pixel, which is a bound with a derivation rather than a tolerance. A round
+  that takes it owes the measurement of how far the compositions actually differ, over a real
+  column, before choosing the bound — and owes it in a round of its own, because it changes what a
+  correct picture is judged by.
+
 ## A second thing is left, asked for by the owner on 2026-08-20: pixels for the area that was not there
 
 **The module's own doc names this gap and has since it was written**: *"a scroll reveals an edge the
@@ -217,3 +257,7 @@ Two things a round still owes, and being configurable does not excuse either. **
 decision**, so it is chosen from a measurement — what a neighbour costs to draw and what it saves on
 a page turn — and written down as one rather than picked. And **the scale is still open**, which was
 the other half of the sentence: an eighth was this file's illustration, not a finding.
+
+*Both were taken in the six-hundred-and-eighth session and both are in the constants' own doc
+comments, with the tables: `crate::stale::PROXY_EDGE` and `crate::stale::PROXY_PAGES`. The section
+at the head of this file says which of the four claims above the measurement contradicted.*

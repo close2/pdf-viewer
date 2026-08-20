@@ -27,22 +27,42 @@
 //! `interpret` stays exactly the pure function of the bytes and the view state that the oracle's
 //! whole comparison rests on.
 //!
-//! # Three layers, in this order, every present
+//! # Four kinds of layer, in this order, every present
 //!
 //! 1. **the medium**, one opaque texel scaled over the window. A page moved under a new view
 //!    reveals what it does not cover, and what belongs there is the window's background — never
 //!    page white, which would assert that the page is blank there (ADR 0378).
-//! 2. **the pages**, drawn into one texture and put up under the single placement
+//! 2. **the retained pages**, one textured quad each, where a stand-in is being drawn. Each is a
+//!    whole page at [`crate::stale::PROXY_EDGE`] pixels along its longer side, under its own
+//!    `proxy⁻¹ ∘ asked` — **one placement per page rather than one for the picture**, which is
+//!    what lets this layer answer a zoom in a column and a page turn where the one below it
+//!    cannot (ADR 0443). Absent on a frame that is not standing in, where they would be entirely
+//!    hidden by the layer over them.
+//! 3. **the pages**, drawn into one texture and put up under the single placement
 //!    [`crate::stale`] computes. The identity where the frame on hand is of the view being asked
 //!    for; `settled⁻¹ ∘ asked` where it is not. **One texture and one placement whatever Table
 //!    29's arrangement is** — the pages of a column move together, so what carries one onto the
 //!    view carries all of them, and [`crate::stale`] refuses outright where that is not true
-//!    rather than moving a page to somewhere it is not (ADR 0442).
-//! 3. **the chrome**, at the identity, on transparency. It is drawn in window pixels and it does
+//!    rather than moving a page to somewhere it is not (ADR 0442). Absent where that refusal
+//!    fired and the layer under it is standing in alone.
+//! 4. **the chrome**, at the identity, on transparency. It is drawn in window pixels and it does
 //!    not move with the page, which is what keeps a sidebar still while a page is being zoomed.
+//!
+//! **Layer 3 is opaque and that is what makes the pair complementary.** `render-quorra` draws the
+//! window's medium under the page into that texture, so wherever the base covers the window it
+//! wins outright and the blurrier picture beneath it is invisible; wherever a new view has moved
+//! the base off, the retained page shows through. Neither layer has to know about the other.
 //!
 //! An empty slice would be a legitimate present that cleared the window, which is why this module
 //! never issues one: a window with nothing to show presents nothing at all.
+//!
+//! # What the render thread does when nothing is asked of it
+//!
+//! **The proxies are produced there, and only there** (`doc/todo/37`, ADR 0443). Nothing on the
+//! launch path makes one: the thread does not exist until the first job, it draws that job first,
+//! and it looks for a page with no picture only when [`Job`]'s channel is empty. One page per idle
+//! turn, so a view change arriving mid-way waits for one low-resolution frame rather than for the
+//! whole set.
 //!
 //! # What the startup rules bind here
 //!
@@ -137,11 +157,25 @@ struct Done {
     pipelines: Option<Duration>,
 }
 
+/// What the render thread sends back: a window frame, or a page it drew while it was idle.
+///
+/// **One channel rather than two**, so that the order the thread produced them in is the order the
+/// event thread reads them in — a proxy that arrived before a frame must not be adopted after it,
+/// or the store would hold a page the frame has already replaced.
+#[derive(Debug)]
+enum Finished {
+    /// A window frame, boxed because it is much the larger of the two and a channel's item is as
+    /// wide as its widest variant.
+    Frame(Box<Done>),
+    /// A whole page at [`crate::stale::PROXY_EDGE`], drawn while nothing else was asked for.
+    Page(crate::stale::Retained<Arc<wgpu::Texture>>),
+}
+
 /// The channels to a running render thread, and the thread itself.
 #[derive(Debug)]
 struct Link {
     jobs: Sender<Job>,
-    done: Receiver<Done>,
+    done: Receiver<Finished>,
     /// Joined on the way out, so that a device is shut down rather than abandoned.
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -206,6 +240,15 @@ pub(crate) struct Window {
     thread: Option<Link>,
     /// The newest finished frame, which is what every present draws.
     shown: Option<Shown>,
+    /// The whole pages this window is holding a low-resolution picture of.
+    ///
+    /// **A second copy of what the render thread holds, and it is a copy on purpose.** The thread
+    /// is the authority — it decides which page to draw next and keeps its own store — and what
+    /// crosses is a finished picture, so the two can differ only by whatever is in the channel.
+    /// The cost of a difference is a proxy drawn twice or one turn late, and never a wrong
+    /// picture; ADR 0385's defect was the opposite arrangement, where the pixels and the record of
+    /// what they were of could part company.
+    proxies: crate::stale::Proxies<Arc<wgpu::Texture>>,
     /// The pair the last adopted frame displaced, waiting to go back with the next job.
     spare: Option<Pair>,
     /// When the frame now being drawn was asked for, or `None` when the thread is idle.
@@ -265,9 +308,13 @@ impl Window {
     /// `QuorraWindowRenderer` is thousands of bytes and a `Result` is as wide as its widest arm —
     /// so the arm that never happens would otherwise size the one that always does. Which is
     /// quorra's own argument for boxing the presenter inside `ForeignPresenter`, one layer down.
+    ///
+    /// `proxy_pages` is how many whole pages this window retains a low-resolution picture of —
+    /// the host's `--proxy-pages`, zero for a run that asked for none.
     pub(crate) fn split(
         mut renderer: QuorraWindowRenderer,
         size: (u32, u32),
+        proxy_pages: usize,
     ) -> Result<Self, Box<QuorraWindowRenderer>> {
         let description = renderer.adapter_description().to_owned();
         let startup = renderer.startup();
@@ -285,6 +332,7 @@ impl Window {
             idle: Some(renderer),
             thread: None,
             shown: None,
+            proxies: crate::stale::Proxies::new(proxy_pages),
             spare: None,
             in_flight: None,
             serial: 0,
@@ -336,13 +384,25 @@ impl Window {
     /// will ever see, and presenting it before the one behind it would be a stutter of exactly one
     /// refresh. In practice there is at most one, because [`Self::ask`] keeps one job in flight.
     pub(crate) fn collect(&mut self) -> Option<Landed> {
-        let link = self.thread.as_ref()?;
         let mut newest = None;
-        // A thread that has gone is a device that has gone, and the window keeps showing whatever
-        // it last had. Nothing here can restart it, so nothing here distinguishes an empty channel
-        // from a closed one.
-        while let Ok(done) = link.done.try_recv() {
-            newest = Some(done);
+        let mut arrived = Vec::new();
+        {
+            let link = self.thread.as_ref()?;
+            // A thread that has gone is a device that has gone, and the window keeps showing
+            // whatever it last had. Nothing here can restart it, so nothing here distinguishes an
+            // empty channel from a closed one.
+            while let Ok(finished) = link.done.try_recv() {
+                match finished {
+                    Finished::Frame(done) => newest = Some(done),
+                    // Every one of these is kept, unlike the frames: a proxy is a picture of a
+                    // page rather than of a moment, so an older one is not superseded by a newer
+                    // one of a *different* page.
+                    Finished::Page(page) => arrived.push(page),
+                }
+            }
+        }
+        for page in arrived {
+            self.proxies.keep(page);
         }
         let done = newest?;
         self.pipelines = self.pipelines.or(done.pipelines);
@@ -393,7 +453,7 @@ impl Window {
             let Some(renderer) = self.idle.take() else {
                 return; // the thread ended and its device went with it; nothing can restart it
             };
-            self.thread = Some(spawn(renderer));
+            self.thread = Some(spawn(renderer, self.proxies.extent()));
         }
         let Some(link) = self.thread.as_ref() else {
             return;
@@ -414,15 +474,33 @@ impl Window {
         }
     }
 
+    /// Where each retained page goes so that it depicts this arrangement — [`crate::stale`]'s
+    /// answer, asked here because the store lives here.
+    pub(crate) fn underlay(
+        &self,
+        pages: &[(Arc<DisplayList>, TargetSpec)],
+    ) -> Vec<(usize, Transform)> {
+        self.proxies.placements(pages)
+    }
+
+    /// How many whole pages this window is holding a picture of, for the trace.
+    pub(crate) fn retained(&self) -> usize {
+        self.proxies.len()
+    }
+
     /// Puts the frame on hand on the window, with the page under `placement`.
     ///
     /// `placement` maps the page texture's own texels to the window's pixels — the identity where
-    /// the frame is of the view being asked for, and `settled⁻¹ ∘ asked` where it is not.
+    /// the frame is of the view being asked for, and `settled⁻¹ ∘ asked` where it is not. `None`
+    /// leaves the sharp layer out altogether, which is the picture drawn from the retained pages
+    /// alone: a page turn, a `GoTo`, a resize, a zoom in a column.
+    ///
+    /// `under` is [`Self::underlay`]'s answer, empty on every frame that is not standing in.
     ///
     /// `Ok(false)` where there is nothing to show yet, which is every tick before the first frame
-    /// has landed. Nothing is presented then, deliberately: a present with no layers would clear
-    /// the window, and a window that has not been drawn to yet is not the same thing as a window
-    /// somebody emptied.
+    /// has landed — and where the caller asked for neither layer, which is a present that would
+    /// clear the window. Nothing is presented then, deliberately: a window that has not been drawn
+    /// to yet is not the same thing as a window somebody emptied.
     ///
     /// # Errors
     ///
@@ -430,24 +508,40 @@ impl Window {
     /// and is handled by the caller exactly as it was when the device owned the surface.
     pub(crate) fn present(
         &mut self,
-        placement: Transform,
+        placement: Option<Transform>,
+        under: &[(usize, Transform)],
     ) -> Result<bool, quorra_gpu::RenderError> {
         let Some(shown) = self.shown.as_ref() else {
             return Ok(false);
         };
+        if placement.is_none() && under.is_empty() {
+            return Ok(false);
+        }
         #[expect(
             clippy::cast_precision_loss,
             reason = "window dimensions are far below f32's exact integer range"
         )]
         let (width, height) = (self.size.0 as f32, self.size.1 as f32);
-        let layers = [
-            // One texel over the whole window: what a moved page reveals at its edge.
-            quorra_gpu::Layer {
-                texture: &self.medium,
-                placement: affine(Transform::scale(width, height)),
-                filter: quorra_scene::ImageFilter::Nearest,
-            },
-            quorra_gpu::Layer {
+        // One texel over the whole window: what a moved page reveals at its edge and no retained
+        // page covers.
+        let mut layers = vec![quorra_gpu::Layer {
+            texture: &self.medium,
+            placement: affine(Transform::scale(width, height)),
+            filter: quorra_scene::ImageFilter::Nearest,
+        }];
+        // The blurrier layer first, so that the sharp one is drawn over it wherever it has pixels.
+        for (index, moved) in under {
+            let Some(retained) = self.proxies.get(*index) else {
+                continue;
+            };
+            layers.push(quorra_gpu::Layer {
+                texture: &retained.pixels,
+                placement: affine(*moved),
+                filter: quorra_scene::ImageFilter::Linear,
+            });
+        }
+        if let Some(placement) = placement {
+            layers.push(quorra_gpu::Layer {
                 texture: &shown.textures.page,
                 placement: affine(placement),
                 // **Smoothed on purpose, and it is the one place this host chooses how a
@@ -457,15 +551,15 @@ impl Window {
                 // centres and the two filters agree exactly, so this costs a frame of the real
                 // page nothing (quorra's `present.wgsl`).
                 filter: quorra_scene::ImageFilter::Linear,
-            },
-            quorra_gpu::Layer {
-                texture: &shown.textures.chrome,
-                // The chrome is drawn in window pixels and stays where it was drawn: a sidebar
-                // does not move because a page is being zoomed.
-                placement: quorra_scene::Affine::IDENTITY,
-                filter: quorra_scene::ImageFilter::Nearest,
-            },
-        ];
+            });
+        }
+        layers.push(quorra_gpu::Layer {
+            texture: &shown.textures.chrome,
+            // The chrome is drawn in window pixels and stays where it was drawn: a sidebar
+            // does not move because a page is being zoomed.
+            placement: quorra_scene::Affine::IDENTITY,
+            filter: quorra_scene::ImageFilter::Nearest,
+        });
         self.presenter.present(&layers)?;
         Ok(true)
     }
@@ -477,36 +571,141 @@ impl Window {
 }
 
 /// Starts the render thread around a renderer, and hands back the channels to it.
-fn spawn(renderer: QuorraWindowRenderer) -> Link {
+fn spawn(renderer: QuorraWindowRenderer, proxy_pages: usize) -> Link {
     let (jobs, incoming) = channel::<Job>();
-    let (outgoing, done) = channel::<Done>();
+    let (outgoing, done) = channel::<Finished>();
     // A spawn this machine refuses is a machine with no thread to spare, and the window then
     // presents whatever it has and asks for frames nobody answers — which is what
     // `Link::jobs.send` failing already means, so there is one path rather than two.
     let thread = std::thread::Builder::new()
         .name("page renderer".to_owned())
-        .spawn(move || draw_until_told_to_stop(renderer, &incoming, &outgoing))
+        .spawn(move || draw_until_told_to_stop(renderer, proxy_pages, &incoming, &outgoing))
         .ok();
     Link { jobs, done, thread }
 }
 
-/// The render thread's whole life: draw what is asked for, send it back, wait for the next.
+/// The render thread's whole life: draw what is asked for, send it back, and draw a whole page at
+/// a fraction of the size while nothing else is asked of it.
 ///
 /// Ends when the event thread drops its sender, which is when the window is closing.
+///
+/// **The order is the whole of `CLAUDE.md`'s startup rule here.** A job always wins: the channel
+/// is asked first, a proxy is drawn only when it is empty, and one page is drawn per idle turn so
+/// that a view change arriving mid-way waits for one low-resolution frame rather than for a set of
+/// them. Nothing about this runs before the first job, because the thread does not exist until
+/// there is one.
 fn draw_until_told_to_stop(
     mut renderer: QuorraWindowRenderer,
+    proxy_pages: usize,
     jobs: &Receiver<Job>,
-    done: &Sender<Done>,
+    done: &Sender<Finished>,
 ) {
-    while let Ok(job) = jobs.recv() {
-        let finished = draw(&mut renderer, job);
-        // A send that fails is an event thread that has gone, and there is nobody left to draw
-        // for. The loop would end at the next `recv` anyway; leaving now saves a frame nobody
-        // would see.
-        if done.send(finished).is_err() {
-            return;
+    use std::sync::mpsc::TryRecvError;
+
+    let mut proxies: crate::stale::Proxies<Arc<wgpu::Texture>> =
+        crate::stale::Proxies::new(proxy_pages);
+    // What the last frame drew, which is the only set of pages this thread has display lists for.
+    let mut showing: Vec<(Arc<DisplayList>, TargetSpec)> = Vec::new();
+    // The chrome lane needs a target of its own even where there is no chrome, so one scratch
+    // texture is kept for whatever size the proxies are and remade when a page of another shape
+    // arrives. One allocation per page shape rather than one per proxy.
+    let mut scratch: Option<(u32, u32, wgpu::Texture)> = None;
+    let mut waiting: Option<Job> = None;
+    loop {
+        let job = match waiting.take() {
+            Some(job) => Some(job),
+            None => match jobs.try_recv() {
+                Ok(job) => Some(job),
+                Err(TryRecvError::Empty) => None,
+                Err(TryRecvError::Disconnected) => return,
+            },
+        };
+        if let Some(job) = job {
+            showing.clone_from(&job.pages);
+            let finished = draw(&mut renderer, job);
+            // A send that fails is an event thread that has gone, and there is nobody left to draw
+            // for. The loop would end at the next `recv` anyway; leaving now saves a frame nobody
+            // would see.
+            if done.send(Finished::Frame(Box::new(finished))).is_err() {
+                return;
+            }
+            continue;
+        }
+        if let Some(page) = proxies.wanted(&showing)
+            && let Some(retained) = draw_whole_page(&mut renderer, &page, &mut scratch)
+        {
+            // Kept here as well as sent, because this thread is the one that decides what to draw
+            // next and a store that forgot would draw the same page for ever.
+            proxies.keep(crate::stale::Retained {
+                page: Arc::clone(&retained.page),
+                target: retained.target,
+                pixels: Arc::clone(&retained.pixels),
+            });
+            if done.send(Finished::Page(retained)).is_err() {
+                return;
+            }
+            continue;
+        }
+        match jobs.recv() {
+            Ok(job) => waiting = Some(job),
+            Err(_) => return,
         }
     }
+}
+
+/// Draws one whole page into a raster of its own, for the layer under the base.
+///
+/// `None` where the page states no usable extent, or where the device refused it — **and it is
+/// deliberately silent**, because this is a picture nobody asked for: a refusal costs a stand-in
+/// that will not be as good and nothing else, and reporting it would be a note about work the
+/// person did not request. It cannot spin: the caller falls through to a blocking `recv` when this
+/// answers `None`, so a page the device will not draw is retried once per frame at most rather
+/// than once per turn round the loop.
+fn draw_whole_page(
+    renderer: &mut QuorraWindowRenderer,
+    page: &Arc<DisplayList>,
+    scratch: &mut Option<(u32, u32, wgpu::Texture)>,
+) -> Option<crate::stale::Retained<Arc<wgpu::Texture>>> {
+    let target = crate::stale::proxy_target(page)?;
+    let (width, height) = (target.width, target.height);
+    // A whole page at a few hundred pixels is far below the magnification at which quorra's GPU
+    // coverage lane is the cheaper one, whatever the window is showing (`crate::surface`), so the
+    // lane is stated rather than inherited from whatever the last frame asked for. `draw` sets it
+    // per job, so the next window frame is unaffected.
+    renderer.set_coverage(quorra_gpu::Coverage::Cpu);
+    let chrome = match scratch.take() {
+        Some((held_width, held_height, texture))
+            if (held_width, held_height) == (width, height) =>
+        {
+            texture
+        }
+        // The chrome lane needs a target even where there is no chrome to draw, and
+        // `Target::Texture` wants one sized exactly to the frame — so a page of another shape
+        // costs one texture and every page of one document costs one between them.
+        _ => renderer.layer_texture("a retained page's unused chrome", width, height),
+    };
+    let texture = renderer.layer_texture("a retained page", width, height);
+    let placed = [(page, target)];
+    let drawn = renderer.render(
+        PresentFrame {
+            width,
+            height,
+            pages: &placed,
+            raster: None,
+            overlays: &[],
+        },
+        WindowTextures {
+            page: &texture,
+            chrome: &chrome,
+        },
+    );
+    *scratch = Some((width, height, chrome));
+    drawn.ok()?;
+    Some(crate::stale::Retained {
+        page: Arc::clone(page),
+        target,
+        pixels: Arc::new(texture),
+    })
 }
 
 /// One job, drawn — on the device, or on the processor where the device refused.

@@ -113,6 +113,15 @@ pub(crate) struct Arguments {
     /// other one it has — the sandbox, the backend, the page to open at. The four levels the
     /// project owner named, and the menu that will offer them, are later.
     pub(crate) restrictions: RestrictionLevel,
+    /// How many whole pages the window retains a low-resolution picture of, from
+    /// `--proxy-pages`, defaulting to [`crate::stale::PROXY_PAGES`].
+    ///
+    /// **The project owner asked for the extent to be configurable and rule 2 decided where**
+    /// (`doc/todo/37`, ADR 0443). The pictures are stand-ins — deliberately wrong pictures — so
+    /// everything that makes one lives in a private module of this binary, and the count may not
+    /// become a `Command`, a field of a boundary type or anything a gate could link to. So it is
+    /// the host's, exactly as `--cpu`, `--backend` and `--no-sandbox` are.
+    pub(crate) proxy_pages: usize,
 }
 
 /// Reads the command line, applies the two settings that must be applied before anything opens a
@@ -129,6 +138,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut backend_asked_for = false;
     let mut opens_at = None;
     let mut restrictions = RestrictionLevel::On;
+    let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
         if argument == "--licences" || argument == "--licenses" {
@@ -177,6 +187,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             };
             backend = Some(named);
             backend_asked_for = true;
+        } else if argument == "--proxy-pages" {
+            proxy_pages = retained_pages(arguments.next());
         } else if argument == "--ignore-restrictions" {
             restrictions = RestrictionLevel::Off;
         } else if argument == "--page" {
@@ -204,27 +216,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     };
     let (path, fragment) = split_fragment(&argument);
 
-    // What this *build* can confine, said before anything is opened, because it is a fact
-    // about the executable rather than about a document and a person choosing a viewer for
-    // untrusted files deserves it in the first line rather than in a release note. Linux has
-    // seccomp-BPF and Landlock; the other two platforms get the worker process and no kernel
-    // confinement, which is a decision with an argument (ADR 0194) rather than an omission.
-    if !pdf_sandbox::lockdown::ENFORCED_BY_THIS_BUILD {
-        println!(
-            "note: this build has no kernel confinement for the image decoder — seccomp-BPF \
-             and Landlock are Linux interfaces. JBIG2 and JPEG 2000 are still decoded in a \
-             separate process, so a decoder failure costs one image rather than the viewer, \
-             and there is no address-space ceiling on that process."
-        );
-    }
-
-    // And what this build can hand a screen reader, said in the same breath and for the same
-    // reason: AT-SPI is Linux's, AccessKit's other two adapters are not wired in here, and a
-    // build that quietly exposed nothing would look exactly like one whose bridge is broken.
-    // ADR 0194's precedent, one interface over. ADR 0214.
-    if let Some(missing) = viewer_accessibility::Bridge::shortfall() {
-        println!("note: {missing}");
-    }
+    say_what_this_build_cannot_do();
 
     if !sandbox {
         pdf_sandbox::set_isolation(pdf_sandbox::Isolation::InProcess);
@@ -246,6 +238,50 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         opens_at,
         fragment,
         restrictions,
+        proxy_pages,
+    }
+}
+
+/// How many pages `--proxy-pages` asked the window to retain a low-resolution picture of.
+///
+/// **Refused rather than defaulted, for the reason `--backend` is**: a number this program could
+/// not read is a typing mistake, and a launch that quietly ignored it would leave a person
+/// measuring the default while believing they had changed it — which for a knob whose whole purpose
+/// is to be measured against its own absence is the worst failure it could have.
+fn retained_pages(word: Option<std::ffi::OsString>) -> usize {
+    let read = word.and_then(|value| value.to_string_lossy().parse::<usize>().ok());
+    let Some(pages) = read else {
+        eprintln!(
+            "--proxy-pages wants a count of pages, 0 or more (default {})",
+            crate::stale::PROXY_PAGES
+        );
+        std::process::exit(2);
+    };
+    pages
+}
+
+/// What this *build* cannot do, said before anything is opened.
+///
+/// Both are facts about the executable rather than about a document, and a person choosing a viewer
+/// for untrusted files deserves them in the first line rather than in a release note. Linux has
+/// seccomp-BPF and Landlock; the other two platforms get the worker process and no kernel
+/// confinement, which is a decision with an argument (ADR 0194) rather than an omission. AT-SPI is
+/// Linux's too, and AccessKit's other two adapters are not wired in here — a build that quietly
+/// exposed nothing would look exactly like one whose bridge is broken (ADR 0214).
+///
+/// A function of its own rather than two blocks inside the command line, because neither of them
+/// reads an argument: they are what this executable says about itself, whatever it was asked for.
+fn say_what_this_build_cannot_do() {
+    if !pdf_sandbox::lockdown::ENFORCED_BY_THIS_BUILD {
+        println!(
+            "note: this build has no kernel confinement for the image decoder — seccomp-BPF \
+             and Landlock are Linux interfaces. JBIG2 and JPEG 2000 are still decoded in a \
+             separate process, so a decoder failure costs one image rather than the viewer, \
+             and there is no address-space ceiling on that process."
+        );
+    }
+    if let Some(missing) = viewer_accessibility::Bridge::shortfall() {
+        println!("note: {missing}");
     }
 }
 
@@ -331,6 +367,12 @@ fn usage() {
     eprintln!("                Slower, and the same rasteriser the reference comparison is built");
     eprintln!("                on: a page that appears with this and not without it is the");
     eprintln!("                device's, and so is a launch that only works with it.");
+    eprintln!("  --proxy-pages N");
+    eprintln!("                how many whole pages the window keeps a low-resolution picture of,");
+    eprintln!("                so that a view change reaching area the last frame has no pixels");
+    eprintln!("                for — a zoom out, a scroll, a page turn — shows something rather");
+    eprintln!("                than the window's background. 0 turns it off; each page costs one");
+    eprintln!("                render on the idle render thread and under a megabyte.");
     eprintln!("  --backend B   which driver stack talks to the GPU, not which GPU: vulkan, dx12,");
     eprintln!("                metal or gl. What to reach for when one stack on this machine is");
     eprintln!("                broken and another is not. Refused, rather than quietly ignored,");

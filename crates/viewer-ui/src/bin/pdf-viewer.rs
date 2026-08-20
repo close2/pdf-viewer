@@ -202,6 +202,7 @@ fn main() {
         opens_at,
         fragment,
         restrictions,
+        proxy_pages,
     } = arguments(launch.began);
     launch.mark("arguments");
 
@@ -269,6 +270,7 @@ fn main() {
         arming: None,
         trace,
         processor,
+        proxy_pages,
         backend,
         backend_asked_for,
         cursor: (0.0, 0.0),

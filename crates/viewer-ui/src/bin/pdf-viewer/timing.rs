@@ -227,14 +227,18 @@ pub(crate) struct Stages {
     pub(crate) present: std::time::Duration,
     /// The accessibility publication — measured *beside* the frame rather than inside it.
     pub(crate) attend: std::time::Duration,
-    /// Whether this frame was a **reprojection** rather than a rendering of the page.
+    /// Which approximate layers this frame was made of, or `None` for a rendering of the page.
     ///
     /// `doc/todo/37`'s third rule: a reader of the trace must never have to infer that a frame
     /// was approximated. It is in the frame line's outcome word, it is counted in the summary,
     /// and it is here rather than derived from a small duration for the same reason
     /// [`render_quorra::FrameCost::encode_source`] is an observable — an inference is not
-    /// something a person or a test can assert on. See [`crate::stale`].
-    pub(crate) approximated: bool,
+    /// something a person or a test can assert on.
+    ///
+    /// **A [`crate::stale::Source`] rather than a `bool` since ADR 0443**, because there are two
+    /// approximate layers now and they are different amounts of wrong: a frame line that said
+    /// only `approximated` for both had stopped saying what it was showing.
+    pub(crate) approximated: Option<crate::stale::Source>,
     /// Whether this frame put anything on the window at all.
     ///
     /// `doc/todo/36`'s sixth rule counts *presents*, and the two things that are not one are a
@@ -339,7 +343,7 @@ impl FrameLog {
         if stages.presented {
             let now = std::time::Instant::now();
             self.presents = self.presents.saturating_add(1);
-            if stages.approximated {
+            if stages.approximated.is_some() {
                 self.approximated = self.approximated.saturating_add(1);
             }
             // The interval is taken here rather than at the present itself so that the sequence
@@ -464,7 +468,10 @@ impl FrameLog {
             (
                 "approximated",
                 "the outcome of a frame that is the previous view's own pixels moved rather \
-                 than a rendering of the page — always followed by the real frame (ADR 0378)",
+                 than a rendering of the page — always followed by the real frame (ADR 0378). \
+                 It says which layers filled the picture: the last frame alone, the last frame \
+                 over a retained low-resolution page, or such a page alone where nothing about \
+                 the last frame is true of this view (ADR 0443)",
             ),
         ] {
             trace.more(Topic::Frames, format_args!("{column:<9} {meaning}"));
@@ -480,7 +487,7 @@ impl FrameLog {
     pub(crate) fn summary(
         &self,
         trace: Trace,
-        approximated: u64,
+        approximated: crate::stale::Drawn,
         refused: crate::stale::Refusals,
         cadence: &crate::cadence::Cadence,
     ) {
@@ -503,8 +510,13 @@ impl FrameLog {
         trace.more(
             Topic::Frames,
             format_args!(
-                "{approximated} of them reprojected the previous view's pixels while the real \
-                 frame was built; every one was replaced by the frame it stood in for (ADR 0378)"
+                "{} of them stood in while the real frame was built — {} the previous view's \
+                 pixels moved, {} those over a retained low-resolution page, {} such a page \
+                 alone; every one was replaced by the frame it stood in for (ADR 0378, ADR 0443)",
+                approximated.total(),
+                approximated.last_frame,
+                approximated.over_pages,
+                approximated.pages_only
             ),
         );
         // Rule 3's other count, and ADR 0385's half of it. A reprojection that does not happen is
@@ -517,10 +529,12 @@ impl FrameLog {
             Topic::Frames,
             format_args!(
                 "{} view change(s) showed the real frame instead: {} had nothing true to move and \
-                 {} were a judgement between two measurements — each says which, above (ADR 0385)",
+                 {} were a judgement between two measurements — each says which, above (ADR \
+                 0385). {} more had no sharp layer and were drawn from a retained page (ADR 0443)",
                 refused.total(),
                 refused.impossible,
-                refused.unwise
+                refused.unwise,
+                refused.proxied
             ),
         );
         trace.more(
