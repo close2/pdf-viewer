@@ -286,6 +286,11 @@ pub(crate) struct FrameLog {
     legend: bool,
     /// Whether the closing line for pipeline compilation has been printed.
     pub(crate) pipelines: bool,
+    /// Whether the sentence about a swapchain that cannot be rebuilt has been printed.
+    ///
+    /// Once per run rather than once per frame: the state does not clear itself, so a window in
+    /// it produces the refusal at every refresh and a person would get a screenful of one fact.
+    pub(crate) refused_swapchain: bool,
 }
 
 /// How to read one stage out of one frame.

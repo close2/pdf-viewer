@@ -149,6 +149,35 @@ kills the viewer. Two existing fixtures caught it; `keep_the_line_soup_non_empty
 with one transparent rectangle. **Run the whole suite after turning a dependency's feature on**,
 not only the test that motivated it.
 
+### 12c. A dependency that reports through a *handler* has an ordering you have to obey
+
+`wgpu::Surface::configure` returns `()`. When it fails it says so on the device's uncaptured-error
+handler, and this program's handler printed a note and returned — after which quorra acquired from
+a surface the device had refused to configure, and **wgpu panicked**: under `panic = "abort"`, a
+core dump on the launch path. The project owner met it; the next launch was fine, because the
+condition is a submission landing inside the configure's wait for the device to come idle, which
+is wgpu's own documented validation error and is transient by construction. ADR 0462.
+
+Three things out of it, and the third is the general one.
+
+**A note is not a decision.** Principle 1 says every error is "typed, propagated, and handled
+somewhere deliberate", and a handler that prints has satisfied none of the three verbs. The fix is
+to make what the handler was told into a value a host can *take* —
+`render_quorra::UncapturedErrors` — and then to decide with it at the call that provoked it.
+
+**Ask which of a dependency's failures are fatal and what makes them so.** wgpu's acquire has two
+answers to "this surface is not configured", and it picks between them by a field that is set
+*only by a configure that succeeded* (`wgpu-30.0.0/src/backend/wgpu_core.rs:3979-3985` against
+`:4023-4037`). With it, a status the caller can act on; without it, `handle_error_fatal`. So the
+panic is reachable on the **first** configure of a process and never again — which is a fact you
+can only have by reading the dependency, and which turns an unfixable panic into an ordering.
+
+**And then let the type hold the ordering.** The first configure is made to happen where nothing
+of this program can be submitting — before the render thread exists — and that is enforced rather
+than remembered: `Window::split` hands back an `Ungrounded`, the only route to a `Window` is
+`Ungrounded::ground`, and the method that spawns the render thread exists only on a `Window`. A
+rule ("present once before you start rendering") is a rule somebody forgets; a constructor is not.
+
 ### 14. A target that *is* the region a clause names cannot tell you whether you applied it
 
 ISO 32000-2 §14.11.2.1 is a `shall`: "[t]he crop box defines the region to which the contents of the

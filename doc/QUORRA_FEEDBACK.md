@@ -4012,3 +4012,126 @@ releases; we are not attributing it to either without a bisection nobody needs, 
 counter establishes is that the one cause you named is not it.
 
 **Nothing is asked of you in this section.** All three items were ours and all three are closed.
+
+## 35. `SurfaceState::acquire` acquires from a surface whose configure failed, and wgpu answers that fatally — the project owner's viewer core-dumped on launch
+
+This is an ask, it is two lines of `crates/quorra-gpu/src/surface.rs`, and it is the sharpest one
+this document has carried: a transient device condition ends the process.
+
+### 35.1 What happened
+
+The project owner's own machine — Radeon 890M, RADV, X11 — on a 3325-byte one-page document:
+
+```
+target/pdf-viewer tmp/pi.pdf
+tmp/pi.pdf: 1 page(s)
+note: the graphics device reported: Validation Error
+
+Caused by:
+  In Surface::configure
+    Failed to wait for GPU to come idle before reconfiguring the Surface
+
+thread 'main' panicked at .../wgpu-30.0.0/src/backend/wgpu_core.rs:4036:26:
+Error in Surface::get_current_texture_view: Validation Error
+
+Caused by:
+  Surface is not configured for presentation
+[1]    abort (core dumped)
+```
+
+The next launch, seconds later, was fine. We have reproduced it here under `Xvfb` + `lavapipe`,
+byte for byte including the panic's file and line, at a few launches in a hundred.
+
+### 35.2 What raises it, in wgpu's own words
+
+`Surface::configure` waits for the device to come idle before replacing the swapchain, and
+wgpu-core answers `ConfigureSurfaceError::GpuWaitTimeout` when the wait leaves a non-empty queue
+behind (`wgpu-core-30.0.0/src/device/resource.rs:5341-5352`). Its comment is the diagnosis:
+
+> After the wait, the queue should be empty. It can only be non-empty if another thread is
+> submitting at the same time.
+
+Nothing timed out; the name is a misnomer. And wgpu documents the condition on the call itself
+(`wgpu-30.0.0/src/api/surface.rs`):
+
+> **Validation Errors**
+> - Submissions that happen _during_ the configure may cause the internal wait-for-idle to fail,
+>   raising a validation error.
+
+**This is the arrangement ADR 0056 exists to create.** The presenter configures on one thread while
+the device renders on another; a submission beside a configure is the normal state of a host that
+took your split, not a misuse of it.
+
+### 35.3 Why it is *fatal* rather than a refusal, which is the part worth reading
+
+`wgpu::Surface::configure` returns `()`. On failure `CoreSurface::configure` reports to the
+device's uncaptured-error sink and — this is the load-bearing line —
+**does not install the surface's own error sink** (`wgpu-30.0.0/src/backend/wgpu_core.rs:3979-3985`):
+
+```rust
+let error = self.context.0.surface_configure(self.id, device.id, config);
+if let Some(e) = error {
+    self.context.handle_error_nolabel(&device.error_sink, e, "Surface::configure");
+} else {
+    *self.configured_device.lock() = Some(device.id);
+    *self.error_sink.lock() = Some(device.error_sink.clone());   // only on success
+}
+```
+
+`get_current_texture` then chooses between two answers by exactly that field
+(`ibid.:4023-4037`): with a sink it hands back `SurfaceStatus::Validation` — which
+`SurfaceState::acquire` already maps to `RenderError::SurfaceUnavailable { reason: Validation }`,
+a refusal every host can act on — and **without one it calls `handle_error_fatal`, which panics**.
+
+So the fatal branch is reachable on the **first** configure of a process and never again, and
+`SurfaceState::acquire` walks into it: it configures, records the size as configured whether or
+not the configure worked, and acquires.
+
+```rust
+self.reconfigured = self.configured != Some((width, height)) || self.needs_reconfigure;
+if self.reconfigured {
+    self.surface.configure(gpu, &wgpu::SurfaceConfiguration { … });
+    self.configured = Some((width, height));   // even if it failed
+    self.needs_reconfigure = false;            // …so it is never reconfigured either
+}
+match self.surface.get_current_texture() { … }
+```
+
+**There is a second consequence beyond the panic, and it outlives it.** A configure that fails
+*after* one has succeeded is answered gracefully by wgpu, but this state machine has recorded the
+size as configured and cleared `needs_reconfigure` — so the swapchain is never replaced, and every
+present for the rest of the run is refused. We have not observed a window in that state, because on
+this tree the first-configure case kills the process before it can get there; it is a reading of
+the code rather than a report.
+
+### 35.4 The ask
+
+Both halves of `acquire`'s contract, and neither needs an API change:
+
+1. **Learn whether the configure worked.** `wgpu::Device::push_error_scope(ErrorFilter::Validation)`
+   around the call captures it instead of routing it to the host's uncaptured handler, which is
+   also the honest place for it — a failure a caller can act on should not arrive as a host's
+   log line.
+2. **Do not acquire from a surface that is not configured, and do not remember one that is not.**
+   On failure, leave `self.configured` alone, set `self.needs_reconfigure = true`, and return
+   `RenderError::SurfaceUnavailable { reason: SurfaceProblem::Validation }`. That is a refusal
+   hosts already handle — ours retries on `Outdated`/`Lost`, waits on `Timeout`/`Occluded`, and
+   reports `Validation` — and it makes the next present replace the swapchain rather than inherit
+   the broken one.
+
+A `PresentCost` field or a `Report` naming a configure that had to be retried would be welcome and
+is not part of the ask.
+
+### 35.5 What we did on this side meanwhile, so that you can see it is not a workaround you have to keep
+
+We made the *first* configure of the process happen where nothing of ours can be submitting: the
+window's own background is put on the surface before the render thread can exist, and the type
+enforces the order — `Window::split` returns an `Ungrounded`, `Ungrounded::ground` presents that
+one quad, and the method that spawns the render thread only exists on the `Window` that `ground`
+returns. Since a surface that has been configured once can never take wgpu's fatal branch again,
+that closes the abort here.
+
+It closes it **for us**, by construction, and it does not close §35.3's second consequence for
+anybody. A host that presents its first frame straight from the render loop — which is the obvious
+way to use `Presenter` and what we did for four hundred sessions — has no such ordering and gets
+the core dump.

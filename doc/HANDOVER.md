@@ -69,7 +69,7 @@ meant to be.
 
 | open this | when the round | traps |
 |---|---|---|
-| [`doc/traps/pixels-and-rasterisers.md`](traps/pixels-and-rasterisers.md) | can change a pixel — the interpreter's marks, either rasteriser, colour, a cross-backend scene | 1, 2, 6, 12b |
+| [`doc/traps/pixels-and-rasterisers.md`](traps/pixels-and-rasterisers.md) | can change a pixel — the interpreter's marks, either rasteriser, colour, a cross-backend scene | 1, 2, 6, 12b, 12c |
 | [`doc/traps/oracle-and-references.md`](traps/oracle-and-references.md) | reads a verdict, diagnoses a page, invokes another renderer, or moves a tolerance | 3, 9, 12 |
 | [`doc/traps/parsers-and-streams.md`](traps/parsers-and-streams.md) | touches `pdf-syntax`, a filter, a font program, an image codec, or decides what to do with input it cannot fully handle | 4, 5, 8 |
 | [`doc/traps/the-interactive-loop.md`](traps/the-interactive-loop.md) | turns a press into a command, or converts between the page's space, the display list's and the raster's | 12a |
@@ -105,6 +105,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 12 | A bound derived from two agreeing references is tighter than the arithmetic | oracle |
 | 12a | The display list's space is not the raster's, and a doc comment said it was | interactive loop |
 | 12b | A test suite made of small scenes tests small scenes | pixels |
+| 12c | A dependency that reports through a *handler* has an ordering you have to obey | pixels |
 | 13 | A sweep for a defect must be run against the defect before it is believed | instruments |
 | 14 | A target that *is* the region a clause names cannot tell you whether you applied it | pixels |
 

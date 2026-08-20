@@ -34,6 +34,16 @@ selection and the modal card composited on the processor rather than handed to q
 and until that session it was the one flag that could not help: page one to first present is
 **57 to 68 ms** where it was 128 to 135.
 
+**The window shows its own background before it shows a page, since the six-hundred-and-twenty-eighth
+session** (ADR 0462), and the reason is a crash rather than an appearance. The surface is configured
+by putting one opaque texel of the surround on it, at the one moment in the process where no render
+thread exists to submit beside the configure — because a *first* configure that fails is answered by
+wgpu with a panic rather than a status, which under `panic = "abort"` is the core dump the project
+owner met on launch. `--trace=launch` names it: a `surface configured` milestone between `graphics
+device` and `document joined`, and a line saying what putting the ground up cost. **A device that
+cannot manage even that draws on the processor instead and says so**, which is the same answer
+`--cpu` gives and the same one a device that will not come up at all has had since ADR 0221.
+
 **`--backend vulkan|dx12|metal|gl`** names which driver stack talks to the GPU — not which GPU,
 which is what `Options::adapter` selects and cannot express. **Refused rather than ignored** where
 this machine has no adapter behind the name: the stage that failed, the adapters behind the

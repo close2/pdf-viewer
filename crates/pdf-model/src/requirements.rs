@@ -309,10 +309,24 @@ impl Kind {
                  and eight are refused by name"
             }
             Self::Transitions => {
-                // §12.4.4's data is acted on as far as a crate with no clock can: a `/Dur` page
-                // advances on `Command::Tick` and `Event::Transition` names what would play.
-                "no transition player: §12.4.4's timing is obeyed and the animation between two \
-                 pages is not drawn"
+                // **This arm's third decay, and the second one it predicted about itself.** It
+                // read "no transition player: §12.4.4's timing is obeyed and the animation
+                // between two pages is not drawn", and the animation has been drawn since the
+                // three-hundred-and-ninety-third session (ADR 0230) — `viewer_core::transition`
+                // shapes the frame at a fraction of the way through and both backends draw it,
+                // which §12.4.4's own ledger row has said since that round while this sentence
+                // went on saying the opposite for over two hundred more. The doc comment above
+                // names exactly this shape; nothing fires when a capability two crates away
+                // arrives, which is why the sweep is over the source and not only the ledger.
+                //
+                // What is genuinely missing is the five of Table 164's twelve styles that state
+                // no quantity a frame could be shaped from — how many lines a `Blinds` has, how
+                // wide a `Glitter`'s band is, what a `Dissolve` does to a pixel, what a `Fly`'s
+                // "changes" are — which `transition::note` reports by name rather than drawing
+                // as a cut. `R` is the cut by definition and is not among them. Table 275 also
+                // asks for transition actions, and §12.6.4.15's `Trans` is read and performed.
+                "five of Table 164's twelve transition styles are reported by name rather than \
+                 drawn, because the clause states no quantity to shape their frames from"
             }
             Self::DPartInteract => {
                 // Table 275 asks for two things. §12.6.4.5's `GoToDp` navigates to a part

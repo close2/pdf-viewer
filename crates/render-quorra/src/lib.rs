@@ -31,9 +31,11 @@ mod cache;
 mod present;
 mod scene;
 mod stroke;
+mod uncaptured;
 
 pub use present::{FrameCost, PresentFrame, QuorraWindowRenderer, WindowTextures};
 pub use scene::FunctionPaints;
+pub use uncaptured::{Uncaptured, UncapturedErrors};
 
 /// Why a frame could not be produced. Every variant names what refused (the same
 /// contract as the other backends: unsupported input is an error, never a skipped
