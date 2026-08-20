@@ -28,13 +28,22 @@
 //! # What the clause asks for and this program does not do
 //!
 //! §12.11.6 says that when requirements cannot be met "then the processing of the document
-//! shall not continue", against a penalty computed as §12.11.3 describes. **§12.11.3 states no
-//! threshold** — it says 100 "indicates that this document will not produce the author's
-//! intent" and that intermediate values "are available to weight the value of this feature
-//! among other features" — so the computation is a comparison the clause never completes. This
-//! program therefore draws the document and says what it could not promise, which is a
-//! documented choice and not a reading: refusing to open a file a person asked for is a worse
-//! failure than showing it with its limits named.
+//! shall not continue", against a penalty computed as §12.11.3 describes. **This paragraph said
+//! that §12.11.3 states no threshold, from the day it was written until the
+//! six-hundred-and-twenty-sixth session, and it states one** — the
+//! clause's last paragraph, quoted verbatim under [`penalty_total`]. So the computation is a
+//! comparison the clause *does* complete, and this program performs it: the total is a fact
+//! about the document, said out loud beside the requirements it is a total of.
+//!
+//! What this program then declines to do is obey it, and that is now a departure from a stated
+//! `should` rather than an appeal to a silence. Refusing to open a file a person asked for is a
+//! worse failure for a viewer than showing it with its limits named — and the clause's own
+//! wording is what makes the choice cheap: "should not attempt to display", not `shall`.
+//!
+//! **The decision is not taken here**, which is `CLAUDE.md` principle 3's shape for a
+//! restriction a document asserts over its reader: this crate computes and reports, the host
+//! decides, and the four levels — off, on, ask, warn — can be added where the host already is
+//! without revisiting anything below it.
 //!
 //! **0 of the 974 corpus documents state a `/Requirements` array**; 9 state an `/Extensions`
 //! dictionary, all of them Adobe's `/ADBE` prefix at extension level 3 or 8 over a base version
@@ -73,6 +82,11 @@ pub struct Requirement {
     /// §12.11.3 gives the two ends their meanings: 0 says "although the document uses this
     /// feature the need is optional", and 100 that "this document will not produce the author's
     /// intent unless the PDF processor can fully support this feature".
+    ///
+    /// The clamp costs nothing that §12.11.3's threshold needs, and it is worth saying why
+    /// rather than assuming it: the threshold is on a *total* ([`penalty_total`]), and a file
+    /// stating an entry above 100 has already broken the "shall" quoted above, so the clamp
+    /// bounds a value the standard had bounded first.
     pub penalty: u8,
 }
 
@@ -392,7 +406,7 @@ pub fn read(document: &Document) -> Vec<Requirement> {
 ///
 /// A penalty of 0 is still listed: §12.11.3 says it means "although the document uses this
 /// feature the need is optional", which is a statement about how much it matters and not about
-/// whether it was met. Weighing them is the caller's, because the clause states no threshold.
+/// whether it was met. [`penalty_total`] is what weighs them.
 #[must_use]
 pub fn unmet(document: &Document) -> Vec<(Requirement, &'static str)> {
     read(document)
@@ -405,6 +419,56 @@ pub fn unmet(document: &Document) -> Vec<(Requirement, &'static str)> {
         })
         .collect()
 }
+
+/// The total §12.11.3 states a threshold on, over the requirements this program cannot meet.
+///
+/// # The computation, and the two clauses it is split across
+///
+/// The consequence is §12.11.6's, and it defines no arithmetic of its own:
+///
+/// > If requirements cannot be met, as determined by the computation of the penalty value as
+/// > described in 12.11.3, "Requirement penalty values", then the processing of the document
+/// > shall not continue.
+///
+/// The arithmetic it points at is one sentence, the last of §12.11.3:
+///
+/// > In the situation where the penalty values are being used to evaluate the presentation of
+/// > the base PDF document, and there exist no other alternates, if the penalty value exceeds
+/// > 100 then the PDF processor should not attempt to display or process the document.
+///
+/// # Why the sum, and why over the unmet ones only
+///
+/// Two sentences fix both halves, and neither is an inference this crate made up.
+///
+/// A *sum* rather than any single entry, because Table 273 bounds each entry at "between 0 and
+/// 100 (inclusive)" — so a threshold on one entry could never fire and the sentence above would
+/// be dead text — while the paragraph before it says the values contribute "to the total penalty
+/// points". The threshold sentence is the case that paragraph leaves over: no alternates, so the
+/// total has nothing to be weighed against except the number 100.
+///
+/// Over the *unmet* ones, because Table 273 says what a penalty is the penalty for: "the penalty
+/// value to be applied when this requirement cannot be met by a PDF processor". A requirement
+/// this program meets costs nothing, whatever the file priced it at.
+///
+/// # What is done with it
+///
+/// Nothing, here. It is reported beside the requirements it totals and the document is drawn —
+/// see this module's own header for why that is a choice rather than a reading, and why the
+/// choice belongs to a host rather than to `pdf-model`.
+///
+/// Zero for the 974 corpus documents, every one of which states no `/Requirements` array at all.
+#[must_use]
+pub fn penalty_total(document: &Document) -> u32 {
+    // Each penalty is a `u8` and [`MAX_REQUIREMENTS`] bounds the count, so the sum is under
+    // 26 000 and the widening is what makes the addition exact rather than saturating.
+    unmet(document)
+        .iter()
+        .map(|(requirement, _)| u32::from(requirement.penalty))
+        .sum()
+}
+
+/// The number §12.11.3's threshold is stated against: "if the penalty value exceeds 100".
+pub const PENALTY_LIMIT: u32 = 100;
 
 /// Table 273's `/V`, in the name form §12.11.4 defines.
 fn version(document: &Document, dict: &Dictionary) -> Option<String> {
@@ -550,7 +614,7 @@ impl DeveloperExtension {
 
 #[cfg(test)]
 mod tests {
-    use super::{Extensions, Kind, read, unmet};
+    use super::{Extensions, Kind, penalty_total, read, unmet};
     use pdf_syntax::Document;
 
     fn document(catalog: &str) -> Document {
@@ -638,6 +702,57 @@ mod tests {
                 .is_some_and(|(_, reason)| reason.contains("principle 5")),
             "an exclusion says so: {unmet:?}"
         );
+    }
+
+    /// §12.11.3's threshold, over the total §12.11.6 asks a processor to compute.
+    ///
+    /// The fixture prices four requirements and this program meets two of them, so the two that
+    /// decide the total are `EnableJavaScripts` at 60 and `Markup` at 55. Three things are
+    /// pinned at once and each is a sentence of the clause rather than a convenience:
+    ///
+    /// - the total is a **sum**, so 115 rather than 60 — Table 273 bounds one entry at 100 and
+    ///   §12.11.3 speaks of "the total penalty points";
+    /// - it is over the **unmet** ones, so `Navigation`'s 100 and `Collection`'s 100 are not in
+    ///   it even though the file priced them highest — Table 273 makes a penalty "the penalty
+    ///   value to be applied when this requirement cannot be met";
+    /// - and 115 **exceeds** [`PENALTY_LIMIT`], which is the one condition §12.11.3 states.
+    ///
+    /// The second document is the same file with the two unpriced, which takes Table 273's
+    /// default of 100 each and lands on 200 — the case a producer creates by saying nothing.
+    #[test]
+    fn the_penalty_total_sums_the_requirements_this_program_cannot_meet() {
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
+             << /S /Navigation /Penalty 100 >> << /S /EnableJavaScripts /Penalty 60 >> \
+             << /S /Collection /Penalty 100 >> << /S /Markup /Penalty 55 >> ] >>",
+        );
+        assert_eq!(penalty_total(&doc), 115);
+        assert!(penalty_total(&doc) > super::PENALTY_LIMIT);
+
+        let defaulted = document(
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
+             << /S /Navigation /Penalty 100 >> << /S /EnableJavaScripts >> \
+             << /S /Collection /Penalty 100 >> << /S /Markup >> ] >>",
+        );
+        assert_eq!(
+            penalty_total(&defaulted),
+            200,
+            "Table 273's default is 100, so an unpriced requirement is priced at the maximum"
+        );
+
+        // The other side of the threshold, so that "exceeds" is not asserted by a test that
+        // could not have seen a document under it: one unmet requirement at 100 is *not* over.
+        let met = document(
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
+             << /S /Navigation /Penalty 100 >> << /S /Markup /Penalty 100 >> ] >>",
+        );
+        assert_eq!(penalty_total(&met), 100);
+        assert!(penalty_total(&met) <= super::PENALTY_LIMIT);
+
+        // And a document that states no requirements at all owes nothing, which is every one of
+        // the 974.
+        let none = document("<< /Type /Catalog /Pages 2 0 R >>");
+        assert_eq!(penalty_total(&none), 0);
     }
 
     /// A collection this program displays and can extract from is a requirement it meets.

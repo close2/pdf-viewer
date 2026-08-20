@@ -103,6 +103,29 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
         ));
     }
 
+    // §12.11.3's own threshold, which this note said nothing about until the
+    // six-hundred-and-twenty-sixth session because three places in this tree recorded that the
+    // clause states none:
+    //
+    // > In the situation where the penalty values are being used to evaluate the presentation of
+    // > the base PDF document, and there exist no other alternates, if the penalty value exceeds
+    // > 100 then the PDF processor should not attempt to display or process the document.
+    //
+    // `requirements::penalty_total` performs the computation §12.11.6 sends a processor to
+    // §12.11.3 for. Saying the number rather than acting on it is this program's choice, and it
+    // is the shape `CLAUDE.md` principle 3 asks a document's restriction to take: a host that
+    // later wants the clause's `should` obeyed, or wants to ask first, has the number here and
+    // needs nothing from `pdf-model`. The `should` is the standard's own word, so declining it
+    // costs conformance nothing.
+    let total = pdf_model::requirements::penalty_total(document);
+    if total > pdf_model::requirements::PENALTY_LIMIT {
+        notes.push(format!(
+            "the requirements this document states and this program cannot meet total {total} \
+             penalty points (§12.11.3), over the 100 above which the clause says a processor \
+             should not attempt to display it — it is being displayed anyway, with each one named"
+        ));
+    }
+
     // §7.11.4's embedded files, listed and not extracted: the bytes are inside the document, and
     // writing one out is a person's decision taken somewhere that can ask. Saying they exist is
     // the half a viewer with no attachment panel can still do honestly.

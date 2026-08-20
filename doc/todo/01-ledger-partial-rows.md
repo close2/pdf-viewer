@@ -3305,8 +3305,81 @@ been ageing since. **`quotations` already measures exactly this** — it prints,
 it is verbatim specification — so the discriminator is available as a number to whichever round
 wants to make this a thirteenth program rather than a sentence.
 
+## The band under rank 10 read in the six-hundred-and-twenty-sixth, and the rule held
+
+**Nine rows, not eight**, and the ordering was re-derived rather than taken: `git blame
+--line-porcelain doc/conformance/ledger.toml`, each `partial` or `reported` row's own `note = `
+line, ranked by where its commit falls in `git log --reverse`. **The blame ordering agreed with
+620 on all nine** — three parallel rounds were running beside this one and none of them had taken a
+row off it — and the jump after rank 9 is large: ranks 1 to 9 sit at four commits, and rank 10 is
+five hundred commits later. The nine are §14.8.2.2.1 and §14.8.2.2.2 (rank 1–2), §12.11.3 and
+§12.11.6 (3–4), §14.13 and §14.13.2 (5–6), and §12.6.4.6, §12.6.4.9 and §12.6.4.10 (7–9), which is
+620's list with the three action rows counted as three.
+
+**620's rule picked the defect on the first pass.** Ranked by whether the stated reason is a claim
+about this codebase rather than about the standard, §12.11.3's and §12.11.6's went to the top —
+"the clause states no threshold", which reads like a claim about the standard and is a claim about
+what somebody looked for — and that pair was the round's work.
+
+### The threshold three documents denied
+
+**§12.11.3 states a threshold and this tree recorded three times that it does not**: the two ledger
+rows and `requirements.rs`'s module header. The sentence is the clause's fourth paragraph, and the
+computation §12.11.6 names is a **sum over the unmet requirements** compared against 100 — both
+halves stated rather than inferred, from Table 273's bound on one entry and §12.11.3's own "total
+penalty points". `requirements::penalty_total` now performs it and `viewer_core::notes` says it;
+the `should` is still declined, and the declining now rests on the word `should` rather than on a
+silence. ADR 0460.
+
+**The shape is `CLAUDE.md`'s own, one level down.** Principle 5 warns that "the specification
+defines nothing here" is a claim about the specification and decays. This is its narrower cousin —
+*the specification defines no number here* — and it decays the same way, for the same reason: it is
+a claim about a search somebody did once. **A row saying the standard states no threshold, no
+default, no order, no limit is a row to re-read, and the check is cheap**: read the clause's last
+paragraph. All three of this round's denials were of a sentence in the final paragraph of the
+clause, which is where a standard puts the consequence after it has finished defining the terms.
+
+### The other six
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§12.6.4.9** | 1 | `Sound` is "[a]djacent to clause 13's exclusion and not covered by it, because §12.6.4.9 is in clause 12" | the clause's own first sentence hands it to §13.2, **word for word the sentence §12.6.4.10 opens with** — two neighbouring rows, one identical sentence, opposite readings |
+| **§12.6.4.6, .9, .10** | 620's new | "`viewer-ui` prints it when a click reaches one", citing `a_name_the_table_does_not_hold_is_not_an_action` | the cited test asserts a name outside Table 201 yields **no** action, the one path that never calls `action::refused`; `Sound` and `Movie` were reached by nothing at all. A click test now reaches all three, and the `code` array named `pdf-viewer.rs`, which holds none of it — the printing is `dispatch.rs` |
+| **§14.13** | 9th sweep's | "it lists seven objects that may carry one and says the same sentence about every one" | §14.13.1 lists **eight** — the eighth is a metadata stream, about which §14.3.2 says nothing — and the sentence is *not* the same for the third, whose key is `/MCAF` in a property list. A reader who believed the row would state seven sites and find six |
+| **§14.8.2.2.1** | 9th sweep's | "the clause's other test — '[a]ny content that is not included in the structure tree is an artifact…'" | that sentence is **§14.8.2.2.2's**, and §14.8.2.2.1's own `shall` — artifacts in the structure tree go through the `Artifact` element type — had never been quoted by either row |
+| **§14.13.2** | 17th sweep's | no erratum recorded | Issue #568 states the two `/AF` forms as a `shall` each for the first time, and Issue #86 puts a UTF-8 `shall` on every name key on the same page |
+| **§14.8.2.2.2** | 17th sweep's | leans on a `shall` about EXAMPLE 1 and EXAMPLE 2 | Issue #484 turns that paragraph into NOTE 2 — reading both forms is now a reading of a note. Nothing moves; a reader that accepts both accepts either text |
+
+**§14.13 also stopped restating its children's numbers**, which is sweep 10's shape from the other
+direction: it said "6 on catalogs, 30 on structure elements" where §14.13.6's row says 37 arrays
+in total, so the parent's breakdown and the children's did not add up and neither could be checked
+against the other. The parent now carries the one number that is its own — how many documents state
+an `/AF` at all, with the command that counts it — and each site's share stays in that site's row.
+
+### A sharpening of 620's rule, from the row it did not find first
+
+620's rule ranks by *what kind of claim* the reason makes. This round adds *where in the clause the
+answer would be*, because it is what made the §12.11 pair cheap and the others slow:
+
+> **A note that says the standard states nothing has to name where it looked.** "The clause states
+> no threshold" is checkable in a minute against the clause's last paragraph; "the clause states no
+> threshold, and its closing paragraph is about X" is checkable against nothing and would have been
+> written by somebody who read it.
+
+That is not a new sweep. It is a rule for *writing* a row, and it is the only kind of rule that
+makes the next re-read cheaper rather than the current one.
+
 ## What is still owed, named
 
+- **An artifact census, which four numbers in this tree need and no command produces.**
+  §14.8.2.2.2's row carried "30 of the 953 corpus first pages mark at least one artifact" from a
+  one-off run against a corpus that is now 974, and nothing re-derives it: `witness_census` counts
+  *names*, and artifact-hood is a `BDC` tag read by the interpreter. What it needs is one
+  `pdf-model` example in `file_attachment_census`'s shape — open each corpus document, interpret
+  page one, count the documents with a non-empty `Interpretation::artifacts`, and break the count
+  down by Table 363's `/Type`. Perhaps sixty lines and one corpus pass; the same pass would settle
+  the per-site `/AF` counts that §14.13, §14.13.3 and §14.13.6 each state and that do not add up
+  against one another.
 - **The `partial` rows not yet re-read against the code.** **The bands are not a floor**, and the
   section above has the measurement: 38 rows sit below commit 534 and 18 below commit 200, none of
   them carrying a read-and-kept sentence. The bands taken so far are the five-hundred-and-twenty-fifth's
@@ -3321,11 +3394,16 @@ wants to make this a thirteenth program rather than a sentence.
   §7.6.5's two `reported` rows at 94, §7.9.2 at 95, and §12.5.6.12's rubber stamp at 199, which is
   the one of those that can change a pixel.~~ **Taken in the six-hundred-and-twentieth**, minus
   §12.5.6.12, which the six-hundred-and-fourteenth had read in parallel; five of the eight were
-  wrong and the section above has each. **The next band is the eight rows the ordering now puts
+  wrong and the section above has each. ~~**The next band is the eight rows the ordering now puts
   under rank 17** — §14.8.2.2.1 and §14.8.2.2.2, §12.11.3 and §12.11.6, §14.13 and §14.13.2, and
-  §12.6.4.6, §12.6.4.9 and §12.6.4.10 — quoted as ranks rather than as commit numbers, for the
-  reason the section gives. Re-derive the order before believing this sentence: a parallel round
-  merging ahead of yours can take a row off it, which is what happened to the last band.
+  §12.6.4.6, §12.6.4.9 and §12.6.4.10.~~ **Taken in the six-hundred-and-twenty-sixth**, and it was
+  nine rows rather than eight; six of the nine were wrong and one of the six was work. **The next
+  band starts at what is now rank 10**, five hundred commits above the nine just read — §12.7.4,
+  §12.7.6.2, §8.7.3, §11.7.5, §12.11, §14.8.4, §14.9, then §12.8.2.2 and its four neighbours — and
+  §8.7.3's tiling patterns are the one of those that can change a pixel. Quoted as ranks rather
+  than as commit numbers, for the reason the section gives. Re-derive the order before believing
+  this sentence: a parallel round merging ahead of yours can take a row off it, which is what
+  happened two bands ago.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.

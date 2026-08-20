@@ -35,12 +35,22 @@
 //! # §14.13's associated files are the same specifications, reached from elsewhere
 //!
 //! An associated file is a file specification carrying an `/AFRelationship`, named by an `/AF`
-//! array on the object it belongs to — the catalog, a page, an annotation, an `XObject`, a
-//! structure element, a `DPart`, or a marked-content sequence tagged `/AF`. [`associated`] reads
-//! such an array from any of them, because the clause says the same sentence about every one:
-//! "[t]he relationship that the associated files have to the … is supplied by the
-//! `AFRelationship` key in each file specification dictionary". 7 corpus documents state one, 6
-//! on the catalog and 30 on structure elements.
+//! array on the object it belongs to. §14.13.1 lists **eight** objects that may carry one — the
+//! catalog, a page, a graphics object, a structure element, an `XObject`, a `DPart`, an
+//! annotation, and a metadata stream, which is the one it gives no subclause of its own.
+//! [`associated`] reads such an array from any dictionary, which is sound for seven of them
+//! because the clause says the same sentence about each: "[t]he relationship that the associated
+//! files have to the … is supplied by the `AFRelationship` key in each file specification
+//! dictionary".
+//!
+//! **The graphics object is the exception and it is not a small one**: §14.13.5 puts the array
+//! in a marked-content property list under `/MCAF` rather than in a dictionary under `/AF`, so
+//! [`associated_in_property_list`] exists and this module has two readers rather than one. A
+//! reader that believed the "same sentence about every one" summary would state seven sites and
+//! find six.
+//!
+//! `witness_census --pdfjs AF` counts the documents that state one; each site's own share is in
+//! that subclause's ledger row.
 //!
 //! 10 of the 974 corpus documents carry a `/Names /EmbeddedFiles` tree, holding 23 files
 //! between them — mostly `application/mathml+xml` fragments from a LaTeX producer, one
