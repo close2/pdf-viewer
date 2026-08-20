@@ -110,27 +110,17 @@ fn dictionary(dict: &Dictionary, out: &mut Vec<u8>) {
     out.extend_from_slice(b" >>");
 }
 
-/// §7.3.5's name: a solidus, and `#xx` for anything that is not a regular character.
+/// §7.3.5's name: the SOLIDUS the clause requires, and [`Name::escaped`] for the rest.
 ///
 /// > When writing a name in a PDF file, a SOLIDUS (2Fh) (/) shall be used to introduce a name.
-/// > The SOLIDUS is not part of the name but is a prefix indicating that what follows is a
-/// > sequence of characters representing the name in the PDF file and shall follow these rules:
 ///
-/// The rule taken is the clause's own escape: any character may be written as a number sign
-/// followed by two hexadecimal digits.
-///
-/// The escape is applied to every delimiter and white-space character and to the number sign
-/// itself, which is the closed set of characters that would otherwise end the name or be read as
-/// an escape.
+/// The escaping itself is [`Name::escaped`] and is not spelled here. It used to be, and the cost
+/// of that was §7.3.5 being implemented in one direction only: `pdf_model::variable_text` writes
+/// a font name into a content stream, could not reach this function, and wrote the name raw
+/// (ADR 0453).
 fn write_name(name: &Name, out: &mut Vec<u8>) {
     out.push(b'/');
-    for byte in name.as_bytes() {
-        if byte.is_ascii_graphic() && !b"#()<>[]{}/%".contains(byte) {
-            out.push(*byte);
-        } else {
-            let _ = write!(HexSink(out), "#{byte:02X}");
-        }
-    }
+    out.extend_from_slice(name.escaped().as_bytes());
 }
 
 /// §7.3.4.3's hexadecimal string, which needs no escaping rules at all.
@@ -147,7 +137,7 @@ fn string(bytes: &[u8], out: &mut Vec<u8>) {
     out.push(b'>');
 }
 
-/// A `fmt::Write` that appends to a byte vector, for the two places a number is formatted.
+/// A `fmt::Write` that appends to a byte vector, for the one place a byte is formatted as hex.
 struct HexSink<'a>(&'a mut Vec<u8>);
 
 impl std::fmt::Write for HexSink<'_> {

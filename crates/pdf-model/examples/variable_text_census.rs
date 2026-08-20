@@ -24,7 +24,11 @@
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf
+//! cargo run --release -p pdf-model --example variable_text_census -- corpus-cache doc/corpora
 //! ```
+//!
+//! Each argument is a file or a directory walked recursively, which is what lets the second line
+//! ask the crawl — 66 000 documents no shell will expand onto one command line.
 
 #![expect(
     clippy::print_stdout,
@@ -107,6 +111,11 @@ struct Counts {
     /// and a `/DA` is a `/DA`: an annotation whose descriptor the two rules disagree about moves
     /// its baseline exactly as a field's does.
     free_text: usize,
+    /// Objects whose `/DA` states a `Tf`, which §12.7.4.3 makes the minimum it may state.
+    with_a_font_name: usize,
+    /// Of those, the ones whose font name is *not* spelled in bytes a writer may emit as
+    /// themselves — the population §7.3.5's escaping is about, in both directions.
+    needing_escaping: usize,
     /// Objects whose `/DA` names a Table 119 Type 0 font, which §9.7.6.2's inverse now reaches.
     composite: usize,
     /// Of those, the ones whose `CMap` asks for §9.7.5.1's writing mode 1, which is refused.
@@ -129,6 +138,12 @@ impl Counts {
             .list_boxes_without_appearance
             .saturating_add(counts.list_boxes_without_appearance);
         self.free_text = self.free_text.saturating_add(counts.free_text);
+        self.with_a_font_name = self
+            .with_a_font_name
+            .saturating_add(counts.with_a_font_name);
+        self.needing_escaping = self
+            .needing_escaping
+            .saturating_add(counts.needing_escaping);
         self.composite = self.composite.saturating_add(counts.composite);
         self.composite_vertical = self
             .composite_vertical
@@ -161,6 +176,12 @@ struct Census {
     bare_combo_boxes: Vec<String>,
     /// Documents whose `/DA` names a composite font, which is `doc/todo/22`'s last edge.
     composite_fonts: Vec<String>,
+    /// Every `/DA` font name that is not plainly written, with the document that states it.
+    ///
+    /// Printed rather than counted, because trap 11's rule is that a condition is read before its
+    /// count is trusted: a name that needs escaping is one this program used to write wrongly and
+    /// used to look up wrongly, and which of the two mattered depends on what the name is.
+    escaping_witnesses: BTreeSet<(String, String)>,
 }
 
 impl Census {
@@ -174,7 +195,12 @@ impl Census {
         };
         self.documents = self.documents.saturating_add(1);
         let name = path.rsplit('/').next().unwrap_or(path).to_owned();
-        let counts = walk(&document, &name, &mut self.moving);
+        let counts = walk(
+            &document,
+            &name,
+            &mut self.moving,
+            &mut self.escaping_witnesses,
+        );
         if counts.laid_out == 0 && counts.list_boxes == 0 && counts.free_text == 0 {
             return;
         }
@@ -229,6 +255,14 @@ impl Census {
             );
         }
         println!(
+            "\n§7.3.5 + §12.7.4.3: {} object(s) whose /DA states a Tf, {} of them naming a font \
+             whose name is not spelled in bytes §7.3.5 lets a writer emit as themselves",
+            totals.with_a_font_name, totals.needing_escaping
+        );
+        for (document, name) in &self.escaping_witnesses {
+            println!("  {document}: /{name}");
+        }
+        println!(
             "\n§9.7 + §12.7.4.3: {} object(s) whose /DA names a composite font, {} of them in \
              §9.7.5.1's writing mode 1, over {} document(s): {}",
             totals.composite,
@@ -267,10 +301,40 @@ impl Census {
 
 fn main() {
     let mut census = Census::default();
-    for path in std::env::args().skip(1) {
-        census.take(&path);
+    for argument in std::env::args().skip(1) {
+        for path in pdfs_under(std::path::Path::new(&argument)) {
+            census.take(&path.to_string_lossy());
+        }
     }
     census.report();
+}
+
+/// Every `.pdf` at or under `root`, so that a whole corpus is one argument.
+///
+/// A file is itself, which keeps every existing invocation of this example working; a directory
+/// is walked. The crawl is 66 000 files and no shell expands that onto one command line, and
+/// splitting it with `xargs` would print one census per batch instead of one census.
+fn pdfs_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    if root.is_file() {
+        return vec![root.to_path_buf()];
+    }
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "pdf") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 /// Every widget and free text annotation of every page of one document, classified.
@@ -278,6 +342,7 @@ fn walk(
     document: &Document,
     name: &str,
     moving: &mut BTreeMap<String, BTreeSet<String>>,
+    escaping: &mut BTreeSet<(String, String)>,
 ) -> Counts {
     let mut counts = Counts::default();
     let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
@@ -334,6 +399,7 @@ fn walk(
                 *counter = counter.saturating_add(1);
                 record(verdict, name, moving);
                 take_composite(document, dict, &mut counts);
+                take_font_name(document, dict, name, &mut counts, escaping);
             }
         }
         // §12.5.6.6 sends a free text annotation's `/DA` to §12.7.4.3 as well — "[t]he default
@@ -353,9 +419,37 @@ fn walk(
             *counter = counter.saturating_add(1);
             record(verdict, name, moving);
             take_composite(document, dict, &mut counts);
+            take_font_name(document, dict, name, &mut counts, escaping);
         }
     }
     counts
+}
+
+/// Counts one object's `/DA` font *name*, whether or not `/DR` defines anything under it.
+///
+/// **The population §7.3.5's escaping is about**, which is a different one from every other count
+/// in this file: the two defects ADR 0453 fixed are reached by a name's *spelling* rather than by
+/// what it resolves to, and a name `/DR` does not define is still written into the appearance
+/// stream `variable_text` constructs. So this asks the `/DA` and stops there.
+fn take_font_name(
+    document: &Document,
+    widget: &Dictionary,
+    file: &str,
+    counts: &mut Counts,
+    escaping: &mut BTreeSet<(String, String)>,
+) {
+    let Some(appearance) = inherited(document, widget, "DA") else {
+        return;
+    };
+    let Some(name) = font_of(&appearance) else {
+        return;
+    };
+    counts.with_a_font_name = counts.with_a_font_name.saturating_add(1);
+    if is_plainly_written(&name) {
+        return;
+    }
+    counts.needing_escaping = counts.needing_escaping.saturating_add(1);
+    escaping.insert((file.to_owned(), name.escaped()));
 }
 
 /// Remembers which document a moving baseline was found in, for the two verdicts that move one.
@@ -504,41 +598,75 @@ fn take_composite(document: &Document, widget: &Dictionary, counts: &mut Counts)
         return;
     }
     counts.composite = counts.composite.saturating_add(1);
-    if pdf_font::LoadedFont::load(document, &font, &name).is_ok_and(|font| font.is_vertical()) {
+    if pdf_font::LoadedFont::load(document, &font, &name.escaped())
+        .is_ok_and(|font| font.is_vertical())
+    {
         counts.composite_vertical = counts.composite_vertical.saturating_add(1);
     }
 }
 
 /// The `/DA`'s font name and the dictionary `/DR` gives it, which two questions here both need.
-fn da_font(document: &Document, widget: &Dictionary) -> Option<(String, Dictionary)> {
+fn da_font(document: &Document, widget: &Dictionary) -> Option<(pdf_syntax::Name, Dictionary)> {
     let appearance = inherited(document, widget, "DA")?;
     let name = font_of(&appearance)?;
     let font = resource_font(document, &name)?;
     Some((name, font))
 }
 
-/// The font name a `/DA`'s `Tf` operand names.
+/// The font name a `/DA`'s `Tf` operand names, as the bytes §7.3.5 makes a name.
 ///
 /// §12.7.4.3 requires the string to "include a Tf (text font) operator along with its two
 /// operands"; the name is the first of the two, so the last `/Name size Tf` in the string is what
 /// the layout uses. Read here rather than by `variable_text`'s own parser because that one is
 /// private, and the answer needed is only which resource the name reaches.
-fn font_of(appearance: &[u8]) -> Option<String> {
-    let text = String::from_utf8_lossy(appearance);
-    let tokens: Vec<&str> = text.split_ascii_whitespace().collect();
-    let position = tokens.iter().rposition(|token| *token == "Tf")?;
-    let name = tokens.get(position.checked_sub(2)?)?;
-    name.strip_prefix('/').map(str::to_owned)
+///
+/// **Lexed rather than split on white space**, which is the difference between measuring the
+/// population and measuring an assumption about it: a `/DA` saying `/Lime#20Green 12 Tf` holds
+/// one name of ten bytes, and a split on white space calls it three tokens and the census misses
+/// exactly the construct it is here to count (ADR 0453).
+fn font_of(appearance: &[u8]) -> Option<pdf_syntax::Name> {
+    let mut lexer = pdf_syntax::Lexer::new(appearance);
+    let mut last: Option<pdf_syntax::Name> = None;
+    let mut operands: Vec<pdf_syntax::Name> = Vec::new();
+    while let Some(token) = lexer.next_token() {
+        match token {
+            pdf_syntax::Token::Name(name) => operands.push(pdf_syntax::Name::new(name)),
+            pdf_syntax::Token::Keyword(b"Tf") => {
+                last = operands.last().cloned().or(last);
+                operands.clear();
+            }
+            pdf_syntax::Token::Keyword(_) => operands.clear(),
+            _ => {}
+        }
+    }
+    last
+}
+
+/// Whether a name is spelled with the bytes §7.3.5 lets a writer put in a file as themselves.
+///
+/// Rules b) and c) between them: a byte goes out as itself only when it is a regular character
+/// (§7.2.3) inside `!`..`~` and is not the number sign. A name for which this is true of every
+/// byte is one a writer with no escaping at all happens to get right, which is what this program
+/// was until the six-hundred-and-seventeenth session — so it is the line the population is split
+/// on.
+///
+/// Spelled here rather than asked of `pdf_syntax::Name::escaped`, because a census taken with the
+/// instrument under test is not independent of it (trap 8).
+fn is_plainly_written(name: &pdf_syntax::Name) -> bool {
+    name.as_bytes()
+        .iter()
+        .all(|byte| byte.is_ascii_graphic() && *byte != b'#' && !b"()<>[]{}/%".contains(byte))
 }
 
 /// The font dictionary `/DR`'s `/Font` gives that name (§12.7.4.3's own `shall`).
-fn resource_font(document: &Document, name: &str) -> Option<Dictionary> {
+fn resource_font(document: &Document, name: &pdf_syntax::Name) -> Option<Dictionary> {
     let form = interactive_form(document)?;
     let resources = document.get_key(&form, "DR");
     let resources = resources.as_dict()?;
     let fonts = document.get_key(resources, "Font");
     let fonts = fonts.as_dict()?;
-    document.get_key(fonts, name).as_dict().cloned()
+    // §7.3.5's binary match, which is what `variable_text::resolve_font` now probes with too.
+    document.get_key_by_name(fonts, name).as_dict().cloned()
 }
 
 /// Narrows a PDF number to `f32`.
