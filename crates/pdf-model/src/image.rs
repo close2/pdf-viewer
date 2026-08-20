@@ -2212,19 +2212,24 @@ fn convert_channels(
     }
 }
 
-/// Largest grid a mask and its image are combined on, in samples, where that is larger than
-/// the image itself.
+/// The combined grid above which §10.7.4's device-scale construction is the better one.
 ///
 /// §8.9.6.3's two rasters "need not have the same resolution" and §11.6.5.2 Table 143 says
 /// the same of a soft mask's, so combining either with its image means choosing a grid —
 /// [`combine_on_the_finer_grid`] takes the finer of the two, which discards nothing either of
-/// them carries and costs the product of the two larger dimensions. That product is what a
-/// document controls, and 2^24 samples is 64 MB of RGBA: room for any real pair, and short of
-/// the gigabyte a 2×2 image with a 34862×4332 mask would ask for. `issue16263.pdf` writes
-/// exactly that pair as an `/SMask`.
+/// them carries and costs the product of the two larger dimensions. 2^24 samples is 64 MB of
+/// RGBA, and past it a mask that can be read at a chosen grid is better read at the device's:
+/// `issue16263.pdf`'s 2×2 image with a 34862×4332 `/SMask` asks for 604 MB combined and 19 MB
+/// packed, for two distinct colours.
 ///
-/// See [`combined_grid`] for why the bound is on the *growth* rather than on the total.
-const MAX_MASK_GRID: u64 = 1 << 24;
+/// **It is a preference and not a ceiling, and that distinction is the
+/// six-hundred-and-fifteenth session's**: the same number decided both questions, so a grid
+/// past it was refused outright wherever [`eligible_for_the_device_scale`] said no — which is
+/// every explicit `/Mask`, because a stencil is `/ImageMask true` and Table 87 gives it no
+/// colour space. The ceiling is [`MAX_SAMPLES`]: a combined grid is a raster this crate
+/// allocates, and one the size of an image the crate would have decoded on its own is not
+/// larger for being a pair.
+const PREFER_DEVICE_SCALE_ABOVE: u64 = 1 << 24;
 
 /// The grid a mask and its image would be combined on, if it is one this will allocate.
 ///
@@ -2235,14 +2240,27 @@ const MAX_MASK_GRID: u64 = 1 << 24;
 /// dimensions — and it was reported for its mask's size for as long as this rule was the flat
 /// one, which said nothing true about the mask. What a document *can* do with two dimensions
 /// it controls is make the product of the two larger ones enormous while both rasters stay
-/// small, and that is what [`MAX_MASK_GRID`] refuses.
+/// small: 2^28 by 1 against 1 by 2^28 is two rasters of a quarter of a megabyte apiece and a
+/// grid of 2^56, and that is what the ceiling refuses.
 fn combined_grid(width: u32, height: u32, mask_width: u32, mask_height: u32) -> Result<u64, u64> {
     let grid = u64::from(width.max(mask_width)).saturating_mul(u64::from(height.max(mask_height)));
     let image = u64::from(width).saturating_mul(u64::from(height));
-    if grid > MAX_MASK_GRID.max(image) {
+    if grid > MAX_SAMPLES.max(image) {
         return Err(grid);
     }
     Ok(grid)
+}
+
+/// Whether combining on the finer grid is worth doing here, or the device's grid is better.
+///
+/// Separate from [`combined_grid`], which answers whether the combination is possible at all.
+/// A caller with a second construction available asks this one first and falls back to the
+/// combination; a caller with none asks only [`combined_grid`]. Splitting the two is what
+/// stops a preference from reading as a refusal — see [`PREFER_DEVICE_SCALE_ABOVE`].
+fn worth_combining(width: u32, height: u32, mask_width: u32, mask_height: u32) -> bool {
+    let grid = u64::from(width.max(mask_width)).saturating_mul(u64::from(height.max(mask_height)));
+    let image = u64::from(width).saturating_mul(u64::from(height));
+    grid <= PREFER_DEVICE_SCALE_ABOVE.max(image)
 }
 
 /// What an image's `/Mask` entry holds, once read.
@@ -2402,7 +2420,11 @@ fn colour_key_entry(
 ///   about a different key, and adopting it here would invert every stencil whose author
 ///   merely forgot `/ImageMask`. Refusing draws the image with its rectangle showing and
 ///   says so, which is wrong in a way a reader can see.
-/// - **The combined grid has to fit.** See [`MAX_MASK_GRID`].
+/// - **The combined grid has to fit.** See [`combined_grid`]. There is no second construction
+///   here — a stencil is `/ImageMask true`, which Table 87 forbids a colour space, so
+///   [`eligible_for_the_device_scale`] can never say yes to one — so the only question is
+///   whether the raster can be built, and the answer for a full-page scan under a
+///   600 dpi stencil is that it can.
 fn explicit_entry(document: &Document, dict: &Dictionary, stream: &Arc<Stream>) -> MaskEntry {
     let mask_dict = &stream.dict;
     let dimension = |dict: &Dictionary, key| {
@@ -2726,7 +2748,7 @@ pub fn overrides_graphics_state_mask(document: &Document, dict: &Dictionary) -> 
 /// `issue4246.pdf` masks a 50×40 image with a 1000×800 stencil, and combining on the image's
 /// grid would throw away 399 of every 400 mask samples; `smaskdim.pdf` gives a 2×2 image a
 /// 76×102 soft mask, where the image's grid would leave four samples of a rounded rectangle.
-/// What it costs is memory, which [`MAX_MASK_GRID`] bounds, and the difference from a
+/// What it costs is memory, which [`combined_grid`] bounds, and the difference from a
 /// device-resolution composite where the page is drawn larger than both.
 ///
 /// Nearest-neighbour is a choice for the stencil and a compromise for the soft mask. A
@@ -2888,8 +2910,9 @@ enum SoftMaskEntry {
 ///   present, and "[b]oth images shall be mapped to the unit square in user space (as are all
 ///   images), regardless of whether the samples coincide individually". So a mask of another
 ///   size still applies; [`combine_on_the_finer_grid`] is where the choice that costs is
-///   made, and [`MAX_MASK_GRID`] is the one pair it refuses — `issue16263.pdf` gives a 2×2
-///   image a 34862×4332 mask, 151 million samples for two distinct colours.
+///   made, and [`PREFER_DEVICE_SCALE_ABOVE`] is where it stops being the cheaper choice —
+///   `issue16263.pdf` gives a 2×2 image a 34862×4332 mask, 151 million samples for two
+///   distinct colours.
 /// - **`/ColorSpace` is "Required; shall be `DeviceGray`"**, and this is not pedantry: the
 ///   mask is decoded by the ordinary image route, so a mask in some other space arrives as a
 ///   colour, and there is no clause saying which of its components is the opacity. §11.5.3's
@@ -2973,11 +2996,10 @@ fn soft_mask_entry(
         }
     }
 
-    if let Err(grid) = combined_grid(width, height, mask_width, mask_height) {
-        // The refinement of the two grids is too large to build, which is where §10.7.4's
-        // answer — combine at device resolution — stops being an improvement and becomes the
-        // only answer. It needs the mask's samples readable at a chosen grid; see
-        // [`device_scaled_soft_mask`] for the three things that decides.
+    if !worth_combining(width, height, mask_width, mask_height) {
+        // The refinement of the two grids is large enough that §10.7.4's answer — combine at
+        // device resolution — is the better one. It needs the mask's samples readable at a
+        // chosen grid; see [`device_scaled_soft_mask`] for the three things that decides.
         if eligible_for_the_device_scale(document, &mask.dict, resources)
             && matches!(
                 matte_colour(document, dict, resources, &mask.dict),
@@ -2986,6 +3008,8 @@ fn soft_mask_entry(
         {
             return SoftMaskEntry::AtDeviceScale;
         }
+    }
+    if let Err(grid) = combined_grid(width, height, mask_width, mask_height) {
         return SoftMaskEntry::Unusable(format!(
             "/SMask is {mask_width}x{mask_height} against a {width}x{height} image, needing a \
              grid of {grid} samples"
@@ -3298,14 +3322,16 @@ impl SoftMaskAtDeviceScale {
     ///
     /// The third bound is the one a document controls. A backend asks for the device pixels the
     /// image covers, which a magnification the user chooses can make arbitrarily large, so the
-    /// same [`MAX_MASK_GRID`] that refused the eager combination bounds this one — halving both
-    /// axes until the product fits, so the raster stays the shape of the request.
+    /// same [`PREFER_DEVICE_SCALE_ABOVE`] that sent the pair down this route bounds the grid it
+    /// produces — halving both axes until the product fits, so the raster stays the shape of the
+    /// request.
     fn cells(&self, grid: pdf_render::Grid) -> pdf_render::Grid {
         let mut cells = pdf_render::Grid {
             width: grid.width.min(self.width).max(1),
             height: grid.height.min(self.height).max(1),
         };
-        while u64::from(cells.width).saturating_mul(u64::from(cells.height)) > MAX_MASK_GRID
+        while u64::from(cells.width).saturating_mul(u64::from(cells.height))
+            > PREFER_DEVICE_SCALE_ABOVE
             && (cells.width > 1 || cells.height > 1)
         {
             cells.width = (cells.width / 2).max(1);

@@ -30,7 +30,7 @@ use crate::function::{Function, Value};
 /// ([`FunctionColours`]) and a backend asks for the grid its device wants. That request is a
 /// number a *magnification* controls — a full page at 16× is hundreds of millions of cells —
 /// and each cell is a function evaluation plus a colour conversion, so this bounds the work
-/// and the memory the way `image::MAX_MASK_GRID` bounds a mask's raster. ISO 32000-2 §10.7.3
+/// and the memory the way `image::PREFER_DEVICE_SCALE_ABOVE` bounds a deferred mask's raster. ISO 32000-2 §10.7.3
 /// says a bound of this kind is the device's to set: "each output device may have internal
 /// limits". 2^22 cells is 2048×2048 — sixteen times the old fixed grid per axis — and 64 MB
 /// of transient `Color` at the limit.
@@ -930,7 +930,7 @@ const PARALLEL_CELLS: usize = 1 << 12;
 /// The grid a request will actually be answered at: no finer than asked, no more than fits.
 ///
 /// The request is a number a magnification controls, so [`MAX_FUNCTION_CELLS`] bounds it
-/// the way `image::MAX_MASK_GRID` bounds a deferred mask — halving both axes until the
+/// the way `image::PREFER_DEVICE_SCALE_ABOVE` bounds a deferred mask — halving both axes until the
 /// product fits, so the grid keeps the shape of the request.
 fn cells_within_budget(grid: pdf_render::Grid) -> pdf_render::Grid {
     let mut cells = pdf_render::Grid {

@@ -919,6 +919,44 @@ minutes each. Both of this chunk's defects were invisible to every gate — no d
 states either construct — which is the second round running that the crawl has answered a question
 no curated corpus can.
 
+### 18. The chunk the six-hundred-and-fifteenth took: seven archives, and a head that was ours from end to end
+
+**Taken: `0423`, `1161`, `2268`, `3375`, `4482`, `5589` and `6696`, whole, 7000 documents**, on
+§16's instrument unchanged and *reused* rather than rewritten — page one at 72 dpi against
+`pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
+minus the lightest live reference's. It was checked against 613's own three documents before it
+was trusted, and reproduces them to the thousandth.
+
+- **The six deepest positive rows are three different defects of this tree**, each a page all
+  three references agree on and this one buried under two hundred levels of ink. Five are
+  mixed-raster scans whose `/Mask` stencil is finer than the ceiling on the grid the two are
+  combined on — *reported*, and what a refusal there draws is the base image unmasked, which is a
+  solid black page. The sixth is a floor plan drawn as a photographic negative because black point
+  compensation took an additive ICC profile's **white** point for its black, silently.
+- **The deepest negative row is a third**, and also silent: `0423269.pdf`'s two coloured
+  backgrounds are `ShadingType 4` meshes painted by `sh` inside a tiling pattern's cell, and the
+  page-sized rectangle this tree stands in for §8.7.4.2's absent path is displaced by the lattice
+  while the shading is displaced with it — so the site whose shading lands on the page is the site
+  whose rectangle has left it, and no site paints. §11.6.4.2 says the surface is "the bounds of
+  the shading's painti ng geometry", which is a property of the shading and therefore travels with
+  it.
+- **The reach is measured rather than argued**: all fourteen ranked archives re-ranked whole after
+  the fixes, and the rows that move are the documents the three fixes are about and nothing else.
+  ADR 0451; §8.7.4.2's, §11.6.4.2's, §8.9.6.3's and §8.6.5.9's rows.
+- **Below +20 the positive head is 613's finding and not ours** — `poppler` alone drawing almost
+  nothing — which is now a note in `doc/traps/oracle-and-references.md` and was read there instead
+  of being derived again. That is what a trap entry is for.
+- **What the head still holds**: two silent rows below −8, both trap 9's family — one document
+  whose every image is `DCTDecode` under one `ICCBased` space, differing from three references by
+  a few levels over the whole page, and one of `/DeviceCMYK` JPEGs, which is 613's `6327765.pdf`
+  again. And a second document for `doc/todo/_image-codecs-and-the-sandbox.md` §7's `hayro-jbig2`
+  release: once its `/Mask` was admitted, `3375154.pdf` reaches the same flat 10 000-instance cap
+  `1653119.pdf` did.
+
+**What this chunk leaves: 51 944 crawled documents unranked**, in archive-sized pieces. Three
+rounds running, the crawl's head has been a defect no curated corpus states — and this is the
+first of the three where *every* row of the head was ours.
+
 
 ## What not to do
 

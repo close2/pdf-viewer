@@ -173,6 +173,15 @@ heuristic for maximum symbol instances (#1278)`, and the published version preda
 is: take the next `hayro-jbig2` release, and check that document. A bound belonging to a decoder is
 still a bound this program's pages pay, which is `doc/todo/10`'s subject one crate out.
 
+**There are two more documents now, and both arrived from behind a bound of our own.** The
+crawl's `3375154.pdf` is a scan whose `/Mask` is a 9364×13030 `JBIG2Decode` stencil, and
+`3252105.pdf` — in session 613's own archives — is a book cover whose foreground layer is another;
+until session 615 both were refused for the size of the grid the mask and its image would be
+combined on, so the JBIG2 was never reached and the pages came out as an unmasked colour layer.
+With that ceiling corrected (ADR 0451) each stencil decodes as far as the same flat cap, and the
+two pages are short of three references by 16 and 6 of 255. **Three documents of 14 000 crawled
+ones wait on one release**, which is what makes this an item rather than a note.
+
 ## 8. What this means for the platform question
 
 Nothing here unblocks macOS or Windows, and that is worth stating plainly because it was the

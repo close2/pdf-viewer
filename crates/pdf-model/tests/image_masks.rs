@@ -400,6 +400,49 @@ fn an_explicit_mask_paints_the_base_image_only_where_it_marks() {
     );
 }
 
+/// §8.9.6.3 with §8.9.6.2: a stencil finer than the grid combined eagerly for an `/SMask` is
+/// still combined, because for a `/Mask` there is no second construction to prefer.
+///
+/// The mixed-raster shape real scans are written in: a colour layer a few hundred samples
+/// across under a full-page bilevel stencil, whose refinement is tens of millions of samples.
+/// Until session 615 one number decided both "is combining eagerly worth it" and "can this be
+/// built at all", and a stencil can never take the other route — Table 87 forbids an
+/// `/ImageMask` a colour space of its own, and the device-scale route needs `DeviceGray`. So the
+/// pair was refused, which draws the base image *unmasked*: for this
+/// construction, a solid black page. Five documents of the crawl's 7000 were that (ADR 0451).
+///
+/// The fixture is the smallest pair past the preference: 8192 × 2049 is 16 785 408 samples,
+/// 8 192 above it, against a 1 × 1 image. What is asserted is the picture and the silence —
+/// `render` fails on any report at all.
+#[test]
+fn a_stencil_too_fine_to_prefer_combining_is_combined_anyway() {
+    let (width, height) = (8192usize, 2049usize);
+    assert!(
+        width * height > PREFER_DEVICE_SCALE_ABOVE,
+        "the fixture must exceed the grid that is combined without asking"
+    );
+    let raster = render(page_with_image(
+        "/Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Mask 6 0 R",
+        &BLUE,
+        &[stream_object(
+            6,
+            &format!(
+                "/Type /XObject /Subtype /Image /Width {width} /Height {height} /ImageMask true"
+            ),
+            &quadrant_mask(width, height),
+        )],
+    ));
+
+    // §8.9.6.2's default `/Decode [0 1]`: a sample of zero marks. `quadrant_mask` sets the
+    // bits of the top-left quadrant, so that quadrant is the one masked out.
+    assert!(cut_out(&raster, 5, 30), "top-left quadrant is masked out");
+    assert!(
+        about(&raster, 35, 30, BLUE),
+        "top-right quadrant is painted"
+    );
+    assert!(about(&raster, 5, 5, BLUE), "the bottom half is painted");
+}
+
 /// A mask finer than its image keeps its own detail.
 ///
 /// §8.9.6.3 says the two "need not have the same resolution" and that both are defined on the
@@ -616,11 +659,12 @@ fn a_colour_key_array_of_the_wrong_length_is_reported() {
     );
 }
 
-/// The grid a mask and its image would share, in samples, above which they are not combined.
+/// The grid a mask and its image would share, in samples, above which the device combines them.
 ///
-/// `crate::image`'s own `MAX_MASK_GRID`, restated here because a fixture has to straddle it
-/// and a test that only knew "large" would stop testing the boundary the day it moved.
-const MAX_MASK_GRID: usize = 1 << 24;
+/// `crate::image`'s own `PREFER_DEVICE_SCALE_ABOVE`, restated here because a fixture has to
+/// straddle it and a test that only knew "large" would stop testing the boundary the day it
+/// moved.
+const PREFER_DEVICE_SCALE_ABOVE: usize = 1 << 24;
 
 /// One `DeviceGray` soft mask of `width` × `height` one-bit samples, opaque in its top-left
 /// quadrant and transparent everywhere else.
@@ -657,7 +701,7 @@ fn quadrant_mask(width: usize, height: usize) -> Vec<u8> {
 fn a_soft_mask_too_large_to_combine_is_placed_by_the_device() {
     let (width, height) = (8192usize, 2049usize);
     assert!(
-        width * height > MAX_MASK_GRID,
+        width * height > PREFER_DEVICE_SCALE_ABOVE,
         "the fixture must exceed the grid that is built eagerly"
     );
     let raster = render(page_with_image(
