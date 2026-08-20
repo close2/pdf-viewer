@@ -24,6 +24,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         }
         Unsupported::Image { name } => format!("an image ({name}) was not drawn"),
         Unsupported::Shading { name } => format!("a shading or pattern ({name}) was not drawn"),
+        // Drawn, and worded so: the gradient is on the page and the wash the file asked for
+        // around it is not (§8.7.4.3).
+        Unsupported::ShadingBackground { detail } => format!(
+            "a shading pattern's background colour was not painted around it, so less was \
+             painted than asked for: {detail}"
+        ),
         Unsupported::Operator { operator } => {
             format!("the operator {operator} is not implemented")
         }

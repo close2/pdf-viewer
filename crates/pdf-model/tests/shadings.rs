@@ -565,6 +565,52 @@ fn a_shadings_bbox_clips_what_it_paints() {
     );
 }
 
+/// §8.7.4.3 Table 77's `/Background` is not painted, and the clause's own condition decides
+/// where that is worth saying.
+///
+/// > If present, this colour shall be used, before any painting operation involving the
+/// > shading, to fill those portions of the area to be painted that lie outside the bounds of
+/// > the shading object.
+///
+/// and, in the same cell:
+///
+/// > The background colour shall be applied only when the shading is used as part of a shading
+/// > pattern, not when painted directly with the sh operator.
+///
+/// So a `sh` that states one owes nothing and reports nothing, and a *pattern* that states one
+/// is a mark this tree does not make. Both halves are asserted here, because a report raised on
+/// the wrong one of the two would be noise on every page that paints a shading directly.
+/// `doc/todo/17` prices the drawing; the ledger's §8.7.4.3 row carries the population.
+#[test]
+fn a_shading_patterns_background_is_reported_and_sh_owes_nothing() {
+    let with_background = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
+                           /Background [0 1 1] \
+                           /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
+                           /C1 [0 0 1] /N 1 >> >>";
+
+    let reported = |content: &str| {
+        let bytes = pdf_with(with_background, content);
+        let document = Document::open(bytes).expect("the fixture is a valid PDF");
+        let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+        format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
+    };
+
+    let through_a_pattern = reported("/Pattern cs /P0 scn 0 0 100 100 re f");
+    assert!(
+        through_a_pattern.contains("ShadingBackground")
+            && through_a_pattern.contains("/P0")
+            && through_a_pattern.contains("3 component(s)"),
+        "a pattern's unpainted /Background must be named with its pattern and its length: \
+         {through_a_pattern}"
+    );
+
+    let directly = reported("/Sh0 sh");
+    assert!(
+        !directly.contains("ShadingBackground"),
+        "`sh` is the case the clause exempts, so it must owe nothing: {directly}"
+    );
+}
+
 /// Colour spaces are resolved before the display list, so a shading in CMYK must land
 /// on the same colours as the equivalent one in RGB.
 #[test]

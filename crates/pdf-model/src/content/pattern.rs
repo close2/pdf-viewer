@@ -133,13 +133,15 @@ impl Interpreter<'_> {
     /// this clause's answer and so the interpreter's to compose, exactly as Table 77's
     /// `/BBox` is.
     ///
-    /// **`Background` is not implemented and not reported**, which is Table 77's own gap
-    /// rather than this function's: the ledger's §8.7.4.3 row carries it, two corpus documents
-    /// write one, and the entry applies only where a shading is used as a *pattern*. So this
-    /// leaves the outside unpainted, which is the clause's branch for a shading that states no
-    /// background — and a shading that states one gets the same treatment silently. An earlier
-    /// version of this comment claimed such a shading was refused before reaching here; it is
-    /// not.
+    /// **`Background` is not implemented and is reported**, which is Table 77's own gap rather
+    /// than this function's: the ledger's §8.7.4.3 row carries it, and the entry applies only
+    /// where a shading is used as a *pattern*, which is where [`Interpreter::pattern`] raises
+    /// [`Unsupported::ShadingBackground`]. So this leaves the outside unpainted, which is the
+    /// clause's branch for a shading that states *no* background, and a shading that states one
+    /// is drawn the same way with the shortfall named. **Two earlier versions of this comment
+    /// were wrong about it**: one claimed such a shading was refused before reaching here, and
+    /// the sentence that corrected that one went on saying it "gets the same treatment silently"
+    /// for as long as it was true.
     ///
     /// Nothing happens for any other shading type: an axial or radial shading says where it
     /// stops through `/Extend`, which its ramp already carries, and a mesh through its
@@ -853,6 +855,21 @@ impl Interpreter<'_> {
         // Unresolved on purpose: `shading::Cache` is keyed by the reference, and a pattern
         // painted a thousand times states the same one every time.
         let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
+
+        // Table 77's `/Background` "shall be applied only when the shading is used as part of
+        // a shading pattern, not when painted directly with the sh operator", so this is the
+        // one place in the interpreter where the entry means anything — and nothing paints it.
+        // Reported here rather than dropped, because the area outside the shading's bounds is
+        // a mark the file asked for: `issue13372.pdf` states `/Background [0 1 1]` on an axial
+        // shading that extends at neither end, so every part of the stencil it fills beyond the
+        // axis is cyan in the document and unpainted here. `doc/todo/17` prices the drawing.
+        if let Some(components) =
+            crate::shading::background_components(self.document, &shading_object)
+        {
+            self.note(Unsupported::ShadingBackground {
+                detail: format!("/{label} states a /Background of {components} component(s)"),
+            });
+        }
 
         match self.shadings.build(
             self.document,

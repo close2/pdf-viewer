@@ -2692,6 +2692,16 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// against a *best* reference pair of 0.0319. The page drew nothing at all until that session
 /// (ADR 0151), which is why it is here rather than in the undiagnosed list.
 ///
+/// **It left the group in the six-hundred-and-sixteenth session by leaving the comparison**, which
+/// is the same trade §9.3.8, §11.6.2 and the four `knockout_*.pdf` made — this file's own
+/// precedent, one group up. Its shading states §8.7.4.3 Table 77's `/Background [0 1 1]` and
+/// extends at neither end, so the stencil it fills is cyan outside the band between its `/Coords`
+/// and unpainted here; that had been true and silent for the whole of the project, and it is
+/// [`pdf_model::Unsupported::ShadingBackground`] now (ADR 0452, `doc/todo/17`). The diagnosis
+/// above is unchanged and is kept here rather than deleted with the name, because the halftone
+/// reduction is still what those four moirés are: **the page will come back to this group the
+/// round the wash is painted**, and it is `corpus.rs`'s to count until then.
+///
 /// **`freeculture.pdf` page 1 is the third instance and the cheapest diagnosis in the bucket**,
 /// added in the hundred-and-ninety-second session. It is the head of the 320-page book that is
 /// 42% of the ambiguous bucket on its own, it sat fourth on the printed ranking at 11.84 bounds
@@ -3008,7 +3018,7 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
 /// form answers "how much" and is silent on "where"; this is the page where only the pixel count
 /// speaks. The pairwise distances say the same and say the outlier is not us: ours is 0.143 of 255
 /// from `hayro` and 0.152 from `mupdf`, while every pair involving `poppler` exceeds 1.26.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 16] = [
     "issue4379.pdf page 1",
     "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
@@ -3033,7 +3043,6 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",
     "issue7229.pdf page 2",
-    "issue13372.pdf page 1",
     "issue1985.pdf page 1",
     "issue7200.pdf page 1",
     "jp2k-resetprob.pdf page 1",

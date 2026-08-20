@@ -844,9 +844,12 @@ impl<'a> Encoder<'a> {
             range,
             // §8.7.4.5.2's `Background` "shall be applied only when the shading is used as
             // part of a shading pattern, not when painted directly with the `sh` operator",
-            // and this tree reads no `/Background` at all — on either path — so points
-            // outside the domain rectangle are left unpainted, which is what that entry's
-            // absence means and what `sampled_fill` also draws.
+            // and **no display list in this tree carries one** — `pdf_model` reads the entry
+            // only to report it (`Unsupported::ShadingBackground`, §8.7.4.3's row) and
+            // `pdf_render::Shading` has no field for it — so points outside the domain
+            // rectangle are left unpainted, which is what that entry's absence means and what
+            // `sampled_fill` also draws. This field is the one place any backend here could
+            // already take one, which is why `doc/todo/17` starts its pricing at this line.
             background: None,
         };
         // The budgets the scene boundary states over a rectangle and a transform are quorra's
