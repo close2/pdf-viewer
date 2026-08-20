@@ -57,6 +57,7 @@ cargo test  --profile gates -p pdf-model      --test dates           -- --ignore
 cargo test  --profile gates -p pdf-model      --test xmp             -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test  --profile gates -p render-quorra  --test corpus          -- --ignored --nocapture
+cargo test  --profile gates -p pdf-model      --test fixed_documents -- --ignored --nocapture
 cargo test -p conformance -- --nocapture
 ```
 
@@ -181,6 +182,15 @@ here:
   — and it costs a fraction of the pdf.js gate, because its reference is a file rather than one
   `pdftotext` invocation per document. That is what "earned a place" was supposed to mean. ADR
   0259.
+- **The `fixed_documents` line is the merge round's, and it is the only gate that sees the
+  SafeDocs crawl.** Every other gate here walks `doc/pdf.js`; a fix found by ranking the crawl is
+  measured once, by the round that makes it, in a tree without its neighbours' work — so two
+  branches touching no common line can defeat each other with every one of these lines green, and
+  one did (ADR 0458). `doc/checks/fixed-documents.toml` is the appendable half and
+  `doc/todo/03` §20 the rule. Half a minute. **It needs the worker**, which is trap 10 and is the
+  line above the corpus gate; it **skips rows whose document is absent** and counts them, because
+  `corpus-cache/` is machine-local, and it **fails rather than passing quietly** when none of them
+  is there.
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. It

@@ -125,6 +125,13 @@ section_quorra() {
         cargo test --profile gates -p render-quorra --test corpus -- --ignored --nocapture
 }
 
+section_fixed() {
+    gate_binaries
+    run "documents a round fixed outside the gates (doc/checks/fixed-documents.toml)" \
+        '^fixed-documents:|no longer do what' \
+        cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
+}
+
 section_dates() {
     run "dates (§7.9.4)" '^[0-9]+ date strings' \
         cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
@@ -185,7 +192,7 @@ section_disk() {
     du -sh /home/AI/cargo-target/pdf-viewer/tmp/pdfref-cache 2>/dev/null
 }
 
-all="ledger conformance annex-o counts binaries disk tests corpus oracle text selection accessibility quorra dates xmp jpeg2000"
+all="ledger conformance annex-o counts binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
 quick="ledger conformance annex-o counts binaries disk"
 
 case ${1-} in
@@ -209,6 +216,7 @@ for section in $sections; do
     selection) section_selection ;;
     accessibility) section_accessibility ;;
     quorra) section_quorra ;;
+    fixed) section_fixed ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     jpeg2000) section_jpeg2000 ;;

@@ -186,6 +186,12 @@ window (#1304 folded `push_pixel` and `push_pixel_chunk` into one `push_pixels`)
 **Nothing on the curated corpus moved**: the 125 pdf.js documents naming any of the three codecs
 rasterise byte-identically before and after, which is what says the release is about the crawl.
 
+**And the three documents are a checked-in check now, because that claim was disbelieved.** The
+merge round found all three refusing again and could not attribute it; what was answering was a
+stale `pdf-sandbox-worker` in a build directory, and nothing in a page's report said the sentence
+came from a binary rather than from the file (ADR 0458). They are rows in
+`doc/checks/fixed-documents.toml`, and `doc/todo/03` §20 has the rule.
+
 **A bound belonging to a decoder is still a bound this program's pages pay**, which is
 `doc/todo/10`'s subject one crate out, and it is the reason this stays written down after the
 item is closed. **The next one is `hayro-ccitt` and `hayro-jbig2` going back to crates.io**, which

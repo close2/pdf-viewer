@@ -21,12 +21,47 @@ use crate::{Decoded, SandboxError};
 /// question this one asks with silence, which is exactly what the magic is for. `03` since
 /// the four-hundred-and-eighty-sixth, when a raster response gained the codestream's own
 /// stated grid beside the raster's — a parent from the build before would read those eight
-/// bytes as sample data.
-const MAGIC: &[u8; 8] = b"PDFSBX03";
+/// bytes as sample data. `04` since the six-hundred-and-twenty-fourth, when the greeting
+/// gained [`BUILD`].
+const MAGIC: &[u8; 8] = b"PDFSBX04";
+
+/// This build's identity, from `build.rs`: sixteen lowercase hex digits.
+///
+/// **The magic above proves the two processes speak the same wire format and cannot prove
+/// they are the same build**, and the second is the question that was costing pages. A worker
+/// built from an older tree answers every request this one asks, correctly for *its* decoders
+/// — and a decoder's refusal from an older binary is word for word a decoder's refusal from
+/// this one, so it reaches the page as the file's defect. It took the merge of session 621's
+/// `hayro-jbig2` bound three sessions to be believed, and the thing that was wrong was never
+/// the tree (ADR 0458).
+///
+/// Both ends of the pipe are this crate, so this constant is the same on both by
+/// construction — unless the two binaries were built from different sources or different
+/// locked dependencies, which is exactly the condition worth naming. `build.rs` says what
+/// goes into it and what deliberately does not.
+///
+/// **Not a security control.** The worker is the untrusted side; a subverted one can send any
+/// sixteen bytes. What this detects is a mistake, and a mistake nobody was detecting.
+const BUILD: &str = env!("PDF_SANDBOX_BUILD");
+
+/// Length of [`MAGIC`] on the wire.
+///
+/// Public to the crate because the parent reads it *before* the rest of the greeting: a
+/// worker of an older format sends a shorter record, and asking for the whole of this one
+/// first would wait out the deadline instead of naming the mismatch.
+pub(crate) const MAGIC_LEN: usize = MAGIC.len();
+
+/// Whether these bytes are this build's greeting bytes.
+pub(crate) fn is_our_magic(bytes: &[u8]) -> bool {
+    bytes == MAGIC
+}
+
+/// Length of [`BUILD`] on the wire.
+const BUILD_LEN: usize = 16;
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit,
-/// and whether system calls are filtered.
-pub(crate) const HANDSHAKE_LEN: usize = 8 + 1 + 8 + 1;
+/// whether system calls are filtered, and the build identity.
+pub(crate) const HANDSHAKE_LEN: usize = MAGIC_LEN + 1 + 8 + 1 + BUILD_LEN;
 
 /// Length of a response header: the status byte and the payload length.
 pub(crate) const RESPONSE_HEADER_LEN: usize = 1 + 4;
@@ -312,33 +347,70 @@ pub(crate) fn encode_handshake(confinement: Confinement) -> [u8; HANDSHAKE_LEN] 
         LandlockLevel::Partial => 1,
         LandlockLevel::Unavailable => 0,
     };
-    let (limit, filtered) = rest.split_at_mut(8);
+    let (limit, rest) = rest.split_at_mut(8);
     limit.copy_from_slice(&confinement.address_space_limit.to_be_bytes());
+    let (filtered, build) = rest.split_at_mut(1);
     filtered[0] = u8::from(confinement.system_calls == SystemCalls::Filtered);
+    build.copy_from_slice(BUILD.as_bytes());
     greeting
 }
 
-/// Reads the worker's greeting, or `None` if it is not one.
-pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Option<Confinement> {
+/// Why a greeting was not one this parent can talk to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Stranger {
+    /// The bytes are not this protocol's greeting at all.
+    ///
+    /// Either the program on the other end is not the worker, or it is a worker whose wire
+    /// format differs from this one's.
+    Protocol,
+    /// The protocol matches and the build does not.
+    Build {
+        /// What the worker called itself, as it sent it.
+        theirs: String,
+    },
+}
+
+/// This build's identity, for an error message that has to name both sides.
+pub(crate) fn build_identity() -> &'static str {
+    BUILD
+}
+
+/// Reads the worker's greeting.
+///
+/// # Errors
+///
+/// [`Stranger`], which separates "not this protocol" from "this protocol, another build" —
+/// they need different sentences, because only one of the two is fixed by rebuilding.
+pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Result<Confinement, Stranger> {
     let (magic, rest) = greeting.split_at(8);
     if magic != MAGIC {
-        return None;
+        return Err(Stranger::Protocol);
     }
     let (level, rest) = rest.split_at(1);
-    let landlock = match level.first()? {
-        2 => LandlockLevel::Enforced,
-        1 => LandlockLevel::Partial,
-        0 => LandlockLevel::Unavailable,
-        _ => return None,
+    let landlock = match level.first() {
+        Some(2) => LandlockLevel::Enforced,
+        Some(1) => LandlockLevel::Partial,
+        Some(0) => LandlockLevel::Unavailable,
+        _ => return Err(Stranger::Protocol),
     };
-    let (limit, filtered) = rest.split_at(8);
-    let bytes: [u8; 8] = limit.try_into().ok()?;
-    let system_calls = match filtered.first()? {
-        1 => SystemCalls::Filtered,
-        0 => SystemCalls::Unfiltered,
-        _ => return None,
+    let (limit, rest) = rest.split_at(8);
+    let Ok(bytes) = <[u8; 8]>::try_from(limit) else {
+        return Err(Stranger::Protocol);
     };
-    Some(Confinement {
+    let (filtered, build) = rest.split_at(1);
+    let system_calls = match filtered.first() {
+        Some(1) => SystemCalls::Filtered,
+        Some(0) => SystemCalls::Unfiltered,
+        _ => return Err(Stranger::Protocol),
+    };
+    // Checked after the fields above rather than beside the magic, so that a greeting which
+    // is structurally wrong is reported as that rather than as a build disagreement.
+    if build != BUILD.as_bytes() {
+        return Err(Stranger::Build {
+            theirs: String::from_utf8_lossy(build).into_owned(),
+        });
+    }
+    Ok(Confinement {
         landlock,
         address_space_limit: u64::from_be_bytes(bytes),
         system_calls,
@@ -676,7 +748,7 @@ mod tests {
                 system_calls,
             };
             let encoded = encode_handshake(confinement);
-            assert_eq!(parse_handshake(&encoded), Some(confinement));
+            assert_eq!(parse_handshake(&encoded), Ok(confinement));
         }
     }
 
@@ -697,7 +769,37 @@ mod tests {
         // What a program that ignored its arguments and printed something would send.
         let mut noise = [0u8; HANDSHAKE_LEN];
         noise[..8].copy_from_slice(b"usage: p");
-        assert_eq!(parse_handshake(&noise), None);
+        assert_eq!(parse_handshake(&noise), Err(Stranger::Protocol));
+    }
+
+    /// A worker of this protocol built from another tree, which is the case that was costing
+    /// pages: it speaks perfectly and answers out of older decoders.
+    ///
+    /// The greeting is this build's with one hex digit of the identity changed, so nothing
+    /// *but* the identity distinguishes it — which is what makes the assertion about the
+    /// identity rather than about a malformed record.
+    #[test]
+    fn a_worker_from_another_build_is_named_as_one() {
+        let mut greeting = encode_handshake(Confinement::NONE);
+        let last = greeting.len().saturating_sub(1);
+        greeting[last] = if greeting[last] == b'0' { b'1' } else { b'0' };
+        let Err(Stranger::Build { theirs }) = parse_handshake(&greeting) else {
+            panic!("a build identity that is not ours has to be reported as that");
+        };
+        assert_ne!(theirs, build_identity());
+        assert_eq!(theirs.len(), BUILD_LEN);
+    }
+
+    /// The identity is a fixed-width field the greeting copies without parsing, so its width
+    /// is a promise `build.rs` makes and this is where the promise is checked.
+    #[test]
+    fn the_build_identity_is_sixteen_hex_digits() {
+        assert_eq!(build_identity().len(), BUILD_LEN);
+        assert!(
+            build_identity()
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        );
     }
 
     #[test]

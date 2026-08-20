@@ -152,6 +152,20 @@ owner. The page agrees now.
   −156.436 against a recorded −6.390. **A round that had skipped that check would have read seven
   regressions off its own missing binary**, which is why the check is not a formality. Two
   commands, and the second is `cargo build --release -p pdf-sandbox --bins`.
+- **And the twin of that, which is worse because it is silent rather than loud: a
+  `pdf-sandbox-worker` that *is* found and is not this build.** `worker_program` searches beside
+  the running executable **first** and only then one directory up, so a copy left once in
+  `target/<profile>/examples/` outranks every rebuild of `target/<profile>/pdf-sandbox-worker` for
+  as long as it sits there — and an example binary is exactly what a person reproducing a ranked
+  document runs. An older worker answers every request out of older decoders, and its refusals
+  reach the page **worded as the decoder's own**, so they read as the file's defect. Session 621's
+  `hayro-jbig2` fix was reported gone by session 623 for this reason and for no other; three
+  sessions went into a tree that was correct (ADR 0458). **The greeting names it now** —
+  `SandboxError::WorkerMismatch`, with both identities and the worker's path — so the shape to
+  recognise is that message rather than the hunt. What is still worth doing by hand is the
+  one-line check that made the attribution: run the same instrument twice with
+  `PDF_SANDBOX_WORKER` naming each candidate, because *substituting* a worker only eliminates the
+  worker if the substituted file is the one that runs.
 - **A ranking against the *lightest* live reference is sensitive to one reference failing
   quietly**, and on the open web that is commoner than a defect of ours. `doc/todo/00` step 7's
   number is our ink minus the smallest of the references', so a renderer that draws a page's rules

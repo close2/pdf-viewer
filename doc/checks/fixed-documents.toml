@@ -1,0 +1,235 @@
+# Documents a round fixed, and the check that says so.
+#
+# **Appendable, and the merge round runs it.** The corpus, oracle and quorra gates walk
+# `doc/pdf.js`; a fix found by ranking the SafeDocs crawl is measured once, by the round that
+# makes it, in a tree that does not yet hold its neighbours' work — so two branches that touch
+# no common line can defeat each other with every gate green. `doc/todo/03` states the rule and
+# ADR 0458 has the session that paid for it.
+#
+# The one command that runs every row:
+#
+#   cargo build --profile gates -p pdf-sandbox --bins       # trap 10: nothing else builds it
+#   cargo test  --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
+#
+# A row states, for one page:
+#
+#   path      relative to the repository root
+#   page      one-based
+#   session   the round that fixed it; its `doc/history/` file is the argument
+#   reports   substrings of `Interpretation::unsupported`. `[]` means the page reports
+#             *nothing*, which is what most of these want; a listed substring must appear and
+#             an unlisted report is a failure either way
+#   ink       `low .. high` on the mean of `255 - luma` over page one at scale 1.0, this tree's
+#             own raster and no reference in the room. Empty pins nothing, which is right where
+#             a fix was about a report rather than about pixels
+#   why       the defect, in one line, with its ADR and clause
+#
+# **The bands below are the value measured at seeding plus and minus 1.0 of 255.** Every defect
+# they stand against moved a page by between 3.8 and 245 levels, so the band is about the defect
+# rather than about antialiasing. A round that legitimately changes what these pages draw moves
+# the number here and says why in its own history file — the same discipline as any ratchet in
+# this tree, and the reason the row carries `why`.
+#
+# `corpus-cache/` is a machine-local crawl (`tools/safedocs`). Rows whose document is absent are
+# skipped and counted; a run that finds none of them says so and fails.
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0100/0100223.pdf"
+page = 1
+session = 603
+reports = []
+ink = 224.475 .. 226.475
+why = "a full-page scanner scan drawn blank, on a report that the file named an XObject it does not define; the name's 0xF4 byte was going through from_utf8_lossy (ADR 0438, 7.3.5)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4851/4851434.pdf"
+page = 1
+session = 613
+reports = []
+ink = 19.468 .. 21.468
+why = "a bilevel scan drawn blank and reported as `stream did not decode`, because a RunLengthDecode run header with no bytes behind it threw the whole decoded prefix away (ADR 0448, 7.4.5)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/6327/6327194.pdf"
+page = 1
+session = 613
+reports = []
+ink = 7.997 .. 9.997
+why = "a solid black page with nothing reported: a greyscale JPEG under /Indexed had every sample divided by 255 before the lookup, addressing 256 palette entries at two of them (ADR 0448, 8.6.6.3)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0100/0100408.pdf"
+page = 1
+session = 613
+reports = []
+ink = 7.262 .. 9.262
+why = "the same /Indexed-over-DCTDecode lookup, carried by the same fix"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0100/0100681.pdf"
+page = 1
+session = 613
+reports = []
+ink = 6.604 .. 8.604
+why = "the same /Indexed-over-DCTDecode lookup, carried by the same fix"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0423/0423269.pdf"
+page = 1
+session = 615
+reports = []
+ink = 30.087 .. 32.087
+why = "two mesh backgrounds drawn as white paper with nothing reported: `sh` inside a tiling pattern's cell stood in the page rectangle for its surface, which Cell::repeat then displaced (ADR 0451, 8.7.4.2, 11.6.4.2)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2268/2268885.pdf"
+page = 1
+session = 615
+reports = []
+ink = 27.445 .. 29.445
+why = "a floor plan drawn as a photographic negative with nothing reported: black point compensation found the profile's black by pushing every component to 1.0 (ADR 0451, 8.6.5.9)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2268/2268946.pdf"
+page = 1
+session = 615
+reports = []
+ink = 15.694 .. 17.694
+why = "a mixed-raster scan drawn solid black: a refused /Mask draws the base image unmasked, and one constant was deciding both /SMask's route and /Mask's refusal (ADR 0451, 8.9.6.3)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2268/2268120.pdf"
+page = 1
+session = 615
+reports = []
+ink = 7.456 .. 9.456
+why = "the same /Mask ceiling"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4482/4482224.pdf"
+page = 1
+session = 615
+reports = []
+ink = 35.257 .. 37.257
+why = "the same /Mask ceiling"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/6696/6696861.pdf"
+page = 1
+session = 615
+reports = []
+ink = 29.987 .. 31.987
+why = "the same /Mask ceiling"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/5589/5589678.pdf"
+page = 1
+session = 615
+reports = []
+ink = 23.730 .. 25.730
+why = "the same black point compensation defect as 2268885, from the light side and equally silent"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2022/2022009.pdf"
+page = 1
+session = 619
+reports = []
+ink = 83.044 .. 85.044
+why = "a full-page scan drawn blank, reported as `Image height 28341 greater than height limit 16384` — zune-jpeg's DecoderOptions default reached before this crate's own MAX_SAMPLES (ADR 0454, 7.4.8)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3498/3498294.pdf"
+page = 1
+session = 619
+reports = []
+ink = 32.276 .. 34.276
+why = "63% of an unfiltered inline image lost and 1.4 MB of its samples tokenised as operators, because a derived end the 64 KiB window was too short to check fell through to the forward search (ADR 0454, 8.9.7, 7.3.8.2)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4236/4236390.pdf"
+page = 1
+session = 619
+reports = []
+ink = 40.432 .. 42.432
+why = "refused for /Columns 872 against /Width 869, which is Table 11's own byte padding and shifts no sample (ADR 0454, 7.4.6)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2022/2022430.pdf"
+page = 1
+session = 619
+reports = []
+ink = 44.346 .. 46.346
+why = "refused for /Columns 896 against /Width 892, the same padding"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3498/3498460.pdf"
+page = 1
+session = 619
+reports = []
+ink = 43.163 .. 45.163
+why = "the same /Columns padding"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3498/3498231.pdf"
+page = 1
+session = 619
+reports = []
+ink = 12.339 .. 14.339
+why = "about 1550 text operations lost to `units per em is zero`, for want of a `head` table Table 124 exempts an OpenType CFF font from (ADR 0454, 9.9)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0546/0546308.pdf"
+page = 1
+session = 619
+reports = []
+ink = 9.653 .. 11.653
+why = "the same missing `head`"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3375/3375550.pdf"
+page = 1
+session = 619
+reports = []
+ink = 11.917 .. 13.917
+why = "the same missing `head`"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/5712/5712943.pdf"
+page = 1
+session = 619
+reports = []
+ink = 84.908 .. 86.908
+why = "the same missing `head`"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/1653/1653119.pdf"
+page = 1
+session = 621
+reports = []
+ink = 34.707 .. 36.707
+why = "a broadsheet drawn as a blank sheet with nothing reported, on hayro-jbig2 0.3.0's flat 10 000 symbol-instance cap — a refusal inside the worker is one image, so the page draws around the hole (ADR 0456, 7.4.7)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3375/3375154.pdf"
+page = 1
+session = 621
+reports = []
+ink = 62.380 .. 64.380
+why = "the same JBIG2 cap, behind the /Mask ceiling session 615 lifted"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3252/3252105.pdf"
+page = 1
+session = 621
+reports = []
+ink = 155.225 .. 157.225
+why = "the same JBIG2 cap, on a book cover whose foreground layer is a stencil"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/5589/5589519.pdf"
+page = 1
+session = 621
+reports = []
+ink = 80.479 .. 82.479
+why = "a photograph washed green under a luminosity mask whose group paints a shading pattern: build_soft_mask ran the group without swapping the interpreter's base (ADR 0456, 8.7.2, 11.6.5.1)"
+

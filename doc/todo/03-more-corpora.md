@@ -1021,6 +1021,36 @@ lightest live reference's.
 **What this chunk leaves: 43 944 crawled documents unranked**, in archive-sized pieces. Four
 rounds running, the crawl's head has been a defect no curated corpus states.
 
+### 20. The check a chunk leaves behind, which is a file rather than a memory
+
+**A fix found by ranking this crawl is measured once**, by the round that makes it, in a tree that
+does not yet hold its neighbours' work. The corpus, oracle and quorra gates walk `doc/pdf.js` and
+name none of these documents, so two branches touching no common line can defeat each other with
+every gate green — which is what the six-hundred-and-twenty-third session found and the
+six-hundred-and-twenty-fourth attributed (ADR 0458). Two rules follow, and **they are a program
+rather than a habit, because the round that first stated them recorded them in its own history
+file and in no other document, which is exactly the failure they are about**:
+
+- **A round that fixes a document no gate covers appends a row to
+  [`doc/checks/fixed-documents.toml`](../checks/fixed-documents.toml)** — the path, the page, the
+  reports the page must and must not carry, an ink band, and the defect in one line with its ADR
+  and clause. The file's own header says what each field means.
+- **The merge round runs it**, because the merge is the only place the combination exists. It is a
+  line in `doc/todo/02` §2, two commands, and about half a minute over the whole file:
+
+  ```sh
+  cargo build --profile gates -p pdf-sandbox --bins   # trap 10: nothing else builds it
+  cargo test  --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
+  ```
+
+**It is a regression check and not a second ranking.** A row goes in once its defect has been read
+against a clause; a document at the head of a chunk with no diagnosis belongs in a section above,
+not here. And the check needs no reference renderer at all — reports and this tree's own ink — so
+it costs seconds and cannot drift under `poppler` having a bad day.
+
+It is seeded with the documents sessions 603, 613, 615, 619 and 621 fixed, each *re-measured*
+rather than copied out of a history file.
+
 
 ## What not to do
 

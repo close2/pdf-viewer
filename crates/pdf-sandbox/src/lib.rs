@@ -83,7 +83,7 @@ pub use protocol::{Bilevel, CcittParameters, Colour, Raster, Request};
 pub use worker::serve;
 
 use std::io::{Read as _, Write as _};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::ChildStdout;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -222,6 +222,40 @@ pub enum SandboxError {
     /// The worker program could not be started.
     #[error("starting the sandbox worker failed: {0}")]
     Spawn(#[source] std::io::Error),
+    /// The worker speaks this protocol and was built from a different tree.
+    ///
+    /// **Its own name, because every other outcome of finding one would be a lie.** A worker
+    /// from an older build answers every request, correctly for the decoders it has — so its
+    /// refusals arrive worded as decoders' refusals and read as the document's defect. Three
+    /// sessions were spent on one that read that way (ADR 0458).
+    ///
+    /// The clause is why that distinction is not a small one. ISO 32000-2 §7.4.7:
+    ///
+    /// > JBIG2 explicitly defines the requirements of a compliant bitstream, and thus defines
+    /// > decoder behaviour.
+    ///
+    /// A conforming bit stream has one decoding, and ISO/IEC 14492 is where it is defined — so
+    /// a refusal with a *number* in it is never something this standard states about the file.
+    /// It is a budget belonging to whichever binary answered, and naming that binary is what
+    /// makes the sentence true. §7.4.6 and §7.4.9 travel the same pipe and inherit the same
+    /// argument.
+    ///
+    /// Nothing here is a security claim: a subverted worker can send whatever identity it
+    /// likes, and what this names is a stale binary.
+    #[error(
+        "the sandbox worker at {program} was built from a different tree than this program \
+         (it says {theirs}, this build is {ours}) — rebuild it with `cargo build -p \
+         pdf-sandbox --bins`, and look for a stale copy of `{WORKER_PROGRAM}` beside the \
+         running executable, which is searched first"
+    )]
+    WorkerMismatch {
+        /// The worker that was started.
+        program: PathBuf,
+        /// The identity it sent.
+        theirs: String,
+        /// This program's own.
+        ours: String,
+    },
     /// The worker stopped before answering.
     ///
     /// This is the expected outcome for an image that trips a bound: the address-space limit
@@ -431,7 +465,7 @@ impl Connection {
                 confinement: Confinement::NONE,
             }
         };
-        connection.confinement = connection.read_handshake()?;
+        connection.confinement = connection.read_handshake(&program)?;
         Ok(connection)
     }
 
@@ -440,11 +474,36 @@ impl Connection {
     /// Until this arrives, nothing is known about the process on the other end — including
     /// whether it is the worker at all. A program that ignored its arguments and started an
     /// interactive viewer would fail here rather than being fed image data.
-    fn read_handshake(&mut self) -> Result<Confinement, SandboxError> {
+    ///
+    /// `program` is carried in only so that a disagreement can name the file, which is the
+    /// one thing that makes a stale worker findable: it is usually not the path the reader
+    /// expects.
+    ///
+    /// **The magic is read on its own before the rest**, because the greeting's *length* is
+    /// part of what a magic bump changes: a worker of an older format sends fewer bytes, and a
+    /// parent asking for the whole record at once waits out the request deadline for each
+    /// image rather than saying what is wrong. That is a diagnostic turned into a stall, and
+    /// it was measured on the very binary this arrangement exists to name.
+    fn read_handshake(&mut self, program: &Path) -> Result<Confinement, SandboxError> {
         let mut greeting = [0u8; protocol::HANDSHAKE_LEN];
-        self.read_exactly(&mut greeting, deadline())?;
-        protocol::parse_handshake(&greeting).ok_or_else(|| SandboxError::Malformed {
-            detail: "the greeting was not this protocol's".to_owned(),
+        let deadline = deadline();
+        let (magic, rest) = greeting.split_at_mut(protocol::MAGIC_LEN);
+        self.read_exactly(magic, deadline)?;
+        if !protocol::is_our_magic(magic) {
+            return Err(SandboxError::Malformed {
+                detail: "the greeting was not this protocol's".to_owned(),
+            });
+        }
+        self.read_exactly(rest, deadline)?;
+        protocol::parse_handshake(&greeting).map_err(|stranger| match stranger {
+            protocol::Stranger::Protocol => SandboxError::Malformed {
+                detail: "the greeting was not this protocol's".to_owned(),
+            },
+            protocol::Stranger::Build { theirs } => SandboxError::WorkerMismatch {
+                program: program.to_path_buf(),
+                theirs,
+                ours: protocol::build_identity().to_owned(),
+            },
         })
     }
 
