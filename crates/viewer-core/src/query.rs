@@ -319,19 +319,31 @@ pub enum Query<'a> {
     /// an **empty list** for a tier-1 host that has not handed any back yet — the two are
     /// different answers and a host waiting for its first frame needs the second.
     Frame,
-    /// §14.7's logical structure for the page being shown, as an accessibility API takes it.
+    /// §14.7's logical structure for every page the arrangement is showing, page by page.
     ///
     /// The last of the five items `doc/ui-boundary.md` lists as blocked on this interface, and
-    /// the first consumer of six sessions' reading of §14.7 and §14.9. Answers with an empty list
-    /// for an untagged document, which is an answer: the page says nothing about its own
-    /// structure, and §14.7 leaves it free to.
+    /// the first consumer of six sessions' reading of §14.7 and §14.9. Answers with an empty
+    /// [`PageStructure::nodes`] for an untagged page, which is an answer: the page says nothing
+    /// about its own structure, and §14.7 leaves it free to.
+    ///
+    /// **One entry per page rather than one tree for the screen**, and that is a reading of the
+    /// clause rather than a convenience. §14.7's structure is the *document's* and this crate
+    /// answers for what is on the screen, so the two do not compose into a single tree: an
+    /// element's ancestors are reached per page through §14.7.5.4's structural parent tree, and
+    /// concatenating two pages' answers would state the ancestors twice. What a continuous
+    /// arrangement should *publish* — one container per page, or one document — is a question
+    /// about the platform's accessibility API, which `viewer-accessibility` answers and this
+    /// crate has no opinion about.
     AccessibilityTree,
-    /// Everything the focused document's current page could not draw.
+    /// Everything the pages on the screen could not draw, page by page.
     ///
     /// The same sentences [`crate::Event::Reported`] carried, kept so that a host which cleared
-    /// its status bar can ask again rather than remembering.
+    /// its status bar can ask again rather than remembering — and, since Table 29's arrangements,
+    /// **one entry per page** rather than the current page's alone. A column shows several pages
+    /// and a host given one page's reports for four would be silent about three of them and
+    /// talkative about a page nobody can see.
     Reports,
-    /// What the current page's text cost the reader: the codes nothing could name or draw.
+    /// What the pages on the screen cost the reader: the codes nothing could name or draw.
     ///
     /// **[`Query::Reports`]'s counterpart for the readback**, and the reason it is a separate
     /// question rather than more sentences on that one is ISO 32000-2 §9.10.2's own closing
@@ -349,7 +361,9 @@ pub enum Query<'a> {
     ///
     /// Always an answer for a document with a page interpreted, and
     /// [`pdf_model::content::Shortfall::is_whole`] is true for the great majority of pages.
-    /// [`Answer::None`] where nothing is open or no page has been interpreted yet.
+    /// [`Answer::None`] where nothing is open, and an **empty list** where no page on the screen
+    /// has been interpreted yet — the two are different answers and the second is the one a host
+    /// waiting for its first page has.
     Readback,
 }
 
@@ -370,8 +384,13 @@ pub enum Answer<'a> {
     /// There is nothing to answer with: no document is focused, or the question named a page
     /// that is not showing.
     None,
-    /// §14.7's structure, in §14.8.2.5's logical order, parent-first.
-    Accessibility(Vec<crate::AccessibilityNode>),
+    /// §14.7's structure, one entry per page the arrangement shows, in page order.
+    ///
+    /// **A list since the six-hundred-and-tenth session**, and the variant changed shape rather
+    /// than a second question being added, for the reason [`Answer::Frame`] gives: a column puts
+    /// several pages on the screen and a screen reader handed one page's tree is being told the
+    /// document is one page long. One entry under `SinglePage`, which is Table 29's default.
+    Accessibility(Vec<PageStructure>),
     /// A count of pages.
     Count(usize),
     /// Which page is showing.
@@ -552,13 +571,69 @@ pub enum Answer<'a> {
     /// One entry under `SinglePage`, which is Table 29's default and what this crate answered
     /// with for four hundred sessions.
     Frame(Vec<FrameView<'a>>),
-    /// What the current page could not draw.
-    Reports(&'a [String]),
-    /// What the current page could not be *read* as, in the three ways this tree tells apart.
+    /// What the pages on the screen could not draw, one entry per page, in page order.
+    Reports(Vec<PageReports<'a>>),
+    /// What the pages on the screen could not be *read* as, in the three ways this tree tells
+    /// apart, one entry per page.
     ///
     /// See [`Query::Readback`] for why this is not a report, and
     /// [`pdf_model::content::Shortfall`] for why the three counts travel together.
-    Readback(pdf_model::content::Shortfall),
+    Readback(Vec<PageReadback>),
+}
+
+/// One page's worth of [`Answer::Reports`].
+///
+/// **The notes are still borrowed**, which is what makes the list cheap: a page's sentences are
+/// worded once during interpretation and kept, so answering for four pages is four slices and one
+/// allocation rather than four copies of the prose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageReports<'a> {
+    /// Which page these are about, zero-based.
+    ///
+    /// Load-bearing rather than informative: a host putting a sentence in a status bar has to be
+    /// able to say which of the pages on the screen it is about, and under a column the page a
+    /// person is looking at is not necessarily the one the sentence names.
+    pub page: usize,
+    /// What that page could not draw, already worded.
+    pub notes: &'a [String],
+}
+
+/// One page's worth of [`Answer::Readback`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageReadback {
+    /// Which page these counts are about, zero-based.
+    pub page: usize,
+    /// What that page's text cost the reader.
+    pub shortfall: pdf_model::content::Shortfall,
+}
+
+/// One page's worth of [`Answer::Accessibility`].
+///
+/// **The indices inside [`Self::nodes`] are that page's own** — [`crate::AccessibilityNode::parent`]
+/// and [`crate::AccessibilityNode::headers`] index this entry's list and no other. A flat list
+/// across the screen would have had to renumber one page's tree against another's, and §14.7's
+/// tree gives no order between two pages for the renumbering to follow: §14.8.2.5 states the
+/// order *within* a structure tree and nothing about how two pages' subtrees compose.
+///
+/// That is the standard's own division rather than this crate's convenience. ISO 32000-2
+/// §14.7.5.2 makes a sequence carry
+///
+/// > an integer marked-content identifier that uniquely identifies the marked-content sequence
+/// > within its content stream
+///
+/// and §14.7.5.4 finds the element it belongs to through the `/StructParents` of "the page object
+/// or other content stream in which the sequence resides" — so the numbering is a page's, the
+/// route in is a page's, and two pages' answers meet only in whatever ancestors they share.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PageStructure {
+    /// Which page this tree is of, zero-based.
+    pub page: usize,
+    /// §14.7's structure for it, in §14.8.2.5's logical order, parent-first.
+    ///
+    /// Empty for an untagged page, which is an answer rather than a silence: §14.7 leaves a
+    /// producer free to state no structure, and a reader that invented a reading order for one
+    /// would be presenting a guess where a person is entitled to the author's answer.
+    pub nodes: Vec<crate::AccessibilityNode>,
 }
 
 /// Where the page sits on the screen, and how large.

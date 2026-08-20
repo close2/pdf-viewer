@@ -56,6 +56,24 @@ number could not exist. Five consumers failed to compile, `PDFV_EVENT_KIND_COUNT
 ABI gained no entry point, and **no host needed a line about pages** — each asks `Query::Selection`
 per repaint and draws the quadrilaterals it is handed in the viewport's own device pixels (ADR
 0444).
+**And the six-hundred-and-tenth added nothing and changed *three* variants' shapes**, which is the
+fourth use of that mechanism and the first time it has taken three at once: `Answer::Reports`,
+`Answer::Readback` and `Answer::Accessibility` each carry one entry per page Table 29's
+arrangement is showing — `PageReports`, `PageReadback`, `PageStructure`, each saying which page it is
+about — because all three read the *current page's* interpretation while a column shows several, so a
+report about a page on the screen was silently absent and one about a page off it was present. The
+third is the sharpest and is why the round happened: a screen reader handed one page's tree while a
+window shows four is being told the document is one page long, which is trap 5 aimed at the one
+person for whom the picture is no answer. The boundary's test does not fall the way 606's did —
+which pages are on the screen is the viewer's arrangement, and that is why `Command::Layout` had to
+exist — but a host asking *these* questions already holds half the answer, because it knows which
+page it draws where. The entries stay per page on the standard's own division: §14.7.5.2's
+identifier is unique "within its content stream" and §14.7.5.4 keys the route in from that page's
+`/StructParents`, so two pages' trees share no numbering and §14.8.2.5 states no order between them
+— joining them is the platform's question, which `viewer-accessibility` answers with one
+`Role::Document` node per page. Five consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16,
+and the C ABI gained two entry points — `pdfv_reported_pages` and `pdfv_reported_page`, for
+`pdfv_frame_count`'s reason (ADR 0445).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -205,7 +223,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   **`Highlight`** (Annex O's rectangle, ADR 0357), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
   `Preferences`, `Frame`, `Reports`. **`Frame` answers with a *list* since the
-  six-hundred-and-sixth**, one entry per page Table 29's arrangement is showing, and `PageGeometry`
+  six-hundred-and-sixth, and `Reports`, `Readback` and `AccessibilityTree` since the
+  six-hundred-and-tenth**, one entry per page Table 29's arrangement is showing, and `PageGeometry`
   answers for every one of them rather than for the page showing — that question needed no change at
   all, because its own documentation already said "a page that is not the one showing has no place on
   the screen", and what moved is which pages those are. **`Selection` answers in device pixels

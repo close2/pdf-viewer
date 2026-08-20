@@ -28,4 +28,4 @@ pub mod role;
 pub mod tree;
 
 pub use bridge::{Act, Bridge, Requested};
-pub use tree::PageView;
+pub use tree::{DocumentView, PageView};

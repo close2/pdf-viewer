@@ -630,16 +630,51 @@ impl Session {
         self.handle(Command::Delegate(appearances))
     }
 
-    /// Everything the focused document's current page could not draw.
+    /// How many pages on the screen this viewer has anything to say about.
+    ///
+    /// **The entry point a C caller could not have deduced**, and it exists for
+    /// [`Self::frame_count`]'s reason said again: a C consumer cannot fail to compile, so a
+    /// `/PageLayout` putting a second page on the screen has to be something a caller *asks*
+    /// about. Zero where no document is focused or no page has been interpreted, and one for the
+    /// `SinglePage` every document that says nothing about it opens in.
+    #[must_use]
+    pub fn reported_pages(&self) -> usize {
+        match self.viewer.query(Query::Reports) {
+            Answer::Reports(pages) => pages.len(),
+            _ => 0,
+        }
+    }
+
+    /// Which page one of those entries is about, zero-based.
     ///
     /// # Errors
     ///
-    /// [`Status::NoAnswer`] where no document is focused.
-    pub fn reports(&self) -> Result<Vec<String>, Status> {
-        match self.viewer.query(Query::Reports) {
-            Answer::Reports(notes) => Ok(notes.to_vec()),
-            _ => Err(Status::NoAnswer),
-        }
+    /// [`Status::NoAnswer`] where no document is focused, [`Status::OutOfRange`] for an entry
+    /// past [`Self::reported_pages`].
+    pub fn reported_page(&self, entry: usize) -> Result<usize, Status> {
+        let Answer::Reports(pages) = self.viewer.query(Query::Reports) else {
+            return Err(Status::NoAnswer);
+        };
+        pages
+            .get(entry)
+            .map(|page| page.page)
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// Everything one page on the screen could not draw.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, [`Status::OutOfRange`] for an entry
+    /// past [`Self::reported_pages`].
+    pub fn reports(&self, entry: usize) -> Result<Vec<String>, Status> {
+        let Answer::Reports(pages) = self.viewer.query(Query::Reports) else {
+            return Err(Status::NoAnswer);
+        };
+        pages
+            .get(entry)
+            .map(|page| page.notes.to_vec())
+            .ok_or(Status::OutOfRange)
     }
 }
 

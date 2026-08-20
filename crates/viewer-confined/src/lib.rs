@@ -389,6 +389,41 @@ pub struct Framed {
     pub origin: (f32, f32),
 }
 
+/// One page's sentences about what it could not draw, as they crossed the confinement.
+///
+/// [`viewer_core::PageReports`] with the notes owned, for the reason [`Reply`] gives: there is no
+/// viewer on this side of the pipe to borrow them from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reported {
+    /// Which page these are about, zero-based.
+    pub page: usize,
+    /// What that page could not draw, already worded.
+    pub notes: Vec<String>,
+}
+
+/// One page's counts of what could not be *read*, as they crossed the confinement.
+///
+/// [`viewer_core::PageReadback`], and a count rather than a report for the reason that type gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReadShort {
+    /// Which page these counts are about, zero-based.
+    pub page: usize,
+    /// What that page's text cost the reader.
+    pub shortfall: pdf_model::content::Shortfall,
+}
+
+/// One page's §14.7 structure, as it crossed the confinement.
+///
+/// [`viewer_core::PageStructure`], with that type's rule about the indices: a node's parent and
+/// its headers index **this page's** list and no other.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Structured {
+    /// Which page this tree is of, zero-based.
+    pub page: usize,
+    /// §14.7's structure for it, parent-first, in §14.8.2.5's logical order.
+    pub nodes: Vec<viewer_core::AccessibilityNode>,
+}
+
 /// The answer to a [`Query`], owned.
 ///
 /// [`viewer_core::Answer`] borrows the viewer's own state, and there is no viewer on this side of
@@ -479,13 +514,17 @@ pub enum Reply {
     /// the seccomp filter, and what crossed is a raster. A list since Table 29's `/PageLayout`
     /// was obeyed, because `OneColumn` puts several pages in one window.
     Frame(Vec<Framed>),
-    /// What the current page could not draw.
-    Reports(Vec<String>),
-    /// What the current page could not be read as: the per-code counts, never a report.
+    /// What the pages on the screen could not draw, one entry per page.
+    ///
+    /// A list since the six-hundred-and-tenth session, for the reason [`Reply::Frame`] is one:
+    /// a column shows several pages and a status bar carrying the current page's sentences for
+    /// four of them would be silent about three.
+    Reports(Vec<Reported>),
+    /// What the pages on the screen could not be read as: the per-code counts, never a report.
     ///
     /// See [`viewer_core::Query::Readback`] for why counting is the answer here and reporting is
     /// not.
-    Readback(pdf_model::content::Shortfall),
+    Readback(Vec<ReadShort>),
     /// §12.3.3's outline, whole.
     Outline(pdf_model::outline::Outline),
     /// §8.11.4.3's layers, in `/Order`.
@@ -532,7 +571,7 @@ pub enum Reply {
     /// every other kind of chrome and would have had to take fields as pixels. ADR 0235.
     Fields(Vec<viewer_core::FormField>),
     /// §14.7's structure for the page being shown, in §14.8.2.5's logical order, parent-first.
-    Accessibility(Vec<viewer_core::AccessibilityNode>),
+    Accessibility(Vec<Structured>),
 }
 
 /// One of §7.11.4's embedded files, as a panel lists them.

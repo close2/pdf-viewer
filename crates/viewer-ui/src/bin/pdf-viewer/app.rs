@@ -444,15 +444,28 @@ impl App {
         )
     }
 
-    /// Adds what the page could not draw to the title bar.
+    /// Adds what the pages on the screen could not draw to the title bar.
     ///
     /// A count rather than the list: a page may report dozens of items and a title bar that
     /// scrolls off the screen tells a person less than a number does. The items themselves are
     /// printed, in the core's own words.
-    pub(crate) fn retitle_incomplete(&self, items: usize) {
+    ///
+    /// **Asked rather than counted from the event**, since Table 29's arrangements were obeyed:
+    /// the events arrive one page at a time as each is interpreted, so a title written from the
+    /// last of them would say what one page of a column of four could not draw. `Query::Reports`
+    /// answers for every page on the screen, which is what the window is showing.
+    pub(crate) fn retitle_incomplete(&self) {
+        let Answer::Reports(pages) = self.viewer.query(Query::Reports) else {
+            return;
+        };
+        let items: usize = pages.iter().map(|page| page.notes.len()).sum();
+        if items == 0 {
+            return;
+        }
+        let named = pages.iter().filter(|page| !page.notes.is_empty()).count();
         if let Some(state) = self.state.as_ref() {
             state.window.set_title(&format!(
-                "{} — {} — incomplete: {items} item(s) not drawn",
+                "{} — {} — incomplete: {items} item(s) not drawn on {named} page(s) on screen",
                 self.title, self.caption
             ));
         }

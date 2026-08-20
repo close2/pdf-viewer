@@ -493,10 +493,15 @@ int32_t pdfv_frame_copy(const pdfv_viewer *viewer, size_t frame, uint8_t *into, 
 int32_t pdfv_dirty(const pdfv_viewer *viewer, bool *dirty);
 /* §12.5.6.5: whether activating here would follow a link. Asked on every pointer move. */
 int32_t pdfv_link_at(const pdfv_viewer *viewer, float x, float y, bool *link);
-/* What the page could not draw — the same sentences a REPORTED carried, kept so a caller that
- * cleared its status bar can ask again rather than remembering. */
-int32_t pdfv_reports_len(const pdfv_viewer *viewer, size_t *count);
-int32_t pdfv_report(const pdfv_viewer *viewer, size_t index, char *out, size_t cap,
+/* What the pages on the screen could not draw — the same sentences a REPORTED carried, kept so a
+ * caller that cleared its status bar can ask again rather than remembering. ONE ENTRY PER PAGE
+ * Table 29's arrangement is showing: `entry` below indexes this, and pdfv_reported_page says
+ * which page an entry is about. A caller that showed one page's sentences for a column of four
+ * would be silent about three pages and talkative about a page nobody is looking at. */
+size_t  pdfv_reported_pages(const pdfv_viewer *viewer);
+int32_t pdfv_reported_page(const pdfv_viewer *viewer, size_t entry, size_t *page);
+int32_t pdfv_reports_len(const pdfv_viewer *viewer, size_t entry, size_t *count);
+int32_t pdfv_report(const pdfv_viewer *viewer, size_t entry, size_t index, char *out, size_t cap,
                     size_t *needed);
 
 /* ------------------------------------------------------------------------------------------- */

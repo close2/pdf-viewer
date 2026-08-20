@@ -2251,42 +2251,54 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
                     .point(frame.origin);
             }
         }
-        Answer::Reports(notes) => {
-            writer.u8(k::REPORTS).usize(notes.len());
-            for note in *notes {
-                writer.str(note);
+        // One entry per page the arrangement shows, each carrying its page: the same shape
+        // `Answer::Frame` takes and for the same reason (ADR 0445).
+        Answer::Reports(pages) => {
+            writer.u8(k::REPORTS).usize(pages.len());
+            for page in pages {
+                writer.usize(page.page).usize(page.notes.len());
+                for note in page.notes {
+                    writer.str(note);
+                }
             }
         }
-        Answer::Readback(shortfall) => {
-            // Destructured rather than written field by field off `shortfall`, so that a field
-            // added to either struct fails to compile here instead of crossing as a zero.
-            let pdf_model::content::Shortfall {
-                unnamed:
-                    pdf_model::content::UnnamedCodes {
-                        empty_mapping,
-                        incomplete_to_unicode,
-                        unlisted_name,
-                        unnamed_cid,
-                        unaddressable_cid,
-                        unnamed_glyph,
-                    },
-                without_a_glyph,
-                reaching_a_blank_glyph,
-            } = *shortfall;
-            writer
-                .u8(k::READBACK)
-                .usize(empty_mapping)
-                .usize(incomplete_to_unicode)
-                .usize(unlisted_name)
-                .usize(unnamed_cid)
-                .usize(unaddressable_cid)
-                .usize(unnamed_glyph)
-                .usize(without_a_glyph)
-                .usize(reaching_a_blank_glyph);
+        Answer::Readback(pages) => {
+            writer.u8(k::READBACK).usize(pages.len());
+            for page in pages {
+                // Destructured rather than written field by field off `shortfall`, so that a
+                // field added to either struct fails to compile here instead of crossing as a
+                // zero.
+                let pdf_model::content::Shortfall {
+                    unnamed:
+                        pdf_model::content::UnnamedCodes {
+                            empty_mapping,
+                            incomplete_to_unicode,
+                            unlisted_name,
+                            unnamed_cid,
+                            unaddressable_cid,
+                            unnamed_glyph,
+                        },
+                    without_a_glyph,
+                    reaching_a_blank_glyph,
+                } = page.shortfall;
+                writer
+                    .usize(page.page)
+                    .usize(empty_mapping)
+                    .usize(incomplete_to_unicode)
+                    .usize(unlisted_name)
+                    .usize(unnamed_cid)
+                    .usize(unaddressable_cid)
+                    .usize(unnamed_glyph)
+                    .usize(without_a_glyph)
+                    .usize(reaching_a_blank_glyph);
+            }
         }
-        Answer::Accessibility(nodes) => {
-            writer.u8(k::ACCESSIBILITY);
-            panels::encode_accessibility(&mut writer, nodes);
+        Answer::Accessibility(pages) => {
+            writer.u8(k::ACCESSIBILITY).usize(pages.len());
+            for page in pages {
+                writer.usize(page.page);
+                panels::encode_accessibility(&mut writer, &page.nodes);
+            }
         }
         Answer::Outline(outline) => {
             writer.u8(k::OUTLINE);
@@ -2463,19 +2475,29 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             }
             Reply::Frame(frames)
         }
-        k::REPORTS => Reply::Reports(reader.strings("a report's notes")?),
-        k::READBACK => Reply::Readback(pdf_model::content::Shortfall {
-            unnamed: pdf_model::content::UnnamedCodes {
-                empty_mapping: reader.usize("an unnamed-code count")?,
-                incomplete_to_unicode: reader.usize("an unnamed-code count")?,
-                unlisted_name: reader.usize("an unnamed-code count")?,
-                unnamed_cid: reader.usize("an unnamed-code count")?,
-                unaddressable_cid: reader.usize("an unnamed-code count")?,
-                unnamed_glyph: reader.usize("an unnamed-code count")?,
-            },
-            without_a_glyph: reader.usize("a missing-glyph count")?,
-            reaching_a_blank_glyph: reader.usize("a blank-glyph count")?,
-        }),
+        k::REPORTS => Reply::Reports(reader.list("a page's reports", |reader| {
+            Ok(crate::Reported {
+                page: reader.usize("a report's page")?,
+                notes: reader.strings("a report's notes")?,
+            })
+        })?),
+        k::READBACK => Reply::Readback(reader.list("a page's readback", |reader| {
+            Ok(crate::ReadShort {
+                page: reader.usize("a readback's page")?,
+                shortfall: pdf_model::content::Shortfall {
+                    unnamed: pdf_model::content::UnnamedCodes {
+                        empty_mapping: reader.usize("an unnamed-code count")?,
+                        incomplete_to_unicode: reader.usize("an unnamed-code count")?,
+                        unlisted_name: reader.usize("an unnamed-code count")?,
+                        unnamed_cid: reader.usize("an unnamed-code count")?,
+                        unaddressable_cid: reader.usize("an unnamed-code count")?,
+                        unnamed_glyph: reader.usize("an unnamed-code count")?,
+                    },
+                    without_a_glyph: reader.usize("a missing-glyph count")?,
+                    reaching_a_blank_glyph: reader.usize("a blank-glyph count")?,
+                },
+            })
+        })?),
         k::OUTLINE => Reply::Outline(panels::decode_outline(&mut reader)?),
         k::LAYERS => Reply::Layers(panels::decode_layers(&mut reader)?),
         k::ATTACHMENTS => Reply::Attachments(panels::decode_attachments(&mut reader)?),
@@ -2496,7 +2518,12 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         k::PREFERENCES => Reply::Preferences(Box::new(panels::decode_preferences(&mut reader)?)),
         k::POPUPS => Reply::Popups(panels::decode_popups(&mut reader)?),
         k::FIELDS => Reply::Fields(panels::decode_fields(&mut reader)?),
-        k::ACCESSIBILITY => Reply::Accessibility(panels::decode_accessibility(&mut reader)?),
+        k::ACCESSIBILITY => Reply::Accessibility(reader.list("a page's structure", |reader| {
+            Ok(crate::Structured {
+                page: reader.usize("a structure tree's page")?,
+                nodes: panels::decode_accessibility(reader)?,
+            })
+        })?),
         value => {
             return Err(ProtocolError::Unrecognised {
                 what,
@@ -3502,10 +3529,28 @@ mod tests {
                 }],
             },
         ];
-        let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(nodes.clone())) else {
+        // Two pages, because a column crosses several and a decoder that read one page's list
+        // and stopped would pass with one. The second is deliberately **untagged**: an empty
+        // list is an answer (§14.7 lets a page state no structure) and a wire that dropped the
+        // entry would turn "this page says nothing" into "there is no such page".
+        let pages = vec![
+            viewer_core::PageStructure {
+                page: 3,
+                nodes: nodes.clone(),
+            },
+            viewer_core::PageStructure {
+                page: 4,
+                nodes: Vec::new(),
+            },
+        ];
+        let Reply::Accessibility(read) = round_trip(&Answer::Accessibility(pages.clone())) else {
             panic!("a structure tree comes back as one");
         };
-        assert_eq!(read, nodes);
+        assert_eq!(read.len(), pages.len());
+        for (read, ours) in read.iter().zip(&pages) {
+            assert_eq!(read.page, ours.page);
+            assert_eq!(read.nodes, ours.nodes);
+        }
 
         // §12.7, and one of every control §12.7.5 defines: a host on this boundary builds the
         // same form as one off it or it builds a different program.
@@ -3531,11 +3576,47 @@ mod tests {
             without_a_glyph: 7,
             reaching_a_blank_glyph: 8,
         };
-        let Reply::Readback(read) = round_trip(&Answer::Readback(shortfall)) else {
+        let counted = vec![viewer_core::PageReadback { page: 9, shortfall }];
+        let Reply::Readback(read) = round_trip(&Answer::Readback(counted)) else {
             panic!("a readback shortfall comes back as one");
         };
-        assert_eq!(read, shortfall);
-        assert_eq!(read.unnamed.total(), 21);
+        let [read] = read.as_slice() else {
+            panic!("one page's counts crossed");
+        };
+        assert_eq!(read.page, 9);
+        assert_eq!(read.shortfall, shortfall);
+        assert_eq!(read.shortfall.unnamed.total(), 21);
+
+        // And the sentences, per page, with the pages named: a status bar under a column that
+        // took the first entry for all of them would say one page's refusals about four.
+        let first: Vec<String> = vec!["a shading this reader could not draw".to_owned()];
+        let second: Vec<String> = vec!["one font".to_owned(), "one image".to_owned()];
+        let said = vec![
+            viewer_core::PageReports {
+                page: 2,
+                notes: &first,
+            },
+            viewer_core::PageReports {
+                page: 5,
+                notes: &second,
+            },
+        ];
+        let Reply::Reports(read) = round_trip(&Answer::Reports(said)) else {
+            panic!("reports come back as reports");
+        };
+        assert_eq!(
+            read,
+            vec![
+                crate::Reported {
+                    page: 2,
+                    notes: first,
+                },
+                crate::Reported {
+                    page: 5,
+                    notes: second,
+                },
+            ]
+        );
     }
 
     /// One field per control §12.7.5 defines, with no default among them.
@@ -3714,6 +3795,10 @@ mod tests {
     #[test]
     fn a_structure_node_whose_parent_is_not_behind_it_is_refused() {
         let mut bytes = vec![answer_kind::ACCESSIBILITY];
+        // One page on the screen, which is page one: the answer has been a list of pages since
+        // Table 29's arrangements were obeyed, and the check below is inside one of its entries.
+        bytes.extend_from_slice(&1u64.to_be_bytes());
+        bytes.extend_from_slice(&0u64.to_be_bytes());
         bytes.extend_from_slice(&1u64.to_be_bytes());
         bytes.push(1);
         bytes.extend_from_slice(&0u64.to_be_bytes());

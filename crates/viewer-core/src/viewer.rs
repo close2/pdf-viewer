@@ -16,7 +16,10 @@ use crate::command::{
 use crate::event::{Event, Extraction, Found, RenderRequest};
 use crate::interact;
 use crate::open::{Chosen, Interpreted, Open, Pending};
-use crate::query::{Answer, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected};
+use crate::query::{
+    Answer, FrameView, Layer, PageGeometry, PageReadback, PageReports, PageStructure, PopupWindow,
+    Query, Selected,
+};
 use crate::readback::ReadbackCache;
 
 /// Pixel budget for one rendered page.
@@ -312,18 +315,37 @@ impl Viewer {
                     .collect(),
             ),
             Query::AccessibilityTree => Answer::Accessibility(self.accessibility(open)),
-            Query::Reports => open
-                .interpreted()
-                .map_or(Answer::Reports(&[]), |interpreted| {
-                    Answer::Reports(&interpreted.reports)
-                }),
-            // `Answer::None` rather than an empty tally where no page has been interpreted:
+            // One entry per page the arrangement is showing and this crate has read — the same
+            // population `Answer::Frame` and `Query::PageGeometry` answer over, and the same
+            // reason: a host given the current page's sentences for a screen holding four would
+            // be reassuring a person about three pages nothing looked at.
+            Query::Reports => Answer::Reports(
+                open.on_screen
+                    .iter()
+                    .filter_map(|on_screen| {
+                        Some(PageReports {
+                            page: on_screen.page,
+                            notes: &on_screen.interpreted.as_ref()?.reports,
+                        })
+                    })
+                    .collect(),
+            ),
+            // An **empty list** rather than a tally of zeroes where no page has been interpreted:
             // "nothing was lost" and "nothing has been read yet" are different answers, and a
             // host that showed the first for the second would be reassuring a person about a
-            // page it has not looked at.
-            Query::Readback => open.interpreted().map_or(Answer::None, |interpreted| {
-                Answer::Readback(interpreted.shortfall)
-            }),
+            // page it has not looked at. `Answer::None` stays what it is for every question here
+            // — no document is focused.
+            Query::Readback => Answer::Readback(
+                open.on_screen
+                    .iter()
+                    .filter_map(|on_screen| {
+                        Some(PageReadback {
+                            page: on_screen.page,
+                            shortfall: on_screen.interpreted.as_ref()?.shortfall,
+                        })
+                    })
+                    .collect(),
+            ),
         }
     }
 
@@ -1734,20 +1756,47 @@ impl Viewer {
         Some(ordered.join("\n"))
     }
 
-    /// §14.7's structure tree for the page being shown, with §14.9's entries applied.
+    /// §14.7's structure tree for every page the arrangement shows, with §14.9's entries applied.
+    ///
+    /// **One tree per page rather than one for the screen**, which is [`Query::AccessibilityTree`]'s
+    /// own note: §14.7's structure is the document's, the route to a page's elements is
+    /// §14.7.5.4's structural parent tree keyed by *that page's* `/StructParents`, and two pages'
+    /// answers share their ancestors — so they are answered side by side and joining them is the
+    /// platform's question rather than this crate's.
+    fn accessibility(&self, open: &Open) -> Vec<PageStructure> {
+        open.on_screen
+            .iter()
+            .map(|on_screen| PageStructure {
+                page: on_screen.page,
+                nodes: self.structure(open, on_screen),
+            })
+            .collect()
+    }
+
+    /// One page's elements, as [`crate::AccessibilityNode`]s indexed within that page.
     ///
     /// Built on demand rather than kept, because a screen reader asks when it attaches and on a
     /// page change, and no other consumer asks at all — while a drag asks
     /// [`Query::Selection`] sixty times a second, which is why *that* one's inputs are cached.
-    fn accessibility(&self, open: &Open) -> Vec<crate::AccessibilityNode> {
-        let Some(interpreted) = open.interpreted() else {
+    ///
+    /// **Everything about the page comes from the arrangement's own entry**, and that is the
+    /// answer to what a column costs: [`crate::open::OnScreen::object`] is the page ADR 0124
+    /// cached to keep `Pages::get`'s tree walk — 3.8 ms on ISO 32000-2's thousandth page — off
+    /// the paths a person drives. Asking the page tree once per page on the screen would have put
+    /// several of those walks behind one question.
+    fn structure(
+        &self,
+        open: &Open,
+        on_screen: &crate::open::OnScreen,
+    ) -> Vec<crate::AccessibilityNode> {
+        let Some(interpreted) = on_screen.interpreted.as_ref() else {
             return Vec::new();
         };
         // Table 355's `/Pg` names a page *object*, and what this crate holds is an index.
-        let pages = pdf_model::Pages::new(&open.document);
-        let Some(page) = page_object(&pages, open.page_index) else {
+        let Some(page) = on_screen.object.id else {
             return Vec::new();
         };
+        let index = on_screen.page;
         let gathered =
             crate::accessibility::nodes(&open.document, page, interpreted.language.as_deref());
         // §14.7.5.3's object references, answered once for the page. Both readings are skipped
@@ -1758,7 +1807,7 @@ impl Viewer {
             .iter()
             .any(|(_, element)| !element.objects.is_empty());
         let (places, controls) = if referenced {
-            referenced_objects(open, &pages, open.page_index)
+            referenced_objects(open, &on_screen.object)
         } else {
             (BTreeMap::new(), BTreeMap::new())
         };
@@ -1776,9 +1825,9 @@ impl Viewer {
                     gathered,
                     parent,
                     &page,
-                    |start, end| self.device_quads(open, open.page_index, (start, end)),
-                    |ranges| self.device_lines(open, open.page_index, ranges),
-                    |rect| self.device_rect(open, open.page_index, rect),
+                    |start, end| self.device_quads(open, index, (start, end)),
+                    |ranges| self.device_lines(open, index, ranges),
+                    |rect| self.device_rect(open, index, rect),
                 )
             })
             .collect()
@@ -2687,20 +2736,20 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
 /// same readings the rest of this crate uses — `form::fields` with **this view's** state, so a
 /// check box a person has just ticked answers `on` in the accessibility tree exactly as it does
 /// in [`Answer::Form`].
+///
+/// Takes the page the arrangement is already holding rather than an index into the page tree:
+/// under a column this is asked once per page on the screen, and `Pages::get` is the walk ADR
+/// 0124 cached `OnScreen::object` to avoid.
 fn referenced_objects(
     open: &Open,
-    pages: &pdf_model::Pages,
-    index: usize,
+    shown: &pdf_model::Page,
 ) -> (
     BTreeMap<ObjectId, [f32; 4]>,
     BTreeMap<ObjectId, pdf_model::form::Control>,
 ) {
-    let Some(shown) = pages.get(index) else {
-        return (BTreeMap::new(), BTreeMap::new());
-    };
     let places = pdf_model::structure::annotation_rectangles(&open.document, &shown.dict);
     let mut controls = BTreeMap::new();
-    for field in pdf_model::form::fields(&open.document, &shown, &open.view) {
+    for field in pdf_model::form::fields(&open.document, shown, &open.view) {
         for widget in &field.widgets {
             controls.insert(widget.annotation, field.control.clone());
         }

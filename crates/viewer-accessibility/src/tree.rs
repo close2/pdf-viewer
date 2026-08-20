@@ -1,15 +1,29 @@
-//! One page's structure, as an [`accesskit::TreeUpdate`].
+//! The structure of every page on the screen, as an [`accesskit::TreeUpdate`].
 //!
 //! # The shape
 //!
 //! ```text
 //! Window          the window, named as its title bar is
 //!  └ PdfRoot      the document
-//!     ├ Document  the page: §12.4.2's label where it has one, its number where it has not
+//!     ├ Document  a page: §12.4.2's label where it has one, its number where it has not
 //!     │  └ …      §14.7's elements, parent-first, in §14.8.2.5's logical order
 //!     │     └ …   each element's own text as [`Role::TextRun`], one per line — see below
-//!     └ Status    what this reader could not draw on it — present only when something was
+//!     ├ Status    what this reader could not draw on that page — only when something was
+//!     ├ Document  the next page Table 29's arrangement is showing, if it shows one
+//!     └ …
 //! ```
+//!
+//! # A column is several page nodes, not one longer page
+//!
+//! Table 29's five continuous arrangements put several pages in one window, and each of them
+//! crosses as a page node of its own with a band of identifiers of its own ([`Band`]). Two
+//! reasons, and neither is convenience. **§14.7's tree does not compose**: a page's elements are
+//! reached through §14.7.5.4's structural parent tree keyed by that page's own `/StructParents`,
+//! two pages that share an ancestor each answer with it, and §14.8.2.5 states an order *within* a
+//! structure tree and none between two pages — so a merged list would say a section twice and
+//! could not say which came first. **And a page is what a person navigates**: §12.4.2 makes a
+//! page something a document *names*, so a client that has just read the end of one page is
+//! entitled to be told that what follows is page 4 rather than more of page 3.
 //!
 //! The root has to be [`accesskit::Role::Window`]: `accesskit_atspi_common` treats the root
 //! specially and only for that role, and a tree whose root is anything else appears on the bus
@@ -94,53 +108,147 @@ use viewer_core::AccessibilityNode;
 const ROOT: NodeId = NodeId(0);
 /// The document inside it.
 const DOCUMENT: NodeId = NodeId(1);
-/// The page being shown.
-const PAGE: NodeId = NodeId(2);
-/// The group holding what the page could not draw.
-const STATUS: NodeId = NodeId(3);
-/// The first identifier a structure element may take.
+/// The page node of the first page on the screen.
+const PAGE: u64 = 2;
+/// The group holding what that page could not draw.
+const STATUS: u64 = 3;
+/// The first identifier a structure element may take, within one page's band.
 ///
 /// Above the four fixed ones with room to spare, so that adding a fixed node later does not
 /// renumber every element in a tree an assistive technology is already holding.
 const ELEMENT_BASE: u64 = 16;
-/// The first identifier a report may take.
+/// The first identifier a report may take, within one page's band.
 ///
 /// Above `viewer_core`'s own bound on how many structure elements one page answers with (8192),
 /// so the two ranges cannot meet however many elements a page has.
 const REPORT_BASE: u64 = 1_000_000;
-/// The first identifier a line of text may take.
+/// The first identifier a line of text may take, within one page's band.
 ///
 /// A range of its own above the reports', for the reason [`ELEMENT_BASE`] has one: a page's lines
 /// are counted in thousands where its elements are counted in tens, and a scheme that derived a
 /// line's identifier from its element's would have to bound the lines per element to stay
 /// injective.
 const RUN_BASE: u64 = 2_000_000;
+/// How far apart two pages' identifier bands are.
+///
+/// **Table 29's continuous arrangements are what made this necessary**: a column publishes one
+/// page node per page on the screen and every identifier under it has to be distinct from every
+/// other page's, so each page is given a band of its own and the four ranges above are offsets
+/// inside it. The first page's band starts at zero, so a `SinglePage` tree carries exactly the
+/// identifiers it carried before — a client holding one across a layout change sees the page it
+/// was reading keep its nodes.
+///
+/// Wide enough that no page can reach the next band: a page's elements are bounded by
+/// `viewer_core`'s 8192 and its runs by the characters it drew, and 2^32 is four billion of them
+/// on a page whose text is measured in thousands. [`ceiling`] is where that is enforced rather
+/// than asserted.
+const BAND: u64 = 1 << 32;
+
+/// One page's identifier band: the four ranges above, offset by which page on the screen it is.
+#[derive(Debug, Clone, Copy)]
+struct Band(u64);
+
+impl Band {
+    /// The band of the `slot`th page on the screen, counting from zero.
+    fn of(slot: usize) -> Self {
+        Self(u64::try_from(slot).unwrap_or(u64::MAX).saturating_mul(BAND))
+    }
+
+    /// The page node itself.
+    fn page(self) -> NodeId {
+        NodeId(self.0.saturating_add(PAGE))
+    }
+
+    /// The group holding what the page could not draw.
+    fn status(self) -> NodeId {
+        NodeId(self.0.saturating_add(STATUS))
+    }
+
+    /// The identifier one of the answer's elements takes.
+    fn element(self, index: usize) -> NodeId {
+        NodeId(
+            self.0
+                .saturating_add(ELEMENT_BASE)
+                .saturating_add(ceiling(index)),
+        )
+    }
+
+    /// The identifier one of the status group's items takes.
+    fn report(self, index: usize) -> NodeId {
+        NodeId(
+            self.0
+                .saturating_add(REPORT_BASE)
+                .saturating_add(ceiling(index)),
+        )
+    }
+
+    /// The identifier one line's run takes.
+    fn run(self, allocated: u64) -> NodeId {
+        NodeId(
+            self.0
+                .saturating_add(RUN_BASE)
+                .saturating_add(allocated.min(BAND - RUN_BASE - 1)),
+        )
+    }
+}
+
+/// An offset held inside a band, so that a page can never reach the next page's identifiers.
+///
+/// A clamp rather than an `assert`: this is a tree handed to an assistive technology and a panic
+/// there would take the window with it, while two nodes sharing an identifier would put a page's
+/// text under another page in silence. The bound is unreachable by any document — it is four
+/// billion elements or runs on one page — and it is here because "unreachable" is a claim about
+/// documents that exist rather than about documents that can be written.
+fn ceiling(index: usize) -> u64 {
+    u64::try_from(index)
+        .unwrap_or(u64::MAX)
+        .min(BAND - RUN_BASE - 1)
+}
 /// How many characters one [`Role::TextRun`] may hold.
 ///
 /// AccessKit's word starts are indices into the run's characters, held in a `u8`, so a run of more
 /// than this could not state where its later words begin. See [`runs`].
 const MAX_RUN: usize = u8::MAX as usize;
 
-/// What the host knows about the page, which is everything this crate needs to build a tree.
+/// What the host knows about the window and the pages in it, which is everything this crate needs.
 ///
 /// Borrowed throughout: the caller has all of it already, and a tree is built on a page change
 /// rather than on a frame.
 #[derive(Debug, Clone, Copy)]
-pub struct PageView<'a> {
+pub struct DocumentView<'a> {
     /// What the window is called — §12.2's `/DisplayDocTitle` having already been obeyed.
     pub window: &'a str,
     /// What the document is called.
     pub document: &'a str,
-    /// The page being shown, counting from zero.
+    /// How many pages the document has.
+    pub pages: usize,
+    /// The viewport, in device pixels — which is the space every `quads` is in.
+    pub viewport: (f32, f32),
+    /// The pages Table 29's arrangement is showing, in page order.
+    ///
+    /// **One entry, and only one, under `SinglePage`** — and several under the five continuous
+    /// arrangements, which is what this type exists for: a screen reader handed the current page's
+    /// tree while the window shows four is being told the document is one page long, and it is the
+    /// person who cannot see the other three who would never find out.
+    pub shown: &'a [PageView<'a>],
+}
+
+/// What the host knows about one page on the screen.
+#[derive(Debug, Clone, Copy)]
+pub struct PageView<'a> {
+    /// Which page this is, counting from zero.
     pub page: usize,
     /// §12.4.2's page label, where the document states one.
     pub label: Option<&'a str>,
-    /// How many pages the document has.
-    pub pages: usize,
-    /// The viewport, in device pixels — which is the space `quads` are in.
-    pub viewport: (f32, f32),
+    /// Where this page sits in the viewport, `[x0, y0, x1, y1]` in device pixels.
+    ///
+    /// What `viewer_core::Query::PageGeometry` answers, mapped to two corners. A page rather than
+    /// the whole window, because under a column two page nodes with the window's extents would be
+    /// two nodes claiming the same place and a client asking where it is reading would be told
+    /// "everywhere".
+    pub bounds: [f32; 4],
     /// §14.7's elements for this page, parent-first, as `viewer_core::Query::AccessibilityTree`
-    /// answers.
+    /// answers for it.
     pub nodes: &'a [AccessibilityNode],
     /// What this page could not draw, as `viewer_core::Query::Reports` answers.
     pub reports: &'a [String],
@@ -163,38 +271,60 @@ pub struct PageView<'a> {
 /// on activation, a page turn replaces every node anyway, and the alternative — remembering which
 /// nodes changed — would be a second model of the page kept beside the first one.
 #[must_use]
-pub fn build(view: &PageView) -> TreeUpdate {
+pub fn build(view: &DocumentView) -> TreeUpdate {
     let mut nodes: Vec<(NodeId, Node)> = Vec::new();
+    let mut children: Vec<NodeId> = Vec::new();
 
-    let mut page = Node::new(Role::Document);
-    page.set_label(page_name(view));
-    page.set_bounds(Rect {
+    // One page node per page the arrangement is showing, in page order, each with a band of
+    // identifiers of its own. They are siblings under the document rather than one merged tree:
+    // §14.7's structure is the document's, but the route to a page's elements is §14.7.5.4's
+    // structural parent tree keyed by *that page's* `/StructParents`, and two pages' answers
+    // share their ancestors — so a merge would state a section twice and §14.8.2.5 gives no
+    // order between two pages to merge them in.
+    for (slot, shown) in view.shown.iter().enumerate() {
+        let band = Band::of(slot);
+        let mut page = Node::new(Role::Document);
+        page.set_label(page_name(shown, view.pages));
+        page.set_bounds(Rect {
+            x0: f64::from(shown.bounds[0]),
+            y0: f64::from(shown.bounds[1]),
+            x1: f64::from(shown.bounds[2]),
+            y1: f64::from(shown.bounds[3]),
+        });
+        let before = nodes.len();
+        let roots = elements(shown, band, &mut nodes);
+        // §14.8.2.5's order as somewhere a caret may be *put*, which is the other half of the
+        // interface ADR 0394 gave this node: `accesskit_atspi_common`'s `set_caret_offset` and
+        // `set_selection` both raise [`Action::SetTextSelection`] on whatever carries the text,
+        // and that is this node for the reason the module comment gives. Declared only where
+        // there is something to put a caret in — an empty claim would be a client offered a caret
+        // it cannot place. Asked of this page's own nodes, because a column's other pages have
+        // theirs in the same list.
+        if nodes
+            .iter()
+            .skip(before)
+            .any(|(id, _)| id.0 >= band.0.saturating_add(RUN_BASE))
+        {
+            page.add_action(Action::SetTextSelection);
+        }
+        page.set_children(roots);
+        nodes.push((band.page(), page));
+        children.push(band.page());
+        if !shown.reports.is_empty() || !shown.readback.is_whole() {
+            children.push(band.status());
+            let status = reports(shown, band, &mut nodes);
+            nodes.push((band.status(), status));
+        }
+    }
+
+    let mut document = Node::new(Role::PdfRoot);
+    document.set_label(view.document);
+    document.set_bounds(Rect {
         x0: 0.0,
         y0: 0.0,
         x1: f64::from(view.viewport.0),
         y1: f64::from(view.viewport.1),
     });
-    let roots = elements(view, &mut nodes);
-    // §14.8.2.5's order as somewhere a caret may be *put*, which is the other half of the interface
-    // ADR 0394 gave this node: `accesskit_atspi_common`'s `set_caret_offset` and `set_selection`
-    // both raise [`Action::SetTextSelection`] on whatever carries the text, and that is this node
-    // for the reason the module comment gives. Declared only where there is something to put a
-    // caret in — an empty claim would be a client offered a caret it cannot place.
-    if nodes.iter().any(|(id, _)| id.0 >= RUN_BASE) {
-        page.add_action(Action::SetTextSelection);
-    }
-    page.set_children(roots);
-    nodes.push((PAGE, page));
-
-    let mut children = vec![PAGE];
-    if !view.reports.is_empty() || !view.readback.is_whole() {
-        children.push(STATUS);
-        let status = reports(view, &mut nodes);
-        nodes.push((STATUS, status));
-    }
-
-    let mut document = Node::new(Role::PdfRoot);
-    document.set_label(view.document);
     document.set_children(children);
     nodes.push((DOCUMENT, document));
 
@@ -221,13 +351,13 @@ pub fn build(view: &PageView) -> TreeUpdate {
 /// document that numbers its front matter in roman numerals has said its third page is called
 /// `iii`. The index is given beside it either way, because a person navigating needs to know how
 /// far through the document they are and a label does not say.
-fn page_name(view: &PageView) -> String {
+fn page_name(view: &PageView, of: usize) -> String {
     let number = view.page.saturating_add(1);
     match view.label {
         Some(label) if !label.is_empty() => {
-            format!("page {label} ({number} of {})", view.pages)
+            format!("page {label} ({number} of {of})")
         }
-        _ => format!("page {number} of {}", view.pages),
+        _ => format!("page {number} of {of}"),
     }
 }
 
@@ -239,7 +369,7 @@ fn page_name(view: &PageView) -> String {
 /// published at all — speaking both would speak the thing twice, once in the author's words and
 /// once in the file's. And **an element with nothing on this page never reaches here**, because
 /// `viewer_core` prunes it.
-fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
+fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
     let mut roots: Vec<NodeId> = Vec::new();
     // What each cell named as a header would be said as, built once for the whole page.
     let spoken = spoken_headers(view);
@@ -266,7 +396,7 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         if let Some(slot) = published.get_mut(index) {
             *slot = true;
         }
-        let id = element_id(index);
+        let id = band.element(index);
         match node.parent.and_then(|parent| children.get_mut(parent)) {
             Some(list) => list.push(id),
             None => roots.push(id),
@@ -344,20 +474,20 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
         // and structure elements below it is rare: a `P` has text and no element children, a
         // `Sect` has element children and no text. Where a document does write both, a caret
         // crosses this element's own words before its children's rather than between them.
-        let mut below: Vec<NodeId> = runs(node, mapping.speaks, &mut allocated, out);
+        let mut below: Vec<NodeId> = runs(node, band, mapping.speaks, &mut allocated, out);
         if let Some(list) = children.get(index) {
             below.extend(list.iter().copied());
         }
         if !below.is_empty() {
             built.set_children(below);
         }
-        out.push((element_id(index), built));
+        out.push((band.element(index), built));
     }
 
     if view.nodes.is_empty() {
         // §14.7 leaves a producer free to say nothing about its own structure, and this is what
         // "nothing" sounds like. A statement about the *document*, not about this reader.
-        let id = NodeId(ELEMENT_BASE);
+        let id = band.element(0);
         let mut untagged = Node::new(Role::Label);
         say(
             &mut untagged,
@@ -409,6 +539,7 @@ fn elements(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Vec<NodeId> {
 /// has more.
 fn runs(
     node: &AccessibilityNode,
+    band: Band,
     speaks: bool,
     allocated: &mut u64,
     out: &mut Vec<(NodeId, Node)>,
@@ -443,7 +574,7 @@ fn runs(
             run.set_character_lengths(lengths);
             run.set_character_positions(positions);
             run.set_character_widths(widths);
-            let id = NodeId(RUN_BASE.saturating_add(*allocated));
+            let id = band.run(*allocated);
             *allocated = allocated.saturating_add(1);
             out.push((id, run));
             on_line.push(id);
@@ -709,11 +840,6 @@ fn say(node: &mut Node, text: &str) {
     }
 }
 
-/// The identifier one of the answer's elements takes.
-fn element_id(index: usize) -> NodeId {
-    NodeId(ELEMENT_BASE.saturating_add(u64::try_from(index).unwrap_or(u64::MAX)))
-}
-
 /// The group holding what the page could not draw and what it could not be read as.
 ///
 /// **Two kinds of item under one group, and they are worded apart.** A report is a refusal of
@@ -721,18 +847,18 @@ fn element_id(index: usize) -> NodeId {
 /// drew correctly, and calling the second "not drawn as the document specifies" would tell a
 /// person the picture is wrong when it is not. The sentence for the second says what a reader
 /// loses instead: characters missing from what this page can be read as.
-fn reports(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Node {
+fn reports(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Node {
     let mut children = Vec::new();
     let mut said = 0_usize;
     for note in view.reports {
         let mut item = Node::new(Role::Label);
         say(&mut item, note);
-        children.push(push_report(out, &mut said, item));
+        children.push(push_report(out, band, &mut said, item));
     }
     if !view.readback.is_whole() {
         let mut item = Node::new(Role::Label);
         say(&mut item, &readback_note(view.readback));
-        children.push(push_report(out, &mut said, item));
+        children.push(push_report(out, band, &mut said, item));
     }
     let mut group = Node::new(Role::Status);
     group.set_label(format!(
@@ -744,8 +870,8 @@ fn reports(view: &PageView, out: &mut Vec<(NodeId, Node)>) -> Node {
 }
 
 /// Files one item of the status group under the next identifier in the reports' own range.
-fn push_report(out: &mut Vec<(NodeId, Node)>, said: &mut usize, item: Node) -> NodeId {
-    let id = NodeId(REPORT_BASE.saturating_add(u64::try_from(*said).unwrap_or(u64::MAX)));
+fn push_report(out: &mut Vec<(NodeId, Node)>, band: Band, said: &mut usize, item: Node) -> NodeId {
+    let id = band.report(*said);
     *said = said.saturating_add(1);
     out.push((id, item));
     id

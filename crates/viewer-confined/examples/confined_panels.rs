@@ -260,15 +260,22 @@ fn main() {
     }
 
     match ask(&mut confined, "structure", Query::AccessibilityTree) {
-        Reply::Accessibility(nodes) => {
-            println!("    {} node(s) on this page", nodes.len());
-            for node in nodes.iter().take(8) {
+        Reply::Accessibility(pages) => {
+            println!("    {} page(s) on the screen", pages.len());
+            for page in &pages {
                 println!(
-                    "      {}{} {:?}",
-                    if node.parent.is_some() { "  " } else { "" },
-                    node.role,
-                    node.name.chars().take(48).collect::<String>()
+                    "      page {}: {} node(s)",
+                    page.page.saturating_add(1),
+                    page.nodes.len()
                 );
+                for node in page.nodes.iter().take(8) {
+                    println!(
+                        "        {}{} {:?}",
+                        if node.parent.is_some() { "  " } else { "" },
+                        node.role,
+                        node.name.chars().take(48).collect::<String>()
+                    );
+                }
             }
         }
         other => println!("    {other:?}"),

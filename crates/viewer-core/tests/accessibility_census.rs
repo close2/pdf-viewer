@@ -418,9 +418,18 @@ fn sweep(
         viewer
             .handle(Command::GoTo(PageTarget::Index(index)))
             .for_each(drop);
-        let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        let Answer::Accessibility(shown) = viewer.query(Query::AccessibilityTree) else {
             continue;
         };
+        // **The entry for the page asked for, by its own number.** The arrangement here is Table
+        // 29's default, so there is one entry and it is this page — and taking it by *name*
+        // rather than by position is what makes a page answered under another page's number read
+        // as the silence it would be, instead of passing as this page's tree.
+        let nodes: Vec<AccessibilityNode> = shown
+            .into_iter()
+            .filter(|structure| structure.page == index)
+            .flat_map(|structure| structure.nodes)
+            .collect();
         let where_ = format!("{name} p{}", index.saturating_add(1));
         let Some(tree) = tree else {
             census.untagged_pages = census.untagged_pages.saturating_add(1);

@@ -340,7 +340,11 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # `GetState` says so on the next read — the three answers on that document are ticked, unticked and
 # refused-because-read-only, which is Table 227 obeyed out loud. `Component.ScrollTo` answers true
 # and moves nothing where the element is already on the screen, which is the designed answer;
-# `Text.SetCaretOffset` on the page node answers true. On ISO 32000-2's cover, `DoAction` on the two
+# `Text.SetCaretOffset` on the page node answers true. **And since ADR 0445 the count of page nodes is
+# itself a check**: a document Table 29 arranges in a column publishes one `DocumentFrame` per page on
+# the screen, each with its own `Component.GetExtents` — `doc/PDF20_AN001-BPC.pdf` states `/OneColumn`
+# itself, so it needs no key press to show two, which matters because a bare `Xvfb` has no window
+# manager and `xdotool key` reaches nothing without one. On ISO 32000-2's cover, `DoAction` on the two
 # `Link` elements opens both URIs. **Read the *viewer's* stdout beside the bus**: `--trace=access`
 # prints one line per request carried out, and a request this host cannot place is printed by name
 # instead — which is the half of trap 5 the actions did not change.

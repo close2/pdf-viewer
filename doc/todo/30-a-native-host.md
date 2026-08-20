@@ -214,7 +214,8 @@ retained low-resolution page is for — and on the tier-2 host the two items are
 
 ### What the column still owes, named rather than left implicit — 607
 
-Three things, and none of them is architecture:
+Three things, and none of them is architecture. **Two are taken**; the third is below and is a
+change to both rasterisers.
 
 - ~~**A selection is a range of one page's readback.**~~ **Taken in the six-hundred-and-ninth**
   (ADR 0444), by the mechanism this entry named: `Open::selection` is two `(page, offset)` ends,
@@ -228,14 +229,24 @@ Three things, and none of them is architecture:
   the next" — and a *pair* of `(page, offset)` composes across a boundary where a single number
   could not exist. §12.5.6.10's mark-up over such a selection is one annotation per page, which
   §12.5.2 requires outright.
-- **`Query::Reports`, `Query::Readback` and `Query::AccessibilityTree` answer for the current page
-  alone**, which under a column is no longer what is on the screen. All three read
-  `Open::interpreted()`, which is `on_screen`'s entry for `page_index`. The first two borrow the
-  page's own storage (`&'a [String]`, a `Shortfall` by value), so answering for several pages is
-  again a variant's shape rather than a new question; the third builds a tree per page and §14.7's
-  structure is a *document's*, so what a column should publish is a question about AT-SPI rather
-  than about this crate. **What is not owed is a guess**: a host that showed the current page's
-  reports for a screen holding four pages would be reassuring a person about pages nothing looked at.
+- ~~**`Query::Reports`, `Query::Readback` and `Query::AccessibilityTree` answer for the current page
+  alone**~~ — **taken in the six-hundred-and-tenth** (ADR 0445), by the mechanism this entry named
+  and for all three at once: each answers with one entry per page the arrangement is showing, in
+  page order, and each entry says which page it is. The notes stay borrowed, so a screen's answer
+  is four slices and one allocation rather than four copies of the prose. Five consumers failed to
+  compile and the C ABI gained two entry points — `pdfv_reported_pages` and `pdfv_reported_page` —
+  because a C caller cannot fail to compile and so has to be able to *ask* how many pages have
+  anything to say.
+
+  **This entry left one question open and the standard answered it.** §14.7's structure is a
+  document's, but §14.7.5.2's marked-content identifier "uniquely identifies the marked-content
+  sequence within its content stream" and §14.7.5.4 keys the route in from *the page's own*
+  `/StructParents` — so two pages' trees share no numbering, and §14.8.2.5 states an order within a
+  tree and none between two pages. They cross as siblings with page-local indices, and what a
+  column *publishes* is AT-SPI's question: `viewer-accessibility` gives each page a
+  `Role::Document` node of its own with its own identifier band, its own extents and its own status
+  group, and an untagged page in a mixed column keeps the one sentence saying the document states
+  no structure. Read back off a real bus.
 - **The gap between pages is invisible on `viewer-ui`**, and the reason is a reading worth keeping.
   §11.4.7 says the page group "shall be treated as an isolated group, whose results shall then be
   composited with a backdrop colour appropriate for the medium. The backdrop is nominally white",

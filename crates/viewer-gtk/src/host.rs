@@ -410,19 +410,7 @@ impl Host {
                 of,
                 section,
                 ..
-            } => {
-                // §12.4.2: "[p]age labels and page indices need not coincide". Both, because a
-                // label alone cannot say "of 320".
-                let page = match label {
-                    Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
-                    None => format!("page {} of {of}", index.saturating_add(1)),
-                };
-                self.caption = match section {
-                    Some(section) if !section.is_empty() => format!("{page} — {section}"),
-                    _ => page,
-                };
-                self.retitle();
-            }
+            } => self.turned(index, label.as_deref(), of, section.as_deref()),
             Event::NeedsRender(request) => {
                 let began = std::time::Instant::now();
                 let rendered = match self.rasterizer.rasterize(&request.list, request.target) {
@@ -481,7 +469,7 @@ impl Host {
                 wrapped,
                 ..
             } => self.searched(found, remaining, wrapped),
-            Event::Reported { notes, .. } => self.say(&notes.join("; ")),
+            Event::Reported { page, notes, .. } => self.reported(page, &notes),
             // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
             // be possible to turn them off. This host says which one applied and how to turn it
             // off; the four levels have no user interface yet and none is to be built now.
@@ -903,6 +891,50 @@ impl Host {
         self.ui.status.set_text(what);
     }
 
+    /// A page turn: the title bar, and what the pages now on the screen could not draw.
+    ///
+    /// §12.4.2: "[p]age labels and page indices need not coincide". Both are shown, because a
+    /// label alone cannot say "of 320".
+    fn turned(&mut self, index: usize, label: Option<&str>, of: usize, section: Option<&str>) {
+        let page = match label {
+            Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
+            None => format!("page {} of {of}", index.saturating_add(1)),
+        };
+        self.caption = match section {
+            Some(section) if !section.is_empty() => format!("{page} — {section}"),
+            _ => page,
+        };
+        self.retitle();
+        self.restate();
+    }
+
+    /// One page's refusals, in the status bar, with the page named.
+    ///
+    /// **The page is named because under a column it has to be**: `Event::Reported` has always
+    /// carried which page it is about, and a host that dropped it was attributing one page's
+    /// refusals to whichever page a person happened to be looking at. `None` is what the
+    /// *document* says about itself before any page is drawn, and belongs to no page.
+    fn reported(&self, page: Option<usize>, notes: &[String]) {
+        let notes = notes.join("; ");
+        match page {
+            Some(page) => self.say(&format!("page {}: {notes}", page.saturating_add(1))),
+            None => self.say(&notes),
+        }
+    }
+
+    /// Says again what the pages now on the screen could not draw.
+    ///
+    /// **`Query::Reports` is where a host that cleared its status bar finds it again**, and under
+    /// Table 29's continuous arrangements it is the only way to be right: the events came page by
+    /// page as each was interpreted, and a scroll that brings a page back does not interpret it
+    /// again. The wording is `viewer_host::status`'s, so that three hosts say one sentence.
+    fn restate(&self) {
+        let Answer::Reports(pages) = self.viewer.query(Query::Reports) else {
+            return;
+        };
+        self.say(&viewer_host::status::on_screen(&pages));
+    }
+
     /// Puts the caption in the title bar.
     fn retitle(&self) {
         let mark = if self.dirty { "• " } else { "" };
@@ -964,6 +996,9 @@ impl Host {
                 self.layout = next_layout(self.layout);
                 self.dispatch(Command::Layout(self.layout));
                 self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
+                // A new arrangement is a new set of pages on the screen, and therefore a new set
+                // of things they could not draw.
+                self.restate();
             }
             _ => {}
         }

@@ -209,7 +209,7 @@ impl App {
                     println!("note: {note}");
                 }
                 if page.is_some() {
-                    self.retitle_incomplete(notes.len());
+                    self.retitle_incomplete();
                 }
             }
             Event::Refused { notes, .. } => Self::say_refused(&notes),

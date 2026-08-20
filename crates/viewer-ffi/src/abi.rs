@@ -2919,7 +2919,46 @@ pub unsafe extern "C" fn pdfv_event_transition_style(
 // What the page could not draw, and the names of the two answered enumerations.
 // ---------------------------------------------------------------------------------------------
 
-/// How many sentences the current page has about what it could not draw.
+/// How many pages on the screen this viewer has anything to say about.
+///
+/// **Table 29's arrangement, counted a second time**, and it is here for the reason
+/// [`pdfv_frame_count`] is: a C consumer cannot fail to compile, so a `/PageLayout` putting four
+/// pages on the screen has to be something a caller *asks* about rather than something it is
+/// silently given one quarter of. Zero where no document is focused or no page has been read;
+/// one under `SinglePage`.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_reported_pages(viewer: *const Session) -> usize {
+    viewer.as_ref().map_or(0, Session::reported_pages)
+}
+
+/// Which page one of those entries is about, zero-based.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_reported_page(
+    viewer: *const Session,
+    entry: usize,
+    page: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(page)) = (viewer.as_ref(), page.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.reported_page(entry) {
+        Ok(index) => {
+            *page = index;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many sentences one of those pages has about what it could not draw.
 ///
 /// The same sentences a `PDFV_EVENT_REPORTED` carried, kept so that a caller which cleared its
 /// status bar can ask again rather than remembering. Trap 5's channel: every layer of this program
@@ -2929,11 +2968,15 @@ pub unsafe extern "C" fn pdfv_event_transition_style(
 ///
 /// See the module documentation.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn pdfv_reports_len(viewer: *const Session, count: *mut usize) -> c_int {
+pub unsafe extern "C" fn pdfv_reports_len(
+    viewer: *const Session,
+    entry: usize,
+    count: *mut usize,
+) -> c_int {
     let (Some(viewer), Some(count)) = (viewer.as_ref(), count.as_mut()) else {
         return Status::NullArgument.code();
     };
-    match viewer.reports() {
+    match viewer.reports(entry) {
         Ok(notes) => {
             *count = notes.len();
             Status::Ok.code()
@@ -2950,6 +2993,7 @@ pub unsafe extern "C" fn pdfv_reports_len(viewer: *const Session, count: *mut us
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pdfv_report(
     viewer: *const Session,
+    entry: usize,
     index: usize,
     out: *mut c_char,
     cap: usize,
@@ -2958,7 +3002,7 @@ pub unsafe extern "C" fn pdfv_report(
     let Some(viewer) = viewer.as_ref() else {
         return Status::NullArgument.code();
     };
-    let notes = match viewer.reports() {
+    let notes = match viewer.reports(entry) {
         Ok(notes) => notes,
         Err(status) => return status.code(),
     };

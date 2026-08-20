@@ -186,9 +186,18 @@ search rather than from the array**.
   **What is left is the instrument rather than the number.** `viewer-core --example
   accessibility_cost` is the stopwatch, and `valgrind --tool=callgrind` over it is what to use — a
   stopwatch is the wrong instrument for a small change on a busy machine, which ADR 0312 found the
-  hard way when the same binary read 56 ms and 151 ms for the same work. Nothing has been measured
-  since ADR 0394, and the actions added in the five-hundred-and-ninetieth cost the *query* nothing:
-  they are a declaration per node and a lookup per request.
+  hard way when the same binary read 56 ms and 151 ms for the same work. The actions added in the
+  five-hundred-and-ninetieth cost the *query* nothing: they are a declaration per node and a lookup
+  per request.
+
+  **And since the six-hundred-and-tenth the question is asked of a *screen* rather than of a page**
+  (ADR 0445), so the number to watch is the marginal page. The example takes `column` as a fourth
+  argument, which puts `OneColumn` at half magnification; on ISO 32000-2's page 700 three pages
+  cost 1.44× what one costs and carry 4.35× the nodes, because §14.7.5.4's expensive part is the
+  ancestry between a page and the root and neighbouring pages share it — and because
+  `Viewer::structure` takes each page out of `OnScreen::object` rather than walking the page tree
+  for it. An arrangement putting many more pages on the screen than three is what would make this
+  a question again; `viewer_core::layout::MOST` is the bound on how many that can be.
 
 ## And two things that are decided rather than owed
 

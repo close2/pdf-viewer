@@ -686,21 +686,29 @@ int main(int argc, char **argv)
         printf("attachments: %s\n", pdfv_status_message(files));
     }
 
-    /* What the page could not draw, which every layer of this library says out loud. */
-    size_t reports = 0;
-    (void)pdfv_reports_len(viewer, &reports);
-    printf("reports: %zu\n", reports);
-    for (size_t index = 0; index < reports && index < 3; ++index) {
-        size_t needed = 0;
-        (void)pdfv_report(viewer, index, NULL, 0, &needed);
-        char *note = malloc(needed);
-        if (note == NULL) {
-            break;
+    /* What the pages on the screen could not draw, which every layer of this library says out
+     * loud — one entry per page Table 29's arrangement is showing, because a column shows
+     * several and a note about one of them is not a note about the others. */
+    size_t reported = pdfv_reported_pages(viewer);
+    printf("reported pages: %zu\n", reported);
+    for (size_t entry = 0; entry < reported; ++entry) {
+        size_t page = 0;
+        size_t reports = 0;
+        (void)pdfv_reported_page(viewer, entry, &page);
+        (void)pdfv_reports_len(viewer, entry, &reports);
+        printf("reports on page %zu: %zu\n", page + 1, reports);
+        for (size_t index = 0; index < reports && index < 3; ++index) {
+            size_t needed = 0;
+            (void)pdfv_report(viewer, entry, index, NULL, 0, &needed);
+            char *note = malloc(needed);
+            if (note == NULL) {
+                break;
+            }
+            if (pdfv_report(viewer, entry, index, note, needed, &needed) == PDFV_OK) {
+                printf("  %s\n", note);
+            }
+            free(note);
         }
-        if (pdfv_report(viewer, index, note, needed, &needed) == PDFV_OK) {
-            printf("  %s\n", note);
-        }
-        free(note);
     }
 
     /* The three policy values and the clock, each of which only a host can supply. None of them

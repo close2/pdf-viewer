@@ -116,7 +116,8 @@ pub use event::{Event, Extraction, Found, RenderRequest};
 /// crate that reads documents — and a host should not have to name that crate to send an edit.
 pub use pdf_model::view::Entered;
 pub use query::{
-    Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PopupWindow, Query, Selected,
+    Answer, FormField, FormWidget, FrameView, Layer, PageGeometry, PageReadback, PageReports,
+    PageStructure, PopupWindow, Query, Selected,
 };
 pub use readback::ReadbackCache;
 pub use viewer::{DocumentId, RenderToken, Viewer};

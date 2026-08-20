@@ -516,7 +516,16 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
             here.query(Query::AccessibilityTree),
         ) {
             (Reply::Accessibility(crossed), Answer::Accessibility(ours)) => {
-                assert_eq!(crossed, ours, "{name}: a structure tree changed");
+                // Page by page, because the two types are the same answer with one side's
+                // borrows owned: `Structured` is `PageStructure` across a pipe.
+                assert_eq!(crossed.len(), ours.len(), "{name}: a page went missing");
+                for (crossed, ours) in crossed.iter().zip(&ours) {
+                    assert_eq!(crossed.page, ours.page, "{name}: a page changed");
+                    assert_eq!(
+                        crossed.nodes, ours.nodes,
+                        "{name}: a structure tree changed"
+                    );
+                }
             }
             (Reply::None, Answer::None) => {}
             (crossed, ours) => {

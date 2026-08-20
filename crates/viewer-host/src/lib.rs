@@ -36,6 +36,10 @@
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
 //!   reaches a person.
+//! - [`status`] — what the pages on the screen could not draw, worded for a status bar. One
+//!   sentence, three widgets: `Query::Reports` answers per page since Table 29's arrangements
+//!   were obeyed, and a note that did not say which page it was about would be a note about one
+//!   of four.
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -55,6 +59,7 @@ pub mod fit;
 pub mod form;
 pub mod panel;
 pub mod policy;
+pub mod status;
 pub mod trace;
 
 pub use arrangement::next_layout;

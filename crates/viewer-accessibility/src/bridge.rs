@@ -297,7 +297,7 @@ impl Bridge {
     /// Stores the tree for a client that attaches later, and gives it to the platform now if one
     /// is already attached. `update_if_active` does nothing at all while no assistive technology
     /// is present, which is what makes calling this on every page turn free.
-    pub fn publish(&mut self, view: &crate::PageView) {
+    pub fn publish(&mut self, view: &crate::DocumentView) {
         let update = crate::tree::build(view);
         if let Ok(mut held) = self.current.lock() {
             *held = Some(update.clone());

@@ -15,7 +15,7 @@
 use accesskit::{Action, Node, NodeId, Role, TextDirection, Toggled};
 use pdf_model::form::{ChoiceControl, Control, TextControl};
 use pdf_model::structure::HeaderScope;
-use viewer_accessibility::{PageView, tree};
+use viewer_accessibility::{DocumentView, PageView, tree};
 use viewer_core::{AccessibilityNode, Character, TextLine};
 
 /// One structure element, as `Query::AccessibilityTree` would answer with it.
@@ -55,16 +55,29 @@ fn header(parent: Option<usize>, name: &str, scope: Option<HeaderScope>) -> Acce
 /// A page with nothing wrong with it and nothing on it.
 fn view<'a>(nodes: &'a [AccessibilityNode], reports: &'a [String]) -> PageView<'a> {
     PageView {
-        window: "a window",
-        document: "a document",
         page: 0,
         label: None,
-        pages: 3,
-        viewport: (800.0, 1000.0),
+        bounds: [0.0, 0.0, 800.0, 1000.0],
         nodes,
         reports,
         readback: pdf_model::content::Shortfall::default(),
     }
+}
+
+/// The tree for a window showing one page, which is `SinglePage` and most of these tests.
+fn built(page: PageView<'_>) -> accesskit::TreeUpdate {
+    shown(&[page])
+}
+
+/// The tree for a window showing whichever pages are handed to it, which is Table 29's column.
+fn shown(pages: &[PageView<'_>]) -> accesskit::TreeUpdate {
+    tree::build(&DocumentView {
+        window: "a window",
+        document: "a document",
+        pages: 3,
+        viewport: (800.0, 1000.0),
+        shown: pages,
+    })
 }
 
 /// Finds a node by identifier in an update.
@@ -87,7 +100,7 @@ fn the_root_is_a_window_and_every_child_named_is_present() {
         element(None, "P", "the first paragraph"),
         element(Some(0), "Span", "a span inside it"),
     ];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     assert_eq!(update.tree.as_ref().map(|tree| tree.root), Some(NodeId(0)));
     assert_eq!(update.focus, NodeId(0));
     assert_eq!(node(&update, NodeId(0)).role(), Role::Window);
@@ -125,7 +138,7 @@ fn a_pages_elements_arrive_as_roles() {
         element(None, "P", "A paragraph"),
         element(None, "Figure", "a photograph of a bridge"),
     ];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     let heading = node(&update, NodeId(16));
     assert_eq!(heading.role(), Role::Heading);
     assert_eq!(heading.level(), Some(2));
@@ -146,7 +159,7 @@ fn a_substitution_stops_the_walk() {
     let mut figure = element(None, "Figure", "a bar chart of quarterly revenue");
     figure.substituted = true;
     let nodes = [figure, element(Some(0), "Span", "Q1 Q2 Q3 Q4")];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     assert_eq!(
         node(&update, NodeId(16)).label(),
         Some("a bar chart of quarterly revenue")
@@ -161,7 +174,7 @@ fn a_substitution_stops_the_walk() {
 /// An untagged page says so, which is a statement about the document rather than silence.
 #[test]
 fn an_untagged_page_says_that_the_document_states_no_structure() {
-    let update = tree::build(&view(&[], &[]));
+    let update = built(view(&[], &[]));
     let note = node(&update, NodeId(16));
     assert_eq!(note.role(), Role::Label);
     // A `Role::Label`'s accessible name comes from its *value*: see `tree::say`.
@@ -181,7 +194,7 @@ fn what_the_page_could_not_draw_is_in_the_tree() {
         "a font could not be loaded, so 24 characters drew nothing".to_owned(),
     ];
     let nodes = [element(None, "P", "some text that did draw")];
-    let update = tree::build(&view(&nodes, &reports));
+    let update = built(view(&nodes, &reports));
     let status = node(&update, NodeId(3));
     assert_eq!(status.role(), Role::Status);
     assert_eq!(status.children().len(), 2);
@@ -191,7 +204,7 @@ fn what_the_page_could_not_draw_is_in_the_tree() {
     );
 
     // And a page with nothing to report grows no such group.
-    let quiet = tree::build(&view(&nodes, &[]));
+    let quiet = built(view(&nodes, &[]));
     assert!(quiet.nodes.iter().all(|(id, _)| *id != NodeId(3)));
 }
 
@@ -214,7 +227,7 @@ fn what_the_page_could_not_be_read_as_is_in_the_tree_and_is_not_a_refusal() {
         },
         ..view(&nodes, &[])
     };
-    let update = tree::build(&short);
+    let update = built(short);
     let status = node(&update, NodeId(3));
     assert_eq!(status.role(), Role::Status);
     assert_eq!(status.children().len(), 1);
@@ -237,7 +250,7 @@ fn what_the_page_could_not_be_read_as_is_in_the_tree_and_is_not_a_refusal() {
         },
         ..view(&nodes, &[])
     };
-    let quiet = tree::build(&spaces);
+    let quiet = built(spaces);
     assert!(quiet.nodes.iter().all(|(id, _)| *id != NodeId(3)));
 }
 
@@ -250,7 +263,7 @@ fn an_elements_bounds_cover_all_of_its_shapes() {
         [10.0, 34.0, 90.0, 34.0, 90.0, 46.0, 10.0, 46.0],
     ];
     let nodes = [paragraph];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     let bounds = node(&update, NodeId(16))
         .bounds()
         .expect("it covers the lines");
@@ -275,7 +288,7 @@ fn a_figure_that_drew_no_text_is_placed_by_its_stated_bounds() {
     paragraph.quads = vec![[10.0, 20.0, 110.0, 20.0, 110.0, 32.0, 10.0, 32.0]];
     paragraph.bounds = Some([0.0, 0.0, 400.0, 400.0]);
     let nodes = [figure, paragraph];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
 
     let placed = node(&update, NodeId(16))
         .bounds()
@@ -297,7 +310,7 @@ fn the_page_is_named_by_its_label_where_there_is_one() {
     let mut labelled = view(&[], &[]);
     labelled.label = Some("iii");
     labelled.page = 2;
-    let update = tree::build(&labelled);
+    let update = built(labelled);
     let name = node(&update, NodeId(2)).label().unwrap_or_default();
     assert!(name.contains("iii"), "{name}");
     assert!(name.contains("3 of 3"), "{name}");
@@ -313,7 +326,7 @@ fn the_page_is_named_by_its_label_where_there_is_one() {
 #[test]
 fn a_static_text_node_puts_its_text_in_the_value() {
     let nodes = [element(None, "Span", "a run of text")];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     let span = node(&update, NodeId(16));
     assert_eq!(span.role(), Role::Label);
     assert_eq!(span.value(), Some("a run of text"));
@@ -322,7 +335,7 @@ fn a_static_text_node_puts_its_text_in_the_value() {
     // And a role that is not `Label` keeps its text in the label, which is where that role's
     // name comes from.
     let paragraphs = [element(None, "P", "a paragraph")];
-    let update = tree::build(&view(&paragraphs, &[]));
+    let update = built(view(&paragraphs, &[]));
     assert_eq!(node(&update, NodeId(16)).label(), Some("a paragraph"));
 }
 
@@ -340,7 +353,7 @@ fn a_header_cells_axis_decides_its_role_and_the_rest_is_said_in_words() {
         header(None, "corner", Some(HeaderScope::Both)),
         header(None, "loose", None),
     ];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
 
     let row = node(&update, NodeId(16));
     assert_eq!(row.role(), Role::RowHeader);
@@ -384,7 +397,7 @@ fn a_cells_header_cells_are_said_in_the_order_the_clause_builds_them() {
         header(None, "France", Some(HeaderScope::Row)),
         header(None, "Population", Some(HeaderScope::Column)),
     ];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     assert_eq!(
         node(&update, NodeId(16)).description(),
         Some("headers, most specific first: France, Population")
@@ -396,7 +409,7 @@ fn a_cells_header_cells_are_said_in_the_order_the_clause_builds_them() {
     let mut corner = header(None, "corner", Some(HeaderScope::Both));
     corner.headers = vec![1];
     let both = [corner, header(None, "Region", Some(HeaderScope::Row))];
-    let update = tree::build(&view(&both, &[]));
+    let update = built(view(&both, &[]));
     let note = node(&update, NodeId(16)).description().unwrap_or_default();
     assert!(note.contains("both"), "{note}");
     assert!(
@@ -421,7 +434,7 @@ fn a_header_cell_whose_text_is_in_a_child_is_still_named() {
         header(None, "", Some(HeaderScope::Column)),
         element(Some(1), "P", "Sydney"),
     ];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     let note = node(&update, NodeId(16)).description().unwrap_or_default();
     assert!(
         note.contains("headers, most specific first: Sydney"),
@@ -453,7 +466,7 @@ fn a_form_element_becomes_the_control_its_widget_annotation_is() {
     };
     let role = |control: Option<Control>| {
         let nodes = [form(control)];
-        node(&tree::build(&view(&nodes, &[])), NodeId(16)).role()
+        node(&built(view(&nodes, &[])), NodeId(16)).role()
     };
 
     assert_eq!(role(Some(Control::PushButton)), Role::Button);
@@ -479,7 +492,7 @@ fn a_form_element_becomes_the_control_its_widget_annotation_is() {
     // this crate's rule for every distinction the platform cannot carry.
     for control in [Control::Signature, Control::Unstated] {
         let nodes = [form(Some(control))];
-        let built = tree::build(&view(&nodes, &[]));
+        let built = built(view(&nodes, &[]));
         assert_eq!(node(&built, NodeId(16)).role(), Role::Group);
         assert!(
             node(&built, NodeId(16)).description().is_some(),
@@ -488,7 +501,7 @@ fn a_form_element_becomes_the_control_its_widget_annotation_is() {
     }
     // And a `Form` this program could not follow to a widget.
     let nodes = [form(None)];
-    let built = tree::build(&view(&nodes, &[]));
+    let built = built(view(&nodes, &[]));
     assert_eq!(node(&built, NodeId(16)).role(), Role::Group);
     assert!(node(&built, NodeId(16)).description().is_some());
 }
@@ -502,7 +515,7 @@ fn a_form_element_becomes_the_control_its_widget_annotation_is() {
 fn a_toggling_button_carries_its_state_and_nothing_else_does() {
     let toggled = |control: Control| {
         let nodes = [form(Some(control))];
-        node(&tree::build(&view(&nodes, &[])), NodeId(16)).toggled()
+        node(&built(view(&nodes, &[])), NodeId(16)).toggled()
     };
     assert_eq!(toggled(Control::CheckBox { on: true }), Some(Toggled::True));
     assert_eq!(
@@ -523,7 +536,7 @@ fn a_toggling_button_carries_its_state_and_nothing_else_does() {
     assert_eq!(toggled(Control::PushButton), None);
     assert_eq!(
         node(
-            &tree::build(&view(&[element(None, "P", "a paragraph")], &[])),
+            &built(view(&[element(None, "P", "a paragraph")], &[])),
             NodeId(16)
         )
         .toggled(),
@@ -559,7 +572,7 @@ fn typed(text: &str, origin: (f32, f32), width: f32) -> AccessibilityNode {
 #[test]
 fn a_paragraphs_own_text_reaches_the_platform_as_a_run() {
     let nodes = [typed("two words", (100.0, 50.0), 6.0)];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     let paragraph = node(&update, NodeId(16));
     assert_eq!(paragraph.role(), Role::Paragraph);
     assert_eq!(paragraph.children(), [NodeId(2_000_000)]);
@@ -592,7 +605,7 @@ fn a_paragraphs_own_text_reaches_the_platform_as_a_run() {
 #[test]
 fn the_page_is_the_node_a_caret_moves_through() {
     let nodes = [typed("a line", (0.0, 0.0), 5.0)];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     assert_eq!(node(&update, NodeId(2)).role(), Role::Document);
 }
 
@@ -601,7 +614,7 @@ fn the_page_is_the_node_a_caret_moves_through() {
 fn a_long_line_becomes_runs_that_say_they_are_one_line() {
     let long = "x".repeat(300);
     let nodes = [typed(&long, (0.0, 0.0), 1.0)];
-    let update = tree::build(&view(&nodes, &[]));
+    let update = built(view(&nodes, &[]));
     let first = node(&update, NodeId(2_000_000));
     let second = node(&update, NodeId(2_000_001));
     assert_eq!(first.character_lengths().len(), 255);
@@ -617,7 +630,7 @@ fn an_artifact_has_no_run_to_move_through() {
         role: "Artifact".to_owned(),
         ..typed("page 7", (0.0, 0.0), 5.0)
     };
-    let update = tree::build(&view(&[artifact], &[]));
+    let update = built(view(&[artifact], &[]));
     assert!(
         !update
             .nodes
@@ -635,7 +648,7 @@ fn a_line_that_runs_the_other_way_says_so_and_measures_from_the_other_edge() {
         line.characters.reverse();
         line.text = "cba".to_owned();
     }
-    let update = tree::build(&view(&[backwards], &[]));
+    let update = built(view(&[backwards], &[]));
     let run = node(&update, NodeId(2_000_000));
     assert_eq!(run.text_direction(), Some(TextDirection::RightToLeft));
     // The character drawn last sits at x = 0 and the run's right edge is at 30, so the three
@@ -657,7 +670,7 @@ fn an_element_that_has_a_place_invites_being_scrolled_to() {
         ..element(None, "Figure", "a chart")
     };
     let nowhere = element(None, "Div", "");
-    let update = tree::build(&view(&[placed, nowhere], &[]));
+    let update = built(view(&[placed, nowhere], &[]));
     assert!(node(&update, NodeId(16)).supports_action(Action::ScrollIntoView));
     assert!(!node(&update, NodeId(17)).supports_action(Action::ScrollIntoView));
 }
@@ -677,7 +690,7 @@ fn an_element_that_is_an_annotation_invites_a_click() {
         bounds: Some([10.0, 20.0, 30.0, 40.0]),
         ..form(Some(Control::CheckBox { on: false }))
     };
-    let update = tree::build(&view(&[widget, element(None, "P", "words")], &[]));
+    let update = built(view(&[widget, element(None, "P", "words")], &[]));
     assert!(node(&update, NodeId(16)).supports_action(Action::Click));
     assert!(
         !node(&update, NodeId(17)).supports_action(Action::Click),
@@ -692,9 +705,111 @@ fn an_element_that_is_an_annotation_invites_a_click() {
 /// belongs. A page whose elements drew no text has no run and declares nothing.
 #[test]
 fn the_page_invites_a_caret_only_where_there_is_text_to_put_one_in() {
-    let with_text = tree::build(&view(&[typed("abc", (0.0, 0.0), 10.0)], &[]));
+    let with_text = built(view(&[typed("abc", (0.0, 0.0), 10.0)], &[]));
     assert!(node(&with_text, NodeId(2)).supports_action(Action::SetTextSelection));
 
-    let without = tree::build(&view(&[element(None, "Figure", "a chart")], &[]));
+    let without = built(view(&[element(None, "Figure", "a chart")], &[]));
     assert!(!node(&without, NodeId(2)).supports_action(Action::SetTextSelection));
+}
+
+/// A column publishes one page node per page on the screen, and every page keeps its own text.
+///
+/// **The defect this exists for is a silence.** `Query::AccessibilityTree` answered for the page
+/// being shown while a window could hold four, so a screen reader walking a continuous document
+/// was handed one page's elements and had no way of learning that three more were in front of the
+/// person's eyes. What that looks like on a bus is a document that is one page long.
+///
+/// Two things are asserted rather than one: that each page is a node of its own with the number a
+/// person navigates by, and that no identifier is shared — the second is what would silently put
+/// page four's paragraph under page three.
+#[test]
+fn a_column_publishes_one_page_node_per_page_and_no_identifier_twice() {
+    let first = [element(None, "P", "the first page's paragraph")];
+    let second = [element(None, "P", "the second page's paragraph")];
+    let update = shown(&[
+        PageView {
+            page: 2,
+            bounds: [0.0, 0.0, 800.0, 480.0],
+            ..view(&first, &[])
+        },
+        PageView {
+            page: 3,
+            bounds: [0.0, 488.0, 800.0, 968.0],
+            ..view(&second, &[])
+        },
+    ]);
+
+    let document = node(&update, NodeId(1));
+    assert_eq!(document.role(), Role::PdfRoot);
+    assert_eq!(
+        document.children().len(),
+        2,
+        "one page node per page on the screen"
+    );
+    let named: Vec<String> = document
+        .children()
+        .iter()
+        .map(|child| node(&update, *child).label().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(named, vec!["page 3 of 3", "page 4 of 3"], "{named:?}");
+
+    let mut identifiers: Vec<u64> = update.nodes.iter().map(|(id, _)| id.0).collect();
+    let held = identifiers.len();
+    identifiers.sort_unstable();
+    identifiers.dedup();
+    assert_eq!(identifiers.len(), held, "no node is published twice");
+
+    // And each page's paragraph is under that page, which is what a caret moving from the end of
+    // one page to the start of the next depends on.
+    for (child, words) in document
+        .children()
+        .iter()
+        .zip(["the first page's paragraph", "the second page's paragraph"])
+    {
+        let page = node(&update, *child);
+        let paragraph = page
+            .children()
+            .first()
+            .map(|first| node(&update, *first))
+            .expect("the page holds its own paragraph");
+        assert_eq!(paragraph.label().unwrap_or_default(), words);
+    }
+}
+
+/// An untagged page in a column still says it is untagged, beside a tagged one that says nothing.
+///
+/// Trap 5, in the place a column could break it quietly: §14.7 leaves a producer free to state no
+/// structure, and this reader's answer for such a page is one sentence saying so rather than an
+/// invented reading order. A screen holding one tagged page and one untagged page has to say both
+/// things — and a merged tree, or a page whose empty entry was dropped on the way, would say only
+/// the first.
+#[test]
+fn an_untagged_page_beside_a_tagged_one_still_says_it_is_untagged() {
+    let tagged = [element(None, "P", "a paragraph the producer tagged")];
+    let update = shown(&[
+        PageView {
+            page: 0,
+            ..view(&tagged, &[])
+        },
+        PageView {
+            page: 1,
+            ..view(&[], &[])
+        },
+    ]);
+
+    let document = node(&update, NodeId(1));
+    let [first, second] = document.children() else {
+        panic!("two pages are on the screen");
+    };
+    assert_eq!(
+        node(&update, node(&update, *first).children()[0]).label(),
+        Some("a paragraph the producer tagged"),
+        "the tagged page keeps its own element"
+    );
+    let untagged = node(&update, node(&update, *second).children()[0]);
+    let said = untagged.value().unwrap_or_default();
+    assert!(
+        said.contains("states no logical structure"),
+        "the untagged page says so in this program's own words: {said:?}"
+    );
 }

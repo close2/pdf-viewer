@@ -15,8 +15,14 @@
 //! the second is what a page *turn* costs and the first includes nothing else.
 //!
 //! ```sh
-//! cargo run --release -p viewer-core --example accessibility_cost -- file.pdf [page] [repeats]
+//! cargo run --release -p viewer-core --example accessibility_cost -- file.pdf [page] [repeats] [column]
 //! ```
+//!
+//! **The fourth argument is Table 29's arrangement**, and it is the question the six-hundred-and-
+//! tenth session added: `column` puts `OneColumn` at half magnification, so several pages are on
+//! the screen and the answer is several pages'. A screen reader asks this question of the screen
+//! rather than of a page, so what a column costs is what a person waits through — and the run
+//! prints how many pages it was answering for beside the time.
 //!
 //! **Best of, not mean**: the measurement is of the work, and the slow runs of a warm loop are
 //! this machine's other processes rather than this program's. `doc/habits.md`'s *Measuring* is
@@ -48,6 +54,7 @@ fn main() {
         .next()
         .and_then(|count| count.parse().ok())
         .unwrap_or(5);
+    let column = arguments.next().is_some_and(|word| word == "column");
     let Ok(bytes) = std::fs::read(&path) else {
         println!("cannot read {path}");
         return;
@@ -68,6 +75,22 @@ fn main() {
     {
         println!("{path} did not open: {events:?}");
         return;
+    }
+
+    if column {
+        // Half magnification first, because at `Zoom::FitPage` a column has one page on the
+        // screen and would measure the arrangement this run is comparing against.
+        viewer
+            .handle(Command::Zoom {
+                zoom: viewer_core::Zoom::Scale(0.5),
+                at: None,
+            })
+            .for_each(drop);
+        viewer
+            .handle(Command::Layout(
+                pdf_model::viewer_preferences::PageLayout::OneColumn,
+            ))
+            .for_each(drop);
     }
 
     let measured = ask(&viewer, repeats);
@@ -97,6 +120,12 @@ struct Measured {
     /// Printed beside the time for the same reason the other two are: the lines are built per
     /// element out of the page's text layer, so what they cost is proportional to them.
     lined: (usize, usize),
+    /// How many pages Table 29's arrangement was showing when the question was asked.
+    ///
+    /// The denominator of everything else here since the six-hundred-and-tenth session: the
+    /// question answers for the screen rather than for a page, so a column's cost is several
+    /// pages' and this is how many.
+    pages: usize,
     /// The longest line the page answered with, which is what says the grouping is working.
     ///
     /// A page of prose whose longest line is three characters has grouped nothing, and the count
@@ -109,9 +138,10 @@ impl std::fmt::Display for Measured {
     fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             out,
-            "{:.3?}, {} node(s), {} with bounds, {} with headers ({} associations), \
-             {} line(s) of {} character(s), longest {:?}",
+            "{:.3?}, {} page(s) on screen, {} node(s), {} with bounds, {} with headers \
+             ({} associations), {} line(s) of {} character(s), longest {:?}",
             self.best,
+            self.pages,
             self.nodes,
             self.bounded,
             self.headed.0,
@@ -132,6 +162,7 @@ impl std::fmt::Display for Measured {
 fn ask(viewer: &Viewer, repeats: usize) -> Measured {
     let mut measured = Measured {
         best: Duration::MAX,
+        pages: 0,
         nodes: 0,
         bounded: 0,
         headed: (0, 0),
@@ -143,7 +174,13 @@ fn ask(viewer: &Viewer, repeats: usize) -> Measured {
         let answer = viewer.query(Query::AccessibilityTree);
         let elapsed = started.elapsed();
         measured.best = measured.best.min(elapsed);
-        if let Answer::Accessibility(tree) = answer {
+        if let Answer::Accessibility(pages) = answer {
+            // Every page the arrangement is showing, which under `SinglePage` is one and under a
+            // column is what this example is for: the cost of the question is the cost of the
+            // screen rather than of a page.
+            measured.pages = pages.len();
+            let tree: Vec<&viewer_core::AccessibilityNode> =
+                pages.iter().flat_map(|page| page.nodes.iter()).collect();
             measured.nodes = tree.len();
             measured.bounded = tree.iter().filter(|node| node.bounds.is_some()).count();
             measured.headed = (

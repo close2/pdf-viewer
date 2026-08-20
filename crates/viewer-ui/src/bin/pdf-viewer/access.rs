@@ -215,14 +215,19 @@ impl App {
         }
     }
 
-    /// Hands §14.7's structure for the page being shown to the platform's accessibility API.
+    /// Hands §14.7's structure for every page on the screen to the platform's accessibility API.
     ///
     /// **The fifth of the five things `doc/ui-boundary.md` lists as blocked on the
     /// `viewer-core` boundary, and the last.** `Query::AccessibilityTree` has answered since the
     /// hundred-and-forty-ninth session and nothing asked; this asks. What crosses is
     /// `viewer-accessibility`'s business — §14.8.4's types onto AccessKit's roles, and AT-SPI
     /// underneath that — and what is this host's is the three things only a host knows: what the
-    /// window is called, which page is showing, and what the page could not draw.
+    /// window is called, which pages are showing, and what each of them could not draw.
+    ///
+    /// **One entry per page Table 29's arrangement is showing**, since the six-hundred-and-tenth
+    /// session. Under a column this host used to publish the current page's tree while the window
+    /// showed four, which told a screen reader the document was one page long — the sharpest form
+    /// of trap 5, because the person it misleads is the one for whom the picture is no answer.
     ///
     /// **Everything is copied before the bridge is touched.** `Query::Reports` borrows the
     /// viewer, and the bridge is a field of the same struct; owning the answer first is what lets
@@ -242,51 +247,125 @@ impl App {
         let viewport = self.window().map_or((0.0, 0.0), |(width, height, _)| {
             (width as f32, height as f32)
         });
-        let (page, label, pages) = match self.viewer.query(Query::CurrentPage) {
-            Answer::Page {
-                index, label, of, ..
-            } => (index, label, of),
-            _ => (0, None, 0),
+        let (current, pages) = match self.viewer.query(Query::CurrentPage) {
+            Answer::Page { index, of, .. } => (index, of),
+            _ => (0, 0),
         };
-        let reports: Vec<String> = match self.viewer.query(Query::Reports) {
-            Answer::Reports(notes) => notes.to_vec(),
+        // The structure is the population: it answers for every page the arrangement shows, so a
+        // page with no reports and no readback shortfall still gets a node saying it is there.
+        let structures = match self.viewer.query(Query::AccessibilityTree) {
+            Answer::Accessibility(pages) => pages,
+            _ => Vec::new(),
+        };
+        let reports: Vec<(usize, Vec<String>)> = match self.viewer.query(Query::Reports) {
+            Answer::Reports(pages) => pages
+                .iter()
+                .map(|page| (page.page, page.notes.to_vec()))
+                .collect(),
             _ => Vec::new(),
         };
         // The other half of what a person who cannot see the page is owed, and it is a *count*
         // rather than a note: §9.10.2's own "there is no way to determine what the character code
         // represents" is not a refusal of ours and may not join the list above (ADR 0422).
-        let readback = match self.viewer.query(Query::Readback) {
-            Answer::Readback(shortfall) => shortfall,
-            _ => pdf_model::content::Shortfall::default(),
-        };
-        let nodes = match self.viewer.query(Query::AccessibilityTree) {
-            Answer::Accessibility(nodes) => nodes,
-            _ => Vec::new(),
-        };
+        let readbacks: Vec<(usize, pdf_model::content::Shortfall)> =
+            match self.viewer.query(Query::Readback) {
+                Answer::Readback(pages) => pages
+                    .iter()
+                    .map(|page| (page.page, page.shortfall))
+                    .collect(),
+                _ => Vec::new(),
+            };
+        let (labels, places) = self.placed_pages(&structures, viewport);
+        let elements: usize = structures
+            .iter()
+            .map(|structure| structure.nodes.len())
+            .sum();
+        let said: usize = reports.iter().map(|(_, notes)| notes.len()).sum();
+        let unreadable: usize = readbacks
+            .iter()
+            .map(|(_, shortfall)| shortfall.unnamed.total())
+            .sum();
         self.trace.say(
             Topic::Access,
             format_args!(
-                "accessibility: {} element(s), {} report(s), {} unreadable code(s) on page {}",
-                nodes.len(),
-                reports.len(),
-                readback.unnamed.total(),
-                page.saturating_add(1)
+                "accessibility: {} page(s) on screen, {elements} element(s), {said} report(s), \
+                 {unreadable} unreadable code(s), current page {}",
+                structures.len(),
+                current.saturating_add(1)
             ),
         );
-        let view = viewer_accessibility::PageView {
+        let shown: Vec<viewer_accessibility::PageView<'_>> = structures
+            .iter()
+            .enumerate()
+            .map(|(slot, structure)| viewer_accessibility::PageView {
+                page: structure.page,
+                label: labels.get(slot).and_then(Option::as_deref),
+                bounds: places.get(slot).copied().unwrap_or([0.0, 0.0, 0.0, 0.0]),
+                nodes: &structure.nodes,
+                reports: reports
+                    .iter()
+                    .find(|(page, _)| *page == structure.page)
+                    .map_or(&[][..], |(_, notes)| notes.as_slice()),
+                readback: readbacks
+                    .iter()
+                    .find(|(page, _)| *page == structure.page)
+                    .map_or_else(pdf_model::content::Shortfall::default, |(_, count)| *count),
+            })
+            .collect();
+        let view = viewer_accessibility::DocumentView {
             window: &window,
             document: &document,
-            page,
-            label: label.as_deref(),
             pages,
             viewport,
-            nodes: &nodes,
-            reports: &reports,
-            readback,
+            shown: &shown,
         };
         if let Some(bridge) = self.accessibility.as_mut() {
             bridge.publish(&view);
         }
+    }
+}
+
+impl App {
+    /// §12.4.2's label and the place on the screen, for each page the arrangement is showing.
+    ///
+    /// Two answers gathered in one walk because they are asked of the same pages and both are
+    /// per page: a label is what a person navigates by and a rectangle is where AT-SPI says the
+    /// page is. **The rectangle is the page's own and not the window's** — under a column two
+    /// page nodes claiming the viewport would be two nodes claiming one place.
+    fn placed_pages(
+        &self,
+        structures: &[viewer_core::PageStructure],
+        viewport: (f32, f32),
+    ) -> (Vec<Option<String>>, Vec<[f32; 4]>) {
+        let labels = structures
+            .iter()
+            .map(
+                |structure| match self.viewer.query(Query::PageLabel(structure.page)) {
+                    Answer::Label(label) => Some(label),
+                    _ => None,
+                },
+            )
+            .collect();
+        let places = structures
+            .iter()
+            .map(
+                |structure| match self.viewer.query(Query::PageGeometry(structure.page)) {
+                    #[expect(
+                        clippy::cast_precision_loss,
+                        reason = "a raster's extent in device pixels; f32 is exact to 2^24 and \
+                                  no display is"
+                    )]
+                    Answer::Geometry(geometry) => [
+                        geometry.origin.0,
+                        geometry.origin.1,
+                        geometry.origin.0 + geometry.width as f32,
+                        geometry.origin.1 + geometry.height as f32,
+                    ],
+                    _ => [0.0, 0.0, viewport.0, viewport.1],
+                },
+            )
+            .collect();
+        (labels, places)
     }
 }
 

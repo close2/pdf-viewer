@@ -94,6 +94,17 @@ fn opened(width: u32, height: u32) -> (Viewer, Vec<Event>) {
     (viewer, events)
 }
 
+/// The one page's structure a test about a `SinglePage` window is asking for.
+///
+/// `Query::AccessibilityTree` answers with one entry per page Table 29's arrangement is showing,
+/// and every test below opens into the default arrangement — where "the page being shown" and
+/// "the pages on the screen" are the same one page. Flattened rather than indexed at zero so that
+/// a test which does put a column on the screen fails on what it asserts rather than on a panic
+/// about an entry that is there.
+fn on_one_page(pages: Vec<viewer_core::PageStructure>) -> Vec<viewer_core::AccessibilityNode> {
+    pages.into_iter().flat_map(|page| page.nodes).collect()
+}
+
 /// The render request in these events, where there is exactly one.
 fn request(events: &[Event]) -> &viewer_core::RenderRequest {
     let mut found = events.iter().filter_map(|event| match event {
@@ -451,7 +462,12 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
         .flatten()
         .collect();
     if let Answer::Reports(all) = viewer.query(Query::Reports) {
-        said = all.to_vec();
+        // One entry per page on the screen, and this document has one page — so the flattening
+        // is the identity here and would name the page it came from if it were not.
+        said = all
+            .iter()
+            .flat_map(|page| page.notes.iter().cloned())
+            .collect();
     }
     assert!(
         said.iter()
@@ -488,7 +504,9 @@ fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report()
 
     // Before a page is interpreted there is no answer, which is not the same as an answer of
     // zero: a host must not be able to tell a person that nothing was lost off a page nobody
-    // has read.
+    // has read. An **empty list** says it since the six-hundred-and-tenth session — the same
+    // distinction `Answer::Frame` draws between a host that holds no pixels and one that holds a
+    // page's — and `Answer::None` is what a viewer with no document open says.
     assert!(matches!(viewer.query(Query::Readback), Answer::None));
 
     let _ = viewer
@@ -504,13 +522,18 @@ fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report()
         panic!("a page that was interpreted answers with its reports");
     };
     assert!(
-        reports.is_empty(),
+        reports.iter().all(|page| page.notes.is_empty()),
         "the clause's own 'there is no way' is not a refusal of ours: {reports:?}"
     );
 
-    let Answer::Readback(shortfall) = viewer.query(Query::Readback) else {
+    let Answer::Readback(counts) = viewer.query(Query::Readback) else {
         panic!("a page that was interpreted answers with what its codes cost");
     };
+    let [counted] = counts.as_slice() else {
+        panic!("one page is on the screen and it has been read: {counts:?}");
+    };
+    assert_eq!(counted.page, 0, "the entry says which page it counted");
+    let shortfall = counted.shortfall;
     assert_eq!(shortfall.unnamed.total(), 2);
     assert_eq!(shortfall.unnamed.unlisted_name, 2, "{shortfall:?}");
     assert_eq!(
@@ -647,7 +670,7 @@ fn a_rebuild_says_what_it_recovered_from_an_object_stream() {
     // Both channels, because they are two: what the file says about itself is said when it opens,
     // and what a damaged object stream cost is said when it becomes known (`notes::losses`).
     if let Answer::Reports(all) = viewer.query(Query::Reports) {
-        said.extend(all.iter().cloned());
+        said.extend(all.iter().flat_map(|page| page.notes.iter().cloned()));
     }
     assert!(
         said.iter().any(|note| note.contains("rebuilt by scanning")
@@ -692,7 +715,11 @@ fn a_page_that_could_not_be_drawn_whole_says_so() {
     let Answer::Reports(again) = viewer.query(Query::Reports) else {
         panic!("a page that reported something remembers it");
     };
-    assert_eq!(again.len(), reported.len());
+    let [again] = again.as_slice() else {
+        panic!("one page is on the screen: {again:?}");
+    };
+    assert_eq!(again.page, 0, "and the entry says which page said it");
+    assert_eq!(again.notes.len(), reported.len());
 }
 
 #[test]
@@ -2541,9 +2568,10 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
     let request = request(&events).clone();
     serve(&mut viewer, &request);
 
-    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
         panic!("the query always answers");
     };
+    let nodes = on_one_page(pages);
     assert!(
         !nodes.is_empty(),
         "the specification's own PDF is tagged; §14.7 should have something to say about page one"
@@ -2596,7 +2624,7 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
         .for_each(drop);
     assert!(matches!(
         plain.query(Query::AccessibilityTree),
-        Answer::Accessibility(nodes) if nodes.is_empty()
+        Answer::Accessibility(pages) if pages.iter().all(|page| page.nodes.is_empty())
     ));
 }
 
@@ -2639,9 +2667,10 @@ fn page_one_answers_where_its_page_tree_node_has_the_lower_object_number() {
             fragment: None,
         })
         .for_each(drop);
-    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
         panic!("the query always answers");
     };
+    let nodes = on_one_page(pages);
     assert!(
         !nodes.is_empty(),
         "page one of a tagged document answered with no structure at all"
@@ -2692,9 +2721,10 @@ fn every_page_of_a_large_tagged_document_answers_with_its_own_elements() {
         viewer
             .handle(Command::GoTo(PageTarget::Index(page)))
             .for_each(drop);
-        let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+        let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
             panic!("the query always answers");
         };
+        let nodes = on_one_page(pages);
         assert!(
             !nodes.is_empty(),
             "page {page} of a tagged document answered with no structure at all"
@@ -2803,9 +2833,10 @@ fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
     let request = request(&events).clone();
     serve(&mut viewer, &request);
 
-    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
         panic!("the query always answers");
     };
+    let nodes = on_one_page(pages);
     // Three elements are on page one; the fourth is on page two and is not answered with.
     assert_eq!(nodes.len(), 3, "{nodes:?}");
     assert!(
@@ -2990,7 +3021,7 @@ fn an_element_that_marks_no_text_crosses_with_the_bounds_the_document_states() {
         other => panic!("a page has a geometry: {other:?}"),
     };
     let nodes = |viewer: &Viewer| match viewer.query(Query::AccessibilityTree) {
-        Answer::Accessibility(nodes) => nodes,
+        Answer::Accessibility(pages) => on_one_page(pages),
         other => panic!("the query always answers: {other:?}"),
     };
     let named = |nodes: &[viewer_core::AccessibilityNode], name: &str| {
@@ -3100,9 +3131,10 @@ fn a_header_cell_crosses_with_the_axis_it_describes() {
     let request = request(&events).clone();
     serve(&mut viewer, &request);
 
-    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
         panic!("the query always answers");
     };
+    let nodes = on_one_page(pages);
     let scope = |name: &str| {
         nodes
             .iter()
@@ -3238,9 +3270,10 @@ fn an_element_reached_through_an_object_reference_is_placed_and_says_what_contro
     let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
         panic!("a page has a geometry");
     };
-    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
         panic!("the query always answers");
     };
+    let nodes = on_one_page(pages);
     let node = |name: &str| {
         nodes
             .iter()
@@ -3337,9 +3370,10 @@ fn a_cell_is_given_the_header_cells_that_describe_it() {
     let request = request(&events).clone();
     serve(&mut viewer, &request);
 
-    let Answer::Accessibility(nodes) = viewer.query(Query::AccessibilityTree) else {
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
         panic!("the query always answers");
     };
+    let nodes = on_one_page(pages);
     let headers = |name: &str| -> Vec<&str> {
         nodes
             .iter()
@@ -6715,4 +6749,93 @@ fn selecting_everything_is_one_pages_readback_even_in_a_column() {
         matches!(selected.text, std::borrow::Cow::Borrowed(_)),
         "one page's selection is a slice of that page's readback and not a copy of it"
     );
+}
+
+/// The three questions about a *page* answer for every page the arrangement is showing.
+///
+/// **What this pins is the population rather than the contents.** `Query::Reports`,
+/// `Query::Readback` and `Query::AccessibilityTree` each read one page's interpretation, and
+/// under Table 29's default that page and the screen are the same thing — so a column is the only
+/// arrangement in which the difference is visible at all. A host given the current page's answer
+/// for a screen holding four would be silent about three of them, and silent in the direction
+/// nobody checks: the pages a person can see and nothing has spoken about.
+///
+/// Each entry names its page, because a note that did not say which page it was about would be a
+/// note about one of four.
+#[test]
+fn the_three_page_questions_answer_for_every_page_of_a_column() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let viewer = arranged(PageLayout::OneColumn);
+    let on_screen: Vec<usize> = (0..PAGES)
+        .filter(|page| placed(&viewer, *page).is_some())
+        .collect();
+    assert!(
+        on_screen.len() > 1,
+        "the column is showing more than one page, which is what makes this a question"
+    );
+
+    let Answer::Reports(reports) = viewer.query(Query::Reports) else {
+        panic!("a document with pages on the screen answers");
+    };
+    assert_eq!(
+        reports.iter().map(|page| page.page).collect::<Vec<usize>>(),
+        on_screen,
+        "one entry per page the arrangement shows, in page order"
+    );
+
+    let Answer::Readback(counts) = viewer.query(Query::Readback) else {
+        panic!("a document with pages on the screen answers");
+    };
+    assert_eq!(
+        counts.iter().map(|page| page.page).collect::<Vec<usize>>(),
+        on_screen,
+        "the codes a page cost its reader are that page's"
+    );
+
+    let Answer::Accessibility(structure) = viewer.query(Query::AccessibilityTree) else {
+        panic!("a document with pages on the screen answers");
+    };
+    assert_eq!(
+        structure
+            .iter()
+            .map(|page| page.page)
+            .collect::<Vec<usize>>(),
+        on_screen,
+        "a screen reader walking a column is told about every page in it"
+    );
+}
+
+/// A page turn under `SinglePage` still answers about exactly the page being shown.
+///
+/// The other side of the test above, and the one that would catch an answer built out of every
+/// page the *document* has rather than every page the *screen* has: under Table 29's default one
+/// page is on the screen, so all three questions answer with exactly one entry and its number is
+/// the page a person is looking at.
+#[test]
+fn a_single_page_window_answers_about_that_page_and_no_other() {
+    let (mut viewer, events) = opened(800, 1000);
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    let events: Vec<Event> = viewer.handle(Command::GoTo(PageTarget::Index(2))).collect();
+    for request in requests(&events) {
+        serve(&mut viewer, &request);
+    }
+    let Answer::Accessibility(structure) = viewer.query(Query::AccessibilityTree) else {
+        panic!("a document with a page on the screen answers");
+    };
+    assert_eq!(
+        structure
+            .iter()
+            .map(|page| page.page)
+            .collect::<Vec<usize>>(),
+        vec![2],
+        "one page is on the screen and it is page three"
+    );
+    let Answer::Reports(reports) = viewer.query(Query::Reports) else {
+        panic!("a document with a page on the screen answers");
+    };
+    assert_eq!(reports.len(), 1, "{reports:?}");
+    assert_eq!(reports.first().map(|page| page.page), Some(2));
 }

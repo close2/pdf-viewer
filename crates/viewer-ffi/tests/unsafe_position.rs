@@ -133,8 +133,15 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // `pdfv_layout`, which is the arrangement a reader chose, and `pdfv_frame_count`, which is
     // the one thing a C caller could not have deduced — a C consumer cannot fail to compile, so
     // an arrangement putting a second page on the screen has to be something it can *ask* about.
-    assert_eq!(no_mangle, 114, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 106, "104 `unsafe` entry points and two helpers");
+    // **And two in the six-hundred-and-tenth**, which is that same sentence about a *report*:
+    // `pdfv_reported_pages` counts the pages the arrangement has anything to say about and
+    // `pdfv_reported_page` says which page an entry is, because a status bar under a column that
+    // named no page would be attributing one page's refusals to whichever page a reader is
+    // looking at. Both existing report entry points also gained the entry index, so a caller
+    // written against the old shape fails to compile rather than reading page one's sentences
+    // for four pages.
+    assert_eq!(no_mangle, 116, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 108, "106 `unsafe` entry points and two helpers");
 }
 
 #[test]
