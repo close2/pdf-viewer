@@ -880,6 +880,45 @@ nothing supplies an expected value and no file was chosen for anything, what doe
 Until somebody answers it, the ink ranking is what this corpus gets, and it has now produced a
 whole-page defect on its first 2000 documents.
 
+### 17. The chunk the six-hundred-and-thirteenth took: five more archives, and the tail 603 did not read
+
+**Taken: `0300`, `1653`, `3252`, `4851` and `6327`, whole, 5000 documents**, on §16's instrument
+unchanged — page one at 72 dpi against `pdftoppm`, `mutool` and `gs`, every invocation explicit
+about the page box, ranked by our ink minus the lightest live reference's. Two minutes an archive
+here.
+
+**The instrument was re-checked before it was trusted, because 612 had moved something under it.**
+Session 612 made this tree apply §14.11.2.1's crop on every target; archive `0100` re-ranked whole
+against 603's own artefacts differs in **exactly one row of 1000**, which is 603's own fix. A
+page-sized target *is* the crop box, so that clause could not reach this measurement — trap 14 from
+the other side.
+
+- **Both ends of the head are defects of this tree, and the positive end had never been read.**
+  `4851434.pdf` at **−20.341** is a bilevel scan whose `RunLengthDecode` data decodes to exactly the
+  266 456 bytes its dictionary describes and then carries one truncated run header; the filter threw
+  the whole prefix away. `6327194.pdf` at **+244.885** is a **solid black page** — one command, no
+  report — where a greyscale JPEG under `[/Indexed /DeviceRGB 255 …]` had every sample divided by
+  255 before the lookup, so a 256-entry grey ramp was addressed only at its two darkest entries.
+  §7.4.5 and §8.6.6.3; ADR 0448.
+- **The reach is measured rather than argued**: all seven ranked archives re-ranked whole after the
+  fixes move **5 rows of 7000**, three of them in 603's archives, and every other panel — ours and
+  each reference's — is identical to the thousandth.
+- **The positive tail above +10 is otherwise one reference.** 22 documents of the 5000 are pages
+  where `poppler` alone draws almost nothing while this tree, `mupdf` and `ghostscript` agree; the
+  witness opened side by side draws its rules and its header and none of its body font. A ranking
+  against the *lightest* live reference is by construction sensitive to that, which is worth knowing
+  before reading a positive gap as ink of ours.
+- **What the head still holds, each with its evidence, in ADR 0448**: a 4256×6258 scan refused by
+  `hayro-jbig2` 0.3.0's flat 10 000-instance cap where the page declares 13 264 and upstream has
+  already replaced the cap; an aerial photograph drawn as 1700 `DCTDecode` images one sample tall,
+  which is `doc/todo/11`'s subject on a real document; and a `/DefaultCMYK` `ICCBased` conversion,
+  which is trap 9's family.
+
+**What this chunk leaves: 58 944 crawled documents unranked**, in archive-sized pieces at two
+minutes each. Both of this chunk's defects were invisible to every gate — no document of the 974
+states either construct — which is the second round running that the crawl has answered a question
+no curated corpus can.
+
 
 ## What not to do
 

@@ -24,6 +24,12 @@
 //! APP14 marker with transform 0. They are named by archive and digest in ADR 0266 rather than
 //! committed, and the fixtures here are *generated*, which is what a test owes when its witness
 //! is somebody else's crawled web page.
+//!
+//! **The third fact is what the samples *mean*, and it is the dictionary's rather than the
+//! codestream's** — §7.4.9's precedence for JPEG 2000, and for a JPEG the plain reading that
+//! nothing in ISO/IEC 10918 states a PDF colour space. The last test is that one: §8.6.6.3 makes
+//! an `Indexed` sample "an index into the colour table", and this route scaled it into 0 to 1
+//! first, which sent every index of a 256-entry table onto its two darkest entries.
 
 #![expect(
     clippy::expect_used,
@@ -49,6 +55,19 @@ use pdf_syntax::Document;
 /// `transform` is the Adobe APP14 colour-transform code, or `None` for a codestream carrying no
 /// APP14 marker at all.
 fn three_component_jpeg(transform: Option<u8>) -> Vec<u8> {
+    jpeg(3, transform)
+}
+
+/// The same frame with one component, whose single sample is likewise 128.
+///
+/// A greyscale JPEG is what a scanner writes, and it is the frame an `Indexed` colour space is
+/// stated over: one eight-bit component per sample *is* an index into a 256-entry table.
+fn one_component_jpeg() -> Vec<u8> {
+    jpeg(1, None)
+}
+
+/// An 8×8 baseline JPEG of `components` components, every coefficient zero.
+fn jpeg(components: u8, transform: Option<u8>) -> Vec<u8> {
     let mut out = vec![0xFF, 0xD8];
 
     if let Some(code) = transform {
@@ -62,9 +81,13 @@ fn three_component_jpeg(transform: Option<u8>) -> Vec<u8> {
     out.extend_from_slice(&[0xFF, 0xDB, 0x00, 0x43, 0x00]);
     out.extend_from_slice(&[1u8; 64]);
 
-    // SOF0: 8 bits, 8×8, three components each at 1×1 sampling and quantisation table 0.
-    out.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x11, 0x08, 0x00, 0x08, 0x00, 0x08, 0x03]);
-    for id in 1u8..=3 {
+    // SOF0: 8 bits, 8×8, each component at 1×1 sampling and quantisation table 0. Its length
+    // is the eight fixed bytes plus three per component.
+    let frame_header = 8 + 3 * u16::from(components);
+    out.extend_from_slice(&[0xFF, 0xC0]);
+    out.extend_from_slice(&frame_header.to_be_bytes());
+    out.extend_from_slice(&[0x08, 0x00, 0x08, 0x00, 0x08, components]);
+    for id in 1..=components {
         out.extend_from_slice(&[id, 0x11, 0x00]);
     }
 
@@ -77,16 +100,24 @@ fn three_component_jpeg(transform: Option<u8>) -> Vec<u8> {
         out.extend_from_slice(&[0x00, 0x01]);
     }
 
-    // SOS over all three components, both tables 0, spectral selection 0..=63.
-    out.extend_from_slice(&[0xFF, 0xDA, 0x00, 0x0C, 0x03]);
-    for id in 1u8..=3 {
+    // SOS over every component, both tables 0, spectral selection 0..=63. Six fixed bytes plus
+    // two per component.
+    let scan_header = 6 + 2 * u16::from(components);
+    out.extend_from_slice(&[0xFF, 0xDA]);
+    out.extend_from_slice(&scan_header.to_be_bytes());
+    out.push(components);
+    for id in 1..=components {
         out.extend_from_slice(&[id, 0x00]);
     }
     out.extend_from_slice(&[0x00, 0x3F, 0x00]);
 
-    // Three blocks of `DC category 0` then `end of block`, which is `00` six times: twelve zero
-    // bits, padded to a byte boundary with ones as ISO/IEC 10918-1 requires.
-    out.extend_from_slice(&[0x00, 0x0F]);
+    // One block per component of `DC category 0` then `end of block`, which is `00` twice: four
+    // zero bits apiece, padded to a byte boundary with ones as ISO/IEC 10918-1 requires.
+    let bits = 4 * usize::from(components);
+    out.resize(out.len() + bits / 8, 0x00);
+    if bits % 8 != 0 {
+        out.push(0x0F);
+    }
 
     out.extend_from_slice(&[0xFF, 0xD9]);
     out
@@ -312,5 +343,43 @@ fn a_frame_stating_no_samples_is_refused_rather_than_drawn_empty() {
     assert!(
         reported.contains("malformed image"),
         "the refusal reaches the page rather than being silent, and it was {reported}"
+    );
+}
+
+/// An `Indexed` colour space over a `DCTDecode` frame reads each sample as an index.
+///
+/// §8.6.6.3, whose sentence is the whole of the rule:
+///
+/// > A PDF reader shall treat each sample value as an index into the colour table and shall use
+/// > the colour value it finds there.
+///
+/// The other four image routes obey it — `unpack` builds its palette from `Decode`, whose default
+/// range for an `Indexed` space is the index range itself, and the JPEG 2000 route scales by one
+/// — and this one divided every sample by 255 before the lookup. That sends the whole of a
+/// 256-entry table onto entries 0 and 1, so a scan whose samples sit near 250 draws in the two
+/// *darkest* colours the palette states. The witness is a crawled Hewlett-Packard scan whose
+/// palette is a grey ramp: this tree drew it as a solid black page at ink 253.8 of 255 where
+/// `poppler`, `mupdf` and `ghostscript` agree on 8.9 to 9.2 (session 613).
+///
+/// The fixture's sample is 128, so the defect and the fix name different entries of the table:
+/// 128 ÷ 255 rounds to index 1, which is red here, and the index itself is 128, which is not.
+#[test]
+fn an_indexed_space_over_a_jpeg_reads_the_sample_as_an_index() {
+    // hival 128 and 129 entries of three components, all black but the two the test names.
+    let mut table = vec![0u8; 129 * 3];
+    table[3..6].copy_from_slice(&[255, 0, 0]);
+    table[128 * 3..128 * 3 + 3].copy_from_slice(&[0, 128, 255]);
+    let mut hex = String::with_capacity(table.len() * 2);
+    for byte in &table {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    let space = format!("[/Indexed /DeviceRGB 128 <{hex}>]");
+
+    let sample = first_sample(pdf_with_image(&one_component_jpeg(), &space, (8, 8)))
+        .expect("a greyscale JPEG under an Indexed space draws");
+    assert_eq!(
+        sample,
+        (0, 128, 255),
+        "sample 128 selects table entry 128; entry 1 is what dividing by 255 selects"
     );
 }

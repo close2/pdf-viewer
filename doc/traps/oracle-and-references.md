@@ -120,4 +120,15 @@ owner. The page agrees now.
   0.9009 all occur — so 0.90 is a choice about which population to exclude, not a discovered
   boundary.
 - **Reference renderers are given 30 seconds and then killed.** `Command::output` waits forever;
-  `Reference::render_within` polls and kills, and there is deliberately no unbounded variant.
+  `Reference::render_within` polls and kills, and there is deliberately no unbounded variant. It is
+  not only a timeout: over 7000 crawled documents ranked twice with nothing changed between the
+  runs, one `poppler` panel was absent in the first and present in the second, which is a row moving
+  for a reason that is not the tree's.
+- **A ranking against the *lightest* live reference is sensitive to one reference failing
+  quietly**, and on the open web that is commoner than a defect of ours. `doc/todo/00` step 7's
+  number is our ink minus the smallest of the references', so a renderer that draws a page's rules
+  and none of its body font sets the bound alone. **22 documents of 5000 crawled ones are that
+  shape** — `poppler` under a quarter of our ink while `mupdf` and `ghostscript` sit within 30% of
+  it — and they fill the whole positive head down to +2.6 (session 613). Read a positive gap as a
+  question about *which* reference is light before reading it as ink of ours; the panel sizes are
+  printed beside the number for the same reason.

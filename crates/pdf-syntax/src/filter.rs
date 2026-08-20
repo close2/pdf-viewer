@@ -1237,15 +1237,24 @@ fn run_length(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
             // 0..=127: copy the next length + 1 bytes literally.
             0..=127 => {
                 let run = usize::from(length).saturating_add(1);
-                let slice = data
-                    .get(at..at.saturating_add(run))
-                    .ok_or(FilterRefusal::Corrupt)?;
+                // **Running out of input inside a run is the same statement as running out
+                // before the EOD**, and it used to throw away everything decoded so far.
+                // §7.4.5 gives this filter no invalid byte — every header value is a legal
+                // run length and 128 is the EOD — so the only way it can fail is the input
+                // ending early, which is [`Damage::Truncated`] and not
+                // [`FilterRefusal::Corrupt`]. The runs already read are the encoder's own.
+                let Some(slice) = data.get(at..at.saturating_add(run)) else {
+                    break;
+                };
                 out.extend_from_slice(slice);
                 at = at.saturating_add(run);
             }
             // 129..=255: repeat the next byte 257 - length times.
             _ => {
-                let &byte = data.get(at).ok_or(FilterRefusal::Corrupt)?;
+                // The same, one byte earlier: a repeat header with no byte after it.
+                let Some(&byte) = data.get(at) else {
+                    break;
+                };
                 at = at.saturating_add(1);
                 let run = 257usize.saturating_sub(usize::from(length));
                 out.resize(out.len().saturating_add(run), byte);
@@ -1401,6 +1410,38 @@ mod tests {
         )
         .expect("valid");
         assert_eq!(&*out, b"abcxxx");
+    }
+
+    /// A stream ending *inside* a run keeps the runs before it, like one ending before the EOD.
+    ///
+    /// §7.4.5 gives `RunLengthDecode` no invalid byte — every header 0 to 127 is a literal run,
+    /// 129 to 255 a repeat and 128 the EOD — so the only way it can fail is the data running
+    /// out, which is [`Damage::Truncated`] however far into a run it happens. Both endings used
+    /// to be [`FilterRefusal::Corrupt`] and threw the decoded prefix away.
+    ///
+    /// **The witness is a whole page**: a crawled 1216×1753 bilevel scan whose run-length data
+    /// decodes to exactly the 266 456 bytes its dictionary describes and then carries one more
+    /// run header with no bytes after it. This tree drew nothing and `poppler`, `mupdf` and
+    /// `ghostscript` each drew the scan (session 613).
+    #[test]
+    fn run_length_keeps_what_it_decoded_when_the_data_ends_inside_a_run() {
+        for tail in [
+            // A literal run of three bytes with only one of them present.
+            vec![2u8, b'd'],
+            // A repeat header with no byte to repeat.
+            vec![254u8],
+        ] {
+            let mut data = vec![2, b'a', b'b', b'c'];
+            data.extend_from_slice(&tail);
+            let decoded = super::decode_reported(b"RunLengthDecode", &data, None, Limits::DEFAULT)
+                .expect("the runs before the damage are the encoder's own");
+            assert_eq!(&*decoded.data, b"abc", "the whole prefix survives");
+            assert_eq!(
+                decoded.damage,
+                Some(super::Damage::Truncated),
+                "and the stream is reported as ending early rather than as corrupt"
+            );
+        }
     }
 
     #[test]

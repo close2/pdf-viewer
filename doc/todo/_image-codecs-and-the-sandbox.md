@@ -162,6 +162,17 @@ what the gate would answer.
 `hayro-jpeg2000` 0.4.0 is the latest published version as of this session, so there is no upstream
 fix waiting to be picked up.
 
+**There is one for JBIG2, and it is a release to take rather than work to do.** `hayro-jbig2`
+0.3.0 — what this tree depends on — caps a text region at a flat 10 000 symbol instances, with the
+comment "[a]rbitrarily chosen, but we need some limit to prevent timeouts". A full page of text has
+more than that: the crawl's `1653119.pdf` is a 4256×6258 scan whose one text region declares
+**13 264** instances, and this tree drew it as a blank sheet where `poppler`, `mupdf` and
+`ghostscript` each drew the page (session 613, ADR 0448). **Upstream replaced the cap** with
+pdfium's heuristic — `segment_data_len × 32`, which admits 852 096 here — in `hayro-jbig2: Use
+heuristic for maximum symbol instances (#1278)`, and the published version predates it. So the item
+is: take the next `hayro-jbig2` release, and check that document. A bound belonging to a decoder is
+still a bound this program's pages pay, which is `doc/todo/10`'s subject one crate out.
+
 ## 8. What this means for the platform question
 
 Nothing here unblocks macOS or Windows, and that is worth stating plainly because it was the

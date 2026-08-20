@@ -2164,11 +2164,27 @@ fn convert_channels(
     // dictionary and the codestream contradicting each other.
     match (space.components(), components) {
         (1, _) => {
+            // An `Indexed` space takes an *index* where every other one-component space takes
+            // a component in 0 to 1, which is §8.6.6.3:
+            //
+            // > A PDF reader shall treat each sample value as an index into the colour table
+            // > and shall use the colour value it finds there.
+            //
+            // Dividing by 255 first sends every index of a 256-entry table onto 0 or 1, so a
+            // scan whose samples sit near 250 draws in the palette's *darkest* two entries —
+            // a whole page of black where the table says white. `jpx_samples_to_rgba` states
+            // the same rule for the JPEG 2000 route and `Decode`'s default range states it
+            // for the other three; this route is the one that had it missing.
+            let scale = if matches!(space, crate::colour::ColourSpace::Indexed { .. }) {
+                1.0
+            } else {
+                1.0 / 255.0
+            };
             // The same table `palette` builds, for the same reason: 256 possible samples
             // against a photograph's millions.
             let table: Vec<[u8; 3]> = (0..=255u8)
                 .map(|value| {
-                    let colour = into.paint(&space, &[f32::from(value) / 255.0]);
+                    let colour = into.paint(&space, &[f32::from(value) * scale]);
                     [channel(colour.r), channel(colour.g), channel(colour.b)]
                 })
                 .collect();
