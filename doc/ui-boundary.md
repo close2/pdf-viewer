@@ -43,6 +43,19 @@ still owed: the tier-2 host draws the arrangement now, and what it needed in ord
 already answered — `Query::PageGeometry` says `Answer::None` for a page the arrangement does not
 show, so a host holding one render request per page learns from that question alone which of them
 have scrolled off. Three hosts on all six of Table 29's values, one message between them (ADR 0442).
+**And the six-hundred-and-ninth added nothing and changed one variant's shape**, which is the
+third time that mechanism has been preferred to a message and the second in four rounds:
+`Answer::Selected`'s `text` is a `std::borrow::Cow<'a, str>`, because a drag may now cross a page
+boundary and the bytes of such a selection live in two readbacks and are one string in neither. A
+selection *inside* a page is still a borrowed slice of that page's readback, which is not an
+optimisation but the identity `selection_census` asserts of `Selection::All` against
+`pdf_model::Interpretation::text` and the one `pdf-retrieve`'s default answer is held to (ADR 0257).
+The standard is why both ends of a selection carry a page: §9.4.1's text position "shall not persist
+from one text object to the next", so there is no document-wide offset and a pair composes where a
+number could not exist. Five consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, the C
+ABI gained no entry point, and **no host needed a line about pages** — each asks `Query::Selection`
+per repaint and draws the quadrilaterals it is handed in the viewport's own device pixels (ADR
+0444).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -185,7 +198,10 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   field's value (ADR 0225),
   **`FreeTextAt { at }`** — §12.5.6.6's annotation at a point and its `/Contents`, which is how a
   host aims a keyboard at one (ADR 0238) —
-  `Selection`, **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring),
+  `Selection` — **whose answer's text is a `Cow` since the six-hundred-and-ninth**, borrowed for a
+  selection inside one page and assembled for one that crosses a boundary, the pages joined by a
+  newline that no clause states and that is therefore a documented choice —
+  **`LogicalSelection`** (§14.8.2.5), **`Focus`** (§12.5.1's ring),
   **`Highlight`** (Annex O's rectangle, ADR 0357), `Find`, `Dirty`, `Outline`, `Layers`, `Attachments`, `AccessibilityTree`,
   **`Opening`** (Table 29's `/PageMode` and `/PageLayout`), **`Properties`** (§14.3.3's Table 349),
   `Preferences`, `Frame`, `Reports`. **`Frame` answers with a *list* since the

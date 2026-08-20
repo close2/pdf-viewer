@@ -406,12 +406,16 @@ impl Viewer {
                     return;
                 };
                 open.selection = match selection {
-                    // The *current* page's text, which is what "all" has always meant here: a
-                    // range is into one page's readback, and Table 29's arrangements do not make
-                    // several pages into one string.
-                    CommandSelection::All => open.interpreted().map(|interpreted| Chosen {
-                        page: open.page_index,
-                        range: (0, interpreted.text.len()),
+                    // The *current* page's text, which is what "all" has always meant here — and
+                    // still means, now that a **drag** may cross a page boundary and this does
+                    // not. Two instruments rest on it: `selection_census` asserts that this
+                    // answer is `pdf_model::Interpretation::text` byte for byte, and
+                    // `pdf-retrieve`'s default answer is the same identity (ADR 0257). A selection
+                    // over several pages joins their readbacks with a line break that no page
+                    // states, so a command that quietly selected them would put a character into
+                    // that string which neither page has. ADR 0444.
+                    CommandSelection::All => open.interpreted().map(|interpreted| {
+                        Chosen::in_page(open.page_index, (0, interpreted.text.len()))
                     }),
                     CommandSelection::None => None,
                 };
@@ -734,23 +738,32 @@ impl Viewer {
                 // A press starts an empty selection where it landed, so that the first drag
                 // has an anchor. An empty selection highlights nothing and is not a selection
                 // a person can see.
-                open.selection = position.zip(on_page).map(|(position, (page, _))| Chosen {
-                    page,
-                    range: (position, position),
-                });
+                open.selection = position
+                    .zip(on_page)
+                    .map(|(position, (page, _))| Chosen::in_page(page, (position, position)));
                 events.push(damage(viewport));
             }
             PointerAction::Dragged => {
-                // A drag extends the selection on the page it *started* on: the anchor is a byte
-                // offset into that page's readback and a pointer that has crossed onto the page
-                // below is not naming a position in it. Selecting across a page boundary is a
-                // second range and a second question, and this crate has neither.
-                if let (Some(chosen), Some(position)) = (open.selection, position)
-                    && on_page.is_some_and(|(page, _)| page == chosen.page)
+                // A drag moves the selection's far end to wherever the pointer is, **on whatever
+                // page of Table 29's arrangement that is**. It used to refuse to leave the page
+                // the press landed on, because a range was into one page's readback and an offset
+                // meant nothing anywhere else; both ends name their own page now, so a sweep down
+                // a column selects the first page's tail, the pages between whole, and the last
+                // page's head. §12.4.2 still gives no document-wide offset and this still does not
+                // invent one — it carries the page beside the offset instead.
+                //
+                // A pointer over no page at all — the gap between two rows, the margin beside
+                // them — leaves the selection where it was rather than dropping its far end
+                // somewhere arbitrary, which is what `on_page` answering `None` already meant.
+                if let (Some(chosen), Some(position), Some((page, _))) =
+                    (open.selection, position, on_page)
                 {
                     open.selection = Some(Chosen {
-                        page: chosen.page,
-                        range: (chosen.range.0, position),
+                        from: chosen.from,
+                        to: crate::open::Spot {
+                            page,
+                            offset: position,
+                        },
                     });
                     events.push(damage(viewport));
                 }
@@ -763,9 +776,7 @@ impl Viewer {
                 // selected something was a drag rather than a click, so it does not follow the
                 // link it happened to start on — which is what every viewer does and what a
                 // person dragging across a paragraph of links expects.
-                let selecting = open
-                    .selection
-                    .is_some_and(|chosen| chosen.range.0 != chosen.range.1);
+                let selecting = open.selection.is_some_and(|chosen| !chosen.empty());
                 let clicked = !selecting;
                 // Table 197's `/U` — "an action that shall be performed when the mouse button is
                 // released inside the annotation's active area" — for anything that is not the
@@ -1191,13 +1202,29 @@ impl Viewer {
                 // one that nobody selected.
                 let here = open
                     .selection
-                    .filter(|chosen| chosen.page == open.page_index)
-                    .map(|chosen| chosen.range);
+                    .map(Chosen::ordered)
+                    .and_then(|(first, last)| {
+                        (first.page <= open.page_index && open.page_index <= last.page)
+                            .then_some((first, last))
+                    });
                 let from = match direction {
-                    FindDirection::Forward => here.map_or(0, |(anchor, focus)| anchor.max(focus)),
-                    FindDirection::Backward => {
-                        here.map_or(usize::MAX, |(anchor, focus)| anchor.min(focus))
-                    }
+                    // The end of what is selected *on this page*: a selection that runs on past
+                    // the page the search starts from has its far end in another readback, and
+                    // the whole of this one is what lies ahead here.
+                    FindDirection::Forward => here.map_or(0, |(_, last)| {
+                        if last.page == open.page_index {
+                            last.offset
+                        } else {
+                            usize::MAX
+                        }
+                    }),
+                    FindDirection::Backward => here.map_or(usize::MAX, |(first, _)| {
+                        if first.page == open.page_index {
+                            first.offset
+                        } else {
+                            0
+                        }
+                    }),
                 };
                 let pages = open.page_count;
                 open.searching = crate::search::Searching::new(
@@ -1301,7 +1328,7 @@ impl Viewer {
         // "[S]electing the first matching word in the document" — the annex's own verb, and this
         // crate has exactly one thing that means: the range a host draws its selection over. It
         // waits for the page because the turn below ends the selection that was on the old one.
-        open.pending_selection = Some(Chosen { page, range });
+        open.pending_selection = Some(Chosen::in_page(page, range));
         let viewport = self.viewport;
         self.act(Command::GoTo(PageTarget::Index(page)), events);
         events.push(Event::Searched {
@@ -1325,15 +1352,43 @@ impl Viewer {
     }
 
     /// What is selected, with its shapes in device pixels.
+    ///
+    /// **One page's selection still borrows that page's readback**, which is not an optimisation
+    /// but the identity `selection_census` asserts: `Selection::All` is `Interpretation::text`
+    /// byte for byte, and a borrowed slice of it cannot be anything else. A selection that
+    /// crosses a page boundary has no such slice to be — the bytes are in two readbacks — so it
+    /// is the one case that allocates, and [`Selected::text`] says which of the two a host has.
+    ///
+    /// The pages are joined by a newline. No clause states anything about it: §12.4.2 has no
+    /// notion of a document-wide string and the page break is not a character in either page's
+    /// readback, so this is a choice, made because a paragraph that ends at the foot of a page
+    /// reads back as a line ending there.
     fn selected<'a>(&self, open: &'a Open) -> Option<Selected<'a>> {
-        let chosen = open.selection?;
-        let interpreted = open.interpretation(chosen.page)?;
-        let (anchor, focus) = chosen.range;
-        let (from, to) = (anchor.min(focus), anchor.max(focus));
-        let text = interpreted.text.get(from..to).unwrap_or_default();
+        let spans = open.spans();
+        let ((first, range), rest) = spans.split_first()?;
+        let mut quads = self.device_quads(open, *first, *range);
+        let head = open
+            .interpretation(*first)?
+            .text
+            .get(range.0..range.1)
+            .unwrap_or_default();
+        if rest.is_empty() {
+            return Some(Selected {
+                text: std::borrow::Cow::Borrowed(head),
+                quads,
+            });
+        }
+        let mut text = String::from(head);
+        for (page, range) in rest {
+            text.push('\n');
+            if let Some(interpreted) = open.interpretation(*page) {
+                text.push_str(interpreted.text.get(range.0..range.1).unwrap_or_default());
+            }
+            quads.extend(self.device_quads(open, *page, *range));
+        }
         Some(Selected {
-            text,
-            quads: self.device_quads(open, chosen.page, (from, to)),
+            text: std::borrow::Cow::Owned(text),
+            quads,
         })
     }
 
@@ -1652,20 +1707,31 @@ impl Viewer {
     /// [`Query::LogicalSelection`]. The page's object is needed because §14.7's tree is the
     /// document's and its content items name the page they are on.
     fn logical_selection(open: &Open) -> Option<String> {
-        let chosen = open.selection?;
-        let (anchor, focus) = chosen.range;
-        let interpreted = open.interpretation(chosen.page)?;
+        let spans = open.spans();
+        if spans.is_empty() {
+            return None;
+        }
         let tree = pdf_model::structure::Tree::of(&open.document)?;
-        // As `accessibility` does, and for the same reason: Table 355's `/Pg` names a page
-        // *object* and what this crate holds is an index.
-        let page = page_object(&pdf_model::Pages::new(&open.document), chosen.page)?;
-        tree.logical_range(
-            &open.document,
-            page,
-            &interpreted.text,
-            &interpreted.marked,
-            anchor.min(focus)..anchor.max(focus),
-        )
+        let pages = pdf_model::Pages::new(&open.document);
+        let mut ordered: Vec<String> = Vec::with_capacity(spans.len());
+        for (index, range) in spans {
+            let interpreted = open.interpretation(index)?;
+            // As `accessibility` does, and for the same reason: Table 355's `/Pg` names a page
+            // *object* and what this crate holds is an index.
+            let page = page_object(&pages, index)?;
+            // **A page whose tree does not reach the range takes the whole answer with it**, the
+            // same way a range the tree half-reaches always has: a copy that silently dropped one
+            // page of a selection crossing a boundary would be worse than one handing back
+            // content order for all of it.
+            ordered.push(tree.logical_range(
+                &open.document,
+                page,
+                &interpreted.text,
+                &interpreted.marked,
+                range.0..range.1,
+            )?);
+        }
+        Some(ordered.join("\n"))
     }
 
     /// §14.7's structure tree for the page being shown, with §14.9's entries applied.
@@ -2125,12 +2191,15 @@ impl Viewer {
             });
         }
         open.on_screen.sort_by_key(|on_screen| on_screen.page);
-        // A selection is a range of one page's readback, so it lives exactly as long as that page
-        // is on the screen — which under `SinglePage` is the page turn that used to end it.
-        if open
-            .selection
-            .is_some_and(|chosen| open.on(chosen.page).is_none())
-        {
+        // A selection is a range of each of its pages' readbacks, so it lives exactly as long as
+        // **every** page it covers is on the screen — which under `SinglePage` is the page turn
+        // that used to end it. Not "as long as one of them is": a selection whose middle this
+        // crate no longer holds the readback for could answer with text that has a hole in it,
+        // and a hole nothing announces is the plausible-looking picture principle 1 is about.
+        if open.selection.is_some_and(|chosen| {
+            let (first, last) = chosen.ordered();
+            (first.page..=last.page).any(|page| open.on(page).is_none())
+        }) {
             open.selection = None;
         }
 
@@ -2181,7 +2250,7 @@ impl Viewer {
         // …unless a search put one there for a page that has only now been interpreted, which is
         // the one range made *after* a turn rather than before it. See `Open::pending_selection`.
         if let Some(chosen) = open.pending_selection
-            && open.interpretation(chosen.page).is_some()
+            && open.interpretation(chosen.from.page).is_some()
         {
             open.pending_selection = None;
             open.selection = Some(chosen);

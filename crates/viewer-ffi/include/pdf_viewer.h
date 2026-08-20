@@ -507,6 +507,8 @@ int32_t pdfv_report(const pdfv_viewer *viewer, size_t index, char *out, size_t c
 /* never forces the page to be drawn again.                                                      */
 /* ------------------------------------------------------------------------------------------- */
 
+/* What is selected, as the pages read back. A drag across a continuous /PageLayout may cross a
+   page boundary, in which case this is each page's part in page order, joined by a newline. */
 int32_t pdfv_selection_text(const pdfv_viewer *viewer, char *out, size_t cap, size_t *needed);
 int32_t pdfv_selection_quads(const pdfv_viewer *viewer, pdfv_quads **quads);
 /* Annex O's `highlight`: the rectangles the URI's fragment asked to be shown highlighted, on the

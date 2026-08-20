@@ -246,7 +246,7 @@ impl App {
     pub(crate) fn copy_selection(&mut self) {
         // Owned before the second question, because both answers borrow the viewer.
         let page_order = match self.viewer.query(Query::Selection) {
-            Answer::Selected(selection) => selection.text.to_owned(),
+            Answer::Selected(selection) => selection.text.into_owned(),
             _ => String::new(),
         };
         let logical = match self.viewer.query(Query::LogicalSelection) {

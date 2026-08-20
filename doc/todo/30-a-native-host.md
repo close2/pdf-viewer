@@ -216,13 +216,18 @@ retained low-resolution page is for — and on the tier-2 host the two items are
 
 Three things, and none of them is architecture:
 
-- **A selection is a range of one page's readback.** `Answer::Selected` carries the text and the
-  quadrilaterals of one page, and `Open::selection` a `page` beside its range — so a sweep that
-  starts on one page of a column and ends on the next selects the first page's half and stops.
-  §12.4.2 gives no notion of a document-wide offset, so what this needs is a *shape* decision on the
-  boundary — a selection that is a list of per-page ranges — and every consumer failing to compile,
-  which is the mechanism ADRs 0166, 0167, 0247, 0248 and 0431 established. Not taken in the
-  six-hundred-and-seventh because it is a boundary change with six consumers and not a host's gap.
+- ~~**A selection is a range of one page's readback.**~~ **Taken in the six-hundred-and-ninth**
+  (ADR 0444), by the mechanism this entry named: `Open::selection` is two `(page, offset)` ends,
+  `Answer::Selected`'s `text` is a `Cow` — borrowed for a selection inside a page, which is the
+  identity `selection_census` and `pdf-retrieve` both rest on, and assembled only for one that
+  crosses a boundary — and five consumers failed to compile. **No host needed a line about pages**:
+  each asks `Query::Selection` per repaint and draws the quadrilaterals it is handed in the
+  viewport's own device pixels, so all three draw a selection over two pages without a change.
+  This entry's reading of §12.4.2 was right and its conclusion was not: the standard offers no
+  document-wide offset — §9.4.1 says the text position "shall not persist from one text object to
+  the next" — and a *pair* of `(page, offset)` composes across a boundary where a single number
+  could not exist. §12.5.6.10's mark-up over such a selection is one annotation per page, which
+  §12.5.2 requires outright.
 - **`Query::Reports`, `Query::Readback` and `Query::AccessibilityTree` answer for the current page
   alone**, which under a column is no longer what is on the screen. All three read
   `Open::interpreted()`, which is `on_screen`'s entry for `page_index`. The first two borrow the

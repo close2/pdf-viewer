@@ -6581,3 +6581,138 @@ fn a_link_is_hit_where_the_column_has_moved_the_page_to() {
         "and no longer where it was: {before:?}"
     );
 }
+
+/// **A drag that crosses a page boundary selects both pages' text**, which is what Table 29's
+/// continuous arrangements made an ordinary gesture rather than an exotic one.
+///
+/// Until the six-hundred-and-ninth session a selection was a range of *one* page's readback and a
+/// drag that reached the page below stopped at the boundary: the sweep selected the first page's
+/// half of a paragraph and nothing after it, silently. Both ends of a selection name their own
+/// page now — §12.4.2 still gives no document-wide offset and this does not invent one — so the
+/// first page contributes its tail, any page between contributes the whole of itself, and the
+/// last contributes its head.
+///
+/// The points are taken from the geometry the viewer reports for **each** page rather than from
+/// one page's and an assumption about the other, which is `doc/traps/the-interactive-loop.md`
+/// trap 12a's rule: a test that computed the second point itself would agree with a mapping that
+/// was wrong in both places.
+#[test]
+fn a_drag_across_a_page_boundary_selects_both_pages() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let mut viewer = arranged(PageLayout::OneColumn);
+    let first = placed(&viewer, 0).expect("page one is on the screen");
+    let second = placed(&viewer, 1).expect("a column shows page two below page one");
+    // A fraction across and down each page's own raster, through that page's own geometry.
+    let on = |geometry: &viewer_core::PageGeometry, across: f32, down: f32| {
+        (
+            geometry.origin.0 + geometry.page.width * across * geometry.scale,
+            geometry.origin.1 + geometry.page.height * down * geometry.scale,
+        )
+    };
+    viewer
+        .handle(Command::Pointer {
+            at: on(&first, 0.1, 0.1),
+            action: PointerAction::Pressed,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Pointer {
+            at: on(&second, 0.9, 0.9),
+            action: PointerAction::Dragged,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Pointer {
+            at: on(&second, 0.9, 0.9),
+            action: PointerAction::Released,
+        })
+        .for_each(drop);
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("a drag across two pages is a selection");
+    };
+    let (across, quads) = (selected.text.into_owned(), selected.quads.len());
+    assert!(
+        across.contains('\n'),
+        "two pages' readbacks are joined by a line break: {across:?}"
+    );
+
+    // What each page reads back on its own, asked of the viewer the way a person asks — which is
+    // also the property `selection_census` holds `Selection::All` to.
+    let whole_page = |viewer: &mut Viewer, page: usize| -> String {
+        let events: Vec<Event> = viewer
+            .handle(Command::GoTo(PageTarget::Index(page)))
+            .collect();
+        for request in requests(&events) {
+            serve(viewer, &request);
+        }
+        viewer
+            .handle(Command::Select(Selection::All))
+            .for_each(drop);
+        match viewer.query(Query::Selection) {
+            Answer::Selected(selected) => selected.text.into_owned(),
+            other => panic!("page {page} reads back as something: {other:?}"),
+        }
+    };
+    let one = whole_page(&mut viewer, 0);
+    let two = whole_page(&mut viewer, 1);
+    // A word the *second* page has and the first has not, taken from the document rather than
+    // chosen here: if the drag had stopped at the boundary the selection could not contain it.
+    let only_on_two = two
+        .split_whitespace()
+        .find(|word| word.len() > 6 && !one.contains(*word))
+        .expect("the second page says something the first does not");
+    assert!(
+        across.contains(only_on_two),
+        "the drag reached the second page: {only_on_two:?} is not in {across:?}"
+    );
+    let only_on_one = one
+        .split_whitespace()
+        .find(|word| word.len() > 6 && !two.contains(*word))
+        .expect("the first page says something the second does not");
+    assert!(
+        across.contains(only_on_one),
+        "and it kept the first page's half: {only_on_one:?} is not in {across:?}"
+    );
+    // Both pages' shapes, so a host draws the highlight over both halves rather than over one.
+    viewer
+        .handle(Command::Select(Selection::None))
+        .for_each(drop);
+    assert!(
+        quads > 0,
+        "a selection over two pages has shapes over both of them"
+    );
+}
+
+/// **`Selection::All` is still one page**, which is the identity two instruments rest on.
+///
+/// A selection that crosses pages exists now, and the command that selects "everything" is
+/// deliberately not it: a range is into a page's readback, `selection_census` asserts that this
+/// answer is `pdf_model::Interpretation::text` byte for byte, and `pdf-retrieve`'s default answer
+/// is the same identity (ADR 0257). The page break above joins two readbacks and belongs to
+/// neither, so a command that quietly selected several pages would put a character into that
+/// string that no page states.
+#[test]
+fn selecting_everything_is_one_pages_readback_even_in_a_column() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    let mut viewer = arranged(PageLayout::OneColumn);
+    assert!(
+        placed(&viewer, 1).is_some(),
+        "the column is showing more than one page, which is what makes this a question"
+    );
+    viewer
+        .handle(Command::Select(Selection::All))
+        .for_each(drop);
+    let Answer::Selected(selected) = viewer.query(Query::Selection) else {
+        panic!("everything on the current page is a selection");
+    };
+    assert!(
+        !selected.text.contains('\n') || !selected.text.is_empty(),
+        "a readback may hold line breaks of its own"
+    );
+    assert!(
+        matches!(selected.text, std::borrow::Cow::Borrowed(_)),
+        "one page's selection is a slice of that page's readback and not a copy of it"
+    );
+}

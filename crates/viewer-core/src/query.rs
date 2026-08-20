@@ -608,8 +608,21 @@ pub struct FrameView<'a> {
 /// pixels would make all of that impossible, which is why this crate's chrome crosses as shapes.
 #[derive(Debug)]
 pub struct Selected<'a> {
-    /// The selected text, as the page reads back.
-    pub text: &'a str,
+    /// The selected text, as the pages read back, in page order.
+    ///
+    /// **Borrowed for a selection inside one page and owned for one that crosses a boundary**,
+    /// and the variant is the fact rather than an optimisation. A selection inside a page *is* a
+    /// slice of that page's readback — which is the identity `selection_census` asserts of
+    /// `Selection::All` and `pdf_model::Interpretation::text`, and what `pdf-retrieve`'s default
+    /// answer is held to (ADR 0257) — and a slice cannot be anything else. Table 29's continuous
+    /// arrangements put several pages on the screen, so a drag across a row boundary selects
+    /// bytes that live in two readbacks and are one string in neither; that one is assembled, the
+    /// pages joined by a newline, and this type says which a host is holding.
+    ///
+    /// A host that wants the characters either way writes `&selected.text` and never learns the
+    /// difference; one that keeps them writes `selected.text.into_owned()`, which copies only in
+    /// the case that has something to copy.
+    pub text: std::borrow::Cow<'a, str>,
     /// The shapes covering it, in **device pixels of the viewport**, one per run of a line.
     ///
     /// `[x0, y0, … x3, y3]` round each quadrilateral, in the order the runs were shown. Device

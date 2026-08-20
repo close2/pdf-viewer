@@ -339,14 +339,19 @@ impl Session {
         }
     }
 
-    /// The selected text, as the page reads back.
+    /// The selected text, as the pages read back.
+    ///
+    /// **Pages**, since a drag across Table 29's continuous arrangements may cross a page
+    /// boundary: what comes back is then each page's part in page order, joined by a newline
+    /// (ADR 0444). Owned here whichever it is, because nothing of the viewer may cross this
+    /// boundary borrowed — and the copy is the one the caller was going to make anyway.
     ///
     /// # Errors
     ///
     /// [`Status::NoAnswer`] where no document is focused.
     pub fn selection_text(&self) -> Result<String, Status> {
         match self.viewer.query(Query::Selection) {
-            Answer::Selected(selected) => Ok(selected.text.to_owned()),
+            Answer::Selected(selected) => Ok(selected.text.into_owned()),
             _ => Err(Status::NoAnswer),
         }
     }

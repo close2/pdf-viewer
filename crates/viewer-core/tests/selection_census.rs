@@ -544,7 +544,7 @@ fn drag_across_the_reference(
         .handle(Command::Select(Selection::All))
         .for_each(drop);
     let ours = match viewer.query(Query::Selection) {
-        Answer::Selected(selection) => without_whitespace(selection.text),
+        Answer::Selected(selection) => without_whitespace(&selection.text),
         _ => String::new(),
     };
     viewer
@@ -601,7 +601,7 @@ fn drag_across_the_reference(
         }
         census.words = census.words.saturating_add(1);
         let selected = match viewer.query(Query::Selection) {
-            Answer::Selected(selection) => without_whitespace(selection.text),
+            Answer::Selected(selection) => without_whitespace(&selection.text),
             _ => String::new(),
         };
         if selected.contains(word.text.as_str()) {

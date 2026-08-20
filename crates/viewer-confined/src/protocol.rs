@@ -2173,7 +2173,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::LINK).bool(*there);
         }
         Answer::Selected(selected) => {
-            writer.u8(k::SELECTED).str(selected.text);
+            writer.u8(k::SELECTED).str(&selected.text);
             writer.usize(selected.quads.len());
             for quad in &selected.quads {
                 writer.quad(*quad);
@@ -3879,7 +3879,7 @@ mod tests {
             ])
             .unwrap(),
             encode_answer(&Answer::Selected(viewer_core::Selected {
-                text: "selected",
+                text: std::borrow::Cow::Borrowed("selected"),
                 quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
             }))
             .unwrap(),

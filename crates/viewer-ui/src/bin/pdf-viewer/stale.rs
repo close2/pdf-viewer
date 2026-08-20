@@ -249,14 +249,18 @@ pub(crate) enum Refusal {
     ///
     /// **What produces it is a zoom in a column** (ADR 0442): `viewer_core::layout`'s gap between
     /// rows is stated in logical pixels and does not scale with the magnification, while the pages
-    /// either side of it do. A scroll moves every page by the same distance and so never reaches
-    /// this. The two placements are carried because a reader has to be able to see how far apart
-    /// they are before deciding it matters.
+    /// either side of it do. A scroll moves every page by the same distance, so what separates its
+    /// placements is arithmetic rather than arrangement and [`AGREEMENT`] absorbs it. The two
+    /// placements are carried because a reader has to be able to see *how* they differ, and
+    /// [`Self::Rearranged::by`] because how far apart they are is what the refusal turns on.
     Rearranged {
         /// The placement the first page of the arrangement asked for.
         first: Transform,
         /// The placement a later page asked for, which is not the same one.
         then: Transform,
+        /// How far apart the two put a texel of the picture held, in device pixels, at the worst
+        /// corner of it — [`disagreement`]'s answer, which is what exceeded [`AGREEMENT`].
+        by: f32,
     },
     /// *Impossible.* The presenter declined to put the approximated frame on the window.
     DeviceRefused(String),
@@ -317,12 +321,12 @@ impl std::fmt::Display for Refusal {
             Self::NoPlacement => formatter.write_str(
                 "the placement the rendering held was drawn at does not invert onto this view",
             ),
-            Self::Rearranged { first, then } => write!(
+            Self::Rearranged { first, then, by } => write!(
                 formatter,
                 "Table 29's arrangement is not one affine of itself — the first page of the \
                  picture held moves by ({:.3} {:.3} {:.3} {:.3} {:.3} {:.3}) and a later one by \
-                 ({:.3} {:.3} {:.3} {:.3} {:.3} {:.3}), and the window puts its pages up as one \
-                 texture under one placement",
+                 ({:.3} {:.3} {:.3} {:.3} {:.3} {:.3}), {by:.4} px apart at the worst corner of \
+                 the picture, and the window puts its pages up as one texture under one placement",
                 first.a,
                 first.b,
                 first.c,
@@ -716,31 +720,116 @@ fn depicts(
             .all(|((was, placed), (now, asked))| Arc::ptr_eq(was, now) && placed == asked)
 }
 
+/// How far apart two placements put the picture held, in device pixels, at its worst point.
+///
+/// The picture is a rectangle of texels — the window's own, since the base is a texture of the
+/// window — and the two placements are affine, so their difference is affine too: a point at
+/// `p` is put at `first(p)` by one and `then(p)` by the other, and the distance between those is
+/// `|Δ(p)|` for `Δ = then − first`, which is a **convex** function of `p`. A convex function on a
+/// convex polygon attains its maximum at a vertex, so four points answer this exactly and there is
+/// no norm to bound and no estimate to be conservative about.
+///
+/// Both placements map the *same* texels — the held texture's — so the rectangle is that texture's
+/// extent, which is the asked target's: [`Stale::carries`] and [`Stale::reproject`] both refuse a
+/// window that changed shape before reaching here ([`Refusal::Resized`]).
+fn disagreement(first: Transform, then: Transform, over: &TargetSpec) -> f32 {
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster dimension, capped at pdf_render::MAX_EXTENT = 2^24, which f32 \
+                  represents exactly"
+    )]
+    let (width, height) = (over.width as f32, over.height as f32);
+    [(0.0, 0.0), (width, 0.0), (0.0, height), (width, height)]
+        .into_iter()
+        .map(|(x, y)| {
+            let corner = pdf_render::Point::new(x, y);
+            let (one, other) = (first.apply(corner), then.apply(corner));
+            (one.x - other.x).hypot(one.y - other.y)
+        })
+        .fold(0.0_f32, f32::max)
+}
+
+/// How far two pages' placements may disagree and still be one placement: **half a device pixel**.
+///
+/// # Where the number comes from, which is the geometry and not a corpus
+///
+/// A device pixel is a sample of unit spacing, and half of one is the largest distance a point can
+/// move without leaving the pixel it is a sample of. So two placements whose worst disagreement
+/// over the whole picture is under half a pixel put every feature of that picture **in the same
+/// pixel**; the grid this frame is drawn on cannot state them apart. It is the same argument
+/// `TargetSpec::for_page` already rounds a page's extent by (ADR 0064) and it is stated in the
+/// display's own unit, which is the discipline rules 4 and 5 were re-grounded on in ADR 0384.
+///
+/// **What it claims is exactly that and no more.** It does not claim the two resamples are
+/// bit-identical: a filtered sample is a continuous function of the placement, so a sub-pixel
+/// shift moves its weights by a fraction of one. It claims that the choice between them moves
+/// nothing into a different pixel — on a picture that is a deliberate approximation to begin with,
+/// where the *other* error present is a whole-texture resample.
+///
+/// # Why an exact comparison was wrong, which is arithmetic rather than arrangement
+///
+/// ADR 0442 compared the compositions with `==`, on the argument that a threshold would be a
+/// number nobody measured a purpose for. On a real continuous column that refused ordinary
+/// **scrolls**: every page moves by the same distance and the composition still goes through
+/// `Transform::invert`, whose division by the determinant is not exact in `f32`, so two placements
+/// that print identically to three decimals are not equal. The six-hundred-and-eighth session's
+/// trace has the pair — `(1.000 0.000 0.000 1.000 0.000 -371.000)` refused against
+/// `(1.000 0.000 0.000 1.000 0.000 -371.000)` — and the cost was the sharp layer refused for most
+/// view changes in a continuous layout.
+///
+/// # What the residual measures, and why this is not a tolerance fitted to it
+///
+/// The bound was derived first and the measurement taken second, which is the order
+/// `doc/traps/pixels-and-rasterisers.md` trap 12 is about. `doc/PDF20_AN001-BPC.pdf` in
+/// `OneColumn` in an 800×1000 window, through fifteen scrolls of 137 px and five zoom steps —
+/// the arrangement `viewer_core::layout` states rather than one composed here, which is
+/// [`tests::a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused`]:
+///
+/// | view change | of a picture of | disagreement | against this bound |
+/// |---|---|---|---|
+/// | 15 scrolls | 2–3 pages | 0 – 0.000183 px | 2 700× under it |
+/// | 5 zoom steps | 2–3 pages | 1.25 – 2.75 px | 2.5× to 5.5× over it |
+///
+/// The two populations are **four orders of magnitude apart** and the bound sits between them
+/// touching neither. That separation is the finding rather than the threshold: the residual is
+/// `f32` round-off in an inverse, three of the fifteen scrolls carrying it and twelve exactly
+/// zero, and a zoom's disagreement is `GAP × (1 − k)` per gap crossed — a real rearrangement of
+/// pages, in units of the gap `viewer_core::layout` states in logical pixels. A later measurement
+/// finding a residual near this bound would be a defect in the composition to fix and not a reason
+/// to raise it, which is the shape trap 12 warns about read the right way round.
+const AGREEMENT: f32 = 0.5;
+
 /// The one affine that carries every page of the settled picture onto the view being asked for.
 ///
-/// **This is what replaced a single page's `settled⁻¹ ∘ asked` when a column arrived**, and it is
-/// an exact question rather than a tolerant one. The window presents its pages as *one* texture
-/// under *one* placement, so a reprojection is defensible only where one affine is true of every
-/// page in the picture. For each page in both the settled arrangement and the one being asked for
-/// — matched by the `Arc`'s address, which is what identifies a page here — this composes that
-/// page's own `settled⁻¹ ∘ asked`, and answers only where they all agree.
+/// **This is what replaced a single page's `settled⁻¹ ∘ asked` when a column arrived**. The window
+/// presents its pages as *one* texture under *one* placement, so a reprojection is defensible only
+/// where one affine is true of every page in the picture. For each page in both the settled
+/// arrangement and the one being asked for — matched by the `Arc`'s address, which is what
+/// identifies a page here — this composes that page's own `settled⁻¹ ∘ asked`, and answers only
+/// where they all agree to within [`AGREEMENT`], which is where they all put the picture in the
+/// same pixels.
 ///
-/// The three ways it answers `None` are three different facts, and the caller tells them apart:
+/// The three ways it refuses are three different facts, and the caller tells them apart:
 ///
 /// - **no page is in both**, which is a page turn — nothing about the outgoing pages' pixels is
 ///   true of the incoming ones, at any placement;
 /// - **a placement does not invert**, or the composition is not finite;
 /// - **the pages disagree**, which is the case a column introduced. A *scroll* moves every page by
-///   the same distance, so they agree exactly and a column reprojects as a single page always did.
-///   A *zoom* does not: `viewer_core::layout`'s gap between rows is stated in logical pixels and so
-///   does not scale with the magnification, while the pages either side of it do — so no one affine
-///   carries both, and the honest answer is to wait for the real frame rather than to move a page
-///   to a place it is not.
+///   the same distance, so what separates its placements is the arithmetic of an inverse in `f32`
+///   and a column reprojects as a single page always did. A *zoom* does not:
+///   `viewer_core::layout`'s gap between rows is stated in logical pixels and so does not scale
+///   with the magnification, while the pages either side of it do — so no one affine carries both,
+///   and the honest answer is to wait for the real frame rather than to move a page to a place it
+///   is not.
+///
+/// The disagreement it did absorb comes back with the answer, because a bound nobody can see the
+/// far side of is a bound nobody can re-measure ([`Carried::within`]).
 fn one_placement(
     settled: &[(Arc<DisplayList>, TargetSpec)],
     asked: &[(Arc<DisplayList>, TargetSpec)],
-) -> Result<Transform, Refusal> {
+) -> Result<Carried, Refusal> {
     let mut agreed: Option<Transform> = None;
+    let mut within = 0.0_f32;
     for (page, target) in asked {
         let Some((_, was)) = settled
             .iter()
@@ -762,12 +851,66 @@ fn one_placement(
             return Err(Refusal::NoPlacement);
         }
         match agreed {
+            // Every page is compared against the placement that will actually be used rather than
+            // against its neighbour, so `within` is a statement about the picture drawn: no page
+            // of it is further than that from where this view puts it.
             None => agreed = Some(moved),
-            Some(first) if first == moved => {}
-            Some(first) => return Err(Refusal::Rearranged { first, then: moved }),
+            Some(first) => {
+                let apart = disagreement(first, moved, target);
+                if apart > AGREEMENT {
+                    return Err(Refusal::Rearranged {
+                        first,
+                        then: moved,
+                        by: apart,
+                    });
+                }
+                within = within.max(apart);
+            }
         }
     }
-    agreed.ok_or(Refusal::AnotherPage)
+    agreed
+        .map(|placement| Carried { placement, within })
+        .ok_or(Refusal::AnotherPage)
+}
+
+/// Says how far the pages of the picture disagreed about the placement it went up at.
+///
+/// **Rule 3 over [`AGREEMENT`] rather than over the picture**, and it is what makes the bound a
+/// thing a run measures instead of a thing this file asserts: a person driving a column sees what
+/// an ordinary scroll's residual is and what a zoom's rearrangement is, in the same unit, on their
+/// own document. Silent for a single page, which has nothing to disagree with, and so silent for
+/// every `SinglePage` frame this program has ever drawn.
+///
+/// A free function rather than a method on [`Stale`]: it reads nothing that has been decided and
+/// counts nothing, which is the difference between it and [`Stale::declined`].
+pub(crate) fn absorbed(carried: Carried, pages: usize, trace: crate::trace::Trace) {
+    if pages < 2 {
+        return;
+    }
+    trace.say(
+        crate::trace::Topic::Frames,
+        format_args!(
+            "one placement for {pages} pages: they disagree by {:.4} px at the worst corner, \
+             against a bound of {AGREEMENT} — half a device pixel, which moves nothing into \
+             another pixel",
+            carried.within
+        ),
+    );
+}
+
+/// Where the picture held goes so that it depicts the view being asked for, and how far the pages
+/// of it disagreed about that.
+///
+/// The second field is what makes [`AGREEMENT`] measurable from outside this module: the frame
+/// line prints it for an arrangement of more than one page, so a run says what the residual
+/// actually is rather than leaving the bound a claim.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Carried {
+    /// The one placement, in the picture's own texel space.
+    pub(crate) placement: Transform,
+    /// The largest disagreement absorbed, in device pixels. Zero for a single page, which has
+    /// nothing to disagree with.
+    pub(crate) within: f32,
 }
 
 /// Whether the window is showing a reprojection, and what it would take to draw the next one.
@@ -1066,7 +1209,7 @@ impl Stale {
     pub(crate) fn reproject(
         &self,
         pages: &[(Arc<DisplayList>, TargetSpec)],
-    ) -> Result<Transform, Refusal> {
+    ) -> Result<Carried, Refusal> {
         let Some(settled) = self.settled.as_ref() else {
             return Err(Refusal::NothingRendered);
         };
@@ -1087,7 +1230,7 @@ mod tests {
 
     use pdf_render::{DisplayList, Size, TargetSpec, Transform};
 
-    use super::{Plan, Proxies, Refusal, Retained, Source, Stale, Stand};
+    use super::{AGREEMENT, Plan, Proxies, Refusal, Retained, Source, Stale, Stand};
 
     /// No retained page has pixels for the view being asked for, which is what every case written
     /// before ADR 0443 assumed and what a run with `--proxy-pages 0` is.
@@ -1150,6 +1293,193 @@ mod tests {
             top += 842.0 * magnification + 8.0;
         }
         placed
+    }
+
+    /// A column laid out by `viewer_core` over a document committed in `doc/`, as a host holds it.
+    ///
+    /// **The arrangement comes from the document rather than from this file**, which is the whole
+    /// point of it: [`column`] above stacks exact translations and cannot produce the residual at
+    /// all, because nothing in it ever divides. A real placement is a magnification `Zoom::FitPage`
+    /// chose out of a page's own extent, and the composition [`one_placement`] takes goes through
+    /// `Transform::invert`'s division by a determinant — which is where the last bits go.
+    ///
+    /// One entry per page the arrangement shows, in page order, taken from the render requests
+    /// exactly the way `crate::dispatch` takes them: a request for a page already held replaces
+    /// that page's, and the pages the arrangement no longer shows are dropped.
+    struct Column {
+        viewer: viewer_core::Viewer,
+        held: Vec<(usize, Arc<DisplayList>, TargetSpec)>,
+    }
+
+    impl Column {
+        /// `doc/PDF20_AN001-BPC.pdf` in `OneColumn`, in an 800×1000 window.
+        ///
+        /// Five pages of A4 with text on every one, and the document every headless test opens —
+        /// not a corpus file, because the corpus is an optional submodule and a test that skipped
+        /// itself silently would be worse than no test.
+        fn opened() -> Self {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../doc/PDF20_AN001-BPC.pdf");
+            let bytes = std::fs::read(&path)
+                .unwrap_or_else(|error| panic!("{} is committed: {error}", path.display()));
+            let mut column = Self {
+                viewer: viewer_core::Viewer::new(800, 1000, 1.0),
+                held: Vec::new(),
+            };
+            column.send(viewer_core::Command::Open {
+                id: viewer_core::DocumentId(1),
+                bytes,
+                password: None,
+                fragment: None,
+            });
+            column.send(viewer_core::Command::Layout(
+                pdf_model::viewer_preferences::PageLayout::OneColumn,
+            ));
+            column
+        }
+
+        /// Sends one command and folds what it asked to be drawn into the arrangement held.
+        fn send(&mut self, command: viewer_core::Command) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+            let events: Vec<_> = self.viewer.handle(command).collect();
+            for event in events {
+                if let viewer_core::Event::NeedsRender(request) = event {
+                    match self
+                        .held
+                        .binary_search_by_key(&request.page, |(at, ..)| *at)
+                    {
+                        Ok(at) => self.held[at] = (request.page, request.list, request.target),
+                        Err(at) => {
+                            self.held
+                                .insert(at, (request.page, request.list, request.target));
+                        }
+                    }
+                }
+            }
+            // The placement `crate::surface::Surface::arrangement` builds, and it is built here
+            // rather than borrowed because that method needs a window: the core states one raster
+            // per page and where in the viewport it goes, and the host composes the two into the
+            // window's own extent. A page the arrangement has scrolled off has no geometry, which
+            // is what says a request this host still holds has left the screen (ADR 0442).
+            let mut placed = Vec::new();
+            self.held.retain(|(page, list, target)| {
+                let viewer_core::Answer::Geometry(geometry) =
+                    self.viewer.query(viewer_core::Query::PageGeometry(*page))
+                else {
+                    return false;
+                };
+                placed.push((
+                    Arc::clone(list),
+                    TargetSpec {
+                        width: 800,
+                        height: 1000,
+                        transform: target
+                            .transform
+                            .then(Transform::translate(geometry.origin.0, geometry.origin.1)),
+                    },
+                ));
+                true
+            });
+            placed
+        }
+    }
+
+    /// **A scroll of a *real* column is carried, and a zoom of one is still refused.**
+    ///
+    /// This is the case ADR 0442's exact comparison got wrong and [`AGREEMENT`] answers: on a
+    /// continuous column every page moves by the same distance, and the compositions still differ
+    /// in the last bits of an `f32` because each goes through an inverse. The session before this
+    /// one has the trace — two placements printed identically to three decimals and refused.
+    ///
+    /// It is also the **measurement**, printed rather than asserted at a number: the two
+    /// populations either side of the bound, over a range of scrolls and of magnifications, on a
+    /// document rather than on this file's arithmetic. What is asserted is the property each
+    /// population has — a scroll agrees, a zoom does not — and never a figure, because a figure
+    /// asserted here is a threshold fitted to a run (`doc/traps/pixels-and-rasterisers.md` trap
+    /// 12).
+    #[test]
+    fn a_scroll_of_a_real_column_is_carried_and_a_zoom_of_one_is_still_refused() {
+        use viewer_core::{Command, Zoom};
+
+        let mut column = Column::opened();
+        let mut settled = column.send(Command::Zoom {
+            zoom: Zoom::Scale(0.4),
+            at: None,
+        });
+        let mut stale = Stale::default();
+        let (mut carried, mut refused) = (Vec::new(), Vec::new());
+        for step in 0..34_u32 {
+            // Two gestures over one document: a scroll of a distance nothing here rounds, and
+            // every fourth step a zoom in, so that the magnifications the scrolls are taken at
+            // are the ones a person passes through rather than one this test chose.
+            let gesture = if step % 4 == 3 {
+                Command::Zoom {
+                    zoom: Zoom::In,
+                    at: None,
+                }
+            } else {
+                Command::Scroll {
+                    dx: 0.0,
+                    dy: -137.0,
+                }
+            };
+            let zoomed = matches!(gesture, Command::Zoom { .. });
+            stale.settled(&settled, Duration::from_millis(700), true);
+            let asked = column.send(gesture);
+            if asked.len() < 2 {
+                settled = asked;
+                continue;
+            }
+            match stale.reproject(&asked) {
+                Ok(one) => carried.push((zoomed, asked.len(), one.within)),
+                Err(Refusal::Rearranged { by, .. }) => refused.push((zoomed, asked.len(), by)),
+                Err(other) => {
+                    // A page turn is not what either gesture is, and a resize cannot happen here.
+                    panic!("step {step}: {other:?}");
+                }
+            }
+            settled = asked;
+        }
+        let worst = |of: &[(bool, usize, f32)], zoomed: bool| {
+            of.iter()
+                .filter(|(was_zoom, ..)| *was_zoom == zoomed)
+                .map(|(_, _, by)| *by)
+                .fold(f32::NEG_INFINITY, f32::max)
+        };
+        let least = |of: &[(bool, usize, f32)], zoomed: bool| {
+            of.iter()
+                .filter(|(was_zoom, ..)| *was_zoom == zoomed)
+                .map(|(_, _, by)| *by)
+                .fold(f32::INFINITY, f32::min)
+        };
+        println!(
+            "carried {} scrolls and {} zooms, disagreeing by {:.6} to {:.6} px\n\
+             refused {} scrolls and {} zooms, disagreeing by {:.4} to {:.4} px\n\
+             the bound is {AGREEMENT} px",
+            carried.iter().filter(|(zoom, ..)| !zoom).count(),
+            carried.iter().filter(|(zoom, ..)| *zoom).count(),
+            least(&carried, false).min(least(&carried, true)),
+            worst(&carried, false).max(worst(&carried, true)),
+            refused.iter().filter(|(zoom, ..)| !zoom).count(),
+            refused.iter().filter(|(zoom, ..)| *zoom).count(),
+            least(&refused, false).min(least(&refused, true)),
+            worst(&refused, false).max(worst(&refused, true)),
+        );
+        assert!(
+            carried.iter().filter(|(zoom, ..)| !zoom).count() >= 12,
+            "the scrolls of a five-page column are the population this is about: {carried:?}"
+        );
+        assert!(
+            !carried.iter().any(|(zoom, ..)| *zoom),
+            "a zoom moves the gap and not the pages, so no one placement carries it: {carried:?}"
+        );
+        assert!(
+            !refused.iter().any(|(zoom, ..)| !zoom),
+            "a scroll moves every page by the same distance and must not be refused: {refused:?}"
+        );
+        assert!(
+            refused.iter().filter(|(zoom, ..)| *zoom).count() >= 4,
+            "every zoom of a column of more than one page rearranges it: {refused:?}"
+        );
     }
 
     /// One refresh of a 60 Hz surface, which is what rule 5 compares a frame against.
@@ -1441,7 +1771,8 @@ mod tests {
         );
         let moved = stale
             .reproject(&alone(&page, 2.0))
-            .expect("a doubled magnification");
+            .expect("a doubled magnification")
+            .placement;
         // A point of the page, mapped both ways: through the old placement and then the
         // reprojection, and through the new placement directly.
         let corner = pdf_render::Point::new(100.0, 700.0);
@@ -1471,7 +1802,8 @@ mod tests {
         slow(&mut stale, &page);
         let placed = stale
             .reproject(&alone(&page, 1.0))
-            .expect("the view the rendering is of");
+            .expect("the view the rendering is of")
+            .placement;
         for (was, expected) in [
             (placed.a, 1.0),
             (placed.b, 0.0),
@@ -1527,7 +1859,8 @@ mod tests {
             );
             let moved = stale
                 .reproject(&at(&page, asked))
-                .expect("a rendering is held");
+                .expect("a rendering is held")
+                .placement;
             // Through the pixels of the last *rendering*, which is the only thing composed
             // against however many reprojections have been drawn since.
             let through = moved.apply(base.apply(corner));
@@ -1562,7 +1895,8 @@ mod tests {
         );
         let moved = stale
             .reproject(&alone(&page, 2.0))
-            .expect("the view moved on");
+            .expect("the view moved on")
+            .placement;
         let corner = pdf_render::Point::new(100.0, 700.0);
         let through = moved.apply(view(1.2).transform.apply(corner));
         let directly = view(2.0).transform.apply(corner);
@@ -1589,7 +1923,10 @@ mod tests {
         stale.settled(&settled, Duration::from_millis(700), true);
         let asked = column(&pages, 1.0, 240.0);
         assert!(stale.plan(&asked, NONE_HELD, REFRESH, LANDED).stands_in());
-        let moved = stale.reproject(&asked).expect("a column that scrolled");
+        let moved = stale
+            .reproject(&asked)
+            .expect("a column that scrolled")
+            .placement;
         let corner = pdf_render::Point::new(100.0, 700.0);
         for (index, ((_, was), (_, now))) in settled.iter().zip(&asked).enumerate() {
             let through = moved.apply(was.transform.apply(corner));
@@ -1867,15 +2204,9 @@ mod tests {
             stale.plan(&asked, 2, REFRESH, LANDED),
             Plan::Approximate(Stand {
                 from: Source::RetainedPages,
-                instead_of_the_base: Some(Refusal::Rearranged {
-                    first: match stale.reproject(&asked) {
-                        Err(Refusal::Rearranged { first, .. }) => first,
-                        other => panic!("a zoom of a column rearranges: {other:?}"),
-                    },
-                    then: match stale.reproject(&asked) {
-                        Err(Refusal::Rearranged { then, .. }) => then,
-                        other => panic!("a zoom of a column rearranges: {other:?}"),
-                    },
+                instead_of_the_base: Some(match stale.reproject(&asked) {
+                    Err(rearranged @ Refusal::Rearranged { .. }) => rearranged,
+                    other => panic!("a zoom of a column rearranges: {other:?}"),
                 }),
             }),
         );

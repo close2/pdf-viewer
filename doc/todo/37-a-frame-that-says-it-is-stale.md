@@ -104,15 +104,20 @@ in the picture. `stale::one_placement` composes each page's own `settled⁻¹ �
   somewhere it is not — `GAP × (1 − k)` per gap, two pixels at one zoom step — and the window waits
   for the real frame and says why.
 
-**It is exact rather than tolerant, deliberately.** A threshold here would be a number nobody
-measured a purpose for, which is the mistake this file already records twice at two scales. What
-would remove the refusal rather than tune it is a placement *per page* — the presenter putting up
+**It was exact rather than tolerant, and that was the defect** — a scroll's placements differ in
+the last bits of an `f32` inverse, so the sharp layer was refused for a share of a column's ordinary
+view changes (ADR 0444, and the section at the head of this file). What replaced the exactness is a
+bound with a derivation rather than a threshold: half a device pixel, at the worst corner of the
+picture. What would remove the refusal rather than bound it is a placement *per page* — the presenter putting up
 one textured quad per page instead of one for the frame — and that is a change to
 `crate::renderer`'s three layers rather than to the policy. Nobody has asked for it; a zoom in a
 column shows the previous frame unmoved for one render, which is what every view change did before
 ADR 0378.
 
 ## What is left
+
+**The base's comparison is no longer on this list** — the six-hundred-and-ninth session took it, and
+the two items below with the identity above them are what remains.
 
 **The processor's window**: `--cpu`, and a machine whose graphics device would not come up. There
 is no retained encode to replay there, so the device path's mechanism does not apply — the attempt
@@ -182,16 +187,16 @@ claims have been corrected by running it and the corrections are here.
   range of raster sizes. What binds is memory, and the second thing the ladder showed: a proxy scale
   that followed the zoom would put a new glyph size in quorra's atlas at every step, and a repack
   costs the next real frame its whole geometry.
-- **`Refusal::Rearranged` fires on scrolls, and that is about the base rather than this layer.**
-  ADR 0442 compares each page's `settled⁻¹ ∘ asked` exactly, on the argument that a threshold would
-  be a number nobody measured a purpose for. On a real column a scroll produces two placements that
-  print identically to three decimals and are not equal, because the composition goes through an
-  inverse in `f32` — so the sharp layer is refused for most view changes in a continuous layout and
-  this round's layer hides it. **The purpose is now measured**: a placement wrong by less than half
-  a device pixel moves no pixel, which is a bound with a derivation rather than a tolerance. A round
-  that takes it owes the measurement of how far the compositions actually differ, over a real
-  column, before choosing the bound — and owes it in a round of its own, because it changes what a
-  correct picture is judged by.
+- ~~**`Refusal::Rearranged` fires on scrolls.**~~ **Taken in the six-hundred-and-ninth session**
+  (ADR 0444), in the order this entry asked for: the bound comes from the geometry — the four
+  corners of the picture, because the difference of two affines is convex and attains its maximum at
+  a vertex — and half a device pixel is the raster's own quantisation, the largest distance a point
+  can move without leaving the pixel it is a sample of. The measurement was taken *after*, and what
+  it found is a separation rather than a threshold: a scroll's placements differ by 0 to 0.000183 px
+  and a zoom step's by 1.25 to 2.75 px, four orders of magnitude apart with the bound between them.
+  `stale::AGREEMENT` carries the derivation and both tables; the frame line prints the disagreement
+  absorbed and the refusal prints the one refused, so the next round re-measures without
+  instrumenting anything.
 
 ## A second thing is left, asked for by the owner on 2026-08-20: pixels for the area that was not there
 

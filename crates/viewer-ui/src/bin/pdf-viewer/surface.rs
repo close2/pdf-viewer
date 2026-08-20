@@ -235,7 +235,13 @@ impl App {
         // nowhere else, so that no caller can compose against anything but the last rendering.
         let base = if stand.from.has_base() {
             match self.stale.reproject(pages) {
-                Ok(moved) => Some(moved),
+                Ok(carried) => {
+                    // Rule 3 over the bound the placements were accepted under: a column says how
+                    // far its pages disagreed, so the number the bound is set against is one a
+                    // run prints rather than one this program asserts.
+                    crate::stale::absorbed(carried, pages.len(), self.trace);
+                    Some(carried.placement)
+                }
                 Err(why) => {
                     let trace = self.trace;
                     self.stale.declined(&why, trace);

@@ -207,14 +207,15 @@ pub(crate) struct Open {
     /// makes an undo back to the saved state clean and a redo past it dirty again, which is the
     /// same reason the log has a cursor at all.
     pub(crate) saved_at: usize,
-    /// What is selected, and which page's readback it is a range of.
+    /// What is selected: two [`Spot`]s, each a page and an offset into that page's readback.
     ///
-    /// **The page is here since Table 29's continuous layouts were obeyed.** A range is into one
-    /// page's readback and nothing else, and until an arrangement could show several pages the
-    /// page it belonged to was always the current one — so a page turn ended a selection and that
-    /// was the whole rule. A scroll that crosses a row boundary changes the current page without
-    /// a person having done anything to what they had selected, so the rule is now the honest
-    /// one: a selection lives until its own page leaves the screen.
+    /// **The page is here since Table 29's continuous layouts were obeyed**, and it is on *both*
+    /// ends since the session after the one that found a drag stopping at a row boundary. Until
+    /// an arrangement could show several pages the page a selection belonged to was always the
+    /// current one — so a page turn ended a selection and that was the whole rule. A scroll that
+    /// crosses a row boundary changes the current page without a person having done anything to
+    /// what they had selected, so the rule is the honest one: a selection lives while the pages
+    /// it covers are on the screen.
     pub(crate) selection: Option<Chosen>,
     /// A selection to make once the page it names has been interpreted, and which page that is.
     ///
@@ -279,17 +280,81 @@ pub(crate) struct Open {
     pub(crate) losses_said: usize,
 }
 
-/// A range of one page's readback, and which page's.
+/// One end of a selection: a page, and a byte offset into that page's readback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Spot {
+    /// The page whose readback the offset is into, zero-based.
+    ///
+    /// **First, and that is what makes the derived ordering the document's own.** Two spots
+    /// compare by page and then by offset, which is the order the pages are read in and the
+    /// order [`Chosen::ordered`] needs; deriving it is what stops a second opinion about
+    /// "before" from existing.
+    pub(crate) page: usize,
+    /// How far into that page's readback, in bytes.
+    pub(crate) offset: usize,
+}
+
+/// What is selected: where the drag anchored, and where its moving end is now.
 ///
 /// Anchor first, then where the pointer is now — in that order rather than sorted, because a
 /// selection dragged backwards is a selection, and which end moves is the difference between
 /// extending it and starting again.
+///
+/// **Both ends name a page since the six-hundred-and-ninth session**, and that is the whole of
+/// what a selection crossing a page boundary needed in this crate. A range used to be into *one*
+/// page's readback, and that half was right: the standard offers no offset a selection could be a
+/// range of. ISO 32000-2 §9.4.1 says of the text matrix, the text line matrix and the text
+/// rendering matrix that they
+///
+/// > may be specified only within a text object and shall not persist from one text object to the
+/// > next
+///
+/// so text has no continuous position even between two text objects of *one* page, let alone
+/// across pages, and §12.4.2's page indices are the only sequence there is. **What was wrong was
+/// the conclusion**: this is a pair of `(page, offset)` rather than one number, and a pair
+/// composes across a boundary where a number could not exist. Table 29's continuous arrangements
+/// put several pages on the screen at once, so a drag from one to the next is an ordinary gesture
+/// rather than an exotic one, and refusing it left the second page's half of a paragraph
+/// unselectable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Chosen {
-    /// The page whose readback the offsets are into, zero-based.
-    pub(crate) page: usize,
-    /// The anchor and the moving end, in bytes.
-    pub(crate) range: (usize, usize),
+    /// Where the drag anchored.
+    pub(crate) from: Spot,
+    /// Where its moving end is.
+    pub(crate) to: Spot,
+}
+
+impl Chosen {
+    /// A range inside one page, which is what a search finds and what `Selection::All` is.
+    pub(crate) const fn in_page(page: usize, range: (usize, usize)) -> Self {
+        Self {
+            from: Spot {
+                page,
+                offset: range.0,
+            },
+            to: Spot {
+                page,
+                offset: range.1,
+            },
+        }
+    }
+
+    /// The two ends in the order the pages are read in, rather than in the order they were made.
+    pub(crate) fn ordered(self) -> (Spot, Spot) {
+        if self.from <= self.to {
+            (self.from, self.to)
+        } else {
+            (self.to, self.from)
+        }
+    }
+
+    /// Whether anything at all is selected.
+    ///
+    /// A press makes an empty selection so that the drag after it has an anchor, and an empty
+    /// selection highlights nothing and is not one a person can see.
+    pub(crate) fn empty(self) -> bool {
+        self.from == self.to
+    }
 }
 
 /// One page of Table 29's arrangement, as far as it has got towards the screen.
@@ -407,14 +472,26 @@ pub(crate) enum Done {
     },
     /// §12.5.6.10's markup, over quadrilaterals in **default user space**.
     Markup {
-        /// The page it was added to, which is `Page::id`.
-        page: ObjectId,
+        /// The pages it was added to, in page order, each with the quadrilaterals of its own
+        /// part of the selection: `Page::id` and Table 182's `/QuadPoints`, one entry per run of
+        /// a line.
+        ///
+        /// **A list because a selection crosses page boundaries** (the six-hundred-and-ninth
+        /// session), and the standard rather than convenience is what makes it a list. ISO 32000-2
+        /// §12.5.2:
+        ///
+        /// > A given annotation dictionary shall be referenced from the Annots array of only one
+        /// > page.
+        ///
+        /// and Table 182 states §12.5.6.10's `/QuadPoints` "in default user space", which is a
+        /// page's. So a mark-up over a selection spanning two pages **shall** be two annotations
+        /// and cannot be one shared between them — and they are one `Done` rather than two so that
+        /// the gesture undoes in one, which is what a person who made one drag means by undo.
+        pages: Vec<(ObjectId, Vec<[f32; 8]>)>,
         /// Which of the four.
         kind: pdf_model::view::Markup,
         /// Table 166's `/C`.
         colour: [f32; 3],
-        /// Table 182's `/QuadPoints`, one entry per run of a line.
-        quads: Vec<[f32; 8]>,
     },
     /// §12.5.6.6's free text annotation, over a rectangle in **default user space**.
     FreeText {
@@ -627,6 +704,42 @@ impl Open {
         self.on(page)?.interpreted.as_ref()
     }
 
+    /// What is selected, as a range of each page's own readback, in page order.
+    ///
+    /// **This is where a selection stops being two points and becomes text**, and it is one
+    /// function so that the text, the shapes, §14.8.2.5's logical order and §12.5.6.10's markup
+    /// cannot disagree about what was chosen. The first page runs from the earlier end to *its*
+    /// end, the last from *its* beginning to the later end, and a page between the two is
+    /// selected whole — which is what dragging across a boundary means and is the only reading a
+    /// column offers.
+    ///
+    /// Empty where nothing is selected. A page whose interpretation this crate does not hold
+    /// contributes nothing rather than an empty range: it can only be a page the arrangement is
+    /// not showing, and a selection whose pages have left the screen is dropped by `settle`
+    /// before it can be asked about.
+    pub(crate) fn spans(&self) -> Vec<(usize, (usize, usize))> {
+        let Some(chosen) = self.selection else {
+            return Vec::new();
+        };
+        let (from, to) = chosen.ordered();
+        (from.page..=to.page)
+            .filter_map(|page| {
+                let readback = self.interpretation(page)?.text.len();
+                let start = if page == from.page {
+                    from.offset.min(readback)
+                } else {
+                    0
+                };
+                let end = if page == to.page {
+                    to.offset.min(readback)
+                } else {
+                    readback
+                };
+                (start <= end).then_some((page, (start, end)))
+            })
+            .collect()
+    }
+
     /// Which page of the arrangement a viewport point is inside, where it is inside one.
     ///
     /// `None` for a point in the gap between two pages, in the margin beside them, or over
@@ -708,38 +821,48 @@ impl Open {
                 })
             }
             crate::command::Edit::Markup { kind, colour } => {
-                // The *selection's* page rather than the current one: a mark-up is over what is
+                // The *selection's* pages rather than the current one: a mark-up is over what is
                 // selected, and Table 29's continuous arrangements let a person scroll on after
-                // selecting without having changed what they chose.
-                let selection = self.selection?;
-                let interpreted = self.interpretation(selection.page)?;
-                let quads = crate::select::quads_for(&interpreted.placed, selection.range);
-                let page = self.page(selection.page)?;
-                // §12.5.6.10's `/QuadPoints` is in default user space and everything this crate
-                // answers with is in the display list's, so the shapes go back through the
-                // transform that put them there. A page transform is a similarity with a flip
-                // and is always invertible; the `?` is the type system's rather than a case.
-                let back = pdf_model::content::page_transform(&page).invert()?;
-                let quads = quads
-                    .into_iter()
-                    .map(|quad| {
-                        let mut mapped = [0.0; 8];
-                        for (corner, out) in quad.chunks_exact(2).zip(mapped.chunks_exact_mut(2)) {
-                            let point = back.apply(Point {
-                                x: corner[0],
-                                y: corner[1],
-                            });
-                            out[0] = point.x;
-                            out[1] = point.y;
-                        }
-                        mapped
-                    })
-                    .collect::<Vec<[f32; 8]>>();
-                (!quads.is_empty()).then_some(Done::Markup {
-                    page: page.id?,
+                // selecting without having changed what they chose — and select across a row
+                // boundary in the first place, which is why this is a page at a time.
+                let mut marked: Vec<(ObjectId, Vec<[f32; 8]>)> = Vec::new();
+                for (index, range) in self.spans() {
+                    let Some(interpreted) = self.interpretation(index) else {
+                        continue;
+                    };
+                    let quads = crate::select::quads_for(&interpreted.placed, range);
+                    let page = self.page(index)?;
+                    // §12.5.6.10's `/QuadPoints` is in default user space and everything this
+                    // crate answers with is in the display list's, so the shapes go back through
+                    // the transform that put them there. A page transform is a similarity with a
+                    // flip and is always invertible; the `?` is the type system's rather than a
+                    // case.
+                    let back = pdf_model::content::page_transform(&page).invert()?;
+                    let quads = quads
+                        .into_iter()
+                        .map(|quad| {
+                            let mut mapped = [0.0; 8];
+                            for (corner, out) in
+                                quad.chunks_exact(2).zip(mapped.chunks_exact_mut(2))
+                            {
+                                let point = back.apply(Point {
+                                    x: corner[0],
+                                    y: corner[1],
+                                });
+                                out[0] = point.x;
+                                out[1] = point.y;
+                            }
+                            mapped
+                        })
+                        .collect::<Vec<[f32; 8]>>();
+                    if !quads.is_empty() {
+                        marked.push((page.id?, quads));
+                    }
+                }
+                (!marked.is_empty()).then_some(Done::Markup {
+                    pages: marked,
                     kind,
                     colour,
-                    quads,
                 })
             }
         }
@@ -763,13 +886,14 @@ impl Open {
                     self.view.set_field(&self.document, field, value);
                 }
                 Done::Markup {
-                    page,
+                    pages,
                     kind,
                     colour,
-                    quads,
                 } => {
-                    self.view
-                        .add_markup(&self.document, *page, *kind, *colour, quads);
+                    for (page, quads) in pages {
+                        self.view
+                            .add_markup(&self.document, *page, *kind, *colour, quads);
+                    }
                 }
                 Done::FreeText { page, rect, colour } => {
                     self.view
