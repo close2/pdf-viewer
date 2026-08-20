@@ -1521,4 +1521,92 @@ mod tests {
             }
         }
     }
+
+    /// §7.6.4.4.2's Algorithm 3 steps (a) to (d), against an `/O` its steps (e) to (h) built.
+    ///
+    /// The reader runs only half of this algorithm, because §7.6.4.4.6's Algorithm 7 begins
+    /// "[c]ompute a file encryption key from the supplied password string, as described in
+    /// step (a) to step (d)" — so the other half has to exist somewhere for the half that
+    /// ships to be checked at all. It is here, which is the trade
+    /// `a_perms_block_yields_the_permissions_algorithm_10_stored` makes one algorithm over:
+    /// the test encrypts, the reader decrypts, and the padded user password comes back only if
+    /// the two agree on the padding, the fifty hashes, the key length and the twenty keys.
+    ///
+    /// **What it deliberately does not pin is the *order* of those twenty**, and the reason is
+    /// the cipher rather than an omission: RC4 is a stream cipher, so twenty applications XOR
+    /// twenty keystreams into the data and XOR is commutative. Step (g) counts "from 1 to 19"
+    /// and Algorithm 7 step (b) unwinds "from 19 to 0"; reversing either loop leaves this test
+    /// green because it leaves the plaintext identical. Reading the clause is the only way to
+    /// get that order right, and following it costs nothing — which is why the code does.
+    ///
+    /// **This is the only thing in the tree that reaches [`unwrap_owner_entry`]**, and the
+    /// six-hundred-and-twentieth session established that by checking the corpus's eight
+    /// password-protected documents one at a time: three are revision 3 or 4 and every one of
+    /// them opens on its *user* password, which returns before Algorithm 7 is reached, and the
+    /// one whose known password is the owner's — `print_protection.pdf` — is revision 6, where
+    /// §7.6.4.4.11's Algorithm 12 replaces this path entirely. A file that needs it is one this
+    /// corpus does not hold.
+    #[test]
+    fn an_owner_entry_unwraps_to_the_padded_user_password() {
+        // Algorithm 3 steps (e) to (h): what a writer stores in `/O`, and what nothing in this
+        // crate ever computes.
+        let owner_entry = |owner: &str, user: &str, revision: i64, length: usize| -> Vec<u8> {
+            // (a) and (b), then (c) "(Security handlers of revision 3 or greater) Do the
+            // following 50 times". Unlike §7.6.4.3.2 step (h) this one re-hashes the *whole*
+            // previous digest rather than its first n bytes; the difference is the standard's.
+            let mut key =
+                md5::Md5::digest(pad_password(owner).expect("an ASCII password")).to_vec();
+            if revision >= 3 {
+                for _ in 0..50 {
+                    key = md5::Md5::digest(&key).to_vec();
+                }
+            }
+            key.truncate(length); // (d)
+
+            let mut sealed = pad_password(user).expect("an ASCII password"); // (e)
+            rc4_apply(&key, &mut sealed).expect("a key length RC4 accepts"); // (f)
+            if revision >= 3 {
+                // (g) "Do the following 19 times … the single-byte value of the iteration
+                // counter (from 1 to 19)".
+                for counter in 1..=19u8 {
+                    rc4_apply(&xor_each(&key, counter), &mut sealed)
+                        .expect("a key length RC4 accepts");
+                }
+            }
+            sealed.to_vec() // (h)
+        };
+
+        // Revision 2 takes neither conditional step, and its key is five bytes whatever
+        // `/Length` says; revisions 3 and 4 take both.
+        for (revision, length) in [(2_i64, 5_usize), (3, 16), (4, 16)] {
+            let sealed = owner_entry("the owner", "the user", revision, length);
+            let input = AuthenticateLegacy {
+                password: "the owner",
+                revision,
+                length,
+                owner_entry: &sealed,
+                // Algorithm 7 stops at step (b) here; step (c)'s authentication of what it
+                // recovered is `user_key_matches`, which has its own documents to check against.
+                user_entry: &[],
+                flags: 0,
+                id_first: &[],
+                encrypt_metadata: true,
+            };
+
+            let padded_owner = pad_password("the owner").expect("an ASCII password");
+            assert_eq!(
+                unwrap_owner_entry(&padded_owner, &input),
+                Some(pad_password("the user").expect("an ASCII password")),
+                "revision {revision}: step (c) purports to recover the user password"
+            );
+
+            // And the whole point of the entry: another owner password recovers something else.
+            let wrong = pad_password("not the owner").expect("an ASCII password");
+            assert_ne!(
+                unwrap_owner_entry(&wrong, &input),
+                Some(pad_password("the user").expect("an ASCII password")),
+                "revision {revision}: a wrong owner password must not unwrap `/O`"
+            );
+        }
+    }
 }

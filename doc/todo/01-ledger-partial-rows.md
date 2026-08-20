@@ -11,8 +11,13 @@ order the rows by the commit that last wrote each `note = ` line, and the ones n
 are the ones nothing has read — 40 of the 248 were older than commit 110 of 590, and **fourteen of
 the 32** read off the top of that list were wrong, with a fifteenth found beside them — the
 `implemented` neighbour one of the fourteen deferred to. **The six-hundred-and-sixteenth found that
-the bands are not a floor**: 38 rows still sit below commit 534 and 18 below commit 200, none with a
+the bands are not a floor**: rows still sat well below the last band's, none with a
 read-and-kept sentence, and two of the four it read off the bottom of that list were wrong.
+**The six-hundred-and-twentieth read the band it named** — five of eight wrong, two of the five a
+*status* rather than a note — and found two things about the instrument itself: a commit index is a
+property of the base rather than of the ledger, so bands are quoted as **ranks** now; and the rule
+for choosing within a band is to read the row whose stated reason is a claim about this codebase
+rather than about the standard (ADR 0455).
 **Seventeen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405) and a
 seventeenth in `tools/spec-errata`, where the errata are (ADR 0426) — twelve run every round, a thirteenth run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
@@ -284,8 +289,14 @@ The fourth was the ordinary fifth shape with a long fuse: **§9.7.6** said "what
 predefined `CMap` data §9.7.5.2 owns", which shipped in the hundred-and-fifty-sixth session
 (ADR 0140, all 239 of them) — and §9.7.5.2's own row has read `implemented` ever since.
 
-The fifth, **§7.9.2**, was read and kept: its `partial` is the object model carrying one string
-type where §7.9.2.1 names three, which is a true statement about this tree.
+~~The fifth, **§7.9.2**, was read and kept: its `partial` is the object model carrying one string
+type where §7.9.2.1 names three, which is a true statement about this tree.~~ **The fifth was
+wrong, and this sentence is why it took until the six-hundred-and-twentieth session to say so.**
+It is a true statement about this tree and it is not a statement about §7.9.2 — the clause opens
+"PDF supports one fundamental string object", and §7.9.2.1's own row, `implemented`, says "[t]his
+crate holds exactly that". Every later run of this sweep cited *this line* instead of re-deriving
+the hit, so a dismissal written once outlived fifteen runs of the instrument that kept
+contradicting it. §7.9.2 is `implemented`; ADR 0455 has the argument and the rule it leaves.
 
 **And the run found one more thing, which is about this file rather than about the ledger.**
 §7.9's parent row still said "[d]ates, text streams, name trees and number trees belong to
@@ -293,6 +304,16 @@ features this tree does not have yet" — false of three of the four, with a 154
 one of them. `doc/todo/01` records that the two-hundred-and-seventy-eighth session's run *found*
 exactly this row, and the row was never changed. **A correction recorded in a todo file is not a
 correction**, and the only defence is to make the change in the same commit that finds it.
+
+**And §7.9 was wrong a second time, for two hundred sessions, behind its own child.** The note the
+two-hundred-and-ninety-eighth session wrote in place of the one above said `partial` was "§7.9.3's
+text streams alone, which is `reported`"; §7.9.3 became `implemented` in the
+three-hundred-and-eighty-seventh (ADR 0224), and the five-hundred-and-twenty-fifth's re-read
+repeated the sentence rather than checking the row it named. The sweep could not see it because
+§7.9.2 was also `partial` and stood in front of it — a hit is only printed when *every* child is
+complete, so one wrong `partial` hides its parent's. Moving §7.9.2 in the six-hundred-and-twentieth
+made §7.9 the sweep's next line, and it was wrong too. **The sweep is a chain rather than a list**,
+and a round that clears a hit runs it again in the same session.
 
 ## The three sweeps
 
@@ -3216,6 +3237,74 @@ Collection 3's Issue #309, which moves the `None`-in-`NChannel` restriction off 
 gives `None` its meaning and states it separately as a `shall not` on the file, ratifying a reader
 that has never read `/Subtype`.
 
+## The bottom of the list read in the six-hundred-and-twentieth, and a better rule for choosing than either instrument
+
+**The band the six-hundred-and-sixteenth named, read.** The order was re-derived rather than
+taken — `git blame --line-porcelain doc/conformance/ledger.toml`, each `partial` or `reported`
+row's own `note = ` line, ordered by where its commit falls in `git log --reverse` — and the
+re-derivation found a defect in the *list* before it found one in a row.
+
+**The blame ordering agreed with 616 on seven of its eight rows and disagreed on the eighth, which
+was the one 616 recommended reading first.** §12.5.6.12 was read in the six-hundred-and-fourteenth
+session (ADR 0450's spec-driven half) and its note rewritten, and the two rounds ran in parallel,
+so 616's base did not contain 614's commit and 616's list was accurate about a tree that no longer
+existed by the time anybody could act on it. The band actually at the bottom is therefore **eight
+rows and not nine**: §8.10 and its three form-XObject children, §7.6.4.4.2, §7.6.5.1, §7.6.5.3, and
+§7.9.2.
+
+**And the *threshold* is not a number that survives a merge.** 616 wrote "38 rows below commit 534
+and 18 below commit 200"; the same query on this base puts 29 below 534 and 17 below 200, and
+almost none of that movement is rows being read. `git log --reverse` linearises merges, so a
+parallel round landing shifts every index above it — the absolute commit number is a property of
+the base rather than of the ledger. **Order by rank, quote a row's position as its rank, and never
+carry a commit index between rounds.**
+
+### What each of the eight turned out to be
+
+Five defects in eight rows, and two of the five were status rather than prose:
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§7.9.2** | 6 | `partial` for "the object model carr[ying] one string type where §7.9.2.1 names three" | the clause opens "PDF supports one fundamental string object" and §7.9.2.1's own `implemented` row says "[t]his crate holds exactly that" — **`implemented`**, ADR 0455 |
+| **§7.9** | 4 | `partial` was "§7.9.3's text streams alone, which is `reported`" | §7.9.3 has been `implemented` since the three-hundred-and-eighty-seventh — **`implemented`**, and found only because §7.9.2 moved out of the way |
+| **§8.10.4.3** | 9th sweep's | "Three considerations" | **two**; the third is §8.10.4.1's closing sentence and Table 93's `/Group` cell, attributed to the wrong clause |
+| **§7.6.5.3** | 1 | "[t]he SHA-1 and AES seed algorithms" | the clause names a *digest* (SHA-1 at 128 bits, **SHA-256** at 256) over seed + `/Recipients` + 0xFF, and separately seven CMS content ciphers; the row had run two mechanisms together, and never recorded that Issue #196 renumbers it to §7.6.5.4 |
+| **§7.6.4.4.2** | new | "[s]teps (a) to (d) are implemented", citing a corpus test | the steps are right, and **the cited test does not reach them**: the corpus's eight password-protected documents are three at revision 3 or 4 that all open on their *user* password and five at revision 6, where Algorithm 12 replaces Algorithm 7 |
+
+The other three were confirmations with the evidence written into the note: §8.10's aggregate owes
+only §8.10.2's unread entries and §8.10.4's unbuilt import; §8.10.4 and §8.10.4.1 gained the
+population they had never stated — `witness_census` over all 1251 PDFs on this disk finds two
+documents stating `/Ref` as a name and both are §14.7.2's structure-element `/Ref`, so **no
+document states a reference XObject at all**; and §7.6.5.1 gained the one `shall` the clause puts
+on a reader, quoted, in place of "As §7.6.5."
+
+**The fifth row's shape is new and worth a name: the row is right, its evidence is not.** Every
+other shape in this file is a note that says something false. This one says something true and
+points at a test that cannot show it — which is worse, because a reader who checks the citation
+gets a green test. The check it needs is the eighth sweep's with the question changed: not *does
+the test exist* (`pointers` already asks that) but *does it execute the requirement the row claims*.
+Nothing in this project asks that, and no program can — it is read by opening the test. What the
+round did instead is what a round can do: write the test. `crypt.rs` runs Algorithm 3's steps (e)
+to (h) forward and asserts this reader's steps (a) to (d) unwrap the result, at revisions 2, 3 and
+4, and it is the only thing in the tree that reaches `unwrap_owner_entry`.
+
+### The rule for choosing, which is what neither instrument gives
+
+The blame ordering ranks by *age*; the twelve sweeps rank by *the quality of a stated reason*, which
+616 showed is a proxy for recency. Neither ranks by how likely a row is to be wrong. The band
+suggests one that does, because all five defects share it:
+
+> **Rank by blame, then read the row whose stated reason is a claim about this codebase rather than
+> a claim about the standard.**
+
+§7.9.2's reason was an architecture preference; §7.9's was another row's status; §8.10.4.3's was a
+count of a list; §7.6.5.3's was two algorithm names; §7.6.4.4.2's was a test path. Not one quoted
+the clause. A note that quotes the standard was checked against the standard when it was written
+and the standard has not moved; a note that describes the tree was true when it was written and has
+been ageing since. **`quotations` already measures exactly this** — it prints, per note, how much of
+it is verbatim specification — so the discriminator is available as a number to whichever round
+wants to make this a thirteenth program rather than a sentence.
+
 ## What is still owed, named
 
 - **The `partial` rows not yet re-read against the code.** **The bands are not a floor**, and the
@@ -3227,10 +3316,16 @@ that has never read `/Subtype`.
   five-hundred-and-fifty-third's from 534 (§12.8.3.4.3) to 536 (§12.6.4), eleven more, the
   five-hundred-and-sixty-second's from 541 (§11.3.7.2) to 546 (§14.11), ten more, and the
   five-hundred-and-sixty-fifth's from 553 (§12.5.1) to 564 (§8.4.5), fifteen more, plus the
-  read-and-kept sets whose evidence is in their notes. **The next band is the bottom of the list
+  read-and-kept sets whose evidence is in their notes. ~~**The next band is the bottom of the list
   rather than the top**: §8.10 and its three form-XObject children at commit 89, §7.6.4.4.2 and
   §7.6.5's two `reported` rows at 94, §7.9.2 at 95, and §12.5.6.12's rubber stamp at 199, which is
-  the one of those that can change a pixel.
+  the one of those that can change a pixel.~~ **Taken in the six-hundred-and-twentieth**, minus
+  §12.5.6.12, which the six-hundred-and-fourteenth had read in parallel; five of the eight were
+  wrong and the section above has each. **The next band is the eight rows the ordering now puts
+  under rank 17** — §14.8.2.2.1 and §14.8.2.2.2, §12.11.3 and §12.11.6, §14.13 and §14.13.2, and
+  §12.6.4.6, §12.6.4.9 and §12.6.4.10 — quoted as ranks rather than as commit numbers, for the
+  reason the section gives. Re-derive the order before believing this sentence: a parallel round
+  merging ahead of yours can take a row off it, which is what happened to the last band.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.

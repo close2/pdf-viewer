@@ -565,8 +565,8 @@ clause = "7.6.4.4.2"
 title = "Algorithm 3: Computing the encryption dictionary's O -entry value (revision 4 and earlier)"
 status = "partial"
 code = ["crates/pdf-syntax/src/crypt.rs"]
-test = ["crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
-note = "Steps (a) to (d) are implemented, because §7.6.4.4.6's Algorithm 7 begins by running them; steps (e) to (h) compute the /O entry a writer stores and are writer-side."
+test = ["crates/pdf-syntax/src/crypt.rs::an_owner_entry_unwraps_to_the_padded_user_password", "crates/pdf-syntax/tests/encryption.rs::a_document_with_a_password_opens_with_it_and_not_without"]
+note = "Steps (a) to (d) are implemented in `unwrap_owner_entry`, because §7.6.4.4.6's Algorithm 7 begins by running them — \"[c]ompute a file encryption key from the supplied password string, as described in step (a) to step (d)\"; steps (e) to (h) compute the /O entry a writer stores and are writer-side. **Read against the code in the six-hundred-and-twentieth session, and the reading found the row's evidence rather than its claim wrong.** The four steps are right, one at a time: step (c)'s fifty hashes re-hash the *whole* previous digest, unlike §7.6.4.3.2 step (h)'s \"first n bytes\", and that difference is the standard's own wording rather than a defect either side of it. Step (d)'s n keys off the *revision* — \"n shall always be 5 for security handlers of revision 2\" — where §7.6.3.2 step (b) keys the same number off `/V`, and `key_length` implements the second; Table 21 makes R 2 exactly when V is below 2, so the two conditions can only disagree on a file that has already broken Table 21. What was missing was any test at all: the cited corpus test does not reach this path, because the corpus's eight password-protected documents divide into three at revision 3 or 4 that all open on their *user* password and five at revision 6, where §7.6.4.4.11's Algorithm 12 replaces Algorithm 7 — `print_protection.pdf`, the one whose known password is the owner's, is one of the five. The new unit test builds an `/O` by running steps (e) to (h) forward and asserts this reader unwraps it, at revisions 2, 3 and 4. The clause's own first line, which this row never carried: \"This algorithm is deprecated in PDF 2.0.\""
 
 [[clause]]
 clause = "7.6.4.4.3"
@@ -654,7 +654,7 @@ clause = "7.6.5.1"
 title = "General"
 status = "reported"
 code = ["crates/pdf-syntax/src/crypt.rs"]
-note = "As §7.6.5."
+note = "As §7.6.5, and **read against the code in the six-hundred-and-twentieth session**, which is worth a sentence of its own because \"as §7.6.5\" names nothing a later round could check. The clause puts exactly one `shall` on a reader and this is it: \"[w]hen decrypting the data, the PDF reader shall scan the recipient list for which the content is encrypted and shall attempt to find a match with a certificate that belongs to the user.\" Nothing scans a recipient list — `crypt.rs` refuses any `/Filter` that is not `/Standard` with `SyntaxError::UnsupportedEncryption` quoting the name, before Table 23's `/Recipients` is looked at — so the `shall` is unmet and named, which is what `reported` says. The rest of the subclause is framing: CMS as the binding (RFC 5652), X.509 for each recipient's public key, and the private-key access that §7.6.5's row prices."
 
 [[clause]]
 clause = "7.6.5.2"
@@ -668,7 +668,7 @@ clause = "7.6.5.3"
 title = "Public-key encryption algorithms"
 status = "reported"
 code = ["crates/pdf-syntax/src/crypt.rs"]
-note = "The SHA-1 and AES seed algorithms are not implemented; the handler is refused before them."
+note = "Not implemented; the handler is refused before any of it. **This row said \"[t]he SHA-1 and AES seed algorithms\" from the ninety-fifth commit until the six-hundred-and-twentieth session, and the clause names no such thing** — it names two separate mechanisms and the row had run them together. The ciphers are the ones that encrypt the CMS *enveloped data*, seven of them, six \"deprecated in PDF 2.0\" and only 256-bit AES-CBC current. The digest is what turns the recovered seed into the file encryption key: SHA-1 for a 128-bit key and **SHA-256** for a 256-bit one — not AES — over \"[t]he 20 bytes of seed\", then each item of `/Recipients` in array order, then 0xFF four times where document-level encryption leaves the metadata plaintext, taking the first n/8 bytes. Naming that correctly matters because it is the half this tree already has: `crypt.rs` holds SHA-256 and AES-256-CBC and `pdf-model` holds the CMS and X.509 readers §12.8.3 needed. What is absent is `EnvelopedData` and the RSA *decryption* of a per-recipient key against a private key nobody has decided how to reach, which is §7.6.5's row. **And this clause's number moves**: Errata Collection 3's Issue #196 inserts a new \"7.6.5.3 Public-key security permissions\" above it, so what is printed here as 7.6.5.3 becomes 7.6.5.4; §7.6.5.2's row carries the erratum and this one is where a reader looking up the number arrives, which is why it is repeated. The number stays as the published standard prints it because the citation gate resolves against `doc/md/`."
 
 [[clause]]
 clause = "7.6.6"
@@ -791,10 +791,10 @@ note = "All four of the clause's ways a resource dictionary reaches a content st
 [[clause]]
 clause = "7.9"
 title = "Common data structures"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-syntax/src/text_string.rs", "crates/pdf-syntax/src/date.rs", "crates/pdf-syntax/src/tree.rs", "crates/pdf-model/src/annotation.rs"]
 test = ["crates/pdf-syntax/src/text_string.rs::a_surrogate_pair_is_one_character", "crates/pdf-model/tests/dates.rs::every_date_string_in_the_corpus_is_measured_against_the_clause"]
-note = "The clause's own aggregate, and **six of its seven structures are implemented**: §7.9.2's string object types, §7.9.4's dates — with a gate over 1545 corpus date strings — §7.9.5's rectangles, §7.9.6's name trees and §7.9.7's number trees, which `tree.rs` reads as one module because the second clause defines itself as the first with integer keys (ADR 0053). `partial` is §7.9.3's text streams alone, which is `reported`. **This note said \"[d]ates, text streams, name trees and number trees belong to features this tree does not have yet\" until the two-hundred-and-ninety-eighth session**, which was false of three of the four; `doc/todo/01`'s fifth failure shape found it in the two-hundred-and-seventy-eighth and the row was not changed, which is the shape's own shape one level up — **a correction recorded in a todo file is not a correction.** **Read and kept in the five-hundred-and-twenty-fifth**: §7.9.3 is still `reported`, which is what this row's `partial` is, and it is the arithmetic sweep's standing hit for that reason rather than for a stale note."
+note = "The clause's own aggregate, and **all seven of its structures are implemented**: §7.9.2's string object types, §7.9.3's text streams, §7.9.4's dates — with a gate over the corpus's date strings — §7.9.5's rectangles, §7.9.6's name trees and §7.9.7's number trees, which `tree.rs` reads as one module because the second clause defines itself as the first with integer keys (ADR 0053). §7.9 states no prose of its own; the heading is followed directly by §7.9.1. **This note said \"[d]ates, text streams, name trees and number trees belong to features this tree does not have yet\" until the two-hundred-and-ninety-eighth session**, which was false of three of the four; `doc/todo/01`'s fifth failure shape found it in the two-hundred-and-seventy-eighth and the row was not changed, which is the shape's own shape one level up — **a correction recorded in a todo file is not a correction.** **It then said `partial` was \"§7.9.3's text streams alone, which is `reported`\" until the six-hundred-and-twentieth session, and §7.9.3 has been `implemented` since the three-hundred-and-eighty-seventh** (ADR 0224, Table 177's `/RC`) — so the deference outlived the row it deferred to by two hundred sessions, and the five-hundred-and-twenty-fifth's \"read and kept\" repeated it. That is the fourth failure shape, and this row is the one that names it. It was found by moving §7.9.2 (ADR 0455): the child's `partial` had been standing in front of the parent's, so the arithmetic sweep saw one hit where there were two."
 
 [[clause]]
 clause = "7.9.1"
@@ -807,10 +807,10 @@ note = "Introductory. Its claim — that these structures are \"built from the b
 [[clause]]
 clause = "7.9.2"
 title = "String object types"
-status = "partial"
+status = "implemented"
 code = ["crates/pdf-syntax/src/text_string.rs"]
 test = ["crates/pdf-syntax/src/text_string.rs::a_string_with_no_prefix_is_pdfdocencoded"]
-note = "Three of the four string object types are read where they are used. §7.9.2.2's text string is `text_string`, compiled against Table D.3; §7.9.2.4's byte string is the lexer's own output, which is what every other reader of a `/String` takes; §7.9.2.3's PDFDocEncoded string shares Table D.3 with the text string type and differs only in admitting no Unicode prefix, which no entry this tree reads distinguishes. What is not here is the *typing*: the object model carries one string type and each reader decides which of the four it holds, so a text string read as bytes is a defect nothing in this crate can catch."
+note = "All four string object types are read where they are used. §7.9.2.2's text string is `text_string`, compiled against Table D.3, with §7.9.2.2.2's language escape sequences removed; §7.9.2.4's byte string is the lexer's own output, which is what every other reader of a `/String` takes; §7.9.2.3's PDFDocEncoded string shares Table D.3 with the text string type and differs only in admitting no Unicode prefix, which no entry this tree reads distinguishes; and Table 35's ASCII string — the type §7.9.2's subclauses never give a heading of their own — is what `action.rs`'s `/URI`, `composite.rs`'s `/Registry` and `/Ordering` and `measurement.rs`'s `/WKT` take as ASCII rather than through `text_string`, each deliberately. §7.9.2 itself states no prose — the heading is followed directly by §7.9.2.1 — and every one of its six subclause rows is `implemented`. **This row was `partial` from the ninety-sixth commit until the six-hundred-and-twentieth session, and its stated debt contradicted its own first child.** It read \"the object model carries one string type where §7.9.2.1 names three\"; §7.9.2.1 opens \"PDF supports one fundamental string object\" and calls the qualification something the *reader of an entry* supplies, which is why that row is `implemented` and says \"[t]his crate holds exactly that\". A `partial` resting on an architectural preference no clause states is the sixth sweep's shape — a parent behind children that owe nothing — and it is the one the sweep has printed every round without anybody re-deriving it. The observation underneath it survives as an observation: nothing static stops a caller reading a text-string entry as bytes, and the audit that closed this row is the check to repeat — every `String::from_utf8_lossy` over an `Object::String` in `pdf-model`, against the type its table gives the key."
 
 [[clause]]
 clause = "7.9.2.1"
@@ -1948,7 +1948,7 @@ title = "Form XObjects"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/transparency_groups.rs"]
-note = "Aggregate of the four below, read as a family in the seventeenth session because a transparency group is a form XObject and §11.6.6 sends a reader here for the rest of it. A form is run inline with its /Matrix and its /Resources and — as of that session — clipped by its /BBox; a group XObject is composited as one object (§11.6.6); a reference XObject is drawn as the proxy §8.10.4.1 tells a processor that does not import to draw."
+note = "Aggregate of the four below, read as a family in the seventeenth session because a transparency group is a form XObject and §11.6.6 sends a reader here for the rest of it. A form is run inline with its /Matrix and its /Resources and — as of that session — clipped by its /BBox; a group XObject is composited as one object (§11.6.6); a reference XObject is drawn as the proxy §8.10.4.1 tells a processor that does not import to draw. **Read and kept in the six-hundred-and-twentieth**: the aggregate is `partial` for §8.10.2's unread entries and §8.10.4's unbuilt import and for nothing else, since §8.10.1 and §8.10.3 are both `implemented`. §8.10 states no prose of its own — the heading is followed directly by §8.10.1 — so everything this row can owe is a child's."
 
 [[clause]]
 clause = "8.10.1"
@@ -1980,7 +1980,7 @@ title = "Reference XObjects"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/corpus.rs"]
-note = "Aggregate of the three below. Content is never imported from another document, and the clause names that case explicitly: a processor that does not recognise /Ref draws the proxy as an ordinary form XObject, which is what happens here. The gap is a feature not built rather than a requirement broken, and nothing is drawn wrong by it."
+note = "Aggregate of the three below. Content is never imported from another document, and the clause names that case explicitly: a processor that does not recognise /Ref draws the proxy as an ordinary form XObject, which is what happens here. The gap is a feature not built rather than a requirement broken, and nothing is drawn wrong by it. **Read and kept in the six-hundred-and-twentieth, and the population it had never stated is stated now**: nothing in `crates/`, `tools/` or `fuzz/` names `Ref` or a reference XObject at all, so \"does not recognise the Ref entry\" is literally true of this tree rather than a decision taken at the entry, and `witness_census` over all 1251 PDFs on this disk finds **two** documents stating `/Ref` as a name — `bug1997343.pdf` and `bug2009627.pdf`, both pdf.js fixtures — and in both it is §14.7.2 Table 355's `/Ref` on a `/TOCI` structure element, not Table 93's. **No document in the population states a reference XObject.**"
 
 [[clause]]
 clause = "8.10.4.1"
@@ -1988,7 +1988,7 @@ title = "General"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/corpus.rs"]
-note = "\"PDF processors that do not recognise the Ref entry shall simply display or print the proxy as an ordinary form XObject.\" That is this renderer, and it is the clause's own provision rather than a shortcut — the same shape as §10.7.2's permission to ignore flatness. What is not implemented is Table 95: finding the target document by /F and /ID and drawing its /Page in the proxy's place. A document whose proxy is a grey box is drawn as a grey box, which is what the clause says a processor like this shall do, so there is nothing to report."
+note = "\"PDF processors that do not recognise the Ref entry shall simply display or print the proxy as an ordinary form XObject.\" That is this renderer, and it is the clause's own provision rather than a shortcut — the same shape as §10.7.2's permission to ignore flatness. What is not implemented is Table 95: finding the target document by /F and /ID and drawing its /Page in the proxy's place. A document whose proxy is a grey box is drawn as a grey box, which is what the clause says a processor like this shall do, so there is nothing to report. **Read and kept in the six-hundred-and-twentieth**, and the one thing the comparison with §10.7.2 does *not* license is worth writing down, because the two rows would otherwise carry the same argument to different statuses: §10.7.2's whole normative content is the permission, so exercising it is the clause implemented; this clause grants the permission in one sentence and spends the rest of itself on the processors that do import — Table 95's two required entries, the proxy's matrix and bounding box becoming the imported page's, and the /Group that carries over. Those are requirements this tree does not execute, which is what keeps the row `partial` rather than moving it up. §8.10.4's row has the population, and it is empty."
 
 [[clause]]
 clause = "8.10.4.2"
@@ -2002,7 +2002,7 @@ title = "Special considerations"
 status = "partial"
 code = ["crates/pdf-model/src/content.rs"]
 test = ["crates/pdf-model/tests/corpus.rs"]
-note = "Three considerations, all conditional on importing the target page: its annotation appearances must be rendered with it, its logical structure may be ignored, and the proxy's /Group applies to the imported page. None arises while the proxy is what is drawn (§8.10.4.1). The last is the one that would matter first, because this tree now composites a /Group on any form."
+note = "**This row said \"[t]hree considerations\" from the eighty-ninth commit until the six-hundred-and-twentieth session and the clause states two**, both conditional on importing the target page: the imported page's annotation appearances \"shall be included in the rendering of the imported page\", and its logical structure \"may be ignored\". The third the row listed — the proxy's /Group applying to the imported page — is a real requirement in the wrong place: it is the last sentence of **§8.10.4.1** and Table 93's own /Group entry says it again, and neither is this clause. Attributing it here is the ninth sweep's shape one row over from a table. Neither of the two arises while the proxy is what is drawn (§8.10.4.1), and the first is addressed to whoever *builds* the proxy in any case — \"[t]hese appearances shall therefore be converted into part of the proxy's content stream\" is a producer's obligation, not a reader's. The row stays `partial` for the same reason §8.10.4.1's does, and §8.10.4's row has the population: no document on this disk states a reference XObject."
 
 [[clause]]
 clause = "8.11"
