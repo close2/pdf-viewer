@@ -1278,7 +1278,25 @@ impl Interpreter<'_> {
         // reason one construction over: a space declared inside a mask is answered by
         // §11.5.3's own derivation and says nothing about the group the `gs` sits in.
         let saved_departed = std::mem::replace(&mut self.nested_space_departed, false);
+        // And pattern space, which is the one this list did **not** save until the
+        // six-hundred-and-twenty-first session. §8.7.2 states where a pattern's matrix lands:
+        //
+        // > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects"
+        // > ), the pattern matrix maps pattern space to the form's default user space (that
+        // > is, the form coordinate space at the time the form is painted with the Do
+        // > operator).
+        //
+        // A mask's `/G` is a form XObject, and §11.6.5.1's sentence quoted above is what
+        // stands in for the `Do`: its coordinate space is the group's `/Matrix` concatenated
+        // with the transform at the `gs`, which is `inner.transform` and nothing else. Left
+        // at the *page's* default space, a shading pattern painted inside a mask lands where
+        // the page would have put it rather than where the mask does — visible whenever the
+        // two differ, which is every page that scales its own content before setting a mask.
+        // `draw_xobject` has made this replacement since the clause was first read; this is
+        // the second door into the same room.
+        let saved_base = std::mem::replace(&mut self.base, inner.transform);
         self.run(&content, &resources, &inner, 0);
+        self.base = saved_base;
         self.nested_space_departed = saved_departed;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
         self.alpha_sources_mark = saved_ais_mark;

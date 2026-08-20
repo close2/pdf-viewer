@@ -339,6 +339,83 @@ fn the_masks_coordinate_system_is_the_one_in_force_at_the_gs() {
     );
 }
 
+/// A shading pattern inside a mask's group lands in the *group's* default space.
+///
+/// §8.7.2 says where a pattern's matrix maps to, and names the form `XObject` case outright:
+///
+/// > Similarly, if a pattern is used within a form XObject (see 8.10, "Form XObjects" ), the
+/// > pattern matrix maps pattern space to the form's default user space (that is, the form
+/// > coordinate space at the time the form is painted with the Do operator).
+///
+/// A soft mask's `/G` is a form `XObject`; what stands in for its `Do` is §11.6.5.1's sentence
+/// quoted two tests above — the group's `/Matrix` concatenated with the transform at the `gs`.
+/// So a pattern used inside the group maps through *that*, not through the page's default
+/// space, and the two differ on any page that scales its own content before setting a mask.
+///
+/// The fixture halves the coordinate system, then masks a black rectangle covering the page
+/// with a group whose whole content is a `/DeviceGray` axial pattern running black at
+/// pattern-space `x = 0` to white at `x = 40`, extended both ways. Through the mask's own
+/// space that gradient occupies device x 0 to 20, and a pixel is sampled at its centre:
+///
+/// - pixel 10's centre is device x 10.5, which the mask's space puts at pattern x 21, so the
+///   mask is 21⁄40 and black over white leaves 255 × (1 − 0.525) = 121;
+/// - pixel 30's centre is past the axis, where the extension has taken the mask to 1.0, so
+///   the black is painted whole and the level is 0.
+///
+/// Read in the page's default space instead, the same gradient would occupy device x 0 to 40
+/// and the same two centres would give 188 and 61 — which is what this tree drew until the
+/// six-hundred-and-twenty-first session, silently, on `5589519.pdf` of the `SafeDocs` crawl.
+#[test]
+fn a_pattern_in_a_mask_group_maps_through_the_groups_own_default_space() {
+    let raster = render(page_with_a_patterned_mask_group(
+        "q 0.5 0 0 0.5 0 0 cm /GS gs 0 g 0 0 80 80 re f Q",
+    ));
+
+    near(
+        level(&raster, 10, 20),
+        121,
+        "the gradient's midpoint is where the mask's own space puts it",
+    );
+    near(
+        level(&raster, 30, 20),
+        0,
+        "and past the axis the extension has taken the mask to one",
+    );
+}
+
+/// The fixture for [`a_pattern_in_a_mask_group_maps_through_the_groups_own_default_space`].
+///
+/// Object 6 is the mask group, object 7 the shading pattern it names. The group's `/BBox` and
+/// the rectangle it fills are stated large enough to cover the page under any of the
+/// transforms the test distinguishes, so what the assertions read is the pattern's placement
+/// and nothing else.
+fn page_with_a_patterned_mask_group(content: &str) -> Vec<u8> {
+    let group = b"/Pattern cs /Sh scn 0 0 80 80 re f";
+    assemble(&[
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /ExtGState << /GS 5 0 R >> >> /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", content.as_bytes()),
+        b"5 0 obj\n<< /Type /ExtGState \
+          /SMask << /Type /Mask /S /Luminosity /G 6 0 R /BC [0] >> >>\nendobj\n"
+            .to_vec(),
+        stream_object(
+            6,
+            "/Type /XObject /Subtype /Form /BBox [0 0 80 80] \
+             /Resources << /Pattern << /Sh 7 0 R >> >> \
+             /Group << /Type /Group /S /Transparency /CS /DeviceGray >>",
+            group,
+        ),
+        b"7 0 obj\n<< /Type /Pattern /PatternType 2 /Matrix [1 0 0 1 0 0] \
+          /Shading << /ShadingType 2 /ColorSpace /DeviceGray /Coords [0 0 40 0] \
+          /Extend [true true] \
+          /Function << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] /N 1 >> >> >>\nendobj\n"
+            .to_vec(),
+    ])
+}
+
 /// §8.6.8's uncoloured restriction does not reach inside a soft mask's group.
 ///
 /// The clause restricts colour operators "[i]n any glyph description that uses the d1

@@ -191,19 +191,29 @@ impl PackedRows {
         }
     }
 
-    /// Appends `chunks` whole bytes of the same sample value.
-    fn push_byte_run(&mut self, one: bool, chunks: u32) {
-        // Both decoders' contracts say this arrives only on a byte boundary. Honouring that
-        // rather than assuming it costs one branch and means a future change upstream
-        // degrades into slower packing instead of into shifted pixels.
-        if self.filled != 0 {
-            for _ in 0..chunks.saturating_mul(8) {
-                self.push_bit(one);
-            }
-            return;
+    /// Appends `count` samples of the same value, `one` being the bit rather than a colour.
+    ///
+    /// A run may begin and end anywhere in a byte, so the three parts are separate: the bits
+    /// that finish the byte in progress, the whole bytes, and the bits that start the next
+    /// one. Only the middle part is a `memset`, and it is the part that matters — a 600 dpi
+    /// scan line is mostly one long white run — but the packing has to be right at both ends
+    /// or every pixel after the first run is shifted.
+    fn push_run(&mut self, one: bool, count: u32) {
+        // `filled` is always less than eight, so this is zero exactly on a byte boundary.
+        let to_boundary = (8_u32.saturating_sub(self.filled) % 8).min(count);
+        for _ in 0..to_boundary {
+            self.push_bit(one);
         }
-        let byte = if one { 0xFF } else { 0x00 };
-        self.rows.extend(std::iter::repeat_n(byte, chunks as usize));
+        let mut remaining = count.saturating_sub(to_boundary);
+        let whole = remaining / 8;
+        if whole > 0 {
+            let byte = if one { 0xFF } else { 0x00 };
+            self.rows.extend(std::iter::repeat_n(byte, whole as usize));
+            remaining = remaining.saturating_sub(whole.saturating_mul(8));
+        }
+        for _ in 0..remaining {
+            self.push_bit(one);
+        }
     }
 
     /// Closes the current row, padding the last byte.
@@ -247,7 +257,9 @@ impl hayro_jbig2::Decoder for PackedRows {
     }
 
     fn push_pixel_chunk(&mut self, black: bool, chunk_count: u32) {
-        self.push_byte_run(!black, chunk_count);
+        // This decoder still counts in eight-pixel chunks, so the count is converted here
+        // rather than in the packer, which counts pixels for both filters.
+        self.push_run(!black, chunk_count.saturating_mul(8));
     }
 
     fn next_line(&mut self) {
@@ -342,13 +354,8 @@ struct CcittRows {
 }
 
 impl hayro_ccitt::Decoder for CcittRows {
-    fn push_pixel(&mut self, white: bool) {
-        self.packed.push_bit(white != self.black_is_1);
-    }
-
-    fn push_pixel_chunk(&mut self, white: bool, chunk_count: u32) {
-        self.packed
-            .push_byte_run(white != self.black_is_1, chunk_count);
+    fn push_pixels(&mut self, white: bool, count: u32) {
+        self.packed.push_run(white != self.black_is_1, count);
     }
 
     fn next_line(&mut self) {
