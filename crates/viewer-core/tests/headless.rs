@@ -1043,6 +1043,184 @@ fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
 }
 
 #[test]
+fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
+    // §12.6.4.6's `Launch`, §12.6.4.9's `Sound` and §12.6.4.10's `Movie` — the three types whose
+    // ledger rows are `reported` rather than `silent`, which is a claim that the refusal reaches
+    // a person. **Nothing in the tree reached it.** The rows cited
+    // `action.rs::a_name_the_table_does_not_hold_is_not_an_action`, which asserts that `/Teleport`
+    // produces *no* action at all and therefore never touches `action::refused`; the only other
+    // test that came near was `a_next_chain_is_flattened_in_execution_order`, which reaches
+    // `Launch`'s refusal and splits the sentence off at the colon. `Sound` and `Movie` were
+    // reached by nothing.
+    //
+    // The witness is built rather than borrowed, and the measurement is why: of the 974 corpus
+    // documents exactly one states a `/S /Launch` action (`issue17846.pdf`), **none states a
+    // `/S /Sound` or a `/S /Movie` one** — `multimedia_annotations.pdf`'s `/Sound` names are
+    // §13.6.2's annotation subtype and §13.3's sound object, not §12.6.4.9's action, and `Movie`
+    // does not appear in the corpus in any form.
+    //
+    // What it pins is the whole path the rows claim: `action::refused`'s sentence, `Action::Refused`
+    // carrying it out of `pdf-model`, `interact::perform` turning it into a note rather than
+    // dropping it (trap 5), and `Event::Reported` being the channel `viewer-ui`'s `dispatch.rs`
+    // prints from.
+    // Each type on its own document, because a refusal names *which* action declined and a page
+    // carrying three would not show that the name follows the click rather than the page.
+    let said = |action: &str| -> Vec<String> {
+        let bytes = format!(
+            "%PDF-2.0\n\
+             1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] \
+             /Annots [4 0 R] >>\nendobj\n\
+             4 0 obj\n<< /Type /Annot /Subtype /Link /Rect [10 80 190 120] /A 5 0 R >>\nendobj\n\
+             5 0 obj\n{action}\nendobj\n\
+             trailer\n<< /Root 1 0 R /Size 6 >>\n"
+        )
+        .into_bytes();
+        let mut viewer = Viewer::new(400, 400, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes,
+                password: None,
+                fragment: None,
+            })
+            .for_each(drop);
+        let at = device_point(&viewer, [10.0, 80.0, 190.0, 120.0], 200.0);
+        assert!(
+            matches!(viewer.query(Query::LinkAt(at)), Answer::Link(true)),
+            "the annotation is a link whatever its action turns out to be: {at:?}"
+        );
+        viewer
+            .handle(Command::Pointer {
+                at,
+                action: PointerAction::Pressed,
+            })
+            .for_each(drop);
+        viewer
+            .handle(Command::Pointer {
+                at,
+                action: PointerAction::Released,
+            })
+            .filter_map(|event| match event {
+                Event::Reported { notes, .. } => Some(notes),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+
+    for (action, sentence) in [
+        (
+            "<< /S /Launch /F (calc.exe) >>",
+            "Launch: running an application, which the sandbox withholds",
+        ),
+        (
+            "<< /S /Sound /Sound 9 0 R >>",
+            "Sound: clause 13's multimedia, excluded by CLAUDE.md principle 5",
+        ),
+        (
+            "<< /S /Movie /Operation /Play >>",
+            "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
+        ),
+    ] {
+        let notes = said(action);
+        assert!(
+            notes.iter().any(|note| note.contains(sentence)),
+            "a click on {action} says so, by name: {notes:?}"
+        );
+    }
+
+    // And the other half of the claim: an action this program *does* perform says nothing about
+    // declining. `Named /NextPage` on a one-page document moves nowhere and reports nothing,
+    // which is what makes the three sentences above evidence rather than noise.
+    let performed = said("<< /S /Named /N /NextPage >>");
+    assert!(
+        !performed.iter().any(|note| note.contains("declines")),
+        "an action this program performs is not a refusal: {performed:?}"
+    );
+}
+
+#[test]
+fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total() {
+    // §12.11.6 sends a processor to §12.11.3 for "the computation of the penalty value", and
+    // §12.11.3's last paragraph is the only sentence in the standard that turns that number into
+    // an instruction:
+    //
+    // > In the situation where the penalty values are being used to evaluate the presentation of
+    // > the base PDF document, and there exist no other alternates, if the penalty value exceeds
+    // > 100 then the PDF processor should not attempt to display or process the document.
+    //
+    // **0 of the 974 corpus documents state a `/Requirements` array**, so the witness is built
+    // here — and the pair is the point: the same file whose unmet requirements total exactly 100
+    // says nothing, because the clause's condition is "exceeds".
+    let about = |requirements: &str| -> Vec<String> {
+        let bytes = format!(
+            "%PDF-2.0\n\
+             1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Requirements [{requirements}] >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n\
+             trailer\n<< /Root 1 0 R /Size 4 >>\n"
+        )
+        .into_bytes();
+        let mut viewer = Viewer::new(800, 1000, 1.0);
+        viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes,
+                password: None,
+                fragment: None,
+            })
+            .filter_map(|event| match event {
+                Event::Reported {
+                    page: None, notes, ..
+                } => Some(notes),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    };
+
+    // Two this program cannot meet at 60 and 55, and one it can at 100. The total is 115: the
+    // sum of the *unmet* two, which is what Table 273 prices — "the penalty value to be applied
+    // when this requirement cannot be met by a PDF processor".
+    let over = about(
+        "<< /S /EnableJavaScripts /Penalty 60 >> << /S /Markup /Penalty 55 >> \
+         << /S /Navigation /Penalty 100 >>",
+    );
+    assert!(
+        over.iter()
+            .any(|note| note.contains("total 115 penalty points (§12.11.3)")),
+        "the computation §12.11.6 names is performed and said: {over:?}"
+    );
+    assert!(
+        over.iter()
+            .any(|note| note.contains("this document requires EnableJavaScripts (penalty 60)")),
+        "and each requirement is still named beside the total: {over:?}"
+    );
+    // Nothing was refused: the clause says "should not attempt to display" and this program
+    // displays, which is the departure the note is honest about.
+    assert!(
+        over.iter().any(|note| note.contains("displayed anyway")),
+        "{over:?}"
+    );
+
+    let at_the_limit = about("<< /S /EnableJavaScripts /Penalty 100 >> << /S /Navigation >>");
+    assert!(
+        !at_the_limit
+            .iter()
+            .any(|note| note.contains("penalty points (§12.11.3)")),
+        "100 does not exceed 100: {at_the_limit:?}"
+    );
+    assert!(
+        at_the_limit
+            .iter()
+            .any(|note| note.contains("this document requires EnableJavaScripts")),
+        "though the requirement itself is still named: {at_the_limit:?}"
+    );
+}
+
+#[test]
 fn a_drag_across_a_line_selects_what_it_crossed() {
     // Selection is not in ISO 32000-2 — the standard says where a glyph is and what character it
     // stands for, and the rest is a choice. What can be asserted is that the choice is coherent:

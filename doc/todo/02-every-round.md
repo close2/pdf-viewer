@@ -136,6 +136,17 @@ here:
   they are about running rather than about writing: a number is current only for a round that ran
   the gate **last**, after its final edit; and a round that writes a number it did not watch print
   writes the previous round's.
+- **Run the sequence on a quiet machine, and run nothing beside it.** Three of these lines spawn
+  *other programs* with time budgets — the oracle's poppler, mupdf and ghostscript, the text line's
+  `pdftotext`, quorra's device — and a budget is wall clock rather than work, so a reference
+  renderer that would have finished loses to a `cargo` build running in another terminal. The
+  six-hundred-and-twenty-sixth session ran the ledger sweeps beside the sequence and the oracle
+  reported **38 not comparable and 873 agreeing in 218 seconds**; the identical tree, run alone,
+  reported **13 and 907 in 57 seconds**, and the section's exit status went from 101 to 0. Nothing
+  had changed but the load. **A gate that spawns a reference is a measurement of two programs, and
+  a loaded machine is a silent third**: the failure is legible as a regression in the thing being
+  measured, which is the worst shape a false result can take. Sweeps, censuses and background
+  builds go before the sequence or after it, never during.
 - **One of these commands runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

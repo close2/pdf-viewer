@@ -30,6 +30,17 @@
 //! same reason `GoToR` is in it. Each keeps its own name in the refusal so that a caller can say which,
 //! rather than "an action".
 //!
+//! **`Sound` and `Movie` are in clause 12 and the standard hands them to clause 13 itself**,
+//! which is worth stating because it makes two of those refusals a reading rather than a policy.
+//! §12.6.4.9 and §12.6.4.10 open with the same sentence, word for word:
+//!
+//! > The features described in this subclause are deprecated with PDF 2.0. They are superseded
+//! > by the general multimedia framework described in 13.2, "Multimedia".
+//!
+//! So the exclusion is not being stretched across a clause boundary to reach them; the clause
+//! that defines them says where they now live, and that is the clause `CLAUDE.md` principle 5
+//! excludes. §12.6.4.6's `Launch` has no such sentence and its refusal is the sandbox's alone.
+//!
 //! # A URI action is read here and performed nowhere
 //!
 //! §12.6.4.8 says a URI action "causes a URI to be resolved", and *resolving* is two things
