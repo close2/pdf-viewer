@@ -26,6 +26,18 @@ pub enum Unsupported {
         /// The resource name.
         name: String,
     },
+    /// A shading pattern stated §8.7.4.3 Table 77's `/Background` and it was not painted.
+    ///
+    /// The shading itself is drawn; what is missing is the fill *around* it. Table 77 makes
+    /// that a `shall` — "this colour shall be used, before any painting operation involving
+    /// the shading, to fill those portions of the area to be painted that lie outside the
+    /// bounds of the shading object" — and confines it to a shading used as a pattern, "not
+    /// when painted directly with the `sh` operator", which is why this is raised where a
+    /// pattern is resolved and never on `sh`.
+    ShadingBackground {
+        /// The pattern resource name, and how many components the entry states.
+        detail: String,
+    },
     /// An operator this interpreter does not implement.
     Operator {
         /// The operator, as written.

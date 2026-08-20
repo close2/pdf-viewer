@@ -1,15 +1,18 @@
 # Read the ledger's `partial` rows against the code
 
-Status: **standing task.** ~48 of the **244** rows have not been re-read — 29 went in the
-three-hundred-and-seventy-fifth, 16 in the three-hundred-and-eighty-seventh, 11 in the
-three-hundred-and-ninety-fourth, 9 in the four-hundred-and-second, 14 in the
-four-hundred-and-thirteenth, 8 in the four-hundred-and-twenty-ninth, 30 in the
-four-hundred-and-thirty-seventh and **32 in the four-hundred-and-forty-second**, against a
-population that grew by 12 in between and has now fallen by 8. **The reading list is `git blame`
-since the four-hundred-and-forty-second**: order the rows by the commit that last wrote each
-`note = ` line, and the ones nothing has touched are the ones nothing has read — 40 of the 248 were
-older than commit 110 of 590, and **fourteen of the 32** read off the top of that list were wrong,
-with a fifteenth found beside them — the `implemented` neighbour one of the fourteen deferred to.
+Status: **standing task, and how much of it is left is a command rather than a figure here** —
+`git blame --line-porcelain doc/conformance/ledger.toml`, ordered by the commit that last wrote each
+`note = ` line, against `cargo run -p conformance --bin ledger` for the population. This line
+carried "~48 of the 244" for a long run of rounds and the figure could only ever be a round's own
+arithmetic; what it stands for is the practice below. Bands went in the three-hundred-and-seventy-fifth,
+-eighty-seventh, -ninety-fourth, the four-hundred-and-second, -thirteenth, -twenty-ninth, -thirty-seventh
+and **-forty-second**. **The reading list is `git blame` since the four-hundred-and-forty-second**:
+order the rows by the commit that last wrote each `note = ` line, and the ones nothing has touched
+are the ones nothing has read — 40 of the 248 were older than commit 110 of 590, and **fourteen of
+the 32** read off the top of that list were wrong, with a fifteenth found beside them — the
+`implemented` neighbour one of the fourteen deferred to. **The six-hundred-and-sixteenth found that
+the bands are not a floor**: 38 rows still sit below commit 534 and 18 below commit 200, none with a
+read-and-kept sentence, and two of the four it read off the bottom of that list were wrong.
 **Seventeen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405) and a
 seventeenth in `tools/spec-errata`, where the errata are (ADR 0426) — twelve run every round, a thirteenth run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
@@ -3172,17 +3175,62 @@ population this project gates. §9.10.3's own row had recorded that erratum four
 closed by warning that "a later round quoting it as current would be quoting text the collection has
 removed" — the quotations were already there when it was written.
 
+## Twelve sweeps run in the six-hundred-and-sixteenth, and the blame list is **not** exhausted below commit 534
+
+The twelve committed programs plus `spec-errata`'s `emit`, `check` and `applied`. What each
+printed: `blockers` 28 blocker sentences, 10 expired by the ledger's own account and 9 of those
+carrying `[history]`; `capabilities` 165 sentences, 136 witnessed; `owed` 225 `partial` rows stating
+3171 terms, 168 named by no source, 115 rows whose every term the tree names; `unread` 66 rows and
+180 keys, 135 quoted somewhere, 61 of them by the row's own code; `entries` 792 table entries over
+265 rows, 186 reported, 47 of them not named by the row's own note; `callers` 133 names no crate
+asks; `pointers` 6323 path pointers, 120 absent, 13 undefined symbols; `tables` 2020 attributed key
+citations, 95 absent and 6 a denial the table contradicts; `inapplicable` 79 rows stating 309 terms,
+57 named by no source; `counts` 313 attributed counts, 4 places counting one family twice;
+`quotations` 4514 document quotations with 31 diverging and 1572 ledger ones with 1 diverging;
+`applied` 1240 comparisons with 10 on the read-first list.
+
+**The reading list came from the blame ordering rather than from any of those**, and the finding is
+what the ordering says about this file. The bullet below asserted that nothing under commit 534 was
+unread. Ordering every `partial` and `reported` row by the commit that last wrote its own `note = `
+line puts **38 of them below 534, and 18 below commit 200** — §8.9.6.4 at commit 87, §8.10 and its
+three children at 89, §7.6.4.4.2, §7.6.5.1 and §7.6.5.3 at 94, §7.9.2 at 95, §8.7.4.1 and §8.7.4.3
+at 100, §14.8.2.2.1 and §14.8.2.2.2 at 161, §12.11.3 and §12.11.6 at 162, §14.13 and §14.13.2 at
+165, §12.6.4.6, §12.6.4.9 and §12.6.4.10 at 176, §12.5.6.12 at 199. **None of them carries a
+read-and-kept sentence**, which is the mark this practice leaves and the reason the blame moves when
+a row is read; §7.9.2's and §12.6.4.6's notes are the two checked by hand.
+
+So the bands were bands rather than a floor: each round took the *top* of a list and the rows under
+it stayed where they were, and a sentence written about the band was read afterwards as a sentence
+about the file. **The four this round read came off exactly that population** — §8.7.4.3, §8.7.4.1,
+§8.9.6.4 and §8.6.6.5, commits 100, 100, 87 and 91 — and two of the four were wrong: §8.7.4.3's
+`/Background` was a `shall` nothing painted and nothing reported (ADR 0452, `doc/todo/17`), and
+§8.9.6.4's "both corpus instances" was three, over a population it never named. **That is one defect
+per two rows on a list this file had declared empty**, which is the rate the four-hundred-and-forty-second
+found at the top of it.
+
+The other two were confirmations with the evidence written into the note, which is what a re-read
+owes when it finds nothing: §8.7.4.1's "no corpus document writes an `/ExtGState` on a Type 2
+pattern" was re-*derived* rather than re-read — 38 of the 974 hold such a pattern, none states one,
+and the four `doc/corpora/` submodules hold no Type 2 pattern at all — and §8.6.6.5 gained Errata
+Collection 3's Issue #309, which moves the `None`-in-`NChannel` restriction off the sentence that
+gives `None` its meaning and states it separately as a `shall not` on the file, ratifying a reader
+that has never read `/Subtype`.
+
 ## What is still owed, named
 
-- **The `partial` rows not yet re-read against the code.** Nothing below commit 534 is
-  unread now: the five-hundred-and-twenty-fifth took the band from 184 (§12.6.4.4, the row left
-  under the fold) to 500 (§I, §I.2), fifteen rows, the five-hundred-and-thirty-seventh the band
-  from 511 (§12.7.4) to 517 (§12.8.2.4), thirteen rows, and the five-hundred-and-forty-fifth the
-  band from 518 (§9.9.1) to 534 (§12.8.2.2.2), eleven rows, and the five-hundred-and-fifty-third
-  the band from 534 (§12.8.3.4.3) to 536 (§12.6.4), eleven more, and the five-hundred-and-sixty-second
-  the band from 541 (§11.3.7.2) to 546 (§14.11), ten more, **and the five-hundred-and-sixty-fifth the
-  band from 553 (§12.5.1) to 564 (§8.4.5), fifteen more**, plus the read-and-kept sets whose
-  evidence is in their notes. **The next band begins at commit 576, with §10.4.2.4 and §10.4.2.5.**
+- **The `partial` rows not yet re-read against the code.** **The bands are not a floor**, and the
+  section above has the measurement: 38 rows sit below commit 534 and 18 below commit 200, none of
+  them carrying a read-and-kept sentence. The bands taken so far are the five-hundred-and-twenty-fifth's
+  from 184 (§12.6.4.4, the row left under the fold) to 500 (§I, §I.2), fifteen rows, the
+  five-hundred-and-thirty-seventh's from 511 (§12.7.4) to 517 (§12.8.2.4), thirteen rows, the
+  five-hundred-and-forty-fifth's from 518 (§9.9.1) to 534 (§12.8.2.2.2), eleven rows, the
+  five-hundred-and-fifty-third's from 534 (§12.8.3.4.3) to 536 (§12.6.4), eleven more, the
+  five-hundred-and-sixty-second's from 541 (§11.3.7.2) to 546 (§14.11), ten more, and the
+  five-hundred-and-sixty-fifth's from 553 (§12.5.1) to 564 (§8.4.5), fifteen more, plus the
+  read-and-kept sets whose evidence is in their notes. **The next band is the bottom of the list
+  rather than the top**: §8.10 and its three form-XObject children at commit 89, §7.6.4.4.2 and
+  §7.6.5's two `reported` rows at 94, §7.9.2 at 95, and §12.5.6.12's rubber stamp at 199, which is
+  the one of those that can change a pixel.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.

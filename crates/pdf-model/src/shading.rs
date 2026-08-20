@@ -307,6 +307,36 @@ pub fn bbox_of(document: &Document, object: &Object) -> Option<[f32; 4]> {
     <[f32; 4]>::try_from(values.as_slice()).ok()
 }
 
+/// How many components ISO 32000-2 §8.7.4.3 Table 77's `/Background` states, if it states any.
+///
+/// > An array of colour components appropriate to the colour space, specifying a single
+/// > background colour value. If present, this colour shall be used, before any painting
+/// > operation involving the shading, to fill those portions of the area to be painted that
+/// > lie outside the bounds of the shading object.
+///
+/// **Nothing here paints it**, and this exists so that the interpreter can say so rather than
+/// drop the entry in silence. The construction the clause asks for is not the one its own NOTE
+/// describes — "the effect is as if the painting operation were performed twice" is an
+/// equivalence in the *opaque* imaging model, and painting the area twice on this device puts
+/// the background colour into every boundary pixel's anti-aliased coverage a second time. The
+/// exact form is a paint whose out-of-bounds colour is the background rather than nothing,
+/// which is a change in three backends and one external library; `doc/todo/17` prices it.
+///
+/// The count is returned rather than a boolean because the array's length is what says whether
+/// the entry is usable at all: Table 77 requires "an array of colour components appropriate to
+/// the colour space", so a caller that knows the space knows whether this file's entry is one.
+#[must_use]
+pub fn background_components(document: &Document, object: &Object) -> Option<usize> {
+    let resolved = document.resolve(object);
+    let dict = match &resolved {
+        Object::Dictionary(dict) => dict.clone(),
+        Object::Stream(stream) => stream.dict.clone(),
+        _ => return None,
+    };
+    let array = document.get_key(&dict, "Background");
+    array.as_array().map(<[Object]>::len)
+}
+
 /// Reads `/Coords` as a fixed number of values.
 fn coords(document: &Document, dict: &Dictionary, expected: usize) -> Option<Vec<f32>> {
     let array = document.get_key(dict, "Coords");
