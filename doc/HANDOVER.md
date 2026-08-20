@@ -106,6 +106,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 12a | The display list's space is not the raster's, and a doc comment said it was | interactive loop |
 | 12b | A test suite made of small scenes tests small scenes | pixels |
 | 13 | A sweep for a defect must be run against the defect before it is believed | instruments |
+| 14 | A target that *is* the region a clause names cannot tell you whether you applied it | pixels |
 
 ---
 

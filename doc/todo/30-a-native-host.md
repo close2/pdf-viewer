@@ -265,15 +265,27 @@ change to both rasterisers.
   Qt through `PageArea`'s palette with the value crossing the `cxx` bridge — because a toolkit has
   no notion of *the surface a document is laid on* and so offers no platform value to inherit.
 
-- **§14.11.2.1's clip is not applied on a window-sized target**, which the separation above made
-  visible and which is a decision of its own. "The crop box defines the region to which the contents
-  of the page shall be clipped (cropped) when displayed or printed" is a `shall`;
-  `pdf_model::interpret` deliberately keeps the marks a stream made outside that box, and a
-  page-sized raster cuts them at its own edge. A **window**-sized one does not, so a mark outside the
-  box draws over the ground beside the page — and over a neighbouring page of a column. Invisible
-  while the ground was page white and one page filled the window; visible now on both counts. It is
-  not `impose_within`'s to do — a composite that erased ink would be a second, silent statement of a
-  rule that belongs in one place — so it is either a clip the interpreter applies or one the scene
-  carries, and `render-quorra`'s `Encoder` would need an outer clip chain for the second. **The
-  population is not measured**: nothing counts how many documents mark outside their crop box, and
-  that count is the first thing a round taking this should get.
+- ~~**§14.11.2.1's clip is not applied on a window-sized target**~~ — **taken in the
+  six-hundred-and-twelfth** (ADR 0447), and this entry was right about where it could go and wrong
+  about the population it named. The clip is stated once on the display list —
+  `DisplayList::content_clip`, carrying §12.2's `/ViewClip` boundary rather than the crop box by
+  name — mapped into a target by `pdf_render::crop_area` and applied by `crop_to_page`, which every
+  rasteriser runs immediately before `impose_within`. `render-quorra`'s window path took the outer
+  clip chain this entry predicted, for the reason the medium already needed one: a frame drawn onto a
+  swapchain has no raster afterwards to cut. `Interpreter::view_clip` and its `Option<ClipId>` are
+  gone, because one rectangle says what the chain said for every document rather than for the zero
+  that state the preference.
+
+  **The population is measured and it is not the one this entry implied.** `examples/crop_box_census`
+  over 66 887 first pages of the pdf.js corpus, `doc/corpora` and the whole crawl: **1121 documents
+  state a crop box smaller than their medium and 3690 actually mark outside the boundary**, with only
+  804 in both sets — 2886 of the 3690 crop to the medium and draw beyond it anyway. Counting the
+  structural condition would have named the wrong documents in both directions, which is trap 11's
+  own shape.
+
+  **And the arithmetic was the finding.** §10.7.4 makes a clipping region "the set of pixels that
+  would be included by a fill operation", and a fill paints "any pixel whose half-open square region
+  intersects the shape, no matter how small the intersection is" with the painted area "always at
+  least as large as the area of the original shape". A fractional boundary pixel moved 37 of 957
+  corpus first pages and §10.7.4's intersection moved 11; the clause's own set rule moves none.
+  Trap 14 is what the whole item turned out to be an instance of.

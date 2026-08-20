@@ -49,6 +49,11 @@ pub(crate) struct Encoder<'a> {
     /// coverage a mark is drawn with — so the coverage-as-alpha substitutions §10.7.4 asks for
     /// are withheld there, exactly as `render-cpu` withholds them under Porter-Duff Source.
     knockouts: u32,
+    /// §14.11.2.1's boundary as a clip every chain in this list hangs from, or `None`.
+    ///
+    /// See [`Encoder::crop_to_page`], which is the only thing that sets it and says why this
+    /// backend states the clause in the scene where the other two state it in the pixels.
+    root: Option<quorra_scene::ClipId>,
 }
 
 /// What this frame's §8.7.4.5.2 type 1 shadings did: how many the device evaluated, and the
@@ -211,7 +216,56 @@ impl<'a> Encoder<'a> {
             clips: HashMap::new(),
             masks: HashMap::new(),
             knockouts: 0,
+            root: None,
         }
+    }
+
+    /// Hangs every clip chain in this list from §14.11.2.1's boundary.
+    ///
+    /// ISO 32000-2 §14.11.2.1, and it is a `shall`:
+    ///
+    /// > The crop box defines the region to which the contents of the page shall be clipped
+    /// > (cropped) when displayed or printed.
+    ///
+    /// **The one backend that states this in the scene rather than in the pixels**, and the
+    /// reason is the one [`crate::present::build`] gives for the medium: a window frame is drawn
+    /// straight onto the swapchain and there is no raster afterwards to cut. The other two
+    /// rasterisers, and this one's own readback, call `pdf_render::crop_to_page` on the finished
+    /// page instead — see `pdf_render::medium` for why clipping an isolated group's result is
+    /// clipping its contents.
+    ///
+    /// Called by the frame builder and never by [`Self::commands`], which recurses into a
+    /// group's elements: the boundary is the list's and is hung once. A group's own result is
+    /// composited under a chain that already ends here, so its elements meet the rectangle
+    /// twice — which changes nothing except the coverage of the boundary pixel of a page's own
+    /// edge, where two anti-aliased answers to one rectangle multiply.
+    ///
+    /// Does nothing where the list is not a page or its boundary already contains the target,
+    /// which is every page-sized target this tree builds.
+    pub(crate) fn crop_to_page(
+        &mut self,
+        builder: &mut SceneBuilder,
+    ) -> Result<(), QuorraRasterError> {
+        if pdf_render::crop_area(self.list, self.target).is_none() {
+            return Ok(());
+        }
+        let Some(region) = self.list.content_clip() else {
+            return Ok(());
+        };
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(region.min.x, region.min.y)));
+        path.push(PathCommand::LineTo(Point::new(region.max.x, region.min.y)));
+        path.push(PathCommand::LineTo(Point::new(region.max.x, region.max.y)));
+        path.push(PathCommand::LineTo(Point::new(region.min.x, region.max.y)));
+        path.push(PathCommand::Close);
+        let outline = self.transient_outline(&path)?;
+        self.root = Some(builder.clip(
+            outline,
+            self.placed(Transform::IDENTITY),
+            fill_rule(FillRule::NonZero),
+            None,
+        )?);
+        Ok(())
     }
 
     /// One call across quorra's boundary, with a clock on it.
@@ -1225,7 +1279,8 @@ impl<'a> Encoder<'a> {
         clip: Option<ClipId>,
     ) -> Result<Admitted, QuorraRasterError> {
         let Some(id) = clip else {
-            return Ok(Admitted::Chain(None));
+            // An unclipped command still meets §14.11.2.1's boundary, which is what `root` is.
+            return Ok(Admitted::Chain(self.root));
         };
         match self.resolve_clip(builder, id, 0)? {
             ResolvedClip::AdmitsNothing => Ok(Admitted::Nothing),
@@ -1261,7 +1316,8 @@ impl<'a> Encoder<'a> {
                 }
                 ResolvedClip::Chain(chain) => Some(chain),
             },
-            None => None,
+            // The outermost link of every chain hangs from the page's own boundary.
+            None => self.root,
         };
         let outline = self.transient_outline(&def.path)?;
         let link = builder.clip(

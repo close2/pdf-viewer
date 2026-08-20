@@ -269,6 +269,11 @@ impl Rasterizer for CpuRasterizer {
         // is what is left to bound the speed-up.
         let stride = (target.width as usize).saturating_mul(4).max(4);
         let area = pdf_render::page_area(list, target);
+        // §14.11.2.1's clip, where the target is larger than the region the page's contents
+        // stop at — a window, which shows ground beside the page and the next page of a column
+        // where a page-sized raster showed neither. `None` for every page-sized target, which
+        // is what leaves every gate in this tree byte for byte where it was.
+        let crop = pdf_render::crop_area(list, target);
         let medium = self.medium;
         pixmap
             .data_mut()
@@ -279,6 +284,12 @@ impl Rasterizer for CpuRasterizer {
                 // has to know that a whole-target one does not.
                 let first =
                     u32::try_from(chunk.saturating_mul(PIXEL_PASS_ROWS)).unwrap_or(u32::MAX);
+                // The page's own ink first and the medium under it second: the crop is about
+                // what the *page* may show, and running it after the composite would cut the
+                // colours a window puts beside the page instead.
+                if let Some(crop) = crop {
+                    pdf_render::crop_to_page(rows, target.width, first, crop);
+                }
                 pdf_render::impose_within(rows, target.width, first, area, medium);
             });
 

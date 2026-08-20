@@ -51,7 +51,9 @@ pub use degenerate::{
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
-pub use medium::{Medium, SURROUND, impose_on_medium, impose_within, page_area};
+pub use medium::{
+    Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, page_area,
+};
 pub use mitre::{mitre_wedges, sharpest_admitted_mitre};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{

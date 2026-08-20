@@ -149,6 +149,36 @@ kills the viewer. Two existing fixtures caught it; `keep_the_line_soup_non_empty
 with one transparent rectangle. **Run the whole suite after turning a dependency's feature on**,
 not only the test that motivated it.
 
+### 14. A target that *is* the region a clause names cannot tell you whether you applied it
+
+ISO 32000-2 §14.11.2.1 is a `shall`: "[t]he crop box defines the region to which the contents of the
+page shall be clipped (cropped) when displayed or printed". `pdf_model::interpret` deliberately
+keeps the marks a content stream made outside that box — a display list is what the file says — and
+**for the whole life of this tree nothing put the clip back**. No gate could see it, and the reason
+is the shape of every gate rather than an oversight in any of them: the corpus, the oracle and the
+quorra comparison all rasterise a **page-sized** target, whose extent *is* the crop box, so the
+raster's own edge did the cutting. A page that drew a metre beyond its boundary was indistinguishable
+from one that drew nothing there.
+
+A window is larger than its page. What a reader saw was ink beside the page and over the next page of
+a column — `issue1350.pdf` draws a whole second voucher above its crop box — and the census that
+followed found **3690 of 66 887 first pages** do this (ADR 0447).
+
+**The question to ask is not "does a gate cover this clause" but "could this gate distinguish the two
+answers".** Where a clause names a region and the instrument's extent is that region, the answer is
+no, whatever the coverage table says. `doc/traps/instruments-and-reports.md` is the same subject one
+directory over and its trap 11 is the inverse: a *report* whose condition is wrong names the wrong
+documents, and a *gate* whose target is the clause's own region names none.
+
+Two things follow, and the second is the cheaper one:
+
+- **A round implementing a region a clause states should rasterise something bigger than it once**,
+  by hand, before believing anything. Three minutes.
+- **The census belongs before the code.** The condition that reads like the clause's — here, a
+  `/CropBox` smaller than the `/MediaBox` — named 1121 documents of which 804 mark anything, and
+  missed 2886 that mark outside a boundary equal to their medium. Derive the condition from the
+  clause's own words and print what it matched.
+
 ## Things worth knowing
 
 - **A command draws into the rows its clip admits, not into the page.** `Band` in

@@ -1057,8 +1057,13 @@ pub(crate) fn build(
                 medium.page,
             )?;
         }
-        Encoder::new(device, list, *target, caches, transient, functions)
-            .commands(builder, list.commands())?;
+        let mut encoder = Encoder::new(device, list, *target, caches, transient, functions);
+        // §14.11.2.1's clip, hung under every chain this page's commands carry. A window is
+        // larger than its page, so without it the marks a stream made outside the page's own
+        // boundary draw over the ground beside it and over the next page of a column — the one
+        // place this program showed ink the standard says shall not be displayed.
+        encoder.crop_to_page(builder)?;
+        encoder.commands(builder, list.commands())?;
     }
     if let Some(raster) = frame.raster {
         // Through the same clock as every other upload (`Encoder::handing_over`): a fallback

@@ -336,7 +336,11 @@ impl Rasterizer for QuorraRasterizer {
         // medium in the space where that composite is exact. quorra hands back straight
         // alpha, so the round trip is here — and only where something below needs it, because
         // it is lossy at a partly transparent pixel.
-        if four_components.is_some() || self.medium.marks_anything() {
+        // §14.11.2.1's clip, which belongs to the page rather than to the medium — so it is
+        // asked for even where the caller wants the page's own alpha back. `None` for a
+        // page-sized target, where the raster's own edge is already the boundary.
+        let crop = pdf_render::crop_area(list, target);
+        if four_components.is_some() || self.medium.marks_anything() || crop.is_some() {
             premultiply(&mut data);
             if let Some((space, black)) = four_components {
                 let mut ink_cost = FrameCost::default();
@@ -345,6 +349,12 @@ impl Rasterizer for QuorraRasterizer {
                 let mut ink = drawn?;
                 premultiply(&mut ink);
                 pdf_render::resolve_blending(&mut data, &ink, space);
+            }
+            // The page's own ink is cut where §14.11.2.1 says it stops, before anything is put
+            // under it: the crop is about what the page may show, and a pass that ran after the
+            // composite would cut the ground a window puts beside the page instead.
+            if let Some(crop) = crop {
+                pdf_render::crop_to_page(&mut data, target.width, 0, crop);
             }
             // §11.4.7's page group is isolated, so the medium composites with the *result* —
             // and after the conversion above, which is where the clause puts it. Where 𝑊 stops

@@ -605,6 +605,9 @@ pub struct DisplayList {
     blending: Option<crate::blending::BlendingSpace>,
     /// The same page, drawn in the black component of that space.
     black: Option<Box<DisplayList>>,
+    /// §14.11.2.1's boundary, in this list's own space, or `None` for a list that is not a
+    /// page. See [`DisplayList::content_clip`].
+    content_clip: Option<Rect>,
 }
 
 impl DisplayList {
@@ -619,7 +622,46 @@ impl DisplayList {
             clip_index: BTreeMap::new(),
             blending: None,
             black: None,
+            content_clip: None,
         }
+    }
+
+    /// States where §14.11.2.1 stops this page's contents, in this list's own space.
+    ///
+    /// ISO 32000-2 §14.11.2.1, of the five page boundaries, and it is a `shall`:
+    ///
+    /// > The crop box defines the region to which the contents of the page shall be clipped
+    /// > (cropped) when displayed or printed.
+    ///
+    /// §12.2's `/ViewClip` may name a different one of the five — Table 147 states it as "the
+    /// name of the page boundary to which the contents of a page shall be clipped when viewing
+    /// the document on the screen", defaulting to `CropBox` — so what a caller sets here is
+    /// *that* boundary rather than the crop box by name, and the two are the same rectangle for
+    /// every document that states no preference.
+    ///
+    /// # Why the region is here rather than in a clipping path
+    ///
+    /// A [`Clip`] would say the same thing and would cost every page a page-sized coverage mask
+    /// and a masked composite per command, on the ninety-seven percent of documents that never
+    /// mark outside their own boundary. This is one rectangle, in the list's own space, that a
+    /// backend maps into its target and applies once — see [`crate::crop_area`].
+    ///
+    /// # Why a list can decline to have one
+    ///
+    /// `None` means *this list is not a page*: a host's chrome — a sidebar, a find bar, a modal
+    /// card — is a display list too, drawn into a window-sized target, and §14.11.2.1 says
+    /// nothing about it. [`Self::new`] therefore starts at `None` and `pdf_model::interpret` is
+    /// what sets it.
+    pub fn set_content_clip(&mut self, region: Rect) {
+        self.content_clip = Some(region);
+    }
+
+    /// §14.11.2.1's boundary in this list's own space, or `None` for a list that is not a page.
+    ///
+    /// See [`Self::set_content_clip`]; [`crate::crop_area`] is this in a target's pixels.
+    #[must_use]
+    pub fn content_clip(&self) -> Option<Rect> {
+        self.content_clip
     }
 
     /// States that this page composites in a four-component blending colour space.

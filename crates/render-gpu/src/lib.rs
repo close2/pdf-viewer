@@ -710,19 +710,28 @@ impl GpuRasterizer {
     ) -> Result<Raster, GpuRasterError> {
         let mut data = read_pixels(&self.context.device, &self.context.queue, texture, target)?;
 
-        if self.medium.marks_anything() {
+        // §14.11.2.1's clip, which is the page's own and not the medium's: a caller asking for
+        // `Medium::NONE` wants the page's alpha back, not the marks the standard says shall not
+        // be shown. `None` for a page-sized target, which is what leaves every gate unmoved.
+        let crop = pdf_render::crop_area(list, target);
+        if self.medium.marks_anything() || crop.is_some() {
             premultiply(&mut data);
+            if let Some(crop) = crop {
+                pdf_render::crop_to_page(&mut data, target.width, 0, crop);
+            }
             // Where 𝑊 stops is §14.11.2.1's page boundary rather than the target's edge, which
             // for a page-sized target is the same rectangle and for a window is not. The same
-            // `pdf_render` function all three backends end with, so none of them can decide it
-            // alone.
-            pdf_render::impose_within(
-                &mut data,
-                target.width,
-                0,
-                pdf_render::page_area(list, target),
-                self.medium,
-            );
+            // `pdf_render` functions all three backends end with, in the same order, so none of
+            // them can decide either alone.
+            if self.medium.marks_anything() {
+                pdf_render::impose_within(
+                    &mut data,
+                    target.width,
+                    0,
+                    pdf_render::page_area(list, target),
+                    self.medium,
+                );
+            }
             demultiply(&mut data);
         }
 

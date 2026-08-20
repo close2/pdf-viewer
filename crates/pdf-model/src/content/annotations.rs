@@ -8,8 +8,7 @@ use std::sync::Arc;
 
 use pdf_render::display_list::Clip;
 use pdf_render::{
-    BlendMode, ClipId, Color, Command, FillRule, Paint, Path, PathCommand, Point, Rect, Stroke,
-    Transform,
+    BlendMode, Color, Command, FillRule, Paint, Path, PathCommand, Point, Rect, Stroke, Transform,
 };
 use pdf_syntax::{Dictionary, Object, ObjectId};
 
@@ -26,51 +25,7 @@ impl Interpreter<'_> {
     /// goes — `crate::annotation` does that — and then hands it to the same machinery that
     /// runs any other form. The only reason it is a separate pass rather than a `Do` is
     /// that nothing in the content stream refers to it.
-    /// §12.2's `/ViewClip` as a clipping path, or `None` where it clips nothing.
-    ///
-    /// The entry names one of §14.11.2's boundaries and the page has already resolved it to a
-    /// rectangle, so the only question left is whether that rectangle is narrower than the
-    /// region being displayed. It is not for any document that states no `/ViewClip`, since
-    /// Table 147 defaults both entries to `CropBox` — so this allocates nothing on the path
-    /// every real document takes.
-    ///
-    /// The rectangle is stated in default user space and carried into page space by `base`,
-    /// which is what [`Clip::transform`] is for: the same rectangle under `/Rotate` and
-    /// `/UserUnit` without this function knowing about either.
-    pub(super) fn view_clip(&mut self, page: &Page, base: Transform) -> Option<ClipId> {
-        let clip = page.clip_box;
-        let display = page.display_box;
-        if clip[0] <= display[0]
-            && clip[1] <= display[1]
-            && clip[2] >= display[2]
-            && clip[3] >= display[3]
-        {
-            return None;
-        }
-        let mut path = Path::new();
-        path.push(PathCommand::MoveTo(Point::new(clip[0], clip[1])));
-        path.push(PathCommand::LineTo(Point::new(clip[2], clip[1])));
-        path.push(PathCommand::LineTo(Point::new(clip[2], clip[3])));
-        path.push(PathCommand::LineTo(Point::new(clip[0], clip[3])));
-        path.push(PathCommand::Close);
-        let Ok(clip) = self.list.add_clip(Clip {
-            path,
-            transform: base,
-            fill_rule: FillRule::NonZero,
-            parent: None,
-        }) else {
-            self.note(Unsupported::LimitReached { limit: "max_clips" });
-            return None;
-        };
-        Some(clip)
-    }
-
-    pub(super) fn draw_annotations(
-        &mut self,
-        page: &Page,
-        base: Transform,
-        view_clip: Option<ClipId>,
-    ) {
+    pub(super) fn draw_annotations(&mut self, page: &Page, base: Transform) {
         let annotations = self.document.get_key(&page.dict, "Annots");
         if let Some(entries) = annotations.as_array().map(<[Object]>::to_vec) {
             for entry in &entries {
@@ -79,7 +34,7 @@ impl Interpreter<'_> {
                     continue;
                 };
                 let dict = dict.clone();
-                self.draw_annotation(&dict, entry.as_reference(), page, base, view_clip);
+                self.draw_annotation(&dict, entry.as_reference(), page, base);
             }
         }
         // §12.5.6.10's markups a *person* added, after the page's own and in the order they
@@ -94,7 +49,7 @@ impl Interpreter<'_> {
             .map(|added| (added.id, added.dict.clone()))
             .collect();
         for (id, dict) in added {
-            self.draw_annotation(&dict, Some(id), page, base, view_clip);
+            self.draw_annotation(&dict, Some(id), page, base);
         }
     }
 
@@ -105,7 +60,6 @@ impl Interpreter<'_> {
         id: Option<ObjectId>,
         page: &Page,
         base: Transform,
-        view_clip: Option<ClipId>,
     ) {
         // §6.3.2.2's "unless otherwise instructed": a host drawing this field in its own
         // control asked for the page without the picture of it, and §12.5.6.19 makes that
@@ -175,13 +129,13 @@ impl Interpreter<'_> {
                 // is still in default user space and can undo what the page does to it.
                 self.view_dependent |= adjust.view_dependent;
                 let base = adjust.transform.then(base);
-                self.draw_appearance(&appearance, base, &page.resources, view_clip);
+                self.draw_appearance(&appearance, base, &page.resources);
                 self.describe_annotation(dict, before);
                 // §12.5.6.19's `/H`, over the appearance rather than instead of it: the
                 // clause calls it a *highlighting* mode, and what it highlights is whatever
                 // the annotation looks like.
                 if let Some(mark) = highlight {
-                    self.draw_highlight(mark, base, view_clip);
+                    self.draw_highlight(mark, base);
                 }
             }
         }
@@ -233,12 +187,7 @@ impl Interpreter<'_> {
     /// Not clipped to the appearance's `/BBox`: the clause's subject is "the contents of the
     /// annotation rectangle", which is the rectangle rather than whatever the appearance drew
     /// inside it.
-    fn draw_highlight(
-        &mut self,
-        mark: crate::annotation::Mark,
-        base: Transform,
-        view_clip: Option<ClipId>,
-    ) {
+    fn draw_highlight(&mut self, mark: crate::annotation::Mark, base: Transform) {
         let (rect, width) = match mark {
             crate::annotation::Mark::Rectangle(rect) => (rect, None),
             crate::annotation::Mark::Border { rect, width } => (rect, Some(width)),
@@ -257,7 +206,7 @@ impl Interpreter<'_> {
                 transform: base,
                 fill_rule: FillRule::NonZero,
                 paint,
-                clip: view_clip,
+                clip: None,
                 mask: None,
                 blend: BlendMode::Difference,
             }),
@@ -286,7 +235,7 @@ impl Interpreter<'_> {
                         ..Stroke::default()
                     },
                     paint,
-                    clip: view_clip,
+                    clip: None,
                     mask: None,
                     blend: BlendMode::Difference,
                 });
@@ -299,7 +248,6 @@ impl Interpreter<'_> {
         appearance: &crate::annotation::Appearance,
         base: Transform,
         page_resources: &Dictionary,
-        view_clip: Option<ClipId>,
     ) {
         // §12.5.5's stream decoded only as far as its damage, said beside what it drew rather
         // than where it was read — see `crate::annotation::Appearance::damaged` for why the two
@@ -354,10 +302,10 @@ impl Interpreter<'_> {
         // its own `/L` or `/QuadPoints` states was having those marks clipped away in silence.
         // `crate::appearance::Constructed::bounded` is the reading; ADR 0193 is the argument.
         //
-        // §12.2's `/ViewClip` is not part of that exception. Where the document narrowed what
-        // the screen shows, an annotation is drawn over the page and is not exempt from what the
-        // page is clipped to — so an unbounded construction still inherits it, and only the box
-        // goes away. `None` for every document that states no preference.
+        // §14.11.2.1's clip is not part of that exception either, and it is not a `Clip` here:
+        // an annotation is drawn over the page and is not exempt from where the page's contents
+        // stop, but that boundary is the whole list's and is stated once, as
+        // `DisplayList::set_content_clip`. So what this builds is the box alone.
         let clip = match appearance.bbox {
             Some(bbox) => {
                 let mut path = Path::new();
@@ -369,7 +317,7 @@ impl Interpreter<'_> {
                 let Ok(clip) = self.list.add_clip(Clip {
                     path,
                     transform,
-                    parent: view_clip,
+                    parent: None,
                     fill_rule: FillRule::NonZero,
                 }) else {
                     self.note(Unsupported::LimitReached { limit: "max_clips" });
@@ -377,7 +325,7 @@ impl Interpreter<'_> {
                 };
                 Some(clip)
             }
-            None => view_clip,
+            None => None,
         };
         state.clip = clip;
 
@@ -443,7 +391,7 @@ impl Interpreter<'_> {
                 transform.apply(Point::new(bbox[0], bbox[1])),
                 transform.apply(Point::new(bbox[2], bbox[3])),
             );
-            self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, view_clip);
+            self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, None);
         }
         self.base = outer_base;
     }

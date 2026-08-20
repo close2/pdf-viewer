@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, ClipId, Color, DisplayList, LineCap, LineJoin, Paint, Point, Size, SoftMaskId,
+    BlendMode, ClipId, Color, DisplayList, LineCap, LineJoin, Paint, Point, Rect, Size, SoftMaskId,
     Stroke, Transform,
 };
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
@@ -597,13 +597,20 @@ fn interpret_into(
     }
 
     let base = base_transform(page);
-    // §12.2's `/ViewClip`: "the page boundary to which the contents of a page shall be
-    // clipped when viewing the document on the screen". Where it names the same region the
-    // page is displayed at — which it does for every document that states no preference, and
-    // for all 974 corpus documents — there is nothing to clip and no clip is built.
-    let view_clip = interpreter.view_clip(page, base);
-    let mut initial = GraphicsState::initial(base);
-    initial.clip = view_clip;
+    // §14.11.2.1: "[t]he crop box defines the region to which the contents of the page shall be
+    // clipped (cropped) when displayed or printed", and §12.2's `/ViewClip` may name a different
+    // one of §14.11.2's five boxes — "the page boundary to which the contents of a page shall be
+    // clipped when viewing the document on the screen", defaulting to `CropBox`. So the boundary
+    // stated here is `clip_box` rather than the crop box by name, and the two are one rectangle
+    // for every document that states no preference.
+    //
+    // **Stated on the list rather than built as a clipping path**, and that is a measurement
+    // rather than a preference: a `Clip` would cost every page a page-sized coverage mask and a
+    // masked composite per command, and the population that marks outside its own boundary at
+    // all is a few percent (`examples/crop_box_census`). `pdf_render::crop_to_page` is where it
+    // is applied, once per target, by all three rasterisers.
+    interpreter.list.set_content_clip(content_clip(page, base));
+    let initial = GraphicsState::initial(base);
     interpreter.run_reader(&mut reader, &page.resources, &initial, 0);
     // §7.4.1's second half, for a part whose damage the pump met while the page was being
     // drawn: the bytes are on the page and the shortfall is in the report (ADR 0343). The
@@ -613,8 +620,10 @@ fn interpret_into(
         interpreter.note(Unsupported::Content { issue });
     }
     // §12.5: an annotation is drawn *over* the page content, and in `/Annots` order, so
-    // this pass follows the content stream rather than being folded into it.
-    interpreter.draw_annotations(page, base, view_clip);
+    // this pass follows the content stream rather than being folded into it. It is not exempt
+    // from the boundary set above — an annotation is displayed content of the page — and it
+    // does not have to be told, because the boundary belongs to the list rather than to a mark.
+    interpreter.draw_annotations(page, base);
     // Asked once the page is complete, because the condition is about the whole of it: an
     // annotation composites into the page group exactly as the content stream's marks do.
     interpreter.note_page_blending_space();
@@ -783,6 +792,32 @@ pub fn page_space_at(page: &Page, x: f32, y: f32) -> (f32, f32) {
 #[must_use]
 pub fn page_transform(page: &Page) -> Transform {
     base_transform(page)
+}
+
+/// §14.11.2.1's boundary for this page, in the display list's own space.
+///
+/// ISO 32000-2 §14.11.2.1, and it is a `shall`:
+///
+/// > The crop box defines the region to which the contents of the page shall be clipped
+/// > (cropped) when displayed or printed. Unlike the other boxes, the crop box has no defined
+/// > meaning in terms of physical page geometry or intended use; it merely imposes clipping on
+/// > the page contents.
+///
+/// [`Page::clip_box`] and not [`Page::crop_box`], because §12.2's `/ViewClip` names which of
+/// §14.11.2's five boxes a screen clips to and Table 147 defaults it to `CropBox`: the two are
+/// the same rectangle for every document that states no preference, and where they differ the
+/// preference is what the clause defers to.
+///
+/// `base` maps default user space into the list's, which for every page is a translation, a
+/// quarter turn and a scale — so a rectangle stays a rectangle and two opposite corners carry
+/// it. [`Rect::from_corners`] orders them, which is what §7.9.5 requires anyway: a rectangle's
+/// corners "can be given in any order".
+fn content_clip(page: &Page, base: Transform) -> Rect {
+    let [x0, y0, x1, y1] = page.clip_box;
+    Rect::from_corners(
+        base.apply(Point::new(x0, y0)),
+        base.apply(Point::new(x1, y1)),
+    )
 }
 
 fn base_transform(page: &Page) -> Transform {

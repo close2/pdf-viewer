@@ -1,5 +1,9 @@
-//! What a page is painted on, and what lies outside it — two colours, and only one of them
-//! is the standard's.
+//! Where a page stops on a target, and what that decides: the colour under it, the colour
+//! beside it, and the ink the standard says shall not be shown beyond it.
+//!
+//! One boundary, three consequences. [`page_area`] is the boundary; [`impose_within`] puts
+//! §11.4.7's 𝑊 inside it and [`SURROUND`] outside; [`crop_to_page`] is §14.11.2.1's `shall`,
+//! which is about the page's own marks rather than about either colour.
 //!
 //! # The page's colour is stated
 //!
@@ -52,16 +56,39 @@
 //! paper on either side of it. Making the *medium* grey to see the gap turned the **pages** grey,
 //! and that is the proof that one value was doing two jobs (ADR 0442's last finding).
 //!
+//! # The same boundary keeps the page's own ink in, and that is the clause rather than a choice
+//!
+//! §14.11.2.1 quoted above is a `shall` about *the contents of the page*, and the sentence after
+//! it says the box means nothing else: "[u]nlike the other boxes, the crop box has no defined
+//! meaning in terms of physical page geometry or intended use; it merely imposes clipping on the
+//! page contents." `pdf_model::interpret` deliberately keeps the marks a content stream made
+//! outside that box — a display list is what the file says — so something has to put the clip
+//! back, and until the six-hundred-and-twelfth session nothing did.
+//!
+//! It went unseen because **a page-sized target met the requirement by accident**: the raster is
+//! the boundary's own extent, so the raster's edge did the cutting and no gate could tell the
+//! difference. A window is larger than its page. What a reader saw there was ink beside the page
+//! and over the next page of a column — `doc/traps/instruments-and-reports.md`'s shape exactly,
+//! a `shall` satisfied by the instrument rather than by the code.
+//!
+//! [`crop_to_page`] is the clip, and it is applied to the finished page rather than to each mark.
+//! That is not an approximation and the reason is §11.4.7's: the page group "shall be treated as
+//! an isolated group", every operator clause 11 composites it with is per-pixel, and the region
+//! is the same for every mark in it — so clipping the group's result is clipping its contents.
+//! What the region *is* is §10.7.4's set of whole pixels rather than an area, which is what makes
+//! the pass exact and what keeps every page-sized raster in this tree unmoved; [`crop_to_page`]
+//! has both of the clause's sentences and the two readings the corpus rejected first.
+//!
 //! # Why the decision is here rather than in a backend
 //!
 //! `doc/traps/pixels-and-rasterisers.md` trap 2: *a decision either backend can make alone is a
 //! decision neither has made*. Three rasterisers draw this program's pages and the boundary
 //! between 𝑊 and the surround has to fall in the same place in all three, so the boundary, the
-//! composite and the colour are stated once, here.
+//! composite, the colour and the crop are stated once, here.
 
 use crate::backend::TargetSpec;
 use crate::display_list::DisplayList;
-use crate::geom::Rect;
+use crate::geom::{Point, Rect};
 use crate::paint::Color;
 
 /// The colour this program shows where no page lies.
@@ -179,6 +206,135 @@ pub fn page_area(list: &DisplayList, target: TargetSpec) -> Rect {
     list.page_bounds().mapped(target.transform)
 }
 
+/// Where §14.11.2.1 stops this page's ink in a target's pixels, or `None` where no pixel of the
+/// target lies outside it.
+///
+/// `None` has two causes and they are one answer: the list is not a page at all — a host's own
+/// chrome, which [`DisplayList::content_clip`] leaves unset — or no whole pixel of the target
+/// lies beyond the boundary, which is every page-sized raster this tree builds. A backend that
+/// gets `None` does exactly what it did before this function existed.
+///
+/// **The test is against the boundary grown to whole pixels**, because §10.7.4's clipping region
+/// is a set of pixels rather than an area — see [`crop_to_page`], which is where the clause is
+/// quoted. `TargetSpec::for_page` rounds a raster *up* so that it contains its page (ADR 0064),
+/// so on a fifth of this corpus the target overhangs the boundary by a fraction of a pixel; under
+/// the clause's own rule that fraction is inside the clipping region, and answering `None` here
+/// is the same statement made once instead of per pixel.
+///
+/// **The region is [`DisplayList::content_clip`] and not [`page_bounds`](DisplayList::page_bounds)**,
+/// because §12.2 makes them two questions: `/ViewArea` decides which boundary is *displayed* —
+/// which is the extent [`page_area`] answers with — and `/ViewClip` which one the contents are
+/// clipped to. A document may display its media box while clipping ink to its trim box, and the
+/// margin between them is then blank rather than absent.
+#[must_use]
+pub fn crop_area(list: &DisplayList, target: TargetSpec) -> Option<Rect> {
+    let region = list.content_clip()?.mapped(target.transform);
+    let whole = Rect::from_corners(
+        Point::new(0.0, 0.0),
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a target's extent is bounded by MAX_EXTENT = 2^24, which f32 holds exactly"
+        )]
+        Point::new(target.width as f32, target.height as f32),
+    );
+    let pixels = Rect::from_corners(
+        Point::new(region.min.x.floor(), region.min.y.floor()),
+        Point::new(region.max.x.ceil(), region.max.y.ceil()),
+    );
+    if pixels.contains(whole) {
+        return None;
+    }
+    Some(region)
+}
+
+/// Applies §14.11.2.1's clip to a rendered page: the ink outside `area` is not shown.
+///
+/// > The crop box defines the region to which the contents of the page shall be clipped
+/// > (cropped) when displayed or printed.
+///
+/// `data` is **premultiplied** RGBA8, as [`impose_within`] wants it and as the rasterisers hold
+/// it before they convert at their boundary, and may be a run of rows of the target rather than
+/// the whole of it — `first_row` says which row it starts at. `area` is [`crop_area`].
+///
+/// **Called before [`impose_within`], never after.** What is being cut here is the page's own
+/// marks; the colours the medium puts under them are not the page's and are not §14.11.2.1's
+/// subject, and a pass that ran the other way round would erase the surround instead.
+///
+/// # A clipping region is a set of whole pixels, and the standard says so twice
+///
+/// §10.7.4, of what a clip *is*:
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by
+/// > a fill operation. Subsequent painting operations shall affect a region that is the
+/// > intersection of the set of pixels defined by the clipping region with the set of pixels
+/// > for the region to be painted.
+///
+/// and, of which pixels a fill includes — a `shall`, with the reason attached:
+///
+/// > A shape shall be scan-converted by painting any pixel whose half-open square region
+/// > intersects the shape, no matter how small the intersection is. This ensures that no shape
+/// > ever disappears as a result of unfavourable placement relative to the device pixel grid, as
+/// > might happen with other possible scan conversion rules. The area covered by painted pixels
+/// > shall always be at least as large as the area of the original shape.
+///
+/// So a pixel the boundary touches at all is **inside** the region and keeps its ink whole, and
+/// only a pixel wholly beyond it is cleared. There is no fraction to apply and no arithmetic to
+/// get wrong: the last sentence quoted forbids one outright, since attenuating a partly covered
+/// pixel would leave the painted area *smaller* than the shape.
+///
+/// **This was written the other way first and the corpus said so.** Multiplying the boundary
+/// pixel by its coverage moved 37 of 957 first pages; taking the smaller of the two coverages
+/// instead moved 11; the clause's own rule moves none, and those eleven were pages whose extent
+/// is not a whole number of pixels — `red_stamp.pdf`'s crop box is 315.001 units tall, so its
+/// raster's last row is a thousandth of a pixel of page, and a fraction would have erased ink
+/// four reference renderers draw. The references are corroboration and not the ground: the
+/// ground is that §10.7.4 states a clip as a set of pixels and forbids painting less area than
+/// the shape.
+///
+/// # This is not [`impose_within`]'s rule, and the difference is the standard's
+///
+/// The medium's own boundary *is* fractional, because painting 𝑊 is a composite rather than a
+/// clip: §11.4.7 gives the page a colour and says nothing about pixel grids, and a page-to-page
+/// gap narrower than a device pixel has to survive it (ADR 0446). A clip is §10.7.4's set. Two
+/// mechanisms, two clauses, one boundary — which is why they are stated beside each other here.
+pub fn crop_to_page(data: &mut [u8], width: u32, first_row: u32, area: Rect) {
+    let stride = (width as usize).saturating_mul(4);
+    if stride == 0 {
+        return;
+    }
+    for (offset, row) in data.chunks_mut(stride).enumerate() {
+        let Some(top) = row_edge(first_row, offset) else {
+            // Past what an `f32` resolves to the pixel; a target that tall is refused long
+            // before this by `MAX_EXTENT`, and cutting is the half that shows nothing the
+            // standard forbids.
+            row.fill(0);
+            continue;
+        };
+        if !touches(top, area.min.y, area.max.y) {
+            row.fill(0);
+            continue;
+        }
+        for (column, pixel) in row.chunks_exact_mut(4).enumerate() {
+            let Some(left) = row_edge(0, column) else {
+                pixel.fill(0);
+                continue;
+            };
+            if !touches(left, area.min.x, area.max.x) {
+                pixel.fill(0);
+            }
+        }
+    }
+}
+
+/// Whether the half-open pixel `[edge, edge + 1)` intersects the half-open span `[lo, hi)`.
+///
+/// §10.7.4's rule in one line: "any pixel whose half-open square region intersects the shape, no
+/// matter how small the intersection is". Half-open on both operands, which is the clause's own
+/// convention — a pixel that begins exactly where the span ends is outside it.
+fn touches(edge: f32, lo: f32, hi: f32) -> bool {
+    edge < hi && edge + 1.0 > lo
+}
+
 /// Composites a rendered page onto the colour of the medium it is imposed on.
 ///
 /// ISO 32000-2 §11.4.7, of the page group — the group every object on a page belongs to:
@@ -254,10 +410,11 @@ pub fn impose_on_medium(data: &mut [u8], medium: Color) {
 /// use it at.
 ///
 /// **The page's own marks are not clipped to `area` here** and this function must not start
-/// doing it: §14.11.2.1's clip is the interpreter's to apply, `pdf_model::interpret` deliberately
-/// keeps the marks a stream made outside the box, and a composite that erased them would be a
-/// second, silent statement of a rule that belongs in one place. What is decided here is only
-/// which colour lies *under* the page at each pixel.
+/// doing it: §14.11.2.1's clip is [`crop_to_page`]'s, it runs before this pass, and a composite
+/// that also erased ink would be a second, silent statement of a rule that belongs in one place.
+/// What is decided here is only which colour lies *under* the page at each pixel — and the two
+/// are not the same boundary in general, because §12.2 lets a document display one of
+/// §14.11.2's boxes and clip its contents to another.
 pub fn impose_within(data: &mut [u8], width: u32, first_row: u32, area: Rect, medium: Medium) {
     if medium.is_uniform() {
         // No boundary: the same colour on both sides of it is the composite this pass has
@@ -371,7 +528,10 @@ fn over(pixel: &mut [u8], backdrop: [u8; 4]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Medium, SURROUND, impose_on_medium, impose_within, overlap, page_area};
+    use super::{
+        Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, overlap,
+        page_area,
+    };
     use crate::backend::TargetSpec;
     use crate::display_list::DisplayList;
     use crate::geom::{Point, Rect, Size, Transform};
@@ -503,6 +663,95 @@ mod tests {
         assert!((area.max.x - 410.0).abs() < 1e-3, "{area:?}");
         assert!((area.min.y - 0.0).abs() < 1e-3, "{area:?}");
         assert!((area.max.y - 200.0).abs() < 1e-3, "{area:?}");
+    }
+
+    /// §14.11.2.1's `shall`, at its plainest: a mark beyond the boundary is not shown.
+    #[test]
+    fn ink_outside_the_boundary_is_not_shown() {
+        // Four opaque black pixels in a row; the page is the left half exactly.
+        let mut data: Vec<u8> = (0..4).flat_map(|_| [0, 0, 0, 255]).collect();
+        crop_to_page(&mut data, 4, 0, box_of((0.0, 0.0), (2.0, 1.0)));
+        let pixels: Vec<&[u8]> = data.chunks_exact(4).collect();
+        assert_eq!(
+            pixels[0],
+            [0, 0, 0, 255],
+            "ink inside the page is untouched"
+        );
+        assert_eq!(
+            pixels[1],
+            [0, 0, 0, 255],
+            "ink inside the page is untouched"
+        );
+        assert_eq!(pixels[2], [0, 0, 0, 0], "ink outside it is gone");
+        assert_eq!(pixels[3], [0, 0, 0, 0], "ink outside it is gone");
+    }
+
+    /// A row the boundary does not reach at all is cleared without looking at its pixels.
+    #[test]
+    fn a_row_beyond_the_boundary_is_cleared_whole() {
+        let mut data: Vec<u8> = (0..4).flat_map(|_| [10, 20, 30, 40]).collect();
+        // The page occupies row 0 only; this call starts at row 1.
+        crop_to_page(&mut data, 2, 1, box_of((0.0, 0.0), (2.0, 1.0)));
+        assert!(data.iter().all(|byte| *byte == 0), "{data:?}");
+    }
+
+    /// §10.7.4's rule at the pixel the boundary passes through: "any pixel whose half-open
+    /// square region intersects the shape, no matter how small the intersection is".
+    #[test]
+    fn a_pixel_the_boundary_only_touches_keeps_its_ink_whole() {
+        // Two pixels; the page ends a quarter of the way through the second.
+        let mut data = vec![255, 0, 0, 255, 255, 0, 0, 255];
+        crop_to_page(&mut data, 2, 0, box_of((0.0, 0.0), (1.25, 1.0)));
+        assert_eq!(
+            data,
+            vec![255, 0, 0, 255, 255, 0, 0, 255],
+            "a partly covered pixel is inside the clipping region and is not attenuated"
+        );
+        // And a thousandth of a pixel is still "no matter how small": `red_stamp.pdf`'s page is
+        // 315.001 units tall and its raster's last row is exactly this case.
+        let mut sliver = vec![255, 0, 0, 255, 255, 0, 0, 255];
+        crop_to_page(&mut sliver, 2, 0, box_of((0.0, 0.0), (1.001, 1.0)));
+        assert_eq!(sliver, vec![255, 0, 0, 255, 255, 0, 0, 255]);
+    }
+
+    /// The pixel after the one the boundary ends in is outside, and goes whole.
+    #[test]
+    fn the_pixel_past_the_boundary_goes_whole() {
+        let mut data = vec![255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255];
+        crop_to_page(&mut data, 3, 0, box_of((0.0, 0.0), (1.25, 1.0)));
+        assert_eq!(&data[8..12], &[0, 0, 0, 0], "the third pixel is beyond it");
+    }
+
+    /// The one property that keeps every page-sized raster in this tree byte for byte where it
+    /// was: a target its own page covers has nothing to cut.
+    #[test]
+    fn a_target_its_page_covers_asks_for_no_crop() {
+        let mut list = DisplayList::new(Size::new(200.0, 100.0));
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 20).expect("a page-sized target");
+        list.set_content_clip(list.page_bounds());
+        assert_eq!(crop_area(&list, target), None);
+        // A window twice the page's size does have something to cut, and it is the page.
+        let window = TargetSpec {
+            width: 400,
+            height: 300,
+            transform: target.transform,
+        };
+        let area = crop_area(&list, window).expect("a window crops");
+        assert!((area.max.x - 200.0).abs() < 1e-3, "{area:?}");
+        assert!((area.max.y - 100.0).abs() < 1e-3, "{area:?}");
+    }
+
+    /// A list that is not a page — a host's own chrome — is not §14.11.2.1's subject.
+    #[test]
+    fn a_list_that_is_not_a_page_is_never_cropped() {
+        let list = DisplayList::new(Size::new(20.0, 10.0));
+        let target = TargetSpec {
+            width: 400,
+            height: 300,
+            transform: Transform::IDENTITY,
+        };
+        assert_eq!(list.content_clip(), None);
+        assert_eq!(crop_area(&list, target), None);
     }
 
     #[test]
