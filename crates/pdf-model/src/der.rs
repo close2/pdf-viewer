@@ -25,6 +25,12 @@
 //! cost is written down in ADR 0215: this reader cannot be used to *check* that a producer wrote
 //! DER, and nothing here claims to.
 //!
+//! **That "four" is a count and now has a command**, which it lacked for as long as it has been
+//! written here: [`Value::had_indefinite_length`] with
+//! `cargo run --release -p pdf-model --example signature_algorithm_census`. It re-derives to four,
+//! one value in each of four documents, so this sentence and §12.8.3.4.2's ledger row agree
+//! despite counting different things.
+//!
 //! # The bounds, and where each comes from
 //!
 //! Untrusted input reaches this module first, so every loop is bounded by something that is not
@@ -118,6 +124,8 @@ pub struct Value<'a> {
     pub contents: &'a [u8],
     /// How many constructed values enclose this one.
     depth: u8,
+    /// Whether this value's own length octets were X.690 clause 8.1.3.6's indefinite form.
+    indefinite: bool,
 }
 
 impl<'a> Value<'a> {
@@ -177,6 +185,18 @@ impl<'a> Value<'a> {
             },
             depth,
         })
+    }
+
+    /// Whether this value's length was written in X.690 clause 8.1.3.6's indefinite form.
+    ///
+    /// DER forbids it and this reader accepts it anyway, for the reason the module comment gives.
+    /// **What that tolerance costs is a claim about the world**, not about the standard — how many
+    /// files would stop being readable if it were withdrawn — and §12.8.3.4.2's ledger row states
+    /// such a number. Nothing in the tree could produce it until this accessor existed, which is
+    /// `CLAUDE.md`'s rule about a counted fact applied to a decision's stated cost.
+    #[must_use]
+    pub const fn had_indefinite_length(&self) -> bool {
+        self.indefinite
     }
 
     /// This value's contents where it is an `OBJECT IDENTIFIER`, and `None` otherwise.
@@ -246,6 +266,7 @@ impl<'a> Reader<'a> {
                 identifier,
                 contents,
                 depth: self.depth,
+                indefinite: true,
             }));
         }
         let (length, body) = if first_length & 0x80 == 0 {
@@ -274,6 +295,7 @@ impl<'a> Reader<'a> {
             identifier,
             contents,
             depth: self.depth,
+            indefinite: false,
         }))
     }
 }
