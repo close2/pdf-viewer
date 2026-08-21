@@ -524,6 +524,10 @@ impl<'a> Interpreter<'a> {
             blending: page_blending_space(document, page),
             blending_changed: false,
             black_generation_stated: false,
+            // Nothing encloses the page's own content stream, so §11.7.5.2's fifth and sixth
+            // conditions hold vacuously until a `Do` or a pattern fill narrows them.
+            opaque_ancestry: true,
+            transfer_painted: false,
             nested_space_departed: false,
             presses,
             blending_beyond: beyond,
@@ -1134,6 +1138,32 @@ struct Interpreter<'a> {
     /// Whether any `/ExtGState` on this page states Table 57's `/BG`, `/BG2`, `/UCR` or
     /// `/UCR2`, which §11.7.5.3 puts inside §10.4.2.4's conversion into a `DeviceCMYK` group.
     black_generation_stated: bool,
+    /// Whether §11.7.5.2's opacity conditions held wherever the content being run was invoked.
+    ///
+    /// The clause's fifth and sixth conditions are about *ancestry* rather than about the mark:
+    ///
+    /// > The foregoing four conditions were also true at the time the `Do` operator was invoked
+    /// > for the group containing the object, as well as for any direct ancestor groups.
+    ///
+    /// > If the current colour is a tiling pattern, all objects in the definition of its pattern
+    /// > cell also satisfy the foregoing conditions.
+    ///
+    /// A mark inside a transparency group cannot see either from its own graphics state, because
+    /// §11.6.6 resets the blend mode, both alpha constants and the soft mask before the group's
+    /// content runs — and a tiling pattern's cell starts from [`GraphicsState::initial`] for
+    /// §11.6.7's reason. So the answer is carried down instead: one flag rather than a stack, for
+    /// [`Self::inside_knockout`]'s reason, since what it guards is a property every enclosing
+    /// scope shares. Saved and restored by whoever narrows it.
+    opaque_ancestry: bool,
+    /// Whether any mark made on this page so far carried §10.5's transfer function.
+    ///
+    /// §11.7.5.2 is a statement about a *point*, and the colour at a point has as many
+    /// contributors as there are objects covering it — so the question "was a transfer function
+    /// applied to something composited here" outlives the object that applied it. Monotone over
+    /// the page for that reason, and scoped away inside a soft mask's group, whose marks are
+    /// never painted at a point on the page at all (§11.5.3, ADR 0276's argument one clause
+    /// over). See [`Interpreter::note_transfer`].
+    transfer_painted: bool,
     /// Whether a group changed the blending space in force, with something compositing in
     /// it, while colours were being resolved for a space that is not the device's.
     ///

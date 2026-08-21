@@ -13,7 +13,7 @@ use pdf_render::{
 
 use super::pattern::PatternPaint;
 use super::report::Unsupported;
-use super::transparency::knockout_group_elements;
+use super::transparency::{Painted, knockout_group_elements};
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -60,6 +60,7 @@ impl Interpreter<'_> {
             {
                 self.tile(&shared, state.transform, rule, &tiling, state);
             } else if let Some(rule) = fill {
+                self.note_transfer(state, Painted::of(state.fill_pattern.as_ref(), false));
                 self.list.push(Command::Fill {
                     path: Arc::clone(&shared),
                     transform: state.transform,
@@ -81,6 +82,7 @@ impl Interpreter<'_> {
                 });
             }
             if stroke.is_some() {
+                self.note_transfer(state, Painted::of(state.stroke_pattern.as_ref(), true));
                 self.list.push(Command::Stroke {
                     path: Arc::clone(&shared),
                     transform: state.transform,

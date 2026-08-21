@@ -73,6 +73,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
                 "optional content was drawn because its visibility could not be decided: {detail}"
             )
         }
+        // Drawn too, and the sentence has to say what kind of wrong the colours are: every mark
+        // is where the producer put it and some of them carry a transfer function the standard
+        // does not put there, or miss one it does (§10.5, §11.7.5.2).
+        Unsupported::TransferFunction { detail } => {
+            format!("a transfer function reached the wrong colours on this page: {detail}")
+        }
         // The second report whose subject is the file, and the only one about the page as a
         // whole: everything above says a mark is missing or wrong, and this says the *sheet* the
         // marks were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389).
