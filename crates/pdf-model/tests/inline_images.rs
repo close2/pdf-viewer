@@ -485,6 +485,213 @@ fn filtered_data_without_an_ei_inside_it_ends_where_it_always_did() {
     assert_eq!(scanned.resume, content.len() - 2);
 }
 
+/// The content stream around one filtered inline image, with `encoded` as its data and `entries`
+/// as the dictionary entries that name its filter.
+///
+/// Eight `DeviceGray` samples in a row, so every fixture below differs only in its filter and
+/// its bytes.
+fn image_under(entries: &str, encoded: &[u8]) -> Vec<u8> {
+    let mut content: Vec<u8> = format!("BI /W 8 /H 1 /BPC 8 /CS /G {entries} ID ").into_bytes();
+    content.extend_from_slice(encoded);
+    content.extend_from_slice(b" EI Q");
+    content
+}
+
+/// Asserts that `encoded` is what the scan takes as the image's data, and that interpretation
+/// resumes past the real `EI` — the two bytes of ` Q` at the end of [`image_under`]'s stream.
+fn assert_data_is(entries: &str, encoded: &[u8], what: &str) {
+    let content = image_under(entries, encoded);
+    let scanned = scan(&content);
+    let stream = scanned.image.expect("an image");
+    assert_eq!(stream.data.as_ref(), encoded, "{what}");
+    assert_eq!(scanned.resume, content.len() - 2, "{what}: resume");
+}
+
+/// A `RunLengthDecode` image ends at its own EOD byte, not at an `EI` its runs happen to carry.
+///
+/// §7.4.5 needs no decoder to say where its data ends, and that is the whole of this route: "the
+/// encoded data shall be a sequence of runs, where each run shall consist of a length byte
+/// followed by 1 to 128 bytes of data", and "[a] length value of 128 shall denote EOD". Every
+/// byte is therefore either a header or is counted by one, so a walk from header to header
+/// reaches the 128 without reconstructing a sample.
+///
+/// The first run here holds ` EI ` literally, which is a white-space-delimited `EI` token
+/// wherever a reader looks for one. A search stops there, keeps nothing of the image, and hands
+/// four samples' worth of run data back to the lexer as operators.
+#[test]
+fn run_length_data_ends_at_its_own_eod_byte() {
+    // Header 3 — four literal bytes — spelling ` EI `; then four more; then the EOD.
+    let encoded: &[u8] = b"\x03 EI \x03\xff\xff\xff\xff\x80";
+    assert!(
+        encoded.windows(4).any(|window| window == b" EI "),
+        "the fixture is worth nothing unless the encoded bytes really carry an EI"
+    );
+    assert_data_is("/F /RL", encoded, "the run-length data is whole");
+}
+
+/// The twin: the same runs with no `EI` in them end in the same place.
+#[test]
+fn run_length_data_without_an_ei_inside_it_ends_where_it_always_did() {
+    let encoded: &[u8] = b"\x03\x01\x02\x03\x04\x03\xff\xff\xff\xff\x80";
+    assert!(
+        !encoded.windows(2).any(|window| window == b"EI"),
+        "the twin is worth nothing unless the encoded bytes carry no EI at all"
+    );
+    assert_data_is("/F /RL", encoded, "the twin's run-length data is whole");
+}
+
+/// Through a window, a run-length walk that runs out of input asks for more bytes.
+///
+/// The same shape as the `FlateDecode` window test below, and it is the case the whole
+/// derivation exists for: an inline image large enough to matter is larger than a window, and
+/// answering with the search there would put the guess back exactly where it costs most.
+#[test]
+fn a_window_that_cuts_the_run_length_eod_asks_for_more_bytes() {
+    let encoded: &[u8] = b"\x03 EI \x03\xff\xff\xff\xff\x80";
+    let content = image_under("/F /RL", encoded);
+    // Cut before the EOD byte itself, and well past the ` EI ` inside the first run.
+    let cut = content.len() - 6;
+
+    let scanned = scan_window(&content[..cut], false);
+    assert_eq!(
+        scanned.image.expect_err("the window cuts the data"),
+        pdf_model::inline_image::InlineImageError::Truncated
+    );
+}
+
+/// A JPEG codestream carrying SOI, one scan and EOI, with `entropy` as its entropy-coded data.
+///
+/// §7.4.8 states `DCTDecode`'s framing by reference — the data is "encoded in the JPEG baseline
+/// format in accordance with ISO/IEC 10918 (all parts)" — so what a fixture has to be right
+/// about is that standard's marker structure rather than any coefficient. The scan header is a
+/// well-formed SOS for one component: `Ls` 8, one component, selector 1, tables 0, `Ss` 0, `Se`
+/// 63, `Ah`/`Al` 0.
+fn jpeg_codestream(entropy: &[u8]) -> Vec<u8> {
+    assert!(
+        !entropy.contains(&0xff),
+        "entropy-coded data with an FF in it would need 10918-1's stuffed zero after it"
+    );
+    let mut out: Vec<u8> = vec![0xff, 0xd8];
+    out.extend_from_slice(&[0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]);
+    out.extend_from_slice(entropy);
+    out.extend_from_slice(&[0xff, 0xd9]);
+    out
+}
+
+/// A `DCTDecode` image ends at ISO/IEC 10918-1's EOI, not at an `EI` its entropy data spells.
+///
+/// The bytes an entropy coder emits are arbitrary, so ` EI ` can stand anywhere inside them —
+/// and here it does. §7.3.8.2's self-limiting data is what settles it, with 10918-1 supplying
+/// the marker the clause promises rather than §7.4.8 spelling one out.
+#[test]
+fn a_jpeg_ends_at_its_own_end_of_image_marker() {
+    let encoded = jpeg_codestream(b"\x11\x22 EI \x33\x44");
+    assert!(
+        encoded.windows(4).any(|window| window == b" EI "),
+        "the fixture is worth nothing unless the encoded bytes really carry an EI"
+    );
+    assert_data_is("/F /DCT", &encoded, "the codestream is whole");
+}
+
+/// The twin: the same codestream with no `EI` in it ends in the same place.
+#[test]
+fn a_jpeg_without_an_ei_inside_it_ends_where_it_always_did() {
+    let encoded = jpeg_codestream(b"\x11\x22\x33\x44\x55\x66");
+    assert!(
+        !encoded.windows(2).any(|window| window == b"EI"),
+        "the twin is worth nothing unless the encoded bytes carry no EI at all"
+    );
+    assert_data_is("/F /DCT", &encoded, "the twin's codestream is whole");
+}
+
+/// A thumbnail inside an `APPn` segment carries its own EOI, and it does not end the image.
+///
+/// **This is why the answer is a walk over 10918-1's segments rather than a search for `FFD9`.**
+/// An application segment may hold anything, and what a camera puts in one is an entire second
+/// JPEG; its EOI stands hundreds of bytes before the outer image's. Stepping over each segment
+/// by the length it states is what makes the inner marker invisible, and nothing weaker does.
+///
+/// The outer entropy data also spells ` EI `, so a reader has to get *both* right: a search for
+/// `EI` stops in the middle and a search for `FFD9` stops at the thumbnail.
+#[test]
+fn a_jpeg_thumbnails_own_end_of_image_does_not_end_the_outer_one() {
+    let thumbnail = jpeg_codestream(b"\x01\x02\x03\x04");
+    let mut encoded: Vec<u8> = vec![0xff, 0xd8];
+    // APP1, whose length counts its own two bytes and then the thumbnail.
+    let length = u16::try_from(thumbnail.len() + 2).expect("a fixture of tens of bytes");
+    encoded.extend_from_slice(&[0xff, 0xe1]);
+    encoded.extend_from_slice(&length.to_be_bytes());
+    encoded.extend_from_slice(&thumbnail);
+    encoded.extend_from_slice(&[0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]);
+    encoded.extend_from_slice(b"\x11 EI \x22");
+    encoded.extend_from_slice(&[0xff, 0xd9]);
+    assert!(
+        encoded.windows(2).filter(|w| *w == [0xff, 0xd9]).count() == 2,
+        "the fixture is worth nothing unless there are two EOI markers in it"
+    );
+
+    assert_data_is("/F /DCT", &encoded, "the outer codestream is whole");
+}
+
+/// A Group 4 `CCITTFaxDecode` image ends at its end-of-block pattern.
+///
+/// §7.4.6 Table 11's `/EndOfBlock` defaults to true, which makes the pattern a requirement on
+/// the data — "[t]he end-of-block pattern shall be the CCITT end-of-facsimile-block (EOFB) or
+/// return-to-control (RTC) appropriate for the K parameter" — and `/K -1` selects Group 4, whose
+/// EOFB is two of ITU-T T.4's end-of-line codes. The extent then follows from the clause's own
+/// sentence about what a filter does there: "[w]hen a filter reaches EOD, it shall always skip
+/// to the next byte boundary following the encoded data."
+///
+/// `00 10 01` is those twenty-four bits: eleven zeros and a one, twice over. The four bytes
+/// before it spell ` EI `, which no valid sequence of T.4 codewords could be mistaken for and
+/// which a forward search stops at all the same.
+#[test]
+fn a_group_4_fax_ends_at_its_end_of_block_pattern() {
+    let encoded: &[u8] = b" EI \x00\x10\x01";
+    assert!(
+        encoded.windows(4).any(|window| window == b" EI "),
+        "the fixture is worth nothing unless the encoded bytes really carry an EI"
+    );
+    assert_data_is(
+        "/F /CCF /DP << /K -1 /Columns 8 >>",
+        encoded,
+        "the fax data is whole",
+    );
+}
+
+/// The twin: the same Group 4 stream with no `EI` in it ends in the same place.
+#[test]
+fn a_group_4_fax_without_an_ei_inside_it_ends_where_it_always_did() {
+    let encoded: &[u8] = b"\x11\x22\x33\x44\x00\x10\x01";
+    assert!(
+        !encoded.windows(2).any(|window| window == b"EI"),
+        "the twin is worth nothing unless the encoded bytes carry no EI at all"
+    );
+    assert_data_is(
+        "/F /CCF /DP << /K -1 /Columns 8 >>",
+        encoded,
+        "the twin's fax data is whole",
+    );
+}
+
+/// Group 3 ends on six end-of-line codes rather than two, and `/K` is what says which.
+///
+/// Table 11 says only "appropriate for the K parameter"; T.4's RTC is six consecutive
+/// end-of-line codes and T.6's EOFB is two, and reading `/K` is the whole of the difference. A
+/// reader that took two everywhere would end this image a third of the way through its
+/// end-of-block pattern — which the `EI` check would then refuse, so the cost is not a wrong
+/// image but a fall back to the search that this route exists to replace.
+#[test]
+fn a_group_3_fax_ends_on_six_end_of_lines_rather_than_two() {
+    // Six end-of-line codes: seventy-two bits, and the pattern repeats every three bytes.
+    let encoded: &[u8] = b" EI \x00\x10\x01\x00\x10\x01\x00\x10\x01";
+    assert_data_is(
+        "/F /CCF /DP << /K 0 /Columns 8 >>",
+        encoded,
+        "the Group 3 fax data is whole",
+    );
+}
+
 /// Through a window, a filter that runs out of input asks for more bytes rather than searching.
 ///
 /// This is what makes the answer hold for an image larger than the reader's window, which is

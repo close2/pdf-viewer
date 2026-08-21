@@ -45,7 +45,9 @@ pub use document::{
     StreamSource,
 };
 pub use error::{SyntaxError, SyntaxResult};
-pub use filter::{Damage, Decoded, EncodedExtent, FilterRefusal, Pump, Pumped, Pumping};
+pub use filter::{
+    Damage, Decoded, Delimiting, EncodedExtent, FilterRefusal, Pump, Pumped, Pumping,
+};
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{Limits, Parser};
