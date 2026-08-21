@@ -5,8 +5,12 @@ three-hundred-and-fifty-eighth**, after the project owner amended `CLAUDE.md`'s 
 evidence below. §10.5's ledger row was `silent` for one round — the first since the thirty-fifth
 session — and is `implemented` now. Kept because the *argument* is what took the round, and because
 `doc/todo/01`'s sweeps look here.
+**And re-opened in the six-hundred-and-thirty-second**, which found §11.7.5.2 `inapplicable` on an
+argument about the clause that the clause does not make; that row is `silent` now and the last
+section of this file is what it owes.
 Priority: 13 — a defect: a wrong picture with nothing said about it
-Corpus: **1 document draws wrong**; how many state a `/TR` at all is unmeasured (see below)
+Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
+doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2` and how many state a real one
 Clauses: §10.5, §8.4.5 (Table 57's `/TR` and `/TR2`), §11.7.5.2
 Code: `crates/pdf-model/src/content.rs` (where `/ExtGState` is read),
 `crates/pdf-model/src/function.rs` (the functions already parse and evaluate)
@@ -166,10 +170,57 @@ sessions before §10.4.2.5 turned out to answer it outright.
   are additive, which is stated, so an RGB device needs the first three of the four.
 - **Images**: the same map per sample, which is where the cost is — `Conversion`'s per-image memo
   is the place it belongs, since a transfer is a pure function of a colour.
-- **What it does not need**: a halftone, a marking device, or §11.7.5.2's per-region tracking,
-  which stays inapplicable until a *second* transfer function competes with a first inside a
-  transparency group.
-- **Unmeasured, and a round taking this owes it first**: how many of the 974 documents state a
-  Table 57 `/TR` or `/TR2` at all, and how many of those state anything but `/Identity`. That
-  number decides whether this is one page or a population, and `examples/field_flag_census` is the
-  shape of the census that would answer it.
+- **What it does not need**: a halftone or a marking device. **This bullet also said it did not
+  need "§11.7.5.2's per-region tracking, which stays inapplicable until a *second* transfer
+  function competes with a first inside a transparency group", and that is wrong about the
+  clause** — see the section below, which is the debt this file now carries.
+- **Measured in the three-hundred-and-fifty-eighth session, by the census this bullet asked for**:
+  `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
+
+## What is still owed: §11.7.5.2, the parameter that belongs to a *region*
+
+**Found in the six-hundred-and-thirty-second session, reading the ledger's unread rows.** §11.7.5.2
+was `inapplicable` on the argument quoted above and its own row said the same. The clause does not
+say it. Its rule is not about two functions competing; it is about *opacity*:
+
+> The halftone and transfer function to be used at any given point on the page shall be those in
+> effect at the time of painting the last (topmost) elementary graphics object enclosing that
+> point, but only if the object is fully opaque.
+
+and then, at the end of the same paragraph's list of conditions:
+
+> For portions of the page whose topmost object is not fully opaque or that are never painted at
+> all, the default halftone and transfer function for the page shall be used
+
+So one stated function is enough to make the clause bite. Where the topmost object at a point is
+painted under a constant alpha below 1.0, a blend mode other than Normal, a soft mask, or is an
+image XObject with an `/SMask` — and the clause extends each condition to the groups the object is
+inside and to a tiling pattern's cell — the transfer function at that point is the page's
+**default**, and this tree applies the object's own. It applies it per object, before compositing;
+the clause applies the topmost object's, after. The two agree exactly on the fully opaque case,
+which is where every corpus witness is, and nowhere else.
+
+**The population, measured rather than assumed**, and it is why this is a `doc/todo` entry rather
+than a round's work: `cargo run --release -p pdf-model --example transfer_function_census --
+doc/pdf.js/test/pdfs/*.pdf` finds one document stating a transfer function that is not `/Identity`
+or `/Default`, and `mutool draw -F trace` on that document's page shows its one image drawn at
+`alpha="1"`, Normal, no soft mask and no `/SMask`. **Zero corpus pages are drawn wrong by this
+today.** A round that changes it therefore has no oracle witness and owes a fixture (trap 8).
+
+Two pieces of work, in this order:
+
+1. **The report, which is small and belongs to whichever round next touches `content.rs`.** An
+   `Unsupported` variant raised where a mark is made with `GraphicsState::transfer` in force under
+   a state §11.7.5.2 does not call fully opaque. The shape already exists one clause over —
+   §11.7.5.3's `black_generation_stated` is a monotone page flag read by
+   `Interpreter::blending_undrawable` — but this one needs the *ancestry* as well as the state,
+   because a group's `Do` and a tiling pattern's caller each decide opacity for everything inside
+   them, and a flag that only looked at the mark's own alpha would under-report exactly the nested
+   case the clause spends four of its six conditions on. Call it forty lines and one fixture.
+2. **The per-region model, which is a rasteriser change and is not small.** The clause's quantity
+   is a property of a *point*, decided by the topmost object covering it, and applied to the
+   composited colour rather than to each contributor's. Nothing in the display list carries a
+   per-point parameter today, and inventing one for a population of zero would be speculative
+   work of exactly the kind `CLAUDE.md` forbids. What makes it worth writing down is that the
+   *reason* is now a measurement rather than a claim about the clause, so a document that turns up
+   stating a transfer function under a soft mask moves it straight to the top.

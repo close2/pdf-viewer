@@ -339,6 +339,60 @@ fn a_replacement_after_ordinary_text_keeps_its_break() {
     );
 }
 
+/// §14.9.4's **third** location, which Errata Collection 3 added: an `Artifact` tag's property list.
+///
+/// The published bullet list names two places a replacement text may be:
+///
+/// > ( PDF 1.5 ) A marked-content sequence (see 14.6, "Marked content"), through an ActualText
+/// > entry in a property list attached to the marked-content sequence with a Span tag.
+///
+/// Issue #483 (`/State` `Review`, `Accepted`) adds a third as the last item of that list, in the
+/// same words but with an `Artifact` tag in place of the `Span` one, pointing at §14.8.2.2.2.
+/// It is stated here in prose rather than as a blockquote because it is the erratum's sentence
+/// and not the published one, and `doc/md/` carries the published one (ADR 0252).
+///
+/// The interpreter reads §14.9's four entries off *every* `BDC`'s property list rather than off a
+/// `/Span`'s alone, so the erratum is met by construction — and nothing in this tree executed it
+/// until this test, which is why it is here rather than as a sentence in the ledger. A folio
+/// artifact drawn as roman numerals whose `/ActualText` is the arabic number is the shape the
+/// erratum is about: what a person sees is `vii` and what the page reads back is `7`.
+///
+/// It also pins the *order* of the two records, which `Interpreter::run` takes deliberately: the
+/// artifact's range is over the readback as the replacement left it, not over the glyphs the
+/// replacement removed.
+#[test]
+fn an_artifacts_replacement_text_replaces_what_it_encloses() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 80 Td (Real content.) Tj \
+         0 -30 Td /Artifact << /Type /Pagination /Subtype /Footer /ActualText (7) >> BDC \
+         (vii) Tj EMC ET",
+        "",
+        "",
+        "",
+    );
+    assert!(
+        drawn.text.contains("Real content."),
+        "the unmarked content is untouched: {:?}",
+        drawn.text
+    );
+    assert!(
+        !drawn.text.contains("vii"),
+        "the glyphs the artifact drew are replaced, not described: {:?}",
+        drawn.text
+    );
+    let folio = drawn.artifacts.first().expect("the folio artifact");
+    assert_eq!(
+        folio.artifact.kind,
+        Some(pdf_model::structure::ArtifactKind::Pagination)
+    );
+    assert_eq!(
+        drawn.text.get(folio.range.clone()).map(str::trim),
+        Some("7"),
+        "the artifact's range covers the replacement rather than what it replaced: {:?}",
+        drawn.text
+    );
+}
+
 /// §14.9.3's third location: an annotation with no text of its own is described by `/Contents`.
 ///
 /// > Any type of annotation (see 12.5, "Annotations") that does not already have a text
