@@ -1,9 +1,9 @@
 # Shared background: §10.7.4, and what this tree departs from
 
 Not a todo. Referred to by `11-shapes-that-still-disappear.md`,
-by `AMBIGUOUS_ZERO_AREA_FILL`, `AMBIGUOUS_TILING_CELL_CLIP`, `AMBIGUOUS_SUB_PIXEL_LINE_WORK` and
-`CONTRADICTED_ANTIALIASED_EDGES` in `oracle.rs`, and by the ledger's §10.7.4 row, which is the
-authoritative version.
+by `AMBIGUOUS_ZERO_AREA_FILL`, `AMBIGUOUS_TILING_CELL_CLIP`, `AMBIGUOUS_SUB_PIXEL_LINE_WORK`,
+`CONTRADICTED_ANTIALIASED_EDGES` and `CONTRADICTED_TIGHT_CONSENSUS` in `oracle.rs`, and by the
+ledger's §10.7.4 row, which is the authoritative version.
 
 ## What the clause says
 
@@ -22,7 +22,15 @@ Figure 70 draws exactly that.
 Four departures, all licensed by §10.7.1's NOTE that the algorithm "is not defined by PDF", and
 the first three all in one direction:
 
-1. Both backends **anti-alias**, so a partly covered pixel is partly painted.
+1. Both backends **anti-alias**, so a partly covered pixel is partly painted. **How finely
+   "partly" is measured is the departure's own second half, and it went unstated for six hundred
+   sessions**: `render-cpu` rounds an edge's coverage to a *quarter* — `tiny-skia` samples four
+   times per axis, at 0.125, 0.375, 0.625 and 0.875 — while the graphics device tracks the
+   fraction to a level of 255. `render-quorra/examples/edge_coverage_ladder` prints both ladders
+   against the geometry, and ADR 0474 has what it costs: on `colors.pdf` our whole raster is the
+   page's closed form with every coverage so rounded, 33 levels of 255 from the exact one at the
+   worst pixel. It is the quantum this file already records for a shape *thinner* than a pixel,
+   met at the edge of a thick one, and `doc/todo/11` item 7 prices the cure.
 2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
    four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
    states one region as *many* opaque fills, every internal boundary falls inside some device
@@ -195,9 +203,18 @@ than a defect. `doc/todo/11` carries the two marks that are still lost.
 Three oracle groups turn on this, and the distinction that matters is between a difference the
 departure explains and one it does not:
 
-- `CONTRADICTED_ANTIALIASED_EDGES` — `colors.pdf` pages 1 and 2: every renderer agrees about the
-  swatch interiors to the byte and sits on a spectrum of edge softness. The pair the gate votes
-  with is the pair nearest the clause, and we are furthest. The departure explains it whole.
+- `CONTRADICTED_TIGHT_CONSENSUS` — `colors.pdf` pages 1 and 2, and **this bullet said the wrong
+  thing about them until the six-hundred-and-forty-third session**: "every renderer agrees about
+  the swatch interiors to the byte and sits on a spectrum of edge softness … we are furthest. The
+  departure explains it whole." The interiors half is right and the rest is not. Sixteen
+  axis-aligned rectangles at known sub-pixel boundaries make each page a closed form; ours is that
+  form with every coverage rounded to `tiny-skia`'s quarter (max 1 level of 255 over the whole
+  raster) and `hayro`'s is the exact one (max 2). From the geometry at the worst pixel: `hayro` 2,
+  `mupdf` 13, ours 33, `ghostscript` 54, `poppler` 124 — two paint the shape's area, `poppler`
+  paints whole pixels, and we are third of five rather than the soft end of a spectrum. And the
+  departure does not explain the *verdict* at all: the exact
+  form is contradicted here too, at ssim 0.98772 against a bound of 0.98862, because the pair that
+  votes is the pair furthest from the geometry. ADR 0474.
 - `AMBIGUOUS_SUB_PIXEL_LINE_WORK` — `22060_A1_01_Plans.pdf`: an A1 drawing whose four floor plans
   are **72 sampled images**, not strokes, which the four-hundred-and-thirty-second session counted
   after four sessions of this file calling it "*all* strokes under a pixel wide". Its 26 sub-pixel

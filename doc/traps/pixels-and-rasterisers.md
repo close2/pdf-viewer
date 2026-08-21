@@ -43,8 +43,17 @@ references about one is `doc/oracle-and-corpus.md` §3d (ADR 0410).
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
 were both code that was right about the clause it cited.
 
-**A contradicted page's group names a hypothesis, not a diagnosis — eleven for eleven on being
-wrong**, the newest being `smask_luminosity_oob_transfer.pdf`, whose `CONTRADICTED_MASK_QUANTISATION`
+**A contradicted page's group names a hypothesis, not a diagnosis — twelve for twelve on being
+wrong**, the newest being `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had said
+since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us
+at the soft end. They do not. Each page is sixteen axis-aligned rectangles at known sub-pixel
+boundaries, so the page is a closed form; ours is that form with every edge's coverage **rounded to a
+quarter** — `tiny-skia` samples four times per axis — to one level of 255 over the whole raster, and
+`hayro`'s is the exact form to two. From the geometry at the worst pixel: `hayro` 2, `mupdf` 13,
+ours 33, `ghostscript` 54, `poppler` 124 — we are *third of five*, not the soft end of anything. The
+verdict, separately, is trap 12's: the exact form is contradicted
+on both pages too (ADR 0474). The one before it is
+`smask_luminosity_oob_transfer.pdf`, whose `CONTRADICTED_MASK_QUANTISATION`
 had said since the sixth session that the level it differs by "comes from the mask being quantised" —
 and the mask is one byte, the byte is 191, and one byte of mask predicts the closed form exactly.
 What produced the level was `tiny-skia` compiling its *low-precision* pipeline, whose `div255` is an
