@@ -205,6 +205,20 @@ Neither is a defect today: both bounds refuse loudly and both refuse 0.127% of t
 here so that a round which wants to admit `MAX_TILES`' 48 knows the price is a new mechanism
 rather than a bigger number.
 
+**"Refuse loudly" was true and was not the whole sentence, and the half it left out was a defect —
+the six-hundred-and-forty-seventh session** (ADR 0477). `MAX_TILES` refused loudly *and refused the
+sites it had already been sized to afford*: the check sat in front of the cell's interpretation, so a
+fill wanting twenty thousand sites was given none rather than four thousand. §8.7.3.1 asks the
+processor to "paint the cell on the current page as many times as necessary to fill an area", so a
+budget decides *how many* and not *whether*, and this row's own subclause already applied §7.8.2's
+prefix rule to the cell's content stream while the lattice threw its prefix away. The affordable
+prefix is drawn now, the report is unchanged, and **the worst case is unchanged** — a fill cost at
+most 4096 sites before and costs at most 4096 sites now — which is exactly what keeps this separable
+from the two bullets above. `7803372.pdf` of the crawl goes from 9.083 to 11.096 of ink against three
+references between 21.3 and 22.4, so **the bullets above are still owed the other four fifths**: the
+count is still not the cost and admitting the 48 still needs the mechanism rather than a bigger
+number.
+
 ## A third bound, and it was the only one spent by another document — **taken**
 
 **Found in the five-hundred-and-eighty-first session** (ADR 0416), by reproducing a nondeterminism

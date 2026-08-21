@@ -567,6 +567,11 @@ impl Interpreter<'_> {
         /// [`Interpreter::repeat_cell`] charges each copy to [`MAX_OPERATIONS`], which is
         /// where the second bound now bites. This one still bounds the trip count, which is
         /// what an empty cell needs and what a bound on the work would replace.
+        ///
+        /// **What the bound does when it is reached is [`affordable_span`]'s, and it used to be
+        /// to paint nothing at all.** That is the half of this budget the six-hundred-and-forty-seventh
+        /// session changed: the value stays where ADR 0271 left it and the sites it affords are
+        /// spent instead of discarded.
         const MAX_TILES: usize = 4096;
 
         // The pattern is anchored to the page, so the question "which cells does this path
@@ -589,10 +594,25 @@ impl Interpreter<'_> {
         let total = usize::try_from(columns)
             .unwrap_or(usize::MAX)
             .saturating_mul(usize::try_from(rows).unwrap_or(usize::MAX));
-        if total > MAX_TILES {
+        // §8.7.3.1 puts the requirement on the processor rather than on the file: "[w]hen
+        // performing painting operations such as S (stroke) or f (fill), the PDF processor
+        // shall paint the cell on the current page as many times as necessary to fill an
+        // area." A budget means some pages cannot have as many times as necessary — but
+        // painting the cell *no* times is the furthest a processor can get from that sentence,
+        // and the sites the bound does afford are the producer's own marks. So the shortfall is
+        // reported and the affordable prefix is drawn, which is §7.8.2's rule for a stream that
+        // decoded part-way (ADR 0343) applied to the second of the two things a tiling is made
+        // of. The first — the cell's own content stream — has drawn its prefix since ADR 0359.
+        let (last_column, last_row) = if total > MAX_TILES {
             self.note(Unsupported::LimitReached { limit: "MAX_TILES" });
-            return;
-        }
+            affordable_span(
+                (first_column, last_column),
+                (first_row, last_row),
+                MAX_TILES,
+            )
+        } else {
+            (last_column, last_row)
+        };
 
         // The path clips every cell, so a tile that falls outside it contributes nothing.
         let clip = Clip {
@@ -1160,6 +1180,46 @@ fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32), (i32, i3
             cell[1].max(cell[3]),
         ),
     )
+}
+
+/// The last column and row of the prefix of a lattice that a budget of `budget` sites affords.
+///
+/// §8.7.3.1 asks the processor to "paint the cell on the current page as many times as necessary
+/// to fill an area", and a budget is this tree's own answer to a file that says *more times than
+/// there is time for* (ADR 0271). What the budget decides is how many; what it does not decide is
+/// **which end of the requirement to fail from**, and until the six-hundred-and-forty-seventh
+/// session the answer was to paint none of them — throwing away the four thousand sites the
+/// budget had already been sized to afford.
+///
+/// Whole rows first, because the sites are laid down row-major from the span's own corner and a
+/// partial row would put a ragged edge where the file states none. Where one row alone is over
+/// budget the row is cut instead, since a prefix of one row is all there is to keep.
+///
+/// The order the sites are painted in is the implementation's — §8.7.3.1 says it "is unspecified
+/// and unpredictable", and Errata Collection 3's Issue #428 adds "(implementation dependent)" to
+/// that very sentence — so which prefix this is, is a choice this function makes rather than one
+/// the standard makes for it. It is the corner `Interpreter::tile` already interprets the cell at,
+/// which keeps the drawn site and the copied ones contiguous.
+fn affordable_span(
+    (first_column, last_column): (i32, i32),
+    (first_row, last_row): (i32, i32),
+    budget: usize,
+) -> (i32, i32) {
+    let extent = |first: i32, last: i32| {
+        usize::try_from(last.saturating_sub(first).saturating_add(1))
+            .unwrap_or(usize::MAX)
+            .max(1)
+    };
+    let columns = extent(first_column, last_column).min(budget.max(1));
+    // `columns` is at least one by `extent`'s own `max`, so the division cannot fail; it is
+    // written as a `checked_div` because that is a claim a reader has to re-derive and this is not.
+    let rows = extent(first_row, last_row)
+        .min(budget.checked_div(columns).unwrap_or(0))
+        .max(1);
+    let step = |first: i32, kept: usize| {
+        first.saturating_add(i32::try_from(kept.saturating_sub(1)).unwrap_or(i32::MAX))
+    };
+    (step(first_column, columns), step(first_row, rows))
 }
 
 /// The range of tile indices covering an interval, given a step and where the cell itself sits.
