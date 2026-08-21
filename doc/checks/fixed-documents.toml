@@ -271,3 +271,19 @@ session = 631
 reports = []
 ink = 39.547 .. 41.547
 why = "a photograph drawn as a solid black rectangle in silence: a DCTDecode image in a /Lab space had its samples divided by 255 instead of mapped onto Table 88's default decode range, giving a lightness of at most 1 where 100 is white (ADR 0464, 8.9.5.2, 8.6.5.4)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3867/3867366.pdf"
+page = 1
+session = 636
+reports = []
+ink = 67.482 .. 69.482
+why = "a catalogue cover drawn as its own complement in silence — a green photographic background as dark purple — because a JPXDecode image's /Decode [1 0 1 0 1 0 1 0] was ignored; §7.4.9 ignores the array only where /ColorSpace is absent (ADR 0468, 7.4.9, 8.9.5.2)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3867/3867363.pdf"
+page = 1
+session = 636
+reports = []
+ink = 6.198 .. 8.198
+why = "a full-page statistics report drawn blank and reported as a font with no outline for any of 3938 codes, because a /FontFile2's loca record understated its own table and skrifa then produced no glyph at all (ADR 0468, 9.6.3, 9.9)"

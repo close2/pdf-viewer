@@ -1232,6 +1232,91 @@ green**), with 625's three recorded documents reproduced to the thousandth.
 running, the crawl's head has been a defect no curated corpus states.
 
 
+### 24. The chunk the six-hundred-and-thirty-sixth took: ten archives, and two entries a dictionary states
+
+**Taken: `1407`, `1899`, `2514`, `2637`, `3006`, `3744`, `3867`, `4728`, `5343` and `5958`, whole,
+10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+`pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
+minus the lightest live reference's. **13 minutes 28 seconds** at fourteen workers, at a load
+average of 23 to 33 on a 24-thread machine three other rounds were also using; 9966 of the 10 000
+produce a number and 34 do not. Both binaries built first and §20's check run before anything was
+ranked (**29 checked, 0 absent, green**).
+
+- **The negative head is the shallowest any chunk has produced** — deepest row −10.174, against
+  613's −20.3, 619's −84.2, 625's −112.6 and 631's −43.5 — and the sharpest row of the ten
+  thousand is on the *positive* side for the second round running. **Two defects of this tree, and
+  both are the same sentence in two clauses: a dictionary states something about its own data and
+  this tree would not read it.** ADR 0468.
+  - **`3867366.pdf` +77.113**, the top row, silent, 135 commands: a product catalogue's cover drawn
+    as its own complement — a green photographic background as dark purple, a black textured header
+    as beige — at 146.044 against three references inside 0.75 of each other. Its two photographs
+    are `/JPXDecode` CMYK images under `/ColorSpace [/ICCBased …]` with `/Decode [1 0 1 0 1 0 1 0]`,
+    and the JPEG 2000 route consulted no `/Decode` array at all. §7.4.9's bullet is "[i]f
+    ColorSpace is absent, then the Decode array shall be ignored unless ImageMask is true" and
+    Table 87's own `/Decode` row states it the same way round: **the condition is `/ColorSpace`'s
+    absence, not the filter.** The route now goes through §8.9.5.2's map like every other, which
+    also gives it a space's own units — an `Indexed` index passed through, a `/Lab` lightness to
+    100, which is ADR 0464's finding one route along. → **−0.449**.
+  - **`3867363.pdf` −6.915**, *reported*: a full-page statistics report drawn as a blank sheet at
+    0.225 against 7.278 / 7.139 / 8.299, with "font /F1's program has no outline for any of the
+    3938 code(s)". Its `/FontFile2` is whole — it decompresses to exactly its `/Length1` — and its
+    table directory says `loca` is 6510 bytes where 3255 long offsets need 13 020, while `hmtx`'s
+    record carries the length `loca` should have had. The bytes at `loca`'s offset are a whole
+    table, ascending and ending exactly at `glyf`'s length. `skrifa` finds a `loca` too short for
+    `numGlyphs` and produces **no outline for any glyph at all**. `sfnt.rs` gains a third repair
+    beside its two, on the same derivation: a file that states one fact twice can check itself.
+    → **+0.059**.
+- **The reach is measured over our own panel** (631's rule), before and after, over all **52
+  archives any chunk has ranked plus the 243 documents the two censuses name — 52 043 documents**.
+  **Nine rows move and every one moves toward agreement**, put in front of the three references
+  afterwards. **Five are in archives an earlier chunk took** — `1530` and `3129` are 625's, `1038`
+  is 631's, `6696` and `3375` are 615's — which is the seventh round running that a fix has reached
+  back, and one more is in an archive no chunk has ranked at all. **One of the five is §21's own
+  open lead**: `1530098.pdf`, listed there as a silent row "diagnosed no further than [its]
+  numbers" at +47.699, is the `/Decode` defect and now sits at +0.487.
+- **Both populations were measured before the change** (trap 11), with instruments that are not
+  this tree's (trap 8). Of **99 031** `JPXDecode` image dictionaries over the 65 944 crawled
+  documents, 98 490 state a `/ColorSpace` and **2298 state a `/Decode` array** — every one of those
+  beside a `/ColorSpace` — over **200 documents**, of which 92 arrays invert; the curated corpora
+  carry none. The `loca` walk inflates every `/FontFile2` in the crawl *and* in `doc/corpora` and
+  `doc/pdf.js`: **62 short records over 6 documents of 66 920**, 59 of them whole tables, and the
+  two curated documents are the *negative* cases — `bug868745.pdf` descends and `issue14618.pdf`
+  runs outside the program, so the repair declines both and no gate can move.
+- **`spec-errata emit` found nothing on this family**, which is worth recording because four of the
+  last six chunk rounds found something. §7.4.9 carries one annotation group (Issue #29, "except
+  for" → "excluding"), §8.9.5.2 none at all, and Table 87's three live errata on that page
+  (#366, #215) touch `/BitsPerComponent` and its neighbours rather than `/Decode`.
+
+**What the head still holds**, named so the next round does not re-derive it:
+
+- **`1407194.pdf` −6.304 is an annotation question rather than an image one**, and the only row of
+  this head that is neither. Seven commands, silent: a `/Text` annotation with `/Rect [0 542 400
+  792]` and no `/AP`, whose synthesised icon this tree draws at the whole 400×250 rectangle while
+  all three references draw a small fixed-size note at its corner. §12.5.6.4 says text annotations
+  "shall not scale and rotate with the page; they shall behave as if the NoZoom and NoRotate
+  annotation flags … were always set", and §12.5.3's NoZoom is about *magnification*; what a
+  synthesised icon does with an oversized `/Rect` is the question, and ADR 0109 is where this tree's
+  icon artwork was decided. Not settled here.
+- **Seven silent rows below −4**, none of them called a family (trap 9): `2637357.pdf` −10.174
+  (1485 commands, and the three references spread from 20.0 to 30.9), `1899493.pdf` −9.049 (218 182
+  commands and 75 045 distinct clips), `1407825.pdf` −8.296, `1407822.pdf` −7.856 (95 commands, and
+  the three references agree within 0.8), `3006401.pdf` −6.640 (1909 commands, references within
+  1.1), `5958599.pdf` −5.078 and `3006323.pdf` −4.073.
+- **`1899774.pdf` −4.904 is `doc/todo/49`'s** — `MAX_TILES` reached — as `1530064.pdf` was for 625.
+- **The positive head above +40 is three rows and none is ours.** `2637210.pdf` **+94.713** has
+  `poppler` and this tree together at 130.8 and 127.8 while `mutool` sits at 33.1 and `gs` at 45.1,
+  which is 613's note with the light reference on the other side; `1899170.pdf` **+53.494** has all
+  four renderers disagreeing (7.4 / 60.9 / 144.3 / 190.1); `2514746.pdf` **+42.812** the same
+  (9.0 / 19.3 / 28.4 against ours at 51.8). Below +25 the head is 613's `poppler`-draws-nothing
+  note verbatim — a band of pages where `poppler` is at 1 to 3 while `mutool`, `gs` and this tree
+  agree within 3 — read out of `doc/traps/oracle-and-references.md` rather than derived again.
+- **619's four, 615's two and 625's remaining silent rows are still open** as those sections record
+  them.
+
+**What this chunk leaves: 13 944 crawled documents unranked**, in archive-sized pieces. Seven
+rounds running, the crawl's head has been a defect no curated corpus states.
+
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not

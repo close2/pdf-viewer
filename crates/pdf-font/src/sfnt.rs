@@ -278,25 +278,123 @@ fn rewritten_sfnt(
     Some(out)
 }
 
-/// Applies both of the sfnt repairs to a font program, returning the bytes to load.
+/// Corrects a `loca` record whose stated length holds fewer than `numGlyphs + 1` offsets.
 ///
-/// The two are [`repaired_loca_format`] — a byte-swapped `indexToLocFormat` — and
-/// [`repaired_loca_order`] — a `loca` whose offsets do not ascend — and they compose in that
-/// order because the second reads the format the first corrects. Returns the input unchanged
-/// where neither applies, which is every well-formed font.
+/// # What the file says twice
+///
+/// §9.9 Table 126 sends a `/FontFile2` to the TrueType Reference Manual and ISO/IEC 14496-22,
+/// and both define `loca` as holding one offset per glyph plus a terminator — so a font states
+/// that table's extent twice over: once in its directory record's `length`, and once as
+/// `numGlyphs + 1` in `maxp`. `3867363.pdf` embeds a 3254-glyph `CourierNew` subset whose
+/// record says **6510** bytes where long offsets for 3255 entries need 13 020, and whose
+/// `hmtx` record carries the length `loca` should have had. The bytes at `loca`'s offset are a
+/// whole table: 3255 ascending long offsets ending exactly at `glyf`'s length, with `glyf`
+/// beginning on the four-byte boundary after them. Nothing is missing but the number.
+///
+/// The record cannot be believed and the glyphs be drawn: `skrifa` reads `loca` for
+/// `numGlyphs`, finds a table too short to hold them and produces **no outline for any glyph**
+/// — a full-page statistics report drew as a blank sheet against three references that draw
+/// it, which is where this was found (ADR 0468).
+///
+/// # Why it is a derivation and not a guess
+///
+/// The same shape as [`repaired_loca_format`] one field over: a `loca` is checkable against
+/// `glyf` without believing either number. The extended read is accepted only when every one
+/// of the `numGlyphs + 1` offsets it exposes ascends and the last is `glyf`'s length — which
+/// is what a `loca` *is* — and only when those bytes lie inside the program. A run of
+/// arbitrary bytes satisfying both by accident is not a thing this can produce.
+///
+/// Returns `None` for a record that already holds the entries the file says it has, which is
+/// every well-formed font and costs one comparison.
+pub(crate) fn repaired_loca_extent(data: &[u8]) -> Option<Vec<u8>> {
+    /// Offset of `indexToLocFormat` within the `head` table.
+    const INDEX_TO_LOC: usize = 50;
+    /// Offset of a table record's `length` field within the record.
+    const LENGTH: usize = 12;
+
+    let tables = sfnt_tables(data)?;
+    let (head, head_length) = *tables.get(b"head".as_slice())?;
+    let (maxp, _) = *tables.get(b"maxp".as_slice())?;
+    let (loca_at, loca_length) = *tables.get(b"loca".as_slice())?;
+    let (_, glyf_length) = *tables.get(b"glyf".as_slice())?;
+
+    if head_length < INDEX_TO_LOC.checked_add(2)? {
+        return None;
+    }
+    let width = match be16(data, head.checked_add(INDEX_TO_LOC)?)? {
+        0 => 2usize,
+        1 => 4,
+        // Neither format, which is [`repaired_loca_format`]'s subject and not this one's.
+        _ => return None,
+    };
+    let glyphs = usize::from(be16(data, maxp.checked_add(4)?)?);
+    let entries = glyphs.checked_add(1)?;
+    let needed = entries.checked_mul(width)?;
+    if loca_length >= needed {
+        return None;
+    }
+
+    // Short offsets are stored halved; the entries are compared in `glyf`'s own units either
+    // way, which is what lets one test serve both formats.
+    let offset = |index: usize| -> Option<usize> {
+        let at = loca_at.checked_add(index.checked_mul(width)?)?;
+        if width == 4 {
+            usize::try_from(be32(data, at)?).ok()
+        } else {
+            Some(usize::from(be16(data, at)?).checked_mul(2)?)
+        }
+    };
+    let mut previous = 0usize;
+    for index in 0..entries {
+        let at = offset(index)?;
+        if at < previous {
+            return None;
+        }
+        previous = at;
+    }
+    if previous != glyf_length {
+        return None;
+    }
+
+    let count = usize::from(be16(data, 4)?);
+    let entry = (0..count).find(|index| {
+        12usize
+            .checked_add(index.checked_mul(16).unwrap_or(usize::MAX))
+            .and_then(|at| data.get(at..at.checked_add(4)?))
+            .is_some_and(|found| found == b"loca")
+    })?;
+    let at = 12usize
+        .checked_add(entry.checked_mul(16)?)?
+        .checked_add(LENGTH)?;
+    let mut repaired = data.to_vec();
+    let slot = repaired.get_mut(at..at.checked_add(4)?)?;
+    slot.copy_from_slice(&u32::try_from(needed).ok()?.to_be_bytes());
+    Some(repaired)
+}
+
+/// Applies the three sfnt repairs to a font program, returning the bytes to load.
+///
+/// They are [`repaired_loca_extent`] — a `loca` record shorter than the table it names —
+/// [`repaired_loca_format`] — a byte-swapped `indexToLocFormat` — and [`repaired_loca_order`]
+/// — a `loca` whose offsets do not ascend — and they compose in that order because each reads
+/// what the one before it corrects: the format repair measures the record's length, and the
+/// order repair refuses a record too short to hold its entries. The two `indexToLocFormat`
+/// repairs cannot both fire, the first requiring a value of 0 or 1 and the second a value
+/// above 1. Returns the input unchanged where none applies, which is every well-formed font.
 ///
 /// # Why this is public when `LoadedFont::load` is the only caller in the tree
 ///
 /// **A font program is untrusted input and this is a parser over it**, which `CLAUDE.md`
-/// principle 3 says gets fuzzed from its first commit. Both repairs walk a table directory, a
-/// `loca` and a `glyf` taken from bytes a document supplied, and both *rewrite* an sfnt — so the
-/// door they need is one a fuzz target can knock on, and `fuzz/fuzz_targets/sfnt.rs` is what
-/// knocks. The alternative, fuzzing through `LoadedFont::load`, would need a whole `Document`
-/// around every input and would spend nearly all its budget in the parser it already has a
-/// target for.
+/// principle 3 says gets fuzzed from its first commit. All three repairs walk a table
+/// directory, a `loca` and a `glyf` taken from bytes a document supplied, and all three
+/// *rewrite* an sfnt — so the door they need is one a fuzz target can knock on, and
+/// `fuzz/fuzz_targets/sfnt.rs` is what knocks. The alternative, fuzzing through
+/// `LoadedFont::load`, would need a whole `Document` around every input and would spend nearly
+/// all its budget in the parser it already has a target for.
 #[must_use]
 pub fn repaired_font_program(data: &[u8]) -> Cow<'_, [u8]> {
-    let formatted = repaired_loca_format(data).map_or(Cow::Borrowed(data), Cow::Owned);
+    let extended = repaired_loca_extent(data).map_or(Cow::Borrowed(data), Cow::Owned);
+    let formatted = repaired_loca_format(&extended).map_or(extended, Cow::Owned);
     match repaired_loca_order(&formatted) {
         Some(ordered) => Cow::Owned(ordered),
         None => formatted,

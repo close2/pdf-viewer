@@ -369,7 +369,10 @@ fn is_symbolic(document: &Document, descriptor: &Dictionary) -> bool {
 #[cfg(test)]
 mod truetype_encoding_tests {
     use super::{Subtables, as_character, named_glyph, post_glyph, symbol_glyph};
-    use crate::sfnt::{be32, glyph_length, repaired_loca_format, repaired_loca_order, sfnt_tables};
+    use crate::sfnt::{
+        be32, glyph_length, repaired_loca_extent, repaired_loca_format, repaired_loca_order,
+        sfnt_tables,
+    };
     use skrifa::{FontRef, MetadataProvider};
 
     /// The glyph index every fixture below maps its one covered code to.
@@ -650,6 +653,63 @@ mod truetype_encoding_tests {
         // And a font whose offsets ascend leaves `repaired_loca_order` on its first pass, which
         // is every well-formed font and is what makes the repair cost nothing on the common path.
         assert_eq!(repaired_loca_order(&sfnt(&loca_fixture(1, 8))), None);
+    }
+
+    /// Overwrites one table record's stated `length`, leaving the table's bytes where they are.
+    ///
+    /// The fixture builder writes a record that agrees with its data, which is the one thing
+    /// [`repaired_loca_extent`]'s subject does not: `3867363.pdf`'s `loca` record understates
+    /// its own table.
+    fn understate(font: &mut [u8], tag: [u8; 4], length: u32) {
+        let count = usize::from(u16::from_be_bytes([font[4], font[5]]));
+        let at = (0..count)
+            .map(|index| 12_usize.saturating_add(index.saturating_mul(16)))
+            .find(|at| font.get(*at..at.saturating_add(4)) == Some(tag.as_slice()))
+            .expect("the fixture has this table");
+        let field = at.saturating_add(12);
+        font[field..field.saturating_add(4)].copy_from_slice(&length.to_be_bytes());
+    }
+
+    /// A `loca` record too short for `numGlyphs + 1` entries is corrected from the table itself.
+    ///
+    /// `3867363.pdf`'s 3254-glyph subset states 6510 bytes of `loca` where 3255 long offsets
+    /// need 13 020, and the bytes there are a whole table — ascending, ending exactly at
+    /// `glyf`'s length. `skrifa` reads the record, finds it too short for `numGlyphs`, and
+    /// produces no outline for any glyph at all, so the page draws blank. The fixture is that
+    /// shape at fixture scale: nine long entries, a record claiming four of them.
+    #[test]
+    fn a_loca_record_short_of_its_own_entries_is_corrected() {
+        let mut broken = sfnt(&loca_fixture(1, 8));
+        understate(&mut broken, *b"loca", 18);
+        let repaired =
+            repaired_loca_extent(&broken).expect("the table is whole; the number is not");
+
+        let record = 12 + 16 * 2 + 12;
+        assert_eq!(&repaired[record..record + 4], &36_u32.to_be_bytes());
+        assert_eq!(
+            repaired.len(),
+            broken.len(),
+            "four bytes change, nothing else"
+        );
+    }
+
+    /// The two twins that keep the correction from being a guess.
+    ///
+    /// A record that already holds its entries is left alone — every well-formed font — and a
+    /// short record whose extended read is *not* a `loca` is refused rather than believed. The
+    /// second is the whole safety of reading past a stated length: what is accepted has to
+    /// ascend and has to end at `glyf`'s length, which arbitrary bytes do not.
+    #[test]
+    fn a_loca_extent_is_corrected_only_where_the_table_proves_itself() {
+        assert_eq!(repaired_loca_extent(&sfnt(&loca_fixture(1, 8))), None);
+
+        let mut tables = loca_fixture(1, 8);
+        // The terminator no longer names `glyf`'s length, so these bytes are not that table.
+        let last = tables[2].1.len() - 4;
+        tables[2].1[last..].copy_from_slice(&99_u32.to_be_bytes());
+        let mut broken = sfnt(&tables);
+        understate(&mut broken, *b"loca", 18);
+        assert_eq!(repaired_loca_extent(&broken), None);
     }
 
     /// A font whose lengths agree with *neither* reading keeps its own answer.
