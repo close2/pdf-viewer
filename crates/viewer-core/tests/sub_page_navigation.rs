@@ -135,8 +135,12 @@ fn page(viewer: &Viewer) -> usize {
 ///
 /// > b) The node specified by Next (if present) shall become the new current navigation node.
 ///
-/// Three forward requests against a two-node page: the first two are the nodes and the third is
-/// the page, because a list has an end and running off it is the state the clause already names.
+/// **Two forward requests against a two-node page, and it used to be three.** As printed the
+/// clause says nothing about a node whose `/Next` is absent, so this file read that state as "no
+/// current node" and spent a third key press turning the page. ISO 32000-2 errata **issue #304**,
+/// state Review/Completed, inserts the missing sentence directly after item (b) — *If there is no
+/// node specified by Next then navigate to the next page* — so the request that runs the last
+/// node's `/NA` is the request that turns the page.
 #[test]
 fn a_forward_request_walks_a_pages_states_before_it_turns_the_page() {
     let mut viewer = opened(true, PresentationMode::On);
@@ -149,11 +153,44 @@ fn a_forward_request_walks_a_pages_states_before_it_turns_the_page() {
     assert_eq!(bullet(&viewer, 11), Some(false));
 
     let _ = viewer.handle(Command::GoTo(PageTarget::Next)).count();
-    assert_eq!(page(&viewer), 0);
     assert_eq!(bullet(&viewer, 11), Some(true), "the second node's /NA ran");
+    assert_eq!(
+        page(&viewer),
+        1,
+        "the last node states no /Next, so issue #304 turns the page in the same request"
+    );
+}
 
+/// The other half of issue #304: *If the current page is the last page, then the current
+/// navigation node remains unchanged.*
+///
+/// The fixture's second page states no `/PresSteps`, so the walk is done on the first page of a
+/// **backward** request, where the sentence against item (d) says the same of `/Prev` and the
+/// first page. A request off the front of the list on page one re-runs the first node's `/PA` and
+/// moves nothing, which is what "remains unchanged" means where there is nowhere to go.
+#[test]
+fn running_off_the_list_where_there_is_no_page_to_go_to_leaves_the_node() {
+    let mut viewer = opened(true, PresentationMode::On);
     let _ = viewer.handle(Command::GoTo(PageTarget::Next)).count();
-    assert_eq!(page(&viewer), 1, "and then the page turns");
+    assert_eq!(bullet(&viewer, 10), Some(true), "the first node's /NA ran");
+
+    // Back to the first node, and then off the front of the list twice. Both re-run the first
+    // node's `/PA`, because the node is still current — the printed clause would have left no
+    // current node and turned this into a page request.
+    for _ in 0..3 {
+        let _ = viewer.handle(Command::GoTo(PageTarget::Previous)).count();
+    }
+    assert_eq!(page(&viewer), 0, "page one has no previous page");
+    assert_eq!(bullet(&viewer, 10), Some(false), "the first node's /PA ran");
+
+    // And the node is still the first one, so a forward request is its `/NA` and not a page turn.
+    let _ = viewer.handle(Command::GoTo(PageTarget::Next)).count();
+    assert_eq!(page(&viewer), 0, "still a state rather than a page");
+    assert_eq!(
+        bullet(&viewer, 10),
+        Some(true),
+        "the first node's /NA again"
+    );
 }
 
 /// The same document without the one entry, which is what makes the test above about the entry.
@@ -283,8 +320,9 @@ fn a_navigation_nodes_own_duration_advances_it_and_its_absence_does_not() {
 /// (Step (c) is prose here rather than a quotation because `doc/md/`'s conversion breaks that
 /// sentence across a stray list marker; the standard's own PDF states it whole.)
 ///
-/// And running off the *front* of the list is the same state as running off the back: the request
-/// after it turns the page, which is what a person paging backwards out of a slide expects.
+/// And running off the *front* of the list is the same state as running off the back: errata
+/// issue #304's sentence against item (d) navigates to the previous page, or leaves the node
+/// alone where there is no previous page — which is the case this fixture can reach.
 #[test]
 fn a_backward_request_undoes_a_state_and_then_leaves_the_page() {
     let mut viewer = opened(true, PresentationMode::On);
@@ -301,9 +339,9 @@ fn a_backward_request_undoes_a_state_and_then_leaves_the_page() {
     assert_eq!(bullet(&viewer, 10), Some(false), "the first node's /PA ran");
     assert_eq!(page(&viewer), 0, "and the page has not moved");
 
-    // Off the front of the list there is no current node, so the request is a page turn again.
-    // Page one is the first page, so nothing moves — what this asserts is that the request is no
-    // longer being spent on a state.
+    // Off the front of the list on page one, errata issue #304 leaves the node where it is —
+    // "[i]f the current page is the first page, then the current navigation node remains
+    // unchanged" — so this re-runs the first node's `/PA` against a bullet that is already off.
     let _ = viewer.handle(Command::GoTo(PageTarget::Previous)).count();
     assert_eq!(page(&viewer), 0);
     assert_eq!(bullet(&viewer, 10), Some(false));

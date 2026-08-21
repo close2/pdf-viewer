@@ -165,6 +165,28 @@ pub struct Host {
     /// rather than applied, because a viewer that magnified a page by itself because a form is on
     /// it would be answering a question nobody asked (rule 5).
     fit_magnification: Option<f32>,
+    /// §12.4.4.1's clock, while a presentation is running.
+    ///
+    /// **`None` is a window whose `QTimer` is stopped**, rather than one that fires to discover
+    /// it has nothing to advance. The decision inside it — how often, what a tick carries, when
+    /// Table 164's `/D` has run out — is `viewer_host::Clock`, shared with the other two hosts.
+    clock: Option<viewer_host::Clock>,
+    /// A transition named by the core, waiting for the page it moves *to* to be rendered.
+    arming: Option<pdf_model::navigation::Transition>,
+    /// The page on the screen, as the list that drew it and where a whole-viewport draw would
+    /// put it — the face a transition would move *from*. Kept only while presenting.
+    shown: Option<(
+        std::sync::Arc<pdf_render::DisplayList>,
+        pdf_render::TargetSpec,
+    )>,
+    /// The frame of a transition in flight, which is what this window shows instead of a page.
+    ///
+    /// A whole `Raster` rather than a display list, because what crosses this bridge is pixels:
+    /// `frame_pixels` hands the C++ side a borrowed slice and a transition frame has to be
+    /// somewhere for that borrow to point at.
+    playing: Option<pdf_render::Raster>,
+    /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
+    viewport: (u32, u32),
     /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
     layout: pdf_model::viewer_preferences::PageLayout,
 }
@@ -229,6 +251,11 @@ impl Host {
             needle: String::new(),
             pages_left: 0,
             fit_magnification: None,
+            clock: None,
+            arming: None,
+            shown: None,
+            playing: None,
+            viewport: (1, 1),
             // Table 147's and Table 29's own defaults, replaced by what the catalog states the
             // moment the document opens.
             presenting: viewer_host::Presenting::default(),
@@ -247,6 +274,9 @@ impl Host {
             return;
         }
         self.scale = scale;
+        // §12.4.4.1's transition is drawn in the viewport rather than in a page's own rectangle,
+        // so the size the core is told is also the size a frame is shaped for.
+        self.viewport = (width, height);
         self.dispatch(Command::Resize {
             width,
             height,
@@ -337,6 +367,7 @@ impl Host {
             }
         }
         if self.presenting.full_screen() {
+            self.start_the_clock();
             // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start
             // a second `pump` under the first.
             queue.push_back(Command::Present(self.presenting.mode()));
@@ -352,9 +383,14 @@ impl Host {
     /// [`Host::chrome`] what it should look like now.
     fn present_or_stop(&mut self) {
         if self.presenting.toggle() {
+            self.start_the_clock();
             self.dispatch(Command::Present(PresentationMode::On));
-            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
+            self.say(
+                "presenting full screen (§7.7.2's FullScreen page mode) — §12.4.4's /Dur advances \
+                 the page, its /Trans is drawn, and Escape comes back",
+            );
         } else {
+            self.stop_the_clock();
             self.dispatch(Command::Present(PresentationMode::Off));
             // §12.2: "[t]he document's page mode, specifying how to display the document on
             // exiting full-screen mode". `None` is Table 147's own condition unmet, and then what
@@ -367,6 +403,208 @@ impl Host {
             }
         }
         self.update.window = true;
+    }
+
+    /// Starts §12.4.4.1's clock, which is what makes this a presentation rather than a big page.
+    fn start_the_clock(&mut self) {
+        if self.clock.is_none() {
+            self.clock = Some(viewer_host::Clock::started(std::time::Instant::now()));
+        }
+    }
+
+    /// Stops it, and takes the frame in flight with it.
+    ///
+    /// The `QTimer` on the C++ side stops the next time it asks [`Host::presentation_wait`], which
+    /// is immediately: leaving full screen goes through `applyUpdates`. A window that is not
+    /// presenting has nothing to advance, and `CLAUDE.md`'s principle 2 makes a wakeup with
+    /// nothing behind it a defect rather than a rounding error.
+    fn stop_the_clock(&mut self) {
+        self.clock = None;
+        self.arming = None;
+        self.shown = None;
+        if self.playing.take().is_some() {
+            self.update.frame = true;
+        }
+    }
+
+    /// How long the window should wait before the next turn of the clock, in milliseconds.
+    ///
+    /// `-1` where nothing is presenting, which is what stops the timer. Asked after every pump
+    /// rather than set once, because the interval a transition wants and the interval a still
+    /// page wants are not the same number.
+    pub(crate) fn presentation_wait(&self) -> i32 {
+        self.clock.as_ref().map_or(-1, |clock| {
+            i32::try_from(clock.interval().as_millis()).unwrap_or(i32::MAX)
+        })
+    }
+
+    /// One turn of §12.4.4.1's clock: tell the core how much time passed, and draw what is due.
+    ///
+    /// **A tick that produces no events repaints nothing**, which is this host's answer to a
+    /// viewer that must idle. A page stating no `/Dur` — "the page shall not advance
+    /// automatically" — swallows every tick, so the window wakes ten times a second, adds a
+    /// number, and flags no update at all.
+    pub(crate) fn presentation_tick(&mut self) {
+        let now = std::time::Instant::now();
+        let animating = self
+            .clock
+            .as_ref()
+            .is_some_and(viewer_host::Clock::animating);
+        let Some(millis) = self.clock.as_mut().and_then(|clock| clock.tick(now)) else {
+            // Held: a transition is being drawn, and §12.4.4.1's EXAMPLE puts that before the
+            // page is displayed. What is due is a frame.
+            if animating {
+                self.draw_a_frame(now);
+            }
+            return;
+        };
+        let events: Vec<Event> = self.viewer.handle(Command::Tick { millis }).collect();
+        if events.is_empty() {
+            return;
+        }
+        let mut queue = std::collections::VecDeque::new();
+        for event in events {
+            self.react(event, &mut queue);
+        }
+        self.pump(queue.into_iter().collect());
+    }
+
+    /// The viewport a transition's frames are shaped in, in this window's own device pixels.
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "window dimensions are far below f32's exact integer range"
+    )]
+    fn viewport_rect(&self) -> pdf_render::Rect {
+        pdf_render::Rect::from_corners(
+            pdf_render::Point::new(0.0, 0.0),
+            pdf_render::Point::new(self.viewport.0 as f32, self.viewport.1 as f32),
+        )
+    }
+
+    /// Rasterises the frame of the transition in flight, or puts the page back when it has ended.
+    fn draw_a_frame(&mut self, now: std::time::Instant) {
+        let viewport = self.viewport_rect();
+        let shaped = self.clock.as_mut().map(|clock| clock.frame(viewport, now));
+        let list = match shaped {
+            Some(Ok(Some(list))) => list,
+            Some(Err(problem)) => {
+                // Not reachable from a frame — the largest one adds four clips — and said rather
+                // than swallowed for the reason every refusal in this tree is.
+                self.say(&format!("transition: this frame would not draw: {problem}"));
+                self.playing = None;
+                self.update.frame = true;
+                return;
+            }
+            None | Some(Ok(None)) => {
+                self.playing = None;
+                self.update.frame = true;
+                return;
+            }
+        };
+        let target = pdf_render::TargetSpec {
+            width: self.viewport.0,
+            height: self.viewport.1,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        match self.rasterizer.rasterize(&list, target) {
+            Ok(raster) => self.playing = Some(raster),
+            Err(error) => {
+                self.say(&format!(
+                    "transition: this frame would not rasterise: {error}"
+                ));
+                self.playing = None;
+            }
+        }
+        self.update.frame = true;
+    }
+
+    /// Takes `transition` to be drawn when the page it moves *to* arrives, or says why it is not.
+    ///
+    /// Armed rather than begun: `Viewer::handle` settles after the command that turned the page,
+    /// so the events arrive as page change, transition, render request, and the arriving page's
+    /// list is in the last of the three. §12.4.4.1's transition is one *to* a page.
+    fn arm_transition(&mut self, transition: pdf_model::navigation::Transition) {
+        if self.clock.is_none() {
+            self.say(&format!(
+                "transition: {:?} over {} s — nothing is presenting, so the page is shown at once \
+                 (press p)",
+                transition.style, transition.duration
+            ));
+            return;
+        }
+        if !viewer_host::Clock::shapes(&transition, self.viewport_rect()) {
+            // The core has already said *why* through `Event::Reported`.
+            return;
+        }
+        self.arming = Some(transition);
+    }
+
+    /// Keeps the page just rendered as a transition's face, and begins one that was armed.
+    ///
+    /// Two whole-viewport rasterisations happen here and none per frame: the page being left and
+    /// the page arriving, each drawn where a frame will place it.
+    fn face_arrived(&mut self, request: &viewer_core::RenderRequest) {
+        if self.clock.is_none() {
+            self.shown = None;
+            self.arming = None;
+            return;
+        }
+        let origin = match self.viewer.query(Query::PageGeometry(request.page)) {
+            Answer::Geometry(geometry) => geometry.origin,
+            _ => (0.0, 0.0),
+        };
+        let arriving = (
+            std::sync::Arc::clone(&request.list),
+            viewer_host::face_target(request.target, origin, self.viewport),
+        );
+        let Some(transition) = self.arming.take() else {
+            self.shown = Some(arriving);
+            return;
+        };
+        let leaving = self.shown.replace(arriving.clone());
+        let Some((list, target)) = leaving else {
+            self.say(&format!(
+                "transition: {:?} was named with no page to move from, so the page is shown at \
+                 once",
+                transition.style
+            ));
+            return;
+        };
+        let began = std::time::Instant::now();
+        let (Some(outgoing), Some(incoming)) =
+            (self.face(&list, target), self.face(&arriving.0, arriving.1))
+        else {
+            self.say(&format!(
+                "transition: {:?} was named but the pages behind it would not rasterise, so the \
+                 page is shown at once",
+                transition.style
+            ));
+            return;
+        };
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "TRANSITION {:?} over {} s: two {}x{} pages rasterised in {:?}",
+                transition.style,
+                transition.duration,
+                self.viewport.0,
+                self.viewport.1,
+                began.elapsed()
+            ),
+        );
+        if let Some(clock) = self.clock.as_mut() {
+            clock.begin(transition, outgoing, incoming, std::time::Instant::now());
+        }
+    }
+
+    /// One page of a transition, drawn to the viewport's own pixels and ready to be drawn again.
+    fn face(
+        &mut self,
+        list: &pdf_render::DisplayList,
+        target: pdf_render::TargetSpec,
+    ) -> Option<pdf_render::Image> {
+        let raster = self.rasterizer.rasterize(list, target).ok()?;
+        viewer_core::transition::drawable(&raster)
     }
 
     /// Which pieces of chrome this window may show, and whether it is full screen.
@@ -645,6 +883,13 @@ impl Host {
     /// One under `SinglePage`, which is what this host drew for two hundred sessions; more under
     /// a column or a spread, and the window paints each of them where [`Self::frame`] says.
     pub(crate) fn frame_count(&self) -> usize {
+        // §12.4.4.1: while one of Table 164's effects is in flight the window shows the effect and
+        // not the page — one picture, because a frame is already two pages placed where they
+        // belong. Answered here rather than pushed across the bridge, so the C++ side draws a
+        // transition with the code it already draws a page with.
+        if self.playing.is_some() {
+            return 1;
+        }
         match self.viewer.query(Query::Frame) {
             Answer::Frame(frames) => frames.len(),
             _ => 0,
@@ -653,6 +898,23 @@ impl Host {
 
     /// Where one page's pixels belong and how big they are.
     pub(crate) fn frame(&self, index: usize) -> QtFrame {
+        if let Some(raster) = self.playing.as_ref() {
+            return match page::describe(raster) {
+                // A transition frame is already in the viewport's own pixels, so its origin is
+                // the viewport's own.
+                Ok((width, height)) => QtFrame {
+                    present: index == 0,
+                    width,
+                    height,
+                    origin_x: 0.0,
+                    origin_y: 0.0,
+                },
+                Err(error) => {
+                    eprintln!("note: {error}");
+                    no_frame()
+                }
+            };
+        }
         let Answer::Frame(frames) = self.viewer.query(Query::Frame) else {
             return no_frame();
         };
@@ -681,6 +943,13 @@ impl Host {
     /// Tier 1 is priced at "one copy per frame" and this is what keeps it to one: the `QImage`
     /// the C++ side builds copies out of this slice, and nothing on this side copies into it.
     pub(crate) fn frame_pixels(&self, index: usize) -> &[u8] {
+        if let Some(raster) = self.playing.as_ref() {
+            return if index == 0 {
+                raster.data.as_slice()
+            } else {
+                &[]
+            };
+        }
         match self.viewer.query(Query::Frame) {
             Answer::Frame(frames) => frames
                 .get(index)
@@ -1047,6 +1316,10 @@ impl Host {
                     token: request.token,
                     rendered,
                 });
+                // §12.4.4.1: the page a transition moves *to* is the one whose list has just
+                // arrived, so this is where an armed one can begin. Only while a presentation is
+                // running, because taking the face costs a whole-viewport rasterisation.
+                self.face_arrived(&request);
             }
             // §12.6.4.8: handed over rather than opened. The string is one the *document*
             // controls, and giving it to a browser is a decision about this machine that this
@@ -1063,12 +1336,12 @@ impl Host {
                 };
                 queue.push_back(Command::Supply { purpose, bytes });
             }
-            // §12.4.4: named rather than played. This host has no presentation clock, so the page
-            // is drawn, which is the transition's own end state — and the name is said rather
-            // than swallowed, because a person who asked for a slide show is owed the difference.
-            Event::Transition { transition, .. } => {
-                self.say(&format!("transition: {:?}", transition.style));
-            }
+            // §12.4.4.1: played since this host was given a clock, and named where it is not.
+            //
+            // A transition outside a presentation is not drawn at all — there is no clock to draw
+            // it on — and a style `viewer_core::transition` does not shape is refused before two
+            // pages are rasterised for it. Both are said rather than swallowed.
+            Event::Transition { transition, .. } => self.arm_transition(transition),
             Event::Extracted {
                 asked, name, bytes, ..
             } => self.write_extracted(asked, &name, &bytes),

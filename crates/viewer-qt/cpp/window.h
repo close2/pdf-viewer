@@ -21,6 +21,7 @@
 class QLabel;
 class QLineEdit;
 class QTabWidget;
+class QTimer;
 class QToolBar;
 class QTreeView;
 
@@ -190,6 +191,13 @@ private:
     /// has no thread to read a thousand of them on. Pumping through the event loop rather than in
     /// a loop here is what keeps the window painting while a 1023-page document is searched.
     void pumpSearch();
+    /// Runs ISO 32000-2 §12.4.4.1's clock at whatever interval the host asks for, or stops it.
+    ///
+    /// The interval is `viewer_host::Clock`'s and not this window's: a still page wants a tick
+    /// every tenth of a second and a transition wants a frame every sixtieth, and which is which
+    /// is a clause's question rather than a toolkit's. A `-1` stops the timer outright, so a
+    /// window that is not presenting has nothing armed at all.
+    void pumpPresentation();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
     /// Puts the window in the state Table 29 and ISO 32000-2 §12.2 ask for.
@@ -219,6 +227,11 @@ private:
     /// The string in it.
     QLineEdit* needle_;
     std::vector<QWidget*> controls_;
+    /// §12.4.4.1's clock, as one repeating timer that is stopped whenever nothing is presenting.
+    ///
+    /// One timer rather than a chain of `singleShot`s, because `applyUpdates` runs after every
+    /// key press as well as after every tick: a one-shot armed from there would multiply.
+    QTimer* clock_ = nullptr;
     /// Set while this window is writing values into its own controls, so that the write is not
     /// mistaken for a person typing. The same flag `viewer-gtk` calls `suppress`.
     bool writing_ = false;

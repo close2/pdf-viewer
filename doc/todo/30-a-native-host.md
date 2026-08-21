@@ -192,8 +192,17 @@ Escape. **It needed no new message**, which is the claim above tested for the fi
 six-hundred-and-seventh: `Command::Present` had existed since ADR 0316 and `Query::Opening` and
 `Query::Preferences` since the hundred-and-thirty-seventh session, each because a clause needed a
 channel. What it did need was the two native hosts gaining a presentation mode they had never sent,
-which is what "all three stay level" costs and is exactly what that decision is for. What is still
-`viewer-ui`'s alone is §12.4.4.1's *clock* — see `doc/todo/32`.
+which is what "all three stay level" costs and is exactly what that decision is for.
+
+**And §12.4.4.1's *clock* stopped being `viewer-ui`'s alone in the six-hundred-and-forty-second**
+(ADR 0473), which is the same sentence a round later and the whole shape this decision predicts: a
+window with the mode and not the clock is full screen and *static*, so `/Dur` advanced no page in
+GTK or Qt and Table 164's effects did not animate. `viewer_host::Clock` is the decision — how often
+to tick, what a tick carries, that the clock is held while an effect is drawn, and when `/D` has
+elapsed — and the three event loops supply only the wall clock. **It needed no new message either**,
+which is the sixth time since the six-hundred-and-seventh: `Command::Tick` has carried milliseconds
+since ADR 0135. `viewer-ui` adopted the shared clock and lost a private type doing it, which is what
+distinguishes this from a third copy.
 
 **All three hosts have it since the six-hundred-and-seventh** (ADR 0442), which is where this
 file's "all three stay level" decision stands: `viewer-gtk` draws one `gdk::MemoryTexture` per page,

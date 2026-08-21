@@ -4442,6 +4442,7 @@ name = "viewer-host"
 version = "0.1.0"
 dependencies = [
  "pdf-model",
+ "pdf-render",
  "pdf-syntax",
  "thiserror 2.0.19",
  "viewer-core",

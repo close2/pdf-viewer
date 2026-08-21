@@ -502,6 +502,19 @@ MainWindow::MainWindow(rust::Box<Host> host)
         page_->setPalette(laid);
     }
 
+    // §12.4.4.1's clock. Created stopped, and started only when a presentation is: a reader who
+    // never presses `p` never has a timer, which is what `CLAUDE.md`'s second principle asks of
+    // anything that would otherwise wake a processor for nothing.
+    clock_ = new QTimer(this);
+    connect(clock_, &QTimer::timeout, this, [this] {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->presentation_tick();
+        applyUpdates();
+    });
+
     static const char* const kTabs[3] = {"Outline", "Layers", "Files"};
     for (unsigned char which = 0; which < 3; ++which) {
         trees_[which] = buildTree(which);
@@ -712,6 +725,25 @@ void MainWindow::pumpSearch()
     });
 }
 
+// ISO 32000-2 §12.4.4.1's clock, as one `QTimer` whose interval the host decides.
+//
+// `viewer_host::Clock` answers how long to wait: a tenth of a second while a page is simply being
+// shown, a sixtieth while one of Table 164's effects is in flight, and `-1` when nothing is
+// presenting. The restart is guarded on the interval so that a key press — which also reaches
+// `applyUpdates` — does not push the next tick out by a whole period every time.
+void MainWindow::pumpPresentation()
+{
+    const int wait = host_->presentation_wait();
+    if (wait < 0) {
+        clock_->stop();
+        return;
+    }
+    if (!clock_->isActive() || clock_->interval() != wait) {
+        clock_->setInterval(wait);
+        clock_->start();
+    }
+}
+
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
     if (busy_) {
@@ -763,6 +795,7 @@ void MainWindow::applyUpdates()
         status_->setText(text(host_->status()));
     }
     pumpSearch();
+    pumpPresentation();
     if (update.window) {
         applyChrome();
     }
