@@ -25,6 +25,28 @@ can and cannot open a window on, and where the build lands.
   the neighbour had pushed in between and `pop` takes `stash@{0}`. Both trees were wrong and
   neither said so.
 
+- **A worktree's *build directory* outlives the worktree, and nothing removes it.** A parallel round
+  is given its own `target-dir` in a per-worktree `.cargo/config.toml` — that is right, and it is
+  what keeps rounds off one build lock without the `CARGO_TARGET_DIR` export `sccache` cannot see.
+  What is easy to miss is that `git worktree remove` deletes the *checkout* and leaves the build
+  directory behind, at **19-29 GB apiece**. Twenty-three of them accumulated to **425 GB** across
+  five batches before anybody looked, while the number being repeated in reports was a stale one
+  taken from a single directory months of rounds earlier.
+
+  So **remove the two together**, and treat the pair as one command:
+
+  ```sh
+  git worktree remove --force .claude/worktrees/rNNN
+  git branch -D round-NNN
+  rm -rf /home/AI/cargo-target/pdfv-rNNN      # the half `worktree remove` does not touch
+  ```
+
+  And the sweep §5a asks for is worth doing by *profile* rather than wholesale: `debug` was **131 GB
+  of 158** in the shared directory and is the one Cargo on stable cannot garbage-collect, while
+  `release` and `gates` are 9.4 and 4.7 and are what the gates and §5's binaries run from. `tmp/` is
+  never swept — it holds the reference-render cache, and deleting it costs the next oracle run about
+  a thousand seconds of `pdftoppm`, `mutool` and `gs`.
+
 - **Name the worktree in every `git` command: `git -C /…/worktrees/rNNN …`.** A round's shell
   working directory is not a guarantee. In the six-hundred-and-fourteenth session it moved, without
   any `cd` to a worktree, from `r614` to **`r616` — a parallel round's tree** — and the next
