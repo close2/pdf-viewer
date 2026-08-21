@@ -18,6 +18,10 @@ read-and-kept sentence, and two of the four it read off the bottom of that list 
 property of the base rather than of the ledger, so bands are quoted as **ranks** now; and the rule
 for choosing within a band is to read the row whose stated reason is a claim about this codebase
 rather than about the standard (ADR 0455).
+**The six-hundred-and-thirty-second found both of its defects in the *settled* half of the
+vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
+an account of the requirement that is not the clause's — which is the half no sweep reads, because
+a claim that nothing is owed has no missing thing to grep for (ADR 0465).
 **Seventeen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405) and a
 seventeenth in `tools/spec-errata`, where the errata are (ADR 0426) — twelve run every round, a thirteenth run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
@@ -3369,6 +3373,52 @@ answer would be*, because it is what made the §12.11 pair cheap and the others 
 That is not a new sweep. It is a rule for *writing* a row, and it is the only kind of rule that
 makes the next re-read cheaper rather than the current one.
 
+## The band 626 named read in the six-hundred-and-thirty-second, and both defects were a *status*
+
+**Sixteen rows, and the boundary moved exactly as 626 warned it would.** Re-derived the same way —
+`git blame --line-porcelain doc/conformance/ledger.toml`, each `partial` or `reported` row's own
+`note = ` line, ranked by where its commit falls in `git log --reverse`. **The blame ordering
+agreed with 626 on the seven rows it named** and then went on for nine more: 626's rank 10 is this
+base's rank 1, and what 626 saw as a gap of five hundred commits is now a band of sixteen at seven
+commits, with the next row forty-two commits above it. The sixteen are §12.7.4 (rank 1), §12.7.6.2
+(2), §8.7.3 (3), §11.7.5 and §12.11 (4–5), §14.8.4 and §14.9 (6–7), §12.8.2.2, §12.8.3.3.2,
+§12.8.3.4.1, §12.8.3.4.2 and §12.8.5 (8–12), and §12.8.3.4.4, .6, .7 and .8 (13–16) — nine of the
+sixteen written by two signature rounds, which is why the band is suddenly long. **Ranks, not
+indices**: this base has 816 commits and 626's numbers do not name the same rows in it.
+
+**620's rule chose the work for the third time.** Of the sixteen, four stated a reason that is a
+claim about this codebase rather than about the standard, and all four paid:
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§14.8.4** and **§14.8.4.2** | 620's second — the *status* rather than the note | `partial`, because "Annex L's nesting rules are not checked, and are a validator's job rather than a reader's" | that is an argument for owing nothing, and the two rows it names as precedent — §7.11.2.1 and §7.12.4 — are `implemented` for it, as Annex L's own row is `writer-side`. §14.8.4.2 states one `shall` and `standard_role` executes it; §14.8.4 states no prose at all. Both `implemented`. ADR 0465 |
+| **§11.7.5.2** (reached from §11.7.5, rank 4) | 620's second again, in the other direction | `inapplicable`, because per-region tracking "needs a second transfer function competing with a first inside a transparency group" | the clause needs no second function: where the topmost object is not fully opaque, "the default halftone and transfer function for the page shall be used", and this tree applies the object's. `silent`, with what is drawn wrong, what would report it, and a population measured at **zero**. ADR 0465 |
+| **§14.9.4** (reached from §14.9, rank 7) | 620's newest — the row is right and its evidence is not | `implemented`, "[b]oth of the clause's locations are read" | Errata Collection 3 Issue #483 makes it three, adding an `Artifact` tag's property list; the interpreter meets it by construction and **nothing in the tree ran it**. A test does now, mutation-checked |
+| **§8.7.3** | a confirmation, re-derived rather than repeated | "that outline is the backends' to compute … so there is no path here to tile" | still true, and now with the evidence in the row: no crate that builds a display list depends on `kurbo` or a rasteriser, and all three backends expand a stroke themselves. Two errata on §8.7.3.1 recorded, neither moving a requirement |
+
+### The sharpening this round adds: **a settled status is an argument, and the argument names rows**
+
+620's rule ranks by what kind of claim a reason makes; 626's adds where the answer would be. Both
+of this round's defects were in the *settled* half of the vocabulary — `implemented`,
+`inapplicable`, `writer-side`, `out-of-scope` — and that half is where no sweep looks, because a
+claim that nothing is owed has no missing thing to grep for.
+
+> **Where a row's note cites another clause as precedent, the precedent has a status.** Either the
+> two agree or one of them is wrong, and which is which is a minute's reading.
+
+§14.8.4.2 cited §7.11.2.1 and §7.12.4 by number, in its own note, and held a different status from
+both for two hundred and fifty sessions. **That is a sweep somebody could write and it is not
+written**: the population is every row whose note names a clause that has a row, and the hit is a
+disagreement between the citing row's status and the cited row's. It is not the eighth sweep, which
+asks whether a *file* a note names exists; it is the same question one level up, about a claim
+rather than a pointer. Whichever round wants a thirteenth program has it named here.
+
+**And an `inapplicable` row's reason decays exactly as `CLAUDE.md` says a scope line does.** The
+seventh sweep reads `inapplicable` rows already, but it asks whether the *tree names the row's
+vocabulary* — a discriminator that cannot see a row whose vocabulary is right and whose account of
+the requirement is wrong. §11.7.5.2 names `/TR`, `/HT`, `/BG` and `/UCR` and the tree names all
+four; the sweep had nothing to say. Only reading the clause found it.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
@@ -3397,13 +3447,18 @@ makes the next re-read cheaper rather than the current one.
   wrong and the section above has each. ~~**The next band is the eight rows the ordering now puts
   under rank 17** — §14.8.2.2.1 and §14.8.2.2.2, §12.11.3 and §12.11.6, §14.13 and §14.13.2, and
   §12.6.4.6, §12.6.4.9 and §12.6.4.10.~~ **Taken in the six-hundred-and-twenty-sixth**, and it was
-  nine rows rather than eight; six of the nine were wrong and one of the six was work. **The next
+  nine rows rather than eight; six of the nine were wrong and one of the six was work. ~~**The next
   band starts at what is now rank 10**, five hundred commits above the nine just read — §12.7.4,
-  §12.7.6.2, §8.7.3, §11.7.5, §12.11, §14.8.4, §14.9, then §12.8.2.2 and its four neighbours — and
-  §8.7.3's tiling patterns are the one of those that can change a pixel. Quoted as ranks rather
-  than as commit numbers, for the reason the section gives. Re-derive the order before believing
-  this sentence: a parallel round merging ahead of yours can take a row off it, which is what
-  happened two bands ago.
+  §12.7.6.2, §8.7.3, §11.7.5, §12.11, §14.8.4, §14.9, then §12.8.2.2 and its four neighbours.~~
+  **Taken in the six-hundred-and-thirty-second**, and it was sixteen rows rather than twelve — the
+  band runs on to §12.8.3.4.8 and the next row after it is forty-two commits above. Four of the
+  sixteen were read and all four paid. **The twelve left in that band are the next one**: §12.7.4,
+  §12.7.6.2, §12.11, and the nine signature rows from §12.8.2.2 to §12.8.3.4.8, which share two
+  commits and, between them, one paragraph of boilerplate repeated five times — five `reported`
+  rows citing three `pdf-model` tests for a report that `viewer_core::notes` makes, which is 620's
+  newest shape waiting to be checked. Quoted as ranks rather than as commit numbers, for the reason
+  the section gives. Re-derive the order before believing this sentence: a parallel round merging
+  ahead of yours can take a row off it, which is what happened three bands ago.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.
