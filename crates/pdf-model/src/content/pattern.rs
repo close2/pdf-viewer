@@ -19,7 +19,7 @@ use crate::colour::ColourSpace;
 use super::colour::{BlackPoint, convert};
 use super::report::Unsupported;
 use super::run::narrow;
-use super::transparency::{any_command, command_blends};
+use super::transparency::{Painted, any_command, command_blends};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERATIONS};
 
 /// What a `/Pattern` colour space's `scn` selected.
@@ -636,7 +636,20 @@ impl Interpreter<'_> {
             tiling.step.0 * as_f32(first_column),
             tiling.step.1 * as_f32(first_row),
         );
+        // §11.7.5.2's sixth condition: "[i]f the current colour is a tiling pattern, all objects
+        // in the definition of its pattern cell also satisfy the foregoing conditions." The cell
+        // runs from `GraphicsState::initial` for §11.6.7's reason, so a mark inside it cannot see
+        // the fill that invoked it; the four conditions are read off `state` here and carried
+        // down. A pattern is a *colour*, and this route paints with the non-stroking one — a
+        // stroke whose colour is a tiling pattern is reported rather than drawn (§8.4.3,
+        // ADR 0028), so there is no stroking case to ask about.
+        let inside = self.opaque_ancestry
+            && state.fill_alpha >= 1.0
+            && state.blend == BlendMode::Normal
+            && state.soft_mask.is_none();
+        let ancestry = std::mem::replace(&mut self.opaque_ancestry, inside);
         let box_clip = self.run_cell(tiling, offset.then(tiling.to_page), clip);
+        self.opaque_ancestry = ancestry;
         // Table 74's box, and the marks it halves: both are settled on the cell itself, so
         // every site is a copy of the settled figure rather than a repetition of the question.
         if let Some(corners) = tiling.bbox {
@@ -769,6 +782,9 @@ impl Interpreter<'_> {
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
 
+                // §11.6.4.4 makes `sh` a non-stroking painting operation, and §10.5's function
+                // reaches none of the colours this shading carries.
+                self.note_transfer(state, Painted::Shading { stroking: false });
                 self.list.push(Command::Fill {
                     path: Arc::new(path),
                     transform,

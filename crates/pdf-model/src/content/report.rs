@@ -198,6 +198,37 @@ pub enum Unsupported {
         /// What could not be decided.
         detail: String,
     },
+    /// A §10.5 transfer function reached a colour the clause does not put it on, or missed one.
+    ///
+    /// The function itself is implemented — read from Table 57's `/TR2` or `/TR` and applied to
+    /// each object's own colour on the way to the device — and two of the clauses around it ask
+    /// for something that construction cannot give.
+    ///
+    /// **§11.7.5.2 makes the parameter a property of a *region* rather than of an object.**
+    ///
+    /// > The halftone and transfer function to be used at any given point on the page shall be
+    /// > those in effect at the time of painting the last (topmost) elementary graphics object
+    /// > enclosing that point, but only if the object is fully opaque.
+    ///
+    /// and, closing the same paragraph:
+    ///
+    /// > For portions of the page whose topmost object is not fully opaque or that are never
+    /// > painted at all, the default halftone and transfer function for the page shall be used
+    ///
+    /// So where the topmost object at a point is not fully opaque, the clause puts the page's
+    /// *default* function on the composited colour, and this tree has already put each
+    /// contributing object's own function on that object's colour. The two agree exactly where
+    /// the topmost object is fully opaque and nowhere else. See
+    /// [`Interpreter::note_transfer`] for the six conditions and how the ancestry is carried.
+    ///
+    /// **§10.5 asks for every component value the device receives**, and a shading's colours do
+    /// not pass through the map at all — they are produced by a ramp, a mesh or a sampled
+    /// function that the display list carries whole, and the transfer would have to reach each
+    /// of them. Reported where a shading is painted with one in force.
+    TransferFunction {
+        /// Which clause, which condition matched, and what it costs the page.
+        detail: String,
+    },
     /// The page's ancestry states no usable `/MediaBox`, so its geometry is this program's.
     ///
     /// ISO 32000-2 §7.7.3.3 Table 31 makes the entry "( Required; inheritable )" and §7.7.3.4

@@ -16,6 +16,7 @@ use super::colour::Intent;
 use super::ext_gstate::Transfer;
 use super::pattern::PatternPaint;
 use super::report::Unsupported;
+use super::transparency::Painted;
 use super::{GraphicsState, Interpreter};
 
 /// One decoded image through §10.5's transfer function, or unchanged where none is in effect.
@@ -284,6 +285,15 @@ impl Interpreter<'_> {
         // out of the dictionary, so a raster answered from the cache says what a fresh decode
         // says — which is the property trap 5 is about, and `tests/image_reuse.rs` pins it.
         let conversion = self.image_conversion(&stream.dict, state);
+        // §11.7.5.2's fourth condition is about the image's own dictionary rather than about the
+        // graphics state — "[i]f the object is an image XObject and there is not an SMask entry
+        // in its image dictionary" — so it is answered here, where the dictionary is.
+        self.note_transfer(
+            state,
+            Painted::Image {
+                soft_mask: !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null),
+            },
+        );
         match self.image_rasters.parts(
             self.document,
             image,
@@ -441,6 +451,7 @@ impl Interpreter<'_> {
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
+        self.note_transfer(state, Painted::of(state.fill_pattern.as_ref(), false));
         self.list.push(Command::Fill {
             path: Arc::new(path),
             transform: state.transform,

@@ -744,7 +744,7 @@ pub(crate) fn inherited_number(
 mod tests {
     use pdf_syntax::Document;
 
-    use super::{Control, fields};
+    use super::{Control, TextControl, fields};
     use crate::view::ViewState;
 
     /// A one-page document with the `/AcroForm` and annotations the caller spells.
@@ -932,6 +932,62 @@ mod tests {
         assert_eq!(read.len(), 1, "{read:?}");
         assert_eq!(read[0].name.qualified, "PersonalData.ZipCode");
         assert_eq!(read[0].partial, "ZipCode");
+    }
+
+    /// §12.7.4.1's inheritance, which decides a field's type, its flags and its value.
+    ///
+    /// > Many field attributes are inheritable , meaning that if they are not explicitly
+    /// > specified for a given field, their values are taken from those of its parent in the
+    /// > field hierarchy.
+    ///
+    /// **Nothing in this tree asserted it until the six-hundred-and-thirty-seventh session**, and
+    /// both rows that claimed it cited `variable_text.rs::quadding_moves_the_line_within_its_box`
+    /// — a §12.7.4.3 test whose widget is one merged dictionary, so the `/Parent` chain it walks
+    /// is empty and the rule above is exercised zero times. That is `doc/todo/01`'s third shape: a
+    /// row whose evidence does not reach its claim.
+    ///
+    /// The fixture states `/FT`, `/Ff` and `/V` **only** on the ancestor, two links up so that a
+    /// walk which stopped at the immediate parent would fail as well, and reads all three back
+    /// through the public answer a host gets. Table 227's bits 1, 2 and 3 are asked for together
+    /// because `/Ff` is one inherited integer and taking it from the wrong dictionary would move
+    /// all three at once.
+    #[test]
+    fn a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them() {
+        let document = document(
+            "/Fields [4 0 R]",
+            "6 0 R",
+            "4 0 obj << /T (top) /FT /Tx /Ff 7 /V (inherited) /Kids [5 0 R] >> endobj\n\
+             5 0 obj << /T (middle) /Parent 4 0 R /Kids [6 0 R] >> endobj\n\
+             6 0 obj << /Type /Annot /Subtype /Widget /Rect [10 10 90 30] /Parent 5 0 R \
+             /T (leaf) >> endobj\n",
+        );
+        let view = ViewState::of(&document);
+        let read = fields(&document, &page(&document), &view);
+        assert_eq!(read.len(), 1, "{read:?}");
+        assert_eq!(read[0].name.qualified, "top.middle.leaf");
+        assert_eq!(
+            read[0].control,
+            Control::Text(TextControl {
+                multiline: false,
+                password: false,
+                file_select: false,
+                do_not_spell_check: false,
+                do_not_scroll: false,
+                comb: None,
+                max_len: None,
+                rich_text: false,
+            }),
+            "Table 226's /FT, stated two links up"
+        );
+        assert!(
+            read[0].read_only && read[0].required && read[0].no_export,
+            "Table 227's bits 1, 2 and 3 out of one inherited /Ff of 7"
+        );
+        assert_eq!(
+            read[0].value.as_ref().map(|shown| shown.text.as_str()),
+            Some("inherited"),
+            "Table 226's /V, stated two links up"
+        );
     }
 
     /// Table 226 makes `/FT` required of a terminal field, and a file that omits it is described

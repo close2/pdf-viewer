@@ -6,8 +6,11 @@ evidence below. §10.5's ledger row was `silent` for one round — the first sin
 session — and is `implemented` now. Kept because the *argument* is what took the round, and because
 `doc/todo/01`'s sweeps look here.
 **And re-opened in the six-hundred-and-thirty-second**, which found §11.7.5.2 `inapplicable` on an
-argument about the clause that the clause does not make; that row is `silent` now and the last
-section of this file is what it owes.
+argument about the clause that the clause does not make. **The six-hundred-and-thirty-seventh
+closed the `silent` half**: the report is built and that row is `reported`, and the reading it took
+found a *second* gap one clause up — a shading's colours never pass through §10.5's map at all,
+which makes that row `partial` and reported too. What is still owed is the per-region model, and
+the last section of this file is what it costs.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2` and how many state a real one
@@ -174,6 +177,16 @@ sessions before §10.4.2.5 turned out to answer it outright.
   need "§11.7.5.2's per-region tracking, which stays inapplicable until a *second* transfer
   function competes with a first inside a transparency group", and that is wrong about the
   clause** — see the section below, which is the debt this file now carries.
+- **What it turned out to miss, found in the six-hundred-and-thirty-seventh session**: a
+  **shading**. `fill_paint` returns `Paint::Shading` before the line that maps a colour, and `sh`
+  never asks, so an axial ramp's stops, a mesh's corners and a sampled function's program all
+  reach the backend unmapped. §10.5's subject is the component value — "[t]he output shall be the
+  transformed component value to be transmitted to the device" — and a shading's are values.
+  Reported rather than implemented (`Unsupported::TransferFunction`, §10.5's row is `partial`),
+  because it is a `pdf-render` change: `Shading::with_alpha` is the shape it would take — the same
+  walk over `Ramp`, `Corners::Colours` and `DeferredColours` — and `Transfer` lives in `pdf-model`,
+  so what crosses is a closure rather than the type. Call it sixty lines and one fixture, for a
+  population the census measures at zero.
 - **Measured in the three-hundred-and-fifty-eighth session, by the census this bullet asked for**:
   `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
 
@@ -207,20 +220,39 @@ or `/Default`, and `mutool draw -F trace` on that document's page shows its one 
 `alpha="1"`, Normal, no soft mask and no `/SMask`. **Zero corpus pages are drawn wrong by this
 today.** A round that changes it therefore has no oracle witness and owes a fixture (trap 8).
 
-Two pieces of work, in this order:
+Two pieces of work, in this order. **The first is done as of the six-hundred-and-thirty-seventh
+session; the second is what this file still owes.**
 
-1. **The report, which is small and belongs to whichever round next touches `content.rs`.** An
-   `Unsupported` variant raised where a mark is made with `GraphicsState::transfer` in force under
-   a state §11.7.5.2 does not call fully opaque. The shape already exists one clause over —
-   §11.7.5.3's `black_generation_stated` is a monotone page flag read by
-   `Interpreter::blending_undrawable` — but this one needs the *ancestry* as well as the state,
-   because a group's `Do` and a tiling pattern's caller each decide opacity for everything inside
-   them, and a flag that only looked at the mark's own alpha would under-report exactly the nested
-   case the clause spends four of its six conditions on. Call it forty lines and one fixture.
+1. **The report — built.** `Interpreter::note_transfer` raises `Unsupported::TransferFunction`, and
+   the condition is derived from the clause rather than approximated from the code. At a point the
+   clause's answer is the topmost object's function where that object is fully opaque and the
+   page's default otherwise; this tree's is each contributor's own applied before compositing. So
+   the two differ **exactly where some object covering the point carried a function and the topmost
+   object covering it is not fully opaque** — one statement covering both the object that carries
+   the transfer and the translucent object painted over it, which two separate conditions would
+   have got wrong in the second case. Nothing here knows which objects overlap, so what fires is
+   the geometric over-approximation: a mark §11.7.5.2 does not call fully opaque, made while some
+   mark on the page has carried a function. It cannot under-report, since a point drawn wrong has
+   both halves on the page in that order.
+
+   The *ancestry* was the trap and it is carried rather than read: §11.6.6 resets the blend mode,
+   both alpha constants and the soft mask before a group's content runs, and §11.6.7 starts a
+   tiling cell from the initial state, so a flag reading the mark's own alpha would have reported
+   **nothing at all** for the nested case. `Interpreter::opaque_ancestry` is narrowed in
+   `group_commands` and in `tile`, and scoped away inside a soft mask's group, whose marks are
+   never painted at a point on the page. `tests/transfer_functions.rs` has the three fixtures,
+   each with its mutation.
 2. **The per-region model, which is a rasteriser change and is not small.** The clause's quantity
    is a property of a *point*, decided by the topmost object covering it, and applied to the
    composited colour rather than to each contributor's. Nothing in the display list carries a
    per-point parameter today, and inventing one for a population of zero would be speculative
-   work of exactly the kind `CLAUDE.md` forbids. What makes it worth writing down is that the
-   *reason* is now a measurement rather than a claim about the clause, so a document that turns up
-   stating a transfer function under a soft mask moves it straight to the top.
+   work of exactly the kind `CLAUDE.md` forbids. What it would take, so that the next round does
+   not have to re-derive it: a per-pixel *transfer identity* rasterised beside the colour — each
+   fully opaque mark writing its own function's index, each non-opaque one writing the page's
+   default — and one pass over the finished raster mapping each pixel through the function its
+   index names. That is a second channel in `pdf-render`'s target and a matching pass in all three
+   backends, which is why it is priced as a rasteriser change and not as a report. What makes it
+   worth writing down is that the *reason* to defer is now a measurement rather than a claim about
+   the clause, so a document that turns up stating a transfer function under a soft mask moves it
+   straight to the top — and since the six-hundred-and-thirty-seventh such a document says so out
+   loud instead of being drawn wrong in silence.

@@ -35,6 +35,46 @@ pub(super) struct TransparencyGroup {
     colour_space: Object,
 }
 
+/// Which elementary graphics object is being painted, for §11.7.5.2's conditions.
+///
+/// The clause's six conditions are not all about the graphics state: the fourth is about the
+/// image dictionary and the first depends on which of Table 52's two alpha constants the painting
+/// operation reads. Both are the caller's to know, so they arrive as this rather than as two
+/// booleans nobody could read at a call site. See [`Interpreter::note_transfer`].
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Painted {
+    /// A non-stroking mark whose paint carries a colour: a fill, a glyph fill, a stencil mask.
+    Filled,
+    /// A stroking mark, which reads the *stroking* alpha constant instead.
+    Stroked,
+    /// An image `XObject`, with whether its own dictionary states the clause's `/SMask`.
+    Image {
+        /// The fourth condition, which only the caller can answer.
+        soft_mask: bool,
+    },
+    /// A shading, painted by `sh` or as a pattern, whose colours no transfer function reached.
+    Shading {
+        /// Whether it was the stroke colour, for the first condition.
+        stroking: bool,
+    },
+}
+
+impl Painted {
+    /// Which kind a fill or a stroke is, given the pattern its colour names.
+    ///
+    /// §8.7.2 makes a pattern a colour — "[a]ll patterns shall be treated as colours" — and only
+    /// one of the three answers changes what §10.5 reaches: a shading's colours are produced by
+    /// the backend and never pass through the transfer function. A tiling pattern is not a paint
+    /// at all, so it never reaches a call site of this; a solid colour has already been mapped.
+    pub(super) fn of(pattern: Option<&super::pattern::PatternPaint>, stroking: bool) -> Self {
+        match pattern {
+            Some(super::pattern::PatternPaint::Shading(_, _)) => Self::Shading { stroking },
+            _ if stroking => Self::Stroked,
+            _ => Self::Filled,
+        }
+    }
+}
+
 /// A glyph outline's bounding box in page space, for §9.3.8's overlap test.
 ///
 /// Built from the control points rather than from the curves' extremes, so it contains the
@@ -1278,6 +1318,12 @@ impl Interpreter<'_> {
         // reason one construction over: a space declared inside a mask is answered by
         // §11.5.3's own derivation and says nothing about the group the `gs` sits in.
         let saved_departed = std::mem::replace(&mut self.nested_space_departed, false);
+        // And §11.7.5.2's record of a transfer function having reached a mark, for the reason
+        // the two above it are scoped: the clause is about "any given point on the page", and
+        // §11.5.3 turns this group's result into one luminosity rather than painting it at a
+        // point. So a function applied inside a mask is not a function applied to anything the
+        // page composites, and a mark inside a mask is not one the clause asks about.
+        let saved_transfer = std::mem::replace(&mut self.transfer_painted, false);
         // And pattern space, which is the one this list did **not** save until the
         // six-hundred-and-twenty-first session. §8.7.2 states where a pattern's matrix lands:
         //
@@ -1298,6 +1344,7 @@ impl Interpreter<'_> {
         self.run(&content, &resources, &inner, 0);
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
+        self.transfer_painted = saved_transfer;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
         self.alpha_sources_mark = saved_ais_mark;
         self.transparent_initial_backdrop = saved_backdrop;
@@ -1408,7 +1455,7 @@ impl Interpreter<'_> {
         self.blending_changed |= changed;
         let outside = std::mem::replace(&mut self.blending, entered);
         let (commands, pair, ais_inside) =
-            self.group_commands(group, content, resources, &inner, form_depth);
+            self.group_commands(group, content, resources, (&inner, outer), form_depth);
         self.blending = outside;
         self.inside_knockout = enclosing_knockout;
         self.transparent_initial_backdrop = enclosing_transparent;
@@ -1650,14 +1697,27 @@ impl Interpreter<'_> {
         group: &TransparencyGroup,
         content: &NestedContent,
         resources: &Dictionary,
-        inner: &GraphicsState,
+        states: (&GraphicsState, &GraphicsState),
         form_depth: usize,
     ) -> (
         Vec<Command>,
         Option<pdf_render::GroupBlending>,
         AlphaSourcesSeen,
     ) {
+        let (inner, outer) = states;
         let mark = self.list.command_count();
+        // §11.7.5.2's fifth condition: "[t]he foregoing four conditions were also true at the
+        // time the `Do` operator was invoked for the group containing the object, as well as
+        // for any direct ancestor groups." They are read off `outer`, the state at the `Do` —
+        // §11.6.6 has already reset them on `inner` — and anded into what was already in force,
+        // which is what "as well as for any direct ancestor groups" asks for. `Do` is a
+        // non-stroking painting operation, so it is the non-stroking constant; the image
+        // condition cannot apply to a form.
+        let opaque_at_do = self.opaque_ancestry
+            && outer.fill_alpha >= 1.0
+            && outer.blend == BlendMode::Normal
+            && outer.soft_mask.is_none();
+        let outer_ancestry = std::mem::replace(&mut self.opaque_ancestry, opaque_at_do);
         let outer_ais = std::mem::replace(
             &mut self.alpha_sources,
             AlphaSourcesSeen::of(inner.alpha_is_shape),
@@ -1715,6 +1775,7 @@ impl Interpreter<'_> {
         if ink.is_some() {
             self.nested_space_departed = saved_departed;
         }
+        self.opaque_ancestry = outer_ancestry;
         let ais_inside = self.alpha_sources;
         // Folded into the enclosing scope's record, unless that scope had painted nothing
         // before this group — in which case the enclosing reading reached no mark either and
@@ -1848,6 +1909,147 @@ impl Interpreter<'_> {
             ));
         }
         self.blending_beyond
+    }
+
+    /// Says where §10.5's transfer function reached a colour §11.7.5.2 does not put it on.
+    ///
+    /// Called once per elementary graphics object that marks the page, with the state it is
+    /// painted under. Two clauses are asked here and they are asked in this order because only
+    /// the first decides whether the object carries a transfer at all.
+    ///
+    /// # §10.5, and the paint that never sees the function
+    ///
+    /// The clause's subject is a component value, not an object:
+    ///
+    /// > In the sequence of steps for processing colours, the PDF processor shall apply the
+    /// > transfer function after performing any needed conversions between colour spaces.
+    ///
+    /// [`GraphicsState::fill_paint`] applies it to a solid colour and `image::transferred_image`
+    /// to an image's samples, and a shading's colours pass
+    /// through neither: they live in a ramp, a mesh's corners or a sampled function that the
+    /// display list hands to the backend whole. So a `sh`, or a fill or stroke whose colour is a
+    /// shading pattern, is painted with the function *not* applied where the clause applies it —
+    /// a different departure from the one below, and named as itself.
+    ///
+    /// # §11.7.5.2, and the parameter that belongs to a region
+    ///
+    /// > The halftone and transfer function to be used at any given point on the page shall be
+    /// > those in effect at the time of painting the last (topmost) elementary graphics object
+    /// > enclosing that point, but only if the object is fully opaque.
+    ///
+    /// > For portions of the page whose topmost object is not fully opaque or that are never
+    /// > painted at all, the default halftone and transfer function for the page shall be used
+    ///
+    /// **The condition follows from those two sentences and not from the code.** At a point, the
+    /// clause's answer is the topmost object's function where that object is fully opaque, and
+    /// the page's default otherwise; this tree's answer is each contributor's own function
+    /// applied to that contributor's colour before compositing. Where the topmost object is fully
+    /// opaque the two agree, because the six conditions below "ensure that only the object itself
+    /// shall contribute to the colour at the given point" — the composited colour *is* that
+    /// object's colour. Where it is not fully opaque they agree only if no contributor at that
+    /// point carried a function at all. So the page is drawn wrong exactly where **some object
+    /// covering the point carried a transfer function and the topmost object covering it is not
+    /// fully opaque** — which is one report rather than one per mark, and which needs no second
+    /// function competing with a first. One stated `/TR` under a `ca` of 0.5 is enough.
+    ///
+    /// Nothing here knows which objects overlap, so the page-level statement is the geometric
+    /// over-approximation of that condition: a mark that is not fully opaque, painted while some
+    /// earlier or current mark carried a function. It cannot under-report — a point drawn wrong
+    /// has both halves on the page, in that order — and it over-reports only a page whose
+    /// non-opaque marks all miss the transferred ones. The population that can reach either is
+    /// measured rather than assumed: `examples/transfer_function_census` finds 13 corpus
+    /// documents stating a Table 57 `/TR` or `/TR2` and exactly one stating anything but
+    /// `/Identity` or `/Default`.
+    pub(super) fn note_transfer(&mut self, state: &GraphicsState, painted: Painted) {
+        if state.transfer.is_some() {
+            if matches!(painted, Painted::Shading { .. }) {
+                self.note(Unsupported::TransferFunction {
+                    detail: "§10.5: a shading's colours are painted without the transfer \
+                             function in force, which the clause applies to every component \
+                             value on its way to the device"
+                        .to_owned(),
+                });
+            } else {
+                self.transfer_painted = true;
+            }
+        }
+        if !self.transfer_painted {
+            return;
+        }
+        let Some(because) = self.not_fully_opaque(state, painted) else {
+            return;
+        };
+        self.note(Unsupported::TransferFunction {
+            detail: format!(
+                "§11.7.5.2: a transfer function was in force at a mark on this page, and {because} \
+                 — so where such an object is topmost the clause puts the page's default function \
+                 on the composited colour, and this tree put each contributing object's own"
+            ),
+        });
+    }
+
+    /// Which of §11.7.5.2's six conditions the object being painted fails, if any.
+    ///
+    /// > An object is fully opaque if all of the following conditions hold at the time the object
+    /// > is painted:
+    /// >
+    /// > - The current alpha constant in the graphics state (stroking or nonstroking, depending
+    /// >   on the painting operation) is 1.0.
+    /// > - The current blend mode in the graphics state is Normal .
+    /// > - The current soft mask in the graphics state is None .
+    /// > - If the object is an image XObject and there is not an SMask entry in its image
+    /// >   dictionary.
+    /// > - The foregoing four conditions were also true at the time the Do operator was invoked
+    /// >   for the group containing the object, as well as for any direct ancestor groups.
+    /// > - If the current colour is a tiling pattern, all objects in the definition of its
+    /// >   pattern cell also satisfy the foregoing conditions.
+    ///
+    /// The first three are read off the state, the fourth is the caller's since only it knows the
+    /// image dictionary, and the last two are [`Interpreter::opaque_ancestry`] — carried down
+    /// rather than looked up, because a mark inside a group or a cell cannot see the `Do` or the
+    /// fill that invoked it.
+    ///
+    /// The fourth condition names `/SMask` and nothing else. `/Mask` and `/SMaskInData` also stop
+    /// an image obscuring its backdrop, and the clause does not list them; they are left out
+    /// rather than folded in, because a condition the standard states is not ours to widen and
+    /// [`crate::image::overrides_graphics_state_mask`] is where the wider question already lives.
+    ///
+    /// Returns the *first* condition that fails, worded for the report. Which one it is is
+    /// diagnostic rather than normative — the clause needs all six — but a report that named
+    /// none of them could not be acted on.
+    fn not_fully_opaque(&self, state: &GraphicsState, painted: Painted) -> Option<&'static str> {
+        let stroking = matches!(
+            painted,
+            Painted::Stroked | Painted::Shading { stroking: true }
+        );
+        let alpha = if stroking {
+            state.stroke_alpha
+        } else {
+            state.fill_alpha
+        };
+        if alpha < 1.0 {
+            return Some(if stroking {
+                "the stroking alpha constant is below 1.0"
+            } else {
+                "the non-stroking alpha constant is below 1.0"
+            });
+        }
+        if state.blend != BlendMode::Normal {
+            return Some("the blend mode in force is not Normal");
+        }
+        if state.soft_mask.is_some() {
+            return Some("a soft mask is in force");
+        }
+        if matches!(painted, Painted::Image { soft_mask: true }) {
+            return Some("the image XObject's own dictionary states an /SMask");
+        }
+        if !self.opaque_ancestry {
+            return Some(
+                "an enclosing group's Do, or the fill that painted an enclosing pattern cell, \
+                 was itself not fully opaque",
+            );
+        }
+        None
     }
 
     /// Reports the parts of §11.4 this group asks for and does not get.

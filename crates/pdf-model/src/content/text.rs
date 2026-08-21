@@ -17,7 +17,7 @@ use super::font::Font;
 use super::path::marks;
 use super::pattern::PatternPaint;
 use super::report::{Placed, Unsupported};
-use super::transparency::{knockout_group_elements, outline_bounds};
+use super::transparency::{Painted, knockout_group_elements, outline_bounds};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
 
 /// What a text object owns, as against what the graphics state does.
@@ -769,6 +769,7 @@ impl Interpreter<'_> {
             self.tile(outline, transform, FillRule::NonZero, &tiling, state);
             return;
         }
+        self.note_transfer(state, Painted::of(state.fill_pattern.as_ref(), false));
         self.list.push(Command::Fill {
             // The font hands out shared outlines and the display list keeps them shared: a
             // page of text is the same few dozen glyphs over and over, so this is a refcount
@@ -825,6 +826,7 @@ impl Interpreter<'_> {
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
         let glyph_stroke_clip = self.paint_clip(state, false);
+        self.note_transfer(state, Painted::of(state.stroke_pattern.as_ref(), true));
         self.list.push(Command::Stroke {
             path: Arc::new(in_user_space),
             transform: state.transform,

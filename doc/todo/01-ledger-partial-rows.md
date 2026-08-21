@@ -3419,6 +3419,42 @@ vocabulary* — a discriminator that cannot see a row whose vocabulary is right 
 the requirement is wrong. §11.7.5.2 names `/TR`, `/HT`, `/BG` and `/UCR` and the tree names all
 four; the sweep had nothing to say. Only reading the clause found it.
 
+## The band read again in the six-hundred-and-thirty-seventh, and the rule paid a fourth time
+
+**Twelve rows at five commits now, where 632 found sixteen at seven.** Re-derived the same way and
+on this base, which has 824 commits: the four rows 632 read have left the band, and what is left is
+§12.7.4 (rank 1), §12.7.6.2 (2), §12.11 (3), §12.8.2.2, §12.8.3.3.2, §12.8.3.4.1, §12.8.3.4.2 and
+§12.8.5 (4–8, one commit), and §12.8.3.4.4, .6, .7 and .8 (9–12, one commit). The next row above is
+**forty-two commits away** — §10.4.2.4 and §10.4.2.5 — which is the same gap 632 measured, because
+nothing between has moved. The band is now entirely §12.7 and §12.8, which is what happens when a
+band is worked from the bottom: what survives is what two signature rounds wrote in two sittings.
+
+**620's rule chose the work for the fourth time, and 620's *newest* shape is what paid.** Of the
+twelve, four state a reason that is a claim about this codebase — §12.7.4, §12.11, §12.8.2.2 and
+§12.8.3.4.2 — and the other eight rest on a capability (a network, a trust store) that
+`CLAUDE.md` excludes or the sandbox forbids. Rank 1 was read.
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§12.7.4** and **§12.7.4.1** | 620's newest — the row is right and its evidence is not | both cited `variable_text.rs::quadding_moves_the_line_within_its_box` as their only test, and §12.7.4.1's opening claim is "Table 226's inheritance is implemented" | that fixture is a **single merged widget**, so the `/Parent` chain it walks has no links and §12.7.4.1's inheritance was asserted by nothing in the tree. `form.rs::a_fields_type_flags_and_value_come_from_the_ancestor_that_states_them` states `/FT`, `/Ff` and `/V` two links up and reads all three back; cutting `MAX_FIELD_ANCESTRY` to 1 fails it. §12.7.4's `code` array named only `appearance.rs` while every sentence in its note is about `view.rs` and `form.rs`. ADR 0469 |
+
+### What this round adds: **a family head's citations are the least maintained thing in the ledger**
+
+632 found the *status* of a family head stale because "a family's parent row is not maintained by
+the sessions that implement its members" — §12.7.4's own note says exactly that sentence about
+itself, and was corrected in the three-hundred-and-seventy-first for it. What nobody corrected was
+the arrays the corrected note rests on. So:
+
+> **When a note is corrected, the `code` and `test` arrays are corrected in the same edit or they
+> are not corrected at all.** A note argues about three children and cites one child's test; the
+> prose reads as maintained and the evidence is whatever the row was first written with.
+
+That is greppable and it is a thirteenth sweep somebody could write beside the twelfth: for each
+row, does its `note` name a source file that its own `code` array omits? §12.7.4 named `view.rs`
+and `form.rs` in prose and neither in its array, which is the hit. The eighth sweep already checks
+that a path a note names *exists*; this asks whether the row's own arrays agree with its own
+sentences.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
@@ -3452,11 +3488,13 @@ four; the sweep had nothing to say. Only reading the clause found it.
   §12.7.6.2, §8.7.3, §11.7.5, §12.11, §14.8.4, §14.9, then §12.8.2.2 and its four neighbours.~~
   **Taken in the six-hundred-and-thirty-second**, and it was sixteen rows rather than twelve — the
   band runs on to §12.8.3.4.8 and the next row after it is forty-two commits above. Four of the
-  sixteen were read and all four paid. **The twelve left in that band are the next one**: §12.7.4,
-  §12.7.6.2, §12.11, and the nine signature rows from §12.8.2.2 to §12.8.3.4.8, which share two
-  commits and, between them, one paragraph of boilerplate repeated five times — five `reported`
-  rows citing three `pdf-model` tests for a report that `viewer_core::notes` makes, which is 620's
-  newest shape waiting to be checked. Quoted as ranks rather than as commit numbers, for the reason
+  sixteen were read and all four paid. ~~**The twelve left in that band are the next one**~~ —
+  **rank 1 of the twelve, §12.7.4 with §12.7.4.1, was taken in the six-hundred-and-thirty-seventh
+  and paid.** **The eleven left are the next band**: §12.7.6.2, §12.11, and the nine signature rows
+  from §12.8.2.2 to §12.8.3.4.8, which share two commits and, between them, one paragraph of
+  boilerplate repeated five times — five `reported` rows citing three `pdf-model` tests for a
+  report that `viewer_core::notes` makes, which is 620's newest shape waiting to be checked, and
+  which is the shape that has now paid on four consecutive rounds. Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
