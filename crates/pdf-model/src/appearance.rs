@@ -877,10 +877,10 @@ fn text_icon(
     stream: &mut Stream,
     rect: [f32; 4],
 ) -> Outcome {
-    // **The caller's rectangle and not the file's**, which is the one place the two differ:
-    // §12.5.6.4 attaches a text annotation to a *point* and gives its icon a fixed size, so a
-    // `/Rect` with no area gets `annotation::anchored_icon`'s square and this is what has to
-    // draw into it.
+    // **The caller's rectangle and never the file's.** §12.5.6.4 attaches a text annotation to a
+    // *point* and gives its icon a size fixed on the screen, so `annotation::anchored_icon` is
+    // what states this square — a `/Rect` of any size, degenerate or four hundred units wide,
+    // reaches here as the same twenty-unit square hung from its upper-left corner.
     let name = document.get_key(annotation, "Name").as_name().map_or_else(
         || icon::DEFAULT_TEXT_NAME.to_vec(),
         |n| n.as_bytes().to_vec(),
@@ -934,9 +934,12 @@ fn draw_icon(stream: &mut Stream, figures: &[icon::Figure], box_: [f32; 4], side
 
 /// The largest square that fits inside a rectangle, centred in it.
 ///
-/// §12.5.6.4's icons carry their meaning in their proportions, so they are not stretched onto a
-/// `/Rect` of another shape; see [`crate::icon`] for that choice and for the `NoZoom` sentence
-/// it stands in for.
+/// The icons of §12.5.6.15 and §12.5.6.16 carry their meaning in their proportions — a paperclip
+/// stretched onto a wide `/Rect` is not a paperclip — so they are inscribed rather than stretched.
+/// Those two clauses put no size of their own on the annotation, which is what separates them from
+/// §12.5.6.4's: see [`crate::annotation`]'s `anchored_icon` for the sentences that do, and
+/// [`crate::icon`] for the artwork's own unit square. A text icon still passes through here and
+/// the call is the identity, because what it is given is already square.
 fn largest_square_within(rect: [f32; 4]) -> [f32; 4] {
     let side = (rect[2] - rect[0]).min(rect[3] - rect[1]);
     let left = rect[0] + ((rect[2] - rect[0]) - side) * 0.5;

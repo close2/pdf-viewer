@@ -629,3 +629,28 @@ the corpus, against a project whose second principle is latency — and every ax
 every gated page moving by up to an eighth of its coverage, which is trap 1's sweep over a
 population no previous change here has touched. Anything that is not axis-aligned keeps the
 quantum, where it is a sixteenth rather than a quarter and averages along the edge.
+## 8. A paint that cannot be positioned costs the page rather than the mark
+
+Found in the six-hundred-and-fortieth session, on the SafeDocs crawl and not by ink: `4605705.pdf`
+states eight `/Contents` parts, every one a Flate stream that decodes cleanly for tens of kilobytes
+and then into garbage, and among the garbage is a `cm` whose matrix has no inverse. `render-cpu`'s
+`page_to_path` is the one place that asks for one — a shading paint has to be expressed in the space
+its path is stated in — and it answers `CpuRasterError::UnsupportedPaint("singular transform …")`,
+which propagates out of `Rasterizer::rasterize`. **The whole raster is refused**, and the 293
+commands the page did draw go with it: `examples/render_at` aborts on its own `expect`, and a host
+gets `Err` where the graphics device would have handed it a page.
+
+The refusal itself is right and its doc comment argues why — "the alternative is a gradient placed
+somewhere arbitrary, which looks like a rendering rather than a failure" — and that argument is
+about **one mark**, not about the page. Trap 5's own test applies: the report is what keeps a
+missing gradient legible, and drawing nothing at that site loses no other mark. So the question this
+item owns is `Rasterizer`'s contract rather than the arithmetic: which of its errors are about a
+command and which about the target, and whether the ones about a command belong on
+`Interpretation::unsupported` beside every other per-mark refusal in the tree.
+
+**What it is not is this document's problem.** `4605705.pdf`'s content is noise — `poppler` refuses
+the file outright and `mutool` and `gs` disagree with each other by 78 levels of 255 about what it
+says — so it is a witness that the path is reachable and no guide at all to what the page should
+look like. A round that takes this owes a fixture whose singular transform is the only thing wrong
+with it, and a decision about `render-gpu`'s and `render-quorra`'s matching refusals, which are the
+same shape one crate along (`GpuRasterError::UnsupportedPaint`).

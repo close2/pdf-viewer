@@ -1349,6 +1349,98 @@ ranked (**29 checked, 0 absent, green**).
 rounds running, the crawl's head has been a defect no curated corpus states.
 
 
+### 26. The chunk the six-hundred-and-fortieth took: ten archives, and a condition nothing states
+
+**Taken: `2100`, `3990`, `4100`, `4605`, `6081`, `6100`, `6942`, `7065`, `7188` and `7434`, whole,
+10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+`pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink minus
+the lightest live reference's. **14 minutes 12 seconds** at fourteen workers; 9957 of the 10 000
+produce a number and 43 do not. Both binaries built first and §20's check run before anything was
+ranked (**31 checked, 0 absent, green**), with six documents ADRs 0459, 0464 and 0468 name
+reproduced to the thousandth. These are every remaining thousand-document archive but two.
+
+- **The negative head is the shallowest any chunk has produced, for the second round running, and
+  that is now a sequence** — deepest row **−8.860**, against 636's −10.174, 631's −43.503, 625's
+  −112.626, 619's −84.152 and 613's −20.341. 25 rows of the 9957 are below −3 and 48 below −2.
+  **What sits at the top of it is this tree's own scan conversion, documented and priced**, which is
+  the first chunk of eight where that is true rather than a misread clause. ADR 0471.
+- **One defect of this tree, and it was a *condition* rather than a reading.** `1407194.pdf`
+  **−6.304**, silent, §25's own open lead: a book cover with a pale yellow sticky note **250 units
+  square** over its top-left quarter, from a `/Text` annotation with `/Rect [0 542 400 792]` and no
+  `/AP`. `annotation::anchored_icon` had made the right derivation in the two-hundred-and-sixty-fifth
+  session — its own comment says "a fixed size, which is by definition not `/Rect`'s" — and then
+  written it under `if subtype != b"Text" || !is_empty(rect)`. §12.5.6.4's "attached to a point" and
+  its "shall behave as if the NoZoom and NoRotate annotation flags … were always set", §12.5.3's
+  "shall always maintain the same fixed size on the screen" and Table 166's "defining the location of
+  the annotation on the page in default user space units" say nothing about the rectangle's area;
+  §12.5.5's algorithm, which does turn `/Rect` into a size, maps a **stored** appearance's `/BBox`
+  and has nothing to map here. → **+0.032**. §12.5.6.15's and §12.5.6.16's icons are untouched
+  because neither clause states either sentence.
+- **The reach is measured over our own panel** (631's rule), before and after, over all **62
+  archives any chunk has ranked plus every document `doc/checks/fixed-documents.toml` and the
+  annotation census name — 62 009 documents**. **Four rows differ and no row differs for any other
+  reason.** Three of the four are in archives an earlier chunk took — `1407` is 636's, `6573` and
+  `2145` are 631's — the **eighth round running** that a fix has reached back. The sharper of the two
+  visible ones is on the **positive** side: `6573247.pdf` **+8.264 → −0.172**, the same producer's
+  note over a nearly blank page where the icon was most of the ink, against three references agreeing
+  within 0.04. `7557734.pdf` +0.604 → +0.025; `2145632.pdf` moves by nine ten-thousandths, which is
+  what the change costs where twenty-seven rectangles were already about the icon's size.
+- **The population was measured before the change** (trap 11) with an instrument that is not this
+  tree's (trap 8), and **it was wrong twice before it was believed** — a regular expression that
+  `rc_annotation.pdf`'s `<p>Hello World!</p>` defeated, then a stream-blanking pattern that also
+  matched the `stream` inside `endstream`. Over **67 193 files**: **185 `/Text` annotation records in
+  67 documents, 80 of them in 18 documents with no `/AP`, and 7 in 6 documents with no `/AP` and a
+  side over twenty units.** **The curated corpora carry not one of the seven**, so no gate could show
+  this and none moves for the fix.
+- **`spec-errata emit` found a live erratum, on the third clause of the family.** §12.5.6.4 carries
+  no annotation and §12.5.5 none; §12.5.3 carries **Issue #34**, whose second half had never been
+  read because the first already had a verdict — a pure addition, invisible to `check`: "When an
+  appearance dictionary is not present, the rendered appearance will be implementation dependent."
+  It is the standard saying that everything this tree constructs for an annotation with no `/AP` is
+  the processor's. `doc/errata-read.md`.
+
+**A second instrument, because ink had gone quiet**: `examples/open_one` over all ten thousand,
+asking what this tree *reports* rather than what it draws. **101 documents of 10 000 report anything
+at all on page one**, and two hold nine tenths of the reports — both damaged files where the
+references do worse than we do. Worth keeping as a habit; the two questions have different blind
+spots, and this one produced the successor below.
+
+**What the head still holds**, named so the next round does not re-derive it:
+
+- **`4605705.pdf` is `doc/todo/11` §7, which is new**: eight `/Contents` parts that decode cleanly
+  and then into garbage, among which one `cm` has no inverse — and `render-cpu` refuses the **whole
+  raster** for it, losing the 293 commands that did draw. The question is `Rasterizer`'s contract,
+  not this document, whose content is noise (`poppler` refuses it; `mutool` and `gs` disagree by 78
+  levels about what it says).
+- **`6942935.pdf` −8.691 is `doc/todo/11` item 5 with a witness nobody had to construct**: a hymn
+  sheet whose rules the producer draws as twelve abutting `.06 w` strokes, which §11.3.7.3's union
+  composites to 0.52 of a pixel where their area is 0.72.
+- **`7434231.pdf` −2.271, with the three references inside 0.018 of each other**, is §10.7.4's
+  anti-aliasing departure on a TeX double box thinner than a pixel; **`6081615.pdf` −4.127** and
+  **`4100532.pdf` +7.452** are `Image::area_averaged` against a decimating filter, one in each
+  direction.
+- **`4100873.pdf` −7.922 and `7188835.pdf` −5.129 are trap 9's family with the evidence beside
+  them** — four-component `ICCBased` `DCTDecode` photographs, three references inside 0.3 and one
+  colour library between them, and the files stating `/Intent /RelativeColorimetric`, which is Table
+  51's default and ours. Not called a diagnosis (trap 9's last bullet); what would settle it is that
+  bullet's probe.
+- **`6100352.pdf` −8.860, the deepest row, is `doc/todo/49`'s** — `MAX_OPERATIONS` at 345 032
+  commands — as `1899774.pdf` was for 636.
+- **`7188579.pdf` +19.856 and `7188417.pdf` are not defects but the opposite**: truncated linearised
+  files that all three references refuse or reduce to a 1×1 raster, where this tree draws what the
+  bytes carry and reports the shortfall.
+- **Below +16 the positive head is 613's `poppler`-draws-nothing note verbatim** — 39 of the 49 rows
+  above +10 have `poppler` under a third of the heaviest reference. **43 rows of the 10 000 produce
+  no number.**
+- **619's four, 615's two, 625's and 631's remaining silent rows and 636's seven are still open** as
+  those sections record them.
+
+**What this chunk leaves: 3944 crawled documents unranked** — two thousand-document archives
+(`7557`, `7803`) and eighty-one of twenty-four apiece. Eight rounds running, a fix has reached back
+into an earlier chunk; this is the first where the crawl's head was *not* a defect no curated corpus
+states.
+
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not
