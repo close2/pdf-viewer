@@ -171,12 +171,31 @@ corrected is here.
   lines.~~ Both were deleted before this round reached them, for two different reasons: ADR 0391
   removed `Refusal::NoDevice`, and this session removed the state it described.
 
-**A lead this round did not follow.** A rendering that lands while the view is still moving is never
-put up on the *device* path either — `Plan::Refused` presents nothing, and the pixels are only ever
-seen through a stand-in composed from them. It does no harm there, because the only judged refusal
-is `InsideTheRefresh` and that bounds its own wait to one refresh; the processor needed
-`Composer::unshown` because rule 4 refuses exactly when the frame is slow. Whether the device path
-has a case where it matters is a question nobody has asked with a trace in front of them.
+**A lead two rounds have now not followed, narrowed by the second of them.** A rendering that lands
+while the view is still moving is never put up on the *device* path either — `Plan::Refused`
+presents nothing, and the pixels are only ever seen through a stand-in composed from them. The
+processor needed `Composer::unshown` because rule 4 refuses exactly when the frame is slow.
+
+The six-hundred-and-thirty-third session read `Stale::plan` against `Surface::on_the_device`
+without a trace and **enumerated what can strand a rendering there**, which narrows the question
+without answering it. `plan` is asked only where `stand_in` and a rendering exists, so
+`Refusal::NothingRendered` is unreachable; `Refusal::TooDear` is unreachable because `affordable`
+returns `Ok` for `Standing::Quads` before it looks at anything. That leaves exactly two:
+
+- **`InsideTheRefresh`**, which bounds its own wait to one refresh — the sentence above, and the
+  reason it does no harm.
+- **the `base` error with `covered == 0`** — `AnotherPage`, `Resized`, `Rearranged` — where the
+  rendering held is a picture of a *different* page or arrangement. Withholding it is this file's
+  own stated policy rather than a defect: "nothing about the outgoing page's pixels says anything
+  true about the incoming one", under *What is deliberately not here*.
+
+So on the reading, a rendering on the device path is either shown moved, withheld for one refresh,
+or withheld because it is a picture of something else. **That is an argument and not a trace, and
+the difference matters here**: `InsideTheRefresh` is a comparison of two measured durations, and
+that session was one of four running on the machine at the time — a trace taken then would have
+been a measurement of the load, which is the failure the six-hundred-and-twenty-sixth and
+-twenty-seventh sessions both paid for. What is owed is the same trace on a quiet machine, and it
+now has two named refusals to look for rather than a whole enum.
 
 **The identity of a page's picture is decided** (ADR 0457), which is the second thing this section
 owed. It is `(document, page, ink)` — `crate::stale::Picture` — and not the address of the

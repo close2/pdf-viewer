@@ -94,11 +94,16 @@ assumed, and the split is not even:
   and **the census has now measured what real documents ask for**: the largest token in 39 976
   documents is **390.16 KiB**, two of 225 million pass 64 KiB and none passes 1 MiB, so 2²⁶ is
   168 times anything measured (`token_window_census`, ADR 0362).
-- **Inline images are the sharp edge**, and the census says how sharp. `inline_image::scan`
-  searches forward from `ID` for `EI` over data whose length the dictionary does not state, which
-  is a lookahead of unbounded size inside a bounded window — but **90 304 of 93 930 inline images
-  state or imply their length before their data is read** (336 by `/L`, 89 968 by §8.9.3's
-  arithmetic), and of the **3 455** that need the search **the largest is 2.99 KiB**.
+- **Inline images are the sharp edge**, and the census says how sharp. `inline_image::scan` reads
+  forward from `ID` for the end of data whose length the dictionary does not state, which is a
+  lookahead of unbounded size inside a bounded window — but **90 304 of 93 930 inline images state
+  or imply their length before their data is read** (336 by `/L`, 89 968 by §8.9.3's arithmetic),
+  and of the **3 455** that did not, **the largest is 2.99 KiB**. **Since the
+  six-hundred-and-thirty-third session most of that remainder is derived rather than searched**:
+  §7.3.8.2 makes a filtered extent the filter's own end-of-data marker, so the search is left with
+  the chains this crate has no resumable decoder for. `token_window_census` prints the split, and
+  it is a pump question rather than a clause one — which is this file's subject from the other end.
+  ADR 0466.
 - **The image and font paths want the whole thing anyway.** An embedded font program is parsed
   with random access; image sample data is indexed; an ICC profile, an xref stream and JBIG2
   globals are all read as a unit. `decoded_stream_data` returning `Arc<[u8]>` is right for those
