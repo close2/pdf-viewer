@@ -331,38 +331,62 @@ const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 1] = ["issue21346.pdf page 1"];
 /// `AMBIGUOUS_IMAGE_REDUCTION` is where the same paragraph goes the other way.
 const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["colorkeymask.pdf page 1"];
 
-/// Contradicted, where the difference is this tree's own anti-aliasing at a shape's edge.
+/// Contradicted, where the difference was said to be a *spectrum of edge softness*.
 ///
-/// 2 pages, and they are the first entries named for **§10.7.4's first departure** rather than
-/// for anything on the page. `colors.pdf` pages 1 and 2 are grids of flat colour swatches, and
-/// every pixel of every swatch's interior is identical in all five renderers. What differs is
-/// the boundary between two swatches, where the rectangle edge falls inside a pixel:
+/// **Empty since the six-hundred-and-forty-third session, and the emptying is a correction.** The
+/// group held `colors.pdf` pages 1 and 2 — grids of flat colour swatches whose interiors every
+/// renderer agrees about to the byte — on this sentence: "the five sit on a spectrum of edge
+/// softness with `poppler` at one end, and the pair the gate votes with is the pair nearest that
+/// end … it is the departure being visible". Two claims, and the measurement disproves the first
+/// and re-attributes the second. The pages are [`CONTRADICTED_TIGHT_CONSENSUS`]'s mechanism and
+/// have moved there. **Twelfth for twelve on a group's name naming a hypothesis rather than a
+/// diagnosis.**
 ///
-/// | | pixels differing from `poppler` | mean absolute difference |
+/// # The instrument is the page's own arithmetic, and no renderer is in it
+///
+/// Each page is sixteen axis-aligned rectangles under `0.001968504 0 0 0.001968504 0 0 cm`, so
+/// every boundary is at a *known* fraction of a device pixel: the column boundaries land at
+/// device x 198.4252 and 396.8504, which is `100800/508` and `201600/508`. A rectangle's coverage
+/// of a pixel is therefore a product of two one-dimensional overlaps, and compositing the sixteen
+/// in the order the content stream states them gives the page, pixel by pixel, out of the file
+/// alone. Two forms were written out and rendered to PNG: one using the **exact** overlap, one
+/// using the overlap `tiny-skia` measures — four samples per axis at 0.125, 0.375, 0.625 and
+/// 0.875, so a quarter of a pixel is its quantum. Against the oracle's own artefacts, by
+/// `raster_compare`:
+///
+/// | | vs the exact form | vs the quarter-quantised form |
 /// |---|---|---|
-/// | `ghostscript` | 3461 | 0.17 |
-/// | `mupdf` | 4054 | 0.29 |
-/// | `hayro` | 4647 | 0.28 |
-/// | ours | 4054 | 0.33 |
+/// | ours | mean 0.0406, max **33** | mean 0.0023, max **1**, ssim 1.00000 |
+/// | `hayro` | mean 0.0015, max **2**, ssim 1.00000 | mean 0.0545, max 33 |
+/// | `mupdf` | mean 0.0173, max 13 | mean 0.0526, max 25 |
+/// | `ghostscript` | mean 0.1368, max 54 | mean 0.1791, max 64 |
+/// | `poppler` | mean 0.2823, max 124 | mean 0.3313, max 130 |
 ///
-/// So the five sit on a *spectrum of edge softness* with `poppler` at one end, and the pair the
-/// gate votes with is the pair nearest that end. At one sampled edge pixel `poppler` paints the
-/// swatch colour outright — `(255, 153, 0)` — `ghostscript` gives `(253, 166, 41)`, `mupdf`
-/// `(253, 175, 63)` and we give `(254, 184, 87)`.
+/// **Our raster is the quantised closed form to one level of 255 over 595 × 841 pixels**, and
+/// `hayro`'s is the exact one to two. So the five are not a spectrum of softness with us at the
+/// soft end. Ranked by distance from the geometry at the worst pixel — `hayro` 2, `mupdf` 13, ours
+/// **33**, `ghostscript` 54, `poppler` 124 — two of them paint the area the shape covers, `poppler`
+/// paints whole pixels because it does not anti-alias an axis-aligned edge at all, `ghostscript`
+/// supersamples and filters, and ours is the geometry with each edge's coverage **rounded to a
+/// quarter**: up in most places, down in some, and to nothing wherever an edge covers less than an
+/// eighth of its pixel. **Third of five, not the outlier.** Page 2 reproduces it: ours to the
+/// quantised form mean 0.0022 and max 1, `hayro` to the exact form mean 0.0017 and max 2.
 ///
-/// **`poppler` is the one closest to the clause.** §10.7.4: "[a] shape shall be scan-converted
-/// by painting any pixel whose half-open square region intersects the shape, no matter how small
-/// the intersection is." That is a hard edge, and this tree's anti-aliasing is a *documented
-/// departure* from it — the first of the four §10.7.4's ledger row records, licensed by
-/// §10.7.1's NOTE that the algorithm is not part of PDF. So this entry is not a defect to fix
-/// and is not a page to chase: it is the departure being visible, on the one kind of page where
-/// nothing else is.
+/// `render-quorra/examples/edge_coverage_ladder` is the same finding without a document, and it
+/// says which backend owns it: at a rectangle edge placed every twentieth of a pixel, `render-cpu`
+/// answers 0, 0.2510, 0.5020, 0.7529 and 1.0000 on both axes while the graphics device tracks the
+/// fraction to a level of 255. ADR 0474 has the price and `doc/todo/11` item 7 what a cure costs.
 ///
-/// The bound is what makes it fail at all, and it is trap 12's shape: mean 0.25 against 1.00 and
-/// worst tile 2.79 against 5.00 both pass with room, and structural similarity fails at 0.9857
-/// against **0.9886** — a bound the two least-anti-aliased renderers set for each other on a
-/// page that is nothing but edges.
-const CONTRADICTED_ANTIALIASED_EDGES: [&str; 2] = ["colors.pdf page 1", "colors.pdf page 2"];
+/// # Why the pages still moved to a *bound* group rather than to a defect
+///
+/// Because the exact form is contradicted here too, which is the one thing this note could not
+/// have assumed. The bound the gate applies is twice the consensus pair's own distance, and the
+/// pair is `poppler` and `ghostscript`: page 1's is ssim 0.98862, ours is 0.98591, and **the exact
+/// closed form is 0.98772** — nearer, and still outside. Page 2: bound 0.98402, ours 0.97906, the
+/// exact form 0.98001. A rasteriser painting precisely the area each rectangle covers would be
+/// contradicted on both pages, so the verdict is trap 12's and not a report about our marks. What
+/// is ours is the 33 levels between the two closed forms, which no bound on this page can see.
+const CONTRADICTED_ANTIALIASED_EDGES: [&str; 0] = [];
 
 /// Contradicted, where the difference was said to be a `CalRGB` space converted rather than
 /// assumed.
@@ -2290,7 +2314,39 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// inside the class bound, and the one number derived from no reference at all puts us closest
 /// to the geometry. That is the shape trap 12 describes, and this page is now its named witness
 /// rather than a page nobody had measured.
-const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
+///
+/// # `colors.pdf` pages 1 and 2, and the closed form trap 12 asks for is the whole page
+///
+/// They arrived in the six-hundred-and-forty-third session from
+/// [`CONTRADICTED_ANTIALIASED_EDGES`], whose name said the difference was our anti-aliasing being
+/// softer than anybody's. Each page is sixteen axis-aligned rectangles at known sub-pixel
+/// boundaries, so the page *is* a closed form: every rectangle's coverage of every pixel is a
+/// product of two overlaps, composited in the order the content stream states. Written out and
+/// compared with `raster_compare`, ours is that form with every coverage rounded to `tiny-skia`'s
+/// quarter — mean 0.0023 and max 1 of 255 over the whole raster — and `hayro`'s is the *exact*
+/// form, mean 0.0015 and max 2. The 33 levels between the two forms are this tree's own and are
+/// priced in ADR 0474; what puts the pages here is what happens when the exact form is put to the
+/// gate's own bound:
+///
+/// ```text
+///                        page 1     page 2
+///   bound (twice the     0.98862    0.98402
+///   consensus spread)
+///   ours                 0.98591    0.97906
+///   the exact form       0.98772    0.98001
+/// ```
+///
+/// **A rasteriser painting precisely the area each rectangle covers is contradicted on both
+/// pages.** `poppler` does not anti-alias an axis-aligned edge at all and `ghostscript`
+/// supersamples and filters, so the two that vote are the two furthest from the geometry, and
+/// twice their mutual distance is a bound no analytic-coverage renderer meets on a page that is
+/// nothing but edges. That is this group's sentence, arrived at from the document rather than
+/// from a ranking.
+const CONTRADICTED_TIGHT_CONSENSUS: [&str; 3] = [
+    "issue7891_bc1.pdf page 1",
+    "colors.pdf page 1",
+    "colors.pdf page 2",
+];
 
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.

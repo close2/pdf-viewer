@@ -23,8 +23,12 @@ was failing at the very bottom of the range and now is not. **One of the two mar
 there is paid** — §8.5.3.2's dot, on all three rasterisers, by stating it as the device pixel the
 clause's own flooring identifies rather than as a circle no placement lets a raster hold (ADR 0420)
 — and what remains is the body of a sub-pixel rule on `render-quorra` alone.
+**And a seventh arrived in the six-hundred-and-forty-third session, from the other end of the same
+sentence**: this file is about marks the coverage quantum *loses*, and item 7 is what the same
+quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `render-cpu` alone
+(ADR 0474).
 Priority: 11
-Corpus: 4 known witnesses; the general shape of the residual is stated
+Corpus: 5 known witnesses; the general shape of the residual is stated
 Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.4.3.5 for item 6,
 §8.5.4 for item 4 and
 §11.3.7.3 for item 5 — see `_scan-conversion.md`
@@ -40,7 +44,9 @@ with a mark, and what a page's own marks are),
 `crates/render-quorra/examples/mitre_ladder.rs` and
 `crates/pdf-model/examples/long_mitre_census.rs` (item 6's two instruments),
 `crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
-(item 5's gate and its instrument)
+(item 5's gate and its instrument),
+`crates/render-quorra/examples/edge_coverage_ladder.rs` and
+`crates/pdf-model/examples/compare_rasters.rs` (item 7's two instruments)
 
 Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
 "no shape ever disappears" for a fill with *no* area (ADR 0154) and for a redundant pattern-cell
@@ -575,3 +581,51 @@ Neither is reported, and ADR 0398 §3 argues why: the condition would be a predi
 library's stroker made in the layer above it, and a report with no members costs gated pages (trap
 11). What watches them is `render-quorra/tests/corpus.rs` — the two backends agree about a long mitre
 now, so a page where a decline mattered becomes a differing page rather than a silence.
+
+## 7. An edge's coverage rounded to a quarter — **measured, priced, not started**
+
+Items 1 and 3 are what `tiny-skia`'s coverage quantum does to a mark *thinner* than it. This is
+what the same quantum does to the edge of a mark thicker than it, and it took six hundred sessions
+to be asked because the page it is visible on was filed under the anti-aliasing departure's own
+name.
+
+**The measurement.** `render-quorra/examples/edge_coverage_ladder` puts a rectangle's edge at every
+twentieth of a pixel and reads the boundary pixel:
+
+```text
+  shape   0.05  0.10  0.15  0.25  0.35  0.40  0.60  0.65  0.85  0.90
+  cpu     0.00  0.00  0.25  0.25  0.25  0.50  0.50  0.75  0.75  1.00
+  quorra  0.05  0.10  0.15  0.25  0.35  0.40  0.60  0.65  0.85  0.90
+```
+
+Both axes, to a level of 255 on the device and to a quarter on the processor — `tiny-skia`
+supersamples four times per axis at 0.125, 0.375, 0.625 and 0.875, so an axis-aligned edge, whose
+four sub-rows all see the same run, is measured four ways and answers the same one. The whole-page
+form of it is `colors.pdf`, where our raster reproduces the page's closed form **with every
+coverage so rounded**, to one level of 255 over 595 × 841 pixels, while `hayro`'s reproduces the
+exact form to two (ADR 0474).
+
+**Why it is a defect rather than a third departure.** The departure §10.7.1's NOTE licenses is
+anti-aliasing; what this file's own `AMBIGUOUS_TILING_CELL_CLIP` reading says about it is
+"anti-aliasing gives the shape's area; coming out *under* it is a defect", and an edge covering a
+tenth of its pixel paints **nothing** here — §10.7.4's "The area covered by painted pixels shall
+always be at least as large as the area of the original shape" is the sentence, and it is the same
+one items 1 and 3 were paid to honour.
+
+**What it is worth, measured rather than assumed.** On `colors.pdf` it is 33 levels of 255 at the
+worst pixel and 0.04 of a mean, and it moves **no verdict**: the exact closed form is contradicted
+on that page too, because the consensus pair is the two renderers furthest from the geometry
+(`CONTRADICTED_TIGHT_CONSENSUS`). So this is a correctness item with a small corpus dividend, and
+the reason to do it is the clause and the fact that this tree's *own* two backends disagree by up
+to an eighth of a pixel's coverage at every axis-aligned edge — with the oracle being the less
+exact of the two.
+
+**What a cure costs.** Not a rasteriser: an axis-aligned rectangle's coverage is a product of two
+one-dimensional overlaps, so the interior at full alpha plus up to eight edge and corner pieces at
+their own exact coverage draws it exactly, in the shape `sub_pixel_bands` already uses for a thin
+one and under the same `carries_coverage_as_alpha` condition. What has to be measured before it is
+taken is the other end: nine `scan::fill` calls where there was one, on the commonest command in
+the corpus, against a project whose second principle is latency — and every axis-aligned edge in
+every gated page moving by up to an eighth of its coverage, which is trap 1's sweep over a
+population no previous change here has touched. Anything that is not axis-aligned keeps the
+quantum, where it is a sixteenth rather than a quarter and averages along the edge.

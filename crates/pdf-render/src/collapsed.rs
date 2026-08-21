@@ -244,9 +244,11 @@ impl Extent {
     /// The axis this subpath has collapsed along, or `None` if it encloses an area.
     ///
     /// Exact equality rather than a tolerance, deliberately: a shape thinner than a pixel but
-    /// not *flat* is drawn by this renderer at the coverage its area implies, which is
-    /// §10.7.4's first documented departure (ADR 0025's neighbour, argued in `oracle.rs`'s
-    /// `CONTRADICTED_ANTIALIASED_EDGES`) and not a shape that has disappeared. Only a subpath
+    /// not *flat* is drawn by this renderer at a coverage its area decides — exactly by
+    /// [`crate::sub_pixel_bands`] where that applies, and otherwise to the rasteriser's own
+    /// quantum, which on `render-cpu` is a quarter of a pixel per axis (ADR 0474). Either way it
+    /// is §10.7.4's first documented departure (ADR 0025's neighbour, argued in
+    /// `doc/todo/_scan-conversion.md`) and not a shape that has disappeared. Only a subpath
     /// with literally no extent vanishes at every placement and every resolution, which is
     /// what makes this rule a statement about the geometry rather than about the scale.
     ///

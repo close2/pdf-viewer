@@ -703,7 +703,13 @@ of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence ab
 status is unchanged and now has a reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — **eleven for eleven, so far, on the group being wrong**. (The tally did not move
+the one its group names — **twelve for twelve, so far, on the group being wrong**. (The newest is
+`colors.pdf` pages 1 and 2 in the six-hundred-and-forty-third, whose group had called them a
+*spectrum of edge softness*: the page is sixteen axis-aligned rectangles at known sub-pixel
+boundaries and therefore a closed form, ours is that form with every coverage rounded to
+`tiny-skia`'s quarter and `hayro`'s is the exact one, and the exact one is contradicted here too —
+so the label was wrong about the mechanism and wrong about whose it was, in opposite directions.
+ADR 0474.) (The tally did not move
 in the five-hundred-and-forty-sixth session, which re-opened the ratio ranking's head — the seven
 JBIG2 pages, the three link borders, the two the references did not draw and the `DeviceCMYK` ramp
 — and found every *diagnosis* right. What was wrong on those pages was the evidence inside three of
@@ -738,10 +744,15 @@ that really was not the difference: `/Differences [32 /.notdef …]` sent code 3
 advance §9.6.2.1 obliges this processor to supply, and the third of `simple_widths`' three sources
 read the program through an sfnt parser that refuses the bare CFF ten of the fourteen compiled-in
 standard faces are. Six spaces of zero width — and "make it match
-mupdf" is the failure principle 5 forbids. And a page can be contradicted by a departure this
-project decided on purpose: `colors.pdf` pages 1 and 2 left the unexplained list in session 68 and
-are *not* fixed, because §10.7.4 asks for the hard edge and this tree anti-aliases
-(`CONTRADICTED_ANTIALIASED_EDGES`, and `doc/todo/_scan-conversion.md`).
+mupdf" is the failure principle 5 forbids. And a page can be contradicted for a reason that is
+neither our defect nor the group's name: `colors.pdf` pages 1 and 2 left the unexplained list in
+session 68 into `CONTRADICTED_ANTIALIASED_EDGES`, on the reading that §10.7.4 asks for the hard edge
+and this tree anti-aliases — and the six-hundred-and-forty-third session computed the page's own
+closed form and found *both* halves wrong. Ours is that form with every edge's coverage rounded to
+`tiny-skia`'s quarter and `hayro`'s is the exact one, so we are not the softest of five but the
+coarsest; and the exact form is contradicted here too, so the verdict belongs to the bound rather
+than to the departure (`CONTRADICTED_TIGHT_CONSENSUS`, ADR 0474, and
+`doc/todo/_scan-conversion.md`).
 
 **The incomplete documents** — `tools/state.sh corpus` counts them, and this paragraph does not, because it twice carried a number the gate had moved past: it said **67** against a gate printing 68 for four rounds, and **70** against a gate printing 65 for a further twenty-six. What is worth keeping is which documents joined and why. Two joined in that session and are a *new report* rather than a regression (trap 5): `issue6541.pdf` and `issue8702.pdf`, each of which names an `/XObject` its own resource dictionary does not define, and neither of which loses a mark by it — the first because the object it cannot reach is an empty stream, the second because the object carries no stream at all. A third document gained the same report inside a list it was already on (`operator_list_cycle.pdf`, a `gs`). ADR 0255. The history below is what the number was before that: 68 until the four-hundred-and-nineteenth, and — 70 until the three-hundred-and-ninety-seventh, which stated a knockout element's shape apart from its alpha and took `knockout_nested.pdf`, `knockout_nested_group_alpha.pdf` and `knockout_smask.pdf` off the list with nothing joining (ADR 0234); **this paragraph said 73 for four rounds after the three-hundred-and-eighty-third took it to 70, and the three-hundred-and-eighty-seventh counted them off the gate rather than off this file** — 73 until that round's second residue of §11.5.3 landed (ADR 0220), 72 until the three-hundred-and-eightieth, whose one new report is a `/DeviceN` shading inside a `/DeviceGray` luminosity mask group (ADR 0217), 74 until the three-hundred-and-fourteenth and 76 until the two-hundred-and-eighty-second, where a `Tf` naming
 `/Helvetica` with an empty resource dictionary stopped meaning nothing, because §9.6.2.2 says those
