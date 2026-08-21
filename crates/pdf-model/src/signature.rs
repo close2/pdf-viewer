@@ -374,8 +374,17 @@ pub enum Authenticity {
     /// ISO/TS 32001 section 5.1.4 adds to Table 260 — SHA3-256, SHA3-384, SHA3-512 and SHAKE256
     /// (ADR 0390). This is
     /// therefore an identifier outside both documents, and it is carried so that *which* one a file
-    /// used is a question a person can answer: three of the corpus's signatures reach here, each
-    /// stating `1.2.840.113549.1.1.5` — a *signature* algorithm — where a digest algorithm belongs.
+    /// used is a question a person can answer.
+    ///
+    /// **This sentence went on to say that three of the corpus's signatures reach here, each
+    /// stating `1.2.840.113549.1.1.5` — a *signature* algorithm — where a digest algorithm
+    /// belongs, and no signature does.** That was this reader's own defect rather than any file's:
+    /// `digestAlgorithm` is a `SignerInfo`'s third member and reading by shape found the issuer's
+    /// `SEQUENCE` instead, which `cms`'s `the_signers_own_sequence_is_not_mistaken_for_its_digest_algorithm`
+    /// has pinned since the three-hundred-and-seventy-seventh session — so the observation was
+    /// already false when it was written down two hundred sessions later. Re-derived in the
+    /// six-hundred-and-forty-first with `examples/signature_algorithm_census`: every one of the
+    /// corpus's ten signature values verifies, and none reaches this variant.
     UnknownDigest {
         /// The digest algorithm's object identifier as dotted decimal.
         algorithm: String,

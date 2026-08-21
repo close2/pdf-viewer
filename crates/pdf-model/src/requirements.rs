@@ -55,8 +55,14 @@ use pdf_syntax::{Dictionary, Document, Object};
 
 /// Most requirement dictionaries read from one `/Requirements` array.
 ///
-/// Table 275 defines twenty-four types and a document states the ones it uses; an array longer
+/// Table 275 defines twenty-five types and a document states the ones it uses; an array longer
 /// than this is a file making a reader work rather than a document asking for something.
+///
+/// **This sentence said twenty-four until the six-hundred-and-forty-first session**, which is the
+/// number both ledger rows carried until the three-hundred-and-seventy-fifth counted the table.
+/// The rows were corrected and the comment beside the `match` was not, which is `doc/todo/01`'s
+/// tenth sweep failing in the direction it is weakest in: a cardinal retired in the ledger goes on
+/// living in the source, where no gate reads it.
 const MAX_REQUIREMENTS: usize = 256;
 
 /// One entry of §12.11's `/Requirements` array. Table 273.
@@ -224,9 +230,12 @@ impl Kind {
     /// **A claim about this tree rather than about the standard**, which is why every arm names
     /// its reason and why the answer is a sentence rather than a boolean. It decays exactly as a
     /// ledger row does: a session that builds a layer panel has to come back and change
-    /// `OCInteract`. **It has decayed twice** — three arms in the two-hundred-and-twenty-first
-    /// session and nine more in the three-hundred-and-seventy-fifth — so the warning is a record
-    /// of what happens rather than a caution that works.
+    /// `OCInteract`. **It has decayed four times** — three arms in the two-hundred-and-twenty-first
+    /// session, nine more in the three-hundred-and-seventy-fifth, `Transitions` in the
+    /// six-hundred-and-twenty-eighth and the three signature arms in the
+    /// six-hundred-and-forty-first — so the warning is a record of what happens rather than a
+    /// caution that works. Each of the last two was found by reading this method against the tree
+    /// rather than against §12.11.2's ledger row, which had been corrected without it.
     ///
     /// `None` means met. The three shapes of "not met" are all here on purpose — a feature this
     /// project *excludes* (`CLAUDE.md` principle 5), a feature that is a viewer's rather than a
@@ -348,12 +357,48 @@ impl Kind {
                 "no document part panel: a GoToDp action navigates §14.12's parts, and the DPart \
                  hierarchy is not displayed"
             }
-            Self::DigSigValidation | Self::DigSig | Self::DigSigMdp => {
-                // §12.8 is read since the ninety-eighth session — the signature dictionary,
-                // Table 257's `/P` level, Table 258's usage rights — and what a validator
-                // needs is a trust store, which is the decision `doc/todo/51` holds.
-                "no signature validation or signing: §12.8 is read and reported, and verifying a \
-                 signature needs a certificate store"
+            // **Three types, three reasons, since the six-hundred-and-forty-first session.**
+            // They shared one arm reading "no signature validation or signing: §12.8 is read and
+            // reported, and verifying a signature needs a certificate store", and that sentence
+            // broke both halves of this method's own discipline. It named the *whole* where Table
+            // 275 words two of the three as increments — "[i]n addition to the validation
+            // requirements of DigSigValidation" and "[i]n addition to the requirements of DigSig
+            // and DigSigValidation" — and it had decayed: a signature *is* verified here, under
+            // the key in the certificate the file itself carries, since the
+            // three-hundred-and-ninety-second session (ADR 0229), which is what
+            // `Authenticity::Verified` says. This arm's fourth decay and the same shape as
+            // `Transitions`' third — a capability two crates deep arriving with nothing to fire.
+            Self::DigSigValidation => {
+                // "the validation of digital signatures (both document and certifying) that have
+                // been applied to the PDF including the handling of supplied revocation
+                // information". Two of ADR 0215's three questions are answered — the byte range
+                // digest is recomputed, and the signature value verifies under the signer's own
+                // certificate — and the third is what the word *validation* adds to them.
+                // §12.8.3.3.2's supplied material is named where a file carries it and never
+                // read, which is the same missing thing said about the same certificates.
+                "no trust decision: a signature's digest and its value are both checked, and \
+                 believing the signer's certificate — or the revocation information supplied \
+                 beside it — needs a certificate store this program has not got"
+            }
+            Self::DigSig => {
+                // "In addition to the validation requirements of DigSigValidation , this
+                // specifies the requirements to support the application of a digital signature to
+                // a document (also known as signing)." The increment is signing, and nothing here
+                // signs: `CLAUDE.md` permits §7.5.6's incremental update for what a *user* adds,
+                // and a signature is a key this program does not hold.
+                "no signing: signatures are read and checked, and none is applied"
+            }
+            Self::DigSigMdp => {
+                // "In addition to the requirements of DigSig and DigSigValidation , this also
+                // requires support for modification detection analysis to determine if only
+                // allowable modifications have been made." The increment is §12.8.2.2.2's, and
+                // §12.8.2.2's ledger row records exactly it as what is left there: Table 257's
+                // `/P` level is read and enforced against what a *reader* may do, and the
+                // object-by-object comparison of the signed revision with the current one is not
+                // performed.
+                "no modification detection analysis: Table 257's /P level is read and enforced, \
+                 and §12.8.2.2.2's comparison of the signed revision with the current one is not \
+                 performed"
             }
             Self::Geospatial2D | Self::Geospatial3D => {
                 // §12.10's dictionaries are all read (§12.10.2, §12.10.3); the projection needs
@@ -798,6 +843,59 @@ mod tests {
                 .is_some_and(|(_, reason)| reason.contains("never added to or changed")),
             "the reason names the increment the type asks for: {unmet:?}"
         );
+    }
+
+    /// Table 275's three signature types state three increments, so they give three reasons.
+    ///
+    /// `DigSigValidation`, `DigSig` and `DigSigMDP` shared one arm until the
+    /// six-hundred-and-forty-first session, and Table 275 words the second and third as strict
+    /// additions to the first — "[i]n addition to the validation requirements of
+    /// `DigSigValidation`" and "[i]n addition to the requirements of `DigSig` and
+    /// `DigSigValidation`".
+    /// A single sentence for three types cannot name three increments, which is what the doc
+    /// comment on [`Kind::unmet`] asks of a reason; and the sentence it gave had also expired,
+    /// since a signature's value *is* verified here (ADR 0229). This is the pair test
+    /// [`a_collection_is_met_and_editing_one_is_not`] is, over a triple.
+    #[test]
+    fn the_three_signature_requirements_name_three_different_increments() {
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /Requirements [ \
+             << /S /DigSigValidation >> << /S /DigSig >> << /S /DigSigMDP >> ] >>",
+        );
+        let unmet = unmet(&doc);
+        let reasons: Vec<&str> = unmet.iter().map(|(_, reason)| *reason).collect();
+        assert_eq!(reasons.len(), 3, "none of the three is met: {unmet:?}");
+        let distinct: std::collections::BTreeSet<&str> = reasons.iter().copied().collect();
+        assert_eq!(
+            distinct.len(),
+            3,
+            "each increment is named by its own sentence: {reasons:?}"
+        );
+        assert!(
+            reasons
+                .first()
+                .is_some_and(|r| r.contains("trust decision")),
+            "validation is missing the trust decision and nothing else: {reasons:?}"
+        );
+        assert!(
+            reasons.get(1).is_some_and(|r| r.contains("no signing")),
+            "DigSig's increment is signing: {reasons:?}"
+        );
+        assert!(
+            reasons
+                .get(2)
+                .is_some_and(|r| r.contains("§12.8.2.2.2's comparison")),
+            "DigSigMDP's increment is §12.8.2.2.2's analysis: {reasons:?}"
+        );
+        // The sentence that had gone stale, and the reason it had: this program *does* verify a
+        // signature value under the certificate the file carries, so no reason here may say it
+        // does not.
+        for reason in &reasons {
+            assert!(
+                !reason.contains("no signature validation"),
+                "a signature's value is verified here: {reason}"
+            );
+        }
     }
 
     /// No reason says a clause is unread, because that is the claim that decays.

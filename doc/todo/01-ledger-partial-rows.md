@@ -3455,6 +3455,24 @@ and `form.rs` in prose and neither in its array, which is the hit. The eighth sw
 that a path a note names *exists*; this asks whether the row's own arrays agree with its own
 sentences.
 
+### What the six-hundred-and-forty-first adds: **a counted claim in a note owes a command**
+
+`CLAUDE.md`'s rule — "a fact that can be counted is not written down; what is written down is the
+command that counts it" — binds the instruction files, and the ledger has always been exempt
+because a row's job is to record a claim. That exemption is where two of this round's findings
+were. §12.8.3.3.2 said "`issue17069.pdf` is the corpus's one witness" and there are three; §12.8.5
+said "no corpus document carries a document timestamp" and that one holds. Neither number had
+anything behind it, and the difference between them was invisible until both were re-derived. So:
+
+> **A note stating a count over the corpus names the command that produces it, or the round that
+> writes the count adds one.** Two counters in an existing census is usually the whole cost —
+> `signature_algorithm_census` grew both of these in about twenty lines, because the walk that
+> answers the row's real question already had the data in its hand.
+
+It is the ledger's half of what `tools/state.sh` is for the instruction files, and it is cheaper
+than the alternative the tenth sweep already measures: a cardinal that outlives its measurement
+gets *quoted*, and then a later round has two documents to correct instead of one.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
@@ -3490,11 +3508,24 @@ sentences.
   band runs on to §12.8.3.4.8 and the next row after it is forty-two commits above. Four of the
   sixteen were read and all four paid. ~~**The twelve left in that band are the next one**~~ —
   **rank 1 of the twelve, §12.7.4 with §12.7.4.1, was taken in the six-hundred-and-thirty-seventh
-  and paid.** **The eleven left are the next band**: §12.7.6.2, §12.11, and the nine signature rows
+  and paid.** ~~**The eleven left are the next band**: §12.7.6.2, §12.11, and the nine signature rows
   from §12.8.2.2 to §12.8.3.4.8, which share two commits and, between them, one paragraph of
   boilerplate repeated five times — five `reported` rows citing three `pdf-model` tests for a
   report that `viewer_core::notes` makes, which is 620's newest shape waiting to be checked, and
-  which is the shape that has now paid on four consecutive rounds. Quoted as ranks rather than as commit numbers, for the reason
+  which is the shape that has now paid on four consecutive rounds.~~ **Taken in the
+  six-hundred-and-forty-first, and the prediction in that sentence was right**: the five `reported`
+  rows cited three `pdf-model` tests apiece for a sentence `viewer-core` writes, so nothing in the
+  tree had ever asserted the report those rows *are*. §12.8.3.4.1 turned out to be a sixth of the
+  same shape — its note says "which is what a test asserts" and its array named no PAdES test at
+  all. Two counted claims went with them: §12.8.3.3.2's "the corpus's one witness" is three
+  documents, and §12.8.5's "no corpus document carries a document timestamp" holds. **The band's
+  remaining rows are §12.7.6.2 and the four §12.8.3.4.x that keep their statuses**; the next band
+  begins forty-two commits above at §10.4.2.4 and §10.4.2.5.
+  **And the shape 616 warned about has a second direction now**: a *parent* row overstating what
+  its children do. §12.11 listed "Table 276's handlers" among what it reads while both of its
+  children say `/RH` is read by nobody — every previous instance of the fifth failure shape had the
+  parent understating, so a sweep looking for a missing thing would never have printed it.
+  Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`

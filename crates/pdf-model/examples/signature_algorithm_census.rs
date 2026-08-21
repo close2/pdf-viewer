@@ -16,6 +16,14 @@
 //! `digestAlgorithm`, and the algorithm of the public key in the certificate that `SignerInfo`
 //! names.
 //!
+//! **Two more populations are counted here since the six-hundred-and-forty-first session**, and
+//! for `CLAUDE.md`'s reason rather than for a new question: §12.8.5's ledger row said "[n]o corpus
+//! document carries a document timestamp" and §12.8.3.3.2's named its one revocation-information
+//! witness by file name, and neither number had a command behind it. Both are one read on data
+//! this walk already has — `/Type /DocTimeStamp`, and `adbe-revocationInfoArchival` among the
+//! signer's signed attributes — and each witness is printed by path so that a row can name one
+//! without a round having to remember which.
+//!
 //! ```sh
 //! cargo run --release -p pdf-model --example signature_algorithm_census -- \
 //!     doc/pdf.js/test/pdfs/*.pdf doc/corpora/*/**/*.pdf
@@ -67,6 +75,21 @@ struct Counts {
     key_algorithms: BTreeMap<String, usize>,
     /// What [`Authenticity`] answered, by variant name.
     authenticity: BTreeMap<String, usize>,
+    /// §12.8.5's document timestamps: dictionaries whose `/Type` is `DocTimeStamp`.
+    ///
+    /// Counted because §12.8.5's ledger row states there are none and states it as a bare number.
+    /// A claim about the population belongs to the command that produces it, and this is that
+    /// command: the row's "no corpus document carries a document timestamp" decides whether its
+    /// witness may be a fixture (trap 8) and nothing was re-deriving it.
+    timestamps: usize,
+    /// Signature values carrying §12.8.3.3.2's `adbe-revocationInfoArchival` signed attribute.
+    ///
+    /// §12.8.3.3.2's row names one witness by file name for the same reason and with the same
+    /// gap: the attribute's *presence* is the only thing this program says about revocation, so
+    /// how many files say it is the size of what that sentence is about.
+    revocation_material: usize,
+    /// The documents those two came from, so that a witness is named rather than only counted.
+    witnesses: Vec<String>,
     /// Documents carrying a signature whose algorithm this program does not verify.
     unverifiable_documents: Vec<String>,
 }
@@ -78,6 +101,11 @@ impl Counts {
         self.signed = self.signed.saturating_add(other.signed);
         self.signatures = self.signatures.saturating_add(other.signatures);
         self.readable = self.readable.saturating_add(other.readable);
+        self.timestamps = self.timestamps.saturating_add(other.timestamps);
+        self.revocation_material = self
+            .revocation_material
+            .saturating_add(other.revocation_material);
+        self.witnesses.append(&mut other.witnesses);
         for (map, theirs) in [
             (&mut self.unreadable, other.unreadable),
             (&mut self.sub_filters, other.sub_filters),
@@ -157,6 +185,37 @@ fn every_signature(document: &Document) -> Vec<Signature> {
     found
 }
 
+/// The signer's own key, named as this census counts it.
+///
+/// The signer's certificate, not every certificate the value carries: a chain holds its issuers'
+/// keys too, and those say nothing about how this was signed.
+fn signer_key(cms: &cms::SignedData<'_>) -> String {
+    let found = cms
+        .certificates
+        .iter()
+        .filter_map(|value| x509::read(*value).ok())
+        .find(|certificate| match cms.signer_issuer_and_serial {
+            Some((issuer, serial)) => certificate.is_named_by(issuer, serial),
+            None => cms
+                .signer_key_identifier
+                .is_some_and(|id| certificate.key_identifier == Some(id)),
+        });
+    match found {
+        Some(certificate) => match certificate.public_key {
+            PublicKey::Rsa(key) => {
+                format!("1.2.840.113549.1.1.1 (rsaEncryption, {}-bit)", key.bits())
+            }
+            PublicKey::Dsa(key) => format!(
+                "1.2.840.10040.4.1 (id-dsa, L = {}, N = {})",
+                key.bits(),
+                key.subgroup_bits()
+            ),
+            PublicKey::Unverifiable { algorithm } => identifier(algorithm),
+        },
+        None => "(the signer's certificate was not found)".to_owned(),
+    }
+}
+
 /// Every signature one document states, read for the three identifiers it carries.
 fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
     let mut counts = Counts {
@@ -176,6 +235,12 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
             .unwrap_or_else(|| "(none)".into());
         let slot = counts.sub_filters.entry(sub_filter).or_default();
         *slot = slot.saturating_add(1);
+        if signature.timestamp {
+            counts.timestamps = counts.timestamps.saturating_add(1);
+            counts
+                .witnesses
+                .push(format!("{path}: §12.8.5 document timestamp"));
+        }
         let answer = signature.authenticity(bytes);
         let unverifiable = matches!(
             answer,
@@ -189,6 +254,12 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
         match signature.signed_data() {
             Ok(cms) => {
                 counts.readable = counts.readable.saturating_add(1);
+                if cms.has_signed_attribute(cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
+                    counts.revocation_material = counts.revocation_material.saturating_add(1);
+                    counts
+                        .witnesses
+                        .push(format!("{path}: §12.8.3.3.2 adbe-revocationInfoArchival"));
+                }
                 let named = match cms.algorithm() {
                     SignatureAlgorithm::RsaPkcs1V15 => {
                         format!(
@@ -216,32 +287,7 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                 };
                 let slot = counts.digest_algorithms.entry(digest).or_default();
                 *slot = slot.saturating_add(1);
-                // The signer's own certificate, not every certificate the value carries: a chain
-                // holds its issuers' keys too, and those say nothing about how this was signed.
-                let key = match cms
-                    .certificates
-                    .iter()
-                    .filter_map(|value| x509::read(*value).ok())
-                    .find(|certificate| match cms.signer_issuer_and_serial {
-                        Some((issuer, serial)) => certificate.is_named_by(issuer, serial),
-                        None => cms
-                            .signer_key_identifier
-                            .is_some_and(|id| certificate.key_identifier == Some(id)),
-                    }) {
-                    Some(certificate) => match certificate.public_key {
-                        PublicKey::Rsa(key) => {
-                            format!("1.2.840.113549.1.1.1 (rsaEncryption, {}-bit)", key.bits())
-                        }
-                        PublicKey::Dsa(key) => format!(
-                            "1.2.840.10040.4.1 (id-dsa, L = {}, N = {})",
-                            key.bits(),
-                            key.subgroup_bits()
-                        ),
-                        PublicKey::Unverifiable { algorithm } => identifier(algorithm),
-                    },
-                    None => "(the signer's certificate was not found)".to_owned(),
-                };
-                let slot = counts.key_algorithms.entry(key).or_default();
+                let slot = counts.key_algorithms.entry(signer_key(&cms)).or_default();
                 *slot = slot.saturating_add(1);
             }
             Err(error) => {
@@ -318,6 +364,14 @@ fn main() {
         "{} signature values read as RFC 5652 SignedData",
         counts.readable
     );
+    println!(
+        "{} of those dictionaries are §12.8.5 document timestamps; {} signature values carry \
+         §12.8.3.3.2's adbe-revocationInfoArchival",
+        counts.timestamps, counts.revocation_material,
+    );
+    for witness in &counts.witnesses {
+        println!("  {witness}");
+    }
     report("what stopped the rest", &counts.unreadable);
     report("/SubFilter", &counts.sub_filters);
     report(
