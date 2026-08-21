@@ -219,7 +219,14 @@ fi
 #
 #    A *report*, not a gate, and the distinction is trap 10's: this asks GitHub, so it depends on
 #    a network and a token and could not be a `✗` a round is obliged to clear. It says which of
-#    the three it is — green, red, or not asked — and a silence is never read as green.
+#    the four it is — green, red, still running, or not asked — and none of the last three is
+#    ever read as green.
+#
+#    **The fourth and the third used to be one**, which the six-hundred-and-thirtieth session
+#    found on this check's first run against a live pipeline: a run that has not finished has an
+#    empty `conclusion`, and an empty `conclusion` was the same case as an empty *answer*. So the
+#    push the owner was waiting on printed "CI was not asked", which is the one sentence this
+#    check exists not to print about a run it can see. `status` is what tells them apart.
 if command -v gh > /dev/null 2>&1; then
     #    The token is a file beside the *main* worktree rather than inside the repository, which
     #    is what keeps it out of every commit — so it is found through git's common directory and
@@ -231,13 +238,21 @@ if command -v gh > /dev/null 2>&1; then
         [ -r "$beside" ] && token=$(cat "$beside")
     fi
     run=$(GH_TOKEN="$token" gh run list --branch main --limit 1 \
-              --json conclusion,displayTitle,databaseId \
-              --jq '.[] | "\(.conclusion)\t\(.databaseId)\t\(.displayTitle)"' 2>/dev/null)
-    case ${run%%$'\t'*} in
-    success) pass "CI's last run on main passed — $(printf '%s' "$run" | cut -f2-3 | tr '\t' ' ')" ;;
-    '') printf '  ! CI was not asked (no token, or no network) — its state here is unknown, not green\n' ;;
-    *) fail "CI's last run on main is $(printf '%s' "$run" | cut -f1): gh run view $(printf '%s' "$run" | cut -f2) --log-failed" ;;
-    esac
+              --json status,conclusion,displayTitle,databaseId \
+              --jq '.[] | "\(.status)\t\(.conclusion)\t\(.databaseId)\t\(.displayTitle)"' 2>/dev/null)
+    run_status=${run%%$'\t'*}
+    run_conclusion=$(printf '%s' "$run" | cut -f2)
+    run_where=$(printf '%s' "$run" | cut -f3-4 | tr '\t' ' ')
+    if [ -z "$run" ]; then
+        printf '  ! CI was not asked (no token, or no network) — its state here is unknown, not green\n'
+    elif [ "$run_status" != completed ]; then
+        printf '  ! CI is still %s on main — %s — so it is not green yet either\n' \
+               "$run_status" "$run_where"
+    elif [ "$run_conclusion" = success ]; then
+        pass "CI's last run on main passed — $run_where"
+    else
+        fail "CI's last run on main is $run_conclusion: gh run view $(printf '%s' "$run" | cut -f3) --log-failed"
+    fi
 else
     printf '  ! CI was not asked (no gh on PATH) — its state here is unknown, not green\n'
 fi

@@ -981,9 +981,23 @@ mod tests {
     /// the decimal point in every position including absent, lexes to the same bits
     /// `str::parse` produces — including the sign of `-0.0`, which `to_bits` sees and
     /// `==` would not.
+    ///
+    /// # Under Miri it is a sample rather than a sweep, and the sample is the whole change
+    ///
+    /// Exhaustive is 1.8 million lexes of a freshly allocated string, and the interpreter is
+    /// four orders of magnitude slower than the processor — which is most of an hour of the
+    /// `nightly` job's ceiling for a test whose *subject* is a value rather than a memory
+    /// operation. The sample keeps every shape the sweep has: the first hundred, so that one and
+    /// two digits and the zero whose sign `to_bits` sees are all present, and then a prime stride
+    /// through the rest for three, four and five — under all three signs, with the point in every
+    /// position and absent. What is given up is the exhaustiveness — the claim that *no*
+    /// five-digit string disagrees — which is a claim about arithmetic that the interpreter was
+    /// never the instrument for, and which the same test makes in full on every other gate.
+    /// Session 630; ADR 0463.
     #[test]
     fn the_fixed_format_parse_agrees_with_the_standard_library() {
-        for value in 0..=99_999u32 {
+        let sampled = |value: &u32| !cfg!(miri) || *value < 100 || value.is_multiple_of(997);
+        for value in (0..=99_999u32).filter(sampled) {
             let digits = value.to_string();
             for sign in ["", "-", "+"] {
                 for dot in (0..=digits.len()).map(Some).chain([None]) {

@@ -178,10 +178,14 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   run, blamed `sccache`, and was wrong twice over. `cargo-miri` sets `RUSTC_WRAPPER` to **itself**
   before invoking Cargo, so this machine's wrapper is never in front of the interpreter and
   `RUSTC_WRAPPER= cargo +nightly miri test …` changes nothing; and with it "cleared" anyway,
-  `-p pdf-syntax` still ran past half an hour of CPU inside the *runner* phase — not compilation —
-  where `-p pdf-render` is 3 min 54 s end to end and CI does both crates in 2 min 39 s. **That
-  discrepancy is open** (ADR 0450). The lesson that generalises is the older one two bullets up: a
-  wrapper must not be allowed to make a measurement, and *neither must a hypothesis about one*.
+  `-p pdf-syntax` still ran past half an hour of CPU inside the *runner* phase — not compilation.
+  **The discrepancy is closed, and it was two tests** (ADR 0463): the interpreter is four orders of
+  magnitude slower than the processor, so a test whose *input* is large pays for every byte of it —
+  an LZW bomb decoding to 7 MB, and a sweep of 1.8 million number lexes. Both now say what they do
+  under Miri, in their own doc comments. The lesson that generalises is the older one two bullets
+  up: a wrapper must not be allowed to make a measurement, and *neither must a hypothesis about
+  one*. **The instrument that answered it was CI's own log** — `gh run view --job … --log`, whose
+  per-test timestamps attribute the hour without running anything here.
 - **`cargo-fuzz` needs `+nightly`** explicitly; `rust-toolchain.toml` pins stable 1.97.1
   deliberately. `cargo-deny` is in the agent's `~/.cargo/bin` — **and so is `cargo-fuzz`, which is
   not on `PATH`**, so `which cargo-fuzz` answers nothing and `cargo fuzz` fails with "no such

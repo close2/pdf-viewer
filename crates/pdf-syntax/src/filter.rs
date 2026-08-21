@@ -1274,7 +1274,15 @@ fn run_length(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     }
 }
 
-/// Three tests here decline to run under Miri, and each says so itself.
+/// Four tests here decline to run under Miri, and each says so itself.
+///
+/// **Three of the four name `zlib-rs`. The fourth names its own input**, and the difference is
+/// worth keeping: [`an_lzw_bomb_costs_the_window_rather_than_its_decode`] interprets correctly
+/// and cost 50 minutes 45 seconds of the `nightly` job's one-hour ceiling doing it, on 7 MB of
+/// decoded bomb that the neighbouring tests already put through the same decoder at a
+/// hundredth of the size. A declination for *cost* is a weaker thing than one for a
+/// dependency's unsafe, so it says what it gives up in its own doc comment rather than here.
+/// ADR 0463.
 ///
 /// **The defect is `zlib-rs` 0.6.6's and not this tree's**: it deallocates through a pointer other
 /// than the one its allocation was made through, which *both* of Miri's aliasing models reject —
@@ -1711,6 +1719,35 @@ mod tests {
     /// on an allocation and the decode wants more than it — and on the windowed route they are
     /// simply read, in a buffer that never grows. `doc/todo/14`; the bound the windowed route
     /// still answers to is the *reader's* aggregate one, which `pdf_model::content` applies.
+    ///
+    /// # It declines to run under Miri, and the reason is its own *size* rather than a dependency
+    ///
+    /// The three declinations above name somebody else's `unsafe`. This one names its input.
+    /// `lzw_bomb(4096)` decodes to 7 370 880 bytes — that is the point of it — and the
+    /// interpreter is four orders of magnitude slower than the processor, so this **one test
+    /// took 50 minutes 45 seconds** of the `nightly` job's one-hour ceiling on 2026-08-20
+    /// (run 32411230902, `filter::tests::an_lzw_bomb… ok` at 20:50:43 against 19:59:58 for the
+    /// test before it), and the job was cancelled four minutes into the next test with 57 of
+    /// this crate's 92 still unrun. That is the whole of the discrepancy the
+    /// six-hundred-and-fourteenth session left open and twice mis-attributed to `sccache`.
+    ///
+    /// Nothing was bought for those fifty minutes. This module is under
+    /// `#![forbid(unsafe_code)]`; what the test asserts is a *bound* — that the window never
+    /// grew and that the whole route refuses above [`Limits::max_stream_len`] — and a bound is
+    /// a resource question rather than an aliasing one, which is the only kind Miri answers.
+    ///
+    /// **What declining costs is one input size and no code path.**
+    /// [`an_lzw_pump_and_the_whole_decode_agree`] drives the same [`Pump`] over the same shape
+    /// of bomb under the interpreter, in windows of one byte to 4096, so every line of the
+    /// decoder is still interpreted — on 60 KB instead of 7 MB. Outside Miri this test runs
+    /// unchanged, at full size, on every gate.
+    ///
+    /// [`an_lzw_pump_and_the_whole_decode_agree`]: self::an_lzw_pump_and_the_whole_decode_agree
+    /// [`Pump`]: super::Pump
+    #[cfg_attr(
+        miri,
+        ignore = "7 MB of decoded bomb, 50 minutes of interpreter — see the doc comment"
+    )]
     #[test]
     fn an_lzw_bomb_costs_the_window_rather_than_its_decode() {
         // The whole table, which is where §7.4.4.2's ratio is highest: 3 838 codes naming

@@ -801,12 +801,27 @@ impl Interpreter<'_> {
     /// the geometry instead is exact for any text matrix, including one that shears; the
     /// cost is a copy of the outline per stroked glyph, which is paid only by the modes that
     /// stroke and never on the ordinary fill path.
+    ///
+    /// # A glyph stroked in a tiling pattern is named rather than drawn wrong
+    ///
+    /// §8.7.2's "All patterns shall be treated as colours" makes a glyph's stroke colour no
+    /// different from a path's, and a *tiling* pattern is not a paint: it is the cell replayed
+    /// across the stroked outline, which this tree does not compute (§8.4.3, ADR 0028). `path.rs`
+    /// has said so since the fifty-third session; this route did not, so a `Tr 1` glyph whose
+    /// `SCN` named a tiling pattern was outlined in whatever solid colour was last set and
+    /// nothing said so — the silent fallback principle 3 forbids, on the half of §8.7.3 its
+    /// ledger row already calls unimplemented. Session 630, from that row.
     fn stroke_glyph(
         &mut self,
         outline: &Arc<Path>,
         glyph_to_user: Transform,
         state: &GraphicsState,
     ) {
+        if matches!(state.stroke_pattern, Some(PatternPaint::Tiling(_))) {
+            self.note(Unsupported::Shading {
+                name: "a stroke whose colour is a tiling pattern".to_owned(),
+            });
+        }
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
         let glyph_stroke_clip = self.paint_clip(state, false);

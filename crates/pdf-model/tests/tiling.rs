@@ -430,6 +430,78 @@ fn a_pattern_inside_a_form_is_anchored_to_the_forms_space() {
     );
 }
 
+/// [`pdf_with`], with a standard font named `/F0` so that a fixture can show text.
+///
+/// No font program is embedded, so a test built on this is about the *paint* rather than about
+/// glyph outlines.
+fn pdf_with_font(pattern: &str, content: &str) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /Pattern << /P0 5 0 R >> \
+         /Font << /F0 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n{pattern}\nendobj\n",
+        content.len().saturating_add(1)
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// A glyph *stroked* in a tiling pattern is named rather than outlined in the last solid colour.
+///
+/// §8.7.2's "All patterns shall be treated as colours" makes a stroking pattern a colour for
+/// `SCN` exactly as a nonstroking one is for `scn`, and §9.3.6's rendering modes 1, 2, 5 and 6
+/// stroke a glyph's outline. Tiling that outline is the half of §8.7.3 this tree does not
+/// implement — the stroked outline is the backends' to compute (§8.4.3, ADR 0028) — so the only
+/// correct behaviour left is to say so.
+///
+/// **`path.rs` said so and `text.rs` did not**, which is what §8.7.3's ledger row hid: it named
+/// one corpus document reported on the path route and read as though the gap were covered
+/// everywhere. A `Tr 1` glyph was outlined in whatever solid colour was last set, silently.
+/// Session 630.
+#[test]
+fn a_glyph_stroked_in_a_tiling_pattern_is_reported_rather_than_stroked_in_the_last_colour() {
+    let cell = "1 0 0 rg 0 0 5 5 re f";
+    let pattern = format!(
+        "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
+         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream",
+        cell.len().saturating_add(1)
+    );
+    // `1 Tr` is stroke-only, so nothing but the stroking colour decides what this glyph gets.
+    let bytes = pdf_with_font(
+        &pattern,
+        "BT /F0 120 Tf /Pattern CS /P0 SCN 1 Tr 5 10 Td (A) Tj ET",
+    );
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("a stroke whose colour is a tiling pattern"),
+        "the unimplemented half of §8.7.3 should be named on the text route too: {reported}"
+    );
+}
+
 /// A glyph filled with a tiling pattern is its outline tiled, not a solid fill.
 ///
 /// §8.7.2: "All patterns shall be treated as colours; a Pattern colour space shall be
@@ -453,37 +525,10 @@ fn a_glyph_filled_with_a_tiling_pattern_is_tiled() {
          /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream",
         cell.len().saturating_add(1)
     );
-    let content = "BT /F0 120 Tf /Pattern cs /P0 scn 5 10 Td (A) Tj ET";
-    let body = format!(
-        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
-         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
-         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Pattern << /P0 5 0 R >> \
-         /Font << /F0 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> \
-         /Contents 4 0 R >>\nendobj\n\
-         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
-         5 0 obj\n{pattern}\nendobj\n",
-        content.len().saturating_add(1)
-    );
-    let mut out = String::from("%PDF-1.7\n");
-    let mut offsets = Vec::new();
-    for object in body.split_inclusive("endobj\n") {
-        offsets.push(out.len());
-        out.push_str(object);
-    }
-    let xref_at = out.len();
-    let size = offsets.len() + 1;
-    let _ = writeln!(out, "xref\n0 {size}");
-    out.push_str("0000000000 65535 f \n");
-    for offset in &offsets {
-        let _ = writeln!(out, "{offset:010} 00000 n ");
-    }
-    let _ = write!(
-        out,
-        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
-    );
-
-    let raster = render(out.into_bytes());
+    let raster = render(pdf_with_font(
+        &pattern,
+        "BT /F0 120 Tf /Pattern cs /P0 scn 5 10 Td (A) Tj ET",
+    ));
     let mut painted = 0u32;
     let mut clear = 0u32;
     for y in 0..100u32 {

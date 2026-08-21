@@ -59,7 +59,10 @@ for that reason above any other.
    allocator shim is exactly the kind of code that gets rewritten.
 3. **Report it** at <https://github.com/trifectatechfoundation/zlib-rs>, with both models' messages.
 4. **Take the three `#[cfg_attr(miri, ignore)]`s off** when a fixed version is released — and the
-   note above `mod tests` with them — then delete this file.
+   note above `mod tests` with them — then delete this file. **There is a fourth in the file and it
+   is not one of them**: `an_lzw_bomb_costs_the_window_rather_than_its_decode` declines for its own
+   *size* rather than for a dependency's unsafe (ADR 0463), and it stays when these three go. Its
+   reason is in its doc comment, which is the whole point of a declination living on its test.
 
 ## What not to do
 

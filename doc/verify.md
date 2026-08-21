@@ -53,6 +53,13 @@ RUSTFLAGS="-D warnings" cargo check --target aarch64-apple-darwin  -p viewer-ffi
   # same rule: `cargo clippy --workspace` and `cargo test --workspace` build both hosts, so GTK 4's
   # and Qt 6's development files have to be installed to run the gates at all. CI installs
   # `libgtk-4-dev`, `qt6-base-dev` and `qt6-base-dev-tools` for exactly that reason.
+  # **And the toolkit is not the only thing about a machine that decides whether `viewer-qt`
+  # links**: `qt-build-utils` picks the first of `lld`, `ld.gold`, `mold` it can run, this machine
+  # has `lld` and GitHub's runner has not, and the two choose different archive semantics. That
+  # cost `test` a job while `check` stayed green, because `clippy` links no binaries. To run what
+  # the runner runs, build with a `PATH` of symlinks to `/usr/bin`'s entries *minus* `lld`,
+  # `ld.lld`, `lld-link` and `wasm-ld` — `env PATH=$dir cargo build -p viewer-qt --all-targets`.
+  # ADR 0463; `crates/viewer-qt/build.rs` says what makes it link under either.
 # And the Windows *read path* runs here, which is the only way to test it from Linux: the two
 # implementations are chosen by `#[cfg(unix)]` / `#[cfg(not(unix))]`, so rewriting those two
 # attributes compiles the thread-and-channel one on this machine. ADR 0194 has the recipe; all 19
