@@ -233,3 +233,27 @@ reports = []
 ink = 80.479 .. 82.479
 why = "a photograph washed green under a luminosity mask whose group paints a shading pattern: build_soft_mask ran the group without swapping the interpreter's base (ADR 0456, 8.7.2, 11.6.5.1)"
 
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/5097/5097148.pdf"
+page = 1
+session = 631
+reports = []
+ink = 42.273 .. 44.273
+why = "a poster drawn as one command, because an inline image with no /L and /F [/A85 /Fl] was ended by the first EI its base-85 spelled and 1.4 MB of its samples were tokenised as operators; the filter's own EOD marker says where the data ends (ADR 0464, 8.9.7, 7.4.3)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0792/0792405.pdf"
+page = 1
+session = 631
+reports = []
+ink = 21.220 .. 23.220
+why = "a magazine page missing both photographs, refused for \"the colour space takes 4 components but the codestream has 3\": a bare four-component JPEG 2000 codestream had its fourth channel taken for opacity by a colour space the dictionary says to ignore (ADR 0464, 7.4.9)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4359/4359750.pdf"
+page = 1
+session = 631
+reports = []
+ink = 39.547 .. 41.547
+why = "a photograph drawn as a solid black rectangle in silence: a DCTDecode image in a /Lab space had its samples divided by 255 instead of mapped onto Table 88's default decode range, giving a lightness of at most 1 where 100 is white (ADR 0464, 8.9.5.2, 8.6.5.4)"
