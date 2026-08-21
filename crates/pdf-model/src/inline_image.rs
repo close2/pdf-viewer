@@ -21,7 +21,7 @@
 //! never has to do because its own dictionary carries the space outright.
 //!
 //! **No length, unless the file is PDF 2.0.** `/L` was added in ISO 32000-2 and older files
-//! do not have it, so where the data ends has to be *derived*. Three answers, in the order
+//! do not have it, so where the data ends has to be *derived*. Four answers, in the order
 //! this module tries them, and each is checked against the `EI` that must follow it:
 //!
 //! 1. `/L` (or `/Length`), which the clause requires of a PDF 2.0 file and defines exactly:
@@ -30,23 +30,37 @@
 //! 2. For unfiltered data, arithmetic: §8.9.3 fixes the layout of samples, so the width, the
 //!    height, the bit depth and the colour space's component count give the byte count with
 //!    nothing left to guess.
-//! 3. Failing both, a search for the first `EI` that stands as its own token. This is the
-//!    one guess in the module, it is only reached for *filtered* data with no `/L`, and it is
-//!    wrong exactly when the compressed bytes contain a whitespace-`EI`-delimiter sequence.
+//! 3. For *filtered* data, the filter's own end-of-data marker. §8.9.7 makes these bytes "a
+//!    stream object's data (see 7.3.8, "Stream objects")", and §7.3.8.2 says of a stream
+//!    object's data that "most filters are defined so that the data shall be self-limiting;
+//!    that is, they use an encoding scheme in which an explicit end-of-data (EOD) marker
+//!    delimits the extent of the data". So the first filter of the chain is run over the
+//!    bytes and asked where it stopped — `pdf_syntax::Document::filtered_extent`.
+//! 4. Failing all three, a search for the first `EI` that stands as its own token. This is the
+//!    one guess in the module and it is wrong exactly when the encoded bytes contain a
+//!    whitespace-`EI`-delimiter sequence.
 //!
-//! The order matters: it puts the two answers the file states or implies ahead of the one
-//! that reads the data looking for something that might not be a token at all.
+//! The order matters: it puts the three answers the file states, implies or delimits ahead of
+//! the one that reads the data looking for something that might not be a token at all.
 //!
-//! **And the order only holds if the first two can be checked**, which is why [`scan`] is told
-//! whether its bytes are all there are. Each derived end is verified against the `EI` it
-//! predicts, and a page's `/Contents` arrives through a window — so an end past the window is a
-//! request for more bytes ([`InlineImageError::Truncated`]) rather than a failed check that lets
-//! the search run. Until the six-hundred-and-nineteenth session it let the search run, and the
-//! claim above about answer 3 was false for every unfiltered image larger than a window.
+//! **Answer 3 arrived in the six-hundred-and-thirty-third session and answer 4 was the whole
+//! of the filtered case before it.** `7926872.pdf` states `/W 1200 /H 1790 /CS /RGB /BPC 8 /F
+//! /FlateDecode` and no `/L`, and the first `EI` token stands 24 822 bytes into 2.9 MB of
+//! Flate: 477 217 samples of 6 444 000 were drawn and 1.4 MB of the photograph was tokenised
+//! as operators. ADR 0466. `doc/traps/parsers-and-streams.md`'s trap 5 states the rule it is an
+//! instance of — ask first whether the standard states the thing's *extent*.
+//!
+//! **And the order only holds if the first three can be checked**, which is why [`scan`] is
+//! told whether its bytes are all there are. Each derived end is verified against the `EI` it
+//! predicts, and a page's `/Contents` arrives through a window — so an end the window cannot
+//! reach is a request for more bytes ([`InlineImageError::Truncated`]) rather than a failed
+//! check that lets the search run. Until the six-hundred-and-nineteenth session it let the
+//! search run, and the claim above about the search was false for every unfiltered image larger
+//! than a window.
 
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Lexer, Name, Object, Parser, Stream, Token};
+use pdf_syntax::{Dictionary, Document, EncodedExtent, Lexer, Name, Object, Parser, Stream, Token};
 
 /// Why an inline image could not be read.
 ///
@@ -107,12 +121,13 @@ pub struct Scan {
 ///
 /// `complete` says whether `content` is all of the content stream that is left, and it is part
 /// of the question rather than a convenience. A page's `/Contents` reaches the interpreter
-/// through a window (`crate::content::reader`), and the two answers this module derives — `/L`
-/// and the arithmetic below — are *checked* against the `EI` they predict. A derived end past
-/// the bytes held cannot be checked, and where more bytes exist the honest answer is
-/// [`InlineImageError::Truncated`], which asks the caller for them. Answering it with the
-/// forward search instead is what made this module's own "only for filtered data" claim false,
-/// and it cost a crawled drawing 63% of an image (ADR 0454).
+/// through a window (`crate::content::reader`), and the three answers this module derives —
+/// `/L`, the arithmetic below and the filter's own marker — are *checked* against the `EI` they
+/// predict. A derived end the bytes held cannot reach is unchecked, and where more bytes exist
+/// the honest answer is [`InlineImageError::Truncated`], which asks the caller for them.
+/// Answering it with the forward search instead cost a crawled drawing 63% of an image (ADR
+/// 0454), and it would cost the filtered answer above everything it is for: an image large
+/// enough to matter is an image larger than a window.
 pub fn scan(
     document: &Document,
     content: &[u8],
@@ -254,14 +269,26 @@ fn read_dictionary(
 ///
 /// Returns `None` for a key that is neither, which is what "shall be ignored" means.
 ///
-/// # When a file writes both spellings, the abbreviation wins — and that is a choice
+/// # When a file writes both spellings, the abbreviation wins — and the standard says so
 ///
-/// §8.9.7 says only that "the abbreviations shown in Table 91 … and Table 92 … may be used
-/// in place of the full names", so the two spellings are one entry and a file writing both
-/// with different values has written the same key twice. The standard states no rule for
-/// that, here or in §7.3.7, and this is therefore a decision rather than a reading.
+/// §8.9.7's own text says only that "the abbreviations shown in Table 91 … and Table 92 … may
+/// be used in place of the full names", so the two spellings are one entry and a file writing
+/// both with different values has written the same key twice. **Errata Collection 3 states the
+/// rule for that outright**: Issue #3, `/State` `Review` `Completed`, whose caret inserts
+/// "[i]n the situation where both an abbreviated key name and the corresponding full key name
+/// from Table 91 are present, the abbreviated key name shall take precedence" at that
+/// paragraph. `doc/md/` carries the base text rather than the caret (ADR 0252), so the sentence
+/// is the annotation's own words and is quoted here without a blockquote for that reason.
 ///
-/// It is decided by the one file that tests it, and by that file's *bytes* rather than by
+/// **This comment called that a silence and a choice for six hundred sessions, and the choice
+/// was the standard's rule all along.** It was found by running `spec-errata emit` over §8.9.7
+/// before writing here, which is `doc/errata-read.md`'s rule rather than luck: `check` compares
+/// quotations this tree has *written*, and no quotation of an inserted sentence can exist before
+/// somebody writes it. The argument below is kept, because the evidence in it is what says the
+/// erratum is right about real files — and because it is how this tree reached the same answer
+/// without it.
+///
+/// It was decided by the one file that tests it, and by that file's *bytes* rather than by
 /// its comments. `issue14256.pdf` is a `SafeDocs` conformance document whose eight inline
 /// images are the same picture written eight ways, five of them pairing a correct
 /// abbreviation with a contradicting full name. Two of those five can be settled without
@@ -275,8 +302,8 @@ fn read_dictionary(
 /// So the only rule under which that file decodes at all is "the abbreviation wins", and the
 /// three cases it cannot settle — a colour space, a `/Decode` array, an `/Interpolate` flag —
 /// are then decided the same way for consistency rather than separately. The alternative,
-/// which this crate did before and `poppler` still does, is "the later spelling wins", and it
-/// is exactly as defensible from the clause: nothing.
+/// which this crate did before and `poppler` still does, is "the later spelling wins", and the
+/// erratum above is what now rules it out rather than the file's bytes alone.
 fn expand_key(key: &[u8]) -> Option<&'static str> {
     Some(match key {
         b"BPC" | b"BitsPerComponent" => "BitsPerComponent",
@@ -406,10 +433,11 @@ enum Extent {
         /// The offset after the terminator.
         resume: usize,
     },
-    /// A length the file states or implies reaches past the bytes held.
+    /// An end the file states, implies or delimits cannot be confirmed by the bytes held.
     ///
     /// Nothing here can be checked, and the caller holds only a window: more bytes exist and
-    /// the answer is one of the other two once they arrive.
+    /// the answer is one of the other two once they arrive — which is what makes the reader's
+    /// lookahead double rather than settle for the search.
     PastTheBuffer,
     /// No `EI` ends the data.
     Missing,
@@ -417,7 +445,7 @@ enum Extent {
 
 /// Finds where the image data ends, and where the content stream resumes past `EI`.
 ///
-/// See this module's own documentation for why there are three answers and why they are tried
+/// See this module's own documentation for why there are four answers and why they are tried
 /// in this order. `complete` is what makes the order hold through a window: without it, a
 /// derived end the buffer is merely too short to *check* falls through to the search, which is
 /// the one answer this module calls a guess.
@@ -428,17 +456,11 @@ fn data_extent(
     start: usize,
     complete: bool,
 ) -> Extent {
-    // A derived end past the bytes held is unanswerable rather than wrong. Where `content` is
-    // the whole of what is left, it *is* wrong — the file's own arithmetic overruns its content
-    // stream — and the search below is what draws the samples that did arrive.
+    // A derived end the buffer cannot confirm is unanswerable rather than wrong. Where
+    // `content` is the whole of what is left, it *is* wrong — the file's own arithmetic
+    // overruns its content stream, or its filter stops short of its own marker — and the search
+    // below is what draws the samples that did arrive.
     let mut past_the_buffer = false;
-    let mut check = |end: usize| -> Option<usize> {
-        let found = terminator_at(content, end);
-        if found.is_none() {
-            past_the_buffer |= !complete && end > content.len();
-        }
-        found
-    };
 
     // §8.9.7: `/L` "shall be present on all inline images" and is "the length of the data
     // between the ID and EI operators excluding the white-space delimiting those operators".
@@ -451,20 +473,51 @@ fn data_extent(
         .and_then(|value| usize::try_from(value).ok());
     if let Some(length) = stated {
         let end = start.saturating_add(length);
-        if let Some(resume) = check(end) {
-            return Extent::At { end, resume };
+        match terminator_at(content, end) {
+            Terminator::At(resume) => return Extent::At { end, resume },
+            Terminator::PastTheBuffer => past_the_buffer |= !complete,
+            Terminator::No => {}
         }
     }
 
-    // Unfiltered data has exactly one possible length, and §8.9.3 gives it: samples run in
-    // row order, each row padded to a byte boundary, so nothing about where it ends depends
-    // on reading the data.
-    if matches!(document.get_key(dict, "Filter"), Object::Null)
-        && let Some(length) = unfiltered_length(document, dict)
-    {
-        let end = start.saturating_add(length);
-        if let Some(resume) = check(end) {
-            return Extent::At { end, resume };
+    if matches!(document.get_key(dict, "Filter"), Object::Null) {
+        // Unfiltered data has exactly one possible length, and §8.9.3 gives it: samples run in
+        // row order, each row padded to a byte boundary, so nothing about where it ends depends
+        // on reading the data.
+        if let Some(length) = unfiltered_length(document, dict) {
+            let end = start.saturating_add(length);
+            match terminator_at(content, end) {
+                Terminator::At(resume) => return Extent::At { end, resume },
+                Terminator::PastTheBuffer => past_the_buffer |= !complete,
+                Terminator::No => {}
+            }
+        }
+    } else {
+        // Filtered data delimits itself. §8.9.7 makes these bytes "a stream object's data (see
+        // 7.3.8, "Stream objects"), even though they do not follow the standard stream
+        // syntax", and §7.3.8.2 says of a stream object's data:
+        //
+        // > In addition, most filters are defined so that the data shall be self-limiting;
+        // > that is, they use an encoding scheme in which an explicit end-of-data (EOD) marker
+        // > delimits the extent of the data.
+        //
+        // So the filter is run and asked where it stopped, which costs one decode of bytes the
+        // caller will decode again — and buys the answer the search below only guesses at.
+        let tail = content.get(start..).unwrap_or_default();
+        match document.filtered_extent(dict, tail) {
+            EncodedExtent::Ends(length) => {
+                let end = start.saturating_add(length);
+                match terminator_at(content, end) {
+                    Terminator::At(resume) => return Extent::At { end, resume },
+                    Terminator::PastTheBuffer => past_the_buffer |= !complete,
+                    Terminator::No => {}
+                }
+            }
+            // The filter ran out of input before its marker. Through a window that is more
+            // bytes to ask for; over the whole of what is left it is a truncated file, and the
+            // search is what recovers the `EI` a producer did write.
+            EncodedExtent::Short => past_the_buffer |= !complete,
+            EncodedExtent::Unknown => {}
         }
     }
 
@@ -509,8 +562,27 @@ fn unfiltered_length(document: &Document, dict: &Dictionary) -> Option<usize> {
     row_bytes.checked_mul(height)
 }
 
-/// Checks that `EI` stands at `at`, past any white space, and returns the offset after it.
-fn terminator_at(content: &[u8], at: usize) -> Option<usize> {
+/// What stands where a derived end predicts the terminator.
+///
+/// Three answers rather than two, because a caller reading through a window has to tell a
+/// prediction the bytes *refute* from one they merely cannot reach. Only the first is a
+/// statement about the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Terminator {
+    /// `EI` stands there; the content stream resumes at this offset.
+    At(usize),
+    /// The bytes held run out before the question can be answered — past the end outright, or
+    /// inside the white space delimiting the keyword, or inside the keyword itself.
+    PastTheBuffer,
+    /// Something that is not `EI` stands there.
+    No,
+}
+
+/// Checks that `EI` stands at `at`, past any white space, and says where the content resumes.
+fn terminator_at(content: &[u8], at: usize) -> Terminator {
+    if at > content.len() {
+        return Terminator::PastTheBuffer;
+    }
     let mut cursor = at;
     while content
         .get(cursor)
@@ -519,20 +591,32 @@ fn terminator_at(content: &[u8], at: usize) -> Option<usize> {
     {
         cursor = cursor.saturating_add(1);
     }
-    if content.get(cursor..cursor.checked_add(2)?)? != b"EI" {
-        return None;
+    // `cursor` never passes the end, so this is `Some` and the empty slice is the case where
+    // the white space ran to the last byte held.
+    let rest = content.get(cursor..).unwrap_or_default();
+    if rest.len() < 2 {
+        return if b"EI".starts_with(rest) {
+            Terminator::PastTheBuffer
+        } else {
+            Terminator::No
+        };
+    }
+    if !rest.starts_with(b"EI") {
+        return Terminator::No;
     }
     let after = cursor.saturating_add(2);
     // `EI` is a keyword, so what follows it must end the token — otherwise this is the
-    // start of something else that merely begins with those two letters.
+    // start of something else that merely begins with those two letters. The bytes running out
+    // exactly here is read as the end of the content rather than as an unanswered question:
+    // the alternative would refuse every image a content stream ends with.
     if content
         .get(after)
         .copied()
         .is_none_or(|byte| !pdf_syntax::lexer::is_regular(byte))
     {
-        Some(after)
+        Terminator::At(after)
     } else {
-        None
+        Terminator::No
     }
 }
 
@@ -570,7 +654,7 @@ fn search_for_terminator(content: &[u8], start: usize) -> Option<(usize, usize)>
             .checked_sub(1)
             .and_then(|index| content.get(index))
             .is_some_and(|&byte| pdf_syntax::lexer::is_whitespace(byte));
-        if let Some(resume) = terminator_at(content, candidate) {
+        if let Terminator::At(resume) = terminator_at(content, candidate) {
             if preceded_by_space {
                 // The delimiting white space is not part of the data.
                 return Some((candidate.saturating_sub(1), resume));

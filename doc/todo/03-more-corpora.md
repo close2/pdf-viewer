@@ -1091,7 +1091,9 @@ to the thousandth before anything else was read.
 
 **What the head still holds**, each named so the next round does not re-derive it:
 
-- **`7926872.pdf` −41.731 is a round of its own, and the clause has an answer nobody has used.**
+- ~~**`7926872.pdf` −41.731 is a round of its own, and the clause has an answer nobody has used.**~~
+  **Taken in the six-hundred-and-thirty-third — §22 below, ADR 0466.** The paragraph is kept because
+  its reading is what the fix rests on.
   Its inline image is `/W 1200 /H 1790 /CS /RGB /BPC 8 /F /FlateDecode` with no `/L`, so
   `inline_image`'s answer 3 runs — the forward search the module's own comment calls "the one
   guess" — and the first `EI` token stands 24 822 bytes into 2.9 MB of Flate. 477 217 samples of
@@ -1140,6 +1142,35 @@ must **stay** blank — it is a gate, and named here so the pair is read togethe
 
 **What this chunk leaves: 33 944 crawled documents unranked**, in archive-sized pieces. Five rounds
 running, the crawl's head has been a defect no curated corpus states.
+
+
+### 22. What the six-hundred-and-thirty-third took: §21's head, and the half of the population it leaves
+
+**`7926872.pdf` and `4605499.pdf`**, both fixed, and the defect is §21's diagnosis carried out:
+an inline image whose data is *filtered* and which states no `/L` had its end **searched for**
+rather than **derived**, and a byte pair inside the compressed data that reads as a
+white-space-delimited `EI` ended the image there. §8.9.7 makes the bytes "a stream object's data"
+and §7.3.8.2 makes such data self-limiting, so the filter's own end-of-data marker is the answer.
+ADR 0466; §8.9.7's and §7.3.8.2's ledger rows.
+
+- **The population was measured before the change** (trap 11), by `examples/token_window_census`,
+  which gained the comparison and keeps it: of **2 672 062** filtered inline images with no `/L`
+  over 65 967 crawled documents, **17 in 5 documents end early**, costing 13.45 MiB of encoded data
+  taken for content operators. **The curated corpora carry none at all**, so no gate in this tree
+  could see it — which is why the two rows below exist.
+- **`4605499.pdf` was not in §21's head**: its archive is in none of the ten that chunk took, and
+  at ours 8.848 against 72.062 / 72.409 / 72.682 it is deeper than the row this round was sent
+  after. Both now report nothing: 44.516 against 44.647 / 45.020 / 45.233, and 71.775 against
+  72.062 / 72.409 / 72.682.
+- **Half the population is untouched and the size of it is the finding.** The first filter of those
+  2 672 062 images is `CCITTFaxDecode` **1 272 430** times against `FlateDecode`'s 1 367 073, with
+  `ASCII85Decode` 23 018, `ASCIIHexDecode` 4 104, `DCTDecode` 3 778 and `RunLengthDecode` 1 655
+  behind them — and only `FlateDecode` and `LZWDecode` have a resumable decoder in this tree, so
+  everything else still falls to the search. Three of the five need no decoder at all (`>`, `~>`,
+  a length byte of 128) and `ASCIIHexDecode` cannot carry an `EI` in the first place, its alphabet
+  having no `I`. **A successor with a number attached**, and the number is above.
+- **The two rows are in `doc/checks/fixed-documents.toml`**, which is §20's rule and the only gate
+  that sees either document.
 
 
 ## What not to do

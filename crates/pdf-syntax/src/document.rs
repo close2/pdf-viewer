@@ -22,7 +22,7 @@ use std::thread::ThreadId;
 
 use crate::crypt::{Encryption, Method, Permissions};
 use crate::error::{SyntaxError, SyntaxResult};
-use crate::filter::{Damage, Decoded, FilterRefusal};
+use crate::filter::{Damage, Decoded, EncodedExtent, FilterRefusal};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::parser::{Limits, Parser};
 use crate::xref::{Location, XrefTable};
@@ -1705,6 +1705,60 @@ impl Document {
             }
             _ => None,
         }
+    }
+
+    /// Where the encoded data `dict` describes ends inside `data`, on its first filter's own
+    /// end-of-data marker.
+    ///
+    /// ISO 32000-2 §7.3.8.2 states three constraints on a stream's extent and requires them to
+    /// agree — the `/Length`, the filter's marker, and whatever the object's own attributes
+    /// imply:
+    ///
+    /// > In addition, most filters are defined so that the data shall be self-limiting; that
+    /// > is, they use an encoding scheme in which an explicit end-of-data (EOD) marker
+    /// > delimits the extent of the data.
+    ///
+    /// **Only §8.9.7's inline image needs this**, and that is why the answer lives here rather
+    /// than in the filters' callers: Table 5 makes `/Length` required of every stream *object*,
+    /// so a file always states the extent of anything written with the `stream` keyword. An
+    /// inline image has no such keyword and, before PDF 2.0, no length either.
+    ///
+    /// Two details decide what is asked and what is not:
+    ///
+    /// - **It is the *first* filter of the chain, because a chain is applied in order.** Table
+    ///   5: "Multiple filters shall be specified in the order in which they are to be applied",
+    ///   so the bytes in the file are the first stage's input and the first stage's marker is
+    ///   what delimits them. `[/A85 /LZW]` is asked of `ASCII85Decode`, not of `LZWDecode`.
+    /// - **A predictor is not consulted, and does not need to be.** §7.4.4.4's predictor runs
+    ///   over a stage's *output*, so it moves no byte of the input and cannot move where the
+    ///   input ends. That is the one respect in which this question is easier than
+    ///   [`Self::stream_source`]'s.
+    ///
+    /// [`EncodedExtent::Unknown`] covers a filter whose marker this crate does not locate,
+    /// which is every one [`crate::filter::Pumping`] does not name. What each of the three
+    /// answers means is that type's own documentation.
+    #[must_use]
+    pub fn filtered_extent(&self, dict: &Dictionary, data: &[u8]) -> EncodedExtent {
+        let chain = self.filter_chain(dict);
+        let Some(first) = chain.first() else {
+            return EncodedExtent::Unknown;
+        };
+        let parms = self.decode_parms(dict, 0);
+        let pumping = match first.as_slice() {
+            b"FlateDecode" | b"Fl" => crate::filter::Pumping::Inflate,
+            b"LZWDecode" | b"LZW" => {
+                // Table 8's default is 1, read exactly as `Self::pumping` reads it so that the
+                // two cannot build different decoders over the same bytes.
+                let early = parms
+                    .and_then(|parms| parms.get("EarlyChange").and_then(Object::as_integer))
+                    .unwrap_or(1);
+                crate::filter::Pumping::Lzw {
+                    early_change: early != 0,
+                }
+            }
+            _ => return EncodedExtent::Unknown,
+        };
+        crate::filter::encoded_extent(pumping, data, self.limits.max_stream_len)
     }
 
     /// Returns the bytes the document was opened from.

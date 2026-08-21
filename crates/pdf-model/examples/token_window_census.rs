@@ -7,11 +7,20 @@
 //!   `Limits::max_string_len` is 2²⁶, which bounds a string in the *file body* and says
 //!   nothing about what a content stream contains. This walks every page's content and
 //!   prints the largest token, by kind, with the document it was found on.
-//! - **`inline_image::scan` searches forward from `ID` for `EI`** over data whose length the
+//! - **`inline_image::scan` reads forward from `ID` for the end of the data** whose length the
 //!   dictionary need not state (§8.9.7), which is a lookahead of unbounded size inside a
 //!   bounded window. This prints how large real inline images are and, for each, which of
-//!   the clause's three answers decides where its data ends — because only the third of them
-//!   is a search.
+//!   §8.9.7's answers decides where its data ends.
+//! - **And what the *filtered* answer is worth.** §7.3.8.2 makes a filtered extent derivable —
+//!   "most filters are defined so that the data shall be self-limiting" — so for every filtered
+//!   image with no `/L` this asks the first filter of the chain where its own end-of-data
+//!   marker stands and compares that with where the scan stopped. **This was written in the
+//!   six-hundred-and-thirty-third session to size a defect before fixing it**, when the scan's
+//!   answer for those images was a forward search for `EI` and a marker past its answer meant a
+//!   byte pair inside the compressed data had ended the image early. Since ADR 0466 the scan
+//!   uses the same marker, so a disagreement is now a *regression* rather than a population —
+//!   what the run still measures is how many filtered images have a marker this tree can find
+//!   at all, which is the size of what the search still decides.
 //!
 //! ```sh
 //! cargo run --profile gates -p pdf-model --example token_window_census -- doc
@@ -33,12 +42,13 @@
               two decimal places; this is a measurement rather than a shipped path"
 )]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use rayon::prelude::*;
 
-use pdf_syntax::{Document, Object, Token};
+use pdf_syntax::{Document, EncodedExtent, Object, Token};
 
 /// The largest of something, with where it was found.
 #[derive(Debug, Default, Clone)]
@@ -62,19 +72,20 @@ impl Largest {
     }
 }
 
-/// Which of §8.9.7's three answers says where an inline image's data ends.
+/// Which of §8.9.7's answers says where an inline image's data ends.
 ///
 /// The classification is made from the image dictionary rather than from `inline_image`'s
 /// own result, because the question a window asks is what it can know *before* reading the
-/// data: a stated length or a derivable one can be skipped over, and nothing else can.
+/// data: a stated length can be skipped over and the other two cannot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Route {
     /// `/L` (or `/Length`) — "shall be present on all inline images" in a PDF 2.0 file.
     Stated,
     /// Unfiltered data, whose byte count §8.9.3's sample layout fixes exactly.
     Arithmetic,
-    /// Filtered data with no stated length: the module's one guess, and a forward search.
-    Search,
+    /// Filtered data with no stated length: the filter's own end-of-data marker where this
+    /// tree can find one, and the forward search for `EI` where it cannot.
+    Filtered,
 }
 
 /// Token spans and inline images, by size.
@@ -102,6 +113,23 @@ struct Tally {
     images_past: [u64; 4],
     /// Inline images the scan could not read at all.
     unreadable: u64,
+    /// Filtered images with no `/L`, by the first filter of their chain.
+    searched_by_filter: BTreeMap<String, u64>,
+    /// Of those, the ones whose first filter states an end-of-data this crate can locate.
+    derivable: u64,
+    /// Of those, the ones where the marker stands exactly where the scan stopped.
+    agreeing: u64,
+    /// Of those, the ones where the marker stands *past* where the scan stopped: a byte pair
+    /// inside the encoded data was taken for the `EI` that ends the image.
+    early: u64,
+    /// Of those, the ones where the marker stands before it, which no valid file writes.
+    over_run: u64,
+    /// Of those, the ones whose filter ran out of input before its marker.
+    short: u64,
+    /// Encoded bytes standing past where the scan stopped, summed.
+    lost: u64,
+    /// The documents an early `EI` was found in, with the worst loss on each.
+    early_documents: BTreeMap<String, u64>,
 }
 
 /// The window sizes the count of "does not fit" is reported for.
@@ -114,6 +142,19 @@ impl Tally {
         self.tokens += other.tokens;
         self.images += other.images;
         self.unreadable += other.unreadable;
+        self.derivable += other.derivable;
+        self.agreeing += other.agreeing;
+        self.early += other.early;
+        self.over_run += other.over_run;
+        self.short += other.short;
+        self.lost += other.lost;
+        for (name, count) in &other.searched_by_filter {
+            *self.searched_by_filter.entry(name.clone()).or_default() += count;
+        }
+        for (name, worst) in &other.early_documents {
+            let slot = self.early_documents.entry(name.clone()).or_default();
+            *slot = (*slot).max(*worst);
+        }
         for (slot, add) in self.token_decades.iter_mut().zip(other.token_decades) {
             *slot += add;
         }
@@ -179,10 +220,11 @@ fn walk(document: &Document, page: &pdf_model::Page, name: &str, index: usize, t
                 // §8.9.7's image data is not a program. The interpreter seeks past it and so
                 // does this walk, which is also what keeps a JPEG out of the token census.
                 if word == b"BI" {
+                    let opened = lexer.position();
                     let scanned = pdf_model::inline_image::scan(
                         document,
                         content.as_slice(),
-                        lexer.position(),
+                        opened,
                         &page.resources,
                         // The census decodes each content stream whole, so the slice it hands
                         // over is all there is.
@@ -201,8 +243,16 @@ fn walk(document: &Document, page: &pdf_model::Page, name: &str, index: usize, t
                                 }
                             }
                             tally.largest_image.offer(length, where_);
-                            if route == Route::Search {
+                            if route == Route::Filtered {
                                 tally.largest_searched.offer(length, where_);
+                                judge_the_search(
+                                    document,
+                                    content.as_slice(),
+                                    opened,
+                                    stream,
+                                    name,
+                                    tally,
+                                );
                             }
                         }
                         Err(_) => tally.unreadable += 1,
@@ -212,6 +262,96 @@ fn walk(document: &Document, page: &pdf_model::Page, name: &str, index: usize, t
             }
             _ => {}
         }
+    }
+}
+
+/// Where the first byte of image data stands, counting from the `BI` at `opened`.
+///
+/// §8.9.7: "the ID operator shall be followed by a single white-space character, and the next
+/// character shall be interpreted as the first byte of image data", with §7.2.3's CR-LF pair
+/// counting as one such character.
+///
+/// **Read here rather than taken from `inline_image`**, which is the code this comparison is
+/// about: trap 8's rule is that a census whose predicate is the thing being checked measures
+/// nothing. The dictionary between `BI` and `ID` is a sequence of names and objects, so no
+/// keyword can stand in it and the first one is the `ID`.
+fn data_start(content: &[u8], opened: usize) -> Option<usize> {
+    let mut lexer = pdf_syntax::Lexer::at(content, opened);
+    loop {
+        match lexer.next_token()? {
+            Token::Keyword(word) if word == b"ID" => break,
+            _ => {}
+        }
+    }
+    let mut start = lexer.position();
+    if content
+        .get(start)
+        .copied()
+        .is_some_and(pdf_syntax::lexer::is_whitespace)
+    {
+        let carriage_return = content.get(start) == Some(&b'\r');
+        start += 1;
+        if carriage_return && content.get(start) == Some(&b'\n') {
+            start += 1;
+        }
+    }
+    Some(start)
+}
+
+/// Asks the first filter where its own end-of-data marker stands, and compares.
+///
+/// §7.3.8.2 is what makes the question answerable: "most filters are defined so that the data
+/// shall be self-limiting; that is, they use an encoding scheme in which an explicit
+/// end-of-data (EOD) marker delimits the extent of the data." Where the marker stands past the
+/// `EI` the forward search stopped at, the search stopped inside the image's own bytes.
+fn judge_the_search(
+    document: &Document,
+    content: &[u8],
+    opened: usize,
+    stream: &pdf_syntax::Stream,
+    name: &str,
+    tally: &mut Tally,
+) {
+    let filters = match document.get_key(&stream.dict, "Filter") {
+        Object::Name(first) => vec![String::from_utf8_lossy(first.as_bytes()).into_owned()],
+        Object::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_name())
+            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
+            .collect(),
+        _ => Vec::new(),
+    };
+    let first = filters.first().cloned().unwrap_or_else(|| "?".to_owned());
+    *tally.searched_by_filter.entry(first).or_default() += 1;
+
+    let Some(start) = data_start(content, opened) else {
+        return;
+    };
+    let Some(tail) = content.get(start..) else {
+        return;
+    };
+    let extent = match document.filtered_extent(&stream.dict, tail) {
+        EncodedExtent::Ends(extent) => extent,
+        // The bytes carry no marker to compare against: the filter is one this crate has no
+        // resumable decoder for, or the data stops short of the marker it should have had.
+        EncodedExtent::Short => {
+            tally.short += 1;
+            return;
+        }
+        EncodedExtent::Unknown => return,
+    };
+    tally.derivable += 1;
+    let searched = stream.data.len();
+    match extent.cmp(&searched) {
+        std::cmp::Ordering::Equal => tally.agreeing += 1,
+        std::cmp::Ordering::Greater => {
+            tally.early += 1;
+            let lost = (extent - searched) as u64;
+            tally.lost += lost;
+            let slot = tally.early_documents.entry(name.to_owned()).or_default();
+            *slot = (*slot).max(lost);
+        }
+        std::cmp::Ordering::Less => tally.over_run += 1,
     }
 }
 
@@ -226,7 +366,7 @@ fn route_of(document: &Document, stream: &pdf_syntax::Stream) -> Route {
     } else if matches!(document.get_key(&stream.dict, "Filter"), Object::Null) {
         Route::Arithmetic
     } else {
-        Route::Search
+        Route::Filtered
     }
 }
 
@@ -333,15 +473,36 @@ fn main() {
         tally.images, tally.unreadable
     );
     println!(
-        "  by route — stated /L {}, unfiltered arithmetic {}, forward search for EI {}",
+        "  by route — stated /L {}, unfiltered arithmetic {}, filtered with no /L {}",
         tally.by_route[Route::Stated as usize],
         tally.by_route[Route::Arithmetic as usize],
-        tally.by_route[Route::Search as usize]
+        tally.by_route[Route::Filtered as usize]
     );
     report_largest("largest image", &tally.largest_image);
     report_largest("largest searched-for", &tally.largest_searched);
     for (count, window) in tally.images_past.iter().zip(WINDOWS) {
         println!("  images larger than {:>8}: {count}", human(window));
+    }
+
+    println!("\nthe filtered route judged against §7.3.8.2's end-of-data marker:");
+    println!("  first filter of the chain, over every filtered image with no /L:");
+    for (filter, count) in &tally.searched_by_filter {
+        println!("    {filter:<20} {count}");
+    }
+    println!(
+        "  marker locatable {}, of which agreeing {}, ended early {}, over-run {}; \
+         short of a marker {}",
+        tally.derivable, tally.agreeing, tally.early, tally.over_run, tally.short
+    );
+    println!("  encoded bytes lost to an early EI: {}", human(tally.lost));
+    println!(
+        "  documents with at least one early EI: {}",
+        tally.early_documents.len()
+    );
+    let mut worst: Vec<(&String, &u64)> = tally.early_documents.iter().collect();
+    worst.sort_by(|left, right| right.1.cmp(left.1));
+    for (document, lost) in worst.iter().take(20) {
+        println!("    {:>12}  {document}", human(**lost));
     }
 
     let mut edge = 16u64;

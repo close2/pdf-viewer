@@ -233,3 +233,19 @@ reports = []
 ink = 80.479 .. 82.479
 why = "a photograph washed green under a luminosity mask whose group paints a shading pattern: build_soft_mask ran the group without swapping the interpreter's base (ADR 0456, 8.7.2, 11.6.5.1)"
 
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/7926/7926872.pdf"
+page = 1
+session = 633
+reports = []
+ink = 43.516 .. 45.516
+why = "a 1200x1790 photograph drawn as 7% of itself with 1.4 MB of its samples tokenised as operators: an inline image with a filter and no /L had its end searched for, and the first EI token stands 24 822 bytes into 2.9 MB of Flate (ADR 0466, 8.9.7, 7.3.8.2)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605499.pdf"
+page = 1
+session = 633
+reports = []
+ink = 70.775 .. 72.775
+why = "the same early EI, on a 1188x1778 photograph"

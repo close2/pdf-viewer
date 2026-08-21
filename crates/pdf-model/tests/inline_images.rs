@@ -317,3 +317,120 @@ fn an_inline_image_we_cannot_decode_is_reported_and_the_page_continues() {
     );
     assert_marker(&raster);
 }
+
+/// A `FlateDecode` stream carrying `payload` in one of RFC 1951's *stored* blocks.
+///
+/// A stored block holds its bytes literally, which is what makes the pair below say what it
+/// means: the *encoded* data that reaches `inline_image` contains `payload` byte for byte, so
+/// a test can put an `EI` inside a compressed stream and know that it is there rather than
+/// hope a compressor put one there. RFC 1950's two-byte header and Adler-32 trailer wrap it,
+/// which is what §7.4.4.1's `FlateDecode` names.
+///
+/// This is trap 8 in its usual shape: no producer writes this file, and the rule it pins is
+/// one the corpus cannot state.
+fn flate_stored(payload: &[u8]) -> Vec<u8> {
+    // 0x78 0x01 is RFC 1950's header for a 32 KiB window with no preset dictionary, and the
+    // pair is divisible by 31 as FCHECK requires.
+    let mut out: Vec<u8> = vec![0x78, 0x01];
+    let len = u16::try_from(payload.len()).expect("the fixtures are tens of bytes");
+    // BFINAL = 1, BTYPE = 00, then LEN and its ones' complement, little-endian.
+    out.push(0x01);
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&(!len).to_le_bytes());
+    out.extend_from_slice(payload);
+    let (mut low, mut high) = (1u32, 0u32);
+    for &byte in payload {
+        low = (low + u32::from(byte)) % 65521;
+        high = (high + low) % 65521;
+    }
+    out.extend_from_slice(&((high << 16) | low).to_be_bytes());
+    out
+}
+
+/// The content stream around one filtered inline image, with `encoded` as its data.
+fn filtered_image(encoded: &[u8]) -> Vec<u8> {
+    let mut content: Vec<u8> = INLINE_FLATE.to_vec();
+    content.extend_from_slice(encoded);
+    content.extend_from_slice(b" EI Q");
+    content
+}
+
+/// Twelve `DeviceGray` samples under `FlateDecode`, with no `/L`: answer 3's population.
+const INLINE_FLATE: &[u8] = b"BI /W 12 /H 1 /BPC 8 /CS /G /F /Fl ID ";
+
+/// Filtered data ends where its own filter says, not where a byte pair inside it reads as `EI`.
+///
+/// §8.9.7 makes the bytes between `ID` and `EI` "a stream object's data (see 7.3.8, "Stream
+/// objects"), even though they do not follow the standard stream syntax", and §7.3.8.2 says of
+/// a stream object's data that "most filters are defined so that the data shall be
+/// self-limiting; that is, they use an encoding scheme in which an explicit end-of-data (EOD)
+/// marker delimits the extent of the data". So a filtered extent is derivable, and the forward
+/// search — which stops at the ` EI ` these compressed bytes carry — is not the answer.
+///
+/// Read with its twin below: that one is the same construction with no `EI` inside it, where
+/// both answers agree, so the pair says the marker is being *used* rather than that a search
+/// happened to be right.
+#[test]
+fn filtered_data_ends_at_the_filters_own_end_of_data() {
+    // Twelve samples whose middle four spell ` EI ` — 0x20, 0x45, 0x49, 0x20 — which is a
+    // white-space-delimited `EI` token wherever a reader looks for one.
+    let encoded = flate_stored(b"\xff\xff\xff\xff EI \x00\x00\x00\x00");
+    assert!(
+        encoded.windows(4).any(|window| window == b" EI "),
+        "the fixture is worth nothing unless the encoded bytes really carry an EI"
+    );
+    let content = filtered_image(&encoded);
+
+    let scanned = scan(&content);
+    let stream = scanned.image.expect("an image");
+    assert_eq!(
+        stream.data.as_ref(),
+        encoded.as_slice(),
+        "the data is the whole Flate stream, not the prefix before the EI inside it"
+    );
+    // Past the real `EI`, which is the one after the data: two bytes of ` Q` are left.
+    assert_eq!(scanned.resume, content.len() - 2);
+}
+
+/// The twin: the same image with no `EI` in its compressed bytes ends in the same place.
+#[test]
+fn filtered_data_without_an_ei_inside_it_ends_where_it_always_did() {
+    let encoded = flate_stored(b"\xff\xff\xff\xff\x11\x22\x33\x44\x00\x00\x00\x00");
+    assert!(
+        !encoded.windows(2).any(|window| window == b"EI"),
+        "the twin is worth nothing unless the encoded bytes carry no EI at all"
+    );
+    let content = filtered_image(&encoded);
+
+    let scanned = scan(&content);
+    let stream = scanned.image.expect("an image");
+    assert_eq!(stream.data.as_ref(), encoded.as_slice());
+    assert_eq!(scanned.resume, content.len() - 2);
+}
+
+/// Through a window, a filter that runs out of input asks for more bytes rather than searching.
+///
+/// This is what makes the answer hold for an image larger than the reader's window, which is
+/// the population it matters most for: `crate::content::reader` hands `scan` a window and grows
+/// it while the answer is [`Truncated`](pdf_model::inline_image::InlineImageError::Truncated).
+/// Answering with the forward search here would put the guess back for exactly the images the
+/// derivation was written for — which is the shape ADR 0454 fixed for unfiltered data.
+#[test]
+fn a_window_that_cuts_the_filters_marker_asks_for_more_bytes() {
+    let encoded = flate_stored(b"\xff\xff\xff\xff EI \x00\x00\x00\x00");
+    let content = filtered_image(&encoded);
+    // Two bytes short of the end of the encoded data, and well past the ` EI ` inside it.
+    let cut = INLINE_FLATE.len() + encoded.len() - 2;
+
+    let scanned = pdf_model::inline_image::scan(
+        &scanning_document(),
+        &content[..cut],
+        2,
+        &pdf_syntax::Dictionary::new(),
+        false,
+    );
+    assert_eq!(
+        scanned.image.expect_err("the window cuts the data"),
+        pdf_model::inline_image::InlineImageError::Truncated
+    );
+}

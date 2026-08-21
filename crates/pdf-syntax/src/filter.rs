@@ -852,6 +852,115 @@ struct Inflate {
     produced: u64,
 }
 
+impl Engine {
+    /// The decoder `pumping` names, positioned at the start of `data`.
+    ///
+    /// `FlateDecode`'s white-space skip is [`flate`]'s, kept exactly, and the zlib-then-raw
+    /// fallback is taken later by [`Inflate::pump`]: a stream missing its two-byte header is
+    /// common in the wild, and a decoder that has produced nothing yet can be restarted under
+    /// the other framing for nothing.
+    fn new(pumping: Pumping, data: &[u8]) -> Self {
+        match pumping {
+            Pumping::Inflate => {
+                let start = data
+                    .iter()
+                    .position(|&byte| !crate::lexer::is_whitespace(byte))
+                    .unwrap_or(data.len());
+                Self::Inflate(Inflate {
+                    decoder: flate2::Decompress::new(true),
+                    zlib_header: true,
+                    consumed: 0,
+                    start,
+                    produced: 0,
+                })
+            }
+            Pumping::Lzw { early_change } => Self::Lzw(Box::new(Lzw::new(early_change))),
+        }
+    }
+
+    /// How many of the encoded bytes the decoder has taken, counting from the start of `data`.
+    fn consumed(&self) -> usize {
+        match self {
+            Self::Inflate(inflate) => inflate.start.saturating_add(inflate.consumed),
+            Self::Lzw(lzw) => lzw.at,
+        }
+    }
+
+    /// One turn of whichever decoder this is. See [`Pump::pump`].
+    fn pump(&mut self, data: &[u8], out: &mut [u8]) -> Pumped {
+        match self {
+            Self::Inflate(inflate) => inflate.pump(data, out),
+            Self::Lzw(lzw) => lzw.pump(data, out),
+        }
+    }
+}
+
+/// What a filter's own end-of-data marker says about how far its input reaches.
+///
+/// See [`encoded_extent`]. The three answers are kept apart because a caller reading through a
+/// window has to tell "these bytes carry no marker" from "these bytes ran out before one",
+/// which are a statement about the file and a statement about the buffer respectively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodedExtent {
+    /// The marker stands after this many of the input's bytes.
+    Ends(usize),
+    /// The input ran out before the marker did, so the answer is past the bytes offered.
+    Short,
+    /// No marker is to be found in these bytes: the data is corrupt before one, or the decode
+    /// outran the ceiling it was given.
+    Unknown,
+}
+
+/// How many of `data`'s bytes the filter's own end-of-data marker delimits.
+///
+/// ISO 32000-2 §7.3.8.2 is what makes this question answerable at all:
+///
+/// > In addition, most filters are defined so that the data shall be self-limiting; that is,
+/// > they use an encoding scheme in which an explicit end-of-data (EOD) marker delimits the
+/// > extent of the data.
+///
+/// Nothing in a *file* needs it, because Table 5 makes `/Length` required and every stream
+/// object states one. §8.9.7's inline image is the exception the clause exists for: it is
+/// written into a content stream with no `/Length` before PDF 2.0, so where its encoded data
+/// ends is the filter's answer to give.
+/// [`Document::filtered_extent`](crate::Document::filtered_extent) is the caller, and
+/// `pdf_model::inline_image` is what asks it.
+///
+/// `ceiling` bounds the *output*, which is thrown away a window at a time and never held: it
+/// is the same number [`decode_reported`] spends on an allocation and here it buys time
+/// instead, so that a decompression bomb whose marker is a gibibyte away costs neither.
+///
+/// **The cost is one decode, and the caller pays for a second one afterwards.** This runs the
+/// filter to find where it stops and keeps nothing; the bytes are then decoded again by
+/// whoever wanted them. That is deliberate — the alternative is a decoded buffer of unbounded
+/// size held across a scan whose whole purpose is to avoid one — and it replaces a linear
+/// search over the same bytes, so the population it runs on is one where a walk over those
+/// bytes was the cost already.
+#[must_use]
+pub fn encoded_extent(pumping: Pumping, data: &[u8], ceiling: usize) -> EncodedExtent {
+    // Room for one turn's output, which is thrown away. §7.4.4.2 caps an `LZWDecode` entry at
+    // 4096 bytes and `Lzw::pump` hands a longer sequence over in pieces, so any size works and
+    // this one is a page of them.
+    let mut sink = [0u8; 8192];
+    let mut engine = Engine::new(pumping, data);
+    let mut produced = 0usize;
+    loop {
+        match engine.pump(data, &mut sink) {
+            Pumped::Wrote(wrote) => {
+                produced = produced.saturating_add(wrote);
+                if produced > ceiling {
+                    return EncodedExtent::Unknown;
+                }
+            }
+            Pumped::Ended(_) => return EncodedExtent::Ends(engine.consumed().min(data.len())),
+            // The input ending before the marker is what [`Damage::Truncated`] is, and it is
+            // the one damage a longer buffer could still answer.
+            Pumped::Damaged(_, Damage::Truncated) => return EncodedExtent::Short,
+            Pumped::Damaged(_, _) => return EncodedExtent::Unknown,
+        }
+    }
+}
+
 impl Pump {
     /// A pump over `data`, decoding it as [`decode_reported`] would.
     ///
@@ -860,22 +969,7 @@ impl Pump {
     /// has produced nothing yet can be restarted under the other framing for nothing.
     #[must_use]
     pub fn new(pumping: Pumping, data: Arc<[u8]>) -> Self {
-        let engine = match pumping {
-            Pumping::Inflate => {
-                let start = data
-                    .iter()
-                    .position(|&byte| !crate::lexer::is_whitespace(byte))
-                    .unwrap_or(data.len());
-                Engine::Inflate(Inflate {
-                    decoder: flate2::Decompress::new(true),
-                    zlib_header: true,
-                    consumed: 0,
-                    start,
-                    produced: 0,
-                })
-            }
-            Pumping::Lzw { early_change } => Engine::Lzw(Box::new(Lzw::new(early_change))),
-        };
+        let engine = Engine::new(pumping, &data);
         Self {
             data,
             engine,
@@ -903,10 +997,7 @@ impl Pump {
         if self.finished || out.is_empty() {
             return Pumped::Wrote(0);
         }
-        let pumped = match &mut self.engine {
-            Engine::Inflate(inflate) => inflate.pump(&self.data, out),
-            Engine::Lzw(lzw) => lzw.pump(&self.data, out),
-        };
+        let pumped = self.engine.pump(&self.data, out);
         if matches!(pumped, Pumped::Ended(_) | Pumped::Damaged(_, _)) {
             self.finished = true;
         }
