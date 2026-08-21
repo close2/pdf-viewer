@@ -234,7 +234,14 @@ impl Decode {
                     .collect()
             })
             .unwrap_or_default();
+        Self::from_pairs(&stated, space, bits)
+    }
 
+    /// The same map from an already-read `/Decode` array, empty for Table 88's defaults.
+    ///
+    /// Split from [`Self::read`] so that a caller with no document — a unit test — can build
+    /// the map a real image would get.
+    fn from_pairs(stated: &[f32], space: &ColourSpace, bits: u32) -> Self {
         // 2^n − 1, the largest sample the depth can carry, and the formula's x max.
         let max = (1u32 << bits.min(16)).saturating_sub(1);
         let span = f32::from(u16::try_from(max.max(1)).unwrap_or(u16::MAX));
@@ -562,7 +569,6 @@ fn samples_of(
                 components,
                 grid,
             } = decode_jpeg(&source.data)?;
-            apply_decode_to_channels(document, dict, components, &mut rgba);
             convert_channels(at, is_mask, components, &mut rgba, into)?;
             Ok(SamplesOnGrid {
                 rgba,
@@ -854,6 +860,7 @@ fn unpack(data: &[u8], width: u32, height: u32, samples: &Samples) -> Result<Vec
 /// whole would be allocated once per thread.
 fn convert_three(
     space: &crate::colour::ColourSpace,
+    decode: &Decode,
     rgba: &mut [u8],
     band: Option<usize>,
     into: &Conversion,
@@ -875,9 +882,9 @@ fn convert_three(
                 let colour = into.paint(
                     space,
                     &[
-                        f32::from(read(0)) / 255.0,
-                        f32::from(read(1)) / 255.0,
-                        f32::from(read(2)) / 255.0,
+                        decode.value(0, usize::from(read(0))),
+                        decode.value(1, usize::from(read(1))),
+                        decode.value(2, usize::from(read(2))),
                     ],
                 );
                 cache.put(key, colour);
@@ -902,6 +909,7 @@ fn convert_three(
 /// why a band boundary changes no pixel: the memo is of a pure function of one sample tuple.
 fn convert_four(
     space: &crate::colour::ColourSpace,
+    decode: &Decode,
     rgba: &mut [u8],
     band: Option<usize>,
     into: &Conversion,
@@ -923,10 +931,10 @@ fn convert_four(
                 let colour = into.paint(
                     space,
                     &[
-                        f32::from(read(0)) / 255.0,
-                        f32::from(read(1)) / 255.0,
-                        f32::from(read(2)) / 255.0,
-                        f32::from(read(3)) / 255.0,
+                        decode.value(0, usize::from(read(0))),
+                        decode.value(1, usize::from(read(1))),
+                        decode.value(2, usize::from(read(2))),
+                        decode.value(3, usize::from(read(3))),
                     ],
                 );
                 cache.put(key, colour);
@@ -1626,7 +1634,7 @@ fn decode_jpx(
     .map_err(|error| ImageError::Sandboxed {
         detail: error.to_string(),
     })?;
-    let Decoded::Raster(raster) = decoded else {
+    let Decoded::Raster(mut raster) = decoded else {
         return Err(ImageError::Malformed {
             detail: "JPEG 2000 did not decode to component samples".to_owned(),
         });
@@ -1692,10 +1700,42 @@ fn decode_jpx(
         });
     }
 
+    let stated_by_the_dictionary = declared_space.is_some();
     let space = match declared_space {
         Some(space) => space,
         None => codestream_colour_space(&raster)?,
     };
+
+    // §7.4.9, of a dictionary that states its own `/ColorSpace`:
+    //
+    // > If present, it shall determine how the image samples are interpreted, and the colour
+    // > space specifications in the JPEG 2000 data shall be ignored. The number of ordinary
+    // > colour channels in the JPEG 2000 data shall match the number of components in the
+    // > colour space
+    //
+    // *Which* of a codestream's channels is an opacity channel is read off those same colour
+    // space specifications — the JP2 channel-definition box sits beside them — so a bare
+    // codestream, which carries no boxes at all, has both synthesised for it by the codec. A
+    // fourth channel beside a synthesised three-component space is then taken for opacity, and
+    // the count the sentence above binds is one short. The clause sets that reading aside, and
+    // Table 87 makes it moot from the other side: with `/SMaskInData` 0 or absent, encoded
+    // soft-mask information is ignored, so nothing is lost by reading the channel as colour.
+    //
+    // Narrow on purpose, which is trap 11's rule about a condition rather than a count: a file
+    // that *states* an opacity channel by writing a non-zero `/SMaskInData` is believed, and so
+    // is one whose ordinary channels already match the declared space. Only where taking the
+    // supposed opacity channel for an ordinary one makes the clause's sentence true is the
+    // codec's guess set aside.
+    if stated_by_the_dictionary
+        && smask_in_data == 0
+        && raster.has_opacity
+        && space.components() != usize::from(raster.components)
+        && space.components() == raster.channels()
+    {
+        raster.components = raster.components.saturating_add(1);
+        raster.has_opacity = false;
+    }
+
     if space.components() != usize::from(raster.components) {
         return Err(ImageError::Malformed {
             detail: format!(
@@ -2134,6 +2174,13 @@ fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
 /// (`issue7406.pdf`), and it was being dropped: this route never consulted the entry at all.
 /// A greyscale JPEG's single component is written to all three channels by [`decode_jpeg`],
 /// so the first pair governs each of them.
+///
+/// **A channel and a component are the same thing only where the space's components run from 0
+/// to 1**, so since the six-hundred-and-thirty-first session this runs on the paths
+/// [`convert_channels`] does *not* convert — a stencil, an unreadable space, and the device
+/// spaces the decoder already delivered. Everywhere else the map is indexed in the space's own
+/// component values, where a `Lab` lightness of 100 and an `Indexed` index of 255 both fit and
+/// an eight-bit channel does not (ADR 0464).
 fn apply_decode_to_channels(
     document: &Document,
     dict: &Dictionary,
@@ -2182,6 +2229,15 @@ fn apply_decode_to_channels(
 /// one-component space and a per-pixel call for three. Nothing runs at all where the space
 /// is the device one the decoder already delivered, which is every corpus JPEG but a
 /// handful.
+///
+/// **§8.9.5.2's `/Decode` is applied here too, and that is what makes the conversion right**
+/// rather than an extra job taken on. A sample is an integer and a component is a value in the
+/// space's own range, and Table 88 says which range: this route used to divide by 255 and let
+/// [`apply_decode_to_channels`] remap eight-bit channels beforehand, which is the same thing
+/// only for a space whose components run from 0 to 1. Where the two paths below convert, they
+/// index the map; where they return early — a stencil, a space this crate could not read, and
+/// the device spaces the decoder already delivered — the channel remap is still what a
+/// `/Decode` array means, and it runs.
 fn convert_channels(
     at: Dictionaries,
     is_mask: bool,
@@ -2189,11 +2245,16 @@ fn convert_channels(
     rgba: &mut [u8],
     into: &Conversion,
 ) -> Result<(), ImageError> {
+    let channels_only = |rgba: &mut [u8]| {
+        apply_decode_to_channels(at.document, at.dict, components, rgba);
+    };
     if is_mask {
+        channels_only(rgba);
         return Ok(());
     }
     // An unreadable space is reported by the ordinary route rather than twice.
     let Ok(space) = colour_space(at.document, at.dict, at.resources, into) else {
+        channels_only(rgba);
         return Ok(());
     };
     let space = match space {
@@ -2203,10 +2264,40 @@ fn convert_channels(
         // mask group none of the three is what the decoder produced — `ColourSpace::reduced`
         // does not reduce there — so this early return is unreachable and the arms below
         // convert every sample, which is what the group is composited in.
-        ColourSpace::Gray | ColourSpace::Rgb | ColourSpace::Mask => return Ok(()),
+        ColourSpace::Gray | ColourSpace::Rgb | ColourSpace::Mask => {
+            channels_only(rgba);
+            return Ok(());
+        }
         ColourSpace::Cmyk => crate::colour::ColourSpace::Cmyk,
         ColourSpace::Resolved(space) => space,
     };
+
+    // §8.9.5.2's map from a sample to a component value, which this route used to be a flat
+    // division by 255 instead of:
+    //
+    // > Samples with a value of 0 shall be mapped to D min … those with intermediate values
+    // > shall be mapped linearly between D min and D max
+    //
+    // Table 88 sets D min and D max per *space* where the dictionary states no `/Decode`, and
+    // two of the families it lists do not run from 0 to 1: an `Indexed` space's default is
+    // `[0 2^n − 1]`, and a `Lab` space's is `[0 100 amin amax bmin bmax]`, whose lightness is a
+    // percentage and whose two chromatic axes take the space's own `/Range`. Dividing a sample
+    // by 255 hands `Lab` a lightness of at most 1 out of 100, which is a photograph drawn as a
+    // **black rectangle** with nothing reported — a crawled schoolbook page, +32.097 of 255
+    // against three references agreeing to 1.8 (session 631, ADR 0464). The `Indexed` half of
+    // the same hole was found one arm along and fixed in the six-hundred-and-thirteenth
+    // (ADR 0448); this is its other two arms.
+    //
+    // The table is the same object the unfiltered route unpacks through, so `/Decode` reaches
+    // this route the way it reaches that one, in the space's own component values rather than
+    // as an eight-bit channel remap — which is what [`apply_decode_to_channels`] does for the
+    // device spaces above, where the two are the same thing.
+    let decode = Decode::read(
+        at.document,
+        at.dict,
+        &ColourSpace::Resolved(space.clone()),
+        8,
+    );
     // The raster's channel count and the space's need not match, and where they do not it is
     // usually not a defect: a greyscale JPEG is delivered as three equal channels, so a
     // one-component space reads the first of them. What cannot be reconciled is a space of
@@ -2225,16 +2316,11 @@ fn convert_channels(
             // a whole page of black where the table says white. `jpx_samples_to_rgba` states
             // the same rule for the JPEG 2000 route and `Decode`'s default range states it
             // for the other three; this route is the one that had it missing.
-            let scale = if matches!(space, crate::colour::ColourSpace::Indexed { .. }) {
-                1.0
-            } else {
-                1.0 / 255.0
-            };
             // The same table `palette` builds, for the same reason: 256 possible samples
             // against a photograph's millions.
             let table: Vec<[u8; 3]> = (0..=255u8)
                 .map(|value| {
-                    let colour = into.paint(&space, &[f32::from(value) * scale]);
+                    let colour = into.paint(&space, &[decode.value(0, usize::from(value))]);
                     [channel(colour.r), channel(colour.g), channel(colour.b)]
                 })
                 .collect();
@@ -2249,11 +2335,11 @@ fn convert_channels(
             Ok(())
         }
         (3, 3) => {
-            convert_three(&space, rgba, band_pixels(rgba.len() / 4), into);
+            convert_three(&space, &decode, rgba, band_pixels(rgba.len() / 4), into);
             Ok(())
         }
         (4, 4) => {
-            convert_four(&space, rgba, band_pixels(rgba.len() / 4), into);
+            convert_four(&space, &decode, rgba, band_pixels(rgba.len() / 4), into);
             Ok(())
         }
         (wanted, got) => Err(ImageError::UnsupportedColourSpace {
@@ -4019,9 +4105,12 @@ mod tests {
     fn a_band_boundary_changes_no_pixel() {
         let space = calibrated();
         let pixels = 5_000;
+        let decode =
+            super::Decode::from_pairs(&[], &super::ColourSpace::Resolved(space.clone()), 8);
         let mut serial = raster(pixels);
         convert_three(
             &space,
+            &decode,
             &mut serial,
             None,
             &crate::colour::Conversion::device(),
@@ -4033,6 +4122,7 @@ mod tests {
             let mut split = raster(pixels);
             convert_three(
                 &space,
+                &decode,
                 &mut split,
                 Some(band),
                 &crate::colour::Conversion::device(),

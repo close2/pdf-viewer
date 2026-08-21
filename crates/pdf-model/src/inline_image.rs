@@ -57,6 +57,18 @@
 //! check that lets the search run. Until the six-hundred-and-nineteenth session it let the
 //! search run, and the claim above about the search was false for every unfiltered image larger
 //! than a window.
+//!
+//! **Answer 3 has two routes and each covers what the other cannot**, which is how it arrived:
+//! the six-hundred-and-thirty-third session ran the first filter and asked where it stopped,
+//! which answers `FlateDecode` and `LZWDecode` — the two with a resumable decoder here — and
+//! the six-hundred-and-thirty-first read §7.4.2's GREATER-THAN SIGN and §7.4.3's (7Eh)(3Eh)
+//! straight out of the data, which needs no decoder at all and answers `ASCII85Decode` and
+//! `ASCIIHexDecode`. Neither of those two encodings can contain its own marker, so finding it
+//! is not a guess; the clause's own EXAMPLE ends its `/F [/A85 /LZW]` image `…2HCqC~> EI`. The
+//! two rounds ran in parallel and reached the same answer from opposite ends — a decoder's
+//! consumed input and a marker in the bytes — and the merge keeps both, because Table 5 says
+//! the *first* filter of the chain is the one asked and `/F [/A85 /Fl]` is answered only by
+//! the second route while `/F /FlateDecode` is answered only by the first. ADRs 0464, 0466.
 
 use std::sync::Arc;
 
@@ -521,7 +533,34 @@ fn data_extent(
         }
     }
 
-    if past_the_buffer {
+    // Filtered data with no `/L`, where the filter states where it ends. §8.9.7 makes these
+    // bytes "a stream object's data", and a stream's data ends where its own filter says it
+    // does; two of the filters Table 92 admits say so *in the data*, with a marker no correctly
+    // encoded byte of either can contain. That makes the end derivable rather than searched
+    // for, and it is what the clause's own EXAMPLE shows: its `/F [/A85 /LZW]` image ends
+    // `R.s(4KE3&d&7hb*7[%Ct2HCqC~> EI`.
+    let mut marker_beyond_the_buffer = false;
+    if let Some(marker) = terminating_marker(document, dict) {
+        match find(content, start, marker) {
+            Some(at) => {
+                let end = at.saturating_add(marker.len());
+                // 633's three-way answer rather than 631's two-way `check`: a marker found
+                // inside a window whose `EI` the window cannot reach is a window too short,
+                // which is the same answer the derived lengths above give.
+                match terminator_at(content, end) {
+                    Terminator::At(resume) => return Extent::At { end, resume },
+                    Terminator::PastTheBuffer => marker_beyond_the_buffer = !complete,
+                    Terminator::No => {}
+                }
+            }
+            // Neither filter can produce the marker's bytes inside its own data, so a marker
+            // absent from a *window* is a window too short rather than a file that states no
+            // end — the same answer the two derived lengths above give, for the same reason.
+            None => marker_beyond_the_buffer = !complete,
+        }
+    }
+
+    if past_the_buffer || marker_beyond_the_buffer {
         return Extent::PastTheBuffer;
     }
 
@@ -529,6 +568,59 @@ fn data_extent(
         Some((end, resume)) => Extent::At { end, resume },
         None => Extent::Missing,
     }
+}
+
+/// The end-of-data marker the *first* filter writes into the data, where it writes one.
+///
+/// Only the first filter is asked, because it is the one whose input the bytes after `ID` are.
+/// §7.3.8.2's Table 5, of `/Filter`:
+///
+/// > Multiple filters shall be specified in the order in which they are to be applied.
+///
+/// So a `/F [/A85 /Fl]` image is base-85 on the outside and everything else is what comes out of
+/// it — which is the arrangement §8.9.7's own EXAMPLE writes.
+///
+/// §7.4.2, of `ASCIIHexDecode`:
+///
+/// > A GREATER-THAN SIGN (3Eh) indicates EOD (End Of Data).
+///
+/// §7.4.3 gives `ASCII85Decode` the two-character sequence (7Eh)(3Eh) as its EOD marker, over an
+/// alphabet of `!` through `u` and `z` in which (7Eh) cannot otherwise occur. Errata Collection 3
+/// makes that a rule rather than an inference, Issue #293 adding to the clause: "If the
+/// ASCII85Decode filter encounters the character ~ in its input, the next character shall be >
+/// and the filter will reach EOD. Any other characters shall cause an error." So in both cases
+/// the first occurrence of the marker is the end, and no decoding is needed to find it.
+///
+/// Every other filter this clause admits ends on a structure only its decoder can recognise, so
+/// they answer `None` and fall through to the search below.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the erratum's sentence is quoted verbatim, and a quotation with backticks added \
+              to please a lint is no longer a quotation"
+)]
+fn terminating_marker(document: &Document, dict: &Dictionary) -> Option<&'static [u8]> {
+    let first = match document.get_key(dict, "Filter") {
+        Object::Name(name) => name,
+        Object::Array(filters) => match filters.into_iter().next() {
+            Some(Object::Name(name)) => name,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    match first.as_bytes() {
+        b"ASCIIHexDecode" => Some(b">"),
+        b"ASCII85Decode" => Some(b"~>"),
+        _ => None,
+    }
+}
+
+/// The first offset at or after `from` where `needle` stands in `haystack`.
+fn find(haystack: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
+    haystack
+        .get(from..)?
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|offset| from.saturating_add(offset))
 }
 
 /// The byte count of unfiltered sample data, from §8.9.3's layout.
@@ -626,8 +718,9 @@ fn terminator_at(content: &[u8], at: usize) -> Terminator {
 /// the length — and the offset after the terminator.
 ///
 /// This is the module's only guess, and it is reached only for filtered data in a file with
-/// no `/L`. Compressed bytes can contain white space, `E`, `I` and a delimiter in that order;
-/// nothing in the format prevents it, which is why the two answers above are tried first.
+/// no `/L` whose first filter states no end-of-data marker of its own. Compressed bytes can
+/// contain white space, `E`, `I` and a delimiter in that order; nothing in the format prevents
+/// it, which is why the three answers above are tried first.
 ///
 /// Two candidates, one walk. The clause's own sentence — "the bytes between the ID operator
 /// and a white-space token, but before the EI operator" — puts white space before `EI`, so a

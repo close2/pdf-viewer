@@ -398,6 +398,43 @@ fn an_indexed_space_over_a_jpeg_reads_the_sample_as_an_index() {
     );
 }
 
+/// A `Lab` space over a JPEG maps the sample onto the space's own component range.
+///
+/// The sibling of the `Indexed` test above, one arm along and from the same sentence. §8.9.5.2
+/// maps an integer sample onto a component value, and Table 88 sets the ends of that map per
+/// *space* where the dictionary states no `/Decode`: a `Lab` space's default is
+/// `[0 100 amin amax bmin bmax]`, because §8.6.5.4 makes its first component a **percentage**
+/// and its other two the space's own `/Range`. Dividing by 255 instead hands `Lab` a lightness
+/// of at most 1 where 100 is white, so every colour in the image collapses onto black.
+///
+/// The frame here is every coefficient zero, which JPEG's level shift makes 128 in each of three
+/// channels. Through Table 88 that is L\* 50.196 with both chromatic axes within four tenths of
+/// neutral — mid grey by construction, since CIE L\* 50 *is* the middle of the lightness scale —
+/// and through a division by 255 it is L\* 0.502, which is black. The band below separates those
+/// two answers by ninety levels and nothing finer, so it pins the map rather than this tree's
+/// white-point adaptation or its sRGB encoding.
+///
+/// **The witness is a crawled schoolbook page**: a 543×372 `/DCTDecode` photograph under
+/// `[/Lab << /WhitePoint [.964203 1 .824905] /Range [-128 127 -128 127] >>]`, drawn as a solid
+/// black rectangle with nothing reported, at **+32.097** of 255 where `pdftoppm`, `mutool` and
+/// `gs` agree within 1.8 (session 631, ADR 0464).
+#[test]
+fn a_lab_space_over_a_jpeg_maps_the_sample_onto_the_spaces_own_range() {
+    let space = "[/Lab << /WhitePoint [0.9505 1.0 1.089] >>]";
+    let sample = first_sample(pdf_with_image(&three_component_jpeg(None), space, (8, 8)))
+        .expect("a three-component JPEG under a Lab space draws");
+    let (red, green, blue) = sample;
+    assert!(
+        (100..=140).contains(&red),
+        "a sample of 128 is L* 50.196, which is mid grey; dividing by 255 gives L* 0.502, \
+         which is black. Drew {sample:?}"
+    );
+    assert!(
+        red.abs_diff(green) <= 3 && green.abs_diff(blue) <= 3,
+        "both chromatic axes are within four tenths of neutral: {sample:?}"
+    );
+}
+
 /// A frame taller than sixteen thousand rows is this crate's budget to refuse, not a decoder's.
 ///
 /// §7.4.8 says where a frame's dimensions come from and puts no ceiling on them:

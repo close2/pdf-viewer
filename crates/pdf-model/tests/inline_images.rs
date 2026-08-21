@@ -216,13 +216,21 @@ fn scanning_document() -> Document {
 
 /// Scans the inline image in `content`, whose `BI` is the first two bytes.
 fn scan(content: &[u8]) -> pdf_model::inline_image::Scan {
+    scan_window(content, true)
+}
+
+/// The same, saying whether `content` is all of the content stream that is left.
+///
+/// `false` is a *window* over a longer stream, which is how a page's `/Contents` actually
+/// reaches the interpreter: an end the held bytes cannot locate is then a request for more of
+/// them rather than a licence to guess.
+fn scan_window(content: &[u8], complete: bool) -> pdf_model::inline_image::Scan {
     pdf_model::inline_image::scan(
         &scanning_document(),
         content,
         2,
         &pdf_syntax::Dictionary::new(),
-        // These fixtures are whole content streams rather than a window over one.
-        true,
+        complete,
     )
 }
 
@@ -256,6 +264,75 @@ fn a_length_that_does_not_predict_the_terminator_falls_back_to_the_search() {
 
     let stream = scanned.image.expect("an image");
     assert_eq!(stream.data.as_ref(), b"\x01\x02");
+    assert_eq!(scanned.resume, content.len() - 2);
+}
+
+/// A base-85 stream ends at its own EOD marker, not at an `EI` its characters happen to spell.
+///
+/// §8.9.7 makes the bytes after `ID` "a stream object's data", and §7.4.3 gives that data an
+/// end: the two-character sequence (7Eh)(3Eh), over an alphabet of `!` through `u` and `z` that
+/// cannot contain either byte. So the end is *stated* rather than searched for — which is what
+/// the clause's own EXAMPLE writes, ending its `/F [/A85 /LZW]` image `…2HCqC~> EI`.
+///
+/// The data here spells a white-space-delimited `EI` of its own, which every character of is in
+/// the base-85 alphabet or is white space §7.4.3 ignores. A reader that searches stops there,
+/// draws a fifth of the image, and hands the rest of the encoded bytes back to the lexer as
+/// operators. **The witness is a crawled document rather than an invention**: a 2951×178
+/// photograph under `/F [/A85 /Fl]` whose first `EI` token stands 69 598 bytes into 1.29 MB of
+/// base-85, which drew as a blank sheet where three references agree on 43.6 of 255 (session
+/// 631, ADR 0464).
+#[test]
+fn a_base85_end_of_data_marker_ends_the_data() {
+    let content = b"BI /W 8 /H 1 /BPC 8 /CS /G /F /A85 ID 87cU EI RD]j~> EI Q";
+    let scanned = scan(content);
+
+    let stream = scanned.image.expect("an image");
+    assert_eq!(stream.data.as_ref(), b"87cU EI RD]j~>");
+    // Past the second `EI`, which is the real one: two bytes of ` Q` are left.
+    assert_eq!(scanned.resume, content.len() - 2);
+}
+
+/// A base-85 image whose marker is past the window asks for more bytes rather than searching.
+///
+/// The negative twin of the test above, and ADR 0454's lesson applied to this third answer: a
+/// derived end the held bytes cannot *locate* is unanswerable, not wrong. Letting the search
+/// run instead would stop at the `EI` the data spells — which is exactly the defect the marker
+/// exists to avoid, reintroduced by the window.
+#[test]
+fn a_base85_marker_outside_the_window_is_truncated_rather_than_searched() {
+    let content = b"BI /W 8 /H 1 /BPC 8 /CS /G /F /A85 ID 87cU EI RD]j";
+    let scanned = scan_window(content, false);
+
+    assert!(
+        matches!(
+            scanned.image,
+            Err(pdf_model::inline_image::InlineImageError::Truncated)
+        ),
+        "the ~> marker is not in these bytes, so more of them are what is needed"
+    );
+    assert_eq!(scanned.resume, content.len());
+}
+
+/// An ASCII hex stream ends at its GREATER-THAN SIGN.
+///
+/// §7.4.2: "A GREATER-THAN SIGN (3Eh) indicates EOD (End Of Data)." The same rule as the
+/// base-85 test above and from the same sentence of §8.9.7, and it is here because a clause
+/// that states two routes is only implemented when both are (`doc/traps/parsers-and-streams.md`
+/// trap 5).
+///
+/// The hex here is malformed — `I` is not a hexadecimal digit, so §7.4.2's "[a]ny other
+/// characters shall cause an error" — and that is deliberate rather than sloppy: a *correctly*
+/// encoded hex stream cannot spell `EI` at all, so this is the only shape in which the two
+/// answers differ. Where the data ends is a question §7.4.2 answers before the filter runs, and
+/// answering it with the stray `EI` would lose the rest of the page's content stream as well as
+/// the image.
+#[test]
+fn an_ascii_hex_end_of_data_marker_ends_the_data() {
+    let content = b"BI /W 8 /H 1 /BPC 8 /CS /G /F /AHx ID 4142 EI 4344> EI Q";
+    let scanned = scan(content);
+
+    let stream = scanned.image.expect("an image");
+    assert_eq!(stream.data.as_ref(), b"4142 EI 4344>");
     assert_eq!(scanned.resume, content.len() - 2);
 }
 

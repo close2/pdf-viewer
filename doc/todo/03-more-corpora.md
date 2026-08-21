@@ -1171,6 +1171,65 @@ ADR 0466; §8.9.7's and §7.3.8.2's ledger rows.
   having no `I`. **A successor with a number attached**, and the number is above.
 - **The two rows are in `doc/checks/fixed-documents.toml`**, which is §20's rule and the only gate
   that sees either document.
+### 23. The chunk the six-hundred-and-thirty-first took: ten archives, and three ranges
+
+**Taken: `0792`, `1038`, `1776`, `2145`, `2883`, `3621`, `4359`, `5097`, `5835` and `6573`, whole,
+10 000 documents**, on §16's instrument unchanged and *reused* — page one at 72 dpi against
+`pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box, ranked by our ink
+minus the lightest live reference's. **Fifteen minutes** for the ten thousand at sixteen workers.
+Both binaries built first and §20's check run before anything was ranked (**25 checked, 0 absent,
+green**), with 625's three recorded documents reproduced to the thousandth.
+
+- **Three defects of this tree, and all three are one question: what range does a sample run
+  over?** ADR 0464. None of them is about decoding; every one is about the arithmetic between a
+  decoded byte and a colour or an extent.
+  - **`5097148.pdf` −43.503**, the deepest row of the ten thousand, is 625's leftover with a
+    sharper clause than that note expected. Its inline image is `/F [/A85 /Fl]` with no `/L`, so
+    the forward search ran and stopped at the first `EI` the base-85 spells, 69 598 bytes into
+    1.29 MB: **one command drawn** at 0.092 against three references agreeing on 43.9, with 1.4 MB
+    of encoded samples reported as operators. §8.9.7 makes the bytes "a stream object's data" and
+    §7.4.2 and §7.4.3 give two of Table 92's filters an end-of-data marker *in* the data, so the
+    extent is derived rather than searched for — which is what the clause's own EXAMPLE writes.
+    → −0.323, 328 commands.
+  - **`4359750.pdf` +32.097** is a **positive** head row and the first chunk where the sharpest
+    finding was on that side. A `/DCTDecode` photograph in a `/Lab` space, drawn as a solid black
+    rectangle in silence: `convert_three` divided every sample by 255, where §8.9.5.2's map and
+    Table 88's default for that space give a lightness in 0 to **100**. ADR 0448 fixed the
+    `Indexed` half of the same hole one arm along; the other two arms had no witness until now.
+    → +0.307.
+  - **`0792405.pdf` −8.329** loses both its photographs to "the colour space takes 4 components
+    but the codestream has 3". The codestream has four: it is a **bare** codestream, so the codec
+    synthesises a three-channel space for it and calls the fourth channel opacity — a reading
+    §7.4.9 sets aside where the dictionary states the space, and Table 87 makes moot where
+    `/SMaskInData` is 0. → +0.576.
+- **`spec-errata emit` over the clause family is what made the second of those a rule.** Errata
+  Collection 3's Issue #293 adds a whole sentence to §7.4.3 that `check` had never named and could
+  not: it compares the tree's *quotations* against struck passages, and this is a pure addition
+  over text nobody had quoted. `doc/errata-read.md` carries the row.
+- **The reach is measured over our own panel rather than by a whole re-ranking**, because that is
+  exactly what a change to this tree can move and a reference's panel is not: **10 rows of 42 000
+  move, six of them the fixes and four the instrument** — four renders that lost their budget while
+  three other rounds were compiling, byte-identical under both binaries on a quiet machine.
+  **Three of the six are in archives an earlier chunk took** (`4482` and `0423` are 615's, `7311`
+  is 625's), which is the sixth round running that a fix has reached back, and all three move
+  toward agreement — `4482885.pdf` **+11.288 → −0.840**.
+- **The first fix's population is one document of 65 944**, measured with a walk that reads each
+  codestream's own SIZ marker (trap 8). The row says so; what makes it worth having is that the
+  clause is not that narrow.
+- **What the head still holds**, named so the next round does not re-derive it: `5835546.pdf`
+  −13.310 is `MAX_OPERATIONS`, `doc/todo/49`'s; `2883767.pdf` −7.159 reports §11.4.4's non-isolated
+  group, `doc/todo/23`'s; **three silent rows** are `2883994.pdf` −10.134 (5236 commands),
+  `1776488.pdf` −5.965 (198) and `5835193.pdf` −4.976 (120 513). Below +20 the positive head is
+  613's `poppler`-draws-nothing note, and `5097568.pdf` +26.596 and `4359131.pdf` +20.057 are that
+  note with **`mutool`** as the light one instead — ours within a level of the other two on both.
+  **61 rows of the 10 000 produce no number.**
+- **`7926872.pdf` −41.731 is still open and is now a *different* question from `5097148.pdf`.** Its
+  filter is `/FlateDecode`, which states no marker in its data, so a textual end-of-data cannot
+  reach it and what it needs is still `pdf_syntax::Pump`'s consumed-input count exposed. 625's five
+  silent rows and `1530064.pdf` remain as §21 records them.
+
+**What this chunk leaves: 23 944 crawled documents unranked**, in archive-sized pieces. Six rounds
+running, the crawl's head has been a defect no curated corpus states.
 
 
 ## What not to do
