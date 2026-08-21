@@ -168,5 +168,8 @@ The rule this round leaves behind is in `doc/todo/01`:
 > are not corrected at all.**
 
 That is greppable — for each row, does its `note` name a source file its own `code` array omits? —
-and it is named there as a thirteenth sweep. It sits beside the eighth, which asks whether a path a
-note names *exists*; this asks whether a row's arrays agree with its own sentences.
+and it is named there as a thirteenth sweep — **renumbered the nineteenth in the
+six-hundred-and-forty-fifth**, because thirteen was an ordinal two other things already held and
+the count of sweeps had been running together with the count of committed programs (ADR 0475 §1).
+It sits beside the eighth, which asks whether a path a note names *exists*; this asks whether a
+row's arrays agree with its own sentences.

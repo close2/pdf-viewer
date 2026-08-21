@@ -304,6 +304,16 @@ share and the two that break it:
   now has, a string a correction retired — and are therefore blind to a row with no reason at all.
   The sweep for that one prints every `partial` row whose note names nothing owed, which breaks
   the ledger's own definition of the status.
+- **One reads no source at all**, and it is the newest: `--bin overstated`, the eighteenth sweep
+  and the thirteenth to become a program (ADR 0475). Every other sweep here reads a row against
+  the tree; this one reads a **parent's** claim that an entry or a table is read against a
+  **descendant's** denial that anybody reads it, so both sides are this project's own sentences
+  about its own code. It exists for the shape the six-hundred-and-forty-first found by reading and
+  no sweep could print — an *overstating* row, which names a thing the tree lacks under a row
+  claiming the opposite of a debt, so the seventh sweep's sign and the fourteenth's population are
+  both inverted and neither can see it. Its first run found §9.9.1 claiming Table 125's three
+  lengths were read by nobody twenty sessions after its own parent recorded a reader, and §9.7.6
+  claiming a whole table its own child takes an entry out of.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in
