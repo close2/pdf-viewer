@@ -333,6 +333,15 @@ pub mod ffi {
         fn find_stop(self: &mut Host);
         /// Whether the search still has pages to read, which is what the timer pumps on.
         fn searching(self: &Host) -> bool;
+        /// ISO 32000-2 §12.4.4.1: how long to wait before the next turn of the presentation
+        /// clock, in milliseconds, or `-1` where nothing is presenting.
+        ///
+        /// Asked after every pump rather than set once, because the interval a transition wants
+        /// and the interval a still page wants are different numbers — `viewer_host::Clock`
+        /// decides both, so all three hosts wake at the same rate for the same reason.
+        fn presentation_wait(self: &Host) -> i32;
+        /// One turn of that clock. Called from a `QTimer`.
+        fn presentation_tick(self: &mut Host);
         /// What the title bar should say.
         fn title(self: &Host) -> String;
         /// The most recent sentence for a person.

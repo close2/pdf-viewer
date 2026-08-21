@@ -2422,11 +2422,18 @@ impl Viewer {
         {
             let stepped = self.focused_mut().and_then(|open| {
                 crate::presentation::step(open, forward)
-                    .map(|actions| interact::navigate(open, &actions))
+                    .map(|step| (interact::navigate(open, &step.actions), step.onward))
             });
-            if let (Some(outcome), Some(id)) = (stepped, self.focused) {
+            if let (Some((outcome, onward)), Some(id)) = (stepped, self.focused) {
+                // §12.4.4.2: "[i]f NA specifies an action that navigates to another page, the
+                // following actions for navigating to another page take place, and Next should
+                // not be present." A node whose actions have already moved the page has had its
+                // turn, so errata issue #304's page turn is not owed a second one.
+                let jumped = outcome.target.is_some();
                 self.apply(id, outcome, events);
-                return;
+                if jumped || !onward {
+                    return;
+                }
             }
         }
 
@@ -2559,14 +2566,25 @@ impl Viewer {
 
         // Table 165's `/Dur` first, because it is the inner of the two clocks: "[t]he maximum
         // number of seconds before the interactive PDF processor shall automatically advance
-        // forward to the next navigation node". An advance forward is exactly the request an
-        // arrow key makes, so it is made here rather than described a second time.
+        // forward to the next navigation node".
+        //
+        // **To a node, and never to a page**, which is where this entry and an arrow key part
+        // company. Errata issue #304 makes a *user's* forward request with no `/Next` navigate to
+        // the next page (§12.4.4.2 item (b)); Table 165 names the next navigation node as its own
+        // destination, so a node with no successor has nothing to advance to and this clock stops
+        // there. The page's own `/Dur` below is the one that turns a page.
         if self.presenting == crate::PresentationMode::On {
             let due = self
                 .focused_mut()
                 .is_some_and(|open| crate::presentation::node_due(open, seconds));
             if due {
-                self.go_to(PageTarget::Next, Turn::Requested, events);
+                let stepped = self.focused_mut().and_then(|open| {
+                    crate::presentation::step(open, true)
+                        .map(|step| interact::navigate(open, &step.actions))
+                });
+                if let (Some(outcome), Some(id)) = (stepped, self.focused) {
+                    self.apply(id, outcome, events);
+                }
             }
         }
 

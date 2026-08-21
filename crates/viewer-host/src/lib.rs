@@ -35,6 +35,11 @@
 //! - [`presentation`] — Table 29's `/PageMode /FullScreen`, §12.2's three chrome flags and the
 //!   page mode §12.2 says to come back to. The *toolkit call* differs in all three hosts and
 //!   which sentence a window is obeying does not, which is this crate's test applied to a window.
+//! - [`clock`] — §12.4.4.1's own clock: how often a presentation is ticked, what a tick carries,
+//!   and how long Table 164's transition has left to run. `viewer-core` has none by rule 3, and
+//!   the three event loops that could supply one — `glib::timeout_add_local`, `QTimer`, winit's
+//!   `ControlFlow::WaitUntil` — agree about every question the clause asks and differ in every
+//!   letter of how it is asked.
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
@@ -58,6 +63,7 @@
 #![forbid(unsafe_code)]
 
 pub mod arrangement;
+pub mod clock;
 pub mod fit;
 pub mod form;
 pub mod panel;
@@ -67,6 +73,7 @@ pub mod status;
 pub mod trace;
 
 pub use arrangement::next_layout;
+pub use clock::{Clock, face_target};
 pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};

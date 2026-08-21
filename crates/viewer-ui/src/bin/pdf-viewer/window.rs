@@ -15,10 +15,10 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::app::App;
-use crate::presentation::PRESENTATION_TICK;
 use crate::surface::State;
 use crate::trace::{Topic, describe_window_event};
 use crate::typing::Drawing;
+use viewer_host::Clock;
 
 impl App {
     /// One end of a click on the page, at a point of the page's own viewport.
@@ -133,7 +133,7 @@ impl ApplicationHandler for App {
             event_loop.set_control_flow(ControlFlow::Wait);
             return;
         };
-        if presentation.playing.is_some() {
+        if presentation.clock.animating() {
             // §12.4.4's transition is an animation, and since `doc/todo/36` it is an animation on
             // the *surface's* clock rather than on `ControlFlow::Poll`. It drew as fast as the
             // loop could go, which on a fast device is frames nobody sees and a core at 100% for
@@ -149,7 +149,7 @@ impl ApplicationHandler for App {
         let now = std::time::Instant::now();
         let due = now >= presentation.wake;
         if due {
-            presentation.wake = now.checked_add(PRESENTATION_TICK).unwrap_or(now);
+            presentation.wake = now.checked_add(Clock::RESTING).unwrap_or(now);
         }
         let wake = presentation.wake;
         if due {

@@ -95,6 +95,17 @@ had ever acted on. The decision itself is not on this boundary at all: it is `vi
 because *which sentence a window is obeying* is shared and `GtkWindow::fullscreen` against
 `QWidget::showFullScreen` against `winit`'s `set_fullscreen` is what a toolkit is (ADR 0470). No
 consumer failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, and the C ABI gained no entry point.
+**And the six-hundred-and-forty-second added nothing at all either**, which is three rounds
+running and is worth the sentence because this one had the shape that usually *does* ask for a
+message: two hosts gained a capability the third already had. §12.4.4.1's **clock** now runs in all
+three — `/Dur` advances a page and Table 164's frames animate in `viewer-gtk` and `viewer-qt` for
+the first time — and `Command::Tick { millis }` has carried exactly what that needs since ADR 0135,
+`Event::Transition` since ADR 0230. What was missing was never a channel: it was two hosts driving
+the one that existed. The decision is `viewer_host::Clock` and not this boundary, for
+`Presenting`'s reason one paragraph up — *how often to look at a wall clock* is shared and
+`glib::timeout_add_local_once` against `QTimer` against `ControlFlow::WaitUntil` is what an event
+loop is (ADR 0473). `viewer-ui` adopted the shared clock and deleted a private type doing it, which
+is the test this crate applies to anything it takes in: a third host would have been a third copy.
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

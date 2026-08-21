@@ -93,6 +93,18 @@ pub(crate) fn leave(open: &mut Open) -> bool {
     open.view.restore_optional_content(open.saved_groups.take())
 }
 
+/// What one navigation request does, where there was a current node to make it against.
+#[derive(Debug)]
+pub(crate) struct Step {
+    /// §12.4.4.2 (a) or (c): the sequence of actions to execute.
+    ///
+    /// Handed back rather than performed, because performing them is §12.6's business and this
+    /// module's subject is which node is current.
+    pub(crate) actions: Vec<Action>,
+    /// Whether this request also turns the page, which is the erratum below.
+    pub(crate) onward: bool,
+}
+
 /// One navigation request, forward or backward, where there is a current node.
 ///
 /// §12.4.4.2 states a forward one as two steps, in this order:
@@ -101,19 +113,36 @@ pub(crate) fn leave(open: &mut Open) -> bool {
 ///
 /// > b) The node specified by Next (if present) shall become the new current navigation node.
 ///
-/// and `/PA` with `/Prev` for a backward one. The actions come back for the caller to perform,
-/// because performing them is §12.6's business and this module's subject is which node is current.
+/// and `/PA` with `/Prev` for a backward one.
 ///
 /// `None` means there is no current node, which is the clause's own other state and is what tells
 /// a caller to turn the page instead.
 ///
-/// **Where the chain ends, there is no current node, and that is a decision.** The clause says the
-/// node named by `/Next` "(if present)" becomes current and says nothing about a node whose
-/// `/Next` is absent. Leaving the last node current would re-execute its `/NA` on every further
-/// request and no page could ever be turned; so the list is a list, and running off either end of
-/// it is the state the clause already names — "there is no current node" — which is what makes the
-/// request after the last state turn the page.
-pub(crate) fn step(open: &mut Open, forward: bool) -> Option<Vec<Action>> {
+/// # Where the chain ends: a decision, until an erratum answered it
+///
+/// **This used to say the end of the chain leaves no current node, and called that a decision.**
+/// As printed, the clause says the node named by `/Next` "(if present)" becomes current and says
+/// nothing at all about a node whose `/Next` is absent, so the reading here was that running off
+/// either end lands in the state the clause already names — "there is no current node" — and that
+/// the *next* request after the last state turns the page.
+///
+/// ISO 32000-2 errata **issue #304**, state Review/Completed, answers it outright, and differently.
+/// `cargo run -p spec-errata -- emit doc/*.pdf` reports two `Text` annotations on the page whose
+/// heading it prints as §12.5.1; their icons sit in the right margin of §12.4.4.2's own items (b)
+/// and (d), which are the two sentences quoted above. The one against (b) reads *If there is no
+/// node specified by Next then navigate to the next page. If the current page is the last page,
+/// then the current navigation node remains unchanged*, and the one against (d) says the same of
+/// `/Prev`, the previous page and the first page.
+///
+/// So two things change and both were wrong here:
+///
+/// - **The request that runs the last node's actions also turns the page**, rather than being
+///   swallowed and leaving a person to press the key twice for one step. [`Step::onward`] is that.
+/// - **On the last page there is no page to turn to, and then the node stays current.** The
+///   objection this module used to record — that leaving the last node current would re-execute
+///   its `/NA` and no page could ever be turned — does not apply where the clause has put it,
+///   because on the last page there is no page to turn to in the first place.
+pub(crate) fn step(open: &mut Open, forward: bool) -> Option<Step> {
     let index = open.node?;
     let nodes = nodes(open);
     let node = nodes.get(index)?;
@@ -122,13 +151,35 @@ pub(crate) fn step(open: &mut Open, forward: bool) -> Option<Vec<Action>> {
     } else {
         node.backward.clone()
     };
-    open.node = if forward {
+    open.node_shown_for = 0.0;
+    let next = if forward {
         index.checked_add(1).filter(|next| *next < nodes.len())
     } else {
         index.checked_sub(1)
     };
-    open.node_shown_for = 0.0;
-    Some(actions)
+    if let Some(next) = next {
+        open.node = Some(next);
+        return Some(Step {
+            actions,
+            onward: false,
+        });
+    }
+    // Issue #304: "[i]f the current page is the last page, then the current navigation node
+    // remains unchanged" — so `open.node` is left where it is, and nothing is turned.
+    let another_page = if forward {
+        index_of_a_further_page(open)
+    } else {
+        open.page_index > 0
+    };
+    Some(Step {
+        actions,
+        onward: another_page,
+    })
+}
+
+/// Whether there is a page after the one being shown, which is what issue #304 conditions on.
+fn index_of_a_further_page(open: &Open) -> bool {
+    open.page_index.saturating_add(1) < open.page_count
 }
 
 /// A page arrived at, in §12.4.4.2's last paragraph.
@@ -146,9 +197,17 @@ pub(crate) fn step(open: &mut Open, forward: bool) -> Option<Vec<Action>> {
 /// own words.
 ///
 /// Backward is worth naming for what it does: (a) still makes the *primary* node current, so the
-/// `/PA` executed is the first node's and its `/Prev` — which the list has none of — leaves no
-/// current node. That is the clause read literally, and it is not this program choosing to skip a
-/// page's states: paging backwards into a page lands on the state its own producer put first.
+/// `/PA` executed is the first node's and its `/Prev` — which the list has none of — leaves that
+/// same node current. That is the clause read literally, and it is not this program choosing to
+/// skip a page's states: paging backwards into a page lands on the state its own producer put
+/// first.
+///
+/// **[`Step::onward`] is dropped here, deliberately.** Errata issue #304 makes a request with no
+/// node in that direction navigate to the next or previous page, and an arrival performs one
+/// request against the primary node "as described previously" — but this paragraph ends at its
+/// own step (c), "[t]he interactive PDF processor shall make the new page the current page and
+/// shall display it". A page whose only node has no `/Next` would otherwise be arrived at and
+/// left again in the same breath, and no reader would ever see it.
 pub(crate) fn arrived(open: &mut Open, forward: bool) -> Vec<Action> {
     open.node_shown_for = 0.0;
     if nodes(open).is_empty() {
@@ -157,7 +216,9 @@ pub(crate) fn arrived(open: &mut Open, forward: bool) -> Vec<Action> {
         return Vec::new();
     }
     open.node = Some(0);
-    step(open, forward).unwrap_or_default()
+    step(open, forward)
+        .map(|step| step.actions)
+        .unwrap_or_default()
 }
 
 /// Table 165's `/Dur`, after `seconds` more of the current node being shown (§12.4.4.2).

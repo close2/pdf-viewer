@@ -173,8 +173,14 @@ window visible" — with §12.2's `/HideToolbar`, `/HideMenubar` and `/HideWindo
 presentation is running or not. **Escape comes back**, which no clause states and which this program
 chooses so that a file cannot keep a reader there; on the way out §12.2's `/NonFullScreenPageMode`
 says which panel opens. **All three hosts do it, on the same letter**: `pdf-viewer`, `pdf-viewer-gtk`
-and `pdf-viewer-qt`. The two native hosts have the mode and not the clock — `/Dur` still advances a
-page only in `viewer-ui`.
+and `pdf-viewer-qt`.
+
+**And all three drive the clock, since ADR 0473.** This paragraph used to end "[t]he two native
+hosts have the mode and not the clock", which made a presentation in GTK or Qt full screen and
+static. `/Dur` advances the page and Table 164's effects animate in all three now, on one shared
+decision — `viewer_host::Clock`, because how often to tick and when `/D` has elapsed are the
+clause's questions and not a toolkit's. Nothing is armed when nothing is presenting, and a page
+stating no `/Dur` costs a still window a wakeup and no repaint.
 
 No corpus document states a `/Trans`, a `/Dur` or a `/PresSteps`, so the thing to open is a
 fixture — whose fourth slide is the one with states:

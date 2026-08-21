@@ -20,40 +20,22 @@ use viewer_core::{Answer, Command, PresentationMode, Query, RenderRequest};
 use crate::app::App;
 use crate::trace::Topic;
 
-/// How often the clock is offered to `viewer-core` while a presentation is running and nothing
-/// is being animated.
-///
-/// §12.4.4.1's `/Dur` is "in seconds", and `Command::Tick` carries the milliseconds that actually
-/// passed rather than an assumed step, so the only thing this decides is *when the advance is
-/// noticed* — a tenth of a second against a duration a document states in whole ones. Ten times a
-/// second rather than every frame, because between transitions a slide show has nothing to draw
-/// and a window that redrew anyway would spend a processor on a still page.
-pub(crate) const PRESENTATION_TICK: std::time::Duration = std::time::Duration::from_millis(100);
-
 /// §12.4.4's presentation, while this window is driving one.
 ///
 /// **The existence of this value is what "presentation mode" means here**, which is ADR 0135's
 /// answer rather than this round's: `viewer-core` has no clock and no mode, so "is a presentation
 /// running" is answered by whether a host is ticking. `p` starts and stops it.
+///
+/// **What a tick means and how long a transition has left are [`viewer_host::Clock`]'s** since
+/// the two native hosts were given a clock of their own: the four questions §12.4.4.1 asks —
+/// how often to look at a wall clock, what a tick carries, whether the clock runs during a
+/// transition, and when Table 164's `/D` has run out — have the same answer in all three hosts
+/// and a different spelling in each event loop. What is left here is winit's.
 pub(crate) struct Presentation {
-    /// When the clock was last read, so that a tick carries the milliseconds that really passed.
-    ticked: std::time::Instant,
+    /// §12.4.4.1's clock, shared with `viewer-gtk` and `viewer-qt`.
+    pub(crate) clock: viewer_host::Clock,
     /// When the next tick is due, which is what the event loop waits until.
     pub(crate) wake: std::time::Instant,
-    /// The transition being drawn, where one is in flight.
-    pub(crate) playing: Option<Playing>,
-}
-
-/// One transition, mid-flight: what it is, when it began, and the two pages it is between.
-pub(crate) struct Playing {
-    /// Table 164's style, duration and direction, as the page arrived at states them.
-    transition: pdf_model::navigation::Transition,
-    /// When the first frame of it was drawn.
-    began: std::time::Instant,
-    /// The page being left, as it was last presented.
-    outgoing: Image,
-    /// The page being moved to, at the same size.
-    incoming: Image,
 }
 
 /// The far corner of a window, as a point in its own device pixels.
@@ -111,9 +93,8 @@ impl App {
         }
         let now = std::time::Instant::now();
         self.presentation = Some(Presentation {
-            ticked: now,
+            clock: viewer_host::Clock::started(now),
             wake: now,
-            playing: None,
         });
         self.dispatch(Command::Present(PresentationMode::On));
         self.apply_chrome();
@@ -207,26 +188,19 @@ impl App {
 
     /// Tells the core how long the page has been up, where a presentation is running.
     ///
-    /// **The clock is held while a transition is being drawn**, and that is the clause's own
-    /// arithmetic rather than a convenience: §12.4.4.1's EXAMPLE describes "a page to be
-    /// displayed for 5 seconds" whose 3.5-second transition happens "[b]efore the page is
-    /// displayed", so the transition is not part of the display duration it precedes. A tick
-    /// during it would spend the new page's `/Dur` on the effect that introduces it.
+    /// The arithmetic — including the rule that the clock is *held* while a transition is being
+    /// drawn, which is §12.4.4.1's EXAMPLE rather than a convenience — is
+    /// [`viewer_host::Clock::tick`]'s, shared with the other two hosts. What is this host's is
+    /// when the loop comes round to ask.
     pub(crate) fn drive_the_clock(&mut self) {
-        let Some(presentation) = self.presentation.as_mut() else {
+        let now = std::time::Instant::now();
+        let Some(millis) = self
+            .presentation
+            .as_mut()
+            .and_then(|presentation| presentation.clock.tick(now))
+        else {
             return;
         };
-        if presentation.playing.is_some() {
-            presentation.ticked = std::time::Instant::now();
-            return;
-        }
-        let now = std::time::Instant::now();
-        let elapsed = now.saturating_duration_since(presentation.ticked);
-        presentation.ticked = now;
-        let millis = u32::try_from(elapsed.as_millis()).unwrap_or(u32::MAX);
-        if millis == 0 {
-            return;
-        }
         self.dispatch(Command::Tick { millis });
     }
 
@@ -256,7 +230,7 @@ impl App {
             return;
         }
         let viewport = Rect::from_corners(Point::new(0.0, 0.0), whole(width, height));
-        if viewer_core::transition::frame(&transition, viewport, 0.0).is_none() {
+        if !viewer_host::Clock::shapes(&transition, viewport) {
             // The core has already said *why* through `Event::Reported`; a second sentence here
             // would say it twice.
             return;
@@ -298,14 +272,10 @@ impl App {
         let edge = self.inset() as f32;
         // The same composition `present` makes, because the page arriving has to be drawn where
         // it is about to be presented — otherwise the last frame of the transition would move.
-        let arriving = TargetSpec {
-            width,
-            height,
-            transform: request
-                .target
-                .transform
-                .then(Transform::translate(origin.0 + edge, origin.1)),
-        };
+        // `viewer_host::face_target` is that composition, shared with the two native hosts so
+        // that three windows cannot disagree about where a transition leaves the page.
+        let arriving =
+            viewer_host::face_target(request.target, (origin.0 + edge, origin.1), (width, height));
         let (Some(outgoing), Some(incoming)) = (face(&list, target), face(&request.list, arriving))
         else {
             println!(
@@ -327,46 +297,31 @@ impl App {
             ),
         );
         if let Some(presentation) = self.presentation.as_mut() {
-            presentation.playing = Some(Playing {
-                transition,
-                began: std::time::Instant::now(),
-                outgoing,
-                incoming,
-            });
+            presentation
+                .clock
+                .begin(transition, outgoing, incoming, std::time::Instant::now());
         }
         self.redraw();
     }
 
     /// The frame of a transition in flight, or `None` when there is nothing being drawn.
     ///
-    /// Ends the transition at `/D` seconds, which is the one place this host decides that time
-    /// has run out: the fraction handed to `viewer_core::transition::frame` is elapsed over
-    /// duration, linear, because Table 164 states a duration and no curve.
+    /// Table 164's `/D` decides when there is nothing left to draw, and so does the clock that
+    /// restarts on the arriving page when there is not — both inside [`viewer_host::Clock`],
+    /// which is where the other two hosts read the same two rules.
     fn transition_frame(&mut self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
-        let presentation = self.presentation.as_mut()?;
-        let playing = presentation.playing.as_ref()?;
-        let elapsed = playing.began.elapsed().as_secs_f32();
-        let progress = if playing.transition.duration > 0.0 {
-            elapsed / playing.transition.duration
-        } else {
-            1.0
-        };
-        if progress >= 1.0 {
-            presentation.playing = None;
-            // The clock restarts where the transition ends, so the page gets the whole of its
-            // own `/Dur` — see `drive_the_clock`.
-            presentation.ticked = std::time::Instant::now();
-            return None;
-        }
         let viewport = Rect::from_corners(Point::new(0.0, 0.0), whole(width, height));
-        let shaped = viewer_core::transition::frame(&playing.transition, viewport, progress)?;
-        match shaped.draw(viewport, &playing.outgoing, &playing.incoming) {
-            Ok(list) => Some(list),
+        let now = std::time::Instant::now();
+        let shaped = self
+            .presentation
+            .as_mut()
+            .map(|presentation| presentation.clock.frame(viewport, now))?;
+        match shaped {
+            Ok(list) => list,
             Err(problem) => {
                 // Not reachable from a frame — the largest one adds four clips — and said rather
                 // than swallowed for the reason every refusal in this tree is.
                 println!("note: transition: this frame would not draw: {problem}");
-                presentation.playing = None;
                 None
             }
         }
