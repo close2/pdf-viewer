@@ -636,8 +636,15 @@ fn table_166_s_colour_is_the_icon_s_background() {
         "/BBox [0 0 10 10]",
         "",
     ));
-    // Just inside the field's rounded corner, where no symbol reaches.
-    assert_eq!(colour_at(&coloured, 25, 25), (255, 0, 0));
+    // Somewhere in the field rather than at a stated pixel: the square the icon is drawn on is
+    // §12.5.6.4's fixed size hung from `/Rect`'s corner, so a test that named a coordinate would
+    // be pinning that arithmetic here as well as the entry this one is about.
+    let field = (0..coloured.height)
+        .flat_map(|y| (0..coloured.width).map(move |x| (x, y)))
+        .find(|&(x, y)| colour_at(&coloured, x, y) == (255, 0, 0));
+    let Some((x, y)) = field else {
+        panic!("/C [1 0 0] must paint the icon's background");
+    };
 
     let bare = render(pdf_with(
         "<< /Type /Annot /Subtype /Text /Rect [10 10 90 90] /F 4 /Name /Insert >>",
@@ -645,7 +652,7 @@ fn table_166_s_colour_is_the_icon_s_background() {
         "",
     ));
     assert!(
-        !painted(&bare, 25, 25),
+        !painted(&bare, x, y),
         "an absent /C is Table 166's transparent, not an invented field"
     );
 }
@@ -654,24 +661,34 @@ fn table_166_s_colour_is_the_icon_s_background() {
 ///
 /// A `/Rect` three times as wide as it is tall: the artwork is drawn on a square, so a reader
 /// that stretched it onto the rectangle would reach both vertical edges. What must happen
-/// instead is that the marks span the height and sit in the middle of the width — which is
-/// this tree's choice rather than the clause's, since §12.5.6.4 would rather the icon not
-/// scale at all (`NoZoom`, §12.5.3).
+/// instead is that the marks span the height and sit in the middle of the width.
+///
+/// **§12.5.6.15's file attachment and not §12.5.6.4's text annotation**, which this test used
+/// until the six-hundred-and-fortieth session and which is now the wrong subtype to ask: a text
+/// annotation is "attached to a point" and holds a size fixed on the screen, so its icon does not
+/// take a size from `/Rect` at all. Table 187 asks for a paperclip and a push pin with a
+/// **should** and states no geometry, so inscribing them is this tree's choice — which is what
+/// this test pins, by rendering the same annotation twice: once in the wide rectangle and once in
+/// the square that rectangle's centre implies. A reader that stretched the artwork, or one that
+/// pushed it into a corner, separates the two.
 #[test]
 fn an_icon_is_square_and_centred_in_a_rectangle_that_is_not() {
-    let raster = render(pdf_with(
-        "<< /Type /Annot /Subtype /Text /Rect [5 30 95 60] /F 4 /C [1 0 0] /Name /Insert >>",
-        "/BBox [0 0 10 10]",
-        "",
-    ));
-    let (min_x, min_y, max_x, max_y) = extent(&raster);
-    assert_eq!(
-        (min_y, max_y),
-        (30, 59),
-        "the square is the rectangle's height"
-    );
-    // 30 units wide, centred in 90: from 35 to 65.
-    assert_eq!((min_x, max_x), (35, 64), "and centred across its width");
+    let icon = |rect: &str| {
+        let raster = render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /FileAttachment /Rect {rect} /F 4 /Name /PushPin >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+        extent(&raster)
+    };
+    // 90 by 30, so the square is 30 across and starts 30 units in: 35 to 65.
+    assert_eq!(icon("[5 30 95 60]"), icon("[35 30 65 60]"));
+    // And the equality is not vacuous: the square at either end of the same rectangle is a
+    // different picture, which is what "centred" excludes.
+    assert_ne!(icon("[5 30 95 60]"), icon("[5 30 35 60]"));
+    assert_ne!(icon("[5 30 95 60]"), icon("[65 30 95 60]"));
 }
 
 /// §12.5.6.10's four marks are constructed, and each is the mark its subtype's name is.
@@ -1319,23 +1336,37 @@ fn toggle_no_view_inverts_no_view_under_the_pointer() {
     assert_eq!(drawn(4, Some(pdf_model::view::Pointer::Over)), red);
 }
 
-/// §12.5.6.4's icon is drawn where the `/Rect` has no area, because the clause states a point.
+/// §12.5.6.4's icon is one size whatever the `/Rect` states, because the clause states a point.
 ///
 /// > A text annotation represents a "sticky note" attached to a point in the PDF document. When
 /// > closed, the annotation shall appear as an icon
 ///
 /// A `shall` about the icon, and a *point* rather than a rectangle — so a `/Rect` with no area is
 /// not this annotation saying it covers nothing, the way a `Square`'s would be. The same clause's
-/// next sentence gives the size: a text annotation behaves "as if the `NoZoom` and `NoRotate`
-/// annotation flags … were always set", and §12.5.3's `NoZoom` is "the annotation shall always
-/// maintain the same fixed size on the screen", which is by definition not `/Rect`'s.
+/// next sentence gives the size:
+///
+/// > Text annotations shall not scale and rotate with the page; they shall behave as if the
+/// > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
+///
+/// and §12.5.3 says what that flag means:
+///
+/// > If the NoZoom flag is set, the annotation shall always maintain the same fixed size on the
+/// > screen and shall be unaffected by the magnification level at which the page itself is
+/// > displayed.
+///
+/// A size fixed on the screen is by definition not `/Rect`'s, which is stated in default user
+/// space. **Neither sentence mentions the rectangle's area**, so neither does this: the icon is
+/// the same square hung from Table 167's own fixed point — "the upper-left corner of its
+/// annotation rectangle" — for a degenerate `/Rect` and for a four-hundred-unit one alike.
 ///
 /// **How big is a choice**, like the artwork itself, and it is twenty units. What is *not* a
 /// choice is that something is drawn: `rc_annotation.pdf` is one corpus witness with
 /// `/Rect [50 50 50 50]`, and this tree drew nothing for it inside an `ambiguous` verdict until
 /// `doc/todo/00`'s step 7 sweep put it at −1.783 of 255 — two of four references draw an icon.
+/// The other end of the same rule is `1407194.pdf`, whose `/Rect [0 542 400 792]` had a
+/// 250-unit icon over a quarter of a book cover.
 #[test]
-fn a_text_annotation_with_no_area_still_draws_its_icon() {
+fn a_text_annotations_icon_is_one_size_whatever_its_rect_states() {
     let ink = |rect: &str| {
         let bytes = pdf_with(
             &format!("<< /Type /Annot /Subtype /Text /Name /Note /Rect {rect} /F 4 >>"),
@@ -1366,12 +1397,17 @@ fn a_text_annotation_with_no_area_still_draws_its_icon() {
     let point = ink("[50 50 50 50]");
     assert!(point > 0, "a text annotation attached to a point draws");
 
-    // And a rectangle the file *does* state is used as it stands, so a larger one draws more.
-    let stated = ink("[10 10 90 90]");
-    assert!(
-        stated > point * 4,
-        "a stated rectangle is still the icon's box: {stated} against {point}"
-    );
+    // And a rectangle with an area is the same icon, because the clause gives the size and the
+    // rectangle gives only the corner it hangs from. `1407194.pdf`'s is the second of these.
+    // The page these fixtures state is 100 by 100, so a rectangle is chosen for its shape rather
+    // than for `1407194.pdf`'s own numbers: wide, tall, and one already the icon's size.
+    for rect in ["[10 10 90 90]", "[10 40 90 60]", "[10 60 30 80]"] {
+        assert_eq!(
+            ink(rect),
+            point,
+            "{rect} draws the same icon as a point does"
+        );
+    }
 
     // A subtype whose clause states no fixed size keeps the general rule — no area, no marks.
     let square = pdf_with(

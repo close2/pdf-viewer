@@ -35,7 +35,11 @@
 //! [`crate::appearance`] maps that square onto the largest square that fits inside the
 //! annotation's `/Rect`, centred — a choice too, and the reason for it is that these shapes
 //! carry their meaning in their proportions: a pilcrow stretched to a 400×20 rectangle is not a
-//! pilcrow.
+//! pilcrow. **§12.5.6.4's seven no longer reach that arithmetic**, since the
+//! six-hundred-and-fortieth session: a text annotation is attached to a point and holds a fixed
+//! size on the screen, so `crate::annotation`'s `anchored_icon` states its square outright and
+//! `/Rect` supplies only the corner it hangs from. The other three clauses' icons are still
+//! inscribed in the rectangle their annotation states.
 //!
 //! **And §12.5.6.4's own answer to the same question is applied since the two-hundred-and-
 //! twentieth session:**

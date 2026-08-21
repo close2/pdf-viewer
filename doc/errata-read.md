@@ -717,3 +717,26 @@ claim either way. Two of the three findings came out of that shape rather than o
 `shall`: §12.3.2.4's `/SD` was invisible behind a reference to a table that defines no such entry,
 and §9.8.3.3's contradiction was a prohibition pointing at the wrong table. **A struck pointer is
 worth reading, and this is the evidence for it.**
+
+## The addition a NOTE makes to §12.5.3, found in the six-hundred-and-fortieth
+
+`emit` over all fourteen documents, before writing, on the annotation family — which is
+`doc/todo/02` §4's rule and the one that keeps finding things `check` cannot. §12.5.6.4 carries no
+annotation at all and neither does §12.5.5; §12.5.3 carries **Issue #34, `Review/Completed`**, and
+one of its two halves had never been read here:
+
+> When an appearance dictionary is not present, the rendered appearance will be implementation
+> dependent.
+
+A **pure addition** — a new NOTE 2 rather than a replacement — so `check` is blind to it by
+construction, the same shape as Issue #293 in the six-hundred-and-thirty-first session. The row in
+the table above records the *other* half of the same issue, the struck "without regard to any other
+keys" that had `/BM` ignored on every stored appearance stream, and that is why this one went
+unnoticed for two hundred and twenty sessions: an issue number already had a verdict.
+
+**What it settles is a direction of inference rather than a behaviour.** Everything this tree
+constructs for an annotation with no `/AP` — §12.5.6.4's seven icons, their size, §12.5.6.8's
+inscribed rectangle, `crate::icon`'s whole artwork — is a place where `CLAUDE.md` principle 5 says
+to make a documented choice because the standard states nothing. This sentence says so in the
+standard's own words, for the whole population at once, which turns an inference from silence into
+a citation. It is recorded on §12.5.3's ledger row, and §12.5.6.4's rests on it.

@@ -293,3 +293,19 @@ session = 636
 reports = []
 ink = 6.198 .. 8.198
 why = "a full-page statistics report drawn blank and reported as a font with no outline for any of 3938 codes, because a /FontFile2's loca record understated its own table and skrifa then produced no glyph at all (ADR 0468, 9.6.3, 9.9)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/1407/1407194.pdf"
+page = 1
+session = 640
+reports = []
+ink = 44.804 .. 46.804
+why = "a book cover with a quarter of it under a 250-unit sticky note, because a /Text annotation's synthesised icon was inscribed in /Rect; §12.5.6.4 attaches it to a point and holds it at a fixed size on the screen, and Table 166 makes /Rect the location (ADR 0471, 12.5.6.4, 12.5.3)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/6573/6573247.pdf"
+page = 1
+session = 640
+reports = []
+ink = 1.805 .. 3.805
+why = "the same defect on a nearly blank page, where the 250-unit icon was most of the ink: +8.264 of 255 against three references agreeing within 0.04, now -0.172 (ADR 0471, 12.5.6.4, 12.5.3)"

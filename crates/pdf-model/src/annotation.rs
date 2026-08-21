@@ -373,7 +373,7 @@ const FLAG_NO_ROTATE: i64 = 1 << 4;
 /// `/F` bit 9: read [`FLAG_NO_VIEW`] the other way round while the pointer is on this annotation.
 const FLAG_TOGGLE_NO_VIEW: i64 = 1 << 8;
 
-/// How large a text annotation's icon is where the file states no size, in default user space.
+/// How large a text annotation's icon is, in default user space at magnification 1.
 ///
 /// **A choice, and one this module is the right place for**, since `crate::icon` is already the
 /// one piece of pure invention in the tree: §12.5.6.4 requires "predefined icon appearances" for
@@ -381,9 +381,13 @@ const FLAG_TOGGLE_NO_VIEW: i64 = 1 << 8;
 /// — how big. Twenty units is about the height of two lines of ten-point text, which is the size
 /// at which a note's icon is legible beside the text it annotates and small enough not to cover
 /// it.
+///
+/// The clause states no size and the file states none either — see [`anchored_icon`] for why
+/// `/Rect` is not one — so this number answers a silence rather than a rule, and it is the size
+/// of every text icon this program draws.
 const ICON_SIZE: f32 = 20.0;
 
-/// A square for a text annotation whose `/Rect` states no area, or `None` for anything else.
+/// A square for a text annotation's synthesised icon, or `None` for any other subtype.
 ///
 /// §12.5.6.4 opens with the sentence that decides this:
 ///
@@ -392,14 +396,44 @@ const ICON_SIZE: f32 = 20.0;
 ///
 /// **Attached to a point**, and a `shall` about the icon appearing — so a `/Rect` with no area is
 /// not this annotation stating that it covers nothing, the way a `Square`'s or a `Highlight`'s
-/// would be. The same clause's next sentence gives the size: text annotations "shall behave as if
-/// the `NoZoom` and `NoRotate` annotation flags … were always set", and §12.5.3's `NoZoom` is "the
-/// annotation shall always maintain the same fixed size on the screen" — a fixed size, which is
-/// by definition not `/Rect`'s.
+/// would be. The same clause's next sentence gives the size:
 ///
-/// The corner is §12.5.3's: "the annotation's position is defined by the coordinates of the
-/// upper-left corner of its annotation rectangle", so the square hangs down and to the right of
-/// it.
+/// > Text annotations shall not scale and rotate with the page; they shall behave as if the
+/// > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
+///
+/// and §12.5.3 says what that means:
+///
+/// > If the NoZoom flag is set, the annotation shall always maintain the same fixed size on the
+/// > screen and shall be unaffected by the magnification level at which the page itself is
+/// > displayed.
+///
+/// A fixed size on the screen is by definition not `/Rect`'s, because `/Rect` is stated in
+/// default user space and every extent in that space scales with the magnification.
+///
+/// The corner is Table 167's own, in the `NoZoom` row: "The location of the annotation on the
+/// page (defined by the upper-left corner of its annotation rectangle) shall remain fixed,
+/// regardless of the page magnification" — so the square hangs down and to the right of it.
+///
+/// # Why this is not conditioned on the rectangle
+///
+/// **It was, for the two hundred and seventy-five sessions between the two-hundred-and-sixty-fifth
+/// and the six-hundred-and-fortieth**, which drew the icon on the largest square inside `/Rect`
+/// wherever `/Rect` had an area and reached this square only where it had none. The derivation
+/// above never needed that condition: none of the three sentences mentions the rectangle's size,
+/// and Table 166 does not give `/Rect` one either — it is "defining the location of the annotation
+/// on the page in default user space units".
+///
+/// What supplies a size instead is §12.5.5's algorithm, which maps the coordinate system of the
+/// appearance form dictionary "to the annotation's rectangle in default user space" by scaling its
+/// transformed `/BBox` onto `/Rect`'s corners — and an annotation with no appearance stream has no
+/// such box to map, which is why this function is reached from the branch where
+/// [`Normal::Absent`] was answered and from nowhere else. `1407194.pdf`'s note states `/Rect [0 542 400 792]` with no `/AP`, and a 250-unit icon
+/// covered the top-left quarter of a book cover: −6.304 of 255 against three references agreeing
+/// within 0.6, every one of them drawing a small note at the corner.
+///
+/// §12.5.6.15's file attachment and §12.5.6.16's sound are deliberately not here: neither clause
+/// states either sentence, so neither annotation is attached to a point and neither is held at a
+/// fixed size, and [`crate::appearance::symbol_icon`] still inscribes those in `/Rect`.
 ///
 /// `rc_annotation.pdf` is the one corpus witness — `/Subtype /Text /Name /Note /Rect
 /// [50 50 50 50]` — and it drew nothing here for as long as anybody looked, inside an `ambiguous`
@@ -407,7 +441,7 @@ const ICON_SIZE: f32 = 20.0;
 /// nothing. Found by `doc/todo/00`'s step 7 sweep at −1.783 of 255, which is the only instrument
 /// that sees a page this tree is not drawing.
 fn anchored_icon(subtype: &[u8], rect: [f32; 4]) -> Option<[f32; 4]> {
-    if subtype != b"Text" || !is_empty(rect) {
+    if subtype != b"Text" {
         return None;
     }
     let left = rect[0].min(rect[2]);
