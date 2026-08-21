@@ -40,15 +40,22 @@ use viewer_confined::{Reply, wire};
 /// The invariants a decoded answer must satisfy, whatever the bytes said.
 fn check(reply: &Reply) {
     match reply {
-        Reply::Frame { raster, .. } => {
-            let expected = (raster.width as usize)
-                .saturating_mul(raster.height as usize)
-                .saturating_mul(4);
-            assert_eq!(
-                raster.data.len(),
-                expected,
-                "a raster crossed with dimensions its samples do not fill"
-            );
+        // One `Framed` per page the arrangement shows, since the six-hundred-and-sixth session
+        // gave Table 29's layouts to every host: the invariant is each page's own, because a
+        // short raster in the second of three is exactly as wrong as one in the first.
+        Reply::Frame(frames) => {
+            for framed in frames {
+                let raster = &framed.raster;
+                let expected = (raster.width as usize)
+                    .saturating_mul(raster.height as usize)
+                    .saturating_mul(4);
+                assert_eq!(
+                    raster.data.len(),
+                    expected,
+                    "page {}'s raster crossed with dimensions its samples do not fill",
+                    framed.page
+                );
+            }
         }
         Reply::Thumbnail(thumbnail) => {
             let expected = (thumbnail.image.width as usize)
@@ -60,13 +67,22 @@ fn check(reply: &Reply) {
                 "a thumbnail crossed with dimensions its samples do not fill"
             );
         }
-        Reply::Accessibility(nodes) => {
-            for (at, node) in nodes.iter().enumerate() {
-                if let Some(parent) = node.parent {
-                    assert!(
-                        parent < at,
-                        "node {at} names {parent} as its parent, which is not behind it"
-                    );
+        // One `Structured` per page since the six-hundred-and-tenth session, and the parent
+        // index is **within its own page's nodes** — §14.7.5.2's identifier is unique inside a
+        // content stream and Errata Collection 3 issue #308 says the same one may reappear
+        // across pages, so a parent index compared against a flattened list would be comparing
+        // two pages' numbering. Checked per page for that reason, not for tidiness.
+        Reply::Accessibility(pages) => {
+            for structured in pages {
+                for (at, node) in structured.nodes.iter().enumerate() {
+                    if let Some(parent) = node.parent {
+                        assert!(
+                            parent < at,
+                            "page {}'s node {at} names {parent} as its parent, \
+                             which is not behind it",
+                            structured.page
+                        );
+                    }
                 }
             }
         }

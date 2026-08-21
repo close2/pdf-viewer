@@ -46,6 +46,7 @@ cargo fmt --all --check
 RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets   # `RUSTFLAGS` is not optional
 cargo nextest run --workspace
 cargo test --workspace --doc                # the one doctest nextest does not run
+RUSTFLAGS="-D warnings" cargo check --manifest-path fuzz/Cargo.toml --bins   # `fuzz/` is not a workspace member
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
@@ -218,6 +219,24 @@ here:
   this run**: one that takes a quorra release, because the release may be entirely inside a lane
   §2 does not exercise — which `74c4994d` was, and it took 24 refusals off that lane at 4× while
   moving nothing at all on the default one (ADR 0283) — and one that changes the zoom path.
+
+- **`fuzz/` is not in the workspace, so nothing above it builds the targets.** `members` is
+  `["crates/*", "tools/*"]`; `--workspace` reaches neither the fuzz crate nor its fourteen binaries,
+  and the line added above is the whole fix. It is a `check`, not a `build`: it costs seconds, wants
+  no nightly and no sanitiser, and answers the only question a round can get wrong by accident —
+  *do the targets still compile against the tree they fuzz?*
+
+  **They did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped `Answer::Frame`
+  to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility answer the same
+  way; `confined_wire` matched on the old shapes and no local gate saw it, because the only
+  instrument that builds `fuzz/` is a CI job that was itself failing for an unrelated reason the
+  whole time. Principle 3 makes that worse than a compile error — fuzzing is meant to be continuous
+  from the first parser commit, and between those rounds there was none.
+
+  The tell is worth keeping: **the target that broke was `confined_wire`**, the one speaking
+  `viewer-confined`'s protocol, so it is exactly the target a *boundary* change breaks and exactly
+  the one no parser-touching round would think to run. A round that changes a `Command`, an `Event`,
+  a `Query` or an `Answer` is a round that owes this line, and now every round runs it.
 
 **The fuzz targets are `doc/verify.md`'s**, and `tools/state.sh counts` says how many there are.
 Three rules bind a round rather than a count:
