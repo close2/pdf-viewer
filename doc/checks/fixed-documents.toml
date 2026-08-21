@@ -279,3 +279,17 @@ session = 635
 reports = []
 ink = 53.406 .. 55.406
 why = "a page drawn all but blank at 1.617 with eight array-operand complaints: an inline image with no /L under /DCTDecode ended at the first EI its entropy-coded bytes spelled, 163 bytes short of ISO/IEC 10918-1's EOI, and the tail was lexed as operators; the codestream's own marker segments say where the data ends (ADR 0467, 8.9.7, 7.4.8)"
+path = "corpus-cache/safedocs/cc-main-2021-31/3867/3867366.pdf"
+page = 1
+session = 636
+reports = []
+ink = 67.482 .. 69.482
+why = "a catalogue cover drawn as its own complement in silence — a green photographic background as dark purple — because a JPXDecode image's /Decode [1 0 1 0 1 0 1 0] was ignored; §7.4.9 ignores the array only where /ColorSpace is absent (ADR 0468, 7.4.9, 8.9.5.2)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/3867/3867363.pdf"
+page = 1
+session = 636
+reports = []
+ink = 6.198 .. 8.198
+why = "a full-page statistics report drawn blank and reported as a font with no outline for any of 3938 codes, because a /FontFile2's loca record understated its own table and skrifa then produced no glyph at all (ADR 0468, 9.6.3, 9.9)"

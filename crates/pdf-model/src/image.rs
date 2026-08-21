@@ -21,9 +21,15 @@
 //! ISO 32000-2 §7.4.9 inverts the usual relationship between an image dictionary and its
 //! data. `/ColorSpace` is *optional*, and where it is absent the codestream's own colour
 //! space governs; where it is present the codestream's is ignored. `/BitsPerComponent` is
-//! ignored either way. And `/Decode` is ignored unless the image is a mask. A reader that
-//! treats the dictionary as authoritative for all three, as it is for every other filter,
-//! renders JPEG 2000 images in the wrong colours and cannot tell.
+//! ignored either way. A reader that treats the dictionary as authoritative for both, as it
+//! is for every other filter, renders JPEG 2000 images in the wrong colours and cannot tell.
+//!
+//! **`/Decode` is the third entry and does *not* follow those two, which this comment and
+//! §7.4.9's ledger row both got wrong for six hundred sessions.** The clause's condition is
+//! `/ColorSpace`'s **absence**, not the filter — its own sentence is quoted verbatim in
+//! [`decode_jpx`], where the entry is read. Where the dictionary states a colour space it
+//! states the map into it as well, and dropping the array turned a crawled catalogue cover's
+//! `/Decode [1 0 1 0 1 0 1 0]` CMYK photograph into its own complement in silence (ADR 0468).
 //!
 //! An image this module cannot decode returns an error naming why, and the interpreter
 //! reports it. Drawing a grey box in its place would be worse: the page would look
@@ -1667,37 +1673,7 @@ fn decode_jpx(
     let premultiplied = smask_in_data == 2;
 
     if is_mask {
-        // §7.4.9: "If ImageMask is true, the JPEG 2000 data shall provide a single colour
-        // channel with 1-bit samples." Those samples arrive scaled to eight bits, so the
-        // two values are 0 and 255 and the threshold between them is anywhere in between.
-        // The raster's own grid throughout, which for a reduced decode is not the
-        // dictionary's.
-        let samples: Vec<u8> = raster
-            .data
-            .chunks(raster.channels())
-            .map(|pixel| u8::from(pixel.first().is_some_and(|value| *value >= 128)))
-            .collect();
-        let packed = pack_bits(&samples, raster.width, raster.height);
-        return Ok(SamplesOnGrid {
-            rgba: unpack(
-                &packed,
-                raster.width,
-                raster.height,
-                &Samples {
-                    bits: 1,
-                    space: &ColourSpace::Mask,
-                    decode: &Decode::read(document, dict, &ColourSpace::Mask, 1),
-                    // A stencil has no colour components for §8.9.6.4 to range over.
-                    colour_key: None,
-                    fill,
-                    // A stencil carries no colour, so nothing here depends on what the
-                    // samples are composited into; the fill has been redirected already.
-                    into: &Conversion::device(),
-                },
-            )?,
-            grid: (raster.width, raster.height),
-            opacity_included: use_opacity,
-        });
+        return jpx_stencil(document, dict, &raster, fill, use_opacity);
     }
 
     let stated_by_the_dictionary = declared_space.is_some();
@@ -1746,29 +1722,112 @@ fn decode_jpx(
         });
     }
 
+    let decode = jpx_decode(document, dict, &space, stated_by_the_dictionary);
     Ok(SamplesOnGrid {
-        rgba: jpx_samples_to_rgba(&raster, &space, use_opacity, premultiplied, into),
+        rgba: jpx_samples_to_rgba(&raster, &space, &decode, use_opacity, premultiplied, into),
         grid: (raster.width, raster.height),
         opacity_included: use_opacity,
     })
+}
+
+/// A JPEG 2000 image whose dictionary makes it a stencil mask.
+///
+/// ISO 32000-2 §7.4.9's last bullet, of a dictionary whose `/ImageMask` is true:
+///
+/// > the JPEG 2000 data shall provide a single colour channel with 1-bit samples
+///
+/// Those samples arrive scaled to eight bits, so the two values are 0 and 255 and the
+/// threshold between them is anywhere in between. The raster's own grid throughout, which for
+/// a reduced decode is not the dictionary's.
+///
+/// This is the one place the filter's `/Decode` is read whatever `/ColorSpace` says, which is
+/// [`jpx_decode`]'s bullet read from its other end — its closing clause exempts a stencil.
+fn jpx_stencil(
+    document: &Document,
+    dict: &Dictionary,
+    raster: &pdf_sandbox::Raster,
+    fill: pdf_render::Color,
+    use_opacity: bool,
+) -> Result<SamplesOnGrid, ImageError> {
+    let samples: Vec<u8> = raster
+        .data
+        .chunks(raster.channels())
+        .map(|pixel| u8::from(pixel.first().is_some_and(|value| *value >= 128)))
+        .collect();
+    let packed = pack_bits(&samples, raster.width, raster.height);
+    Ok(SamplesOnGrid {
+        rgba: unpack(
+            &packed,
+            raster.width,
+            raster.height,
+            &Samples {
+                bits: 1,
+                space: &ColourSpace::Mask,
+                decode: &Decode::read(document, dict, &ColourSpace::Mask, 1),
+                // A stencil has no colour components for §8.9.6.4 to range over.
+                colour_key: None,
+                fill,
+                // A stencil carries no colour, so nothing here depends on what the samples are
+                // composited into; the fill has been redirected already.
+                into: &Conversion::device(),
+            },
+        )?,
+        grid: (raster.width, raster.height),
+        opacity_included: use_opacity,
+    })
+}
+
+/// §8.9.5.2's map for a JPEG 2000 image, or Table 88's defaults where the clause silences it.
+///
+/// ISO 32000-2 §7.4.9, the last-but-one of the bullets that constrain an image dictionary:
+///
+/// > If ColorSpace is absent, then the Decode array shall be ignored unless ImageMask is true
+///
+/// The condition is `/ColorSpace`'s **absence** and nothing else, and Table 87's own `/Decode`
+/// row states it the same way round. So a dictionary that *does* state its colour space states
+/// how its samples map into that space too, exactly as it would under any other filter — this
+/// is the one entry of the three §7.4.9 rearranges that the codestream does **not** take over,
+/// because a codestream says what its samples are and never what a producer meant them to
+/// mean. `stated` is that condition, answered by the caller, which has already resolved the
+/// entry.
+///
+/// Where the array is absent Table 88's defaults apply and the map is the identity on every
+/// device space, so building it unconditionally costs a table per component and says which
+/// sentence is being obeyed. It also carries a space's own *units*, which the flat division by
+/// 255 this replaced could not: an `Indexed` space's default is `[0 2^n − 1]`, so an index is
+/// passed through rather than turned into a fraction.
+///
+/// The depth is eight bits whatever the codestream's precision was, because `pdf_sandbox`
+/// normalises every raster to that and Table 87 makes `/BitsPerComponent` "optional and …
+/// ignored if present" here. §8.9.5.2's map is linear in the sample, so composing it with that
+/// normalisation is the same linear map: a pair still lands D min at sample 0 and D max at the
+/// largest sample, which is what the pair means.
+fn jpx_decode(
+    document: &Document,
+    dict: &Dictionary,
+    space: &crate::colour::ColourSpace,
+    stated: bool,
+) -> Decode {
+    /// Bits per sample in a raster `pdf_sandbox` returns; see this function's own comment.
+    const BITS: u32 = 8;
+
+    let mapped = ColourSpace::Resolved(space.clone());
+    if stated {
+        Decode::read(document, dict, &mapped, BITS)
+    } else {
+        Decode::from_pairs(&[], &mapped, BITS)
+    }
 }
 
 /// Converts decoded JPEG 2000 samples into straight-alpha RGBA8.
 fn jpx_samples_to_rgba(
     raster: &pdf_sandbox::Raster,
     space: &crate::colour::ColourSpace,
+    decode: &Decode,
     use_opacity: bool,
     premultiplied: bool,
     into: &Conversion,
 ) -> Vec<u8> {
-    // An `Indexed` space takes an *index*, not a fraction: `to_rgb` rounds its input and
-    // looks it up. Every other space takes components in 0..1.
-    let scale = if matches!(space, crate::colour::ColourSpace::Indexed { .. }) {
-        1.0
-    } else {
-        1.0 / 255.0
-    };
-
     let channels = raster.channels();
     let components = usize::from(raster.components);
     let pixels = (raster.width as usize).saturating_mul(raster.height as usize);
@@ -1780,8 +1839,12 @@ fn jpx_samples_to_rgba(
         } else {
             255
         };
-        for (slot, sample) in values.iter_mut().zip(pixel.iter()) {
-            *slot = f32::from(*sample) * scale;
+        // The map carries the space's own units with it, which is what the flat division by
+        // 255 this replaced could not: Table 88 gives an `Indexed` space `[0 2^n − 1]`, so an
+        // index is passed through rather than turned into a fraction, and a `Lab` space's
+        // lightness runs to 100.
+        for (component, (slot, sample)) in values.iter_mut().zip(pixel.iter()).enumerate() {
+            *slot = decode.value(component, usize::from(*sample));
         }
         if premultiplied && alpha != 0 {
             // Straight alpha is what `Image` documents and what both backends expect, so the
