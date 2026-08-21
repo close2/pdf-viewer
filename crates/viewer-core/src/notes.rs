@@ -398,7 +398,13 @@ fn about_one(
             // §12.8.3.3.2's revocation information, whose object identifier the clause prints
             // itself. Its presence is the fact this program can state: the CRLs and OCSP
             // responses inside it are what a *validator* would use, and using them is question
-            // three. `issue17069.pdf` is the corpus's one witness.
+            // three.
+            //
+            // **This comment named `issue17069.pdf` as "the corpus's one witness" and there are
+            // three**, which the six-hundred-and-forty-first session found by giving the sentence
+            // a command: `issue6127.pdf` and `xfa_filled_imm1344e.pdf` carry the attribute too.
+            // `examples/signature_algorithm_census` counts and names them, so the number is not
+            // written down here or in §12.8.3.3.2's ledger row again.
             if cms.has_signed_attribute(pdf_model::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
                 notes.push(
                     "that signature carries revocation information with it \
@@ -758,6 +764,53 @@ mod tests {
         assert!(
             said.contains("which is not the same as a valid signature. Nothing here says valid"),
             "no sentence here calls a signature valid: {said}"
+        );
+    }
+
+    /// §12.8.3.3.2's material is named where a file supplies it, and never anywhere else.
+    ///
+    /// The clause's whole content for a program with no network is one fact — that the signer put
+    /// CRLs and OCSP responses in the signature — and stating it is what §12.8.3.3.2's `reported`
+    /// row rests on. **That row cited three tests and not one of them reached this sentence**:
+    /// they are `pdf-model`'s, and the naming happens two crates up, here. `doc/todo/01`'s "the
+    /// row is right and its evidence is not" for the sixth round running.
+    ///
+    /// `issue6127.pdf` is the witness rather than the `issue17069.pdf` the row named, because it
+    /// is the plainer of the three — unencrypted, one signature — and the census that found all
+    /// three is `pdf-model`'s `examples/signature_algorithm_census`. The negative half is the
+    /// mutation: `bug854315.pdf` is signed, its `SignerInfo` states no signed attributes at all,
+    /// and it must not be told it carries revocation material.
+    #[test]
+    fn a_signature_carrying_revocation_information_says_so_and_claims_no_more() {
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
+        let Ok(bytes) = std::fs::read(directory.join("issue6127.pdf")) else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let document = Document::open(bytes).expect("a valid file");
+        let said = about(&document).join("\n");
+        assert!(
+            said.contains(
+                "carries revocation information with it (§12.8.3.3.2's \
+                 adbe-revocationInfoArchival attribute)"
+            ),
+            "{said}"
+        );
+        assert!(
+            said.contains("does not check — it makes no trust decision about any certificate"),
+            "the presence is stated and no verdict is drawn from it: {said}"
+        );
+
+        let plain = Document::open(
+            std::fs::read(directory.join("bug854315.pdf")).expect("a signed corpus document"),
+        )
+        .expect("a valid file");
+        assert!(
+            !about(&plain)
+                .join("\n")
+                .contains("carries revocation information"),
+            "a signature with no signed attributes carries none"
         );
     }
 
