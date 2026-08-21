@@ -1734,9 +1734,11 @@ impl Document {
     ///   input ends. That is the one respect in which this question is easier than
     ///   [`Self::stream_source`]'s.
     ///
-    /// [`EncodedExtent::Unknown`] covers a filter whose marker this crate does not locate,
-    /// which is every one [`crate::filter::Pumping`] does not name. What each of the three
-    /// answers means is that type's own documentation.
+    /// [`EncodedExtent::Unknown`] covers a filter whose end this crate does not locate, which
+    /// after the six-hundred-and-thirty-fifth session is `JBIG2Decode`, `JPXDecode` and `Crypt`
+    /// — and §8.9.7 forbids all three of those to an inline image. What each of the three answers
+    /// means is that type's own documentation, and how each filter is asked is
+    /// [`crate::Delimiting`]'s.
     #[must_use]
     pub fn filtered_extent(&self, dict: &Dictionary, data: &[u8]) -> EncodedExtent {
         let chain = self.filter_chain(dict);
@@ -1744,21 +1746,10 @@ impl Document {
             return EncodedExtent::Unknown;
         };
         let parms = self.decode_parms(dict, 0);
-        let pumping = match first.as_slice() {
-            b"FlateDecode" | b"Fl" => crate::filter::Pumping::Inflate,
-            b"LZWDecode" | b"LZW" => {
-                // Table 8's default is 1, read exactly as `Self::pumping` reads it so that the
-                // two cannot build different decoders over the same bytes.
-                let early = parms
-                    .and_then(|parms| parms.get("EarlyChange").and_then(Object::as_integer))
-                    .unwrap_or(1);
-                crate::filter::Pumping::Lzw {
-                    early_change: early != 0,
-                }
-            }
-            _ => return EncodedExtent::Unknown,
+        let Some(delimiting) = delimiting(first, parms.as_ref()) else {
+            return EncodedExtent::Unknown;
         };
-        crate::filter::encoded_extent(pumping, data, self.limits.max_stream_len)
+        crate::filter::encoded_extent(delimiting, data, self.limits.max_stream_len)
     }
 
     /// Returns the bytes the document was opened from.
@@ -1772,6 +1763,61 @@ impl Document {
     pub fn limits(&self) -> Limits {
         self.limits
     }
+}
+
+/// How the named filter says where its own encoded data ends, with `parms` its own stage's
+/// parameter dictionary.
+///
+/// Free of the document on purpose: nothing here resolves a reference, because the entries it
+/// reads are the ones [`Document::pumping`] reads the same way, and two routes over one
+/// dictionary that resolved differently could build different decoders over the same bytes.
+///
+/// Table 92's abbreviations are admitted beside the full names because
+/// [`Document::filtered_extent`]'s one caller is §8.9.7's inline image, which is the one place
+/// they are legal — and `pdf_model::inline_image` expands them before it asks, so admitting
+/// both is belt and braces rather than a second reading of Table 92.
+fn delimiting(filter: &[u8], parms: Option<&Dictionary>) -> Option<crate::Delimiting> {
+    Some(match filter {
+        b"FlateDecode" | b"Fl" => crate::Delimiting::Decoded(crate::filter::Pumping::Inflate),
+        b"LZWDecode" | b"LZW" => {
+            // Table 8's default is 1, read exactly as `Document::pumping` reads it so that the
+            // two cannot build different decoders over the same bytes.
+            let early = parms
+                .and_then(|parms| parms.get("EarlyChange").and_then(Object::as_integer))
+                .unwrap_or(1);
+            crate::Delimiting::Decoded(crate::filter::Pumping::Lzw {
+                early_change: early != 0,
+            })
+        }
+        b"ASCIIHexDecode" | b"AHx" => crate::Delimiting::Marker(b">"),
+        b"ASCII85Decode" | b"A85" => crate::Delimiting::Marker(b"~>"),
+        b"RunLengthDecode" | b"RL" => crate::Delimiting::RunLength,
+        b"DCTDecode" | b"DCT" => crate::Delimiting::Jpeg,
+        b"CCITTFaxDecode" | b"CCF" => {
+            // §7.4.6 Table 11. `/EndOfBlock` false is the one arm with no answer in the
+            // data: the filter then "shall stop when it has decoded the number of lines
+            // indicated by Rows or when its data has been exhausted", and both of those are
+            // facts about the *decode* rather than about the encoded bytes.
+            let stopped_by_rows = parms
+                .and_then(|parms| parms.get("EndOfBlock"))
+                .is_some_and(|flag| matches!(flag, Object::Boolean(false)));
+            if stopped_by_rows {
+                return None;
+            }
+            // Table 11's `/K`: negative is Group 4, which ends on T.6's EOFB — two
+            // end-of-line codes; zero and positive are Group 3, which ends on T.4's RTC —
+            // six. Table 11 says only "appropriate for the K parameter", and this is what
+            // T.4 and T.6 make that.
+            let k = parms
+                .and_then(|parms| parms.get("K"))
+                .and_then(Object::as_integer)
+                .unwrap_or(0);
+            crate::Delimiting::EndOfBlock {
+                end_of_lines: if k < 0 { 2 } else { 6 },
+            }
+        }
+        _ => return None,
+    })
 }
 
 /// Whether §7.6.2's fourth exception applies to this dictionary's `/Contents`.

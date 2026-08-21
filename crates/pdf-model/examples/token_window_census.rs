@@ -14,13 +14,16 @@
 //! - **And what the *filtered* answer is worth.** §7.3.8.2 makes a filtered extent derivable —
 //!   "most filters are defined so that the data shall be self-limiting" — so for every filtered
 //!   image with no `/L` this asks the first filter of the chain where its own end-of-data
-//!   marker stands and compares that with where the scan stopped. **This was written in the
-//!   six-hundred-and-thirty-third session to size a defect before fixing it**, when the scan's
-//!   answer for those images was a forward search for `EI` and a marker past its answer meant a
-//!   byte pair inside the compressed data had ended the image early. Since ADR 0466 the scan
-//!   uses the same marker, so a disagreement is now a *regression* rather than a population —
-//!   what the run still measures is how many filtered images have a marker this tree can find
-//!   at all, which is the size of what the search still decides.
+//!   stands and compares that with where the scan stopped, **per filter**. **This was written in
+//!   the six-hundred-and-thirty-third session to size a defect before fixing it**, when the
+//!   scan's answer for those images was a forward search for `EI` and an end past its answer
+//!   meant a byte pair inside the encoded data had ended the image early; the
+//!   six-hundred-and-thirty-fifth split it by filter, which is what showed that
+//!   `CCITTFaxDecode` decides half the population and that one `DCTDecode` image in the crawl
+//!   was ending early. Since ADRs 0464, 0466 and 0467 the scan derives every filter's end, so a
+//!   disagreement here is now a *regression* — but the predicate stays this file's own reading
+//!   of the clauses rather than a call into the code under test, which is trap 8's rule and the
+//!   only thing that makes the comparison worth running.
 //!
 //! ```sh
 //! cargo run --profile gates -p pdf-model --example token_window_census -- doc
@@ -48,7 +51,7 @@ use std::sync::Mutex;
 
 use rayon::prelude::*;
 
-use pdf_syntax::{Document, EncodedExtent, Object, Token};
+use pdf_syntax::{Delimiting, Document, EncodedExtent, Object, Token};
 
 /// The largest of something, with where it was found.
 #[derive(Debug, Default, Clone)]
@@ -114,22 +117,60 @@ struct Tally {
     /// Inline images the scan could not read at all.
     unreadable: u64,
     /// Filtered images with no `/L`, by the first filter of their chain.
-    searched_by_filter: BTreeMap<String, u64>,
+    by_filter: BTreeMap<String, Verdicts>,
+    /// The pages where the derived end and the search disagree, with the worst difference on
+    /// each and which way it went.
+    disagreeing: BTreeMap<String, (u64, &'static str)>,
+}
+
+/// What §7.3.8.2's end-of-data says about one filter's images, against where the scan stopped.
+///
+/// **Per filter rather than in one heap**, because the question the six-hundred-and-thirty-fifth
+/// session was sent after is which *filters* still have their end guessed at, and a total over
+/// six of them answers it for none.
+#[derive(Debug, Default, Clone)]
+struct Verdicts {
+    /// Filtered images with no `/L` whose chain starts with this filter.
+    images: u64,
     /// Of those, the ones whose first filter states an end-of-data this crate can locate.
     derivable: u64,
-    /// Of those, the ones where the marker stands exactly where the scan stopped.
+    /// Of those, the ones where the end stands exactly where the scan stopped.
     agreeing: u64,
-    /// Of those, the ones where the marker stands *past* where the scan stopped: a byte pair
+    /// Of those, the ones where the end stands *past* where the scan stopped: a byte pair
     /// inside the encoded data was taken for the `EI` that ends the image.
     early: u64,
-    /// Of those, the ones where the marker stands before it, which no valid file writes.
+    /// Of those, the ones where the end stands before it.
     over_run: u64,
-    /// Of those, the ones whose filter ran out of input before its marker.
+    /// Of those, the ones whose filter ran out of input before its end-of-data.
     short: u64,
+    /// Of those, the ones whose framing this crate could not follow at all.
+    unfollowable: u64,
     /// Encoded bytes standing past where the scan stopped, summed.
     lost: u64,
-    /// The documents an early `EI` was found in, with the worst loss on each.
-    early_documents: BTreeMap<String, u64>,
+    /// Bytes the derived end leaves *out* of what the scan took, summed over the over-run
+    /// images, and the largest of them.
+    ///
+    /// **This is the diagnostic that says what an over-run is**, and it is not a defect: §8.9.7
+    /// takes one white-space character off the data's end and a producer may write two, so a
+    /// derived end one byte tighter than the search's is the derivation being *right*. A wide
+    /// one would be something else, which is why the two are counted apart.
+    trimmed: u64,
+    widest_trim: u64,
+}
+
+impl Verdicts {
+    fn merge(&mut self, other: &Self) {
+        self.images += other.images;
+        self.derivable += other.derivable;
+        self.agreeing += other.agreeing;
+        self.early += other.early;
+        self.over_run += other.over_run;
+        self.short += other.short;
+        self.unfollowable += other.unfollowable;
+        self.lost += other.lost;
+        self.trimmed += other.trimmed;
+        self.widest_trim = self.widest_trim.max(other.widest_trim);
+    }
 }
 
 /// The window sizes the count of "does not fit" is reported for.
@@ -142,18 +183,17 @@ impl Tally {
         self.tokens += other.tokens;
         self.images += other.images;
         self.unreadable += other.unreadable;
-        self.derivable += other.derivable;
-        self.agreeing += other.agreeing;
-        self.early += other.early;
-        self.over_run += other.over_run;
-        self.short += other.short;
-        self.lost += other.lost;
-        for (name, count) in &other.searched_by_filter {
-            *self.searched_by_filter.entry(name.clone()).or_default() += count;
+        for (name, verdicts) in &other.by_filter {
+            self.by_filter
+                .entry(name.clone())
+                .or_default()
+                .merge(verdicts);
         }
-        for (name, worst) in &other.early_documents {
-            let slot = self.early_documents.entry(name.clone()).or_default();
-            *slot = (*slot).max(*worst);
+        for (name, worst) in &other.disagreeing {
+            let slot = self.disagreeing.entry(name.clone()).or_insert((0, "same"));
+            if worst.0 > slot.0 {
+                *slot = *worst;
+            }
         }
         for (slot, add) in self.token_decades.iter_mut().zip(other.token_decades) {
             *slot += add;
@@ -250,7 +290,7 @@ fn walk(document: &Document, page: &pdf_model::Page, name: &str, index: usize, t
                                     content.as_slice(),
                                     opened,
                                     stream,
-                                    name,
+                                    &where_(),
                                     tally,
                                 );
                             }
@@ -312,17 +352,9 @@ fn judge_the_search(
     name: &str,
     tally: &mut Tally,
 ) {
-    let filters = match document.get_key(&stream.dict, "Filter") {
-        Object::Name(first) => vec![String::from_utf8_lossy(first.as_bytes()).into_owned()],
-        Object::Array(items) => items
-            .iter()
-            .filter_map(|item| item.as_name())
-            .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned())
-            .collect(),
-        _ => Vec::new(),
-    };
-    let first = filters.first().cloned().unwrap_or_else(|| "?".to_owned());
-    *tally.searched_by_filter.entry(first).or_default() += 1;
+    let first = first_filter(document, stream);
+    let verdicts = tally.by_filter.entry(first).or_default();
+    verdicts.images += 1;
 
     let Some(start) = data_start(content, opened) else {
         return;
@@ -330,29 +362,121 @@ fn judge_the_search(
     let Some(tail) = content.get(start..) else {
         return;
     };
-    let extent = match document.filtered_extent(&stream.dict, tail) {
+    let Some(delimiting) = delimiting_of(document, stream) else {
+        verdicts.unfollowable += 1;
+        return;
+    };
+    let extent = match pdf_syntax::filter::encoded_extent(
+        delimiting,
+        tail,
+        document.limits().max_stream_len,
+    ) {
         EncodedExtent::Ends(extent) => extent,
-        // The bytes carry no marker to compare against: the filter is one this crate has no
-        // resumable decoder for, or the data stops short of the marker it should have had.
+        // The bytes carry no end to compare against: the data stops short of the marker it
+        // should have had, or its framing is not the one the filter describes.
         EncodedExtent::Short => {
-            tally.short += 1;
+            verdicts.short += 1;
             return;
         }
-        EncodedExtent::Unknown => return,
+        EncodedExtent::Unknown => {
+            verdicts.unfollowable += 1;
+            return;
+        }
     };
-    tally.derivable += 1;
+    verdicts.derivable += 1;
     let searched = stream.data.len();
     match extent.cmp(&searched) {
-        std::cmp::Ordering::Equal => tally.agreeing += 1,
+        std::cmp::Ordering::Equal => verdicts.agreeing += 1,
         std::cmp::Ordering::Greater => {
-            tally.early += 1;
             let lost = (extent - searched) as u64;
-            tally.lost += lost;
-            let slot = tally.early_documents.entry(name.to_owned()).or_default();
-            *slot = (*slot).max(lost);
+            verdicts.early += 1;
+            verdicts.lost += lost;
+            note_disagreement(tally, name, lost, "early");
         }
-        std::cmp::Ordering::Less => tally.over_run += 1,
+        std::cmp::Ordering::Less => {
+            let trim = (searched - extent) as u64;
+            verdicts.over_run += 1;
+            verdicts.trimmed += trim;
+            verdicts.widest_trim = verdicts.widest_trim.max(trim);
+            note_disagreement(tally, name, trim, "over-run");
+        }
     }
+}
+
+/// Records the worst disagreement on one page between the derived end and the search's.
+fn note_disagreement(tally: &mut Tally, where_: &str, bytes: u64, direction: &'static str) {
+    let slot = tally
+        .disagreeing
+        .entry(where_.to_owned())
+        .or_insert((0, direction));
+    if bytes > slot.0 {
+        *slot = (bytes, direction);
+    }
+}
+
+/// The first filter of the image's chain, as a name to key the tally by.
+fn first_filter(document: &Document, stream: &pdf_syntax::Stream) -> String {
+    let name = match document.get_key(&stream.dict, "Filter") {
+        Object::Name(first) => Some(first),
+        Object::Array(items) => items.first().and_then(Object::as_name).cloned(),
+        _ => None,
+    };
+    name.map_or_else(
+        || "?".to_owned(),
+        |name| String::from_utf8_lossy(name.as_bytes()).into_owned(),
+    )
+}
+
+/// How the image's first filter says where its own data ends — **read here rather than taken
+/// from `Document::filtered_extent`**, which is the code this comparison is about.
+///
+/// Trap 8's rule: a census whose predicate is the thing being checked measures nothing. The scan
+/// asks `Document::filtered_extent` and this asks the clauses again, so the two can disagree —
+/// which is the entire point of running it, and is what the six-hundred-and-thirty-third session
+/// measured `FlateDecode` with before it changed anything.
+///
+/// - a marker the alphabet cannot contain: §7.4.2's `>` and §7.4.3's `~>`.
+/// - a decoder's consumed input: §7.4.4's `FlateDecode` and `LZWDecode`.
+/// - a length byte of 128, which is §7.4.5's EOD.
+/// - ISO/IEC 10918-1's EOI marker, which §7.4.8 refers `DCTDecode` to.
+/// - an end-of-block pattern, §7.4.6 Table 11's, unless `/EndOfBlock` switches it off.
+fn delimiting_of(document: &Document, stream: &pdf_syntax::Stream) -> Option<Delimiting> {
+    let dict = &stream.dict;
+    let parms = match document.get_key(dict, "DecodeParms") {
+        Object::Dictionary(parms) => Some(parms),
+        Object::Array(items) => items.first().and_then(Object::as_dict).cloned(),
+        _ => None,
+    };
+    let integer = |key: &str, fallback: i64| {
+        parms
+            .as_ref()
+            .and_then(|parms| parms.get(key))
+            .and_then(Object::as_integer)
+            .unwrap_or(fallback)
+    };
+    Some(match first_filter(document, stream).as_str() {
+        "FlateDecode" | "Fl" => Delimiting::Decoded(pdf_syntax::Pumping::Inflate),
+        "LZWDecode" | "LZW" => Delimiting::Decoded(pdf_syntax::Pumping::Lzw {
+            early_change: integer("EarlyChange", 1) != 0,
+        }),
+        "ASCIIHexDecode" | "AHx" => Delimiting::Marker(b">"),
+        "ASCII85Decode" | "A85" => Delimiting::Marker(b"~>"),
+        "RunLengthDecode" | "RL" => Delimiting::RunLength,
+        "DCTDecode" | "DCT" => Delimiting::Jpeg,
+        "CCITTFaxDecode" | "CCF" => {
+            let stopped_by_rows = parms
+                .as_ref()
+                .and_then(|parms| parms.get("EndOfBlock"))
+                .is_some_and(|flag| matches!(flag, Object::Boolean(false)));
+            if stopped_by_rows {
+                return None;
+            }
+            Delimiting::EndOfBlock {
+                end_of_lines: if integer("K", 0) < 0 { 2 } else { 6 },
+            }
+        }
+        _ => return None,
+    })
 }
 
 /// Which of §8.9.7's answers this image's dictionary admits, before its data is read.
@@ -432,6 +556,62 @@ fn report_largest(label: &str, largest: &Largest) {
     );
 }
 
+/// The per-filter table: what §7.3.8.2's end-of-data says against where the scan stopped.
+fn report_filtered_route(tally: &Tally) {
+    println!("\nthe filtered route judged against §7.3.8.2's end-of-data marker:");
+    println!(
+        "  {:<20} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8} {:>10}",
+        "first filter",
+        "images",
+        "derivable",
+        "agreeing",
+        "early",
+        "over-run",
+        "short",
+        "no framing"
+    );
+    let mut total = Verdicts::default();
+    for (filter, row) in &tally.by_filter {
+        total.merge(row);
+        println!(
+            "  {filter:<20} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8} {:>10}",
+            row.images,
+            row.derivable,
+            row.agreeing,
+            row.early,
+            row.over_run,
+            row.short,
+            row.unfollowable
+        );
+    }
+    println!(
+        "  {:<20} {:>10} {:>10} {:>10} {:>8} {:>8} {:>8} {:>10}",
+        "all",
+        total.images,
+        total.derivable,
+        total.agreeing,
+        total.early,
+        total.over_run,
+        total.short,
+        total.unfollowable
+    );
+    println!(
+        "  encoded bytes lost to an early EI: {}; trimmed off an over-run: {} (widest {})",
+        human(total.lost),
+        human(total.trimmed),
+        human(total.widest_trim)
+    );
+    println!(
+        "  pages where the derived end and the search disagree: {}",
+        tally.disagreeing.len()
+    );
+    let mut worst: Vec<(&String, &(u64, &'static str))> = tally.disagreeing.iter().collect();
+    worst.sort_by_key(|entry| std::cmp::Reverse(entry.1.0));
+    for (page, (bytes, direction)) in worst.iter().take(30) {
+        println!("    {:>12}  {direction:<8}  {page}", human(*bytes));
+    }
+}
+
 fn main() {
     let roots: Vec<PathBuf> = {
         let named: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
@@ -484,26 +664,7 @@ fn main() {
         println!("  images larger than {:>8}: {count}", human(window));
     }
 
-    println!("\nthe filtered route judged against §7.3.8.2's end-of-data marker:");
-    println!("  first filter of the chain, over every filtered image with no /L:");
-    for (filter, count) in &tally.searched_by_filter {
-        println!("    {filter:<20} {count}");
-    }
-    println!(
-        "  marker locatable {}, of which agreeing {}, ended early {}, over-run {}; \
-         short of a marker {}",
-        tally.derivable, tally.agreeing, tally.early, tally.over_run, tally.short
-    );
-    println!("  encoded bytes lost to an early EI: {}", human(tally.lost));
-    println!(
-        "  documents with at least one early EI: {}",
-        tally.early_documents.len()
-    );
-    let mut worst: Vec<(&String, &u64)> = tally.early_documents.iter().collect();
-    worst.sort_by(|left, right| right.1.cmp(left.1));
-    for (document, lost) in worst.iter().take(20) {
-        println!("    {:>12}  {document}", human(**lost));
-    }
+    report_filtered_route(&tally);
 
     let mut edge = 16u64;
     println!("\ntoken spans, and inline image data lengths, by decade:");

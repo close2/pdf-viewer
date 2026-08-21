@@ -1162,13 +1162,14 @@ ADR 0466; §8.9.7's and §7.3.8.2's ledger rows.
   at ours 8.848 against 72.062 / 72.409 / 72.682 it is deeper than the row this round was sent
   after. Both now report nothing: 44.516 against 44.647 / 45.020 / 45.233, and 71.775 against
   72.062 / 72.409 / 72.682.
-- **Half the population is untouched and the size of it is the finding.** The first filter of those
-  2 672 062 images is `CCITTFaxDecode` **1 272 430** times against `FlateDecode`'s 1 367 073, with
-  `ASCII85Decode` 23 018, `ASCIIHexDecode` 4 104, `DCTDecode` 3 778 and `RunLengthDecode` 1 655
-  behind them — and only `FlateDecode` and `LZWDecode` have a resumable decoder in this tree, so
-  everything else still falls to the search. Three of the five need no decoder at all (`>`, `~>`,
-  a length byte of 128) and `ASCIIHexDecode` cannot carry an `EI` in the first place, its alphabet
-  having no `I`. **A successor with a number attached**, and the number is above.
+- ~~**Half the population is untouched and the size of it is the finding.**~~ — **taken in the
+  six-hundred-and-thirty-fifth, §24 below.** The first filter of those 2 672 062 images is
+  `CCITTFaxDecode` **1 272 430** times against `FlateDecode`'s 1 367 073, with `ASCII85Decode`
+  23 018, `ASCIIHexDecode` 4 104, `DCTDecode` 3 778 and `RunLengthDecode` 1 655 behind them — and
+  only `FlateDecode` and `LZWDecode` have a resumable decoder in this tree, so everything else still
+  falls to the search. This bullet said three of the five need no decoder at all (`>`, `~>`, a
+  length byte of 128); **none of the remaining three does**, and §24 has which clause says so for
+  each. **A successor with a number attached**, and the number is above.
 - **The two rows are in `doc/checks/fixed-documents.toml`**, which is §20's rule and the only gate
   that sees either document.
 ### 23. The chunk the six-hundred-and-thirty-first took: ten archives, and three ranges
@@ -1231,6 +1232,38 @@ green**), with 625's three recorded documents reproduced to the thousandth.
 **What this chunk leaves: 23 944 crawled documents unranked**, in archive-sized pieces. Six rounds
 running, the crawl's head has been a defect no curated corpus states.
 
+
+### 24. What the six-hundred-and-thirty-fifth took: §22's other half, and the three that needed no decoder
+
+**§8.9.7's filtered inline image now has a derived extent for every filter Table 92 admits.** §22
+left `CCITTFaxDecode`, `DCTDecode` and `RunLengthDecode` on the forward search for a token-delimited
+`EI`; each of the three states its end in its own framing and none of them needs a decoder to find
+it. ADR 0467; the ledger rows for §7.4.5, §7.4.6, §7.4.8, §7.3.8.2 and §8.9.7.
+
+- **The population was measured before the change and after** (trap 11), by
+  `examples/token_window_census`, which now builds its **own** `Delimiting` from each image's
+  dictionary rather than asking the code under test (trap 8) and reports per filter. Over 66 960
+  documents that open of 67 213 and 926 308 pages: of **2 672 351** filtered inline images with no
+  `/L`, 2 671 901 were answerable, **one ended early** and **1229 over-ran by exactly one byte**.
+  Afterwards, **0 and 0 of 2 672 332**.
+- **`CCITTFaxDecode` is the negative result and it is worth as much as the fix.** All **1 272 438**
+  of them carry Table 11's end-of-block pattern, and all 1 272 438 already agreed with the search:
+  nearly half the population was being guessed at correctly. No page moves; what changes is that
+  the answer is derived.
+- **The one early image is `7311536.pdf` page 9**, a `DCTDecode` inline image 163 bytes short of
+  ISO/IEC 10918-1's EOI. **1.617 of 255 with eight array-operand reports → 54.406 with none**,
+  against `pdftoppm` 57.99, `mutool` 57.61 and `gs` 62.44. A row in
+  `doc/checks/fixed-documents.toml`, which is §20's rule.
+- **The 1229 over-runs are one byte each**, which is §8.9.7 taking one white-space character off the
+  data where a producer wrote two. Not a hazard, and counted apart from the early one so that a
+  wide one would be legible if it ever appeared.
+- **A number two roads use moved**: the census's largest single lexical object over 8.88 billion
+  content tokens fell from **798.20 KiB to 390.16 KiB**, because the old figure was a string begun
+  by the 163 bytes of JPEG that were being lexed. `doc/todo/14`'s road D sizes a reader's window
+  against that.
+- **What is left to the search is now the standard's own boundary**: §7.4.6's `/EndOfBlock false`,
+  where the clause puts the end outside the data; a fax stream whose producer wrote no end-of-block
+  pattern (the crawl has none); and `FlateDecode` data corrupt before its marker (446).
 
 ## What not to do
 

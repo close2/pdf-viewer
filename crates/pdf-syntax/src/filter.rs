@@ -13,6 +13,13 @@
 //! decoding, and two of them (JBIG2, JPX) have no memory-safe implementation and are among
 //! the worst attack surfaces in the format. Returning `None` means an unsupported stream is
 //! visibly unsupported rather than silently garbage.
+//!
+//! **Where a stream *ends* is a separate question from what it decodes to, and this module
+//! answers it for two filters it does not decode.** [`encoded_extent`] walks §7.4.6's and
+//! §7.4.8's framing — an end-of-block bit pattern and ISO/IEC 10918-1's marker segments — and
+//! reconstructs no sample doing it, so the boundary above is not crossed: no codec arrives here,
+//! and a walk over lengths and markers is what a parser does anyway. §8.9.7's inline image is
+//! the only caller and [`Delimiting`] is the whole list. ADR 0467.
 
 #![expect(
     clippy::arithmetic_side_effects,
@@ -911,6 +918,53 @@ pub enum EncodedExtent {
     Unknown,
 }
 
+/// How a filter states where its own encoded data ends, and therefore how to find it.
+///
+/// **Three shapes rather than one, and the difference is what a caller pays.** A decoder's own
+/// end-of-data is a structure in a compressed bit stream and can only be reached by decoding;
+/// a textual marker is a byte pair the encoding's alphabet cannot otherwise contain; and the
+/// remaining three are *walks* over the encoded bytes' own framing, which read the structure
+/// without reconstructing a single sample.
+///
+/// **The `/L`-less inline image is the only thing that asks** — Table 5 makes `/Length`
+/// required of every stream *object* — so this enum is built by
+/// [`Document::filtered_extent`](crate::Document::filtered_extent) from the image's dictionary
+/// and by nothing else.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the erratum's sentence is quoted verbatim, and a quotation with backticks added \
+              to please a lint is no longer a quotation"
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delimiting {
+    /// Run the decoder and ask how much input it took: `FlateDecode` and `LZWDecode`, whose
+    /// end-of-data is RFC 1951's final block and §7.4.4.2's `EarlyChange`-dependent 257.
+    Decoded(Pumping),
+    /// A byte sequence no correctly encoded byte of the filter's own alphabet can be.
+    ///
+    /// §7.4.2, of `ASCIIHexDecode`:
+    ///
+    /// > A GREATER-THAN SIGN (3Eh) indicates EOD (End Of Data).
+    ///
+    /// §7.4.3 gives `ASCII85Decode` the two-character sequence (7Eh)(3Eh), over an alphabet of
+    /// `!` through `u` and `z` in which (7Eh) cannot otherwise occur. Errata Collection 3 makes
+    /// that a rule rather than an inference, Issue #293 adding to the clause: "If the
+    /// ASCII85Decode filter encounters the character ~ in its input, the next character shall be >
+    /// and the filter will reach EOD. Any other characters shall cause an error."
+    Marker(&'static [u8]),
+    /// §7.4.5's run headers, walked. Each header says how far the next one stands, so the walk
+    /// visits one byte in every two to a hundred and twenty-nine and decodes nothing at all.
+    RunLength,
+    /// ISO/IEC 10918-1's marker segments, walked to the EOI marker (§7.4.8).
+    Jpeg,
+    /// §7.4.6 Table 11's end-of-block bit pattern: this many consecutive end-of-line codes.
+    EndOfBlock {
+        /// Two for Group 4's EOFB, six for Group 3's RTC — "appropriate for the K parameter",
+        /// which is the whole of what Table 11 says about which.
+        end_of_lines: u32,
+    },
+}
+
 /// How many of `data`'s bytes the filter's own end-of-data marker delimits.
 ///
 /// ISO 32000-2 §7.3.8.2 is what makes this question answerable at all:
@@ -919,6 +973,11 @@ pub enum EncodedExtent {
 /// > they use an encoding scheme in which an explicit end-of-data (EOD) marker delimits the
 /// > extent of the data.
 ///
+/// and Errata Collection 3's Issue #319 adds the sentence that says where the answer *stops*,
+/// which is the difference between an off-by-a-marker and a correct extent: "The 'encoded data'
+/// of a stream encompasses all enveloping markers of the encoding, e.g. end-of-data markers, if
+/// the encoding scheme uses them." So every arm below counts the marker in.
+///
 /// Nothing in a *file* needs it, because Table 5 makes `/Length` required and every stream
 /// object states one. §8.9.7's inline image is the exception the clause exists for: it is
 /// written into a content stream with no `/Length` before PDF 2.0, so where its encoded data
@@ -926,9 +985,24 @@ pub enum EncodedExtent {
 /// [`Document::filtered_extent`](crate::Document::filtered_extent) is the caller, and
 /// `pdf_model::inline_image` is what asks it.
 ///
-/// `ceiling` bounds the *output*, which is thrown away a window at a time and never held: it
-/// is the same number [`decode_reported`] spends on an allocation and here it buys time
-/// instead, so that a decompression bomb whose marker is a gibibyte away costs neither.
+/// `ceiling` bounds the *output* of the one arm that produces any, and is ignored by the four
+/// that do not.
+#[must_use]
+pub fn encoded_extent(delimiting: Delimiting, data: &[u8], ceiling: usize) -> EncodedExtent {
+    match delimiting {
+        Delimiting::Decoded(pumping) => decoded_extent(pumping, data, ceiling),
+        Delimiting::Marker(marker) => marker_extent(data, marker),
+        Delimiting::RunLength => run_length_extent(data),
+        Delimiting::Jpeg => jpeg_extent(data),
+        Delimiting::EndOfBlock { end_of_lines } => end_of_block_extent(data, end_of_lines),
+    }
+}
+
+/// [`Delimiting::Decoded`]: the extent a decoder's consumed input states.
+///
+/// `ceiling` bounds the output, which is thrown away a window at a time and never held: it is
+/// the same number [`decode_reported`] spends on an allocation and here it buys time instead, so
+/// that a decompression bomb whose marker is a gibibyte away costs neither.
 ///
 /// **The cost is one decode, and the caller pays for a second one afterwards.** This runs the
 /// filter to find where it stops and keeps nothing; the bytes are then decoded again by
@@ -936,8 +1010,7 @@ pub enum EncodedExtent {
 /// size held across a scan whose whole purpose is to avoid one — and it replaces a linear
 /// search over the same bytes, so the population it runs on is one where a walk over those
 /// bytes was the cost already.
-#[must_use]
-pub fn encoded_extent(pumping: Pumping, data: &[u8], ceiling: usize) -> EncodedExtent {
+fn decoded_extent(pumping: Pumping, data: &[u8], ceiling: usize) -> EncodedExtent {
     // Room for one turn's output, which is thrown away. §7.4.4.2 caps an `LZWDecode` entry at
     // 4096 bytes and `Lzw::pump` hands a longer sequence over in pieces, so any size works and
     // this one is a page of them.
@@ -959,6 +1032,268 @@ pub fn encoded_extent(pumping: Pumping, data: &[u8], ceiling: usize) -> EncodedE
             Pumped::Damaged(_, _) => return EncodedExtent::Unknown,
         }
     }
+}
+
+/// [`Delimiting::Marker`]: the first occurrence of a byte sequence the alphabet cannot contain.
+///
+/// A marker absent from these bytes is [`EncodedExtent::Short`] rather than
+/// [`EncodedExtent::Unknown`], and the distinction is the reason the two are separate answers:
+/// neither §7.4.2's nor §7.4.3's encoding can *contain* its own marker, so bytes without one are
+/// bytes that stop before the end rather than bytes that carry no end.
+fn marker_extent(data: &[u8], marker: &[u8]) -> EncodedExtent {
+    match data
+        .windows(marker.len())
+        .position(|window| window == marker)
+    {
+        Some(at) => EncodedExtent::Ends(at.saturating_add(marker.len())),
+        None => EncodedExtent::Short,
+    }
+}
+
+/// [`Delimiting::RunLength`]: §7.4.5's run headers, walked.
+///
+/// > The encoded data shall be a sequence of runs, where each run shall consist of a length byte
+/// > followed by 1 to 128 bytes of data. If the length byte is in the range 0 to 127, the
+/// > following length + 1 (1 to 128) bytes shall be copied literally during decompression. If
+/// > length is in the range 129 to 255, the following single byte shall be copied 257 length (2
+/// > to 128) times during decompression. A length value of 128 shall denote EOD.
+///
+/// **Every byte of the encoded data is either a header or is counted by one**, so where the data
+/// ends needs no decoder: the walk reads a header, steps over what it governs, and stops on the
+/// 128. That is the whole of it, and it is why this filter costs a walk over one byte in every
+/// two to a hundred and twenty-nine rather than a decode.
+///
+/// [`run_length`] is the decoder over the same rule, and the two must not drift: this counts the
+/// input that one would consume, up to and including the EOD byte.
+fn run_length_extent(data: &[u8]) -> EncodedExtent {
+    let mut at = 0usize;
+    loop {
+        // Running out of input is the same statement here as in [`run_length`], where it is
+        // `Damage::Truncated`: §7.4.5 gives this filter no invalid byte, so the only way the
+        // walk can fail is the data ending before its EOD.
+        let Some(&length) = data.get(at) else {
+            return EncodedExtent::Short;
+        };
+        at = at.saturating_add(1);
+        match length {
+            128 => return EncodedExtent::Ends(at),
+            // The header and the literal bytes it governs.
+            0..=127 => at = at.saturating_add(usize::from(length).saturating_add(1)),
+            // The header and the one byte it repeats.
+            _ => at = at.saturating_add(1),
+        }
+        if at > data.len() {
+            return EncodedExtent::Short;
+        }
+    }
+}
+
+/// [`Delimiting::Jpeg`]: ISO/IEC 10918-1's marker segments, walked to EOI.
+///
+/// §7.4.8 states the framing by reference rather than in its own words — the data is "encoded in
+/// the JPEG baseline format in accordance with ISO/IEC 10918 (all parts)" — so the end-of-data
+/// §7.3.8.2 promises is that standard's EOI marker, `FFD9`, and this walk is 10918-1's own
+/// structure rather than a search for those two bytes.
+///
+/// **A search would be wrong, and the reason is worth stating**: `FFD9` occurs freely inside a
+/// marker segment's payload, and an `APPn` segment is allowed to carry an entire second JPEG —
+/// which is what a camera's thumbnail is. The walk steps over each segment by the length it
+/// states, so a thumbnail's own EOI cannot end the outer image. Inside entropy-coded data the
+/// converse holds by construction: 10918-1 stuffs a zero byte after every `FF` a coder emits, so
+/// the only `FF` pairs there are `FF00` and the restart markers `FFD0`–`FFD7`, and both are
+/// stepped over.
+///
+/// No sample is reconstructed and no table is read. What the walk needs is the length field of
+/// each segment and the rule for where entropy-coded data ends, which is [`entropy_end`].
+fn jpeg_extent(data: &[u8]) -> EncodedExtent {
+    // 10918-1's interchange format begins with SOI. Bytes that do not are not this filter's
+    // input as the clause describes it, and answering `Unknown` leaves the caller its own
+    // fallback rather than inventing an extent from a structure that is not there.
+    let mut at = match next_marker(data, 0) {
+        Framing::Marker { code: 0xd8, after } => after,
+        Framing::Marker { .. } | Framing::NotAMarker => return EncodedExtent::Unknown,
+        Framing::RanOut => return EncodedExtent::Short,
+    };
+    loop {
+        let (code, after) = match next_marker(data, at) {
+            Framing::Marker { code, after } => (code, after),
+            Framing::RanOut => return EncodedExtent::Short,
+            Framing::NotAMarker => return EncodedExtent::Unknown,
+        };
+        at = after;
+        match code {
+            // EOI. §7.3.8.2's erratum counts the marker itself in.
+            0xd9 => return EncodedExtent::Ends(at),
+            // The markers 10918-1 gives no length: a second SOI, TEM, and the restart markers.
+            0xd8 | 0x01 | 0xd0..=0xd7 => {}
+            // `FF00` is a stuffed byte and stands only inside entropy-coded data, which the walk
+            // never reads a marker from; meeting one here is a framing this walk cannot follow.
+            0x00 => return EncodedExtent::Unknown,
+            _ => {
+                let Some(bytes) = data.get(at..at.saturating_add(2)) else {
+                    return EncodedExtent::Short;
+                };
+                let length = usize::from(u16::from_be_bytes([bytes[0], bytes[1]]));
+                // The length counts its own two bytes, so anything below two is not a length.
+                if length < 2 {
+                    return EncodedExtent::Unknown;
+                }
+                at = at.saturating_add(length);
+                if at > data.len() {
+                    return EncodedExtent::Short;
+                }
+                // SOS is the one marker segment followed by data rather than by another marker.
+                if code == 0xda {
+                    match entropy_end(data, at) {
+                        Some(end) => at = end,
+                        None => return EncodedExtent::Short,
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// What stands at `at` where [`jpeg_extent`] expects a marker.
+///
+/// 10918-1 lets any number of `FF` fill bytes precede a marker, so a marker is a run of `FF`
+/// followed by the one byte that identifies it.
+enum Framing {
+    /// The marker's identifying byte, and the offset just past it.
+    Marker {
+        /// The byte after the `FF` run.
+        code: u8,
+        /// Where the marker's own bytes end.
+        after: usize,
+    },
+    /// The bytes ran out inside the marker, or before one.
+    RanOut,
+    /// Something that is not `FF` stands where a marker must.
+    NotAMarker,
+}
+
+/// Reads the marker at `at`, past any fill bytes. See [`Framing`].
+fn next_marker(data: &[u8], at: usize) -> Framing {
+    let mut cursor = at;
+    match data.get(cursor) {
+        Some(0xff) => {}
+        Some(_) => return Framing::NotAMarker,
+        None => return Framing::RanOut,
+    }
+    while data.get(cursor) == Some(&0xff) {
+        cursor = cursor.saturating_add(1);
+    }
+    match data.get(cursor) {
+        Some(&code) => Framing::Marker {
+            code,
+            after: cursor.saturating_add(1),
+        },
+        None => Framing::RanOut,
+    }
+}
+
+/// Where the entropy-coded data starting at `at` ends: the offset of the `FF` that opens the
+/// next marker.
+///
+/// 10918-1's byte stuffing is what makes this decidable without decoding: a coder that emits
+/// `FF` writes `00` after it, so inside entropy-coded data the only two-byte `FF` sequences are
+/// `FF00` and the restart markers `FFD0`–`FFD7`. Anything else is the next marker, and the
+/// offset returned is the `FF` rather than the byte after it, so [`next_marker`] reads it.
+fn entropy_end(data: &[u8], at: usize) -> Option<usize> {
+    let mut cursor = at;
+    while let Some(&byte) = data.get(cursor) {
+        if byte != 0xff {
+            cursor = cursor.saturating_add(1);
+            continue;
+        }
+        let mut code = cursor.saturating_add(1);
+        while data.get(code) == Some(&0xff) {
+            code = code.saturating_add(1);
+        }
+        match data.get(code)? {
+            // A stuffed zero, or a restart: the entropy-coded data continues past it.
+            0x00 | 0xd0..=0xd7 => cursor = code.saturating_add(1),
+            _ => return Some(cursor),
+        }
+    }
+    None
+}
+
+/// [`Delimiting::EndOfBlock`]: §7.4.6's end-of-block bit pattern, found without a fax decoder.
+///
+/// Table 11's `/EndOfBlock` is the whole of the permission to look for one:
+///
+/// > A flag indicating whether the filter shall expect the encoded data to be terminated by an
+/// > end-of-block pattern, overriding the Rows parameter. If false , the filter shall stop when
+/// > it has decoded the number of lines indicated by Rows or when its data has been exhausted,
+/// > whichever occurs first. The end-of-block pattern shall be the CCITT end-of-facsimile-block
+/// > (EOFB) or return-to-control (RTC) appropriate for the K parameter. Default value: true .
+///
+/// So where the flag is true — its default, and therefore the common case — the data *shall* be
+/// terminated by a pattern, and the pattern is built out of ITU-T T.4's end-of-line code
+/// `000000000001`. Both forms are a run of those: EOFB is two and RTC is six.
+///
+/// **What makes finding it a reading rather than a guess** is T.4's own construction of that
+/// code — it is chosen so that no sequence of valid codewords can contain it, which is why a fax
+/// receiver can resynchronise on it. Eleven zero bits followed by a one therefore cannot stand
+/// inside encoded scan lines, and the run of them this looks for cannot either. The converse
+/// gives the walk its shape: only the *leading* and *trailing* zero runs of a byte can reach
+/// eleven, because a run bounded by one-bits inside a byte is at most six long, so one pass over
+/// the bytes finds every candidate.
+///
+/// Fill is T.4's, and costs nothing here: a variable run of zero bits may precede any end-of-line
+/// code, and those zeros are absorbed by the run this counts. In Group 3's mixed mode each
+/// end-of-line carries a tag bit after it, which is why two patterns count as consecutive when
+/// the second's zeros begin at most one bit past the first's one-bit.
+///
+/// The byte count comes from §7.4.6's own sentence about what a filter does when it gets there:
+///
+/// > When a filter reaches EOD, it shall always skip to the next byte boundary following the
+/// > encoded data.
+fn end_of_block_extent(data: &[u8], end_of_lines: u32) -> EncodedExtent {
+    /// T.4's end-of-line code is eleven zero bits and a one.
+    const ZEROS: u64 = 11;
+
+    // Zero bits standing immediately before the current byte, and where the previous
+    // end-of-line's one-bit ended, both counted in bits from the start of the data.
+    let mut zeros = 0u64;
+    let mut previous_end: Option<u64> = None;
+    let mut run = 0u32;
+    let mut base = 0u64;
+
+    for &byte in data {
+        // A whole byte of zeros carries the run forward and can end no pattern of its own.
+        if byte == 0 {
+            zeros = zeros.saturating_add(8);
+            base = base.saturating_add(8);
+            continue;
+        }
+        let leading = u64::from(byte.leading_zeros());
+        let total = zeros.saturating_add(leading);
+        if total >= ZEROS {
+            // Just past the one-bit that closes the code, and where its zeros began.
+            let end = base.saturating_add(leading).saturating_add(1);
+            let start = end.saturating_sub(1).saturating_sub(total);
+            run = match previous_end {
+                Some(previous) if start <= previous.saturating_add(1) => run.saturating_add(1),
+                _ => 1,
+            };
+            previous_end = Some(end);
+            if run >= end_of_lines {
+                let bytes = end.saturating_add(7) / 8;
+                return match usize::try_from(bytes) {
+                    Ok(bytes) => EncodedExtent::Ends(bytes.min(data.len())),
+                    Err(_) => EncodedExtent::Unknown,
+                };
+            }
+        }
+        zeros = u64::from(byte.trailing_zeros());
+        base = base.saturating_add(8);
+    }
+    // The pattern Table 11 requires is not in these bytes. Through a window that is more bytes
+    // to ask for; over a whole content stream it is a producer that wrote none, and the caller's
+    // own fallback is what answers then.
+    EncodedExtent::Short
 }
 
 impl Pump {
