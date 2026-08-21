@@ -192,6 +192,13 @@ private:
     void pumpSearch();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
+    /// Puts the window in the state Table 29 and ISO 32000-2 §12.2 ask for.
+    ///
+    /// Four sentences, four widgets: `/HideMenubar` is `QMainWindow::menuBar`, `/HideToolbar` the
+    /// navigate and find tool bars, `/HideWindowUI` the status bar, and Table 29's "any other
+    /// window visible" the panel of three trees. Full screen is `showFullScreen`, which is a
+    /// fifth thing rather than a fourth: the sentence names the window controls too. ADR 0470.
+    void applyChrome();
 
 protected:
     /// What a key means is `src/keys.rs`'s, so this carries the `Qt::Key` number and no meaning.
@@ -207,6 +214,8 @@ private:
     QLabel* status_;
     /// The find bar, hidden until Ctrl+F or `/`.
     QToolBar* find_;
+    /// The navigate bar, which with the find bar is what §12.2's `/HideToolbar` names.
+    QToolBar* navigate_ = nullptr;
     /// The string in it.
     QLineEdit* needle_;
     std::vector<QWidget*> controls_;

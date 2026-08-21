@@ -120,14 +120,21 @@ pub struct ViewerPreferences {
     pub enforce_print_scaling: bool,
 }
 
-/// Table 29's `/PageMode`, of which Table 147's `/NonFullScreenPageMode` is the first four.
+/// Table 29's `/PageMode`, of which Table 147's `/NonFullScreenPageMode` is all but one.
 ///
-/// **The two tables share a vocabulary and not a value set.** §7.7.2's `/PageMode` adds
-/// `FullScreen` and `UseAttachments`; §12.2's `/NonFullScreenPageMode` lists neither, the first
-/// because it is the entry's own condition and the second because Table 147 does not name it.
-/// One enum with the union, and [`ViewerPreferences::in_catalog`] refuses the two extra names
-/// where the clause does not offer them — which is a rule about *which* entry was read rather
-/// than about what the name means, and so belongs at the reading site.
+/// **The two tables share a vocabulary and not a value set**, and the difference between them is
+/// exactly one name. §7.7.2's `/PageMode` states six; §12.2's `/NonFullScreenPageMode` does not
+/// state `FullScreen`, because that name is the entry's own condition. [`ViewerPreferences::in_catalog`]
+/// refuses it where the clause does not offer it — a rule about *which* entry was read rather than
+/// about what the name means, and so one that belongs at the reading site.
+///
+/// **This used to refuse `UseAttachments` there as well, and an erratum says otherwise.** As
+/// printed, Table 147's value list is `UseNone`, `UseOutlines`, `UseThumbs`, `UseOC` and stops.
+/// ISO 32000-2 errata issue #275, state Review/Completed, inserts a `UseAttachments` row — the
+/// attachments panel, PDF 2.0 — into that very cell: `cargo run -p spec-errata -- emit doc/*.pdf`
+/// reports it under §12.2, and the caret's own rectangle sits at the start of the line beginning
+/// *This entry is meaningful only if*, which is the line directly after `UseOC`'s. So the two
+/// lists differ by `FullScreen` alone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMode {
     /// `UseNone`: "[n]either document outline nor thumbnail images visible". The default.
@@ -142,7 +149,8 @@ pub enum PageMode {
     /// `FullScreen`: "[f]ull-screen mode, with no menu bar, window controls, or any other
     /// window visible". Table 29 only.
     FullScreen,
-    /// `UseAttachments`: "[a]ttachments panel visible". Table 29 only, PDF 1.6.
+    /// `UseAttachments`: "[a]ttachments panel visible". PDF 1.6 in Table 29, PDF 2.0 in Table 147
+    /// by errata issue #275.
     UseAttachments,
 }
 
@@ -341,14 +349,11 @@ impl ViewerPreferences {
                 document,
                 preferences,
                 "NonFullScreenPageMode",
-                // Table 147 lists four of Table 29's six here, and the two it leaves out are
-                // refused rather than accepted: `FullScreen` would be the entry's own condition
-                // read as its value, and `UseAttachments` is a name this entry does not define.
-                |name| {
-                    page_mode(name).filter(|mode| {
-                        !matches!(mode, PageMode::FullScreen | PageMode::UseAttachments)
-                    })
-                },
+                // Table 147 lists five of Table 29's six here — four as printed and
+                // `UseAttachments` by errata issue #275 — and the one it leaves out is refused
+                // rather than accepted: `FullScreen` would be the entry's own condition read as
+                // its value, and a window cannot exit full-screen mode into full-screen mode.
+                |name| page_mode(name).filter(|mode| !matches!(mode, PageMode::FullScreen)),
             )
             .unwrap_or_default(),
             direction: named(document, preferences, "Direction", |name| {
@@ -542,14 +547,14 @@ mod tests {
         assert!(ViewerPreferences::read(&doc).print_page_range.is_empty());
     }
 
-    /// Table 29's two display entries, including the two names §12.2 does not share.
+    /// Table 29's two display entries, including the one name §12.2 does not share.
     ///
-    /// The last assertion is what a single shared enum could hide: `FullScreen` and
-    /// `UseAttachments` are Table 29's and Table 147's `/NonFullScreenPageMode` lists neither —
-    /// the first because it is that entry's own condition ("meaningful only if the value of the
-    /// `PageMode` entry in the catalog dictionary … is `FullScreen`"), the second because the
-    /// table does not name it. A reader that accepted them there would let a document say
-    /// "when you leave full screen, go full screen".
+    /// The last two assertions are what a single shared enum could hide, and they now go opposite
+    /// ways. `FullScreen` is Table 29's alone, because it is `/NonFullScreenPageMode`'s own
+    /// condition ("meaningful only if the value of the `PageMode` entry in the catalog dictionary
+    /// … is `FullScreen`") — a reader that accepted it there would let a document say "when you
+    /// leave full screen, go full screen". `UseAttachments` is **both** tables', which the printed
+    /// Table 147 does not show and errata issue #275 restores.
     #[test]
     fn table_29s_display_entries_are_not_table_147s() {
         let doc = document("<< /Type /Catalog /Pages 2 0 R >>");
@@ -581,6 +586,16 @@ mod tests {
             ViewerPreferences::read(&doc).non_full_screen_page_mode,
             PageMode::UseNone,
             "Table 147 does not offer FullScreen, so the entry falls to its default"
+        );
+
+        let doc = document(
+            "<< /Type /Catalog /Pages 2 0 R /PageMode /FullScreen \
+             /ViewerPreferences << /NonFullScreenPageMode /UseAttachments >> >>",
+        );
+        assert_eq!(
+            ViewerPreferences::read(&doc).non_full_screen_page_mode,
+            PageMode::UseAttachments,
+            "errata issue #275 adds UseAttachments to Table 147's own list"
         );
     }
 }

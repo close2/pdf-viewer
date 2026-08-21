@@ -268,6 +268,9 @@ fn main() {
         unacknowledged: Vec::new(),
         presented: None,
         presentation: None,
+        // Table 147's and Table 29's own defaults — a window showing all of its chrome — replaced
+        // by whatever the catalog states the moment the document opens (`App::obey_page_mode`).
+        presenting: viewer_host::Presenting::default(),
         // Table 29's own default, replaced by whatever the catalog states the moment the document
         // opens (`App::obey_page_mode`).
         layout: pdf_model::viewer_preferences::PageLayout::SinglePage,

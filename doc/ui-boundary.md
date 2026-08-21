@@ -85,6 +85,16 @@ identifier is unique "within its content stream" and §14.7.5.4 keys the route i
 `Role::Document` node per page. Five consumers failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16,
 and the C ABI gained two entry points — `pdfv_reported_pages` and `pdfv_reported_page`, for
 `pdfv_frame_count`'s reason (ADR 0445).
+**And the six-hundred-and-thirty-eighth added nothing at all**, which is the second time that has
+been the whole answer and the strongest form of this section's claim: §12.4.4's presentation got the
+full-screen *window* it had never had, in all three hosts, and every channel it needed was already
+here. `Command::Present(PresentationMode)` is what a host sends (ADR 0316), `Query::Opening` answers
+Table 29's `/PageMode` and `Query::Preferences` answers Table 147 whole — including
+`/NonFullScreenPageMode`, which decides which panel is open when full screen ends and which nothing
+had ever acted on. The decision itself is not on this boundary at all: it is `viewer_host::Presenting`,
+because *which sentence a window is obeying* is shared and `GtkWindow::fullscreen` against
+`QWidget::showFullScreen` against `winit`'s `set_fullscreen` is what a toolkit is (ADR 0470). No
+consumer failed to compile, `PDFV_EVENT_KIND_COUNT` stayed 16, and the C ABI gained no entry point.
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

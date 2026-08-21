@@ -184,6 +184,17 @@ the clause states the arrangement a document *opens* in and says nothing about w
 afterwards; and `Answer::Frame` carries one entry per page on the screen, because a column has
 several. `Query::PageGeometry` needed nothing at all.
 
+**The second item is `/PageMode`'s other half, and it landed in the six-hundred-and-thirty-eighth**
+(ADR 0470). Table 29's `FullScreen` — "with no menu bar, window controls, or any other window
+visible" — and §12.2's `/HideToolbar`, `/HideMenubar`, `/HideWindowUI` and `/NonFullScreenPageMode`
+are `viewer_host::Presenting`, and all three hosts present full screen on `p` and come back on
+Escape. **It needed no new message**, which is the claim above tested for the fifth time since the
+six-hundred-and-seventh: `Command::Present` had existed since ADR 0316 and `Query::Opening` and
+`Query::Preferences` since the hundred-and-thirty-seventh session, each because a clause needed a
+channel. What it did need was the two native hosts gaining a presentation mode they had never sent,
+which is what "all three stay level" costs and is exactly what that decision is for. What is still
+`viewer-ui`'s alone is §12.4.4.1's *clock* — see `doc/todo/32`.
+
 **All three hosts have it since the six-hundred-and-seventh** (ADR 0442), which is where this
 file's "all three stay level" decision stands: `viewer-gtk` draws one `gdk::MemoryTexture` per page,
 `viewer-qt` one `QImage`, `viewer-ui` one frame carrying every page of the arrangement — and all

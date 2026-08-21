@@ -139,6 +139,13 @@ pub enum Direction {
     /// five values — 0, 90, 180, 270 and 315 — and each is legal for only some of the styles;
     /// the number is kept as the file states it, because a file stating a sixth angle has stated
     /// a direction and not a style.
+    ///
+    /// **An `f32` where the corrected table says integer, deliberately.** ISO 32000-2 errata
+    /// issue #36, state Review/Completed, changes this entry's type column from *number* to
+    /// *integer* and its sentence with it. Holding the value as stated is the more permissive of
+    /// the two readings, and it is the one kept: a fractional angle still names a direction, and
+    /// refusing a page over the type of a number that decides only which way a wipe travels would
+    /// refuse a picture in order to enforce a grammar.
     Degrees(f32),
     /// The name `None`, "which is relevant only for the Fly transition when the value of SS is
     /// not 1.0".

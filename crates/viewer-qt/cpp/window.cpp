@@ -27,6 +27,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QResizeEvent>
+#include <QMenuBar>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -519,6 +520,7 @@ MainWindow::MainWindow(rust::Box<Host> host)
 
     auto* bar = addToolBar(QStringLiteral("Navigate"));
     bar->setMovable(false);
+    navigate_ = bar;
     static const struct
     {
         const char* label;
@@ -666,10 +668,24 @@ void MainWindow::buildFindBar()
     });
     addAction(open);
 
+    // **Escape means two things and the order is the Rust side's.** A `QAction` shortcut consumes
+    // the key before `keyPressEvent` ever sees it, so this is the only place Escape arrives in
+    // this window — and since ADR 0470 the first thing it may mean is *leave full screen*, which
+    // no clause states and which `src/keys.rs` documents as a choice. Forwarding the key rather
+    // than deciding here is what keeps the three hosts agreeing about what a key means.
     auto* close = new QAction(this);
     close->setShortcut(QKeySequence(Qt::Key_Escape));
     connect(close, &QAction::triggered, this, [this] {
-        if (!find_->isVisible() || busy_) {
+        if (busy_) {
+            return;
+        }
+        if (host_->chrome().full_screen) {
+            Busy guard(busy_);
+            host_->key(static_cast<unsigned int>(Qt::Key_Escape));
+            applyUpdates();
+            return;
+        }
+        if (!find_->isVisible()) {
             return;
         }
         find_->hide();
@@ -747,11 +763,60 @@ void MainWindow::applyUpdates()
         status_->setText(text(host_->status()));
     }
     pumpSearch();
+    if (update.window) {
+        applyChrome();
+    }
     if (update.password) {
         // Queued rather than called: `QDialog::exec` runs a nested event loop, and starting one
         // from inside a handler that is holding the host would be exactly the nesting `busy_`
         // exists to refuse. This lets the current handler unwind first.
         QTimer::singleShot(0, this, [this] { askForAPassword(); });
+    }
+}
+
+// Table 29's `FullScreen` and ISO 32000-2 §12.2's three hide flags, in Qt widgets.
+//
+// Which sentence is in force is decided once on the Rust side and shared with the other two hosts
+// (`viewer_host::Presenting`); what is here is the mapping from four booleans onto four widgets,
+// which is the half that genuinely is a toolkit's. ADR 0470.
+void MainWindow::applyChrome()
+{
+    const QtChrome chrome = host_->chrome();
+    // §12.2: "whether to hide the interactive PDF processor's tool bars when the document is
+    // active" — both of them, and the find bar goes with its own string.
+    if (navigate_ != nullptr) {
+        navigate_->setVisible(chrome.tool_bar);
+    }
+    if (!chrome.tool_bar && find_->isVisible()) {
+        find_->hide();
+        needle_->clear();
+        host_->find_stop();
+    }
+    // §12.2: "user interface elements in the document's window (such as scroll bars and
+    // navigation controls), leaving only the document's contents displayed".
+    statusBar()->setVisible(chrome.window_ui);
+    // Table 29: "or any other window visible".
+    tabs_->setVisible(chrome.other_windows);
+    // §12.2's `/HideMenubar` names a widget none of the three hosts draws. `findChild` rather than
+    // `menuBar()` deliberately: the latter *creates* an empty bar, so obeying the flag that way
+    // would put a strip on the screen that hiding it then took away again. A window that grows a
+    // menu is obeyed here without a line changing.
+    if (QMenuBar* menus = findChild<QMenuBar*>(); menus != nullptr) {
+        menus->setVisible(chrome.menu_bar);
+    }
+    if (chrome.full_screen) {
+        showFullScreen();
+        return;
+    }
+    if (isFullScreen()) {
+        showNormal();
+    }
+    // Table 29's `/PageMode` when the document opens and §12.2's `/NonFullScreenPageMode` when
+    // full screen ends — one question, because the Rust side answers with whichever of the two
+    // clauses applies and this window has no business knowing which.
+    const int wanted = host_->panel_wanted();
+    if (wanted >= 0 && wanted < tabs_->count()) {
+        tabs_->setCurrentIndex(wanted);
     }
 }
 

@@ -28,7 +28,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, Query, Rendered, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Query, Rendered, Viewer, Zoom,
 };
 use viewer_host::ControlFit;
 use viewer_host::arrangement::next_layout;
@@ -36,7 +36,7 @@ use viewer_host::form::{ControlKind, control_kind};
 use viewer_host::panel::{PanelRow, RowAction};
 use viewer_host::trace::{Topic, Trace};
 
-use crate::bridge::ffi::{QtControl, QtFrame, QtMeasure, QtQuad, QtRow, QtUpdate};
+use crate::bridge::ffi::{QtChrome, QtControl, QtFrame, QtMeasure, QtQuad, QtRow, QtUpdate};
 use crate::keys;
 use crate::page;
 
@@ -140,6 +140,13 @@ pub struct Host {
     placed: Vec<Placement>,
     /// What has changed since the C++ side last asked.
     update: QtUpdate,
+    /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
+    ///
+    /// **The window §12.4.4's presentation had never had** (ADR 0470). Which sentence this window
+    /// is obeying is `viewer_host::Presenting`, shared with the other two hosts; what is Qt's is
+    /// `QWidget::showFullScreen` and which widget each of Table 147's three flags names — and
+    /// that half is in `cpp/window.cpp`, because the widgets are.
+    presenting: viewer_host::Presenting,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
     /// What the find bar is looking for, kept because the page's highlights are asked for on
@@ -222,6 +229,9 @@ impl Host {
             needle: String::new(),
             pages_left: 0,
             fit_magnification: None,
+            // Table 147's and Table 29's own defaults, replaced by what the catalog states the
+            // moment the document opens.
+            presenting: viewer_host::Presenting::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
         })
     }
@@ -282,8 +292,119 @@ impl Host {
             self.restate();
             return;
         }
+        // §12.4.4's presentation, which for this program is the full-screen window (ADR 0470), and
+        // the third key whose meaning is this host's state: `p` toggles and Escape only leaves.
+        if code == keys::PRESENT {
+            self.present_or_stop();
+            return;
+        }
+        if code == keys::ESCAPE && self.presenting.full_screen() {
+            self.present_or_stop();
+            return;
+        }
         if let Some(command) = keys::command(code) {
             self.dispatch(command);
+        }
+    }
+
+    /// Table 29's two display entries, and ISO 32000-2 §12.2's chrome flags with them.
+    ///
+    /// `/PageLayout` is the viewer's to apply, and what this host needs from it is the value `l`
+    /// cycles from — see `viewer-gtk`, which does the same. `/PageMode` is "how the document shall
+    /// be displayed when opened", which since ADR 0470 includes a full-screen window for the one
+    /// name that used to get a note saying this program had no such thing.
+    fn obey_the_catalog(&mut self, queue: &mut std::collections::VecDeque<Command>) {
+        let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+            return;
+        };
+        self.layout = opening.layout;
+        if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
+            self.say(&format!(
+                "this document opens in the {:?} page layout (§7.7.2)",
+                opening.layout
+            ));
+        }
+        if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
+            self.presenting = viewer_host::Presenting::opening(opening, &preferences);
+            // Trap 5: a document asking for something and getting silence. Two of Table 147's
+            // three flags name widgets this window has and the third does not — none of the
+            // three hosts draws a menu bar.
+            if preferences.hide_menubar {
+                self.say(
+                    "this document asks to hide the menu bar (§12.2's /HideMenubar), which this \
+                     window does not have; /HideToolbar and /HideWindowUI are obeyed",
+                );
+            }
+        }
+        if self.presenting.full_screen() {
+            // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start
+            // a second `pump` under the first.
+            queue.push_back(Command::Present(self.presenting.mode()));
+            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
+        }
+        self.update.window = true;
+    }
+
+    /// Enters or leaves §12.4.4's presentation, which for this program is the full-screen window.
+    ///
+    /// The same letter and the same act as the other two hosts; what differs is that the *widgets*
+    /// are C++'s, so this side flags [`QtUpdate::window`] and the window asks
+    /// [`Host::chrome`] what it should look like now.
+    fn present_or_stop(&mut self) {
+        if self.presenting.toggle() {
+            self.dispatch(Command::Present(PresentationMode::On));
+            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
+        } else {
+            self.dispatch(Command::Present(PresentationMode::Off));
+            // §12.2: "[t]he document's page mode, specifying how to display the document on
+            // exiting full-screen mode". `None` is Table 147's own condition unmet, and then what
+            // goes back is what the reader had — a choice rather than a reading (ADR 0470).
+            match self.presenting.on_exit() {
+                Some(mode) => {
+                    self.say(&format!("§12.2's /NonFullScreenPageMode asks for {mode:?}"));
+                }
+                None => self.say("presentation stopped"),
+            }
+        }
+        self.update.window = true;
+    }
+
+    /// Which pieces of chrome this window may show, and whether it is full screen.
+    pub(crate) fn chrome(&self) -> QtChrome {
+        let chrome = self.presenting.chrome();
+        QtChrome {
+            full_screen: self.presenting.full_screen(),
+            menu_bar: chrome.menu_bar,
+            tool_bar: chrome.tool_bar,
+            window_ui: chrome.window_ui,
+            other_windows: chrome.other_windows,
+        }
+    }
+
+    /// Which of Table 29's six panels the document asks to be showing, as a tab index.
+    ///
+    /// The page mode in force: `/NonFullScreenPageMode` while full screen is ending and
+    /// nothing while it is not, because §12.2 states no page mode for a window that never left.
+    /// `-1` where this host has no panel for the name.
+    pub(crate) fn panel_wanted(&self) -> i32 {
+        use pdf_model::viewer_preferences::PageMode;
+        let mode = if self.presenting.full_screen() {
+            return -1;
+        } else if let Some(mode) = self.presenting.on_exit() {
+            mode
+        } else {
+            let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+                return -1;
+            };
+            opening.mode
+        };
+        match mode {
+            PageMode::UseOutlines => 0,
+            PageMode::UseOptionalContent => 1,
+            PageMode::UseAttachments => 2,
+            // `UseThumbs` wants §12.3.4's tab, which these three notebooks do not have;
+            // `UseNone` asks for nothing and `FullScreen` is the window rather than a panel.
+            PageMode::UseNone | PageMode::UseThumbs | PageMode::FullScreen => -1,
         }
     }
 
@@ -874,17 +995,7 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
-                // Table 29's `/PageLayout` is the viewer's to apply, and what this host needs
-                // from it is the value `l` cycles from — see `viewer-gtk`, which does the same.
-                if let Answer::Opening(opening) = self.viewer.query(Query::Opening) {
-                    self.layout = opening.layout;
-                    if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
-                        self.say(&format!(
-                            "this document opens in the {:?} page layout (§7.7.2)",
-                            opening.layout
-                        ));
-                    }
-                }
+                self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
@@ -1351,6 +1462,7 @@ fn nothing_changed() -> QtUpdate {
         title: false,
         status: false,
         password: false,
+        window: false,
     }
 }
 

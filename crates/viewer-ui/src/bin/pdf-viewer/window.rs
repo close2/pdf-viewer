@@ -270,6 +270,14 @@ impl ApplicationHandler for App {
                     if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
                         return;
                     }
+                    // **And a full-screen presentation takes it next**, since ADR 0470. No clause
+                    // states how full screen ends — §12.2 states only what is displayed
+                    // afterwards — so this is a documented choice, and it is the one that keeps
+                    // `CLAUDE.md` principle 3's promise: a document that asked for
+                    // `/PageMode /FullScreen` must not be able to keep a reader there.
+                    if self.leave_full_screen() {
+                        return;
+                    }
                     event_loop.exit();
                     return;
                 }

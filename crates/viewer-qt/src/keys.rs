@@ -12,8 +12,13 @@
 
 use viewer_core::{Command, PageTarget, Selection, Zoom};
 
-/// `Qt::Key_Escape`.
-const ESCAPE: u32 = 0x0100_0000;
+/// `Qt::Key_Escape`, and the third key this module names without giving it a command.
+///
+/// It has one in the table below — §12.4.2's selection cleared — and while the window is full
+/// screen it means something else: leave. No clause states how full screen ends, so which key
+/// does it is a documented choice (ADR 0470), and `crate::host` is where the two meanings are
+/// ordered because only it knows which one applies.
+pub(crate) const ESCAPE: u32 = 0x0100_0000;
 /// `Qt::Key_Home`.
 const HOME: u32 = 0x0100_0010;
 /// `Qt::Key_End`.
@@ -56,6 +61,12 @@ pub(crate) const FIT_CONTROLS: u32 = 0x57;
 /// which one is in force — a fact about this host's state and not about the key. `viewer-gtk`
 /// binds the same letter to the same thing.
 pub(crate) const NEXT_LAYOUT: u32 = 0x4c;
+
+/// `Qt::Key_P`, and the fourth key this module names without giving it a command.
+///
+/// §12.4.4's presentation is a *toggle* over this host's own state, so what `p` sends depends on
+/// whether one is running. `viewer-ui` and `viewer-gtk` bind the same letter.
+pub(crate) const PRESENT: u32 = 0x50;
 
 /// `Qt::Key_Y`.
 const Y: u32 = 0x59;

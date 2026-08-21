@@ -1,11 +1,13 @@
 # A presentation player
 
 Status: seven of Table 164's twelve styles are drawn; five are reported by name. §12.4.4.2's states
-are walked.
+are walked, **and since the six-hundred-and-thirty-eighth session there is a window**: all three
+hosts present full screen (ADR 0470).
 Priority: 32
-Clauses: §12.4.4
+Clauses: §12.4.4, §12.2, Table 29
 Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentation.rs`,
-`crates/viewer-ui/src/bin/pdf-viewer.rs`
+`crates/viewer-host/src/presentation.rs`, `crates/viewer-ui/src/bin/pdf-viewer/presentation.rs`,
+`crates/viewer-gtk/src/host.rs`, `crates/viewer-qt/src/host.rs`
 
 §12.4.4's whole presentation is read — Table 164's transition styles, `/Dur`'s auto-advance,
 §12.4.4.2's sub-page navigation — the core has *advanced* a slide show since the hundred-and-fiftieth
@@ -31,14 +33,27 @@ What is left, in the order the cost rises:
 Each is reported by name today rather than drawn as a cut, which is the rule that keeps this
 honest debt rather than a silence.
 
-One other thing this clause still owes:
+~~One other thing this clause still owes: **full screen**~~ — **taken in the
+six-hundred-and-thirty-eighth** (ADR 0470), and this entry was wrong in the way a refusal usually
+is. It said full screen is "a host drawing a page with no chrome round it, **which no clause asks
+for**". Two clauses ask for it, neither of them §12.4.4: Table 29's `/PageMode` names `FullScreen`
+— "[f]ull-screen mode, with no menu bar, window controls, or any other window visible" — as one of
+the six ways a document "shall be displayed when opened", and §12.2's Table 147 states the same
+subject in the smaller with `/HideToolbar`, `/HideMenubar` and `/HideWindowUI`, plus
+`/NonFullScreenPageMode` for the way back out. `viewer_host::Presenting` is those five sentences,
+shared by all three hosts because only the toolkit call differs; `p` enters, Escape leaves, and a
+document stating `/PageMode /FullScreen` opens presenting. **No message was added and no variant
+changed shape** — `Command::Present`, `Query::Opening` and `Query::Preferences` were all already
+there.
 
-- **Full screen.** Chrome, and therefore the host's. It is the *window*, and deliberately not the
-  mode: §12.4.4.2's NOTE 3 asks a processor to respect navigation nodes "only when in presentation
-  mode", and since the four-hundred-and-eighty-first session that condition is a value a host states
-  — `Command::Present(PresentationMode)`, ADR 0316 — rather than a window this program does not
-  have. So what is left here is a host drawing a page with no chrome round it, which no clause asks
-  for.
+What the *window* left behind, and it is the next item under `doc/todo/30`'s "all three hosts stay
+level":
+
+- **The two native hosts have the mode and not the clock.** `viewer-gtk` and `viewer-qt` send
+  `Command::Present` now, so §12.4.4.2's states are walked in both — but neither drives
+  `Command::Tick`, so `/Dur` does not advance a page there and §12.4.4.1's transition frames are
+  still `viewer-ui`'s alone. A `glib` timeout and a `QTimer` are what that costs, plus a way for a
+  tier-1 host to hold the two page rasters `viewer_core::transition::frame` places.
 
 **§12.4.4.2's states are walked**, since that same session: the current navigation node the clause
 opens by requiring, `/PresSteps` on arrival, `/NA` then `/Next`, `/PA` then `/Prev`, Table 165's
@@ -49,4 +64,6 @@ the mode. `crates/viewer-core/src/presentation.rs`.
 tree of every document this tree opens and finds no `/Trans`, no `/Dur` and no `/PresSteps`, so
 every witness is hand-built — `examples/presentation_fixture` writes one, whose fourth slide is the
 one with states, and `viewer-core/tests/sub_page_navigation.rs` writes the pair that differs in the
-single entry.
+single entry. **The fixture writes the window too since the six-hundred-and-thirty-eighth**:
+`--opens-full-screen` adds Table 29's `/PageMode /FullScreen` and a §12.2 `/ViewerPreferences`
+beside it, which is the file all three hosts were driven on.

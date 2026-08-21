@@ -18,9 +18,19 @@
 //! no `/Dur` of its own — Table 165's per-node timing is what advances it — and its second node
 //! states one, so a presentation left alone finishes the page by itself.
 //!
+//! **And since ADR 0470 it can write the window as well as the slides.** `--opens-full-screen`
+//! adds Table 29's `/PageMode /FullScreen` — "how the document shall be displayed when opened" —
+//! with a §12.2 `/ViewerPreferences` beside it stating `/HideToolbar`, `/HideWindowUI` and a
+//! `/NonFullScreenPageMode`, which is the whole of what the standard says about a presentation's
+//! *window*. It is a flag rather than the default so that the file this example has always
+//! written is still the file it writes.
+//!
 //! ```sh
 //! cargo run --release -p pdf-model --example presentation_fixture -- /tmp/slides.pdf
 //! cargo run --release -p viewer-ui --bin pdf-viewer -- /tmp/slides.pdf   # then press p
+//!
+//! cargo run --release -p pdf-model --example presentation_fixture -- /tmp/full.pdf \
+//!     --opens-full-screen                          # opens presenting; Escape comes back
 //! ```
 
 #![expect(
@@ -76,11 +86,27 @@ const ON_TWO: usize = OFF_ONE + 1;
 /// Its `/PA`.
 const OFF_TWO: usize = ON_TWO + 1;
 
+/// What the catalog says about the *window*, where `--opens-full-screen` asked for one.
+///
+/// Every entry here is a sentence about a window rather than about a page: Table 29's `/PageMode`,
+/// which is "how the document shall be displayed when opened"; two of Table 147's three hide
+/// flags; and the page mode §12.2 says to display on exiting full-screen mode — whose value is
+/// the name ISO 32000-2 errata issue #275 restores to that entry's list.
+fn window_entries() -> &'static str {
+    if std::env::args().any(|argument| argument == "--opens-full-screen") {
+        "/PageMode /FullScreen /ViewerPreferences << /HideToolbar true /HideWindowUI true \
+         /NonFullScreenPageMode /UseAttachments >> "
+    } else {
+        ""
+    }
+}
+
 fn main() {
     let Some(path) = std::env::args().nth(1) else {
-        eprintln!("usage: presentation_fixture <out.pdf>");
+        eprintln!("usage: presentation_fixture <out.pdf> [--opens-full-screen]");
         std::process::exit(1);
     };
+    let window = window_entries();
 
     let mut objects: Vec<String> = Vec::new();
     let kids = (0..SLIDES.len())
@@ -88,8 +114,9 @@ fn main() {
         .collect::<Vec<_>>()
         .join(" ");
     objects.push(format!(
-        "<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [{BULLET_ONE} 0 R {BULLET_TWO} 0 R] \
-         /D << /BaseState /OFF /Order [{BULLET_ONE} 0 R {BULLET_TWO} 0 R] >> >> >>"
+        "<< /Type /Catalog /Pages 2 0 R {window}/OCProperties << /OCGs [{BULLET_ONE} 0 R \
+         {BULLET_TWO} 0 R] /D << /BaseState /OFF /Order [{BULLET_ONE} 0 R {BULLET_TWO} 0 R] >> \
+         >> >>"
     ));
     objects.push(format!(
         "<< /Type /Pages /Kids [{kids}] /Count {} >>",

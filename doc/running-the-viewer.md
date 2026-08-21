@@ -163,8 +163,18 @@ with the other five named in a note rather than cut in silence (ADR 0230). Press
 page's navigation nodes "only when in presentation mode" — so while it is running the **arrow keys
 walk a page's states before they turn the page**, a page turned by hand plays its `/Trans` where
 only the clock's advance used to, and §8.11's groups are put back as they were when the
-presentation stops. Full screen is still not part of it: what the clause states is the timing, the
-transition and the states, and those are what this drives.
+presentation stops.
+
+**And it is a window, since ADR 0470.** This paragraph used to end "[f]ull screen is still not part
+of it", on the reasoning that §12.4.4 states the timing and the transitions and nothing about a
+window — which is true of §12.4.4 and false of the standard. `p` now takes the window full screen
+and hides the chrome Table 29's `FullScreen` names — "no menu bar, window controls, or any other
+window visible" — with §12.2's `/HideToolbar`, `/HideMenubar` and `/HideWindowUI` obeyed whether a
+presentation is running or not. **Escape comes back**, which no clause states and which this program
+chooses so that a file cannot keep a reader there; on the way out §12.2's `/NonFullScreenPageMode`
+says which panel opens. **All three hosts do it, on the same letter**: `pdf-viewer`, `pdf-viewer-gtk`
+and `pdf-viewer-qt`. The two native hosts have the mode and not the clock — `/Dur` still advances a
+page only in `viewer-ui`.
 
 No corpus document states a `/Trans`, a `/Dur` or a `/PresSteps`, so the thing to open is a
 fixture — whose fourth slide is the one with states:
@@ -172,6 +182,12 @@ fixture — whose fourth slide is the one with states:
 ```sh
 cargo run --release -p pdf-model --example presentation_fixture -- /tmp/slides.pdf
 cargo run --release -p viewer-ui --bin pdf-viewer -- /tmp/slides.pdf     # then press p
+
+# and the window, which the file itself can ask for (Table 29's /PageMode /FullScreen):
+cargo run --release -p pdf-model --example presentation_fixture -- /tmp/full.pdf --opens-full-screen
+target/pdf-viewer /tmp/full.pdf        # opens presenting; Escape opens the Files panel, which is
+target/pdf-viewer-gtk /tmp/full.pdf    # §12.2's /NonFullScreenPageMode /UseAttachments
+target/pdf-viewer-qt /tmp/full.pdf
 ```
 
 Under `Xvfb` with `lavapipe`, starting a transition costs **8.3 ms** (two 800×1000 page rasters,

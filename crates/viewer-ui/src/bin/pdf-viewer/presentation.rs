@@ -1,10 +1,15 @@
-//! §12.4.4's presentation: the clock this host drives, and the transition it draws with it.
+//! §12.4.4's presentation: the window, the clock this host drives, and the transition it draws.
 //!
-//! `viewer-core` has no clock by rule 3 and no presentation *state* by ADR 0135, so "is a
-//! presentation running" is answered by whether something is ticking — which makes the whole
-//! mode a field and a key in this module. What the core supplies is the *shape* of a transition
+//! `viewer-core` has no clock by rule 3, so what the core supplies is the *shape* of a transition
 //! frame; when to draw it, and out of which two pages, is a wall-clock question and therefore a
-//! host's.
+//! host's. Since ADR 0316 the core does keep the presentation **mode**, because §12.4.4.2
+//! conditions a state machine on it.
+//!
+//! **And since ADR 0470 there is a window.** Table 29's `/PageMode /FullScreen` is "[f]ull-screen
+//! mode, with no menu bar, window controls, or any other window visible", §12.2's three hide flags
+//! are the same subject in the smaller, and `/NonFullScreenPageMode` is the way back out —
+//! `viewer_host::Presenting` is all four sentences, shared with the other two hosts, and what is
+//! this host's is `winit`'s `set_fullscreen` and which key asks for it.
 
 use std::sync::Arc;
 
@@ -70,25 +75,38 @@ fn face(list: &pdf_render::DisplayList, target: TargetSpec) -> Option<Image> {
 }
 
 impl App {
-    /// Enters or leaves §12.4.4's presentation mode: the clock, and the mode the core keeps.
+    /// Enters or leaves §12.4.4's presentation: the window, the clock, and the mode the core keeps.
     ///
-    /// **Two things now, where ADR 0135 had one.** That session decided `viewer-core` had no
-    /// presentation *state* — "is a presentation running" was answered by whether something was
-    /// driving the clock — and ADR 0316 amended it on §12.4.4.2, which conditions a state machine
-    /// on the mode itself: NOTE 3 respects the navigation nodes "only when in presentation mode",
-    /// and a person stepping through a slide show by hand drives no clock at all. So the key sends
-    /// `Command::Present` as well, and what the core does with it is the nodes, the groups NOTE 2
-    /// asks to be saved, and the `/Trans` of a page turned to by hand.
+    /// **Three things now, where ADR 0135 had one and ADR 0316 had two.** That first session
+    /// decided `viewer-core` had no presentation *state* — "is a presentation running" was
+    /// answered by whether something was driving the clock — and ADR 0316 amended it on §12.4.4.2,
+    /// which conditions a state machine on the mode itself: NOTE 3 respects the navigation nodes
+    /// "only when in presentation mode", and a person stepping through a slide show by hand drives
+    /// no clock at all. So the key sends `Command::Present` as well, and what the core does with
+    /// it is the nodes, the groups NOTE 2 asks to be saved, and the `/Trans` of a page turned to
+    /// by hand.
     ///
-    /// Full screen is deliberately still not part of it. §12.4.4.1 says a processor "may allow a
-    /// document to be displayed in the form of a presentation or slide show" and says nothing
-    /// about a window; what the clause states is the advance timing, the transition and the
-    /// states, and those are what this drives.
+    /// **And the third is the window** (ADR 0470). This doc comment used to say full screen was
+    /// "deliberately still not part of it" because "§12.4.4.1 … says nothing about a window", and
+    /// that was true of §12.4.4 and false of the standard: Table 29 names `FullScreen` — "with no
+    /// menu bar, window controls, or any other window visible" — and §12.2 states both the
+    /// smaller flags and the page mode to come back to. That the two acts are *one* key is this
+    /// program's documented choice, argued in [`viewer_host::presentation`].
     pub(crate) fn present_or_stop(&mut self) {
-        if self.presentation.take().is_some() {
-            self.dispatch(Command::Present(PresentationMode::Off));
-            println!("presentation: stopped — no clock is being driven");
-            self.redraw();
+        if self.presenting.toggle() {
+            self.begin_presentation();
+        } else {
+            self.leave_full_screen();
+        }
+    }
+
+    /// Starts the presentation the window is already in full screen for.
+    ///
+    /// Separate from [`App::present_or_stop`] because a document may ask for it: Table 29's
+    /// `/PageMode /FullScreen` is a statement about how the document opens, so this runs with no
+    /// key pressed and with [`viewer_host::Presenting`] already saying full screen.
+    pub(crate) fn begin_presentation(&mut self) {
+        if self.presentation.is_some() {
             return;
         }
         let now = std::time::Instant::now();
@@ -98,11 +116,93 @@ impl App {
             playing: None,
         });
         self.dispatch(Command::Present(PresentationMode::On));
+        self.apply_chrome();
         println!(
-            "presentation: running — §12.4.4's /Dur advances the page, its /Trans is drawn, and \
-             the arrow keys walk §12.4.4.2's states before they turn the page"
+            "presentation: running full screen (§7.7.2's FullScreen page mode) — §12.4.4's /Dur \
+             advances the page, its /Trans is drawn, the arrow keys walk §12.4.4.2's states \
+             before they turn the page, and Escape comes back"
         );
-        self.redraw();
+    }
+
+    /// Leaves full screen and §12.4.4's mode with it, putting back what §12.2 says to.
+    ///
+    /// Answers whether there was a presentation to leave, because Escape is bound to several
+    /// things in this window and the one that took the key has to say so.
+    pub(crate) fn leave_full_screen(&mut self) -> bool {
+        if !self.presenting.leave() && self.presentation.is_none() {
+            return false;
+        }
+        self.presentation = None;
+        self.dispatch(Command::Present(PresentationMode::Off));
+        // §12.2: "[t]he document's page mode, specifying how to display the document on exiting
+        // full-screen mode". `None` is Table 147's own condition unmet — the catalog did not ask
+        // to open full screen — and then what goes back is what the reader had, which is a choice
+        // rather than a reading (ADR 0470).
+        if let Some(mode) = self.presenting.on_exit() {
+            println!("presentation: stopped — §12.2's /NonFullScreenPageMode asks for {mode:?}");
+            self.show_page_mode(mode);
+        } else {
+            println!("presentation: stopped — no clock is being driven");
+        }
+        self.apply_chrome();
+        true
+    }
+
+    /// Puts the window in the state [`viewer_host::Presenting`] says the document asked for.
+    ///
+    /// Three of [`viewer_host::Chrome`]'s four fields have nothing to hide in this host and one
+    /// has three: winit draws no menu bar, no tool bar and no scroll bars, so what Table 29's "any
+    /// other window visible" reaches here is the sidebar, the find bar and the About card. The
+    /// three it cannot obey are said out loud once by [`App::report_unobeyable_chrome`] rather
+    /// than dropped, which is trap 5 in an interface.
+    pub(crate) fn apply_chrome(&mut self) {
+        let chrome = self.presenting.chrome();
+        if let Some(state) = self.state.as_ref() {
+            state.window.set_fullscreen(
+                self.presenting
+                    .full_screen()
+                    .then(|| winit::window::Fullscreen::Borderless(None)),
+            );
+        }
+        if !chrome.other_windows {
+            self.panel.shown = false;
+            self.about.shown = false;
+            if self.find.shown {
+                self.find.toggle();
+                self.pages_left = 0;
+                self.dispatch(Command::Find(viewer_core::Find::Stop));
+            }
+        }
+        // The page's viewport is the window less the panel, so a panel that appeared or went is a
+        // resize as far as the core is concerned — and this also redraws.
+        self.resize_page();
+    }
+
+    /// Says which of §12.2's flags this window has no chrome to obey.
+    ///
+    /// Once, when the document opens, and only for what it actually asked for: a document that
+    /// says nothing gets no line. Table 147's three are a tool bar, a menu bar and the window's
+    /// own scroll bars and navigation controls, and this host draws none of the three — which is
+    /// a fact about winit rather than about the reading, and the other two hosts obey all three.
+    pub(crate) fn report_unobeyable_chrome(&self) {
+        let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) else {
+            return;
+        };
+        let asked: Vec<&str> = [
+            (preferences.hide_toolbar, "/HideToolbar"),
+            (preferences.hide_menubar, "/HideMenubar"),
+            (preferences.hide_window_ui, "/HideWindowUI"),
+        ]
+        .into_iter()
+        .filter_map(|(stated, name)| stated.then_some(name))
+        .collect();
+        if !asked.is_empty() {
+            println!(
+                "note: this document asks for {} (§12.2) — this window has no menu bar, tool bar \
+                 or scroll bars of its own to hide; the GTK and Qt hosts obey all three",
+                asked.join(", ")
+            );
+        }
     }
 
     /// Tells the core how long the page has been up, where a presentation is running.

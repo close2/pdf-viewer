@@ -82,6 +82,13 @@ pub(crate) struct App {
     pub(crate) presented: Option<(Arc<pdf_render::DisplayList>, TargetSpec)>,
     /// §12.4.4's presentation, while `p` has one running. `None` is a window reading a document.
     pub(crate) presentation: Option<Presentation>,
+    /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
+    ///
+    /// **The window a presentation had never had.** Which of Table 147's flags this window is
+    /// obeying and which page mode §12.2 says to come back to are decided by
+    /// [`viewer_host::Presenting`], shared with the other two hosts because none of it is a fact
+    /// about winit; what is this host's is `set_fullscreen` and the key that asks for it. ADR 0470.
+    pub(crate) presenting: viewer_host::Presenting,
     /// Table 29's arrangement as this window last asked for it — what `l` cycles from.
     ///
     /// The *document's* value until somebody presses the key, because §7.7.2 states the layout a
@@ -534,15 +541,14 @@ impl App {
         }
     }
 
-    /// Table 29: opens the panel the document asks for, and says what it cannot do.
+    /// Table 29: opens the window and the panel the document asks for.
     ///
     /// §7.7.2's `/PageMode` is "how the document shall be displayed when opened", and until the
     /// hundred-and-seventieth session this program had no panel for any of its answers to name.
-    /// **Four of the six it can now obey** — `UseThumbs` joined the other three in the
-    /// two-hundred-and-sixty-sixth session, when §12.3.4's panel arrived — and what is left is
-    /// `UseNone`, which asks for nothing, and `FullScreen`, which names chrome that does not
-    /// exist here and is said once rather than ignored: a document asking for something and
-    /// getting silence is trap 5 in an interface.
+    /// Four of the six were obeyed from the two-hundred-and-sixty-sixth, when §12.3.4's panel
+    /// arrived; **`FullScreen` is the fifth and is obeyed since ADR 0470** — the note this used to
+    /// print, that full screen "is chrome this program does not have", was true for four hundred
+    /// sessions and is now the window `p` opens. `UseNone` asks for nothing and is the sixth.
     ///
     /// **`/PageLayout` is obeyed here as it stands**, and this host asks the viewer for nothing.
     ///
@@ -552,21 +558,16 @@ impl App {
     /// read the catalog for itself when the document opened, and a host that started its cycle at
     /// `SinglePage` would move the first press onto what the document already asked for.
     fn obey_page_mode(&mut self) {
-        use pdf_model::viewer_preferences::{PageLayout, PageMode};
+        use pdf_model::viewer_preferences::PageLayout;
         let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
             return;
         };
-        match opening.mode {
-            PageMode::UseNone => {}
-            PageMode::UseOutlines => self.panel.show(Tab::Contents),
-            PageMode::UseOptionalContent => self.panel.show(Tab::Layers),
-            PageMode::UseAttachments => self.panel.show(Tab::Files),
-            PageMode::UseThumbs => self.panel.show(Tab::Pages),
-            PageMode::FullScreen => println!(
-                "note: this document asks to open full screen (§7.7.2), which is chrome this \
-                 program does not have"
-            ),
-        }
+        let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) else {
+            return;
+        };
+        self.presenting = viewer_host::Presenting::opening(opening, &preferences);
+        self.report_unobeyable_chrome();
+        self.show_page_mode(opening.mode);
         self.layout = opening.layout;
         if opening.layout != PageLayout::SinglePage {
             println!(
@@ -574,6 +575,27 @@ impl App {
                  next of Table 29's six",
                 opening.layout
             );
+        }
+    }
+
+    /// Shows the document the way one of Table 29's six page modes asks for.
+    ///
+    /// Two callers, and that is the point of it being a function: the document opening, where
+    /// §7.7.2 states "how the document shall be displayed when opened", and full screen ending,
+    /// where §12.2's `/NonFullScreenPageMode` states "how to display the document on exiting
+    /// full-screen mode". One mapping, so the two sentences cannot drift apart.
+    ///
+    /// `FullScreen` cannot arrive from the second caller: `pdf_model`'s reader refuses that name
+    /// for `/NonFullScreenPageMode`, because it is that entry's own condition.
+    pub(crate) fn show_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
+        use pdf_model::viewer_preferences::PageMode;
+        match mode {
+            PageMode::UseNone => {}
+            PageMode::UseOutlines => self.panel.show(Tab::Contents),
+            PageMode::UseOptionalContent => self.panel.show(Tab::Layers),
+            PageMode::UseAttachments => self.panel.show(Tab::Files),
+            PageMode::UseThumbs => self.panel.show(Tab::Pages),
+            PageMode::FullScreen => self.begin_presentation(),
         }
     }
 

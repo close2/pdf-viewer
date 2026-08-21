@@ -214,6 +214,34 @@ pub mod ffi {
         status: bool,
         /// §7.6.4.1: the document asked for a password.
         password: bool,
+        /// Table 29's and §12.2's chrome changed: full screen was entered or left, or a document
+        /// stated what its window should hide.
+        ///
+        /// A flag beside a getter rather than the four booleans themselves, which is the shape
+        /// every other answer in this bridge already has: what changed is cheap to say on every
+        /// keystroke and what it changed *to* is asked for only when it did (ADR 0470).
+        window: bool,
+    }
+
+    /// Which pieces of this window's chrome may be shown — `viewer_host::Chrome`, and the window
+    /// itself.
+    ///
+    /// Table 29's `FullScreen` is "[f]ull-screen mode, with no menu bar, window controls, or any
+    /// other window visible"; §12.2's `/HideToolbar`, `/HideMenubar` and `/HideWindowUI` are the
+    /// same subject in the smaller. Which sentence is in force is decided on the Rust side, shared
+    /// with the other two hosts, and what crosses is the answer rather than the reasoning.
+    #[derive(Debug, Clone, Copy)]
+    struct QtChrome {
+        /// Whether the window should be full screen.
+        full_screen: bool,
+        /// `/HideMenubar`: whether the menu bar may be shown.
+        menu_bar: bool,
+        /// `/HideToolbar`: whether the tool bars may be shown.
+        tool_bar: bool,
+        /// `/HideWindowUI`: whether the status bar and the window's own controls may be shown.
+        window_ui: bool,
+        /// Table 29's "any other window visible": whether the panel may be shown.
+        other_windows: bool,
     }
 
     extern "Rust" {
@@ -263,6 +291,16 @@ pub mod ffi {
 
         /// What has changed since this was last called, which also clears it.
         fn take_update(self: &mut Host) -> QtUpdate;
+        /// Which pieces of chrome this window may show, and whether it is full screen.
+        fn chrome(self: &Host) -> QtChrome;
+        /// Which of Table 29's six panels the document asks to be showing, as a tab index.
+        ///
+        /// `-1` for a page mode this host has no panel for — `UseNone`, `FullScreen`, and
+        /// `UseThumbs`, which needs a §12.3.4 tab these three notebooks do not have. Answered
+        /// rather than pushed, because the same question is asked twice for two different clauses:
+        /// §7.7.2 when the document opens and §12.2's `/NonFullScreenPageMode` when full screen
+        /// ends.
+        fn panel_wanted(self: &Host) -> i32;
         /// How many pages Table 29's arrangement is showing pixels for.
         fn frame_count(self: &Host) -> usize;
         /// Where one page's pixels belong and how big they are.

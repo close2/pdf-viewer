@@ -105,6 +105,23 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   `mousemove` to 850 produces no wheel event at all and looks exactly like a binding that does
   not work. `xdotool getwindowgeometry` first.
 
+  **`xwd` hands back what the window last painted, and there is no compositor to refresh it.**
+  Several captures in the six-hundred-and-thirty-eighth session were byte-identical across a
+  rebuild *and* across two different GTK renderers, and showed chrome the program had already
+  taken away; the picture changed only after a key press forced a repaint. So the recipe is
+  **send a key, wait, then capture** — a screenshot taken of a window that has had no reason to
+  redraw is a photograph of the past, which is the same failure as a stale binary and reads
+  exactly like a change that did not work.
+
+  **There is no window manager here, and some things are requests to one.** `mutter` is installed
+  and is Wayland-only in this build (`--x11` is not an option it has), and nothing else on the
+  machine is a window manager. Full screen on X11 is `_NET_WM_STATE_FULLSCREEN` — a *request* —
+  so `GtkWindow::fullscreen`, `QWidget::showFullScreen` and `winit`'s `set_fullscreen` all
+  return with the window the size it was. What can still be photographed is everything the
+  program draws for itself: which chrome it hid, which panel it opened, what the page did. What
+  cannot is the window's extent. Same for `xdotool windowactivate` and `getactivewindow`, which
+  want `_NET_ACTIVE_WINDOW` and say so.
+
   **This is the only way to exercise the loop** — key press to command to request to frame to
   window — which is where every defect of sessions 140 to 142 lived and which no gate touches.
   Not a gate itself: `Xvfb` and `xdotool` are not build dependencies and a test that skipped

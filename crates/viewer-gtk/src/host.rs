@@ -29,7 +29,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, Query, Rendered, Selection, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Query, Rendered, Selection, Viewer, Zoom,
 };
 
 use crate::controls::{FieldChange, Placed};
@@ -114,6 +114,19 @@ struct Ui {
     layers_slot: gtk4::Box,
     /// Where §7.11.4's tree goes.
     files_slot: gtk4::Box,
+    /// The three trees' notebook — Table 29's "any other window", and what the page mode opens.
+    tabs: gtk4::Notebook,
+    /// The splitter it sits in, because full screen takes the notebook *out* rather than hiding
+    /// it: a `GtkPaned` keeps a position that was set, and a hidden child would leave the space.
+    split: gtk4::Paned,
+    /// The header bar's own buttons, which are this host's tool bar: §12.2's `/HideToolbar`.
+    ///
+    /// The *buttons* rather than the bar, because GTK4 puts them in the same widget as the window
+    /// controls and a document asking for no tool bar has not asked for no close button. Full
+    /// screen takes the whole titlebar, which is Table 29's separate sentence.
+    tool_buttons: Vec<gtk4::Button>,
+    /// The separator and the status label, which are §12.2's `/HideWindowUI`.
+    status_bar: gtk4::Box,
     /// Trap 5's channel reaching a person: what the page could not draw, and what was refused.
     status: gtk4::Label,
     /// The find bar, which is a real [`gtk4::SearchBar`] and not a rectangle this host draws.
@@ -186,6 +199,12 @@ pub struct Host {
     /// magnified a page by itself because a form is on it would be answering a question nobody
     /// asked — which gesture asks for it is chrome, and chrome is a host's (rule 5).
     fit_magnification: Option<f32>,
+    /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
+    ///
+    /// **The window §12.4.4's presentation had never had** (ADR 0470). Which sentence this window
+    /// is obeying is `viewer_host::Presenting`, shared with the other two hosts; what is GTK's is
+    /// `GtkWindow::fullscreen` and which widget each of Table 147's three flags names.
+    presenting: viewer_host::Presenting,
     /// Table 29's arrangement, as this window last asked for it.
     ///
     /// Kept because `l` *cycles*: the value in force is the viewer's, and a host that wanted to
@@ -199,6 +218,12 @@ pub struct Host {
 ///
 /// A host's choice and not a clause's: the standard states the six and says nothing about moving
 /// between them, because moving between them is a user interface.
+/// How wide the panel of three trees is, in logical pixels, when it is showing.
+///
+/// Named because Table 29's `FullScreen` needs to put the divider back where it was: hiding the
+/// notebook is not enough on its own, since a `GtkPaned` keeps a position that was set.
+const PANEL_WIDTH: i32 = 300;
+
 /// How far one notch of the wheel moves the page, in logical pixels.
 ///
 /// A choice, and written down as one: the standard says nothing about a wheel. Three lines of a
@@ -274,6 +299,9 @@ impl Host {
                 pages_left: 0,
                 widget_appearances,
                 fit_magnification: None,
+                // Table 147's and Table 29's own defaults, replaced by what the catalog states
+                // the moment the document opens.
+                presenting: viewer_host::Presenting::default(),
                 layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
             })
         }))
@@ -369,19 +397,7 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
-                // Table 29's `/PageLayout` is the *viewer's* to apply — it read the catalog when
-                // the document opened — and what this host needs from it is the value `l` cycles
-                // from, so that the first press moves off what the document asked for rather
-                // than back onto it.
-                if let Answer::Opening(opening) = self.viewer.query(Query::Opening) {
-                    self.layout = opening.layout;
-                    if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
-                        self.say(&format!(
-                            "this document opens in the {:?} page layout (§7.7.2)",
-                            opening.layout
-                        ));
-                    }
-                }
+                self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
@@ -945,6 +961,140 @@ impl Host {
         )));
     }
 
+    /// Table 29's two display entries, and §12.2's chrome flags with them.
+    ///
+    /// `/PageLayout` is the *viewer's* to apply — it read the catalog when the document opened —
+    /// and what this host needs from it is the value `l` cycles from, so that the first press
+    /// moves off what the document asked for rather than back onto it. `/PageMode` is "how the
+    /// document shall be displayed when opened", which is a panel for three of its six names,
+    /// nothing for `UseNone`, and since ADR 0470 a full-screen window for `FullScreen`.
+    fn obey_the_catalog(&mut self, queue: &mut VecDeque<Command>) {
+        let Answer::Opening(opening) = self.viewer.query(Query::Opening) else {
+            return;
+        };
+        self.layout = opening.layout;
+        if opening.layout != pdf_model::viewer_preferences::PageLayout::SinglePage {
+            self.say(&format!(
+                "this document opens in the {:?} page layout (§7.7.2)",
+                opening.layout
+            ));
+        }
+        if let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) {
+            self.presenting = viewer_host::Presenting::opening(opening, &preferences);
+            // Trap 5: a document asking for something and getting silence. Two of Table 147's
+            // three flags name widgets this window has and the third does not — none of the
+            // three hosts draws a menu bar.
+            if preferences.hide_menubar {
+                self.say(
+                    "this document asks to hide the menu bar (§12.2's /HideMenubar), which this \
+                     window does not have; /HideToolbar and /HideWindowUI are obeyed",
+                );
+            }
+        }
+        // Queued rather than dispatched: this runs inside `react`, and `dispatch` would start a
+        // second `pump` under the first. `queue` is what that parameter is for.
+        if self.presenting.full_screen() {
+            queue.push_back(Command::Present(self.presenting.mode()));
+        }
+        self.show_page_mode(opening.mode);
+        self.apply_chrome();
+    }
+
+    /// Shows the document the way one of Table 29's six page modes asks for.
+    ///
+    /// Two callers and one mapping, which is the point: the document opening, where §7.7.2 states
+    /// "how the document shall be displayed when opened", and full screen ending, where §12.2's
+    /// `/NonFullScreenPageMode` states "how to display the document on exiting full-screen mode".
+    ///
+    /// `UseThumbs` is the one name this host has no panel for — there is no §12.3.4 tab in these
+    /// three notebooks — and it is said rather than dropped. `FullScreen` cannot arrive from the
+    /// second caller, because `pdf_model` refuses that name for `/NonFullScreenPageMode`.
+    fn show_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
+        use pdf_model::viewer_preferences::PageMode;
+        match mode {
+            PageMode::UseNone => {}
+            PageMode::UseOutlines => self.ui.tabs.set_current_page(Some(0)),
+            PageMode::UseOptionalContent => self.ui.tabs.set_current_page(Some(1)),
+            PageMode::UseAttachments => self.ui.tabs.set_current_page(Some(2)),
+            PageMode::UseThumbs => {
+                self.say(
+                    "this document asks to open on §12.3.4's thumbnails (§7.7.2), which \
+                          this host has no panel for",
+                );
+            }
+            PageMode::FullScreen => {
+                self.say(
+                    "presenting full screen (§7.7.2's FullScreen page mode) — Escape comes \
+                          back",
+                );
+            }
+        }
+    }
+
+    /// Puts the window in the state [`viewer_host::Presenting`] says the document asked for.
+    ///
+    /// Four sentences, four widgets. §12.2's `/HideToolbar` is the header bar's own buttons and
+    /// the find bar; `/HideWindowUI` — "scroll bars and navigation controls" — is the status line;
+    /// Table 29's "any other window visible" is the notebook of three trees; and full screen is
+    /// the window itself, with the titlebar gone because that sentence names the window controls
+    /// too. `/HideMenubar` has nothing to name here and is reported when a document asks for it.
+    fn apply_chrome(&mut self) {
+        let chrome = self.presenting.chrome();
+        for button in &self.ui.tool_buttons {
+            button.set_visible(chrome.tool_bar);
+        }
+        if !chrome.tool_bar {
+            self.ui.find.set_search_mode(false);
+        }
+        self.ui.find.set_visible(chrome.tool_bar);
+        self.ui.status_bar.set_visible(chrome.window_ui);
+        // **Taken out of the splitter rather than hidden**, because a `GtkPaned` carries a
+        // `position` that was *set* and a hidden start child leaves that property standing —
+        // which is a three-hundred-pixel hole where the panel was, and Table 29 says "no … other
+        // window visible" rather than "no other window drawn". A removed child is unambiguous:
+        // the end child gets the whole allocation. `Ui::tabs` holds the reference across the
+        // unparenting, so the three trees inside it are still there when it goes back.
+        if chrome.other_windows {
+            if self.ui.split.start_child().is_none() {
+                self.ui.split.set_start_child(Some(&self.ui.tabs));
+                self.ui.split.set_position(PANEL_WIDTH);
+            }
+        } else if self.ui.split.start_child().is_some() {
+            self.ui.split.set_start_child(None::<&gtk4::Widget>);
+        }
+        if self.presenting.full_screen() {
+            self.ui.window.set_decorated(false);
+            self.ui.window.fullscreen();
+        } else {
+            self.ui.window.unfullscreen();
+            self.ui.window.set_decorated(true);
+        }
+    }
+
+    /// Enters or leaves §12.4.4's presentation, which for this program is the full-screen window.
+    ///
+    /// `p`, the same letter `viewer-ui` and `viewer-qt` bind. That the window and §12.4.4.2's mode
+    /// are one act is a documented choice, argued in `viewer_host::presentation`; what crosses the
+    /// boundary is `Command::Present`, which has existed since ADR 0316 and needed no change.
+    fn present_or_stop(&mut self) {
+        if self.presenting.toggle() {
+            self.dispatch(Command::Present(PresentationMode::On));
+            self.say("presenting full screen (§7.7.2's FullScreen page mode) — Escape comes back");
+        } else {
+            self.dispatch(Command::Present(PresentationMode::Off));
+            // §12.2: "[t]he document's page mode, specifying how to display the document on
+            // exiting full-screen mode". `None` is Table 147's own condition unmet, and then what
+            // goes back is what the reader had — a choice rather than a reading (ADR 0470).
+            if let Some(mode) = self.presenting.on_exit() {
+                self.say(&format!("§12.2's /NonFullScreenPageMode asks for {mode:?}"));
+                self.show_page_mode(mode);
+            } else {
+                self.say("presentation stopped");
+            }
+        }
+        self.apply_chrome();
+    }
+
     /// What a key press means.
     fn key(&mut self, key: gtk4::gdk::Key) {
         match key {
@@ -985,7 +1135,19 @@ impl Host {
             // and would take `a`, `s`, `z` and `y` away from the bindings below.
             gtk4::gdk::Key::f | gtk4::gdk::Key::slash => self.ui.find.set_search_mode(true),
             gtk4::gdk::Key::a => self.dispatch(Command::Select(Selection::All)),
-            gtk4::gdk::Key::Escape => self.dispatch(Command::Select(Selection::None)),
+            // §12.4.4's presentation, which for this program is the full-screen window: the same
+            // letter the other two hosts bind (ADR 0470).
+            gtk4::gdk::Key::p => self.present_or_stop(),
+            // **Escape leaves full screen before it clears the selection**, which is a documented
+            // choice: no clause states how full screen ends, and a reader who cannot get their
+            // chrome back has had a restriction imposed on them by somebody else's file.
+            gtk4::gdk::Key::Escape => {
+                if self.presenting.full_screen() {
+                    self.present_or_stop();
+                } else {
+                    self.dispatch(Command::Select(Selection::None));
+                }
+            }
             gtk4::gdk::Key::s => self.dispatch(Command::Save),
             gtk4::gdk::Key::z => self.dispatch(Command::Undo),
             gtk4::gdk::Key::y => self.dispatch(Command::Redo),
@@ -1316,7 +1478,7 @@ fn build_window(
     let split = gtk4::Paned::new(gtk4::Orientation::Horizontal);
     split.set_start_child(Some(&tabs));
     split.set_end_child(Some(&overlay));
-    split.set_position(300);
+    split.set_position(PANEL_WIDTH);
     split.set_resize_start_child(false);
 
     let status = gtk4::Label::new(None);
@@ -1327,28 +1489,23 @@ fn build_window(
     status.set_margin_top(3);
     status.set_margin_bottom(3);
 
-    // The find bar, and it is somebody else's widget: a `GtkSearchBar` with a `GtkSearchEntry`
-    // in it, so Ctrl+F, Escape, the clear icon and Ctrl+G all behave the way they do in every
-    // other GTK application. Nothing about it is drawn by this program — which is
-    // `doc/ui-boundary.md`'s whole argument, applied to a find bar: what crosses from the core is
-    // the geometry of the matches and the vocabulary of the search, and the *bar* is the
-    // platform's.
-    let find_entry = gtk4::SearchEntry::new();
-    find_entry.set_hexpand(true);
-    find_entry.set_placeholder_text(Some("Find in document"));
-    let find = gtk4::SearchBar::new();
-    find.set_child(Some(&find_entry));
-    find.connect_entry(&find_entry);
-    find.set_show_close_button(true);
+    let (find, find_entry) = find_bar();
+
+    // The separator and the label in one box, because §12.2's `/HideWindowUI` names "scroll bars
+    // and navigation controls" as one thing to hide and a rule that left a hairline behind would
+    // be obeying half of it.
+    let status_bar = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    status_bar.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
+    status_bar.append(&status);
 
     let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     column.append(&find);
     column.append(&split);
-    column.append(&gtk4::Separator::new(gtk4::Orientation::Horizontal));
-    column.append(&status);
+    column.append(&status_bar);
     split.set_vexpand(true);
     window.set_child(Some(&column));
-    window.set_titlebar(Some(&header(me)));
+    let (bar, tool_buttons) = header(me);
+    window.set_titlebar(Some(&bar));
 
     // Three signals, and each is a different question a find bar answers. Typing changes what is
     // highlighted *on this page*, which is a query and costs nothing; activating asks the core for
@@ -1398,6 +1555,10 @@ fn build_window(
         outline_slot,
         layers_slot,
         files_slot,
+        tabs,
+        split,
+        tool_buttons,
+        status_bar,
         status,
         find,
         find_entry,
@@ -1478,9 +1639,33 @@ fn listen(
     overlay.add_controller(drag);
 }
 
-/// The title bar's own buttons.
-fn header(me: &Weak<RefCell<Host>>) -> gtk4::HeaderBar {
+/// The find bar, and it is somebody else's widget: a `GtkSearchBar` with a `GtkSearchEntry` in it,
+/// so Ctrl+F, Escape, the clear icon and Ctrl+G all behave the way they do in every other GTK
+/// application.
+///
+/// Nothing about it is drawn by this program — which is `doc/ui-boundary.md`'s whole argument,
+/// applied to a find bar: what crosses from the core is the geometry of the matches and the
+/// vocabulary of the search, and the *bar* is the platform's.
+fn find_bar() -> (gtk4::SearchBar, gtk4::SearchEntry) {
+    let entry = gtk4::SearchEntry::new();
+    entry.set_hexpand(true);
+    entry.set_placeholder_text(Some("Find in document"));
+    let bar = gtk4::SearchBar::new();
+    bar.set_child(Some(&entry));
+    bar.connect_entry(&entry);
+    bar.set_show_close_button(true);
+    (bar, entry)
+}
+
+/// The title bar's own buttons, and the buttons apart from it.
+///
+/// The pair rather than the bar alone, because §12.2's `/HideToolbar` and Table 29's "window
+/// controls" name different things and GTK4 puts both in one widget: the buttons are this host's
+/// tool bar and the bar itself carries the close button, so a document asking for no tool bar
+/// loses the four buttons and keeps its way out of the window.
+fn header(me: &Weak<RefCell<Host>>) -> (gtk4::HeaderBar, Vec<gtk4::Button>) {
     let bar = gtk4::HeaderBar::new();
+    let mut buttons = Vec::new();
     for (label, target) in [("‹", PageTarget::Previous), ("›", PageTarget::Next)] {
         let button = gtk4::Button::with_label(label);
         let listener = me.clone();
@@ -1488,6 +1673,7 @@ fn header(me: &Weak<RefCell<Host>>) -> gtk4::HeaderBar {
             with(&listener, |host| host.dispatch(Command::GoTo(target)));
         });
         bar.pack_start(&button);
+        buttons.push(button);
     }
     for (label, zoom) in [("−", Zoom::Out), ("+", Zoom::In)] {
         let button = gtk4::Button::with_label(label);
@@ -1498,8 +1684,9 @@ fn header(me: &Weak<RefCell<Host>>) -> gtk4::HeaderBar {
             });
         });
         bar.pack_end(&button);
+        buttons.push(button);
     }
-    bar
+    (bar, buttons)
 }
 
 /// The interactive chrome, in the platform's own colour.

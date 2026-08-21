@@ -32,6 +32,9 @@
 //! - [`form`] — §12.7.5's field, decided into the [`ControlKind`] a platform builds. One variant
 //!   per *control* rather than one per clause type, because the clause's choice field is two
 //!   controls and its button field is three.
+//! - [`presentation`] — Table 29's `/PageMode /FullScreen`, §12.2's three chrome flags and the
+//!   page mode §12.2 says to come back to. The *toolkit call* differs in all three hosts and
+//!   which sentence a window is obeying does not, which is this crate's test applied to a window.
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
@@ -59,6 +62,7 @@ pub mod fit;
 pub mod form;
 pub mod panel;
 pub mod policy;
+pub mod presentation;
 pub mod status;
 pub mod trace;
 
@@ -69,4 +73,5 @@ pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
 pub use policy::{
     ImportRefusal, may_open_extracted, may_write_extracted, read_import, resolve_import,
 };
+pub use presentation::{Chrome, Presenting};
 pub use trace::{Topic, Trace, parse_topics};
