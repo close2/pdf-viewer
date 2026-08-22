@@ -470,7 +470,7 @@ const CONTRADICTED_ANTIALIASED_EDGES: [&str; 0] = [];
 /// space never reaches a device colourant, so it always reverts.
 const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 
-/// Contradicted, where the difference is the half of the journey §10.3.1 puts beyond itself.
+/// Contradicted, where the two references that agree are one house's colour pipeline.
 ///
 /// Four pages of `calrgb.pdf`, which are **one page four times**, and one of `issue9940.pdf`, which
 /// arrived by the same route one group over. The four spent four hundred and fifty-five sessions
@@ -481,13 +481,22 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 /// member made it ten for ten, which [`CONTRADICTED_CALIBRATED_COLOUR`] records because that is the
 /// group whose name was wrong.
 ///
-/// **`issue9940.pdf` page 1 joined in the five-hundred-and-fourteenth session**, which asked ADR
-/// 0296's parting question — whether a `CalRGB` reached through an `/Indexed` `/DeviceN` alternate
-/// is a different path — with a fixture carrying that file's own `/CalRGB` dictionary. It is not a
-/// different path: ours and `poppler`'s swatch is §8.6.5.3 plus IEC 61966-2-1 to the level, `mupdf`
-/// and `ghostscript` sit 15 levels away in red alone, and the reading the group used to carry —
-/// components taken for `DeviceRGB` — is the one closed form nobody produces. The measurement and
-/// the page-scale corroboration are under [`CONTRADICTED_CALIBRATED_COLOUR`].
+/// # This entry was chosen for what it never asked, and the title above is the answer
+///
+/// A contradicted verdict makes two claims. One is that the *standard* rather than the consensus
+/// decides the page, which the six-hundred-and-sixty-second session audited by counting each
+/// group's clause citations. The other is ADR 0005's premise — that **the agreement which outvotes
+/// us is evidence** — and nothing had audited that at all. Asked of every non-empty
+/// `CONTRADICTED_*` list, *does the note name a mechanism for the two voting references agreeing,
+/// and is the mechanism verified rather than asserted?*, the fourteen split ten, three and one:
+/// ten name one and check it against a binary, a source file, a data file, a log or a ladder;
+/// three name one and infer it from the picture ([`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`],
+/// [`CONTRADICTED_SUBPIXEL_IMAGE`], [`CONTRADICTED_REFERENCE_GLYPH_WIDTHS`]); and **this one named
+/// none**, writing instead that the two "happen to agree to 4.41%". A verdict resting on an
+/// agreement nobody has explained is trap 9's whole subject stated as a coincidence.
+///
+/// It is explained now, and the explanation is a file that exists on no disk until a renderer
+/// makes it.
 ///
 /// # The four pages differ from each other in one entry, and four renderers ignore it
 ///
@@ -504,11 +513,14 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 /// | 11 | `[8 8 8]` |
 /// | 12 | `[50 50 50]` |
 ///
-/// **Below the header, our raster, `poppler`'s, `mupdf`'s and `ghostscript`'s are byte-identical
-/// across all four pages** — device rows 150 to 1090, `md5` of the raw RGB. Four renderers read the
-/// entry and none of them lets it move a colour. `hayro` is the only one that does, and it does not
-/// vote, which is why it is the only panel that changes: it sits 0.87 of 255 from us on page 1 and
-/// **16.54** on page 12.
+/// **Below the header, each of our raster, `poppler`'s, `mupdf`'s and `ghostscript`'s is
+/// byte-identical across all four pages** — device rows 150 to 1090, `md5` of the raw RGB. Four
+/// renderers read the entry and none of them lets it move a colour. `hayro` is the only one that
+/// does, and it does not vote, which is why it is the only panel that changes: **four different
+/// digests over the same four pages**, mean 0.90 of 255 from us on page 1 and 12.47 on page 12.
+/// (This entry recorded 16.54 for page 12; the gate's own arithmetic through
+/// `examples/compare_rasters` now prints 12.47. A number a note carries that the gate also
+/// computes is trap 1's cheapest tell, and it is worth re-running rather than copying.)
 ///
 /// So the gate is printing one measurement four times, and it says so itself — mean 1.38, worst
 /// tile 14.16, differing 11.23%, similarity 0.9908 on pages 1, 5 and 11 alike, with page 12's
@@ -518,11 +530,20 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 /// `[0.00000 …]`. So on this page the worst tile is measuring the label font and the differing
 /// fraction is measuring the swatches — and only the second decides the verdict.
 ///
+/// **And these four are the pages on which §8.6.5.3 has nothing left to decide.** Of the
+/// seventeen spaces this document states, the four listed here are the only ones whose `/Gamma`,
+/// `/Matrix` *and* `/WhitePoint` are all the identity or `[1 1 1]`, so the subclause's decode is
+/// the identity and the space **is** XYZ. Every one of the pages where `/Gamma` or `/Matrix` does
+/// real work is `ambiguous` or agrees. Whatever separates the renderers here is downstream of
+/// everything §8.6.5.3 defines, which is a fact about the file rather than an inference.
+///
 /// # It is not the font, and the instrument is the swatch interiors
 ///
 /// 76.6% of the page is flat in all five renderers — a pixel whose 7 × 7 neighbourhood is one
 /// colour in every one of them — and that region contains no glyph at all. Splitting the
-/// difference across it:
+/// difference across it (the four-hundred-and-sixty-first session's measurement, and consistent
+/// with this session's swatch sampling, where `poppler` is at most one level from us on all
+/// eighty):
 ///
 /// | | mean over the flat region | share of the page's total difference falling inside it |
 /// |---|---|---|
@@ -538,12 +559,34 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 /// 0267's finding for the serif family arriving on a fifth document. Against the pair that decides
 /// the verdict, two thirds of the difference is inside swatches where no glyph is drawn.
 ///
-/// # And nobody here assumes `DeviceRGB`, which is the other hypothesis this page kills
+/// # Ranked against the closed form, ours and `poppler` are on it and the pair that votes is not
 ///
-/// Page 1's space is the identity in all three of its transformation entries, so §8.6.5.3's first
-/// stage is the identity and the file is stating XYZ directly. Its swatch `A B C = 0.75 0.00 0.00`
-/// is therefore `X Y Z = (0.75, 0, 0)`, and a processor taking the components for `DeviceRGB` would
-/// paint `(191, 0, 0)`. Read off the five rasters at that swatch's centre:
+/// Page 1's space is XYZ itself, so each of the eighty swatches has an arithmetic answer that owes
+/// nothing to any renderer: Bradford-adapt the stated `/WhitePoint` onto sRGB's own white, apply
+/// IEC 61966-2-1's matrix and its transfer function. Written out in a script holding the published
+/// constants and none of this crate's code, and compared with each panel at every swatch centre,
+/// in levels of 255:
+///
+/// ```text
+///                  mean over the 80 swatches   worst swatch
+///   poppler                  0.013                   1
+///   ours                     0.025                   1
+///   hayro                    2.150                   8
+///   ghostscript              4.300                  15
+///   mupdf                    4.838                  31
+/// ```
+///
+/// Ours and `poppler` are that arithmetic to **one level of 255 on every swatch of the page**, by
+/// two implementations sharing no line of code, and the two that vote are the two furthest from it.
+/// That is [`CONTRADICTED_TIGHT_CONSENSUS`]'s shape on a colour page, and it is the ranking rather
+/// than the verdict: §10.3.1 leaves the choice of destination open, so being on this form is not by
+/// itself conformance. What it does establish is that the camps are a fact about implementations
+/// and not a coin toss.
+///
+/// # And nobody here assumes `DeviceRGB` — which is now checkable, because `ghostscript` will
+///
+/// A processor taking the components for `DeviceRGB` would paint `0.75 0.00 0.00` as `(191, 0, 0)`
+/// and `0.50 0.50 0.50` as `(128, 128, 128)`. Read off the five rasters at those swatch centres:
 ///
 /// | | ours | `poppler` | `mupdf` | `ghostscript` | `hayro` |
 /// |---|---|---|---|---|---|
@@ -551,14 +594,132 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 /// | `0.01 0.00 0.00` | 50, 0, 2 | 50, 0, 2 | 19, 0, 2 | 35, 0, 2 | 49, 0, 2 |
 /// | `0.50 0.50 0.50` | 188, 188, 187 | 188, 188, 188 | 193, 187, 188 | 196, 187, 188 | 194, 184, 188 |
 ///
-/// All five convert; none assumes. What separates them is the shadow end and the neutral axis —
-/// where a white point is adapted and where a transfer function is applied — and that is §10.3's
-/// half rather than §8.6.5.3's.
+/// All five convert; none assumes. **The reading is producible rather than hypothetical**:
+/// `gs -dUseFastColor=true` turns ghostscript's colour management off, and it paints exactly that
+/// — 3 for `0.01`, 127 for `0.50 0.50 0.50`, the component times 255 with no transfer function at
+/// all — which is a mean of **75.51 of 255 and a worst pixel of 173** from `ghostscript`'s own
+/// default rendering of the same file. One program, asked both questions, answering them 173 levels
+/// apart.
+///
+/// # Why the two that vote agree: each turns Table 63 into an ICC profile, and they are one house
+///
+/// `objdump -p`, `nm -D` and `strings -a` on this machine's three references — what a binary asks
+/// for, what it exports and what it carries, rather than a family resemblance:
+///
+/// - **`ghostscript`** carries `gsicc_create_from_cal` and `./base/gsicc_create.c` among its own
+///   internal names, alongside the parameters `CalRGBProfile` and `CalGrayProfile`. (Strings, not
+///   symbols: `libgs.so.10` exports 242 dynamic symbols and no `gsicc_*` is among them.) It lists
+///   `liblcms2.so.2` as `NEEDED` and leaves 22 `cms*` undefined.
+/// - **`mupdf`** *exports* `fz_new_cal_rgb_colorspace` and `fz_new_icc_data_from_cal`, and carries
+///   the message *CalRGB profile creation failed; bad values*. It asks for no colour library at all
+///   and **defines 437 `lcms2mt_*` symbols**, which is Artifex's fork of Little CMS compiled in.
+/// - **`poppler`** has its own `GfxCalRGBColorSpace` — the typeinfo name is in the binary — and
+///   exports `make_GfxLCMSProfilePtr`, which is the entry to `liblcms2` for an `ICCBased` stream
+///   and not for this space.
+///
+/// So the split on this page is two renderers evaluating §8.6.5.3 in their own code against two
+/// that **synthesise an ICC profile from the dictionary first**, and the second two are one house's
+/// two programs running two builds of one CMM. Trap 9's first shape, on a colour clause where
+/// nobody had looked for it.
+///
+/// # The profile, obtained, and this tree pointed at it
+///
+/// `gs -sDEVICE=pdfwrite` writes the page back out with the `/CalRGB` array replaced by an
+/// `ICCBased` stream, so `gsicc_create_from_cal`'s output is **585 bytes on disk** and can be read:
+/// a version 4.2 `scnr` profile, RGB to XYZ, `wtpt` the D50 connection white, `rTRC`/`gTRC`/`bTRC`
+/// each a `curv` of gamma 1.0, and colorants
+///
+/// ```text
+///   rXYZ = [1.006409, 0.000000, 0.000000]
+///   gXYZ = [0.000000, 1.019592, 0.000000]
+///   bXYZ = [0.000000, 0.000000, 0.827927]
+/// ```
+///
+/// A Bradford adaptation of the identity `/Matrix` from `/WhitePoint [1 1 1]` onto the D50 connection
+/// space is *not* diagonal — it is `[0.997781, −0.009757, −0.007429]`, `[−0.004152, 1.018325,
+/// 0.013463]`, `[−0.029429, −0.008567, 0.818866]`, whose columns sum to D50 exactly, which is what
+/// "the white point maps to the white point" means. The synthesised profile keeps three numbers and
+/// drops the cross terms, and its three colorants sum to `(1.0064, 1.0196, 0.8279)` against its own
+/// `wtpt` of `(0.9642, 1.0, 0.8249)` — **4.4% adrift in X**.
+///
+/// **The instrument is ADR 0048's, and the answer is one file.** Rendering that rewritten page — the
+/// same eighty swatches, now stating ghostscript's own profile — and comparing each renderer with
+/// its `/CalRGB` answer, in levels of 255 over the 72 swatches outside the deepest shadow:
+///
+/// ```text
+///                                                        mean    worst
+///   ours, /CalRGB              vs ghostscript, /CalRGB    4.15      11
+///   ours, ghostscript's profile vs ghostscript, /CalRGB   0.07       1
+/// ```
+///
+/// **This tree, handed the profile `ghostscript` builds out of Table 63, reproduces
+/// `ghostscript`'s rendering of Table 63 to one level of 255.** And asked whether the profile
+/// changes each renderer's mind at all — its own `/CalRGB` answer against its own answer to the
+/// rewritten page:
+///
+/// ```text
+///   ghostscript   0.03   (max 1)     it was already using this file
+///   mupdf         0.83   (max 3)     its own synthesised profile is effectively this one
+///   ours          4.17   (max 11)    it moves us onto their answer
+///   poppler       4.24   (max 11)    and poppler with us
+/// ```
+///
+/// The two that outvote us do not move when handed the other's profile; the two that agree with us
+/// both do. **The whole verdict is that 585-byte file** — and it is a file no dependency graph
+/// shows, no digest comparison finds and nothing on this disk contains, because each of the two
+/// manufactures it from the document. That is trap 9's eighth mechanism.
+///
+/// # And where the page differs most, the pair that votes agrees least
+///
+/// The gate's differing fraction counts channels moving by more than four levels of 255. Over the
+/// eighty swatch centres, taken as the maximum channel difference at each:
+///
+/// ```text
+///                                  max   mean   swatches over four
+///   ours        <-> poppler          1   0.01     0 of 80
+///   mupdf       <-> ghostscript     16   2.35     8 of 80
+///   ours        <-> ghostscript     15   4.31    36 of 80
+///   ours        <-> mupdf           31   4.85    34 of 80
+/// ```
+///
+/// On the 41 swatches where the camps differ at all, the pair that votes is a mean 3.78 and a
+/// **maximum of 16** apart from each other. At `A B C = 0.01 0.00 0.00`, which carries the largest
+/// difference on the page, ours is 50, `poppler` 50, `ghostscript` 35 and `mupdf` 19 — so **we are
+/// nearer `ghostscript` there (15) than `mupdf` is (16)**, on the swatch the verdict is made of.
+/// Handed one profile the three still spread 19 to 54 at that swatch. Their 4.41% over the whole
+/// page is an average taken across a sheet three quarters of which no camp disputes, which is trap
+/// 12 with the population named: a bound derived from an aggregate is not a bound on the pixels the
+/// aggregate is made of.
+///
+/// # What the specification determines, and this note stopped one sentence short of it
+///
+/// The entry above read *the difference is the half of the journey §10.3.1 puts beyond itself*, and
+/// quoted the sentence that puts it there — the specific method by which the destination space is
+/// established being beyond the document's scope, output intents being one way. **The next sentence
+/// of the same subclause is a `shall`**, and it says the conversion is not open at all: a CIE-based
+/// source colour to a CIE-based destination colour is to be converted based on the appropriate ICC
+/// specification. (Prose rather than a quotation because Errata Collection 3's Issue #181,
+/// `Review`/`Completed`, strikes that sentence's dated *ISO 15076-1:2010 (ICC.1:2010)* and points at
+/// Table 66 instead; `spec-errata emit` files it under §10.4.1's heading and §10.3.1's ledger row
+/// carries it.) So the destination is a choice — Artifex's *Artifex Software sRGB ICC Profile* for
+/// `ghostscript`, IEC 61966-2-1 for us — and the *route* to it is the referenced standard's, whose
+/// media-relative colorimetric intent adapts the source white onto D50 by the transform ICC's own
+/// `chad` tag carries. `colour::BRADFORD` cites that and this page is its corpus witness.
+///
+/// The other half is §8.6.5.3's, and this note had it under the wrong one of its two subjects. The
+/// sentence quoted below sits under `/BlackPoint` here and names two entries:
+///
+/// > The WhitePoint and BlackPoint entries in the colour space dictionary shall control the overall
+/// > effect of the CIE-based gamut mapping function described in subclause 10.3, "CIE-Based colour
+/// > to device colour".
+///
+/// On these four pages `/BlackPoint` moves nothing in four renderers and `/WhitePoint` is the whole
+/// question, because it is what the adaptation is *from*. Both halves of the `shall` are §10.3's to
+/// carry out; only one of them was being read.
 ///
 /// # Two camps of two, and the reference that agrees with us is further out than we are
 ///
-/// The gate's differing fraction counts channels moving by more than four levels of 255 over four
-/// channels per pixel, alpha included. Every pair on page 1, in the gate's own units:
+/// Every pair on page 1, in the gate's own units, reproduced through `examples/compare_rasters`:
 ///
 /// ```text
 ///   ours        <-> poppler        1.62%      <- the closest pair on the page
@@ -571,37 +732,28 @@ const CONTRADICTED_CALIBRATED_COLOUR: [&str; 0] = [];
 ///
 /// **`poppler` is further from the consensus pair than we are, on both of its members**, so the
 /// verdict "`mupdf` and `ghostscript` agree, we differ" would read identically with `poppler` in
-/// our place and by a larger margin. Four renderers in two camps of two, and the gate votes with
-/// whichever camp's members are nearer each other — trap 12, on a page where the thing the camps
-/// disagree about is named by a clause. (The bound and the printed figure reproduce exactly from
-/// these pairs, which is how the whole table above is checked against the gate rather than beside
-/// it.)
+/// our place and by a larger margin. The gate votes with whichever camp's members are nearer each
+/// other, and the camp that wins is the one whose two members build the same file.
 ///
-/// # What the specification determines
-///
-/// §8.6.5.3 defines components-to-XYZ exactly and all five renderers agree there — on page 1 it is
-/// the identity, and the swatch table above is what an identity looks like when everybody applies
-/// it. The remaining half is stated to be open, in one sentence of §10.3.1:
-///
-/// > The specific method by which the CIE-based destination colour space is established is beyond
-/// > the scope of this document, but may include the use of Output Intents
-///
-/// That is `doc/todo/00`'s shape 3, and it is the same reading `AMBIGUOUS_CALRGB_TO_SCREEN` carries
-/// over eight *other* pages of this same document. These four are that finding arriving at a
-/// tighter bound rather than a second finding: they are contradicted instead of ambiguous only
-/// because the two references that share a camp happen to agree to 4.41%.
+/// `issue9940.pdf` page 1 is the same split without a swatch on it. Its space is
+/// `/WhitePoint [0.9505 1 1.089]`, `/Gamma [2.20003 …]` and a near-identity `/Matrix`, reached
+/// through an `/Indexed` `/DeviceN` alternate — ADR 0296's parting question, answered *not a
+/// different path*. Panel means over the whole page: ours `(240.07, 242.12, 246.34)`, `poppler`
+/// `(239.86, 241.91, 246.18)`, `hayro` `(240.11, 242.16, 246.40)` against `mupdf`
+/// `(243.56, 241.54, 246.04)` and `ghostscript` `(243.45, 241.74, 246.48)` — three panels one way
+/// and the Artifex pair 3.4 levels of red the other, which is the mauve cast the side-by-side shows
+/// in one look. Ours to `hayro` is 2.16% differing, closer than either reference pair.
 ///
 /// # And `/BlackPoint` is a decision rather than a gap, which this page is the corpus witness for
 ///
-/// §8.6.5.3 says the entry "shall control the overall effect of the CIE-based gamut mapping
-/// function described in subclause 10.3", and §8.6.5.9 says who decides whether it does: "[i]f the
-/// value is not given or set to `Default`, then the behaviour is left to the PDF processor to
-/// determine", which is every document in the corpus. `colour::cie_to_srgb` reads the entry and
-/// applies none of it, argued there and in ADR 0012. **What these four pages add is the cost,
-/// measured**: a `/BlackPoint` moved from `[0 0 0]` to `[50 50 50]` changes nothing in this tree's
-/// raster, in `poppler`'s, in `mupdf`'s or in `ghostscript`'s, so the choice is the one four
-/// independent readers of the clause make. `cargo run --release -p pdf-model --example
-/// black_point_census` counts how many corpus spaces state one at all.
+/// §8.6.5.9 says who decides whether the entry does anything: "[i]f the value is not given or set
+/// to `Default`, then the behaviour is left to the PDF processor to determine", which is every
+/// document in the corpus. `colour::cie_to_srgb` reads the entry and applies none of it, argued
+/// there and in ADR 0012. **What these four pages add is the cost, measured**: a `/BlackPoint` moved
+/// from `[0 0 0]` to `[50 50 50]` changes nothing in this tree's raster, in `poppler`'s, in
+/// `mupdf`'s or in `ghostscript`'s, so the choice is the one four independent readers of the clause
+/// make. `cargo run --release -p pdf-model --example black_point_census` counts how many corpus
+/// spaces state one at all.
 const CONTRADICTED_CALRGB_TO_SCREEN: [&str; 5] = [
     "calrgb.pdf page 1",
     "calrgb.pdf page 5",

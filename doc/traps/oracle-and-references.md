@@ -27,7 +27,7 @@ as a verdict.**
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
-evidence. Seven ways for that to fail — and the count has moved three times, so read the list rather
+evidence. Eight ways for that to fail — and the count has moved four times, so read the list rather
 than the number.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
@@ -124,6 +124,25 @@ than the number.
   specification is the *edge*, not the page — and on this page each of the seven lines has its own
   answer. ADR 0489.
 
+- **And an eighth, which no instrument above can find: shared data that exists on no disk, because
+  each of the two *manufactures* it from the document.** On `CONTRADICTED_CALRGB_TO_SCREEN`'s five
+  pages `mupdf` and `ghostscript` outvote us, and the reason is that both turn Table 63's `/CalRGB`
+  dictionary into an ICC profile and hand it to Little CMS — `libgs` carries
+  `gsicc_create_from_cal` among its internal names, `libmupdf` exports `fz_new_icc_data_from_cal`
+  and defines 437 `lcms2mt_*` symbols of Artifex's fork — where `poppler` and this tree evaluate
+  §8.6.5.3 in their own code.
+  **`objdump -p`, a digest comparison and a `desc` tag all come back empty here**, because the
+  shared file is built at run time out of the page's own bytes: the second bullet's instrument
+  scans a binary for profiles, and this one is in neither binary. What produced it was
+  `gs -sDEVICE=pdfwrite`, which writes the page back with the space replaced by the 585-byte
+  `ICCBased` stream `ghostscript` synthesised — after which ADR 0048's instrument works as usual,
+  and this tree pointed at that file reproduces `ghostscript`'s rendering of the *dictionary* to
+  0.07 of 255 where our own path is 4.15 from it. The confirmation is the other direction: handed
+  that file, `ghostscript` moves 0.03 and `mupdf` 0.83, while ours moves 4.17 and `poppler`'s 4.24.
+  **The generalisation is the tell**: where two renderers agree on a page whose colour space is
+  *described* rather than embedded, ask whether either of them will write the description back out
+  as data. ADR 0494.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is
@@ -160,6 +179,16 @@ byte for byte, an eight-bit mask predicts the closed form, and our extra level w
 approximation this tree could turn off (ADR 0418). **Being inside a level of the clause is not the
 same as being the clause**, and where one renderer is exactly on it and you are not, the tie has an
 owner. The page agrees now.
+
+**And a bound derived from an aggregate is not a bound on the pixels the aggregate is made of.**
+`calrgb.pdf` page 1's consensus pair differs by 4.41%, so the gate holds us to 8.82%. Over the
+eighty swatch centres that pair is a mean 2.35 of 255 apart — but restricted to the 41 swatches
+where the camps disagree at all it is 3.78, and at the swatch carrying the page's largest
+difference it is **16 levels apart, further than we are from either of its members**. Three
+quarters of that sheet is a mid-tone no camp disputes, and the pair's closeness is mostly a
+measurement of that region. So ask *which pixels* a tight consensus is tight over before reading
+its doubled spread as a bound: the population the bound is computed on and the population the
+verdict is about need not be the same one. ADR 0494.
 
 ## Things worth knowing
 
