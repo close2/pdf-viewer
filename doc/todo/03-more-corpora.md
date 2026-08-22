@@ -3,6 +3,14 @@
 Status: **standing**, and it became standing rather than one-off in the four-hundred-and-twenty-second
 session, which built the three pieces `doc/test-docs.md` asked for. What is left is the *taking*:
 a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
+
+> **The SafeDocs crawl is finished.** All **65 944** documents of `CC-MAIN-2021-31` are ranked
+> against `pdftoppm`, `mutool` and `gs`, over nine chunks from the six-hundred-and-third session to
+> the six-hundred-and-forty-seventh; §27 took the last 3944 and says what the whole population
+> turns out to be. **No later round need re-derive that**, and a round looking for a chunk should
+> take a *different* corpus rather than more of this one — §1's note about which kind is worth a
+> round is the argument, and SafeDocs' issue-tracker set is still 31 GB in six archives nobody has
+> fetched.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 275 in four submodules** — of which
 `pdfCabinetOfHorrors` and `govdocs1-error-pdfs` were taken as a chunk in the
@@ -1439,6 +1447,138 @@ spots, and this one produced the successor below.
 (`7557`, `7803`) and eighty-one of twenty-four apiece. Eight rounds running, a fix has reached back
 into an earlier chunk; this is the first where the crawl's head was *not* a defect no curated corpus
 states.
+
+**Those 3944 were taken in the six-hundred-and-forty-seventh and the crawl is finished**; §27.
+
+
+### 27. The chunk the six-hundred-and-forty-seventh took: the rest of it, and what the whole crawl says
+
+**Taken: everything that was left — archives `7557` and `7803` whole and all eighty-one
+twenty-four-member archives, 3944 documents**, on §16's instrument unchanged and reused: page one
+at 72 dpi against `pdftoppm`, `mutool` and `gs`, every invocation explicit about the page box,
+ranked by our ink minus the lightest live reference's. **5 minutes 10 seconds** at twelve workers
+on a machine whose load average was between 5 and 13; 3924 of the 3944 produce a number and 20 do
+not. Both binaries built first and §20's check run before anything was ranked (**33 checked, 0
+absent, green**), with the four documents ADRs 0438 and 0471 name reproduced against the
+four-renderer instrument to the ten-thousandth before anything was read.
+
+**With this the crawl is 65 944 of 65 944 ranked**, over nine chunks. There is no successor of the
+form "n crawled documents unranked" and this file's header says so.
+
+- **The negative head is deeper than the last two chunks' and is still made of this tree's own
+  departures** — deepest row **−12.251**, against 640's −8.860, 636's −10.174, 631's −43.503,
+  625's −112.626, 619's −84.152 and 613's −20.341. 7 rows of the 3924 are below −3 and 17 below −2.
+  **Seven of the first eleven rows were read to a cause and four were placed but not settled**, and
+  every cause found is a departure this project has already argued rather than a misread clause —
+  which makes it two chunks running, and this one over the population's remainder rather than over a
+  sample of it. The four unsettled are named at the end of this section so the next round does not
+  re-derive where they sit.
+- **One defect of this tree, and it was the *shape* of a refusal rather than its value.**
+  `7803372.pdf` **−12.251**, the deepest row, reports `MAX_TILES` and nothing else: a school-canteen
+  menu whose *Jeudi* and *Vendredi* columns are hatched by a `/BBox [0 0 1.6 1.6]` cell holding one
+  8 × 8 one-bit image, wanting some twenty thousand sites apiece against a bound of 4096. The bound
+  is ADR 0271's and its value is not what moved. What moved is that the check sat in **front** of
+  the cell's interpretation, so a page that could afford four thousand sites was given none.
+  §8.7.3.1 puts the requirement on the processor — "[w]hen performing painting operations such as S
+  (stroke) or f (fill), the PDF processor shall paint the cell on the current page as many times as
+  necessary to fill an area" — so a budget decides how many and not whether, and the affordable
+  prefix is drawn now with the shortfall reported by name exactly as before. → **9.083 → 11.096**
+  against references between 21.3 and 22.4. The other four fifths are `doc/todo/49`'s and stay
+  there. ADR 0477.
+- **The asymmetry was legible in the ledger the whole time.** §8.7.3.1's own row already records
+  §7.8.2's prefix rule for the *cell's content stream* (ADR 0359) — a cell that decodes part-way is
+  replicated as far as it got — while the *lattice* threw its prefix away. Two things make a tiling
+  and the rule had reached one of them.
+- **The rest of the head, each with its evidence**, and none of it new:
+  - **ADR 0308's abutting marks, on a witness far stronger than 640's hymn sheet.**
+    `7803184.pdf` **−6.381** and `7803350.pdf` **−6.639** are pages a producer states as thousands
+    of thin image strips — **2217 `Do`s on the first, 1882 of them 0.96 units tall and stepped
+    alternately 0.96 and 0.72**, each a 627-wide, 1- or 2-row `DCTDecode` band. Every strip covers a fraction of a device pixel row, §11.3.7.3 composites the
+    fractions as a union — `1 − (1−a)(1−b)` — and the page comes out 25% of the way to white along
+    a third of its rows, in seams a reference does not have because none of the three anti-aliases
+    an axis-aligned image edge. **Measured rather than asserted**: the gap against `pdftoppm` is
+    −6.381, −2.601, −1.011, −0.501 at scale 1, 2, 4 and 8, halving per doubling, which is ADR
+    0308's boundary-over-area signature and nothing else's. `doc/todo/11` item 5.
+  - **Trap 9's colour family, with the references disagreeing among themselves.** `7650021.pdf`
+    −5.951 is a press-ready restaurant menu with registration marks and colour bars whose dark
+    ground reads (69, 69, 71) here, (65, 64, 66) in `mutool` and (57, 53, 54) in `pdftoppm` — three
+    answers, not two. `7557305.pdf` −3.988 fills its page from a `/Separation` whose alternate
+    resolves to (15, 83, 143) on §10.4.2.5's own arithmetic against `poppler`'s (0, 75, 152) and
+    `mutool`'s (0, 82, 139), which are thirteen levels apart from each other. Neither gap moves
+    with resolution, so neither is scan conversion. Not called a diagnosis, on trap 9's last
+    bullet.
+  - **`Image::area_averaged` against a decimating filter**: `7557123.pdf` −2.526, a single 1200 ×
+    1800 `DeviceCMYK` photograph under a Flate `/SMask` drawn into 288 × 432.
+  - **A second `MAX_TILES` page**, `4650000.pdf` −2.456, which the fix above also moves.
+- **The positive head is 613's `poppler`-draws-nothing note and almost nothing else**: 18 rows are
+  above +10 and **10 of them have `poppler` under a third of the heaviest reference** while
+  `mutool`, `gs` and this tree agree — `6150016.pdf` +20.192 with `poppler` at 3.148 against our
+  23.339 is the shape. The exceptions are the other direction of the same question: `7557508.pdf`
+  +16.686 and `7557287.pdf` +10.999 have **`mutool`** light while `poppler`, `gs` and this tree
+  agree within 0.3. Read a positive gap as a question about which reference is light before reading
+  it as ink of ours.
+- **What the head still holds, named so the next round does not re-derive it.** Four rows of the
+  first eleven were placed by *where they cannot be* rather than by a cause, using §16's ink-versus-
+  resolution probe — a gap that halves per doubling is scan conversion and a gap that does not is
+  content. **`7557122.pdf` −6.295** (against `pdftoppm` −9.694, −9.774, −9.815 at 1×, 2×, 4×) and
+  **`7557305.pdf` −3.988** do not move with resolution, so neither is scan conversion; both are
+  many-image pages under `ICCBased` and `/Separation` spaces, which is trap 9's *hypothesis* and not
+  its diagnosis. **`7557015.pdf` −3.241** (−4.105, −1.961, −0.368) and **`7803013.pdf` −2.606**
+  (−9.186, −2.953, −2.559) do shrink with resolution and so are resampling or scan conversion, but
+  which was not established. What would settle the first pair is trap 9's colour probe; what would
+  settle the second is `uncovered_share`.
+
+- **The reach is bounded by the code and confirmed by measurement**, and the two are worth keeping
+  apart. The diff is entirely inside the `total > MAX_TILES` branch, which is the branch that raises
+  the report, so a page that can move is a page that reports `MAX_TILES` — and `examples/open_one`
+  over all **65 944** says that is **48 documents** over 35 archives. The confirming run is 631's
+  rule over **8011** documents rather than the whole crawl, for that reason: this chunk's 3944, the
+  four previously-ranked archives that hold such documents (`0100`, `1530`, `6204`, `7188`), all 48,
+  and every row of `doc/checks/fixed-documents.toml`. **42 rows move and every one reports
+  `MAX_TILES`**; a forty-third moved because a 30 MB document lost the harness's wall-clock budget
+  at a load average over 100 and is identical to four decimals when re-measured alone, which is
+  626's lesson on our own instrument instead of a reference's. ADR 0477 and
+  `doc/history/647-*.md`.
+
+## What the whole crawl says, now that all of it has been ranked
+
+The paragraph this file has never been able to write, and every figure in it is this round's own
+run rather than an earlier chunk's record.
+
+**65 944 documents. 65 703 open** — 241 do not, which is 0.37% — and **65 659 have a first page**,
+the other 44 opening onto a page tree that yields none. Over the 65 659, `examples/open_one` says
+**720 report anything at all about page one** and **64 939 report nothing**: **98.9%** of this
+crawl's first pages are drawn with no shortfall to name. That is a statement about what this tree
+*reports*, not about whether the pixels are right — the ink ranking is the instrument for the
+second question and the two have different blind spots (640's rule) — and it is the first time the
+report instrument has been run over the population rather than over a chunk of it.
+
+**What the 720 are made of**, by the first thing each names: 250 a font whose program has no
+outline for the codes a page shows through it, 157 a transparency group this tree will not
+composite as stated (128 of them the non-isolated-and-blending case alone), 103 an image — two
+thirds of those a `/SMask` with a `/Matte` that cannot be un-pre-blended — 55 a resource budget, 51
+text, 44 a `/Contents` part that decoded part-way or not at all, 19 a stroke whose colour is a
+tiling pattern, 10 an annotation with no appearance and no geometry in its clause. **138 of the 720
+report more than one thing.** The budgets are 48 `MAX_TILES`, 5 `MAX_FORM_DEPTH`, 4
+`MAX_OPERATIONS`, one `MAX_STATE_DEPTH` and one `MAX_OPERANDS`, and **no page in 65 944 exhausts
+the clip or soft-mask tables**.
+
+**The ink distribution is this chunk's 3924 comparable rows and not the population's**, because no
+round has held all nine chunks' rankings at once and this one did not re-rank the 62 000 against
+three references to get one: **3637 rows inside ±1 of the lightest reference (92.7%)**, 34 between
+−1 and −2, 17 below −2, 7 below −3, and 18 above +10 of which 10 are a light `poppler`. What *can*
+be said across the nine is the shape of the head, because each chunk's is recorded in its own
+section above: it has stopped being defects and become **decisions this project has already argued
+and priced** — ADR 0308's conflation of abutting marks, §10.7.4's anti-aliasing departure,
+`Image::area_averaged`, trap 9's colour question, and the resource budgets — and every one of those
+has a `doc/todo` entry with a cost written down.
+
+**So what this corpus is for has changed.** It was opened to find defects no curated corpus states
+and the sections above record what each chunk found; what it produces now is *witnesses* for
+departures that were already known — `7803184.pdf` is the strongest statement of ADR 0308 anybody has been able to
+make, and nobody had to construct it. A round that wants a defect should take a corpus built to be
+diagnostic (§1's argument); a round that wants to close a departure should come here for the page
+that shows what closing it would buy.
 
 
 ## What not to do

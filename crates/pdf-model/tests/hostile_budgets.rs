@@ -217,6 +217,12 @@ fn a_form_that_draws_itself_is_refused_by_name() {
 /// nothing at all** — so the per-tile cost is 0.89 µs and `MAX_OPERATIONS` is never consulted.
 /// The fixture below states a `/XStep` of 0.001 over a 600-unit fill, which is 600 000 columns
 /// and as many rows: 3.6 × 10¹¹ tiles, or about **four days** at that rate.
+///
+/// **What "refused" means here is the trip count and not the paint**, since the
+/// six-hundred-and-forty-seventh session: the bound is reported by name and the sites it affords
+/// are laid down, which for an *empty* cell is four thousand copies of nothing. The work this
+/// test bounds is unchanged — 4096 sites is what the check admitted before it and what it spends
+/// now — and the assertion is on the name for that reason. ADR 0477.
 #[test]
 fn a_tiling_whose_cell_is_empty_is_refused_by_name() {
     let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] \

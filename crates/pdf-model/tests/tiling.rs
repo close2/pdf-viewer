@@ -325,6 +325,56 @@ fn an_unreasonable_number_of_tiles_is_reported_rather_than_drawn() {
     );
 }
 
+/// …and the sites the bound *does* afford are painted rather than thrown away with the rest.
+///
+/// §8.7.3.1 asks the processor to "paint the cell on the current page as many times as necessary
+/// to fill an area". `MAX_TILES` is why some pages cannot have as many times as necessary; it is
+/// not a reason to paint the cell **no** times, which is what this did until the
+/// six-hundred-and-forty-seventh session, on `7803372.pdf` of the crawl — two table
+/// columns hatched at `/XStep 1.6` that `poppler`, `mupdf` and `ghostscript` fill and this tree
+/// left white. ADR 0477.
+///
+/// The expected geometry is the arithmetic rather than a picture: the fill spans 0 to 100 at a
+/// step of 1 with a unit cell, so [`span`](../src/content/pattern.rs)'s floor and ceil give 102
+/// columns and 102 rows; 4096 sites buy every column and `4096 / 102 = 40` rows, laid down from
+/// the span's first row, which is the **bottom** of the page in pattern space. So the lowest 40
+/// units of the page carry the pattern and the rest does not.
+#[test]
+fn the_tiles_the_bound_affords_are_painted() {
+    let unit = dotted_cell(1, "1 0 0 rg")
+        .replace("/BBox [0 0 20 20]", "/BBox [0 0 1 1]")
+        .replace("/XStep 20 /YStep 20", "/XStep 1 /YStep 1")
+        .replace("0 0 10 10 re f", "0 0 1 1 re f");
+    let bytes = pdf_with(&unit, "/Pattern cs /P0 scn 0 0 100 100 re f");
+    let document = Document::open(bytes).expect("valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+
+    let reported = format!("{:?}", interpretation.unsupported);
+    assert!(
+        reported.contains("MAX_TILES"),
+        "ten thousand tiles are still over the bound and still said so: {reported}"
+    );
+
+    let list = interpretation.display_list;
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported");
+
+    assert_eq!(
+        pixel(&raster, 50, 90),
+        (255, 0, 0, 255),
+        "the affordable rows are the bottom forty and must carry the cell"
+    );
+    assert_eq!(
+        pixel(&raster, 50, 10).3,
+        0,
+        "and the rows past the budget are the ones left unpainted"
+    );
+}
+
 /// A cell's content is clipped to its `/BBox`, in every cell.
 ///
 /// Table 74, of the four numbers in `/BBox`: "These boundaries shall be used to clip the

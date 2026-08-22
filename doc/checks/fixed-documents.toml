@@ -309,3 +309,19 @@ session = 640
 reports = []
 ink = 1.805 .. 3.805
 why = "the same defect on a nearly blank page, where the 250-unit icon was most of the ink: +8.264 of 255 against three references agreeing within 0.04, now -0.172 (ADR 0471, 12.5.6.4, 12.5.3)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/7803/7803372.pdf"
+page = 1
+session = 647
+reports = ["MAX_TILES"]
+ink = 10.096 .. 12.096
+why = "two hatched table columns drawn as white, because a fill wanting more sites than MAX_TILES was given none instead of the four thousand the bound affords; §8.7.3.1 asks the processor to paint the cell as many times as necessary, so the budget decides how many and not whether (ADR 0477, 8.7.3.1)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4650/4650000.pdf"
+page = 1
+session = 647
+reports = ["MAX_TILES"]
+ink = 48.213 .. 50.213
+why = "the same refusal on a page whose hatching is most of its ink: 41.262 of 255 against three references between 43.7 and 62.9, now 49.213 (ADR 0477, 8.7.3.1)"
