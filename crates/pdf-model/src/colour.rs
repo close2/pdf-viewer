@@ -1226,11 +1226,25 @@ fn channel(value: f32) -> f32 {
 /// > colour spaces into CIEbased colour spaces, when those device colour spaces do not
 /// > match that of the raster output device.
 ///
-/// A display's native space is not CMYK, so the remapping is required of us, and §10.3.1
-/// puts the choice of destination "beyond the scope of this document" while its NOTE lists
-/// "assumptions made by the PDF processor software" among the ways it may be made. Assuming
-/// standard process inks *is* such an assumption, made in the one place the clause leaves for
-/// it.
+/// A display's native space is not CMYK, so the remapping is required of us — and the sentence
+/// that licenses *what* we remap it to is §10.3.2's own NOTE:
+///
+/// > Establishing a CIE-based source colour space can happen based on a user-driven
+/// > configuration, by assumptions made by the PDF processor software, by analysis of the
+/// > colour values and other properties, or by other mechanisms.
+///
+/// Assuming standard process inks *is* such an assumption, made in the one place the clause
+/// leaves for it.
+///
+/// **This paragraph cited §10.3.1's NOTE until the six-hundred-and-fifty-sixth session, and the
+/// two differ by one word.** §10.3.1's is about establishing the CIE-based **destination** — what
+/// the screen is — and §10.3.2's about the **source**, which is what a document's `DeviceCMYK`
+/// means. This table is a claim about the source; the destination here is sRGB. Both NOTEs
+/// contain "assumptions made by the PDF processor software", which is exactly how a citation one
+/// subclause off survives being read. `CONTRADICTED_DEVICE_CMYK_CONVERSION` is the corpus
+/// evidence that the source NOTE is the operative one: four renderers make four different source
+/// assumptions on the same pages, three of them by loading a press profile, and the standard
+/// licenses all four in that one sentence (ADR 0484).
 ///
 /// What the specification does state is *which press to ask first*, and it names three
 /// sources — `/DefaultCMYK` (§8.6.5.6, "shall be used"), an output intent's
@@ -2400,11 +2414,19 @@ pub(crate) const D50: [f32; 3] = [0.964_2, 1.0, 0.824_9];
 
 /// The Bradford cone response matrix, and its inverse.
 ///
-/// ISO 32000-2 §10.3.1 says conversion from a CIE-based source to the destination "shall be
-/// performed based on ISO 15076-1:2010 (ICC.1:2010)", and that standard's media-relative
+/// ISO 32000-2 §10.3.1 says conversion from a CIE-based source to the destination shall be
+/// performed based on the appropriate ICC specification, and that specification's media-relative
 /// colorimetric intent adapts the source's white point onto the connection space's D50.
 /// Bradford is the transform ICC's own `chad` tag carries, so this is the adaptation the
 /// referenced standard describes rather than a choice made here.
+///
+/// **The quotation marks came off in the six-hundred-and-fifty-sixth session** and the sentence
+/// is prose now, because the words this comment quoted are retired: Errata Collection 3's Issue
+/// #181 (`Review`/`Completed`) strikes the dated *ISO 15076-1:2010 (ICC.1:2010)* out of §10.3.1
+/// and puts the appropriate ICC specification, with a pointer to Table 66, in its place — so
+/// `icc.rs` accepting both 2.x and 4.x profile headers is what the amended sentence asks for
+/// where the dated one named a single edition. `doc/errata-read.md` has the row; `spec-errata
+/// emit` files it under §10.4.1's heading and the caret's `/Rect` is over §10.3.1's last line.
 ///
 /// Both matrices are the published constants, row-major.
 #[rustfmt::skip]
