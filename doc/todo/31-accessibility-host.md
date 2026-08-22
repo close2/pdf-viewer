@@ -12,7 +12,8 @@ in the five-hundred-and-seventh (ADR 0342) — found by the census that round bu
 was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394), and **the actions a client may
 request**, in the five-hundred-and-ninetieth (ADR 0425) — which also made the census a ratchet and
 so closed `doc/todo/05`'s third instrument — and **§14.8.3.3's content rectangle, the place an
-element's own marks give it**, in the six-hundred-and-fifty-eighth (ADR 0486).
+element's own marks give it**, in the six-hundred-and-fifty-eighth (ADR 0486), and **the content
+stream that identifier is only unique within**, in the six-hundred-and-sixty-first (ADR 0488).
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
@@ -21,7 +22,8 @@ Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-ui/src/bin/pdf-viewer/access.rs` (`App::attend`, `App::speak`, `App::act`)
 Instruments: `tools/state.sh accessibility` — the corpus-scale census of what a screen reader is
 told, a **ratchet** and a `doc/todo/02` §2 line since ADR 0425 (built by ADR 0342) — `pdf-model --example element_bounds_census`,
-`pdf-model --example cell_header_census`, `viewer-core --example accessibility_cost`
+`pdf-model --example cell_header_census`, `pdf-model --example mcid_stream_census`,
+`viewer-core --example accessibility_cost`
 
 The item this file used to hold — "the answer exists and nothing asks" — is closed.
 `viewer-accessibility` maps §14.8.4's forty-one standard structure types onto `accesskit::Role`,
@@ -136,15 +138,44 @@ search rather than from the array**.
   force at the `Do` that painted it, and Table 358's NOTE 2 says one reference suffices however
   many times the object is drawn — so the reference is not naming a position.
 
-- **A sequence inside a form `XObject` shares one numbering with the page's, and nothing tells them
-  apart.** §14.7.5.2 identifies such a sequence by Table 357's `/Stm`, and Errata Collection 3's
-  Issue #308 says the consequence outright: "MCIDs are scoped by content stream and must start at
-  zero, so the same MCID may reappear across pages or XObjects." `Interpretation::marked` is keyed
-  by the identifier alone, so on a page that uses both routes a form's content rectangle — and its
-  *text range*, which has had the same key since ADR 0134 — could be attributed to the page's own
-  element. **Unmeasured**: no corpus document has been checked for a page whose `/Contents` and
-  whose form `XObject` both carry structure content items. The census would need to read `/Stm`,
-  which it does not.
+- ~~A sequence inside a form `XObject` shares one numbering with the page's~~ — **measured and
+  closed in the six-hundred-and-sixty-first session** (ADR 0488), and the clause answered it
+  cleanly rather than leaving it ambiguous: §14.7.5.2 makes the identifier unique "within its
+  content stream", Table 357's `/Stm` names which stream and its *absence* is a `shall` that the
+  sequence is the page's, and §14.7.5.4 gives each content stream its own parent tree entry — so
+  the route back was per stream all along and this tree was flattening it.
+  `content::ContentStream` is the other half of the key, `content::named_sequences` the one place
+  the match is made, and `Tree::logical_text`, `Tree::logical_range` and both of
+  `viewer_core::accessibility`'s readers go through it.
+
+  **The population is `pdf-model --example mcid_stream_census`**, and it is what this entry asked
+  for: over the crawl's 65 944 documents — 65 703 opened, 23 447 tagged — **701 have a page marked
+  by two or more content streams and 42 have a page where two of them share an identifier**, 545
+  state a `/Stm` at all, and 635 have a form with its own `/StructParents`. Over pdf.js and
+  `doc/corpora`, one document of 153 tagged ones. **A negative here would have decayed and the
+  positive still might**: those are figures about one crawl on one day, and the example is what
+  re-derives them.
+
+  Two things it leaves.
+
+  **An appearance stream is `ContentStream::Unnameable`**, because `annotation::Appearance` keeps
+  the stream rather than the reference to it and a §12.7.4.3 construction has no object at all.
+  That is sound and fixes the half that misleads — the page's `/MCID 0` can no longer be answered
+  with a widget's — but an `/MCR` whose `/Stm` names an appearance stream now finds nothing where
+  it used to find the wrong thing. No document in either population closes a sequence in an
+  unnameable stream. What would close it is the `/AP` reference carried through `Appearance`, and
+  **Table 357's `/StmOwn` is the same item from the structure side** — "[t]he indirect reference to
+  the PDF object referencing the stream identified by the Stm key", whose NOTE names the annotation
+  owning an appearance stream as the common use. Take the two together or not at all.
+
+  **The one recovery is an inference and nothing says so.** Two of the corpus's 153 tagged
+  documents put every sequence in one form, state no `/StructParents` anywhere and name each
+  content item with a bare integer, which §14.7.5.2 says means the page's own stream; read strictly
+  they say nothing to a screen reader, and 61 elements lost their place when they were. So where
+  the page's own stream holds no such identifier and exactly one other stream does, that one is
+  answered — and a caller cannot tell that attribution from a stated one, for
+  `Interpretation::codes_without_a_character`'s reason (ADR 0152): there is no channel here for a
+  readback shortfall, and a *report* would cost the oracle a judged page (trap 11).
 
 - **Whether a stated `/BBox` should win over the shapes that were drawn.** `tree::place` prefers
   the quads where an element has both, on the conservative reading — the marks are what is on the

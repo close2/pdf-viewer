@@ -6,7 +6,7 @@
 use pdf_render::Transform;
 use pdf_syntax::{Dictionary, Object};
 
-use super::report::Unsupported;
+use super::report::{ContentStream, Unsupported};
 use super::run::{name_at, narrow};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
 
@@ -46,10 +46,16 @@ impl Interpreter<'_> {
             });
             return;
         };
-        let Some(object) = self.resource(resources, "XObject", &name) else {
+        // Looked up unresolved and resolved here, rather than through [`Interpreter::resource`],
+        // because §14.7.5.2's identifier is only unique within one content stream and Table 357's
+        // `/Stm` names that stream by *reference*: resolving first throws away the one thing that
+        // tells a form's `/MCID 0` from the page's. The lookup is still one.
+        let Some(entry) = self.resource_entry(resources, "XObject", &name) else {
             self.note_missing_resource("XObject", &name, "is not in /XObject");
             return;
         };
+        let named = entry.as_reference();
+        let object = self.document.resolve(&entry);
         let Some(stream) = object.as_stream().cloned() else {
             self.note_missing_resource("XObject", &name, "is not a stream");
             return;
@@ -192,12 +198,33 @@ impl Interpreter<'_> {
         // default space is what a pattern used on the page maps to and the two are different
         // spaces with the same name.
         let outer_base = std::mem::replace(&mut self.base, inner.transform);
+        // §14.7.5.2 permits this stream to carry marked-content sequences of its own, numbered
+        // from zero like the page's, and §14.7.5.4 gives it its own parent tree entry to match:
+        // "[t]he tree shall contain an entry … for each content stream containing at least one
+        // marked-content sequence that is a content item". So for as long as it runs, a sequence
+        // that closes belongs to *this* stream. A form written as a direct object cannot be named
+        // by Table 357's `/Stm`, which requires an indirect reference, and says so.
+        let outer_stream = std::mem::replace(
+            &mut self.stream,
+            named.map_or(ContentStream::Unnameable, ContentStream::Object),
+        );
+        // §14.7.5.4's own route back, per stream: this form's `/StructParents` names an array of
+        // its own, and reading the page's with a form's identifier is how §14.9's `/Alt` arrives
+        // from somebody else's element. A form stating no `/StructParents` keeps the page's tree,
+        // which is what a file using §14.7.5.2's *first* method — a `Do` inside the page's own
+        // sequence — has said: the form is part of that sequence rather than a container of its
+        // own.
+        let outer_structure = self.enter_stream_structure(named, &stream.dict);
         let Some(group) = self.transparency_group(&stream.dict) else {
             self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
+            self.leave_stream_structure(outer_structure);
+            self.stream = outer_stream;
             self.base = outer_base;
             return;
         };
         self.run_transparency_group(&group, &data, &form_resources, &inner, state, form_depth);
+        self.leave_stream_structure(outer_structure);
+        self.stream = outer_stream;
         self.base = outer_base;
     }
 

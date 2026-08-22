@@ -7,6 +7,7 @@
 //! [`super`] forbids.
 
 use pdf_render::DisplayList;
+use pdf_syntax::ObjectId;
 
 /// Something the interpreter met but could not draw.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -603,11 +604,129 @@ impl UnnamedCodes {
     }
 }
 
+/// Which content stream a §14.7.5.2 marked-content sequence was read out of.
+///
+/// ISO 32000-2 §14.7.5.2 makes the identifier unique in one stream and no wider:
+///
+/// > The marked-content sequence shall contain a property list (see 14.6.2, "Property lists")
+/// > containing an MCID entry, which shall be an integer marked-content identifier that
+/// > uniquely identifies the marked-content sequence within its content stream
+///
+/// and Errata Collection 3's Issue #308 (`/State` `Review`/`Completed`) adds §14.7.5.4 a NOTE 2
+/// saying the consequence outright: identifiers are scoped by content stream and must start at
+/// zero, so the same one may reappear across pages or form `XObject`s. In prose rather than as a
+/// blockquote because the sentence is an *addition* and `doc/md/` is a conversion of the base text
+/// — the same rule `run.rs` follows for Issue #368, and `spec-errata emit` is where it is read.
+///
+/// So an identifier alone does not name a sequence, and a page whose `/Contents` and whose form
+/// `XObject` both number from zero has two different sequences called `/MCID 0`.
+///
+/// This is the other half of the key, on the same division Table 357's `/Stm` makes: the page's
+/// own content stream, or a stream that entry can name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum ContentStream {
+    /// The page's own `/Contents` (§7.7.3.3 Table 31).
+    ///
+    /// One stream however many parts it has: §7.8.2 makes the parts of an array "a single
+    /// stream", and §14.7.5.4 keys the whole of it by the *page object's* `/StructParents`.
+    #[default]
+    Page,
+    /// A stream Table 357's `/Stm` names — a form `XObject` (§8.10) or an appearance stream
+    /// (§12.5.5) — by the object it is.
+    Object(ObjectId),
+    /// A stream nothing can name: one written as a direct object, or one this program
+    /// constructed for an annotation that stated no appearance (§12.7.4.3).
+    ///
+    /// Table 357 requires `/Stm` to be an indirect reference, so no marked-content reference can
+    /// point at such a stream and no structure element can claim a sequence inside it. A sequence
+    /// here therefore matches nothing, which is the honest answer rather than a gap: the file has
+    /// no way to say the sequence is its.
+    Unnameable,
+}
+
+impl ContentStream {
+    /// Whether Table 357's `/Stm` — absent, or naming an object — names this stream.
+    ///
+    /// ISO 32000-2 §14.7.5.2, of that entry:
+    ///
+    /// > This entry should be present only if the marked-content sequence resides in a content
+    /// > stream other than the content stream for the page (see 8.10, "Form XObjects" and 12.5.5,
+    /// > "Appearance streams"). If this entry is absent, the marked-content sequence shall be
+    /// > contained in the content stream of the page identified by Pg
+    ///
+    /// so an absent `/Stm` names [`Self::Page`] and nothing else.
+    #[must_use]
+    pub fn named_by(self, stm: Option<ObjectId>) -> bool {
+        match (self, stm) {
+            (Self::Page, None) => true,
+            (Self::Object(is), Some(named)) => is == named,
+            _ => false,
+        }
+    }
+}
+
+/// The sequences of `spans` that a structure element's content item names.
+///
+/// The whole of §14.7.5.2's rule, in one place, because three answers rest on it — the text range
+/// a structure element covers, §14.8.3.3's content rectangle, and §14.8.2.5's logical order — and
+/// two of them used to key on the identifier alone.
+///
+/// `mcid` and `stm` are what Table 355's `/K` states: the identifier, and Table 357's `/Stm` where
+/// the item is a marked-content reference that names a stream. Both halves are needed, because the
+/// identifier "uniquely identifies the marked-content sequence within its content stream" and no
+/// further.
+///
+/// # The one recovery, and what it is for
+///
+/// An absent `/Stm` is not silence. §14.7.5.2 makes it a statement about the file:
+///
+/// > If this entry is absent, the marked-content sequence shall be contained in the content stream
+/// > of the page identified by Pg
+///
+/// A file whose sequence is in a form `XObject` and whose `/K` states a bare integer has broken
+/// that `shall`. Two of the corpus's 153 tagged documents do exactly that — every sequence inside
+/// one form, every content item a bare integer, no `/Stm` and no `/StructParents` anywhere — and
+/// read strictly they say nothing at all to a screen reader.
+///
+/// So where the page's own content stream holds **no** sequence with that identifier, and exactly
+/// one other stream does, that one is answered instead. The condition is what makes this a reading
+/// rather than a guess: there is one sequence on the page the file could mean, the clause it broke
+/// leaves no other candidate, and the moment two streams carry the identifier the answer is empty
+/// again rather than both.
+///
+/// **What it costs is written down**: a file that both breaks the `shall` and repeats an identifier
+/// across two streams gets nothing where it used to get something wrong, and a file that breaks it
+/// once gets an attribution this crate inferred rather than one the document stated. Neither is
+/// visible to a caller, which is the honest limit — there is no channel here for a shortfall, for
+/// [`Interpretation::codes_without_a_character`]'s reason (ADR 0152).
+#[must_use]
+pub fn named_sequences(spans: &[MarkedSpan], mcid: i64, stm: Option<ObjectId>) -> Vec<&MarkedSpan> {
+    let exact: Vec<&MarkedSpan> = spans
+        .iter()
+        .filter(|span| span.mcid == mcid && span.stream.named_by(stm))
+        .collect();
+    if !exact.is_empty() || stm.is_some() {
+        return exact;
+    }
+    // The clause's `shall` is broken: nothing in the page's own stream carries this identifier.
+    // One stream carrying it is a reading; two is an ambiguity, and an ambiguity answers nothing.
+    let carried: Vec<&MarkedSpan> = spans.iter().filter(|span| span.mcid == mcid).collect();
+    let one_stream = carried
+        .first()
+        .is_some_and(|first| carried.iter().all(|span| span.stream == first.stream));
+    if one_stream { carried } else { Vec::new() }
+}
+
 /// One §14.7.5.2 marked-content sequence's extent in a page's readback, and on the page.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarkedSpan {
     /// The `/MCID` the sequence's property list stated.
+    ///
+    /// **Not a key on its own** — see [`Self::stream`], which is the rest of it.
     pub mcid: i64,
+    /// The content stream the sequence was read out of, which [`Self::mcid`] is only unique
+    /// within (§14.7.5.2).
+    pub stream: ContentStream,
     /// Where its text sits in [`Interpretation::text`], in bytes.
     ///
     /// Empty for a sequence that showed no text, which is most of them on a page of graphics —

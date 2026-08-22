@@ -174,9 +174,26 @@ pub enum Child {
     /// `None` where neither the reference nor the enclosing element states one.
     MarkedContent {
         /// The `/MCID` this sequence carries in the content stream.
+        ///
+        /// **Not a key on its own**: §14.7.5.2 makes it unique "within its content stream" and
+        /// says nothing wider, so [`Self::MarkedContent::stream`] is the rest of it.
         mcid: i64,
         /// The page object it belongs to, if one was stated.
         page: Option<ObjectId>,
+        /// Table 357's `/Stm`: the content stream the sequence is in, where it is not the page's.
+        ///
+        /// ISO 32000-2 §14.7.5.2, Table 357:
+        ///
+        /// > The content stream containing the marked-content sequence. This entry should be
+        /// > present only if the marked-content sequence resides in a content stream other than
+        /// > the content stream for the page (see 8.10, "Form XObjects" and 12.5.5, "Appearance
+        /// > streams"). If this entry is absent, the marked-content sequence shall be contained
+        /// > in the content stream of the page identified by Pg (either in the marked-content
+        /// > reference dictionary or in the parent structure element).
+        ///
+        /// So `None` is not "unknown": it is the clause's own statement that the sequence is in
+        /// the page's own `/Contents`. [`crate::content::ContentStream::named_by`] is the match.
+        stream: Option<ObjectId>,
     },
     /// §14.7.5.3's object reference (Table 358): a whole object, such as an annotation.
     Object {
@@ -282,7 +299,15 @@ impl Tree {
     fn child(document: &Document, entry: &Object, page: Option<ObjectId>) -> Option<Child> {
         let resolved = document.resolve(entry);
         if let Some(mcid) = resolved.as_integer() {
-            return Some(Child::MarkedContent { mcid, page });
+            // §14.7.5.2 on the bare-integer form: it "may be done in the common case where the
+            // marked-content sequence is contained in the content stream of the page that is
+            // specified in the Pg entry of the structure element dictionary". So an integer names
+            // the page's own stream, with no `/Stm` to say otherwise.
+            return Some(Child::MarkedContent {
+                mcid,
+                page,
+                stream: None,
+            });
         }
         let Object::Dictionary(dict) = resolved else {
             return None;
@@ -294,6 +319,10 @@ impl Tree {
             Some(b"MCR") => Some(Child::MarkedContent {
                 mcid: document.get_key(&dict, "MCID").as_integer()?,
                 page: dict.get("Pg").and_then(Object::as_reference).or(page),
+                // The *reference*, like `/Pg` above and for the same reason: Table 357 makes
+                // `/Stm` an indirect reference, and what identifies a content stream is which
+                // object it is rather than what its bytes resolve to.
+                stream: dict.get("Stm").and_then(Object::as_reference),
             }),
             // Table 358: an object reference. `/Obj` is required and is what identifies it.
             Some(b"OBJR") => Some(Child::Object {
@@ -844,14 +873,24 @@ impl Tree {
     /// [`Self::ancestry`] is the other half — the elements above these — and the two together are
     /// the subtree a page occupies.
     ///
-    /// # The three kinds of content item this looks for
+    /// # The four kinds of content item this looks for
     ///
     /// §14.7.5.1.1 makes a content item a marked-content sequence or a whole object, and Table 359
     /// keys each kind differently: the sequences of one content stream share the stream's
     /// `/StructParents`, and each object carries its own `/StructParent`. The objects a page can
     /// hold are its annotations and the `XObject`s its resources name — the clause's own EXAMPLE 1
-    /// is a form `XObject` — so all three are asked, and a form's resources are followed for the
+    /// is a form `XObject` — so all are asked, and a form's resources are followed for the
     /// `XObject`s drawn inside it.
+    ///
+    /// **The fourth is a form's own `/StructParents`, and it was missing until the
+    /// six-hundred-and-sixty-first session.** §14.7.5.2 gives a form two ways into the structure
+    /// and this route asked only about the first: a form that is a content item *in its entirety*
+    /// carries `/StructParent`, and a form whose stream "may contain one or more marked-content
+    /// sequences that are associated with structure elements" carries `/StructParents` instead —
+    /// which Table 359 says in so many words, quoted under [`Self::stream_owners`].
+    /// An element reached only that way was pruned as belonging to another page, so a figure
+    /// tagged inside a form reached no screen reader at all. [`Self::stream_owners`] is the
+    /// lookup; ADR 0488.
     ///
     /// # Why a generous answer costs nothing, and why `None` is not an empty one
     ///
@@ -974,6 +1013,43 @@ impl Tree {
         self.parent_tree_entry(document, key)?.as_reference()
     }
 
+    /// The elements the sequences of *one content stream* belong to, from its `/StructParents`.
+    ///
+    /// The plural entry, which is the other of ISO 32000-2 §14.7.5.4 Table 359's two and the one
+    /// a page uses:
+    ///
+    /// > Required for all content streams containing marked-content sequences that are structural
+    /// > content items
+    ///
+    /// and Table 359 says where it may sit:
+    ///
+    /// > Depending on the type of content item, this entry may appear in the page object of a page
+    /// > containing marked-content sequences, in the stream dictionary of a form or image XObject,
+    /// > or in an annotation dictionary.
+    ///
+    /// A form `XObject` carrying §14.7.5.2's second arrangement states one — the clause's own
+    /// words are quoted at [`Self::elements_on_page`] — and its array names elements that are on
+    /// this page and reachable no other way.
+    fn stream_owners(
+        &self,
+        document: &Document,
+        stream: &Dictionary,
+        out: &mut BTreeSet<ObjectId>,
+    ) {
+        let Some(key) = document.get_key(stream, "StructParents").as_integer() else {
+            return;
+        };
+        let Some(Object::Array(items)) = self.parent_tree_entry(document, key) else {
+            return;
+        };
+        out.extend(
+            items
+                .iter()
+                .take(MAX_CHILDREN)
+                .filter_map(Object::as_reference),
+        );
+    }
+
     /// [`Self::object_owner`] for every `XObject` a resource dictionary names, and for those the
     /// forms among them name in turn.
     ///
@@ -1010,7 +1086,13 @@ impl Tree {
             let Object::Stream(stream) = &resolved else {
                 continue;
             };
+            // Table 359's two entries, and the clause forbids both at once: "[a]t most one of
+            // these two entries shall be present in a given object. An object may be either a
+            // content item in its entirety or a container for marked-content sequences that are
+            // content items, but not both." So asking for each costs one dictionary lookup and
+            // the second can only answer where the first did not.
             out.extend(self.object_owner(document, &stream.dict));
+            self.stream_owners(document, &stream.dict, out);
             self.xobject_owners(
                 document,
                 &stream.dict,
@@ -1094,13 +1176,14 @@ impl Tree {
         }
         let mut out = String::new();
         for item in order.items {
-            let Child::MarkedContent { mcid, .. } = item else {
+            let Child::MarkedContent { mcid, stream, .. } = item else {
                 continue;
             };
-            for span in &interpretation.marked {
-                if span.mcid == mcid
-                    && let Some(text) = interpretation.text.get(span.range.clone())
-                {
+            // Both halves of §14.7.5.2's key: the identifier is unique only "within its content
+            // stream", so a page whose `/Contents` and whose form `XObject` both number from zero
+            // has two sequences called `/MCID 0` and one of them is not this element's.
+            for span in crate::content::named_sequences(&interpretation.marked, mcid, stream) {
+                if let Some(text) = interpretation.text.get(span.range.clone()) {
                     out.push_str(text);
                 }
             }
@@ -1159,13 +1242,12 @@ impl Tree {
         let mut covered = vec![false; range.len()];
         let mut out = String::new();
         for item in order.items {
-            let Child::MarkedContent { mcid, .. } = item else {
+            let Child::MarkedContent { mcid, stream, .. } = item else {
                 continue;
             };
-            for span in marked {
-                if span.mcid != mcid {
-                    continue;
-                }
+            // §14.7.5.2's identifier and the stream it is unique within; see
+            // [`Self::logical_text`].
+            for span in crate::content::named_sequences(marked, mcid, stream) {
                 let from = span.range.start.max(range.start);
                 let to = span.range.end.min(range.end);
                 if from >= to {
@@ -3084,9 +3166,13 @@ mod tests {
              /RoleMap << /Heading2 /MyHeading /MyHeading /H2 >> >>",
             "<< /Type /StructElem /S /Heading2 /P 4 0 R /Pg 3 0 R /K [0 6 0 R 7 0 R 8 0 R] >>",
             "<< /Type /StructElem /S /Span /P 5 0 R >>",
-            "<< /Type /MCR /Pg 3 0 R /MCID 4 >>",
+            // Table 357's `/Stm`, the entry that says this sequence is *not* in the page's own
+            // content stream — "[t]his entry should be present only if the marked-content
+            // sequence resides in a content stream other than the content stream for the page".
+            "<< /Type /MCR /Pg 3 0 R /Stm 10 0 R /MCID 4 >>",
             "<< /Type /OBJR /Obj 9 0 R >>",
             "<< /Type /Annot /Subtype /Link /Rect [0 0 1 1] >>",
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 1 1] /StructParents 1 >>",
         ]);
         let tree = Tree::of(&doc).expect("a structure tree root");
         let page = pdf_syntax::ObjectId {
@@ -3115,17 +3201,24 @@ mod tests {
             kids.first(),
             Some(&Child::MarkedContent {
                 mcid: 0,
-                page: Some(page)
+                page: Some(page),
+                stream: None
             }),
-            "an integer takes its page from the element's /Pg"
+            "an integer takes its page from the element's /Pg, and names the page's own stream"
         );
         assert!(matches!(kids.get(1), Some(Child::Element(_))));
         assert_eq!(
             kids.get(2),
             Some(&Child::MarkedContent {
                 mcid: 4,
-                page: Some(page)
-            })
+                page: Some(page),
+                stream: Some(pdf_syntax::ObjectId {
+                    number: 10,
+                    generation: 0
+                })
+            }),
+            "Table 357's /Stm names the stream the sequence is in, and /MCID 4 there is not \
+             /MCID 4 in the page's own content stream"
         );
         assert_eq!(
             kids.get(3),

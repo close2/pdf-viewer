@@ -53,8 +53,8 @@ mod transparency;
 mod xobject;
 
 pub use report::{
-    ArtifactSpan, DamagedStream, Interpretation, MarkedSpan, Placed, Shortfall, UnnamedCodes,
-    Unsupported,
+    ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed, Shortfall,
+    UnnamedCodes, Unsupported, named_sequences,
 };
 
 /// Deepest nesting of `q`/`Q` that will be tracked.
@@ -497,6 +497,7 @@ impl<'a> Interpreter<'a> {
             described: Vec::new(),
             artifacts: Vec::new(),
             marked: Vec::new(),
+            stream: ContentStream::Page,
             marking: Vec::new(),
             clip_extents: Vec::new(),
             inferred_separators: 0,
@@ -516,7 +517,8 @@ impl<'a> Interpreter<'a> {
             icc_spaces: BTreeMap::new(),
             image_masks: crate::image::MaskCache::default(),
             image_rasters: crate::image::RasterCache::default(),
-            structure: crate::structure::ParentTree::for_page(document, &page.dict),
+            structure: Arc::new(crate::structure::ParentTree::for_page(document, &page.dict)),
+            stream_structures: BTreeMap::new(),
             output_intent: output_intent_space(document),
             optional_content: state.optional_content().cloned(),
             view: state,
@@ -995,7 +997,15 @@ struct Interpreter<'a> {
     /// Read once when the page is interpreted, because the lookup it answers — a
     /// marked-content identifier to its structure element — happens per `BDC` and the tree is
     /// a number tree walk. 87 of the 974 corpus documents have a structure tree at all.
-    structure: crate::structure::ParentTree,
+    structure: Arc<crate::structure::ParentTree>,
+    /// The same tree for each *other* content stream that stated a `/StructParents` of its own.
+    ///
+    /// §14.7.5.4 gives every content stream holding structure content items its own entry, so a
+    /// form `XObject` has a parent tree of its own and a page drawing it many times reads that
+    /// entry many times. Keyed by the object the stream is, which is what makes two `Do`s of one
+    /// form the same stream. Empty for every document with no structure inside a form, which is
+    /// almost all of them.
+    stream_structures: BTreeMap<ObjectId, Arc<crate::structure::ParentTree>>,
     /// The colour space the document's output intent describes, if it has one.
     ///
     /// ISO 32000-2 §14.11.5: an output intent's `/DestOutputProfile` is "an ICC profile
@@ -1012,6 +1022,18 @@ struct Interpreter<'a> {
     artifacts: Vec<ArtifactSpan>,
     /// §14.7.5.2's marked-content spans, in the order their sections closed.
     marked: Vec<MarkedSpan>,
+    /// Which content stream the operators now being read came out of (§14.7.5.2).
+    ///
+    /// [`ContentStream::Page`] while the page's own `/Contents` is running, and replaced for the
+    /// span of a form `XObject`'s or an appearance's stream by [`Interpreter::draw_xobject`] and
+    /// [`Interpreter::draw_appearance`] — because a `/MCID` "uniquely identifies the
+    /// marked-content sequence within its content stream" and not beyond it, so the two together
+    /// are what names a sequence.
+    ///
+    /// **A Type 3 glyph description does not replace it, deliberately.** §9.6.4 makes a
+    /// `/CharProc` how one *glyph* of the enclosing stream's text is painted; its marks belong to
+    /// the show operation that asked for them, and therefore to whatever sequence encloses that.
+    stream: ContentStream,
     /// One entry per open marked-content sequence that stated an `/MCID`, innermost last.
     ///
     /// What each entry accumulates is §14.8.3.3's content rectangle for that sequence — "derived

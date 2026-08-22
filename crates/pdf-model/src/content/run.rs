@@ -987,6 +987,9 @@ impl Interpreter<'_> {
                         if let Some(mcid) = section.mcid {
                             self.marked.push(MarkedSpan {
                                 mcid,
+                                // The identifier is unique "within its content stream" and no
+                                // further, so which stream this is is half the key.
+                                stream: self.stream,
                                 range: section.starts_at..self.text.len(),
                                 drawn,
                             });
