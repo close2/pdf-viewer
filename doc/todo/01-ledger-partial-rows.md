@@ -3769,8 +3769,17 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   band is: §8.6.5.7's *first sentence* said "no place the shortcut would apply" while the same note
   three sentences down had said since the four-hundred-and-thirty-sixth that the conversion **is**
   performed on a page compositing in a press — the sixth failure shape, 227 sessions old, in the row
-  the ordering puts second. **The rows left at the top are §10.7.5 at rank 1, §7.6.4 and §7.6.4.4 at
-  2–3, §11.5.3 at 4 and §11.3.4 at 5**, then the cluster of nine.
+  the ordering puts second. ~~**The rows left at the top are §10.7.5 at rank 1, §7.6.4 and §7.6.4.4 at
+  2–3, §11.5.3 at 4 and §11.3.4 at 5**, then the cluster of nine.~~ **Re-derived in the
+  six-hundred-and-sixty-seventh over a base of 879 commits, where that prediction came out exactly
+  again** — 242 `partial`-or-`reported` rows with a blamed note, §10.7.5 at 1, §7.6.4 and §7.6.4.4 at
+  2–3, §11.5.3 at 4, §11.3.4 at 5, then the cluster of nine at 6–14. **That round read ranks 1 and 4
+  and then went where step 7 pointed**, as 663 did: §11.5.3's `partial` rests on two residues and the
+  one it writes out is asked for by no document in either population, while the one it is silent
+  about is the crawl's majority case. **The rows left at the top are §7.6.4 and §7.6.4.4 at ranks 1–2
+  and §11.3.4 at 3**, then the cluster of nine — and the two aggregates are sweep 10's shape rather
+  than 620's, so a round taking them is checking arithmetic over a family and not a claim about the
+  tree.
 - **A negative measured before the crawl is a negative nobody has measured, and the crawl is on this
   disk.** `doc/habits.md` says a negative claim decays when the population grows; the
   six-hundred-and-sixty-third was the first round to act on it in the ledger and the first row it
@@ -3785,6 +3794,24 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   seconds. About sixty sentences of this form are left in `ledger.toml`; **read them with the
   control run as well as the crawl run**, because the old sentence is usually right about its own
   population, which is exactly why nothing in the tree can see it. ADR 0490.
+  **Six more were re-derived in the six-hundred-and-sixty-seventh, outside 663's two families, and
+  two of them were false** (ADR 0493). "About sixty" was an impression and the population is a
+  command:
+
+  ```sh
+  grep -o -E '[^.]*(no corpus document|nothing in the corpus|no corpus |no witness|no document (in|states|carries))[^.]*\.' doc/conformance/ledger.toml | wc -l
+  ```
+
+  Three things that round adds, and the first is the one that had blocked the others:
+  **an instrument has a population too.** `witness_census`, the census the five-hundred-and-seventieth
+  built *for* absence claims, had `doc/pdf.js`, `doc/corpora` and this project's fixtures hard-coded,
+  so §12.5.6.7's "no document in **any population this project measures**" was a true sentence about
+  the census reading as one about the world — `--crawl` is a scope on it now. **A name census is not
+  a structural one**: `witness_census --crawl CL` says 81 documents and `free_text_census` says 33
+  annotations, because three of four spot-checked `/CL`s are resource keys (ADR 0403's own warning,
+  paid again). And **a zero owes a control** — `luminosity_mask_census` prints the blends it finds in
+  any space beside the ones it finds in the space the row is about, and a planted fixture was run
+  through both the census and `interpret` before the zero was written down.
   Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.
@@ -3801,6 +3828,16 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   conclusion the six-hundred-and-fifty-second reached about §9.8.1's — **an entry list lives in one
   row**. ADR 0485, and it is not a gate: these levels move for good reasons every round and pinning
   them would make twelve reading lists into twelve ratchets.
+  **And the six-hundred-and-sixty-seventh added a third catch and a noise shape with it.** `--bin
+  owed` went 181 unnamed terms over 114 rows to 182 over 115 and the row that left the reading list
+  was §11.5.3's, on the term **`luminosity`** — which is not a debt but the leading segment of the
+  citation `examples/luminosity_mask_census`, read as a `/Key` because a solidus followed by letters
+  is what that sweep's key extractor looks for. **It is a standing shape rather than a new one**:
+  `examples/border_precedence_census` yields `border`, which no source names either, so *every* row
+  that obeys `CLAUDE.md`'s "write down the command" rule inside a `partial` note moves this level by
+  one. Neither repair is right — dropping the citation is the instrument choosing what the ledger may
+  say (ADR 0490 §6), and teaching the extractor about paths is a guess, because a `/Key` and a path
+  segment are the same characters. Know the shape and account for the one. ADR 0493.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.

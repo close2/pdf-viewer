@@ -53,6 +53,29 @@ use pdf_syntax::{Dictionary, Document, Object};
 /// them; a link states neither, because Table 176 gives a link neither entry.
 const MARKUP_LABELS: [&str; 2] = ["T", "Subj"];
 
+/// Table 167's flags, in bit order, so that a count can be attributed to a name.
+///
+/// §12.5.3 numbers them from 1 and this array is indexed from 0, which is the one place a
+/// reader of an annotation's `/F` goes wrong: bit 9, `ToggleNoView`, is `1 << 8`.
+///
+/// The reason they are counted here rather than in `free_text_census` is the population.
+/// §12.5.3's ledger row rested on "no corpus document sets bit 9, on a scan of every
+/// **uncompressed** `/F`" — a claim about a byte search rather than about the documents, and
+/// an `/F` inside an object stream is invisible to one. This walk resolves every annotation
+/// through the object model, so a compressed one is counted like any other.
+const ANNOTATION_FLAGS: [&str; 10] = [
+    "Invisible",
+    "Hidden",
+    "Print",
+    "NoZoom",
+    "NoRotate",
+    "NoView",
+    "ReadOnly",
+    "Locked",
+    "ToggleNoView",
+    "LockedContents",
+];
+
 /// One document's counters.
 #[derive(Default)]
 struct Census {
@@ -83,6 +106,10 @@ struct Census {
     popup_windows_with_text: usize,
     /// A few `/Contents` values, so that a reader can see what kind of remark they are.
     samples: Vec<String>,
+    /// How many annotations set each of [`ANNOTATION_FLAGS`], and how many state an `/F` at all.
+    flags: BTreeMap<&'static str, usize>,
+    /// How many state Table 167's `/F` with a value this reader can read as an integer.
+    flagged: usize,
 }
 
 impl Census {
@@ -160,6 +187,16 @@ impl Census {
         if document.get_key(annotation, "Popup").as_dict().is_some() {
             self.popup_entry = self.popup_entry.saturating_add(1);
         }
+        if let Some(bits) = document.get_key(annotation, "F").as_integer() {
+            self.flagged = self.flagged.saturating_add(1);
+            for (index, name) in ANNOTATION_FLAGS.iter().enumerate() {
+                // §12.5.3 numbers Table 167's positions from 1, so bit `n` is `1 << (n - 1)`.
+                if bits & (1_i64 << index) != 0 {
+                    let counter = self.flags.entry(name).or_default();
+                    *counter = counter.saturating_add(1);
+                }
+            }
+        }
     }
 
     /// This document's block of the report.
@@ -175,6 +212,20 @@ impl Census {
             .map(|(subtype, count)| format!("{subtype}={count}"))
             .collect();
         println!("  subtypes: {}", subtypes.join(" "));
+        let flags: Vec<String> = self
+            .flags
+            .iter()
+            .map(|(name, count)| format!("{name}={count}"))
+            .collect();
+        println!(
+            "  /F stated by {}: {}",
+            self.flagged,
+            if flags.is_empty() {
+                "no bit set".to_owned()
+            } else {
+                flags.join(" ")
+            }
+        );
         println!(
             "  /Contents {} ({} chars)  /RC {}  /Popup {}  popup windows {} ({} with text)",
             self.contents,
@@ -343,6 +394,11 @@ impl Census {
             *counter = counter.saturating_add(*count);
         }
         self.years.extend(other.years.iter().copied());
+        for (name, count) in &other.flags {
+            let counter = self.flags.entry(name).or_default();
+            *counter = counter.saturating_add(*count);
+        }
+        self.flagged = self.flagged.saturating_add(other.flagged);
         self.popup_entry = self.popup_entry.saturating_add(other.popup_entry);
         self.popup_windows = self.popup_windows.saturating_add(other.popup_windows);
         self.popup_windows_with_text = self
