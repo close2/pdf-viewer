@@ -224,25 +224,46 @@ type Backend = (
     Box<dyn FnMut(&DisplayList, TargetSpec) -> Raster>,
 );
 
-/// The three backends, each built once per scene so that a device is not held across the run.
+/// The three backends, **built once for the whole test** and each arm omitted where its device
+/// cannot be created.
+///
+/// **Both halves of that sentence were paid for by one CI run.** This returned a fresh set per
+/// scene, and it was called from the innermost loop — two graphics devices created twenty-four
+/// times in one test. On a runner with no display `wgpu` falls back to GL, and `wgpu-hal`'s EGL
+/// path `unwrap()`s a `BadDisplay` on the *second* display it is asked for, so the first scene
+/// passed and the second aborted the test inside a dependency. That is
+/// `doc/traps/pixels-and-rasterisers.md` trap 12b's fourth lesson again: where a dependency
+/// returns success, ask what it does when it fails — and here it does not return at all.
+///
+/// So the devices are built once, which is what `render-gpu/tests/real_pages.rs` has always done
+/// and is why that test survives the same runner. And a device that cannot be built **omits its
+/// arm with a reason printed** rather than failing the test: a machine without a graphics adapter
+/// cannot answer this question, and a test that fails there is a coin toss rather than a gate —
+/// `doc/todo/02` §2's argument for the C compiler line, one crate over. The processor's arm is
+/// never omitted, so the test still asserts something everywhere.
 fn backends() -> Vec<Backend> {
     let mut cpu = render_cpu::CpuRasterizer::new();
-    let mut quorra = QuorraRasterizer::new_headless().expect("a quorra device");
-    let mut gpu = render_gpu::GpuRasterizer::new_headless().expect("a vello device");
-    vec![
-        (
-            "processor",
-            Box::new(move |list, target| cpu.rasterize(list, target).expect("a cpu raster")),
-        ),
-        (
+    let mut backends: Vec<Backend> = vec![(
+        "processor",
+        Box::new(move |list, target| cpu.rasterize(list, target).expect("a cpu raster")),
+    )];
+
+    match QuorraRasterizer::new_headless() {
+        Ok(mut quorra) => backends.push((
             "quorra",
             Box::new(move |list, target| quorra.rasterize(list, target).expect("a quorra raster")),
-        ),
-        (
+        )),
+        Err(why) => println!("  omitted: quorra has no device here ({why})"),
+    }
+    match render_gpu::GpuRasterizer::new_headless() {
+        Ok(mut gpu) => backends.push((
             "vello",
             Box::new(move |list, target| gpu.rasterize(list, target).expect("a vello raster")),
-        ),
-    ]
+        )),
+        Err(why) => println!("  omitted: vello has no device here ({why})"),
+    }
+
+    backends
 }
 
 /// Total ink over a raster, in device pixels, against the white medium.
@@ -265,6 +286,7 @@ fn ink(raster: &Raster) -> f64 {
 /// be indistinguishable here otherwise.
 #[test]
 fn a_mark_that_cannot_be_positioned_costs_only_itself() {
+    let mut backends = backends();
     for (kind, at) in SINGULAR {
         assert_eq!(at.invert(), None, "{kind} has to be the case under test");
         for (paint_name, paint) in [
@@ -275,7 +297,7 @@ fn a_mark_that_cannot_be_positioned_costs_only_itself() {
                 let (defect, twin) = pair(at, &paint, stroked);
                 for scale in [1.0_f32, 2.5] {
                     let target = TargetSpec::for_page(&defect, scale, 1 << 30).expect("a target");
-                    for (name, draw) in &mut backends() {
+                    for (name, draw) in &mut backends {
                         let with = draw(&defect, target);
                         let without = draw(&twin, target);
                         println!(
@@ -320,13 +342,14 @@ fn the_same_command_under_an_invertible_matrix_marks_the_page() {
         f: 50.0,
     };
     assert!(at.invert().is_some(), "the control has to be invertible");
+    let mut backends = backends();
     for (paint_name, paint) in [
         ("solid", Paint::Solid(Color::BLACK)),
         ("shading", gradient()),
     ] {
         let (drawn, twin) = pair(at, &paint, false);
         let target = TargetSpec::for_page(&drawn, 1.0, 1 << 30).expect("a target");
-        for (name, draw) in &mut backends() {
+        for (name, draw) in &mut backends {
             let with = ink(&draw(&drawn, target));
             let without = ink(&draw(&twin, target));
             println!("  control {paint_name:>7} {name:>9}: ink {with:.3} against {without:.3}");
