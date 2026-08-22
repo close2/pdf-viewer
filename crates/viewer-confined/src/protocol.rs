@@ -3445,6 +3445,7 @@ mod tests {
                 annotation: None,
                 headers: Vec::new(),
                 lines: Vec::new(),
+                drawn: None,
             },
             // A `Figure` marks no text, so Table 379's `/BBox` is the only place it has — and
             // a rectangle that did not cross would leave a magnifier nothing to point at.
@@ -3461,6 +3462,9 @@ mod tests {
                 annotation: None,
                 headers: Vec::new(),
                 lines: Vec::new(),
+                // §14.8.3.3's content rectangle beside the stated one, because the host chooses
+                // between them and a boundary that carried only one would make that choice here.
+                drawn: Some([7.5, 8.5, 10.5, 11.5]),
             },
             // A `TH` whose axis Table 384 states, because a header cell that crossed as a
             // column's when the document called it a row's would be read out backwards.
@@ -3477,6 +3481,7 @@ mod tests {
                 annotation: None,
                 headers: Vec::new(),
                 lines: Vec::new(),
+                drawn: None,
             },
             // §14.8.4.7.2's `Form`, which is one widget annotation: the control it names is
             // what makes a screen reader say "check box, ticked" instead of "group", so a
@@ -3495,6 +3500,7 @@ mod tests {
                 annotation: Some(ObjectId::new(7, 0)),
                 headers: Vec::new(),
                 lines: Vec::new(),
+                drawn: None,
             },
             // And a `TD` that §14.8.4.8.3's search gave the header beside it, because a cell
             // whose headers did not cross would be announced with nothing in front of it.
@@ -3527,6 +3533,9 @@ mod tests {
                         },
                     ],
                 }],
+                // A cell whose only place is what its content drew, which is the population
+                // §14.8.3.3's content rectangle exists for and the one this field carries.
+                drawn: Some([0.0, 0.0, 20.0, 10.0]),
             },
         ];
         // Two pages, because a column crosses several and a decoder that read one page's list

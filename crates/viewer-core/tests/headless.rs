@@ -3299,6 +3299,100 @@ fn an_element_that_marks_no_text_crosses_with_the_bounds_the_document_states() {
         ]),
         "a rectangle beyond the page is clipped to the page, which is all of it that is visible",
     );
+
+    // And the same figure's *own* marks, which is what §14.8.3.3 derives a content rectangle
+    // from. `0 0 10 10 re` on a page `/Rotate 90` turns clockwise onto the strip along the
+    // displayed page's top edge — 10 units of the 100-unit width, 10 units of the 200-unit
+    // height — and the difference from the stated rectangle above is the whole point: one is
+    // the page and the other is the figure.
+    assert_eq!(
+        whole_plane.drawn,
+        Some([
+            second.origin.0,
+            second.origin.1,
+            second.origin.0 + 10.0 * second.scale,
+            second.origin.1 + 10.0 * second.scale,
+        ]),
+        "the marks say where the figure is, whatever its producer wrote: {whole_plane:?}",
+    );
+}
+
+/// §14.8.3.3's content rectangle crosses for an element the text layer cannot place.
+///
+/// ISO 32000-2 §14.8.3.3, of every block- and inline-level structure element:
+///
+/// > The content rectangle shall be derived from the shape of the enclosed content and defines
+/// > the bounds used for the layout of any included child elements.
+///
+/// §14.8.5.4.5 states that derivation for the cases that are marks rather than layout, and this
+/// is it: the figure's content is a filled rectangle and no glyph, so
+/// [`viewer_core::AccessibilityNode::quads`] is empty and only what was drawn can place it.
+///
+/// **Written out from the page's own space rather than from the code** (trap 12a): the fill is
+/// `20 30 60 40 re`, so its box is `[20 30 80 70]` with y up from the bottom of a 100-unit page,
+/// and the viewport's origin and scale come from [`Query::PageGeometry`] — a different answer of
+/// the viewer's than the one under test.
+///
+/// It is asserted **beside** the stated `/BBox`, not instead of it: this fixture's producer wrote
+/// a rectangle that agrees with its marks, which is what a conforming file does, and the two
+/// still cross as two statements because a host chooses between them.
+#[test]
+fn an_element_that_marks_no_text_crosses_with_the_rectangle_its_content_drew() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_figure(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let first_frame = request(&events).clone();
+    serve(&mut viewer, &first_frame);
+
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("a page has a geometry");
+    };
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let nodes = on_one_page(pages);
+    let named = |name: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == name)
+            .unwrap_or_else(|| panic!("{name} is on the page: {nodes:?}"))
+            .clone()
+    };
+
+    let figure = named("a chart");
+    assert!(
+        figure.quads.is_empty(),
+        "the figure marks no text, so the text layer places it nowhere: {figure:?}"
+    );
+    assert_eq!(
+        figure.drawn,
+        Some([
+            geometry.origin.0 + 20.0 * geometry.scale,
+            geometry.origin.1 + 30.0 * geometry.scale,
+            geometry.origin.0 + 80.0 * geometry.scale,
+            geometry.origin.1 + 70.0 * geometry.scale,
+        ]),
+        "the fill the figure encloses is where the figure is: {figure:?}",
+    );
+
+    // The caption's sequence drew glyphs, so it has a content rectangle too — coarser than its
+    // quadrilaterals and answering the same question, which is why `tree::place` asks the
+    // quadrilaterals first.
+    let caption = named("a caption");
+    assert!(
+        caption.drawn.is_some(),
+        "a sequence that drew glyphs marked the page: {caption:?}"
+    );
+    assert_eq!(
+        caption.bounds, None,
+        "an element stating no /BBox has said nothing about where it is"
+    );
 }
 
 /// Table 384's `/Scope` crosses for a `TH`, stated or assumed, and for nothing else.

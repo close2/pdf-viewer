@@ -1828,9 +1828,42 @@ impl Viewer {
                     |start, end| self.device_quads(open, index, (start, end)),
                     |ranges| self.device_lines(open, index, ranges),
                     |rect| self.device_rect(open, index, rect),
+                    |rect| self.device_marks(open, index, rect),
                 )
             })
             .collect()
+    }
+
+    /// A rectangle in the **display list's** space, in device pixels of the viewport.
+    ///
+    /// §14.8.3.3's content rectangle is the caller this exists for, and it is one transform
+    /// *shorter* than [`Self::device_rect`]: what the interpreter unioned are the commands' own
+    /// bounds, which are already past §7.7.3.3's `/Rotate` and the crop box's origin because the
+    /// display list is. So this is [`Self::device_quads`]'s arithmetic over two corners — the
+    /// magnification, the centring and the y flip — and nothing else.
+    ///
+    /// The corners are sorted after the flip rather than assumed to keep their order, for
+    /// [`Self::device_rect`]'s reason: exchanging the y coordinates exchanges which corner is the
+    /// minimum.
+    ///
+    /// **The page is not applied as a limit here**, and that is the difference from
+    /// [`Self::device_rect`]. That one clips because Table 379's rectangle is a *claim* a producer
+    /// made and §14.11.2.1 says how much of the page can be looked at; this one is the union of
+    /// commands that were actually put in the display list, each already narrowed by its own clip,
+    /// and a backend applies the page boundary to those same commands. Clipping twice would be
+    /// this crate second-guessing what it drew.
+    ///
+    /// `None` when the page is not on the screen, which is when its origin and magnification
+    /// cannot be read.
+    fn device_marks(&self, open: &Open, page: usize, rect: [f32; 4]) -> Option<[f32; 4]> {
+        let magnification = open.magnification(self.viewport, self.scale)?;
+        let height = open.page_size(page).map(|size| size.height)?;
+        let origin = open.on(page).map(|on_screen| on_screen.origin)?;
+        let x0 = origin.0 + rect[0] * magnification;
+        let x1 = origin.0 + rect[2] * magnification;
+        let y0 = origin.1 + (height - rect[1]) * magnification;
+        let y1 = origin.1 + (height - rect[3]) * magnification;
+        Some([x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)])
     }
 
     /// A rectangle stated in **default user space**, in device pixels of the viewport.

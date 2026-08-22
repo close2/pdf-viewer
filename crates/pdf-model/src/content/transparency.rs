@@ -1541,7 +1541,7 @@ impl Interpreter<'_> {
             // inherited from the parent group or page". Whatever it inherited is already
             // reported where it was introduced, and this branch does not change it.
             for command in commands {
-                self.list.push(command);
+                self.draw(command);
             }
             return;
         }
@@ -1680,7 +1680,7 @@ impl Interpreter<'_> {
         // point" — under the state in force at `Do`, which is where `ca` and `/BM` were left
         // by the caller. `ca` and not `CA`, because painting a form is not a stroking
         // operation and §11.6.4.4 gives `CA` to those alone.
-        self.list.push(Command::Group {
+        self.draw(Command::Group {
             commands,
             alpha: outer.fill_alpha,
             clip: inner.clip,

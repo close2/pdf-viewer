@@ -872,6 +872,7 @@ impl Interpreter<'_> {
                     let mcid = self
                         .property_list(resources, operands.get(1))
                         .and_then(|list| self.document.get_key(&list, "MCID").as_integer());
+                    self.open_marking(mcid);
                     marked.push(Marked {
                         hides,
                         starts_at: self.text.len(),
@@ -969,10 +970,12 @@ impl Interpreter<'_> {
                         // §14.7.5.2's identifier over the same range, for the same reason and
                         // after the same replacements: this is where a structure element's
                         // content actually is in the readback.
+                        let drawn = self.close_marking(section.mcid);
                         if let Some(mcid) = section.mcid {
                             self.marked.push(MarkedSpan {
                                 mcid,
                                 range: section.starts_at..self.text.len(),
+                                drawn,
                             });
                         }
                         // §14.13.5's files belong to the graphics objects the section enclosed,
@@ -1064,6 +1067,15 @@ impl Interpreter<'_> {
             self.note(Unsupported::Operator {
                 operator: "BDC without EMC".to_owned(),
             });
+        }
+        // And it must not leave the *extent* of an unclosed sequence collecting the marks of
+        // whatever runs next. A form `XObject` may hold sequences of its own (§14.7.5.2), so
+        // this stream's leaked entries are dropped rather than the whole stack: what the
+        // sequence enclosed is unknowable, and the span it would have produced is never
+        // recorded because no `EMC` reached it. Reported through the same operator note above,
+        // which is the same defect said once.
+        for section in &marked {
+            self.close_marking(section.mcid);
         }
     }
 }

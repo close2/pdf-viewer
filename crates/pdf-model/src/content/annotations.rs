@@ -201,7 +201,7 @@ impl Interpreter<'_> {
         let path = Arc::new(path);
         let paint = Paint::Solid(Color::rgb(1.0, 1.0, 1.0));
         match width {
-            None => self.list.push(Command::Fill {
+            None => self.draw(Command::Fill {
                 path,
                 transform: base,
                 fill_rule: FillRule::NonZero,
@@ -227,7 +227,7 @@ impl Interpreter<'_> {
                 path.push(PathCommand::LineTo(Point::new(inset[2], inset[3])));
                 path.push(PathCommand::LineTo(Point::new(inset[0], inset[3])));
                 path.push(PathCommand::Close);
-                self.list.push(Command::Stroke {
+                self.draw(Command::Stroke {
                     path: Arc::new(path),
                     transform: base,
                     stroke: Stroke {

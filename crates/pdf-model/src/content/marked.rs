@@ -5,6 +5,8 @@
 //! what follows marks the page, what a reader copies from it, and what a screen reader says
 //! about it — and the types here are that nesting's state.
 
+use pdf_render::display_list::Command;
+use pdf_render::geom::{Rect, Transform};
 use pdf_syntax::{Dictionary, Object};
 
 use super::Interpreter;
@@ -49,6 +51,20 @@ pub(super) struct Marked {
     pub(super) reversed: bool,
 }
 
+/// What [`Interpreter::clip_extent`] has worked out about one of the display list's clips.
+///
+/// Three states rather than two nested `Option`s, because the middle one is the surprising one:
+/// **a clip chain that admits nothing is an answer** — §8.5.4 makes each `W` intersect what is
+/// already there, so two paths that do not meet leave no pixel — and it is worth keeping so that
+/// the walk is not repeated for every command inside it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum ClipExtent {
+    /// No command inside a marked-content sequence has been clipped by this one yet.
+    Unasked,
+    /// The region it admits, or `None` where it admits none.
+    Known(Option<Rect>),
+}
+
 /// §14.9's three spoken-form entries as one section states them.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Accessible {
@@ -70,6 +86,126 @@ impl Accessible {
 }
 
 impl Interpreter<'_> {
+    /// Appends a drawing command, and records what it contributes to the sequence enclosing it.
+    ///
+    /// **The one route from the interpreter into the display list.** ISO 32000-2 §14.8.3.3 gives
+    /// every block- and inline-level structure element a content rectangle and says where it comes
+    /// from:
+    ///
+    /// > The content rectangle shall be derived from the shape of the enclosed content and defines
+    /// > the bounds used for the layout of any included child elements.
+    ///
+    /// §14.8.5.4.5 states the derivation for the two cases that are marks rather than layout — a
+    /// table cell's is "determined from the bounding box of all graphics objects in the cell's
+    /// content", an illustration's the same — so unioning each command's bound as it is emitted is
+    /// the standard's own construction and not an invention of this program. What it yields is
+    /// recorded as [`super::report::MarkedSpan::drawn`], which is a *derived* extent and stays
+    /// separate from Table 379's `/BBox`, the producer's own statement.
+    ///
+    /// # Two things the union is narrowed by, and one it is not
+    ///
+    /// The command's bound is intersected with its clip chain, because §14.8.5.4.3's rectangle
+    /// encloses "visible" content and a mark outside the clip is painted nowhere. It is **not**
+    /// narrowed by the page boundary here: §14.11.2.1's crop box is a fact about the page rather
+    /// than about the command, and `viewer_core` already applies it to the stated rectangle in the
+    /// one place that holds both (ADR 0301).
+    ///
+    /// And it is a **bound**: [`Command::device_bounds`] counts a curve's control points and a
+    /// mitre's reach, so the rectangle is never smaller than the ink. That is the direction a
+    /// focus ring has to err in.
+    ///
+    /// # What it costs
+    ///
+    /// One `Vec::is_empty` per command on an untagged page, which is nearly every page, and that
+    /// is the whole of what 885 of the corpus's 974 documents pay.
+    ///
+    /// On a tagged one it is a rectangle per command, and the A/B is this function with its body
+    /// short-circuited, rebuilt, under callgrind — a stopwatch is the wrong instrument for a
+    /// change this size (ADR 0312). Fifty interpretations of ISO 32000-2's page 101, a dense
+    /// tagged page of text and vector graphics: **1236.7 M instructions without it and 1294.3 M
+    /// with**, which is **1.15 M per page, 4.7% of what interpreting that page costs**. The same
+    /// page interpreted once is 184.7 M against 185.8 M, and page *one* of the same document —
+    /// the launch page, and the number `CLAUDE.md`'s startup rules bind — is 170.69 M against
+    /// 170.93 M, **+0.14%**.
+    ///
+    /// Two thirds of the 1.15 M is the command's own bound and one third was the clip chain,
+    /// before [`Interpreter::clip_extent`] stopped re-walking one that three hundred consecutive
+    /// runs of a page share: with the chain walked per command it was 1.46 M rather than 1.15 M.
+    /// The walk under both is [`pdf_render::geom::Path::hull`], computed once per distinct path
+    /// and kept, so a page repeating one glyph outline pays for it once.
+    pub(super) fn draw(&mut self, command: Command) {
+        if !self.marking.is_empty() {
+            let bounds = command.device_bounds(Transform::IDENTITY);
+            let bounds = match (bounds, command.clip()) {
+                (Some(bounds), None) => Some(bounds),
+                (Some(bounds), Some(clip)) => self
+                    .clip_extent(clip)
+                    .and_then(|region| bounds.intersection(region)),
+                (None, _) => None,
+            };
+            if let Some(bounds) = bounds
+                && let Some(slot) = self.marking.last_mut()
+            {
+                *slot = Some(match *slot {
+                    None => bounds,
+                    Some(open) => open.union(bounds),
+                });
+            }
+        }
+        self.list.push(command);
+    }
+
+    /// [`pdf_render::DisplayList::clip_bounds`], answered once per clip rather than per command.
+    ///
+    /// A clipping region is immutable once `add_clip` has returned its identifier and the table
+    /// only grows, so an answer is good for the rest of the page — and a page states far fewer
+    /// clips than it does commands: ISO 32000-2's page 6 wraps `q`/`W n`/`Q` around **303** text
+    /// runs and states **one** region between them (ADR 0132 measured the same ratio for a
+    /// different reason). Without this the chain was walked and mapped once per command, which
+    /// was a third of what [`Interpreter::draw`] costs on a tagged page.
+    ///
+    /// Indexed rather than keyed, because [`pdf_render::ClipId`] *is* an index into that table.
+    fn clip_extent(&mut self, id: pdf_render::ClipId) -> Option<Rect> {
+        let index = id.index();
+        if self.clip_extents.len() <= index {
+            self.clip_extents
+                .resize(index.saturating_add(1), ClipExtent::Unasked);
+        }
+        if let Some(&ClipExtent::Known(known)) = self.clip_extents.get(index) {
+            return known;
+        }
+        let answer = self.list.clip_bounds(id);
+        if let Some(slot) = self.clip_extents.get_mut(index) {
+            *slot = ClipExtent::Known(answer);
+        }
+        answer
+    }
+
+    /// Opens a sequence's extent, where the sequence stated an `/MCID`.
+    pub(super) fn open_marking(&mut self, mcid: Option<i64>) {
+        if mcid.is_some() {
+            self.marking.push(None);
+        }
+    }
+
+    /// Closes it, and hands the enclosing sequence what this one enclosed.
+    ///
+    /// The inner extent goes to the outer one because §14.8.3.3's rectangle is derived from *the
+    /// enclosed* content, and a sequence that encloses another encloses its marks. §14.7.5.1.1
+    /// forbids that nesting between two structure content items, so on a conforming file this
+    /// branch never runs; it is what keeps a file that does it anyway from losing the marks.
+    pub(super) fn close_marking(&mut self, mcid: Option<i64>) -> Option<[f32; 4]> {
+        mcid?;
+        let mine = self.marking.pop().flatten()?;
+        if let Some(slot) = self.marking.last_mut() {
+            *slot = Some(match *slot {
+                None => mine,
+                Some(open) => open.union(mine),
+            });
+        }
+        Some([mine.min.x, mine.min.y, mine.max.x, mine.max.y])
+    }
+
     /// Whether the content being interpreted right now belongs to a hidden layer.
     ///
     /// What this suppresses is *marking the page*, and nothing else. §8.11.3.1 is explicit

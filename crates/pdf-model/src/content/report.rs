@@ -603,8 +603,8 @@ impl UnnamedCodes {
     }
 }
 
-/// One §14.7.5.2 marked-content sequence's extent in a page's readback.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One §14.7.5.2 marked-content sequence's extent in a page's readback, and on the page.
+#[derive(Debug, Clone, PartialEq)]
 pub struct MarkedSpan {
     /// The `/MCID` the sequence's property list stated.
     pub mcid: i64,
@@ -614,6 +614,27 @@ pub struct MarkedSpan {
     /// and an empty range is still recorded, because "this element's content drew nothing
     /// readable" and "this element has no content" are different statements.
     pub range: std::ops::Range<usize>,
+    /// Where the sequence's marks are, in the display list's own coordinates: `[x0, y0, x1, y1]`.
+    ///
+    /// §14.8.3.3 gives every block- and inline-level structure element a content rectangle
+    /// "derived from the shape of the enclosed content", and §14.8.5.4.5 states that derivation
+    /// for the cases that are marks rather than layout — a table cell's rectangle is "determined
+    /// from the bounding box of all graphics objects in the cell's content". This is that union,
+    /// taken as the sequence's commands were emitted; [`crate::content::Interpreter::draw`] has
+    /// the argument and what it costs.
+    ///
+    /// **A derived extent and never a stated one.** Table 379's `/BBox` is what a *producer* says
+    /// about an element, and it reaches an assistive technology by a route of its own
+    /// (`viewer_core::AccessibilityNode::bounds`); this is what the page turned out to draw, which
+    /// is the same kind of fact as [`Interpretation::text_layer`]'s quadrilaterals and is carried
+    /// beside rather than merged with the other.
+    ///
+    /// `None` for a sequence whose content marked nothing — an empty `BDC` … `EMC`, or one whose
+    /// every command was clipped away — which is an answer rather than a failure: the page has
+    /// drawn nothing there, and inventing a rectangle would turn that into a place.
+    ///
+    /// The same space [`Placed::quad`] is in, so a consumer that maps one maps the other.
+    pub drawn: Option<[f32; 4]>,
 }
 
 impl Interpretation {

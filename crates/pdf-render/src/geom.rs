@@ -145,6 +145,19 @@ impl Rect {
         mapped
     }
 
+    /// The rectangle both cover, or `None` where they do not meet.
+    ///
+    /// A rectangle that merely *touches* another along an edge or at a corner is an
+    /// intersection rather than nothing, because §7.9.5's own NOTE is that "[r]ectangles can
+    /// have a width of zero or height of zero" — a degenerate result is still a place, and
+    /// discarding it would answer "nowhere" for content that lies exactly on a boundary.
+    #[must_use]
+    pub fn intersection(self, other: Self) -> Option<Self> {
+        let min = Point::new(self.min.x.max(other.min.x), self.min.y.max(other.min.y));
+        let max = Point::new(self.max.x.min(other.max.x), self.max.y.min(other.max.y));
+        (min.x <= max.x && min.y <= max.y).then_some(Self { min, max })
+    }
+
     /// Whether every point of `other` lies within this rectangle, edges included.
     #[must_use]
     pub fn contains(self, other: Self) -> bool {
@@ -1031,7 +1044,41 @@ mod hull_tests {
               — so an approximate comparison would weaken the test"
 )]
 mod tests {
-    use super::{Point, Transform};
+    use super::{Point, Rect, Transform};
+
+    /// Two rectangles that overlap intersect in the region both cover.
+    #[test]
+    fn an_intersection_is_the_region_both_rectangles_cover() {
+        let a = Rect::from_corners(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
+        let b = Rect::from_corners(Point::new(5.0, -5.0), Point::new(20.0, 4.0));
+        let both = a.intersection(b).expect("they overlap");
+        assert_eq!(both.min, Point::new(5.0, 0.0));
+        assert_eq!(both.max, Point::new(10.0, 4.0));
+    }
+
+    /// Two that do not meet intersect in nothing, which is `None` rather than an inverted
+    /// rectangle — a rectangle whose corners had crossed over would compare as containing
+    /// everything.
+    #[test]
+    fn rectangles_that_do_not_meet_have_no_intersection() {
+        let a = Rect::from_corners(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
+        let b = Rect::from_corners(Point::new(11.0, 0.0), Point::new(20.0, 10.0));
+        assert_eq!(a.intersection(b), None);
+    }
+
+    /// Touching along an edge is an intersection, and it is degenerate.
+    ///
+    /// ISO 32000-2 §7.9.5's own NOTE is that "[r]ectangles can have a width of zero or height of
+    /// zero", so a content rectangle that lies exactly on a clip's boundary is still a place and
+    /// answering "nowhere" for it would lose one.
+    #[test]
+    fn rectangles_that_touch_intersect_degenerately() {
+        let a = Rect::from_corners(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
+        let b = Rect::from_corners(Point::new(10.0, 2.0), Point::new(20.0, 8.0));
+        let both = a.intersection(b).expect("an edge in common is a rectangle");
+        assert_eq!(both.width(), 0.0);
+        assert_eq!(both.height(), 6.0);
+    }
 
     /// `then` must read in application order — the property the doc comment promises,
     /// and the one whose violation produces transform bugs that are hard to localise.
@@ -1116,7 +1163,7 @@ mod tests {
     #[test]
     fn rect_from_corners_normalises_inverted_input() {
         // PDF rectangle arrays carry no ordering guarantee, so this is a real case.
-        let r = super::Rect::from_corners(Point::new(10.0, 20.0), Point::new(0.0, 5.0));
+        let r = Rect::from_corners(Point::new(10.0, 20.0), Point::new(0.0, 5.0));
         assert_eq!(r.min, Point::new(0.0, 5.0));
         assert_eq!(r.max, Point::new(10.0, 20.0));
         assert_eq!(r.width(), 10.0);

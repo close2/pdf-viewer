@@ -497,6 +497,8 @@ impl<'a> Interpreter<'a> {
             described: Vec::new(),
             artifacts: Vec::new(),
             marked: Vec::new(),
+            marking: Vec::new(),
+            clip_extents: Vec::new(),
             inferred_separators: 0,
             text_layer: Vec::new(),
             associated: Vec::new(),
@@ -998,6 +1000,29 @@ struct Interpreter<'a> {
     artifacts: Vec<ArtifactSpan>,
     /// §14.7.5.2's marked-content spans, in the order their sections closed.
     marked: Vec<MarkedSpan>,
+    /// One entry per open marked-content sequence that stated an `/MCID`, innermost last.
+    ///
+    /// What each entry accumulates is §14.8.3.3's content rectangle for that sequence — "derived
+    /// from the shape of the enclosed content" — as [`Interpreter::draw`] unions in each command's
+    /// own bound. `None` inside an entry is a sequence that has drawn nothing yet, which is a
+    /// different fact from a sequence that drew something empty and is why the entry is an
+    /// `Option` rather than a degenerate rectangle.
+    ///
+    /// **Empty for every untagged page**, which is 885 of the corpus's 974, so what those pay for
+    /// this is one `Vec::is_empty` per command.
+    ///
+    /// A stack rather than one accumulator because §14.7.5.1.1 forbids the nesting — "[a]
+    /// marked-content sequence corresponding to a structure content item shall not have another
+    /// marked-content sequence for a structure content item nested within it" — and a file that
+    /// does it anyway must not have the inner sequence's marks silently become the outer one's
+    /// only extent. A stack costs one allocation on a tagged page and answers both.
+    marking: Vec<Option<Rect>>,
+    /// What each clip region of [`Self::list`] admits, indexed by its [`pdf_render::ClipId`].
+    ///
+    /// [`Interpreter::clip_extent`]'s memo, and empty for every page that never opens a
+    /// marked-content sequence with an `/MCID` — the answers are only asked for while one is
+    /// open.
+    clip_extents: Vec<marked::ClipExtent>,
     /// §14.13.5's associated files, with the range of the readback their section covered.
     associated: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
     /// How many §14.8.2.5.3 `ReversedChars` sections are open.

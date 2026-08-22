@@ -192,6 +192,45 @@ pub struct AccessibilityNode {
     /// `None` for an element neither clause answers for, which is most of them, and that is not a
     /// failure.
     pub bounds: Option<[f32; 4]>,
+    /// Where the element's content **turned out to be**, in the same device pixels
+    /// [`Self::quads`] are in: `[x0, y0, x1, y1]`.
+    ///
+    /// The third of the three statements about an element's place, and the one that answers where
+    /// the other two do not — an element that marks no text, so [`Self::quads`] is empty, and
+    /// whose producer wrote no Table 379 `/BBox` and named no annotation, so [`Self::bounds`] is
+    /// `None`. A `Figure` holding an image, a `Div` around a rule, a `TD` holding a logo.
+    ///
+    /// # It is the standard's own construction, and it is derived rather than stated
+    ///
+    /// ISO 32000-2 §14.8.3.3 gives every block- and inline-level structure element two rectangles
+    /// and says where the first comes from:
+    ///
+    /// > The content rectangle shall be derived from the shape of the enclosed content and defines
+    /// > the bounds used for the layout of any included child elements.
+    ///
+    /// §14.8.5.4.5 states that derivation for the two cases that are marks rather than layout — a
+    /// table cell's rectangle is "determined from the bounding box of all graphics objects in the
+    /// cell's content", and an inline element holding "an illustration or table" the same — so a
+    /// union of what the element's marked-content sequences drew is what the clause asks for and
+    /// not a convention this program invented.
+    ///
+    /// It is nevertheless a **derived** answer and is carried apart from [`Self::bounds`] for
+    /// exactly that reason: Table 379's rectangle is what a *producer* wrote down, this is what
+    /// this program found on the page, and a host that wants to know which it has can tell. That
+    /// is the same division [`Self::quads`] and [`Self::bounds`] already make, one kind of mark
+    /// further along.
+    ///
+    /// # What it is not
+    ///
+    /// It is a **bound**: a curve counts by its control points and a stroke by its mitre's reach,
+    /// so the rectangle is never smaller than the ink. And it is not the *allocation* rectangle
+    /// §14.8.5.4.5 derives beside it, which adds `SpaceBefore` and `SpaceAfter` — those describe
+    /// how the element was placed among its neighbours rather than where its content is.
+    ///
+    /// `None` for an element whose content items marked nothing at all, and for every element of
+    /// an untagged page, where there are no elements: a page that says nothing about its own
+    /// structure keeps saying so, and no rectangle is invented for it.
+    pub drawn: Option<[f32; 4]>,
     /// Which of §12.7.5's controls the widget annotation behind this element is, where it names
     /// one.
     ///
@@ -794,6 +833,7 @@ pub(crate) fn finish(
     quads: impl Fn(usize, usize) -> Vec<[f32; 8]>,
     lines: impl Fn(&[(usize, usize)]) -> Vec<TextLine>,
     place: impl Fn([f32; 4]) -> Option<[f32; 4]>,
+    mark: impl Fn([f32; 4]) -> Option<[f32; 4]>,
 ) -> AccessibilityNode {
     let substituted = gathered.phrase.is_some();
     let own = ranges(page.marked, &gathered.own);
@@ -803,7 +843,7 @@ pub(crate) fn finish(
     });
     // Nothing to move a caret through where the element has said what to say instead of its
     // content: see `AccessibilityNode::lines`.
-    let drawn = if substituted { Vec::new() } else { lines(&own) };
+    let caret = if substituted { Vec::new() } else { lines(&own) };
     let mut all = Vec::new();
     for (start, end) in ranges(page.marked, &gathered.mcids) {
         all.extend(quads(start, end));
@@ -834,8 +874,37 @@ pub(crate) fn finish(
             .find(|object| page.places.contains_key(*object))
             .copied(),
         headers: gathered.headers,
-        lines: drawn,
+        lines: caret,
+        drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
     }
+}
+
+/// §14.8.3.3's content rectangle for one element: the union of what its sequences drew.
+///
+/// The element's own identifiers **and its descendants'**, which is what `Gathered::mcids` holds
+/// and for the reason stated there: an element's place is everything it encloses.
+///
+/// `None` where none of them marked the page. That is the honest answer and not a gap — a sequence
+/// a producer opened around no operator, or one whose every command a clip excluded, has drawn
+/// nothing anywhere, and a rectangle standing in for it would be this program inventing a place.
+fn marked_extent(marked: &[MarkedSpan], mcids: &[i64]) -> Option<[f32; 4]> {
+    let mut union: Option<[f32; 4]> = None;
+    for rect in marked
+        .iter()
+        .filter(|span| mcids.contains(&span.mcid))
+        .filter_map(|span| span.drawn)
+    {
+        union = Some(match union {
+            None => rect,
+            Some(so_far) => [
+                so_far[0].min(rect[0]),
+                so_far[1].min(rect[1]),
+                so_far[2].max(rect[2]),
+                so_far[3].max(rect[3]),
+            ],
+        });
+    }
+    union
 }
 
 /// The rectangle §12.5.2 gives the annotations an element's own object references name.

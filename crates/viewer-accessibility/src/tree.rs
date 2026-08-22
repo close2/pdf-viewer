@@ -900,33 +900,48 @@ fn readback_note(shortfall: pdf_model::content::Shortfall) -> String {
     }
 }
 
-/// Where a magnifier is pointed at this element, and which of two statements decides it.
+/// Where a magnifier is pointed at this element, and which of three statements decides it.
 ///
-/// The shapes this program drew come first: they are what is on the screen, measured from the
-/// marks rather than declared, and they are what the ring should sit on wherever they exist.
-/// **Table 379's `/BBox` is what answers where they do not** — an element that marks no text, a
-/// `Figure` or a cell holding an image, whose extent no text layer can recover. §14.8.5.4.3
-/// states it as "the rectangle that completely encloses its visible content", which is exactly
-/// the question being asked here, and `viewer_core` has already mapped it into these pixels.
+/// **Measured first, stated last**, which is one ordering applied twice rather than two rules.
 ///
-/// Two statements rather than one merged rectangle, and the order is the conservative one: the
-/// document's number is a *claim* about a layout this program has already carried out, so it is
-/// used where there is nothing to compare it against and not in place of what was drawn. Whether
-/// a stated `/BBox` should win over measured text — a `Figure` holding a caption and a picture
-/// has both, and the text quads cover only the caption — is a question nothing has measured, and
-/// `doc/todo/31` carries it.
+/// 1. The **text quads**: the shapes this program drew, glyph by glyph. Where they exist they are
+///    what the ring should sit on, because they are the marks themselves and nothing coarser.
+/// 2. §14.8.3.3's **content rectangle**, which `viewer_core::AccessibilityNode::drawn` carries —
+///    the union of what the element's marked-content sequences painted, for an element that marks
+///    no text. A `Figure` holding an image, a `TD` holding a logo, a `Div` around a rule. Still
+///    measured, and coarser only because a picture has no glyphs to be precise about.
+/// 3. **Table 379's `/BBox`**, and then §12.5.2's annotation rectangle, which
+///    `viewer_core::AccessibilityNode::bounds` carries. These are what the *document* says, and
+///    they answer where this program drew nothing it could measure.
 ///
-/// `None` where the element has neither: an untagged region, or an element reached only through
-/// §14.7.5.3's object reference and stating no bounds.
+/// The order is the conservative one and ADR 0301 argued its first half: a document's rectangle is
+/// a *claim* about a layout this program has already carried out, so it is used where there is
+/// nothing to compare it against and not in place of what was drawn. Extending that to the second
+/// statement is the same argument — a rectangle a producer wrote is a claim whether the marks
+/// under it are glyphs or a picture, and `doc/PDF20_AN001-BPC.pdf` states
+/// `[-32768 -32768 32767 32767]` for one figure, which is a producer writing "somewhere".
+///
+/// Three statements rather than one merged rectangle, because they are different *kinds* of fact
+/// and a host that wants to know which it has can still ask. Whether a stated `/BBox` should win
+/// over measured text — a `Figure` holding a caption and a picture has both, and the text quads
+/// cover only the caption — is a question nothing has measured, and `doc/todo/31` carries it.
+///
+/// `None` where the element has none of the three: an untagged region, an element whose sequences
+/// marked nothing, or one reached only through §14.7.5.3's object reference and stating no bounds.
 fn place(node: &AccessibilityNode) -> Option<Rect> {
-    bounding_box(&node.quads).or_else(|| {
-        node.bounds.map(|rect| Rect {
-            x0: f64::from(rect[0]),
-            y0: f64::from(rect[1]),
-            x1: f64::from(rect[2]),
-            y1: f64::from(rect[3]),
-        })
-    })
+    bounding_box(&node.quads)
+        .or_else(|| node.drawn.map(rectangle))
+        .or_else(|| node.bounds.map(rectangle))
+}
+
+/// One of `viewer_core`'s rectangles as AccessKit's.
+fn rectangle(rect: [f32; 4]) -> Rect {
+    Rect {
+        x0: f64::from(rect[0]),
+        y0: f64::from(rect[1]),
+        x1: f64::from(rect[2]),
+        y1: f64::from(rect[3]),
+    }
 }
 
 /// The smallest axis-aligned rectangle covering an element's quadrilaterals.
