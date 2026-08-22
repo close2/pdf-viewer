@@ -3760,9 +3760,31 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   retired one row over and did not travel**: §8.4.5 carried `/SM` on its not-read list as "the
   silence recorded under §10.7.3" and the five-hundred-and-sixty-fifth corrected it there — a
   retired claim is a string, and the round that retires one owes a grep of the *tree* rather than of
-  the family it is reading (ADR 0101). **The rows left at the top are §10.7.5 at rank 2 and
+  the family it is reading (ADR 0101). ~~**The rows left at the top are §10.7.5 at rank 2 and
   §8.6.5.7 at 4**, then §7.6.4 and §7.6.4.4 out of the cluster, then §11.5.3 at 10 and §11.3.4
-  at 11.
+  at 11.~~ **Re-derived in the six-hundred-and-sixty-third over a base of 869 commits, where that
+  prediction also came out exactly** — §10.7.5 at 1, §8.6.5.7 at 2, §7.6.4 and §7.6.4.4 at 3–4,
+  §11.5.3 at 5, §11.3.4 at 6, then nine sharing 7–15 on one commit. **That round took §8.6.5.7 by
+  620's rule and then went somewhere else**, because step 7 below is a bigger population than the
+  band is: §8.6.5.7's *first sentence* said "no place the shortcut would apply" while the same note
+  three sentences down had said since the four-hundred-and-thirty-sixth that the conversion **is**
+  performed on a page compositing in a press — the sixth failure shape, 227 sessions old, in the row
+  the ordering puts second. **The rows left at the top are §10.7.5 at rank 1, §7.6.4 and §7.6.4.4 at
+  2–3, §11.5.3 at 4 and §11.3.4 at 5**, then the cluster of nine.
+- **A negative measured before the crawl is a negative nobody has measured, and the crawl is on this
+  disk.** `doc/habits.md` says a negative claim decays when the population grows; the
+  six-hundred-and-sixty-third was the first round to act on it in the ledger and the first row it
+  tried paid four ways. §12.4.4.1 read "over the *page tree* of all 964 openable corpus documents and
+  the 14 in `doc/` … **not one states a `/Trans`, a `/Dur` or a `/PresSteps`**". Re-derived with the
+  same instrument over both populations: the curated corpora are **still 0 of 1133**, and
+  `CC-MAIN-2021-31` is **276, 86 and 1 of the 65 703 that open** — so §12.4.4.2, §12.6.4.13 and
+  §12.6.4.15 got their first witness that is not a fixture, all three in one crawled slide deck, and
+  §12.4.4's four undrawn styles got a ranking (`Dissolve` 221 pages, `Blinds` 16, `Glitter` and `Fly`
+  **none**). The cost is minutes: `presentation_census` chunked through `xargs -P 8` is under a
+  minute over all 65 944 and `refused_action_census` reads every object of all of them in ninety
+  seconds. About sixty sentences of this form are left in `ledger.toml`; **read them with the
+  control run as well as the crawl run**, because the old sentence is usually right about its own
+  population, which is exactly why nothing in the tree can see it. ADR 0490.
   Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.

@@ -13,6 +13,17 @@
 //! ```sh
 //! cargo run --release -p pdf-model --example presentation_census -- doc/pdf.js/test/pdfs/*.pdf
 //! ```
+//!
+//! **Run it over the crawl as well, because the answer differs there and did so unread for
+//! sixty-two sessions.** The curated corpora state no presentation at all and the whole of
+//! `CC-MAIN-2021-31` states 276 of them, which is what a negative measured before a population
+//! grew looks like from the far side. A command line does not hold 65 944 paths, so the run is
+//! chunked and the chunk totals added:
+//!
+//! ```sh
+//! find corpus-cache/safedocs/cc-main-2021-31 -name '*.pdf' \
+//!     | xargs -P 8 -n 200 target/release/examples/presentation_census
+//! ```
 
 #![expect(
     clippy::print_stdout,

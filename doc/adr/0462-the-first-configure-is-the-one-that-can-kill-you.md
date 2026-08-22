@@ -190,9 +190,16 @@ so ever since**, beside a source sentence saying the opposite.
 The two documents disagreeing is the finding, and it says where the sweep has to point: a ledger
 row has a gate and a reason in `requirements.rs` does not, so the row was corrected on the round
 the capability arrived and the arm was not. What the arm names now is what is genuinely missing —
-five of Table 164's twelve styles state no quantity a frame could be shaped from and are reported
+four of Table 164's twelve styles state no quantity a frame could be shaped from and are reported
 by name rather than drawn as a cut — and Table 275's other half, transition actions, is
 §12.6.4.15's `Trans`, which is read and performed.
+
+> **This paragraph said *five* until the six-hundred-and-sixty-third session, and so did the arm
+> it describes.** The fifth style is `R`, which Table 164 defines as the cut, so it is shaped by
+> nothing and reported by nothing; §12.6.4.15's ledger row had retired that wording in the
+> five-hundred-and-fifty-third and this document, three source comments and two other ledger rows
+> went on carrying it. Which is this ADR's own finding one level up: the sweep has to point at the
+> place a claim is *repeated*, and an ADR is the most durable of those places.
 
 ## The sweep, run against the defect first
 

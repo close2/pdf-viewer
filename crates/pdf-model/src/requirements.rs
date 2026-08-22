@@ -342,13 +342,21 @@ impl Kind {
                 // names exactly this shape; nothing fires when a capability two crates away
                 // arrives, which is why the sweep is over the source and not only the ledger.
                 //
-                // What is genuinely missing is the five of Table 164's twelve styles that state
-                // no quantity a frame could be shaped from — how many lines a `Blinds` has, how
-                // wide a `Glitter`'s band is, what a `Dissolve` does to a pixel, what a `Fly`'s
-                // "changes" are — which `transition::note` reports by name rather than drawing
-                // as a cut. `R` is the cut by definition and is not among them. Table 275 also
-                // asks for transition actions, and §12.6.4.15's `Trans` is read and performed.
-                "five of Table 164's twelve transition styles are reported by name rather than \
+                // What is genuinely missing is **four** of Table 164's twelve styles, each one
+                // described with a quantity the table does not state — how many lines a `Blinds`
+                // has, how wide a `Glitter`'s band is, what a `Dissolve` does to a pixel, what a
+                // `Fly`'s "changes" are — which `transition::note` reports by name rather than
+                // drawing as a cut. `R` is shaped by nothing either and is not among them,
+                // because Table 164 defines it as the cut: "[t]he new page simply replaces the
+                // old one with no special transition effect", so a cut is what the file asked
+                // for and there is nothing to report.
+                //
+                // **This sentence said "five" until the six-hundred-and-sixty-third session**,
+                // which is the wording §12.6.4.15's ledger row retired in the
+                // five-hundred-and-fifty-third — and it was left standing in the one place that
+                // is not a note but a sentence a person reads. Table 275 also asks for transition
+                // actions, and §12.6.4.15's `Trans` is read and performed.
+                "four of Table 164's twelve transition styles are reported by name rather than \
                  drawn, because the clause states no quantity to shape their frames from"
             }
             Self::DPartInteract => {
