@@ -26,13 +26,19 @@ clause's own flooring identifies rather than as a circle no placement lets a ras
 **And a seventh arrived in the six-hundred-and-forty-third session, from the other end of the same
 sentence**: this file is about marks the coverage quantum *loses*, and item 7 is what the same
 quantum does to a mark it keeps — an edge's coverage rounded to a quarter on `render-cpu` alone
-(ADR 0474).
+(ADR 0474), **paid for the shape §10.7.4's own closed form covers** (ADR 0476).
+**Item 8 is the largest loss this file ever held and its refusal half is paid** (ADR 0482): a mark
+under a matrix with no inverse cost the whole page on all three backends, and now costs itself and
+is reported by name. What it still owes is §10.7.4's own mark for a shape a *transform* collapsed,
+which nothing builds and no document witnesses.
 Priority: 11
-Corpus: 5 known witnesses; the general shape of the residual is stated
+Corpus: 5 known witnesses for items 1-7; 4 crawled documents and 1 of `format-corpus`' for item 8,
+all of them in `doc/checks/fixed-documents.toml` or named in ADR 0482
 Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.4.3.5 for item 6,
-§8.5.4 for item 4 and
-§11.3.7.3 for item 5 — see `_scan-conversion.md`
-Code: `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
+§8.5.4 for item 4,
+§11.3.7.3 for item 5 and §8.3.4 for item 8 — see `_scan-conversion.md`
+Code: `crates/pdf-render/src/paint.rs`'s `paint_space` (item 8's condition, for all three
+backends), `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
 `crates/render-cpu/src/lib.rs`,
 `crates/render-cpu/src/scan.rs` (item 4's composition),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
@@ -46,7 +52,9 @@ with a mark, and what a page's own marks are),
 `crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
 (item 5's gate and its instrument),
 `crates/render-quorra/examples/edge_coverage_ladder.rs` and
-`crates/pdf-model/examples/compare_rasters.rs` (item 7's two instruments)
+`crates/pdf-model/examples/compare_rasters.rs` (item 7's two instruments),
+`crates/render-quorra/tests/singular_transform.rs` and
+`crates/pdf-model/examples/singular_transform_census.rs` (item 8's gate and its instrument)
 
 Leftovers from the hundred-and-eighty-sixth to -eighth sessions, which closed §10.7.4's
 "no shape ever disappears" for a fill with *no* area (ADR 0154) and for a redundant pattern-cell
@@ -677,28 +685,88 @@ question was which converter, not how many calls.
   0.98402, and the gate now measures 0.9879 and 0.9802. The pages belong to
   `CONTRADICTED_TIGHT_CONSENSUS` because the pair that votes is the pair furthest from the geometry.
 
-## 8. A paint that cannot be positioned costs the page rather than the mark
+## 8. A paint that cannot be positioned costs the page rather than the mark — **the refusal is paid (ADR 0482); §10.7.4's own mark for such a shape is not**
 
 Found in the six-hundred-and-fortieth session, on the SafeDocs crawl and not by ink: `4605705.pdf`
 states eight `/Contents` parts, every one a Flate stream that decodes cleanly for tens of kilobytes
-and then into garbage, and among the garbage is a `cm` whose matrix has no inverse. `render-cpu`'s
-`page_to_path` is the one place that asks for one — a shading paint has to be expressed in the space
-its path is stated in — and it answers `CpuRasterError::UnsupportedPaint("singular transform …")`,
-which propagates out of `Rasterizer::rasterize`. **The whole raster is refused**, and the 293
-commands the page did draw go with it: `examples/render_at` aborts on its own `expect`, and a host
-gets `Err` where the graphics device would have handed it a page.
+and then into garbage, and among the garbage is a `cm` whose matrix has no inverse. The whole raster
+was refused and the 282 commands the page did draw went with it.
 
-The refusal itself is right and its doc comment argues why — "the alternative is a gradient placed
-somewhere arbitrary, which looks like a rendering rather than a failure" — and that argument is
-about **one mark**, not about the page. Trap 5's own test applies: the report is what keeps a
-missing gradient legible, and drawing nothing at that site loses no other mark. So the question this
-item owns is `Rasterizer`'s contract rather than the arithmetic: which of its errors are about a
-command and which about the target, and whether the ones about a command belong on
-`Interpretation::unsupported` beside every other per-mark refusal in the tree.
+**The clause is §8.3.4's third NOTE, and no code in this tree had cited it.** It is the standard's
+entire statement about a matrix with no inverse:
 
-**What it is not is this document's problem.** `4605705.pdf`'s content is noise — `poppler` refuses
-the file outright and `mutool` and `gs` disagree with each other by 78 levels of 255 about what it
-says — so it is a witness that the path is reachable and no guide at all to what the page should
-look like. A round that takes this owes a fixture whose singular transform is the only thing wrong
-with it, and a decision about `render-gpu`'s and `render-quorra`'s matching refusals, which are the
-same shape one crate along (`GpuRasterError::UnsupportedPaint`).
+> Not all transformations are invertible, however. For example, if a matrix contains a, b, c, and d
+> elements that are all zero, all user coordinates map to the same device coordinates and there is
+> no unique inverse transformation. Such noninvertible transformations are not very useful and
+> generally arise from unintended operations, such as scaling by 0. Use of a noninvertible matrix
+> when painting graphics objects can result in unpredictable behaviour.
+
+Three readings come out of it and the third was the item. **The mark has no area** — "all user
+coordinates map to the same device coordinates" is a statement about the geometry, and a page
+transform is invertible, so a singular command transform lands the whole path on a line or a point
+at every scale. **The standard states nothing further**, and it is a NOTE besides. **And it says
+nothing about the page**: §6.3.2.2 asks a rendering processor for the page's contents with no
+exception for one command, so the refusal the clause licenses is the mark's.
+
+### Three backends refused, not one, and each in its own spelling
+
+The item predicted `render-gpu`'s matching refusal and was right; it did not predict the third,
+which is trap 2's shape exactly.
+
+```text
+  render-cpu     CpuRasterError::UnsupportedPaint      page_to_path inverted the command transform
+  render-gpu     GpuRasterError::UnsupportedPaint      Spaces::new, the same quantity
+  render-quorra  QuorraRasterError::Scene(InvalidStroke)  path_width x max_stretch, which is zero
+```
+
+**`render-quorra` needs no inverse at all** — it positions a paint in page space — and refused
+anyway, one step along and with a different error type, which is what says the inverse was never the
+point. The inverse is `tiny-skia`'s and Vello's requirement, since both apply a draw's transform to
+its paint as well as to its shape. Two libraries imposing a decision on two backends is precisely a
+decision neither may take.
+
+And what the two library backends were refusing *for*: both inverted before looking at the paint,
+and a `Paint::Solid` reads the result never. **Every witness measured carries a solid colour**, so
+the whole population of this defect was pages refused for a quantity nobody was going to read. The
+doc comment's argument — "the alternative is a gradient placed somewhere arbitrary" — was right
+about a case that does not occur.
+
+`pdf_render::paint_space` is the condition now, once, for all three, with `Command::Image` under the
+same guard because it is a marking command whose unit square collapses with everything else.
+`pdf_model` names what it refused on `Unsupported::NoninvertibleMatrix`, which is the answer to the
+other half of the item's question: the condition is a property of the *file*, decidable from the
+display list before any target exists, so it never needed to be a rasteriser's error at all.
+`crates/render-quorra/tests/singular_transform.rs` is the pair, on all three backends, and
+`crates/pdf-model/examples/singular_transform_census` is the instrument.
+
+### What is left of it: §10.7.4's mark for a shape its *transform* collapsed
+
+**Drawing nothing is not what §10.7.4 asks for, and this item now owns the gap rather than hiding
+it.** "[N]o shape ever disappears" gives a shape with no area a run of *whole* device pixels — "a
+filling region is considered to intersect every pixel through which its boundary passes, even if the
+interior of the filling region is empty" — and `pdf_render::split_collapsed_fill` builds exactly that
+for a subpath flat in its **own** space. A path collapsed by its **transform** reaches no such
+construction and nothing builds one.
+
+Three things a round taking it owes, and they are why it was not taken with the refusal:
+
+- **A warrant.** §8.3.4 NOTE 3 is the standard declining to state the case, which is weaker than
+  what `split_collapsed_fill` has. Whether §10.7.4 outranks a NOTE that says "unpredictable" is the
+  argument to make first, and it is not obvious.
+- **A placement, not only an extent.** §10.7.4 identifies a pixel by flooring a point; the collapsed
+  image of a rotated or sheared path is a staircase, which is the case `collapsed.rs` already
+  declines to snap. A rank-**zero** transform is worse still — the whole path is one point, and
+  §8.5.3.3.1's device pixel is the only shape left.
+- **A witness, which there is not.** Most matching pages state *one* such mark among thousands, and
+  the two whose count is large are a garbage stream and a page whose 280 are images. Not one
+  document anywhere — crawl or curated corpus — states one under a **shading**, which is the paint
+  the refusal was argued for. The measurement is in `doc/history/653-*.md`;
+  `examples/singular_transform_census` prints today's.
+
+And one thing the witness taught that no amount of reading would have: **`4605705.pdf`'s matrix is
+of full rank.** Its `a·d` and `b·c` are `2.8e22 × 1.4e18` and `-4.3e18 × -9.2e21`, which agree to
+every bit an `f32` has, so the determinant cancels to zero in the arithmetic rather than in the file.
+"Singular" is a property of the computation there, and the geometry such a matrix states is not
+recoverable from anything the renderer can compute about it — a second reason not to build the run of
+pixels on the strength of that witness. The three well-formed witnesses are the ordinary kind, `a`
+or `d` exactly zero.

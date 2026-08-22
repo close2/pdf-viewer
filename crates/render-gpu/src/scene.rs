@@ -459,21 +459,19 @@ struct Spaces {
 }
 
 impl Spaces {
-    /// Builds the three spaces for a command drawn under `transform`.
+    /// Builds the three spaces for a command drawn under `transform`, or `None` where the
+    /// transform states none.
     ///
-    /// # Errors
-    ///
-    /// Returns [`GpuRasterError::UnsupportedPaint`] when `transform` is singular. A path
-    /// under a singular transform has collapsed to a line or a point, so there is no
-    /// space left to position a paint in, and reporting beats placing a gradient
-    /// arbitrarily.
-    fn new(transform: Transform, to_device: Transform) -> Result<Self, GpuRasterError> {
-        Ok(Self {
+    /// ISO 32000-2 §8.3.4's third NOTE is the whole of the standard's statement about a matrix
+    /// with no inverse, and `pdf_render::paint_space` carries it for all three backends. `None`
+    /// refuses **this mark** and nothing else: the clause makes the mark's own result undefined —
+    /// its path is carried onto a line or a point — and says nothing about the page it is on, so
+    /// the commands that can be encoded still are (`doc/todo/11` item 8, ADR 0482).
+    fn new(transform: Transform, to_device: Transform) -> Option<Self> {
+        Some(Self {
             at: affine(transform.then(to_device)),
             to_device,
-            page_to_path: transform.invert().ok_or_else(|| {
-                GpuRasterError::UnsupportedPaint(format!("singular transform {transform:?}"))
-            })?,
+            page_to_path: pdf_render::paint_space(transform)?,
         })
     }
 }
@@ -774,15 +772,18 @@ fn encode(
                 blend,
                 ..
             } => {
-                encode_fill_command(
-                    scene,
-                    (path, fill_rule(*rule)),
-                    Spaces::new(*transform, to_device)?,
-                    transform.then(to_device),
-                    paint,
-                    (spec.compose, *blend),
-                    spec.target,
-                )?;
+                // `None` is §8.3.4 NOTE 3's mark and not this page's: see [`Spaces::new`].
+                if let Some(spaces) = Spaces::new(*transform, to_device) {
+                    encode_fill_command(
+                        scene,
+                        (path, fill_rule(*rule)),
+                        spaces,
+                        transform.then(to_device),
+                        paint,
+                        (spec.compose, *blend),
+                        spec.target,
+                    )?;
+                }
             }
             Command::Stroke {
                 path,
@@ -792,15 +793,17 @@ fn encode(
                 blend,
                 ..
             } => {
-                encode_stroke(
-                    scene,
-                    path,
-                    Spaces::new(*transform, to_device)?,
-                    s,
-                    transform.then(to_device),
-                    paint,
-                    (spec.compose, *blend),
-                )?;
+                if let Some(spaces) = Spaces::new(*transform, to_device) {
+                    encode_stroke(
+                        scene,
+                        path,
+                        spaces,
+                        s,
+                        transform.then(to_device),
+                        paint,
+                        (spec.compose, *blend),
+                    )?;
+                }
             }
             Command::Image {
                 image,
@@ -1008,6 +1011,13 @@ fn draw_image(
     alpha: f32,
     (compose, blend): (Compose, BlendMode),
 ) -> Result<(), GpuRasterError> {
+    // ISO 32000-2 §8.3.4 NOTE 3, the same refusal a fill and a stroke take: a matrix with no
+    // inverse carries the unit square this image is drawn on onto a line or a point, so the mark
+    // is refused and the page is drawn (ADR 0482). `placement` here is already composed with the
+    // page transform, which is invertible, so this asks the command's own question.
+    if pdf_render::paint_space(placement).is_none() {
+        return Ok(());
+    }
     let layer = compose.layer(blend);
     // Samples the display list deferred — §11.6.5.2's mask on a grid of its own — are produced
     // here, at the grid `pdf_render` derives from the placement, so that the three backends ask

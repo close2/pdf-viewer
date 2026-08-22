@@ -869,6 +869,43 @@ impl DisplayList {
         &self.commands
     }
 
+    /// How many marking commands this list states under a matrix with no inverse, ISO 32000-2
+    /// §8.3.4.
+    ///
+    /// The clause's third NOTE is the standard's whole statement about such a matrix — "all
+    /// user coordinates map to the same device coordinates and there is no unique inverse
+    /// transformation … can result in unpredictable behaviour" — and what follows from it here
+    /// is that the command marks nothing. A page transform is invertible, so a singular command
+    /// transform makes the device transform singular too and the whole path lands on a line or
+    /// a point: no rasteriser measures an area there, and where the paint is one
+    /// [`crate::paint_space`] positions, the mark is refused outright besides.
+    ///
+    /// Counted, and never made an error, because the two are different failures. Refusing the
+    /// raster loses every command that *did* draw, which is what `doc/todo/11` item 8 is; saying
+    /// nothing at all leaves a mark silently absent, which is the failure this project has
+    /// recorded eleven times (`doc/traps/instruments-and-reports.md` trap 5). `pdf_model`
+    /// carries the count out as a report beside every other per-mark refusal (ADR 0482).
+    ///
+    /// Nested groups are walked, because a group's elements are marks of this page.
+    #[must_use]
+    pub fn noninvertible_marks(&self) -> usize {
+        fn count(commands: &[Command]) -> usize {
+            let mut total = 0usize;
+            for command in commands {
+                total = total.saturating_add(match command {
+                    Command::Fill { transform, .. }
+                    | Command::Stroke { transform, .. }
+                    | Command::Image { transform, .. } => usize::from(transform.invert().is_none()),
+                    Command::Group { commands, .. } => count(commands),
+                    Command::Shaped { object, shape } => count(std::slice::from_ref(object))
+                        .saturating_add(count(std::slice::from_ref(shape))),
+                });
+            }
+            total
+        }
+        count(&self.commands)
+    }
+
     /// A hash of everything [`Clip`]'s `PartialEq` compares.
     ///
     /// Floating-point values are hashed by their bits, which is stricter than `==` in exactly

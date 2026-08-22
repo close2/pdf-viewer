@@ -568,6 +568,13 @@ impl<'a> Encoder<'a> {
         if path.is_empty() {
             return Ok(());
         }
+        // ISO 32000-2 §8.3.4 NOTE 3, the same refusal `crate::stroke::encode` takes and for the
+        // same reason: a matrix with no inverse carries this path onto a line or a point, so the
+        // mark is refused and the page is drawn. Stated in `pdf-render` so that all three
+        // backends refuse the same marks (viewer trap 2, ADR 0482).
+        if pdf_render::paint_space(transform).is_none() {
+            return Ok(());
+        }
         let Admitted::Chain(clip) = self.clip_chain(builder, clip)? else {
             return Ok(());
         };
@@ -980,6 +987,12 @@ impl<'a> Encoder<'a> {
         alpha: f32,
         (clip, mask, blend): (Option<ClipId>, Option<SoftMaskId>, BlendMode),
     ) -> Result<(), QuorraRasterError> {
+        // ISO 32000-2 §8.3.4 NOTE 3, the same refusal a fill and a stroke take: a matrix with no
+        // inverse carries the unit square this image is drawn on onto a line or a point, so the
+        // mark is refused and the page is drawn (ADR 0482).
+        if pdf_render::paint_space(transform).is_none() {
+            return Ok(());
+        }
         let Admitted::Chain(clip) = self.clip_chain(builder, clip)? else {
             return Ok(());
         };

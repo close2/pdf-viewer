@@ -262,6 +262,41 @@ pub enum Unsupported {
         /// Which of [`crate::page::MediaBoxSubstitution`]'s three it was, and what stood in.
         detail: String,
     },
+    /// Marks stated under a matrix with no inverse (§8.3.4), which paint nothing.
+    ///
+    /// §8.3.4's third NOTE is the whole of what the standard says about one:
+    ///
+    /// > Not all transformations are invertible, however. For example, if a matrix contains a,
+    /// > b, c, and d elements that are all zero, all user coordinates map to the same device
+    /// > coordinates and there is no unique inverse transformation. Such noninvertible
+    /// > transformations are not very useful and generally arise from unintended operations,
+    /// > such as scaling by 0. Use of a noninvertible matrix when painting graphics objects can
+    /// > result in unpredictable behaviour.
+    ///
+    /// It says the *mark* is undefined and says nothing at all about the page it is on. A page
+    /// transform is invertible, so a command under such a matrix has its whole path carried
+    /// onto a line or a point: it covers no area at any scale on any device, and all three
+    /// backends refuse it by the one rule `pdf_render::paint_space` states.
+    ///
+    /// **The twelfth place this program reports while drawing** (trap 5), and it is here rather
+    /// than in a rasteriser because the condition is a property of the file: it is decidable
+    /// from the display list, before any target exists, and every other per-mark refusal in this
+    /// tree is named on this enum. Until ADR 0482 each backend answered it fatally and
+    /// differently — `render-cpu` and `render-gpu` with an `UnsupportedPaint` raised while
+    /// inverting the transform to place a paint, `render-quorra` with an `InvalidStroke` raised
+    /// on a width multiplied by a stretch of zero — and any of the three cost the reader the
+    /// **whole page**. 293 commands of `4605705.pdf`'s went that way for one `cm` in a damaged
+    /// stream.
+    ///
+    /// What this does *not* claim is that §10.7.4 is satisfied. That subclause's "no shape ever
+    /// disappears" would give such a mark the run of whole device pixels its collapsed image
+    /// passes through, exactly as `pdf_render::split_collapsed_fill` does for a path that
+    /// collapses in its *own* space; a path collapsed by its transform instead is unbuilt and
+    /// unwitnessed, and `doc/todo/11` item 8 carries it.
+    NoninvertibleMatrix {
+        /// How many marking commands the page states under one.
+        commands: usize,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.
