@@ -85,5 +85,13 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::MediaBox { detail } => {
             format!("the document states no page size, so one was chosen for it: {detail}")
         }
+        // The third report whose subject is the file. §8.3.4 NOTE 3 says a noninvertible matrix
+        // "can result in unpredictable behaviour" and nothing else; what it means on a screen is
+        // that the mark's path lands on a line or a point, so this reads as a statement about
+        // what the document asked for rather than about something this program declined.
+        Unsupported::NoninvertibleMatrix { commands } => format!(
+            "{commands} mark(s) are placed by a matrix with no inverse, which collapses them to \
+             no area, so nothing was painted where they stand (§8.3.4)"
+        ),
     }
 }

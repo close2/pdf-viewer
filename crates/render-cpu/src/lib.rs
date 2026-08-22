@@ -502,6 +502,13 @@ impl CpuRasterizer {
         to_device: ToDevice,
         clip: scan::Clip<'_>,
     ) -> Result<(), CpuRasterError> {
+        // §8.3.4 NOTE 3: a matrix with no inverse carries this path onto a line or a point, so
+        // the *mark* is refused and the rest of the page is drawn. Asked before any geometry is
+        // built, because none of it would be used, and asked through `pdf-render` so that all
+        // three backends refuse the same marks (trap 2). `pdf_model` reports the count.
+        let Some(page_to_path) = pdf_render::paint_space(transform) else {
+            return Ok(());
+        };
         let at = to_device.of(transform);
         let width = stroke.device_width(at);
         // §8.5.3.2's marks are circles and squares of the line's width, so a width under the
@@ -544,7 +551,7 @@ impl CpuRasterizer {
             let brush = self.paint(
                 paint,
                 blend,
-                page_to_path(transform)?,
+                page_to_path,
                 to_device.of(Transform::IDENTITY),
                 (pixmap.width(), pixmap.height()),
                 &mut scratch,
@@ -583,7 +590,7 @@ impl CpuRasterizer {
             let mut brush = self.paint(
                 paint,
                 blend,
-                page_to_path(transform)?,
+                page_to_path,
                 to_device.of(Transform::IDENTITY),
                 (pixmap.width(), pixmap.height()),
                 &mut scratch,
@@ -1432,6 +1439,13 @@ impl CpuRasterizer {
         to_device: ToDevice,
         (clip, admits): (scan::Clip<'_>, Option<tiny_skia::Rect>),
     ) -> Result<(), CpuRasterError> {
+        // §8.3.4 NOTE 3: a matrix with no inverse carries this path onto a line or a point, so
+        // the *mark* is refused and the rest of the page is drawn — see `pdf_render::paint_space`,
+        // which states that for all three backends (trap 2). Before any geometry, because none of
+        // it would be used and because the raster route below would otherwise answer separately.
+        let Some(page_to_path) = pdf_render::paint_space(transform) else {
+            return Ok(());
+        };
         let at = to_device.of(transform);
         let cropped = crop_to_mask(source, transform, to_device, admits);
         let source = cropped.as_ref().unwrap_or(source);
@@ -1453,7 +1467,7 @@ impl CpuRasterizer {
         let brush = self.paint(
             paint,
             blend,
-            page_to_path(transform)?,
+            page_to_path,
             to_device.of(Transform::IDENTITY),
             (pixmap.width(), pixmap.height()),
             &mut scratch,
@@ -1733,6 +1747,13 @@ impl CpuRasterizer {
             blend,
             to_device,
         } = placement;
+        // ISO 32000-2 §8.3.4 NOTE 3, the same refusal a fill and a stroke take: a matrix with no
+        // inverse carries the unit square this image is drawn on onto a line or a point, so the
+        // mark is refused and the page is drawn (ADR 0482). Before the samples are resolved,
+        // because their grid is derived from a placement that states no scale.
+        if pdf_render::paint_space(transform).is_none() {
+            return Ok(());
+        }
         let placement = to_device.of(transform);
         // Where a command's samples do not exist until the device scale does — §11.6.5.2's
         // soft mask on a grid of its own is the case — this is where they are produced, and
@@ -1832,24 +1853,6 @@ impl CpuRasterizer {
         );
         Ok(())
     }
-}
-
-/// Maps page space into the space a path drawn under `transform` is stated in.
-///
-/// This is what a shading paint has to be expressed in — see [`shading::shader`] — and
-/// it is the inverse of the command's own transform.
-///
-/// # Errors
-///
-/// Returns [`CpuRasterError::UnsupportedPaint`] when `transform` is singular. A path
-/// under a singular transform has collapsed to a line or a point, so there is no space
-/// left to position a paint in. Reporting it is deliberate: the alternative is a
-/// gradient placed somewhere arbitrary, which looks like a rendering rather than a
-/// failure.
-fn page_to_path(transform: Transform) -> Result<Transform, CpuRasterError> {
-    transform.invert().ok_or_else(|| {
-        CpuRasterError::UnsupportedPaint(format!("singular transform {transform:?}"))
-    })
 }
 
 /// Draws a stroke thinner than a device pixel as a shape this rasteriser can measure, ISO 32000-2

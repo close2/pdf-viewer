@@ -60,7 +60,7 @@ pub use mitre::{mitre_wedges, sharpest_admitted_mitre};
 pub use outline::{marked_bounds, stroked_bounds};
 pub use paint::{
     BlendMode, Color, DeferredImage, FillRule, Grid, Image, ImageAtDeviceScale, ImageSource,
-    LineCap, LineJoin, Paint, Reduction, Stroke, thinnest_line,
+    LineCap, LineJoin, Paint, Reduction, Stroke, paint_space, thinnest_line,
 };
 pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};

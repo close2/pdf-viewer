@@ -672,6 +672,17 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
             operations: interpreter.text_operations,
         });
     }
+    // ISO 32000-2 §8.3.4 NOTE 3's noninvertible matrix, asked of the finished list rather than
+    // at each of the six places a mark is pushed: the condition is a property of the command
+    // and one walk cannot miss a route. See [`Unsupported::NoninvertibleMatrix`] for why this
+    // is a report and not a refusal, and `pdf_render::DisplayList::noninvertible_marks` for
+    // what makes such a mark absent whatever any backend does.
+    let noninvertible = interpreter.list.noninvertible_marks();
+    if noninvertible > 0 {
+        unsupported.push(Unsupported::NoninvertibleMatrix {
+            commands: noninvertible,
+        });
+    }
     unsupported.sort_unstable();
 
     // §14.9.2.3's default for everything in the file, and the only one of §14.9's entries with

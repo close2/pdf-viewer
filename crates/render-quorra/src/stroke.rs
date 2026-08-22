@@ -13,6 +13,15 @@
 //!    [`pdf_render::dashes_showing_direction`] and
 //!    [`pdf_render::split_dash_marks`].
 //! 3. quorra strokes the surviving subpaths solid and fills the dots.
+//!
+//! **And one decision taken before any of that: §8.3.4 NOTE 3's matrix with no inverse.** quorra
+//! needs no inverse to place a paint — it anchors one in page space, where `tiny-skia` and Vello
+//! each want the draw transform undone — so what [`pdf_render::paint_space`] gives this module is
+//! only the *refusal*, and taking it from there is what keeps the three backends refusing the same
+//! marks (viewer trap 2). Without it such a transform reached `path_width * max_stretch` below,
+//! which is a width of zero, and the **scene** refused with `InvalidStroke`: the whole frame lost
+//! for one mark whose path has collapsed onto a line or a point and covers no area anyway. That is
+//! `doc/todo/11` item 8 in quorra's own spelling, and ADR 0482 has the reading.
 
 use std::sync::Arc;
 
@@ -35,7 +44,10 @@ pub(crate) fn encode(
     paint: &Paint,
     (clip, mask, blend): (Option<ClipId>, Option<SoftMaskId>, BlendMode),
 ) -> Result<(), QuorraRasterError> {
-    if path.is_empty() {
+    // ISO 32000-2 §8.3.4 NOTE 3's matrix with no inverse, asked beside the empty path because the
+    // two are one sentence — this command marks nothing, so it is refused and the page is drawn.
+    // Stated for all three backends in `pdf-render`; the module comment says what it cost quorra.
+    if path.is_empty() || pdf_render::paint_space(transform).is_none() {
         return Ok(());
     }
     let crate::scene::Admitted::Chain(clip) = enc.clip_chain(builder, clip)? else {

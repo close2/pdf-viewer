@@ -296,6 +296,58 @@ pub fn thinnest_line(to_device: Transform) -> Option<f32> {
     Some(1.0 / stretch)
 }
 
+/// The space a paint is stated in for a mark drawn under `transform`, ISO 32000-2 §8.3.4.
+///
+/// `None` refuses the **mark**, and every backend in this tree refuses the same ones: a command
+/// whose transform has no inverse draws nothing, and the rest of the page draws. §8.3.4's third
+/// NOTE is the standard's whole statement about such a matrix:
+///
+/// > When rendering graphics objects, it is sometimes necessary for a PDF reader to perform the
+/// > inverse of a transformation -that is, to find the user space coordinates that correspond to
+/// > a given pair of device space coordinates. Not all transformations are invertible, however.
+/// > For example, if a matrix contains a, b, c, and d elements that are all zero, all user
+/// > coordinates map to the same device coordinates and there is no unique inverse
+/// > transformation. Such noninvertible transformations are not very useful and generally arise
+/// > from unintended operations, such as scaling by 0. Use of a noninvertible matrix when
+/// > painting graphics objects can result in unpredictable behaviour.
+///
+/// # What the clause decides, and what it does not
+///
+/// It decides that the mark is undefined, and it says why in the same breath: "all user
+/// coordinates map to the same device coordinates". A page transform is invertible, so a singular
+/// *command* transform makes the device transform singular too, and the command's whole path is
+/// carried onto a line or a point — no area, at any scale, on any device. So drawing nothing there
+/// is not a shortfall against §10.7.4's "no shape ever disappears" so much as the case that clause
+/// has no geometry left to be about; what §10.7.4 would still ask for is the run of *whole* device
+/// pixels the collapsed image passes through, which [`split_collapsed_fill`] builds for a path
+/// that collapses in its own space and which nothing builds for one collapsed by its transform.
+/// That is unbuilt and unwitnessed, and `doc/todo/11` item 8 carries it.
+///
+/// What the clause does **not** decide is anything about the page the mark is on, and no other
+/// clause makes a neighbouring command's matrix a reason to stop drawing — §6.3.2.2 asks a
+/// rendering processor for the page's contents with no exception for one of them. Until ADR 0482
+/// all three backends disagreed, each in its own way and each fatally: `render-cpu` and
+/// `render-gpu` inverted the transform to place a paint and turned the failure into
+/// `UnsupportedPaint`, and `render-quorra` multiplied a width by a stretch of zero and refused the
+/// scene with `InvalidStroke`. Any of the three cost a reader the whole page, and
+/// `4605705.pdf`'s 293 drawn commands went that way for one `cm` in a damaged stream.
+///
+/// # Why this is one function rather than three tests
+///
+/// A decision either backend can make alone is a decision neither has made (trap 2), and this one
+/// is not even the same *shape* in all three: `tiny-skia` and Vello apply a draw's transform to
+/// its paint as well as to its shape, so each needs the inverse this returns to place a paint back
+/// in page space; `render-quorra` positions a paint in page space directly and needs no inverse at
+/// all, so it reads only whether there is one. That asymmetry is exactly how the tree came to have
+/// three different refusals for one condition — so the condition is stated here, once, and the
+/// value is there for the two that need it.
+///
+/// [`split_collapsed_fill`]: crate::collapsed::split_collapsed_fill
+#[must_use]
+pub fn paint_space(transform: Transform) -> Option<Transform> {
+    transform.invert()
+}
+
 impl Default for Stroke {
     /// The PDF initial graphics state: 1.0 width, butt caps, miter joins, limit 10, and
     /// stroke adjustment off (Table 57).
@@ -1602,5 +1654,35 @@ mod stroke_width {
             ..Stroke::default()
         };
         assert_eq!(stroke.device_width(Transform::scale(0.0, 0.0)), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod paint_positioning {
+    use super::{Transform, paint_space};
+
+    /// A mark under an invertible transform gets that transform's inverse, at more than one
+    /// scale — a single scale cannot tell an inverse from a constant (trap 2).
+    #[test]
+    fn a_paint_is_positioned_by_the_transforms_inverse() {
+        for scale in [0.5_f32, 2.0, 8.0] {
+            let at = Transform::scale(scale, scale);
+            assert_eq!(paint_space(at), at.invert());
+        }
+    }
+
+    /// The refusal, over the three shapes a singular matrix comes in: §8.3.4's own example of
+    /// four zero elements, one axis scaled by zero — which still stretches the other, so a test
+    /// for zeroes would miss it — and a rank-one matrix with no zero entry at all.
+    #[test]
+    fn a_mark_under_a_singular_matrix_has_no_space() {
+        for singular in [
+            Transform::new(0.0, 0.0, 0.0, 0.0, 12.0, 34.0),
+            Transform::scale(1.0, 0.0),
+            Transform::new(2.0, 4.0, 1.0, 2.0, 0.0, 0.0),
+        ] {
+            assert_eq!(singular.invert(), None, "the case under test");
+            assert_eq!(paint_space(singular), None);
+        }
     }
 }

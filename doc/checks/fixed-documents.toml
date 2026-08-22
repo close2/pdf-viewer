@@ -325,3 +325,43 @@ session = 647
 reports = ["MAX_TILES"]
 ink = 48.213 .. 50.213
 why = "the same refusal on a page whose hatching is most of its ink: 41.262 of 255 against three references between 43.7 and 62.9, now 49.213 (ADR 0477, 8.7.3.1)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605705.pdf"
+page = 1
+session = 653
+reports = ["NoninvertibleMatrix", "Damaged", "Operator"]
+ink = 145.204 .. 147.204
+why = "a page refused whole — no raster at all, and the 282 commands that did draw lost with it — because one cm among eight damaged content streams has no inverse and all three backends turned that into an error about the target; §8.3.4's NOTE 3 makes only the mark undefined. The 2203 reports are what a noise stream says: 8 damaged parts, 2194 operators nobody wrote, and the 97 marks this round named (ADR 0482, 8.3.4, 10.7.4)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/0546/0546320.pdf"
+page = 1
+session = 653
+reports = ["NoninvertibleMatrix"]
+ink = 22.738 .. 24.738
+why = "the same refusal on a well-formed A4 page of 2582 commands, whose single degenerate mark is a text matrix scaled to nothing: one command's worth of nothing cost the reader the other 2581 (ADR 0482, 8.3.4)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/1407/1407697.pdf"
+page = 1
+session = 653
+reports = ["NoninvertibleMatrix", "Font"]
+ink = 12.600 .. 14.600
+why = "the same refusal on a US Letter page of 2891 commands, one of them under a matrix whose a, b and c are all zero (ADR 0482, 8.3.4)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2883/2883540.pdf"
+page = 1
+session = 653
+reports = ["NoninvertibleMatrix"]
+ink = 157.277 .. 159.277
+why = "the same refusal on a page of 192 commands with two such marks, which is the smallest denominator of the four and the one that says the cost is not proportional to anything (ADR 0482, 8.3.4)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/7803/7803534.pdf"
+page = 1
+session = 653
+reports = ["NoninvertibleMatrix"]
+ink = 16.186 .. 18.186
+why = "the fifth and last of the crawl's page-losing witnesses: a course registration form of 1025 commands, refused whole for one of them (ADR 0482, 8.3.4)"
