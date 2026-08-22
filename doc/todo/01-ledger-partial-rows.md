@@ -3743,13 +3743,42 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   parent understating, so a sweep looking for a missing thing would never have printed it.
   **The next band was taken in the six-hundred-and-fifty-second**, over a base of 851 commits:
   §10.4.2.4 and §10.4.2.5 at ranks 1 and 2, §9.7.5 at 3, §9.8 at 5 and §10.4.2 at 13, five rows and
-  three defects, each one the fifth failure shape inside its own family. **The rows left at the top
+  three defects, each one the fifth failure shape inside its own family. ~~**The rows left at the top
   are §11.7 at rank 4, §10.7.5 at 6, §10.7 at 7 and §8.6.5.7 at 8**, then the cluster of six at
   rank 9, of which five are left once §10.4.2 comes out — §7.6.4, §7.6.4.4, §8.11.4.1, §9.7 and
-  §12.8.4.2, all sharing one commit.
+  §12.8.4.2, all sharing one commit.~~ **Taken in the six-hundred-and-fifty-seventh**, over a base
+  of 859 commits where that prediction came out exactly — §11.7 at rank 1, §10.7 at 3, §8.11.4.1 at
+  8, §9.7 and §12.8.4.2 in the cluster at 5–9 — **five rows read, four of them defects, and every
+  one of the four is a parent summarising a family it had stopped reading**. §10.7 counted §10.7.3
+  among "two parameters the clause lets a processor ignore and which are ignored" while Table 57's
+  `/SM` has moved a shading's sampling since the seventy-fourth session; §11.7 attributed the whole
+  of §11.7.5's debt to §11.7.5.3's black generation while §11.7.5.2 has been `reported` since the
+  six-hundred-and-thirty-seventh; §9.7 named "§9.7.5.1's remainder" in the same commit that moved
+  §9.7.5.1 to `implemented`; §8.11.4.1 named two of its three `partial` children while its own
+  parent §8.11.4 has named all three since the same session. §12.8.4.2 was kept, with what its one
+  cited test actually asserts written in. **§10.7's is the sharpest, because the identical claim was
+  retired one row over and did not travel**: §8.4.5 carried `/SM` on its not-read list as "the
+  silence recorded under §10.7.3" and the five-hundred-and-sixty-fifth corrected it there — a
+  retired claim is a string, and the round that retires one owes a grep of the *tree* rather than of
+  the family it is reading (ADR 0101). **The rows left at the top are §10.7.5 at rank 2 and
+  §8.6.5.7 at 4**, then §7.6.4 and §7.6.4.4 out of the cluster, then §11.5.3 at 10 and §11.3.4
+  at 11.
   Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.
+- **Run the sweeps before your own edit as well as after it, and account for every number that
+  moves.** The twelve already run on any round the ledger moves; what the six-hundred-and-fifty-seventh
+  added is that the run *before* is not optional and the deltas are stated rather than reported.
+  A level is one integer, produced by a program that does not know what this round is trying to say,
+  and it reviews the sentence a round is about to add for free. It has now caught two: the
+  six-hundred-and-fifty-second's draft wrote a denial in words `--bin overstated` scores as an
+  assertion (8 contradictions became 12), and this round's first correction to §8.11.4.1 repeated
+  three entry names §8.11.4.3's row already carries, doubling `--bin unread`'s standing noise on all
+  three (69 rows / 182 keys became 70 / 185). Both sentences were *true*; neither was worth writing.
+  The rewrite points at the neighbouring row instead of repeating its list, which is the same
+  conclusion the six-hundred-and-fifty-second reached about §9.8.1's — **an entry list lives in one
+  row**. ADR 0485, and it is not a gate: these levels move for good reasons every round and pinning
+  them would make twelve reading lists into twelve ratchets.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.
