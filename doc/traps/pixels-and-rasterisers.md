@@ -59,11 +59,22 @@ that was true when written and that nothing pointed at when the tree moved under
 `CONTRADICTED_TIGHT_CONSENSUS` said of `colors.pdf` that ours is the closed form with every edge
 rounded to a quarter and `hayro`'s is the exact one. ADR 0476 made ours the exact form **three
 sessions later**, and the correction reached the paragraph below, §10.7.4's ledger row and
-`doc/todo/11` item 7 — everywhere except the group whose members it is about (ADR 0489). Nothing
-in this tree links a note to the code it describes, so **when a round changes what a rasteriser
-draws, the contradicted groups holding the pages it changed are part of the diff**, exactly as the
-ink sweep is. The tell that finds one afterwards is cheap: a group note quoting a number the gate
-also prints, where the two disagree — this one said ssim 0.98591 while the run prints 0.98786.
+`doc/todo/11` item 7 — everywhere except the group whose members it is about (ADR 0489). So **when
+a round changes what a rasteriser draws, the contradicted groups holding the pages it changed are
+part of the diff**, exactly as the ink sweep is.
+
+**Something does point at them now, and its first run found the same claim in a second home.**
+`cargo run --release -p conformance --bin overtaken` compares a page-list note's newest cited ADR
+against the newest ADR that names one of its own pages, which is *a decision taken after the note
+was last revised about a page the note explains* (ADR 0491). It named `CONTRADICTED_TIGHT_CONSENSUS`
+at the head of its first rung when 662's sentence was planted back, and at the head of its second
+rung it named `CONTRADICTED_ANTIALIASED_EDGES`, which had carried the pre-0476 ssim figures for
+nineteen sessions **in the paragraph immediately below the ADR 0476 correction, which said that
+paragraph was unaffected**. A correction that scopes itself is a claim, and this one was wrong.
+
+The by-hand tell is still the cheapest and still worth knowing, because the sweep only ranks:
+a group note quoting a number the gate also prints, where the two disagree — that one said ssim
+0.98591 while the run prints 0.9879.
 
 The newest wrong *name* is `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had
 said since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us

@@ -218,6 +218,28 @@ with the reading, which is this file. Every bullet below is unchanged.
   itself on its neighbour's keys. The noise it leaves is a partitive with no table to divide it
   ("three of the four locations a `/Lang` may occupy"), which is left to the reader on purpose.
   Its first run found two live defects, §9.9.1's and §9.7.6's, both below.
+- **One reads no row at all, and it is the newest**: `cargo run --release -p conformance --bin
+  overtaken`, a fraction of a second, over the tree's **page-list notes** and `doc/adr/` — the
+  nineteenth sweep and the fourteenth to be a program (ADR 0491). A page-list note is the doc
+  comment above a `const NAME: [&str; N]` of corpus pages: the oracle's contradicted and ambiguous
+  groups, quorra's refusal lists, `text_extraction`'s floors. Those notes carry the diagnosis a
+  round reads before deciding whether a page is our defect, and nothing checked them against
+  anything. The discriminator uses the one ordering `doc/adr/` already has — **an ADR number is a
+  date** — so the sweep compares *the newest ADR a note cites* with *the newest ADR that names one
+  of the note's own pages*, and a gap is a decision taken after the note was last revised about a
+  page the note explains. Three rungs, closest first, and **all three require a shared page**: the
+  later ADR names the list itself; it names a document the note's prose argues; it names only a
+  list member the prose never mentions. That last requirement is the sweep's own first finding
+  about itself — without it a *census* ADR that prints every list's name put a fifth of the tree's
+  notes on rung 1. **Its first run named `CONTRADICTED_ANTIALIASED_EDGES` at the head of rung 2**,
+  carrying `colors.pdf`'s pre-ADR-0476 ssim figures nineteen sessions on, in the paragraph
+  immediately below the correction that said that paragraph was unaffected; `CONTRADICTED_UNEXPLAINED`
+  was second, still asking for a measurement ADR 0489 had made and giving three numbers the gate no
+  longer prints. Calibrated per trap 13 against 662's own defect restored to the tree, where it is
+  rung 1, rank 1. The noise is the last rung — a 370-page list collects a passing mention for free —
+  and a note may deliberately not cite a later ADR about a different property of the same page.
+  **The cheapest way to keep off it: cite your own ADR in the note you rewrite.** The 62 notes that
+  cite no ADR at all are counted rather than listed; the comparison has no left-hand side.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the

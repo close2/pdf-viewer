@@ -314,6 +314,16 @@ share and the two that break it:
   both inverted and neither can see it. Its first run found §9.9.1 claiming Table 125's three
   lengths were read by nobody twenty sessions after its own parent recorded a reader, and §9.7.6
   claiming a whole table its own child takes an entry out of.
+- **One reads no *row* at all, and it is the newest**: `--bin overtaken`, the nineteenth sweep
+  (ADR 0491). Its population is the tree's **page-list notes** — the doc comment above a
+  `const NAME: [&str; N]` of corpus pages, which is where the oracle keeps every contradicted
+  page's diagnosis — and its other side is `doc/adr/`, whose numbering is the only date this
+  project has. A note's citations are a claim about which decisions it has read, so the sweep
+  asks whether a decision was taken *after* the note's newest citation about *a page the note
+  explains*. It exists because trap 1's third way for a note to be wrong had no instrument:
+  a sentence true when written that nothing pointed at when the tree moved under it. **A round
+  that rewrites a note cites its own ADR in it**, which is both correct and how the note stays
+  off the sweep.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in

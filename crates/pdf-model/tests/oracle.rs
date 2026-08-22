@@ -402,18 +402,32 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["colorkeymask.
 /// **Every past tense above is the six-hundred-and-forty-sixth session's** (ADR 0476): an
 /// axis-aligned rectangle's coverage is the product of its two overlaps, which §10.7.4's own
 /// definition of a pixel gives, and `render-cpu` draws a rectangular fill and a rectangular clip
-/// region at it. Our raster of these two pages **is** the exact closed form now, both backends read
-/// the ladder to a level of 255, and the paragraph below is unaffected — which it predicted.
+/// region at it. Our raster of these two pages **is** the exact closed form now, and both backends
+/// read the ladder to a level of 255.
 ///
 /// # Why the pages still moved to a *bound* group rather than to a defect
 ///
 /// Because the exact form is contradicted here too, which is the one thing this note could not
 /// have assumed. The bound the gate applies is twice the consensus pair's own distance, and the
-/// pair is `poppler` and `ghostscript`: page 1's is ssim 0.98862, ours is 0.98591, and **the exact
-/// closed form is 0.98772** — nearer, and still outside. Page 2: bound 0.98402, ours 0.97906, the
-/// exact form 0.98001. A rasteriser painting precisely the area each rectangle covers would be
-/// contradicted on both pages, so the verdict is trap 12's and not a report about our marks. What
-/// is ours is the 33 levels between the two closed forms, which no bound on this page can see.
+/// pair is `poppler` and `ghostscript`: page 1's bound is ssim 0.98862 and page 2's 0.98402. A
+/// rasteriser painting precisely the area each rectangle covers is contradicted on both, so the
+/// verdict is trap 12's rather than a report about our marks.
+///
+/// **The paragraph above said until the six-hundred-and-sixty-fifth session that it was
+/// "unaffected — which it predicted", and it was affected in the one place the prediction was
+/// checkable.** It went on to give ours as ssim 0.98591 and 0.97906 against an exact form at
+/// 0.98772 and 0.98001, and those are the *quarter-quantised* raster's numbers: ADR 0476 made ours
+/// the exact form, so the two rows stopped being two things and neither figure survived the change
+/// the sentence above it announces. The gate prints, on this tree, `ours at worst … ssim 0.9879`
+/// against `bound … ssim 0.9886` for page 1 and `0.9802` against `0.9840` for page 2 — which is
+/// the exact form's place in the ranking and not the quantised one's, and ADR 0489 re-derived both
+/// closed forms independently and put ours 0.0000% of either page from the exact one. **The 33
+/// levels this paragraph used to call "ours" are paid.**
+///
+/// The correction is `--bin overtaken`'s first finding (ADR 0491), and the reason the note could hold
+/// it for
+/// nineteen sessions is the sweep's whole subject: ADR 0476 rewrote the paragraph above and left
+/// the paragraph below, and no gate reads a note against the decisions taken after it.
 const CONTRADICTED_ANTIALIASED_EDGES: [&str; 0] = [];
 
 /// Contradicted, where the difference was said to be a `CalRGB` space converted rather than
@@ -2509,12 +2523,27 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 26] = [
 /// `issue7891_bc1.pdf` is a **soft mask's backdrop colour**. Its issue says the two files
 /// `_bc0` and `_bc1` are identical but for `/BC`, that the mask is deliberately smaller than
 /// the group it applies to, and that Adobe draws the transparency group's boundary as a red
-/// line where pdf.js drew a black one. Our own numbers fit a thin line: mean 0.22 of a level
-/// against a bound of 1.00, one tile at 10.76 against 6.04, 0.52% of pixels differing, with
+/// line where pdf.js drew a black one. Our own numbers fit a thin line: mean 0.17 of a level
+/// against a bound of 1.00, one tile at 6.73 against 6.04, 0.54% of pixels differing, with
 /// `mupdf` and `ghostscript` the pair that agree. `soft_mask.rs` does read Table 142's `/BC`,
 /// so the question is not whether the entry is read but what fills the area the mask's group
-/// does not cover — which is the next thing to measure here, and the only entry on this list
-/// with a clause and an expected picture attached.
+/// does not cover.
+///
+/// **That question was answered in the six-hundred-and-sixty-second session and this paragraph
+/// went on asking it** (ADR 0489, and the numbers above are the six-hundred-and-sixty-fifth's off
+/// the gate, where they read 0.22, 10.76 and 0.52% until it ran). The page is a closed form:
+/// away from the stroke every pixel is `255 × (1 − L)`, with `L` the image's own sample inside the
+/// mask group's `/BBox` and `/BC`'s white outside it — so what fills the uncovered area is settled
+/// and it is not the difference. Two thirds of the difference is seven lines of pixels, and the
+/// largest of them is the `/BBox` edge itself, where §10.7.4 makes a clipping region a **set**:
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by a
+/// > fill operation. Subsequent painting operations shall affect a region that is the intersection
+/// > of the set of pixels defined by the clipping region with the set of pixels for the region to
+/// > be painted.
+///
+/// [`CONTRADICTED_TIGHT_CONSENSUS`] is where the page lives and where the measurement is; this
+/// paragraph is its history, corrected off the gate in the six-hundred-and-sixty-fifth (ADR 0491).
 ///
 /// # One left in the fifty-fourth session, and it is a step drawn as a gradient
 ///
@@ -2663,8 +2692,10 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 ///
 /// # One subclause decides all three pages, and this note cited none of it for nineteen sessions
 ///
-/// The six-hundred-and-sixty-second session chose this group by counting, for every non-empty
-/// `CONTRADICTED_*` list, **how many clauses of ISO 32000-2 its note cites**. Thirteen of the
+/// The six-hundred-and-sixty-second session (ADR 0489; the citation is the six-hundred-and-sixty-fifth's,
+/// ADR 0491, which is where the rule that a note names the decision that wrote it comes from) chose this
+/// group by counting, for every
+/// non-empty `CONTRADICTED_*` list, **how many clauses of ISO 32000-2 its note cites**. Thirteen of the
 /// fourteen cite at least one — `CONTRADICTED_DEVICE_CMYK_CONVERSION` seventeen,
 /// `CONTRADICTED_SUBSTITUTED_FONT` eighteen — and this one cited **none**. A contradicted verdict
 /// is the claim that the standard rather than the consensus decides the page (principle 5), so a
