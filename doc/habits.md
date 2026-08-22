@@ -498,6 +498,23 @@ that attached its file to a page carried a file nothing here could reach. ADR 02
 
 ### Measuring
 
+**A price is a claim, and it decays like the others.** This project already holds that a ledger row's
+*reason* decays, that a claim about the standard's silence decays, and that a note's *count* decays.
+The estimate a round writes when it measures a piece of work and **declines** it belongs on that list,
+and the six-hundred-and-fifties found two inside one week, in opposite directions. ADR 0474 priced an
+exact edge coverage at *nine `scan::fill` calls where there is one* and left the item open for that
+reason; it was **one call**, because `tiny-skia` already contained the nine pieces, and the built form
+is faster. ADR 0469 priced a shading's transfer function as an existing walk redone one crate along;
+that design would have been **wrong by 64 levels of 255**, because a simplifier three hundred sessions
+older had already dropped the curve the walk assumed.
+
+Both prices were written by rounds that had measured carefully and were right about everything else.
+What moved underneath them was a *third* thing neither was looking at. So: **a round that takes an
+item priced by an earlier round re-derives the price before believing it**, exactly as it re-derives
+a count or a population — and the cheapest re-derivation is asking what the libraries and the layers
+*already contain*, because that is the part a pricing round tends not to enumerate.
+
+
 - **A negative answer from a tool is a claim about that tool, not about the world.** `which
   cargo-fuzz` reports nothing here because `~/.cargo/bin` is not on `PATH`, and two consecutive
   rounds wrote "`cargo-fuzz` is not installed on this machine" into an ADR and a todo — leaving a
