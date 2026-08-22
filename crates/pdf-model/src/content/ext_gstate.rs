@@ -33,8 +33,16 @@ use super::{GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_l
 /// Both ends are additive by the clause's own rule — "the greater the numeric value, the lighter
 /// the colour" — which is what makes applying it to an RGB colour the whole of it: nothing here
 /// has to subtract anything from 1.0, because nothing here is subtractive by the time it arrives.
+///
+/// **Public because a shading's colours are built outside this module.** Table 57 is read here and
+/// nowhere else, so this is where the type belongs; but §10.5's subject is the component value, and
+/// a ramp's stops, a mesh's corners and a function-based shading's grid are produced in
+/// [`crate::shading`] and [`crate::mesh`]. Those take one of these rather than a closure, so the
+/// clause is stated once and applied in every place a colour is made. Nothing outside this crate
+/// can construct one — [`Transfer::read`] is private and an `/ExtGState` is the only source the
+/// clause gives — so the public surface is what a caller needs to pass one on and no more.
 #[derive(Debug, Clone)]
-pub(super) struct Transfer {
+pub struct Transfer {
     /// Red, green and blue. One stated function fills all three (`Arc` so it is not cloned).
     channels: [Arc<crate::function::Function>; 3],
 }
@@ -107,7 +115,8 @@ impl Transfer {
     /// Alpha is not a colour component: §10.5 speaks of "the value of a colour component in the
     /// device's native colour space", and §11's shape and opacity are a different quantity in a
     /// different clause.
-    pub(super) fn apply(&self, colour: Color) -> Color {
+    #[must_use]
+    pub fn apply(&self, colour: Color) -> Color {
         let map = |function: &crate::function::Function, value: f32| {
             function
                 .eval(&[value.clamp(0.0, 1.0)])

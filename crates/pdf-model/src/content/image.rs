@@ -451,7 +451,7 @@ impl Interpreter<'_> {
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
-        self.note_transfer(state, Painted::of(state.fill_pattern.as_ref(), false));
+        self.note_transfer(state, Painted::of(state, false));
         self.list.push(Command::Fill {
             path: Arc::new(path),
             transform: state.transform,

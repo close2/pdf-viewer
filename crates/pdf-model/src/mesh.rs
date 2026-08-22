@@ -31,8 +31,10 @@
 use pdf_render::{Color, Corners, Point, Ramp, Triangle};
 use pdf_syntax::{Dictionary, Document, Stream};
 
-use crate::colour::{ColourSpace, Conversion};
+use crate::colour::ColourSpace;
+use crate::content::Transfer;
 use crate::function::{BitReader, Function};
+use crate::shading::{Colouring, transferred};
 
 /// How finely a Bézier patch is evaluated along each axis.
 ///
@@ -54,6 +56,10 @@ const MAX_TRIANGLES: usize = 1 << 18;
 /// calls the function afterwards, so the function crosses into the display list as the
 /// samples of itself that [`Ramp`] already is for an axial or a radial shading.
 ///
+/// `colouring` carries ISO 32000-2 §10.5's transfer function where the graphics state states one;
+/// see [`transferred_corners`] for where it reaches a mesh's own colours and [`MeshReader::ramp`]
+/// for where it reaches a parametric one's.
+///
 /// Returns `None` when the stream is unreadable or describes no triangles, which the
 /// caller reports rather than drawing an empty shading.
 pub(crate) fn read(
@@ -62,8 +68,7 @@ pub(crate) fn read(
     kind: i64,
     space: &ColourSpace,
     functions: &[Function],
-    resolution: usize,
-    into: &Conversion,
+    colouring: Colouring<'_>,
 ) -> Option<(Vec<Triangle>, Option<Ramp>)> {
     let dict = &stream.dict;
     let data = document.decoded_stream_data(stream)?;
@@ -103,7 +108,7 @@ pub(crate) fn read(
         flag_bits,
         space,
         functions,
-        into,
+        colouring,
     };
 
     // Type 5's lattice width is read before the vertices, whichever of the two things a
@@ -132,11 +137,51 @@ pub(crate) fn read(
     } else {
         (
             reader.triangles::<f32>(&mut bits, kind, per_row)?,
-            Some(reader.ramp(resolution)),
+            Some(reader.ramp()),
         )
     };
 
+    let triangles = transferred_corners(triangles, colouring.transfer);
     (!triangles.is_empty()).then_some((triangles, ramp))
+}
+
+/// Every corner colour through ISO 32000-2 §10.5's transfer function.
+///
+/// **After the subdivision rather than before it**, which is the whole reason this is a pass over
+/// the finished triangles instead of a line inside `Corner::read`. §8.7.4.5.7 makes the colour
+/// inside a Coons or tensor patch a bilinear mix of the patch's four stated corner colours, so the
+/// colours mapped here are [`PATCH_STEPS`]² samples of that mix rather than the four the file
+/// wrote down — and the clause's input is "the value of a colour component" at a point, not the
+/// corners a point's colour was mixed from. For types 4 and 5, which state their triangles
+/// directly, the two orders are the same arithmetic.
+///
+/// **What remains approximate, and it is §8.7.4.4's own approximation.** A rasteriser interpolates
+/// linearly between the three corners of each triangle it is given, so what is drawn between them
+/// is a mix of transferred colours where the clause asks for the transfer of the mixed colour. The
+/// clause that permits it is the one that permits interpolating a shading at all: "PDF processors
+/// may actually compute colour values only for some subset of the points in the target area, with
+/// the colours of the intervening points determined by interpolation between the ones computed."
+/// Closing it entirely would need a per-pixel pass, which is `doc/todo/13`'s per-region model and
+/// is priced there.
+///
+/// A corner holding §8.7.4.5.5's parameter has no colour to map; the function that turns it into
+/// one is the ramp, and `MeshReader::ramp` maps that.
+fn transferred_corners(triangles: Vec<Triangle>, transfer: Option<&Transfer>) -> Vec<Triangle> {
+    let Some(transfer) = transfer else {
+        return triangles;
+    };
+    triangles
+        .into_iter()
+        .map(|triangle| Triangle {
+            points: triangle.points,
+            corners: match triangle.corners {
+                Corners::Colours(colours) => {
+                    Corners::Colours(colours.map(|colour| transfer.apply(colour)))
+                }
+                parameters @ Corners::Parameters(_) => parameters,
+            },
+        })
+        .collect()
 }
 
 /// Reads a bit width, checking it against the values the specification permits.
@@ -210,7 +255,7 @@ impl Corner for Color {
             let raw = bits.read(reader.component_bits)?;
             values.push(reader.decode_at(index.checked_add(2)?, raw, reader.component_bits));
         }
-        Some(reader.into.paint(reader.space, &values))
+        Some(reader.colouring.into.paint(reader.space, &values))
     }
 
     fn mix(self, other: Self, t: f32) -> Self {
@@ -259,8 +304,13 @@ struct MeshReader<'a> {
     flag_bits: u32,
     space: &'a ColourSpace,
     functions: &'a [Function],
-    /// How the mesh's vertex colours are converted (`crate::colour::Conversion`).
-    into: &'a Conversion,
+    /// §10.7.3's resolution, §8.6.5.9's conversion and §10.5's transfer, which every colour a
+    /// mesh produces needs.
+    ///
+    /// The transfer is read by [`MeshReader::ramp`] alone: a mesh that states colours at its
+    /// vertices has them mapped by [`transferred_corners`], after the patch subdivision this
+    /// reader does.
+    colouring: Colouring<'a>,
 }
 
 impl MeshReader<'_> {
@@ -333,22 +383,30 @@ impl MeshReader<'_> {
     /// a display list holds no PDF functions, so the function is evaluated here and crosses
     /// as samples. Its own discontinuities are sampled *across* rather than averaged over,
     /// which is what a type 3 stitching function with equal `/Bounds` needs.
-    fn ramp(&self, resolution: usize) -> Ramp {
+    fn ramp(&self) -> Ramp {
         let (low, high) = self.parameter_range();
         let span = high - low;
         let breaks = crate::shading::breakpoints_over(self.functions, low, high);
-        Ramp::sample_across_at(resolution, &breaks, |t| {
+        Ramp::sample_across_at(self.colouring.resolution, &breaks, |t| {
             self.colour_of_parameter(low + t * span)
         })
     }
 
     /// The colour the shading's functions give one parametric value.
+    ///
+    /// §10.5's transfer is applied here, which is inside the sampling: the ramp is a sampling of
+    /// the composition rather than a composition applied to the samples, so [`Ramp`]'s own
+    /// simplifier measures the colours a rasteriser will draw. `crate::shading::kind_of` has the
+    /// argument, and it is the same one for every ramp in this tree.
     fn colour_of_parameter(&self, parameter: f32) -> Color {
         let mut components = Vec::new();
         for function in self.functions {
             components.extend(function.eval(&[parameter]));
         }
-        self.into.paint(self.space, &components)
+        transferred(
+            self.colouring.into.paint(self.space, &components),
+            self.colouring.transfer,
+        )
     }
 
     /// Reads a vertex, including the byte padding each one carries in a triangle mesh.

@@ -8,12 +8,17 @@ session — and is `implemented` now. Kept because the *argument* is what took t
 **And re-opened in the six-hundred-and-thirty-second**, which found §11.7.5.2 `inapplicable` on an
 argument about the clause that the clause does not make. **The six-hundred-and-thirty-seventh
 closed the `silent` half**: the report is built and that row is `reported`, and the reading it took
-found a *second* gap one clause up — a shading's colours never pass through §10.5's map at all,
-which makes that row `partial` and reported too. What is still owed is the per-region model, and
-the last section of this file is what it costs.
+found a *second* gap one clause up — a shading's colours never passed through §10.5's map at all.
+**The six-hundred-and-fiftieth closed that one** (ADR 0479): the function is applied where a
+shading's colours are *made*, so it reaches an axial or radial ramp's samples, a parametric mesh's
+ramp, a mesh's corners and a function-based shading's grid. Two things are still owed and both are
+below — the per-region model, and the pattern whose colours were resolved a graphics state before
+the mark.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
-doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2` and how many state a real one
+doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, and
+how many paint a shading on a page that states one. It takes the SafeDocs crawl too — `find
+corpus-cache/safedocs -name '*.pdf' -print0 | xargs -0 -n 2000 <the binary>` — in under a minute
 Clauses: §10.5, §8.4.5 (Table 57's `/TR` and `/TR2`), §11.7.5.2
 Code: `crates/pdf-model/src/content.rs` (where `/ExtGState` is read),
 `crates/pdf-model/src/function.rs` (the functions already parse and evaluate)
@@ -177,16 +182,21 @@ sessions before §10.4.2.5 turned out to answer it outright.
   need "§11.7.5.2's per-region tracking, which stays inapplicable until a *second* transfer
   function competes with a first inside a transparency group", and that is wrong about the
   clause** — see the section below, which is the debt this file now carries.
-- **What it turned out to miss, found in the six-hundred-and-thirty-seventh session**: a
-  **shading**. `fill_paint` returns `Paint::Shading` before the line that maps a colour, and `sh`
-  never asks, so an axial ramp's stops, a mesh's corners and a sampled function's program all
-  reach the backend unmapped. §10.5's subject is the component value — "[t]he output shall be the
-  transformed component value to be transmitted to the device" — and a shading's are values.
-  Reported rather than implemented (`Unsupported::TransferFunction`, §10.5's row is `partial`),
-  because it is a `pdf-render` change: `Shading::with_alpha` is the shape it would take — the same
-  walk over `Ramp`, `Corners::Colours` and `DeferredColours` — and `Transfer` lives in `pdf-model`,
-  so what crosses is a closure rather than the type. Call it sixty lines and one fixture, for a
-  population the census measures at zero.
+- **What it turned out to miss, found in the six-hundred-and-thirty-seventh session and
+  implemented in the six-hundred-and-fiftieth**: a **shading**. §10.5's subject is the component
+  value — "[t]he output shall be the transformed component value to be transmitted to the device"
+  — and a shading's are values. **The price 637 wrote here was wrong, and the reason is worth
+  keeping.** It said `Shading::with_alpha`'s walk done again with a closure, in `pdf-render`. That
+  walk maps a *finished* ramp, and a finished ramp has been through ADR 0068's simplifier: a
+  `/FunctionType 2` interpolation with `/N 1`, which is most of the shadings in the world, reaches
+  the display list as **two stops**. Mapping two stops and letting a rasteriser interpolate draws
+  the chord between the transferred ends where the clause asks for the transfer's own curve — for
+  a transfer that squares its input, 0.5 instead of 0.25 at the midpoint, which is 64 levels of
+  255. So the function is applied *inside the sampling* instead, in `shading::kind_of` and
+  `mesh::read`, where the ramp becomes a sampling of the composition and the simplifier then
+  measures what will be drawn. It is a `pdf-model` change and `pdf-render` needed no line of it.
+  Two things fall out and are in the code with their reasons: a shading built under a transfer is
+  not cached, and a type 1 shading's device program is withdrawn.
 - **Measured in the three-hundred-and-fifty-eighth session, by the census this bullet asked for**:
   `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
 
@@ -256,3 +266,29 @@ session; the second is what this file still owes.**
    the clause, so a document that turns up stating a transfer function under a soft mask moves it
    straight to the top — and since the six-hundred-and-thirty-seventh such a document says so out
    loud instead of being drawn wrong in silence.
+
+## What is still owed: the pattern whose colours were resolved a state too early
+
+**Found in the six-hundred-and-fiftieth session while implementing the above**, and reported rather
+than drawn in silence. §8.7.2 makes a pattern a colour and `scn` is where a colour is set, so a
+shading pattern's colours are built when the pattern is *selected*; the mark may be several
+graphics states later. A file that states one `/TR` at the `scn` and another at the `f` is painted
+with the first.
+
+`Painted::of` compares the transfer the pattern's colours were built under with the one in force at
+the mark and raises `Unsupported::TransferFunction` when they differ. The comparison is
+`Arc::ptr_eq`, so a stream that re-states the *same* `/ExtGState` in between is reported although
+its picture is right — an over-approximation in the safe direction, taken because equality of parsed
+§7.10 functions is a relation this tree does not have and would be inventing for a population of
+zero.
+
+**Why it was not simply fixed.** Closing it means resolving a shading pattern's colours at the mark
+instead of at the selection — and the `scn` is also where this tree resolves §8.6.5.9's black point
+and §11.4.7's compositing target for those same colours, neither of which reports anything when the
+state moves underneath it. So the staleness is a property of *when a shading pattern is built*
+rather than of §10.5, and the right change answers three clauses at once. What it would take: the
+shading object, its resources and its matrix carried in `PatternPaint::Shading` so that
+`Interpreter` can rebuild through `shading::Cache` at the paint — cheap, because the cache is keyed
+by the object — plus a decision about where `fill_paint` moves to, since it is a method on
+`GraphicsState` and has no document. Call it a hundred lines and three fixtures, and take it with
+the two sibling clauses rather than alone.

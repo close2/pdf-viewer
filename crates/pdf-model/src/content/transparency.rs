@@ -52,23 +52,46 @@ pub(super) enum Painted {
         /// The fourth condition, which only the caller can answer.
         soft_mask: bool,
     },
-    /// A shading, painted by `sh` or as a pattern, whose colours no transfer function reached.
+    /// A shading, painted by `sh` or as a pattern.
     Shading {
         /// Whether it was the stroke colour, for the first condition.
         stroking: bool,
+        /// Whether the transfer function the shading's colours were built under is no longer the
+        /// one in force. See [`Interpreter::note_transfer`]'s §10.5 section.
+        stale: bool,
     },
 }
 
 impl Painted {
-    /// Which kind a fill or a stroke is, given the pattern its colour names.
+    /// Which kind a fill or a stroke is, given the state it is painted under.
     ///
     /// §8.7.2 makes a pattern a colour — "[a]ll patterns shall be treated as colours" — and only
-    /// one of the three answers changes what §10.5 reaches: a shading's colours are produced by
-    /// the backend and never pass through the transfer function. A tiling pattern is not a paint
-    /// at all, so it never reaches a call site of this; a solid colour has already been mapped.
-    pub(super) fn of(pattern: Option<&super::pattern::PatternPaint>, stroking: bool) -> Self {
+    /// one of the three answers has anything more to ask about §10.5: a shading's colours are
+    /// built when the pattern is *selected*, so the transfer they carry is the one that was in
+    /// force then. A tiling pattern is not a paint at all, so it never reaches a call site of
+    /// this; a solid colour is mapped by `GraphicsState::fill_paint` at the mark.
+    ///
+    /// The staleness test is `Arc::ptr_eq` rather than an equality of functions, and it is an
+    /// over-approximation in the safe direction: two `gs` operators naming one `/ExtGState` parse
+    /// two `Transfer`s that are equal and not identical, so a stream that re-states the same
+    /// transfer between the `scn` and the paint is reported although its picture is right.
+    /// Comparing parsed §7.10 functions for equality would be a new definition of equality on a
+    /// type that has none, for a population measured at zero.
+    pub(super) fn of(state: &GraphicsState, stroking: bool) -> Self {
+        let pattern = if stroking {
+            state.stroke_pattern.as_ref()
+        } else {
+            state.fill_pattern.as_ref()
+        };
         match pattern {
-            Some(super::pattern::PatternPaint::Shading(_, _)) => Self::Shading { stroking },
+            Some(super::pattern::PatternPaint::Shading { transfer, .. }) => Self::Shading {
+                stroking,
+                stale: !match (transfer, state.transfer.as_ref()) {
+                    (None, None) => true,
+                    (Some(built), Some(now)) => Arc::ptr_eq(built, now),
+                    _ => false,
+                },
+            },
             _ if stroking => Self::Stroked,
             _ => Self::Filled,
         }
@@ -1917,19 +1940,27 @@ impl Interpreter<'_> {
     /// painted under. Two clauses are asked here and they are asked in this order because only
     /// the first decides whether the object carries a transfer at all.
     ///
-    /// # §10.5, and the paint that never sees the function
+    /// # §10.5, and the shading whose colours were resolved under an older state
     ///
     /// The clause's subject is a component value, not an object:
     ///
     /// > In the sequence of steps for processing colours, the PDF processor shall apply the
     /// > transfer function after performing any needed conversions between colour spaces.
     ///
-    /// [`GraphicsState::fill_paint`] applies it to a solid colour and `image::transferred_image`
-    /// to an image's samples, and a shading's colours pass
-    /// through neither: they live in a ramp, a mesh's corners or a sampled function that the
-    /// display list hands to the backend whole. So a `sh`, or a fill or stroke whose colour is a
-    /// shading pattern, is painted with the function *not* applied where the clause applies it —
-    /// a different departure from the one below, and named as itself.
+    /// [`GraphicsState::fill_paint`] applies it to a solid colour, `image::transferred_image` to
+    /// an image's samples, and `shading::kind_of` to every colour a shading produces — a ramp's
+    /// samples, a mesh's corners and a function-based shading's grid alike. The one place the
+    /// answer can still be the wrong function is a **shading pattern**: §8.7.2 makes it a colour,
+    /// `scn` is where that colour is resolved, and the mark may be several graphics states later.
+    /// A file that states a different `/TR` between the two paints colours built under the first,
+    /// and this says so.
+    ///
+    /// Reported rather than closed because closing it means resolving a pattern's colours at the
+    /// mark instead of at the selection, which is where this tree also resolves §8.6.5.9's black
+    /// point and §11.4.7's compositing target for the same colours — so the staleness is a
+    /// property of *when a shading pattern is built* rather than of this clause, and moving it
+    /// would be answering three clauses' question in a round that read one. `doc/todo/13` prices
+    /// it.
     ///
     /// # §11.7.5.2, and the parameter that belongs to a region
     ///
@@ -1957,21 +1988,24 @@ impl Interpreter<'_> {
     /// earlier or current mark carried a function. It cannot under-report — a point drawn wrong
     /// has both halves on the page, in that order — and it over-reports only a page whose
     /// non-opaque marks all miss the transferred ones. The population that can reach either is
-    /// measured rather than assumed: `examples/transfer_function_census` finds 13 corpus
-    /// documents stating a Table 57 `/TR` or `/TR2` and exactly one stating anything but
-    /// `/Identity` or `/Default`.
+    /// measured rather than assumed: `examples/transfer_function_census` finds 13 of `doc/pdf.js`'s
+    /// 964 documents stating a Table 57 `/TR` or `/TR2` and one stating anything but `/Identity`
+    /// or `/Default`, and 1352 of the `SafeDocs` crawl's 65 703 stating one with 32 real. Not one
+    /// document of either corpus paints a shading while one is in force, which is why the report
+    /// above has no witness but a fixture.
     pub(super) fn note_transfer(&mut self, state: &GraphicsState, painted: Painted) {
-        if state.transfer.is_some() {
-            if matches!(painted, Painted::Shading { .. }) {
-                self.note(Unsupported::TransferFunction {
-                    detail: "§10.5: a shading's colours are painted without the transfer \
-                             function in force, which the clause applies to every component \
-                             value on its way to the device"
-                        .to_owned(),
-                });
-            } else {
-                self.transfer_painted = true;
-            }
+        if matches!(painted, Painted::Shading { stale: true, .. }) {
+            self.note(Unsupported::TransferFunction {
+                detail: "§10.5: a shading pattern's colours were built under the transfer \
+                         function in force when `scn` selected it, and the graphics state \
+                         states a different one at the mark"
+                    .to_owned(),
+            });
+        }
+        // A stale shading is a mark carrying a function too, whichever of the two states named
+        // one: `stale` means the pair differs, and a pair of `None`s does not.
+        if state.transfer.is_some() || matches!(painted, Painted::Shading { stale: true, .. }) {
+            self.transfer_painted = true;
         }
         if !self.transfer_painted {
             return;
@@ -2020,7 +2054,7 @@ impl Interpreter<'_> {
     fn not_fully_opaque(&self, state: &GraphicsState, painted: Painted) -> Option<&'static str> {
         let stroking = matches!(
             painted,
-            Painted::Stroked | Painted::Shading { stroking: true }
+            Painted::Stroked | Painted::Shading { stroking: true, .. }
         );
         let alpha = if stroking {
             state.stroke_alpha

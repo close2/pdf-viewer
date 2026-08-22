@@ -21,6 +21,7 @@ use rayon::iter::{IndexedParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 
 use crate::colour::{ColourSpace, Compositing, Conversion};
+use crate::content::Transfer;
 use crate::function::{Function, Value};
 
 /// The most cells a function-based shading's grid will carry, whatever the device asks for.
@@ -52,6 +53,49 @@ pub enum ShadingError {
         /// What was wrong.
         detail: String,
     },
+}
+
+/// How a shading's colours are made, beyond the shading's own dictionary.
+///
+/// The three travel together because every colour a shading produces needs all three and none of
+/// them is a property of the shading: ISO 32000-2 §10.7.3's smoothness tolerance decides how finely
+/// a colour function is sampled, §8.6.5.9's and §11.4.7's [`Conversion`] decides what a set of
+/// components becomes, and §10.5's [`Transfer`] decides what the device is finally handed. They
+/// arrived as three separate arguments until the six-hundred-and-fiftieth session added the third,
+/// at which point four functions took eight arguments apiece and the lint said what a reader would
+/// have: these are one thing.
+///
+/// The fields are `pub(crate)` rather than private because [`crate::mesh`] makes a mesh's colours
+/// and is a sibling module. Nothing outside this crate can build one with a transfer in it, since
+/// a [`Transfer`] comes from an `/ExtGState` and there is no other constructor for one.
+#[derive(Debug, Clone, Copy)]
+pub struct Colouring<'a> {
+    /// How many samples §10.7.3's tolerance asks a colour function for.
+    pub(crate) resolution: usize,
+    /// What a set of colour components becomes on the way to what is being painted into.
+    pub(crate) into: &'a Conversion,
+    /// §10.5's transfer function, where the graphics state states one.
+    pub(crate) transfer: Option<&'a Transfer>,
+}
+
+impl<'a> Colouring<'a> {
+    /// The colouring a graphics state asks for.
+    ///
+    /// `smoothness` is Table 57's `/SM`, which [`Ramp::resolution_for`] turns into a sample count —
+    /// here rather than at each call site, so that the two paths a shading can take through this
+    /// module cannot read the tolerance differently.
+    #[must_use]
+    pub fn new(
+        smoothness: Option<f32>,
+        into: &'a Conversion,
+        transfer: Option<&'a Transfer>,
+    ) -> Self {
+        Self {
+            resolution: Ramp::resolution_for(smoothness),
+            into,
+            transfer,
+        }
+    }
 }
 
 /// Shadings already built, keyed by the object that states them.
@@ -112,25 +156,36 @@ impl Cache {
         object: &Object,
         resources: &Dictionary,
         transform: Transform,
-        smoothness: Option<f32>,
-        into: &Conversion,
+        colouring: Colouring<'_>,
     ) -> Result<Shading, ShadingError> {
         // §10.7.3's tolerance is part of the key rather than of the object: the same shading
         // painted under two `/SM` values is two sets of colours, and a page that changes it
         // between paintings has said so.
-        let resolution = Ramp::resolution_for(smoothness);
-        let key = object.as_reference().filter(|_| {
-            // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
-            // not a property of the object alone: §8.6.5.1 resolves it through the resource
-            // dictionary in force, and even the device names go through §8.6.5.6's
-            // `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` there. So a named space is
-            // not cached at all, which is exact; an array or a stream is the object's own.
-            let space =
-                dictionary_of(document, object).map(|dict| document.get_key(&dict, "ColorSpace"));
-            !matches!(space, Some(Object::Name(_)))
-        });
+        let resolution = colouring.resolution;
+        let key = object
+            .as_reference()
+            .filter(|_| {
+                // A `/ColorSpace` stated as a *name* is the one thing about a shading that is
+                // not a property of the object alone: §8.6.5.1 resolves it through the resource
+                // dictionary in force, and even the device names go through §8.6.5.6's
+                // `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` there. So a named space is
+                // not cached at all, which is exact; an array or a stream is the object's own.
+                let space = dictionary_of(document, object)
+                    .map(|dict| document.get_key(&dict, "ColorSpace"));
+                !matches!(space, Some(Object::Name(_)))
+            })
+            // §10.5's transfer function is applied to every colour a shading produces, so a
+            // shading built under one is a different set of colours from the same object built
+            // without it. It is *not* made part of the key: a `Transfer` is a group of parsed
+            // functions with no identity a key could be built from, and inventing one would put
+            // a pointer address in a `BTreeMap`. Not caching at all is the same answer this
+            // table already gives a named `/ColorSpace`, and it is exact rather than
+            // approximately right — at a cost measured at nothing, since
+            // `examples/transfer_function_census` finds no corpus document that paints a
+            // shading under a stated transfer.
+            .filter(|_| colouring.transfer.is_none());
         if let Some(id) = key
-            && let Some((kind, own)) = self.built.get(&(id, resolution, into.clone()))
+            && let Some((kind, own)) = self.built.get(&(id, resolution, colouring.into.clone()))
         {
             return Ok(Shading {
                 kind: Arc::clone(kind),
@@ -138,11 +193,13 @@ impl Cache {
             });
         }
         let space = self.space_of(document, object, resources);
-        let (kind, own) = kind_of(document, object, resources, resolution, into, space)?;
+        let (kind, own) = kind_of(document, object, resources, space, colouring)?;
         let kind = Arc::new(kind);
         if let Some(id) = key {
-            self.built
-                .insert((id, resolution, into.clone()), (Arc::clone(&kind), own));
+            self.built.insert(
+                (id, resolution, colouring.into.clone()),
+                (Arc::clone(&kind), own),
+            );
         }
         Ok(Shading {
             kind,
@@ -186,7 +243,9 @@ pub(crate) fn dictionary_of(document: &Document, object: &Object) -> Option<Dict
 /// `transform` maps the shading's own coordinates into the space the caller will draw in.
 ///
 /// Callers that paint many shadings should hold a [`Cache`] and use [`Cache::build`]; this
-/// is the uncached spelling, kept for callers with one shading to build.
+/// is the uncached spelling, kept for callers with one shading to build. It has no graphics
+/// state to read, so §10.5's transfer function is not in force here — the entry that states one
+/// is Table 57's, which only a content stream's `gs` can reach.
 ///
 /// # Errors
 ///
@@ -201,9 +260,8 @@ pub fn build(
         document,
         object,
         resources,
-        Ramp::RESOLUTION,
-        &Conversion::device(),
         None,
+        Colouring::new(None, &Conversion::device(), None),
     )?;
     Ok(Shading {
         kind: Arc::new(kind),
@@ -213,6 +271,26 @@ pub fn build(
 
 /// The half of a shading that depends on the object alone: its colours and its own matrix.
 ///
+/// `colouring.transfer` is ISO 32000-2 §10.5's function where the graphics state states one, and it
+/// reaches every colour below because the clause's subject is the component value without
+/// qualification:
+///
+/// > The input shall be the value of a colour component in the device's native colour space,
+/// > either specified directly or produced by conversion from some other colour space. The output
+/// > shall be the transformed component value to be transmitted to the device (after halftoning,
+/// > if necessary).
+///
+/// # Why it is applied *here* rather than to the finished shading
+///
+/// A shading's colours are not a value the display list can map afterwards. §10.7.3's simplifier
+/// (ADR 0068) drops every ramp stop within half an eight-bit level of the line its neighbours
+/// draw, so a `/FunctionType 2` interpolation with `/N 1` — the commonest shading there is —
+/// reaches the display list as **two** stops. Mapping those two and letting a rasteriser
+/// interpolate between them would draw a straight line where the clause asks for the transfer's
+/// own curve. Applying it inside the sampling instead makes the ramp a sampling of the
+/// composition, at the resolution §10.7.3's tolerance asked for, and the simplifier then measures
+/// the colours that will actually be drawn.
+///
 /// # Errors
 ///
 /// See [`ShadingError`].
@@ -220,9 +298,8 @@ fn kind_of(
     document: &Document,
     object: &Object,
     resources: &Dictionary,
-    resolution: usize,
-    into: &Conversion,
     space: Option<ColourSpace>,
+    colouring: Colouring<'_>,
 ) -> Result<(ShadingKind, Transform), ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
@@ -256,19 +333,19 @@ fn kind_of(
         // being carried separately, so the display list needs only one transform per
         // shading.
         1 => (
-            function_based(document, &dict, &space, into)?,
+            function_based(document, &dict, &space, colouring)?,
             matrix_of(document, &dict, "Matrix"),
         ),
         2 => (
-            axial(document, &dict, &space, resolution, into)?,
+            axial(document, &dict, &space, colouring)?,
             Transform::IDENTITY,
         ),
         3 => (
-            radial(document, &dict, &space, resolution, into)?,
+            radial(document, &dict, &space, colouring)?,
             Transform::IDENTITY,
         ),
         4..=7 => (
-            mesh(document, &resolved, &dict, &space, kind, resolution, into)?,
+            mesh(document, &resolved, &dict, &space, kind, colouring)?,
             Transform::IDENTITY,
         ),
         other => return Err(ShadingError::UnsupportedType { kind: other }),
@@ -384,13 +461,22 @@ fn domain(document: &Document, dict: &Dictionary) -> (f32, f32) {
     (at(0, 0.0), at(1, 1.0))
 }
 
+/// One shading colour through ISO 32000-2 §10.5's transfer function, or unchanged where the
+/// graphics state states none.
+///
+/// The clause puts it "after performing any needed conversions between colour spaces", which is
+/// where every caller of this is: the colour has already been through [`Conversion::paint`] and is
+/// the value the device would receive.
+pub(crate) fn transferred(colour: Color, transfer: Option<&Transfer>) -> Color {
+    transfer.map_or(colour, |transfer| transfer.apply(colour))
+}
+
 /// Samples a shading's colour function across its domain into a ramp.
 fn ramp(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
-    resolution: usize,
-    into: &Conversion,
+    colouring: Colouring<'_>,
 ) -> Result<Ramp, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -406,9 +492,12 @@ fn ramp(
     let (low, high) = domain(document, dict);
     let breaks = breakpoints_over(&functions, low, high);
 
-    Ok(Ramp::sample_across_at(resolution, &breaks, |t| {
+    Ok(Ramp::sample_across_at(colouring.resolution, &breaks, |t| {
         let parameter = low + t * (high - low);
-        colour_from(&functions, &[parameter], space, into)
+        transferred(
+            colour_from(&functions, &[parameter], space, colouring.into),
+            colouring.transfer,
+        )
     }))
 }
 
@@ -495,8 +584,7 @@ fn axial(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
-    resolution: usize,
-    into: &Conversion,
+    colouring: Colouring<'_>,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 4).ok_or_else(|| ShadingError::Malformed {
         detail: "an axial shading needs four /Coords".to_owned(),
@@ -504,7 +592,7 @@ fn axial(
     Ok(ShadingKind::Axial {
         start: Point::new(coords[0], coords[1]),
         end: Point::new(coords[2], coords[3]),
-        ramp: ramp(document, dict, space, resolution, into)?,
+        ramp: ramp(document, dict, space, colouring)?,
         extend: extend(document, dict),
     })
 }
@@ -513,8 +601,7 @@ fn radial(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
-    resolution: usize,
-    into: &Conversion,
+    colouring: Colouring<'_>,
 ) -> Result<ShadingKind, ShadingError> {
     let coords = coords(document, dict, 6).ok_or_else(|| ShadingError::Malformed {
         detail: "a radial shading needs six /Coords".to_owned(),
@@ -530,7 +617,7 @@ fn radial(
         start_radius: coords[2],
         end: Point::new(coords[3], coords[4]),
         end_radius: coords[5],
-        ramp: ramp(document, dict, space, resolution, into)?,
+        ramp: ramp(document, dict, space, colouring)?,
         extend: extend(document, dict),
     })
 }
@@ -542,8 +629,7 @@ fn mesh(
     dict: &Dictionary,
     space: &ColourSpace,
     kind: i64,
-    resolution: usize,
-    into: &Conversion,
+    colouring: Colouring<'_>,
 ) -> Result<ShadingKind, ShadingError> {
     let stream = object.as_stream().ok_or_else(|| ShadingError::Malformed {
         detail: "a mesh shading must be a stream".to_owned(),
@@ -560,12 +646,10 @@ fn mesh(
         }
     };
 
-    let (triangles, ramp) = crate::mesh::read(
-        document, stream, kind, space, &functions, resolution, into,
-    )
-    .ok_or_else(|| ShadingError::Malformed {
-        detail: format!("the type {kind} mesh stream could not be read"),
-    })?;
+    let (triangles, ramp) = crate::mesh::read(document, stream, kind, space, &functions, colouring)
+        .ok_or_else(|| ShadingError::Malformed {
+            detail: format!("the type {kind} mesh stream could not be read"),
+        })?;
 
     Ok(ShadingKind::Mesh {
         triangles: triangles.into(),
@@ -577,7 +661,7 @@ fn function_based(
     document: &Document,
     dict: &Dictionary,
     space: &ColourSpace,
-    into: &Conversion,
+    colouring: Colouring<'_>,
 ) -> Result<ShadingKind, ShadingError> {
     let functions =
         Function::parse_group(document, &document.get_key(dict, "Function")).map_err(|e| {
@@ -608,20 +692,32 @@ fn function_based(
     // whose colours are not opaque, §8.6.6.4's `/None` colourant, discards its output for
     // *every* tint — so one evaluation at the domain's corner answers §11.4.6's opacity
     // question for the whole domain, without the function being evaluated anywhere else
-    // before a device asks for its grid.
+    // before a device asks for its grid. §10.5's transfer is not asked here and does not
+    // change the answer: it maps colour components and leaves the alpha alone.
     let [x0, _, y0, _] = rectangle;
-    let opaque = colour_from(&functions, &[x0, y0], space, into).a >= 1.0;
+    let opaque = colour_from(&functions, &[x0, y0], space, colouring.into).a >= 1.0;
 
-    let program = device_program(&functions, space, into, rectangle);
+    // §10.5 and the device's own statement of the same colours cannot both be had.
+    // `ShadingProgram` is §7.10.5's function lowered to instructions a device evaluates, and a
+    // device evaluating it produces the colour and nothing else — there is nowhere on that path
+    // to put the transfer, exactly as there is nowhere to put §11.6.4.4's constant alpha
+    // (`Shading::with_alpha` drops the program for that reason). Composing the transfer into the
+    // instruction stream would mean lowering three more §7.10 functions of a type the stream
+    // cannot express. So the producer, which carries the transfer, is what draws.
+    let program = match colouring.transfer {
+        Some(_) => None,
+        None => device_program(&functions, space, colouring.into, rectangle),
+    };
 
     Ok(ShadingKind::Sampled {
         domain: rectangle,
         source: pdf_render::DeferredColours::new(Arc::new(FunctionColours {
             functions,
             space: space.clone(),
-            into: into.clone(),
+            into: colouring.into.clone(),
             domain: rectangle,
             opaque,
+            transfer: colouring.transfer.cloned(),
         })),
         program,
     })
@@ -713,6 +809,13 @@ struct FunctionColours {
     domain: [f32; 4],
     /// Whether every colour the space can produce is opaque; see `function_based`.
     opaque: bool,
+    /// §10.5's transfer function, where the graphics state painting this shading states one.
+    ///
+    /// It travels with the producer for the reason the producer exists at all: the colours do
+    /// not exist until a device says how many cells the domain covers, and the clause maps the
+    /// colour rather than the function that made it. The same shape as
+    /// `pdf_render::shading::Faded` one clause over.
+    transfer: Option<Transfer>,
 }
 
 impl std::fmt::Debug for FunctionColours {
@@ -858,12 +961,18 @@ impl FunctionColours {
                 .0
                 .saturating_add(u32::try_from(column).unwrap_or(u32::MAX));
             let x = x0 + centre(column, block.lattice.width) * (x1 - x0);
-            *cell = colour_into(
-                &self.functions,
-                &[x, y],
-                &self.space,
-                &self.into,
-                &mut scratch,
+            // §10.5 per cell, which is per point of the grid the device asked for: the clause's
+            // input is "the value of a colour component in the device's native colour space",
+            // and `colour_into` has just produced one.
+            *cell = transferred(
+                colour_into(
+                    &self.functions,
+                    &[x, y],
+                    &self.space,
+                    &self.into,
+                    &mut scratch,
+                ),
+                self.transfer.as_ref(),
             );
         }
     }

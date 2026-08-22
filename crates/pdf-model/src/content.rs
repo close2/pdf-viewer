@@ -29,7 +29,7 @@ use crate::colour::{ColourSpace, Compositing};
 use crate::page::Page;
 
 use colour::{BlackPoint, Intent, output_intent_space};
-use ext_gstate::Transfer;
+pub use ext_gstate::Transfer;
 use font::{Font, FontKey};
 use pattern::{PatternPaint, shading_with_alpha};
 use run::narrow;
@@ -332,7 +332,13 @@ impl GraphicsState {
         // session this line dropped it: `alphatrans.pdf` states `Gradient: .5` on the page
         // and draws its gradient over three other objects, and we painted it opaque while
         // three references showed what was behind it.
-        if let Some(PatternPaint::Shading(shading, _)) = &self.fill_pattern {
+        //
+        // §10.5's transfer function reaches a shading's colours where they are *made* —
+        // `shading::kind_of`, at the `scn` that selected this pattern — rather than here,
+        // because ADR 0068's simplifier has already dropped the ramp stops a rasteriser would
+        // have interpolated and mapping what is left would draw a straight line where the
+        // clause asks for a curve.
+        if let Some(PatternPaint::Shading { shading, .. }) = &self.fill_pattern {
             return Paint::Shading(shading_with_alpha(shading, self.fill_alpha));
         }
         // §10.5's transfer function, applied here because here is where a colour becomes the
@@ -358,7 +364,7 @@ impl GraphicsState {
 
     /// Returns the stroke colour with the constant alpha applied.
     fn stroke_paint(&self) -> Paint {
-        if let Some(PatternPaint::Shading(shading, _)) = &self.stroke_pattern {
+        if let Some(PatternPaint::Shading { shading, .. }) = &self.stroke_pattern {
             return Paint::Shading(shading_with_alpha(shading, self.stroke_alpha));
         }
         Paint::Solid(self.transferred(Color {
