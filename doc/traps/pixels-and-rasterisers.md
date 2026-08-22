@@ -54,6 +54,17 @@ magnitude, `mupdf` paints nothing within 5° of an axis and its own floor beyond
 that vote were answering different questions). **So the thing to distrust is the note, and the
 name is only its first sentence** — ADR 0480.
 
+**And a note has a third way of being wrong, which is neither its name nor its reading: a sentence
+that was true when written and that nothing pointed at when the tree moved under it.**
+`CONTRADICTED_TIGHT_CONSENSUS` said of `colors.pdf` that ours is the closed form with every edge
+rounded to a quarter and `hayro`'s is the exact one. ADR 0476 made ours the exact form **three
+sessions later**, and the correction reached the paragraph below, §10.7.4's ledger row and
+`doc/todo/11` item 7 — everywhere except the group whose members it is about (ADR 0489). Nothing
+in this tree links a note to the code it describes, so **when a round changes what a rasteriser
+draws, the contradicted groups holding the pages it changed are part of the diff**, exactly as the
+ink sweep is. The tell that finds one afterwards is cheap: a group note quoting a number the gate
+also prints, where the two disagree — this one said ssim 0.98591 while the run prints 0.98786.
+
 The newest wrong *name* is `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had
 said since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us
 at the soft end. They do not. Each page is sixteen axis-aligned rectangles at known sub-pixel

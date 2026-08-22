@@ -2509,53 +2509,153 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 
 /// Contradicted because two references agree with each other more closely than anybody is right.
 ///
-/// **`issue7891_bc1.pdf` was the last page of `CONTRADICTED_UNEXPLAINED`, and it left in the
-/// two-hundred-and-forty-third session — the list is empty.** It was measured in the sixty-first
-/// without being fixed: the difference is one word inside a luminosity soft mask whose group
-/// draws a 676 × 436 greyscale image reduced 2.8-fold, the five renderers' column centroids span
-/// 0.76 of a pixel, and switching our own reduction between area averaging and point sampling
-/// moved the raster without moving any printed metric. What was missing was the instrument, and
-/// the two-ladder closed form arrived sixteen sessions ago.
+/// # One subclause decides all three pages, and this note cited none of it for nineteen sessions
+///
+/// The six-hundred-and-sixty-second session chose this group by counting, for every non-empty
+/// `CONTRADICTED_*` list, **how many clauses of ISO 32000-2 its note cites**. Thirteen of the
+/// fourteen cite at least one — `CONTRADICTED_DEVICE_CMYK_CONVERSION` seventeen,
+/// `CONTRADICTED_SUBSTITUTED_FONT` eighteen — and this one cited **none**. A contradicted verdict
+/// is the claim that the standard rather than the consensus decides the page (principle 5), so a
+/// group with no clause under it is a verdict with no warrant, whatever its arithmetic says.
+///
+/// Opened, all three pages turned out to be **§10.7.4**, in three different paragraphs of it: the
+/// shape paragraph for `colors.pdf`, the image paragraph for the reduced greyscale inside
+/// `issue7891_bc1.pdf`'s soft mask, and — the one that actually decides the verdict — the
+/// **clipping** paragraph, which is about sets where every renderer here is composing coverages.
+///
+/// # `issue7891_bc1.pdf` page 1: the note blamed the word, and the word is where we are right
+///
+/// **It was the last page of `CONTRADICTED_UNEXPLAINED` and left in the two-hundred-and-forty-third
+/// session.** What it said until the six-hundred-and-sixty-second was that "the difference is one
+/// word inside a luminosity soft mask whose group draws a 676 × 436 greyscale image reduced
+/// 2.8-fold", on an ink ladder agreeing to 0.0014 of 255. The first half is a description of the
+/// file and the second is a real measurement of a metric that **passes**; between them sat no
+/// account of the metric that fails, which is the worst tile at 6.73 against a bound of 6.04.
+///
+/// The page admits a closed form, and a tighter one than most. Object 12 strokes
+/// `211.76 421.544 243.36 156.960 re` in red at the default width, sets `/GS1` — Table 145's
+/// `/SMask` with `/S /Luminosity`, `/BC [1 1 1]` and `/G` the form that draws the image — and fills
+/// the same rectangle black through it. So away from the stroke every pixel is `255 × (1 − L)`,
+/// with `L` the mask group's luminosity: the image's own sample inside the group's
+/// `/BBox [198.8 434.504 362.16 501.464]`, and `/BC`'s white, worth 1.0, outside it. Two forms were
+/// written out pixel by pixel and compared with `raster_compare` through
+/// `examples/compare_rasters`: **point**, which is §10.7.4's image paragraph carried out —
+///
+/// > However, only those pixels whose centres lie within the region shall be painted. The
+/// > position of the centre of such a pixel -in other words, the point whose coordinate values
+/// > have fractional parts of one-half -shall be mapped back into source space to determine how
+/// > to colour the pixel. There shall not be averaging over the pixel area.
+///
+/// — and **area**, the exact box average over each device pixel's source footprint, which is what
+/// ADR 0025's departure approximates. On the tile the gate fails at, device x 224–255 by y 320–351,
+/// which is the middle of the word:
 ///
 /// ```text
-///                1x        8x
-/// ours        15.6380   15.6472
-/// poppler     15.5410   15.6332
-/// mupdf       15.5502   15.6346
-/// ghostscript 15.6083
-/// hayro       15.6228
+///                 vs the area form   vs the point form
+///   ours             0.166  max  1      0.947  max  9
+///   hayro            2.814  max 18      3.012  max 22
+///   poppler          4.255  max 27      4.362  max 34
+///   ghostscript      4.596  max 30      4.677  max 29
+///   mupdf            6.723  max 40      6.802  max 43
 /// ```
 ///
-/// The two ladders agree to **0.0014 of 255**, which is the tightest limit this file has
-/// recorded, and **ours at the page's own scale is 0.004 from it — the nearest of all five.**
-/// `poppler` and `mupdf` are 0.09 under, together, which is why they vote: the corpus gate's
-/// bound is *twice the consensus pair's own spread* (trap 12), and two renderers that agree to
-/// 0.009 produce a bound tighter than any tolerance the file states.
+/// **On the tile that decides the verdict our raster is the page's own arithmetic to one level of
+/// 255, and the two renderers that vote are 4.60 and 6.72 levels from it.** Their distance from
+/// each other there is 3.018, twice which is the bound of 6.04 — and our 6.725 against `mupdf` is
+/// `mupdf`'s own 6.723 from the form, because ours *is* the form. That is trap 12 stated from the
+/// document instead of from a ranking. Two things fall out of the same table: every one of the five
+/// is nearer the average than the point sample, so **§10.7.4's "[t]here shall not be averaging over
+/// the pixel area" is departed from by all of them**, ours in writing (ADR 0025) and theirs not;
+/// and the reduction the old note pointed at is settled rather than in dispute.
 ///
-/// **So the verdict is a statement about the pair, not about the page.** Every printed metric is
-/// inside the class bound, and the one number derived from no reference at all puts us closest
-/// to the geometry. That is the shape trap 12 describes, and this page is now its named witness
-/// rather than a page nobody had measured.
+/// # What the page does differ by is seven lines of pixels, and they are all edges
 ///
-/// # `colors.pdf` pages 1 and 2, and the closed form trap 12 asks for is the whole page
+/// Splitting our distance from each voting reference by device row and column — the fill
+/// rectangle's own two fractional edges and four columns, the mask group's `/BBox` rows 290 and
+/// 357 and its column 362 — leaves the whole of the rest of the page in the last row:
+///
+/// ```text
+///                              ours vs mupdf   ours vs ghostscript   mupdf vs ghostscript
+///   fill rectangle's rows           0.0197            0.0259                 0.0153
+///   fill rectangle's columns        0.0128            0.0266                 0.0175
+///   mask /BBox rows 290, 357        0.0625            0.0625                 0.0003
+///   mask /BBox column 362           0.0227            0.0228                 0.0001
+///   everything else                 0.0560            0.0565                 0.0474
+///   total                           0.1721            0.1926                 0.0799
+/// ```
+///
+/// **Seven lines carry 68.3% and 71.5% of it**, and the two references that vote agree with each
+/// other about the mask's `/BBox` to 0.0003 — which is what a pair agreeing *because they take a
+/// clip as a set* looks like. §10.7.4's clipping paragraph is why:
+///
+/// > For clipping, the clipping region consists of the set of pixels that would be included by a
+/// > fill operation. Subsequent painting operations shall affect a region that is the intersection
+/// > of the set of pixels defined by the clipping region with the set of pixels for the region to
+/// > be painted.
+///
+/// Device row 290 is `[290, 291)`, the group's `/BBox` reaches to device 290.536, and a fill would
+/// include any pixel it intersects — so the clause admits the whole row, which is what all three C
+/// references draw (255, the mask's own value) and we draw 118, this tree's departure (1) painting
+/// a partly covered pixel partly. **The pair is not uniformly the clause either**: at column 362,
+/// where the `/BBox` reaches device 362.16 and the clause admits the column entire, `poppler` does
+/// and `mupdf` and `ghostscript` drop it to black. The two that vote depart from the sentence they
+/// are agreeing under, one column away from where they agree under it.
+///
+/// # And one line of the seven is a defect of ours with a number to four digits
+///
+/// Object 16 is a form XObject whose `/BBox` is exactly the rectangle its content fills, and it
+/// carries `/Group`. Device row 213 is covered 0.504 by that rectangle and row 370 by 0.456, and
+/// ours paints them at **0.2549** and **0.2079** — `0.504²` and `0.456²` to four digits. The
+/// coincident boundary is being **multiplied** where §10.7.4 intersects sets, which is
+/// `doc/todo/11` item 4, and `examples/coincident_edge_probe` isolates which composition does it:
+/// of the eight ways one rectangle can be stated twice, seven give the edge its own coverage and
+/// the eighth — a transparency group *and* a soft mask — gives its square. §11.4.4's NOTE 5
+/// flattens a group away unless a soft mask is in force, so the group blit `draw_group` performs
+/// is only reached when there is a mask beside it, which is why the residual had no small witness.
+/// This page is one now, and a cleaner one than `issue21346.pdf` was: two factors and a closed
+/// form rather than seven statements and a ladder.
+///
+/// **It stays here rather than being fixed** because fixing it moves the page toward the bound and
+/// not past it — the whole of those two rows is 0.0197 of a distance of 0.1721 — and because the
+/// composition it needs is the one `doc/todo/11` item 4 prices: a group's buffer carries alpha,
+/// which is shape times opacity, and only a shape channel beside it makes `min` the right answer.
+///
+/// # `colors.pdf` pages 1 and 2, and a note that went stale three sessions after it was written
 ///
 /// They arrived in the six-hundred-and-forty-third session from
 /// [`CONTRADICTED_ANTIALIASED_EDGES`], whose name said the difference was our anti-aliasing being
 /// softer than anybody's. Each page is sixteen axis-aligned rectangles at known sub-pixel
 /// boundaries, so the page *is* a closed form: every rectangle's coverage of every pixel is a
-/// product of two overlaps, composited in the order the content stream states. Written out and
-/// compared with `raster_compare`, ours is that form with every coverage rounded to `tiny-skia`'s
-/// quarter — mean 0.0023 and max 1 of 255 over the whole raster — and `hayro`'s is the *exact*
-/// form, mean 0.0015 and max 2. The 33 levels between the two forms are this tree's own and are
-/// priced in ADR 0474; what puts the pages here is what happens when the exact form is put to the
-/// gate's own bound:
+/// product of two overlaps, composited in the order the content stream states.
+///
+/// **This note said until the six-hundred-and-sixty-second session that ours is that form with
+/// every coverage rounded to `tiny-skia`'s quarter, and that `hayro`'s is the exact one. Ours has
+/// been the exact one since ADR 0476, three sessions after the sentence was written.** The
+/// correction reached `doc/traps/pixels-and-rasterisers.md` and §10.7.4's ledger row and not the
+/// group it corrects, which is a *third* place a group's note can be wrong: not its name, not its
+/// reading, but a sentence that was true when written and that nothing pointed at when the tree
+/// moved under it. Both forms re-derived from the content stream in a fresh script and compared by
+/// the oracle's own arithmetic:
+///
+/// ```text
+///                  page 1: vs exact   vs quarter    page 2: vs exact   vs quarter
+///   ours             0.0026  max  1   0.0428 max 34   0.0026  max  2   0.0463 max 36
+///   hayro            0.0015  max  2   0.0409 max 33   0.0017  max  2   0.0462 max 35
+///   mupdf            0.0173  max 13   0.0395 max 37   0.0201  max 14   0.0383 max 44
+///   ghostscript      0.1026  max 54   0.1342 max 75   0.0890  max 63   0.1046 max 64
+///   poppler          0.2117  max 124  0.2483 max 127  0.1883  max 112  0.2078 max 128
+/// ```
+///
+/// Ours differs from the exact form on **0.0000% of either page** — one level at the worst pixel of
+/// page 1 and two of page 2 — so the ranking §10.7.4's shape paragraph asks for now reads ours 1,
+/// `hayro` 2, `mupdf` 13, `ghostscript` 54, `poppler` 124, and the 33 levels ADR 0474 priced are
+/// paid. What has not changed is the verdict, and the reason is the whole of this group's name:
 ///
 /// ```text
 ///                        page 1     page 2
 ///   bound (twice the     0.98862    0.98402
 ///   consensus spread)
-///   ours                 0.98591    0.97906
-///   the exact form       0.98772    0.98001
+///   ours                 0.98786    0.98024
 /// ```
 ///
 /// **A rasteriser painting precisely the area each rectangle covers is contradicted on both

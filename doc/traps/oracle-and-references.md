@@ -27,7 +27,7 @@ as a verdict.**
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
-evidence. Six ways for that to fail — and the count has moved twice, so read the list rather
+evidence. Seven ways for that to fail — and the count has moved three times, so read the list rather
 than the number.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
@@ -112,6 +112,18 @@ than the number.
   finds and no shared file explains — only the profiles' own `desc` tags do. §10.3.2's NOTE is
   where all four assumptions live, ours included. ADR 0484.
 
+- **And a seventh, which is the same agreement being evidence on one line of pixels and a shared
+  departure on the next.** On `issue7891_bc1.pdf` page 1 the voting pair agrees about the soft mask
+  group's `/BBox` to **0.0003 of 255** while each sits 0.062 from us, because both take a clipping
+  region as §10.7.4's *set of pixels* where this tree anti-aliases it — that agreement is the clause
+  and it is real evidence. One column over, at the same `/BBox`'s right edge, the same pair agrees to
+  0.0001 in **dropping** a column the same sentence admits, and `poppler` is the one that keeps it.
+  Nothing distinguishes the two agreements from the outside: same pair, same construction, same
+  distance, opposite verdicts against the clause. **A pair that agrees because it rounds something
+  the same way agrees whether or not the rounding is right**, so the unit to take back to the
+  specification is the *edge*, not the page — and on this page each of the seven lines has its own
+  answer. ADR 0489.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is
@@ -130,6 +142,15 @@ the two renderers that vote sit 0.09 under — together, which is why they vote.
 **Check the closed form** — write the clause's arithmetic down — then list the page with the
 calculation beside it. Tightening our rounding until a reference's is matched is curve-fitting
 with extra steps.
+
+**And check it against the metric that actually fails.** That ink ladder is a real measurement of a
+metric this page *passes*; what fails is the worst tile, and until the six-hundred-and-sixty-second
+session nothing had asked what is in it. Written out from the file's own arithmetic — a black fill
+through a luminosity mask, so every pixel is `255 × (1 − L)` — ours is the closed form on that tile
+to **0.166 of 255 with a worst pixel of one level**, `ghostscript` is 4.596 from it and `mupdf`
+6.723, and our 6.725 against `mupdf` is `mupdf`'s own distance from the arithmetic. A ladder over
+the whole page and a closed form on the failing tile are two different instruments, and only the
+second one answers the verdict. ADR 0489.
 
 **And the closed form can answer the other way, which is what this trap's first witness turned out
 to be.** `smask_luminosity_oob_transfer.pdf` stood here for hundreds of sessions with "the closed
