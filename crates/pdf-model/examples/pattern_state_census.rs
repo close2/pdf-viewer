@@ -12,9 +12,10 @@
 //! > parameters that affect the sh operator, such as the current transformation matrix, black
 //! > point compensation and rendering intent, shall be used.
 //!
-//! Two of the three parameters that sentence names decide a colour, so this counts the documents
-//! on which the moment can change a pixel. Three figures, each an over-approximation stated in the
-//! direction that cannot miss a witness:
+//! Two of the three parameters that sentence names decide a colour, and two more clauses put two
+//! further quantities at the *mark* instead, so this counts the documents on which either moment
+//! can change a pixel. Four figures, each an over-approximation stated in the direction that
+//! cannot miss a witness:
 //!
 //! - **Table 75's `/ExtGState`**, counted exactly: a Type 2 pattern that states one, with the keys
 //!   it states. `doc/conformance/ledger.toml`'s §8.7.4.1 row has claimed since the
@@ -27,12 +28,23 @@
 //!   `/UseBlackPtComp`, or §8.6.5.8's `AbsoluteColorimetric`, which §8.6.5.9 makes an override of
 //!   it.
 //! - **§11.4.7's compositing target.** A shading pattern's colours are resolved into whatever the
-//!   run is compositing in, and this tree resolves them where the `scn` is. §11.6.7 makes the
-//!   pattern's definition a *non-isolated* group, and §11.7.2 gives a non-isolated group "their
-//!   colour space from the nearest ancestor isolated parent group" — which is the group the mark
-//!   is in, not the one the `scn` is in. The two differ only where a page composites somewhere
-//!   other than the device's components, so the condition is a Type 2 pattern plus a group
-//!   attributes dictionary whose `/CS` has four components.
+//!   run is compositing in. §11.6.7 makes the pattern's definition a *non-isolated* group, and
+//!   §11.7.2 gives a non-isolated group "their colour space from the nearest ancestor isolated
+//!   parent group" — which is the group the mark is in, not the one the `scn` is in. The two
+//!   differ only where a page composites somewhere other than the device's components, so the
+//!   condition is a Type 2 pattern plus a group attributes dictionary whose `/CS` has four
+//!   components.
+//! - **§10.5's transfer function**, added in the six-hundred-and-sixtieth session with the rebuild
+//!   at the mark. §11.7.5.2 puts the function at "the last (topmost) elementary graphics object
+//!   enclosing that point", so a page that moves it between the `scn` and the mark paints
+//!   different colours before and after that change. Whether a page *does* move it is a fact
+//!   about a content stream and this census reads objects, so the condition is the
+//!   over-approximation those objects can answer: a Type 2 pattern plus a Table 57 `/TR` or `/TR2`
+//!   stating a real function — neither `/Identity` nor `/Default`, which state none.
+//!
+//! The last line names every document any condition matched, one per line, so that
+//! `examples/raster_digest` can be run over exactly those and trap 11's rule — look at what a
+//! count matched — costs nothing.
 //!
 //! ```sh
 //! cargo run --release -p pdf-model --example pattern_state_census -- doc/pdf.js/test/pdfs/*.pdf
@@ -48,10 +60,10 @@
 #![expect(
     clippy::struct_excessive_bools,
     reason = "one flag per condition the census asks, each named after the clause it comes from; \
-              a state machine over four independent questions would say less"
+              a state machine over five independent questions would say less"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use rayon::iter::{IntoParallelRefIterator as _, ParallelIterator as _};
 
@@ -78,6 +90,8 @@ struct Says {
     absolute: bool,
     /// The document states a group `/CS` of four components (§11.4.7, §11.6.6 Table 145).
     press: bool,
+    /// The document states Table 57's `/TR` or `/TR2` as a real function (§10.5).
+    transfer: bool,
 }
 
 fn main() {
@@ -98,6 +112,8 @@ fn main() {
     let mut cie_patterns = 0_usize;
     let mut black_point: Vec<String> = Vec::new();
     let mut press: Vec<String> = Vec::new();
+    let mut transfer: Vec<String> = Vec::new();
+    let mut witnesses: BTreeSet<String> = BTreeSet::new();
 
     for (name, says) in said {
         if !says.opened {
@@ -119,9 +135,15 @@ fn main() {
         }
         if says.cie > 0 && (says.black_point || says.absolute) {
             black_point.push(name.clone());
+            witnesses.insert(name.clone());
         }
         if says.press {
             press.push(name.clone());
+            witnesses.insert(name.clone());
+        }
+        if says.transfer {
+            transfer.push(name.clone());
+            witnesses.insert(name.clone());
         }
     }
 
@@ -146,6 +168,16 @@ fn main() {
         press.len(),
         show(&press)
     );
+    println!(
+        "  **{} could see §10.5's transfer function move** (a real /TR or /TR2 stated anywhere): \
+         {}",
+        transfer.len(),
+        show(&transfer)
+    );
+    println!("witnesses ({}), one per line:", witnesses.len());
+    for name in &witnesses {
+        println!("{name}");
+    }
 }
 
 /// Up to forty names, so that a round can look at what a count matched (trap 11).
@@ -219,6 +251,15 @@ fn scan(document: &Document, dict: &Dictionary, says: &mut Says) {
         if let Some(name) = document.get_key(dict, key).as_name() {
             says.absolute |= name.as_bytes() == b"AbsoluteColorimetric";
         }
+    }
+
+    // Table 57's `/TR` and `/TR2`, §10.5's transfer function. `/TR2` takes precedence where both
+    // are stated, which makes no difference to a question about whether *either* states one. The
+    // two names that mean "no function" are excluded, and so is any other name: §10.5 defines a
+    // transfer function as "PDF function objects", so a name nobody defined leaves the parameter
+    // where it was — the same reading `ext_gstate::Transfer::read` implements.
+    for key in ["TR", "TR2"] {
+        says.transfer |= !matches!(document.get_key(dict, key), Object::Null | Object::Name(_));
     }
 
     // §11.6.6 Table 145's `/CS`, on a group attributes dictionary or a page's `/Group`.

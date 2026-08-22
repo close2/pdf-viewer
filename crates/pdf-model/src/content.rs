@@ -31,7 +31,7 @@ use crate::page::Page;
 use colour::{BlackPoint, Intent, output_intent_space};
 pub use ext_gstate::Transfer;
 use font::{Font, FontKey};
-use pattern::{PatternInitial, PatternPaint, shading_with_alpha};
+use pattern::{PatternInitial, PatternPaint};
 use run::narrow;
 use text::Coverage;
 use transparency::{AlphaSourcesSeen, PagePress, page_blending_space, page_press};
@@ -322,25 +322,14 @@ impl GraphicsState {
     }
 
     /// Returns the fill colour with the constant alpha applied.
-    fn fill_paint(&self) -> Paint {
-        // A shading pattern replaces the colour entirely; PDF has no notion of tinting
-        // one. A tiling pattern is not a paint at all — it is drawn by replaying its
-        // content stream — so it leaves the colour alone here.
-        //
-        // The constant alpha still applies, and reaching every colour the shading carries is
-        // the only way to apply it (§11.6.4.4, `Shading::with_alpha`). Until the fifteenth
-        // session this line dropped it: `alphatrans.pdf` states `Gradient: .5` on the page
-        // and draws its gradient over three other objects, and we painted it opaque while
-        // three references showed what was behind it.
-        //
-        // §10.5's transfer function reaches a shading's colours where they are *made* —
-        // `shading::kind_of`, at the `scn` that selected this pattern — rather than here,
-        // because ADR 0068's simplifier has already dropped the ramp stops a rasteriser would
-        // have interpolated and mapping what is left would draw a straight line where the
-        // clause asks for a curve.
-        if let Some(PatternPaint::Shading { shading, .. }) = &self.fill_pattern {
-            return Paint::Shading(shading_with_alpha(shading, self.fill_alpha));
-        }
+    ///
+    /// A *solid* colour only. A shading pattern replaces the colour entirely and PDF has no
+    /// notion of tinting one, but its colours are the mark's to resolve — see
+    /// [`Interpreter::fill_paint`], which is what every painting operator calls and which comes
+    /// back here for the colours a graphics state can answer on its own. A tiling pattern is not
+    /// a paint at all: it is drawn by replaying its content stream, so it leaves the colour
+    /// alone.
+    fn solid_fill(&self) -> Paint {
         // §10.5's transfer function, applied here because here is where a colour becomes the
         // value a device receives: the clause puts it "after performing any needed conversions
         // between colour spaces", and by this point `fill` is already RGB.
@@ -348,6 +337,23 @@ impl GraphicsState {
             a: self.fill.a * self.fill_alpha,
             ..self.fill
         }))
+    }
+
+    /// Whether a non-stroking mark under this state puts anything on the page.
+    ///
+    /// §11.6.2's and §11.7.4.4's reports both need this and neither needs a *paint*, which is
+    /// why it is asked here rather than through [`Interpreter::fill_paint`]: building one now
+    /// would resolve a shading pattern's colours for a question whose answer is yes for every
+    /// pattern there is. A shading marks where its own colours say — where it does not is the
+    /// rasteriser's question, not a report's — and a tiling pattern is a cell replayed across
+    /// the area, which marks whatever the cell marks.
+    fn fill_marks(&self) -> bool {
+        self.fill_pattern.is_some() || path::marks(&self.solid_fill())
+    }
+
+    /// As [`GraphicsState::fill_marks`], for a stroking mark.
+    fn stroke_marks(&self) -> bool {
+        self.stroke_pattern.is_some() || path::marks(&self.solid_stroke())
     }
 
     /// Whether painting under this state composites with what is already on the page.
@@ -362,11 +368,8 @@ impl GraphicsState {
         self.fill_alpha < 1.0 || self.stroke_alpha < 1.0 || self.blend != BlendMode::Normal
     }
 
-    /// Returns the stroke colour with the constant alpha applied.
-    fn stroke_paint(&self) -> Paint {
-        if let Some(PatternPaint::Shading { shading, .. }) = &self.stroke_pattern {
-            return Paint::Shading(shading_with_alpha(shading, self.stroke_alpha));
-        }
+    /// Returns the stroke colour with the constant alpha applied, as [`GraphicsState::solid_fill`].
+    fn solid_stroke(&self) -> Paint {
         Paint::Solid(self.transferred(Color {
             a: self.stroke_colour.a * self.stroke_alpha,
             ..self.stroke_colour

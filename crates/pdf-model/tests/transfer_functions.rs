@@ -396,44 +396,70 @@ fn a_function_based_shading_maps_every_cell_and_withdraws_its_device_program() {
     );
 }
 
-/// §8.7.2 resolves a pattern's colour at the `scn`, and the mark may be a graphics state later.
+/// §8.7.2 resolves a pattern's colour at the `scn`, and §10.5's function belongs to the mark.
 ///
-/// A shading pattern's colours are built when the pattern is selected, so a file that states a
-/// different transfer function between the selection and the paint gets the earlier one. That is
-/// the one thing about §10.5 and a shading this tree does not do, and it says so rather than
-/// drawing it in silence. The mutation is the same page with the second `gs` removed.
+/// The two sentences pull in opposite directions and ISO 32000-2 §11.6.7 settles it. A shading
+/// pattern's *definition* is fixed before the `scn`:
+///
+/// > The definition shall not inherit the current values of the graphics state parameters at the
+/// > time it is evaluated; those parameters shall take effect only when the resulting pattern is
+/// > later used to paint an object.
+///
+/// but the painting operation is not the definition:
+///
+/// > This painting operation is subject to the values of the graphics state parameters in effect
+/// > at the time, just as in painting an object with a constant colour.
+///
+/// and §11.7.5.2 puts the transfer function at "the last (topmost) elementary graphics object
+/// enclosing that point" — the mark. So a file that states one function at the `scn` and another
+/// at the `f` is painted with the **second**, and the ramp below is read both ways round to say
+/// so. Reported rather than drawn until the six-hundred-and-sixtieth session.
 #[test]
-fn a_pattern_selected_under_one_transfer_and_painted_under_another_is_reported() {
+fn a_pattern_is_painted_under_the_transfer_function_the_mark_states() {
     let resources = format!(
         "/ExtGState << /On << /TR {INVERT} >> /Off << /TR /Identity >> >> \
          /Pattern << /P << /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB \
          /Coords [0 0 100 100] /Function << /FunctionType 2 /Domain [0 1] /C0 [0 0 0] \
          /C1 [1 1 1] /N 1 >> /Extend [true true] >> >> >>"
     );
-    let changed = transfer_reports(fixture(
+
+    // Selected under the inverting function and painted with none: the mark's answer is the
+    // shading's own colours, black at one end and white at the other.
+    let dropped = painted_ramp(fixture(
         &resources,
         "/On gs /Pattern cs /P scn /Off gs 0 0 100 100 re f",
         "",
     ));
-    assert_eq!(
-        changed.len(),
-        1,
-        "one report, for the state that moved under the pattern: {changed:?}"
-    );
-    let detail = changed.first().expect("the report just counted");
     assert!(
-        detail.contains("§10.5") && detail.contains("scn"),
-        "the report names the clause and where the colours were built: {detail}"
+        dropped.colour_at(0.0).r < LEVEL && (dropped.colour_at(1.0).r - 1.0).abs() < LEVEL,
+        "the function was turned off before the mark, so the pattern paints its own colours: \
+         {:?} {:?}",
+        dropped.colour_at(0.0),
+        dropped.colour_at(1.0)
     );
 
-    let unchanged = transfer_reports(fixture(
+    // And the other way round: selected under no function and painted under the inverting one.
+    let gained = painted_ramp(fixture(
         &resources,
-        "/On gs /Pattern cs /P scn 0 0 100 100 re f",
+        "/Off gs /Pattern cs /P scn /On gs 0 0 100 100 re f",
         "",
     ));
     assert!(
-        unchanged.is_empty(),
-        "a pattern painted under the state that selected it carries the right function: \
-         {unchanged:?}"
+        (gained.colour_at(0.0).r - 1.0).abs() < LEVEL && gained.colour_at(1.0).r < LEVEL,
+        "the function stated at the mark reaches the pattern's colours: {:?} {:?}",
+        gained.colour_at(0.0),
+        gained.colour_at(1.0)
+    );
+
+    // Nothing is left for §10.5 to report about a pattern, and the page below is the one that
+    // used to raise it.
+    let reports = transfer_reports(fixture(
+        &resources,
+        "/On gs /Pattern cs /P scn /Off gs 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        reports.is_empty(),
+        "the departure is closed rather than named: {reports:?}"
     );
 }

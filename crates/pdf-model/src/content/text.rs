@@ -14,7 +14,6 @@ use pdf_render::{BlendMode, ClipId, Command, FillRule, Path, Point, Rect, Transf
 use pdf_syntax::Dictionary;
 
 use super::font::Font;
-use super::path::marks;
 use super::pattern::PatternPaint;
 use super::report::{Placed, Unsupported};
 use super::transparency::{Painted, knockout_group_elements, outline_bounds};
@@ -135,9 +134,8 @@ impl GlyphPainting {
             combining: fills
                 && strokes
                 && state.paint_composites()
-                && (matches!(state.fill_pattern, Some(PatternPaint::Tiling(_)))
-                    || marks(&state.fill_paint()))
-                && marks(&state.stroke_paint()),
+                && state.fill_marks()
+                && state.stroke_marks(),
         }
     }
 }
@@ -770,6 +768,7 @@ impl Interpreter<'_> {
             return;
         }
         self.note_transfer(state, Painted::of(state, false));
+        let paint = self.fill_paint(state);
         self.draw(Command::Fill {
             // The font hands out shared outlines and the display list keeps them shared: a
             // page of text is the same few dozen glyphs over and over, so this is a refcount
@@ -779,7 +778,7 @@ impl Interpreter<'_> {
             // Glyph outlines are non-zero filled; even-odd would hollow out counters that
             // overlap, such as in a bold 'B'.
             fill_rule: FillRule::NonZero,
-            paint: state.fill_paint(),
+            paint,
             clip,
             mask: state.soft_mask,
             blend: state.blend,
@@ -827,11 +826,12 @@ impl Interpreter<'_> {
         in_user_space.extend_transformed(outline, glyph_to_user);
         let glyph_stroke_clip = self.paint_clip(state, false);
         self.note_transfer(state, Painted::of(state, true));
+        let paint = self.stroke_paint(state);
         self.draw(Command::Stroke {
             path: Arc::new(in_user_space),
             transform: state.transform,
             stroke: state.stroke.clone(),
-            paint: state.stroke_paint(),
+            paint,
             clip: glyph_stroke_clip,
             mask: state.soft_mask,
             blend: state.blend,

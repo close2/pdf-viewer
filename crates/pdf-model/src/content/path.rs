@@ -61,11 +61,15 @@ impl Interpreter<'_> {
                 self.tile(&shared, state.transform, rule, &tiling, state);
             } else if let Some(rule) = fill {
                 self.note_transfer(state, Painted::of(state, false));
+                // A shading pattern's colours are built here rather than read (§11.6.7), so this
+                // is asked once and the answer is used by the command and by §11.6.2's question
+                // below.
+                let paint = self.fill_paint(state);
                 self.draw(Command::Fill {
                     path: Arc::clone(&shared),
                     transform: state.transform,
                     fill_rule: rule,
-                    paint: state.fill_paint(),
+                    paint,
                     clip: fill_clip,
                     mask: state.soft_mask,
                     blend: state.blend,
@@ -83,11 +87,12 @@ impl Interpreter<'_> {
             }
             if stroke.is_some() {
                 self.note_transfer(state, Painted::of(state, true));
+                let paint = self.stroke_paint(state);
                 self.draw(Command::Stroke {
                     path: Arc::clone(&shared),
                     transform: state.transform,
                     stroke: state.stroke.clone(),
-                    paint: state.stroke_paint(),
+                    paint,
                     clip: stroke_clip,
                     mask: state.soft_mask,
                     blend: state.blend,
@@ -107,14 +112,8 @@ impl Interpreter<'_> {
             // strokes at alpha 0 and fills. Reporting them would name pages whose pixels are
             // the same under either model, which costs them their place in the oracle's
             // comparison and buys nothing.
-            let fill_marks = fill.is_some()
-                && (matches!(state.fill_pattern, Some(PatternPaint::Tiling(_)))
-                    || marks(&state.fill_paint()));
-            if fill_marks
-                && stroke.is_some()
-                && marks(&state.stroke_paint())
-                && state.paint_composites()
-            {
+            let fill_marks = fill.is_some() && state.fill_marks();
+            if fill_marks && stroke.is_some() && state.stroke_marks() && state.paint_composites() {
                 // The clause's own answer to "not composited with one another" is §11.4.6's:
                 // at any point the topmost portion contributes and the ones under it do not,
                 // which is what a knockout group of the two portions computes. `B` strokes
