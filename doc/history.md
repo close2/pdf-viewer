@@ -1013,3 +1013,80 @@ the drag census at 92.33% → 98.91%, the accessibility ratchet, `applied`'s rea
 sweep over a crawl nobody had ranked — and the two that could not are the two that count pages.
 `doc/todo/02` §7 already says a count that improves is not a picture; the other half is here, and it
 is the sharper one: **a count that does not move is not evidence that nothing happened.**
+
+## The fifty rounds from the six-hundred-and-twenty-fourth
+
+**What the fifty have in common is one sentence, and it is about this project's instruments rather
+than about its code:**
+
+> **An instrument that cannot see the population it claims to measure reports success, and reports
+> it in exactly the voice of a program that checked.**
+
+The previous block's lesson was that the sentences which go stale are the ones explaining why
+something is *not* done. This block is that lesson moved one layer down, from prose to programs: the
+gate, the census and the sweep are also claims, and they decay the same way — except that a stale
+program is worse than a stale sentence, because a round reads a passing gate as evidence and a
+sentence only as a sentence.
+
+**Seven of them were found, and no two look alike.** A gate that set `glyph_quantum: None` while the
+product ships `Some(16)`, so it had never once exercised the setting a user gets — 133 pages differ
+at scale 1 and 212 at 4×. A census whose scope was hard-coded to the curated corpora, making "no
+document in any population this project measures" a true sentence about the measurer; found, then
+found **again one instrument over**, because the sixteenth sweep has two and only one had been
+repaired. A census bounded to xref-listed objects, blind to a dictionary written inline in its
+annotation, which reported zero over a corpus holding one. A sweep anchored to the wrong side of its
+own subject — one that would have reported the tree clean of the very defect it was built for, one
+silent on its own plant because the note it was meant to catch has an empty page list and it was
+keyed on list membership. A statistical envelope sized three times larger than its measurement, which
+passed a whole-pixel error on all eight of its cases. A test constructing two graphics devices
+twenty-four times, which worked here and died on a runner with no display. And an instrument that had
+**printed the defect on every run since it landed**, with a label beside it explaining the number
+away.
+
+**What made them findable now is the crawl.** It was finished inside this block — 65 944 documents
+ranked over nine chunk rounds — and the first whole-population figures followed: 65 703 open, 720
+report anything, 64 939 silent. A second population is what turns a negative claim from an assertion
+into a question, and the rule went into `doc/habits.md` as its own decay shape: **a negative claim
+decays when the population grows**, unlike the other four in that nothing in the tree changes
+underneath it. One sweep re-derived ten such negatives and **five were false** — 0 → 96, 0 → 88, 0 →
+90, 0 → 127, 0 → 5.
+
+**A price decays too, and three were caught in a fortnight.** One was nine times too high because a
+library already contained the nine pieces, and the built fix was *faster* than the code it replaced.
+One named the wrong *place*, and building where it said would have shipped an error of 64 levels in
+255. One quoted a single price for two cases when the hard case was decidable at run time — whence
+the sharpest of the three rules: **a price that names no condition is a price for the hardest case,
+charged to every case.**
+
+**Trap 9 went from five mechanisms to eight**, every one found by asking what an agreement is *made
+of* rather than counting it: two references sharing a default argument; two whose independently
+authored ICC profiles characterise the same printing condition; and two that each *synthesise* their
+profile, so the shared data is on no disk and neither `objdump` nor any digest can find it. The
+eighth is the one worth carrying, because it says the search has no floor: **two files that share no
+bytes can still share a standard.**
+
+**Five instruments were built and one was declined with numbers** — the declined one measured first
+(14 denied term-mentions against 125 asserted) and rejected because it would not have printed its own
+round's best find. The three sweeps added ask questions the twelve before them were structurally
+unable to ask: a parent's claim against its own children, a note's newest cited decision against the
+newest decision about its pages, and a note's quoted figures against the log of the gate that
+produces them. `doc/checks/fixed-documents.toml` grew to forty rows and proved a merge had lost
+neither half of two rounds' independent fixes. And the contradicted pool acquired **six criteria for
+choosing what to look at**, each sharper than the last, ending with one that yields a population
+rather than a target — and with the round that invented it saying plainly that a seventh is the wrong
+move.
+
+**Where the numbers ended.** Oracle 907/66/786 → **908/65/786**, the first block in this run where the
+agree count rose. `render-quorra` 932/23 → **933/22, now measured at the setting the product ships**.
+Tests 2321 → **2437**. The ledger's first `silent` row appeared and was closed five rounds later, by a
+round that found a second silence one clause over on its way out. CI went from five failing jobs to
+green — including three snapshot jobs and publish, which had never run at all — and the fuzz targets,
+uncompilable for thirty-eight rounds because `fuzz/` is not a workspace member, compile again and are
+gated on every round.
+
+**What the next block inherits is a harder selection problem than this one had.** The curated corpus
+has been quiet for some time and the crawl is now fully ranked, so the head of the queue is this
+tree's own documented departures rather than misreadings — demand no longer hands a round its subject.
+What remains is mostly the 224 `partial` ledger rows, the twenty-eight pages in the eight contradicted
+groups the sixth criterion named, and `doc/todo/11`'s items 4, 7 and 8 — each of which now has a
+witness, which none of them had when this block opened.
