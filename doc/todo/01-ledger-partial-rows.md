@@ -22,8 +22,11 @@ rather than about the standard (ADR 0455).
 vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
 an account of the requirement that is not the clause's — which is the half no sweep reads, because
 a claim that nothing is owed has no missing thing to grep for (ADR 0465).
-**Seventeen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405) and a
-seventeenth in `tools/spec-errata`, where the errata are (ADR 0426) — twelve run every round, a thirteenth run once and declined
+**Eighteen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405), a
+seventeenth in `tools/spec-errata`, where the errata are (ADR 0426), and **an eighteenth built in
+the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
+against its own children's denials, `--bin overstated`, ADR 0475 — **thirteen of them are committed
+programs and run every round**, one was run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
 reads the entries the clause states (ADR 0295), and **the first of the fifteen to be a committed
@@ -193,6 +196,25 @@ with the reading, which is this file. Every bullet below is unchanged.
   the commonest of them. It reads single-quoted spans as well as double since the
   five-hundred-and-fortieth, and it prints how many so that a clean run says what it was clean over.
   ADRs 0309 and 0375.
+- **One asks whether a parent's claim survives its own children**: `cargo run --release -p
+  conformance --bin overstated`, a fifth of a second, over `ledger.toml` **and over nothing else**
+  — the eighteenth sweep, the thirteenth of them to be a program, and the only one that opens no
+  source file (ADR 0475). Every other sweep
+  here reads a row against the tree; this one reads a parent's assertion that an entry or a table
+  *is read* against a descendant's denial that anybody reads it, so both sides are this project's
+  own claims about its own code and a contradiction is a contradiction whatever the standard says.
+  It exists for the shape the six-hundred-and-forty-first found by reading and no committed sweep
+  could print: **an overstating parent**, which names a thing the tree lacks (the seventh sweep's
+  discriminator) under a row claiming the opposite of a debt (the fourteenth's population), so the
+  sign is reversed twice over and both walk past it. Three rungs, closest first — the child denies
+  the term itself; the child *owns* the term and denies reading, which is the rung §12.11 is on
+  and the only one that could hold it, because the parent named Table 276 and the child denied
+  `/RH`; and the child's denial names another table or another entry. Read the **unmarked** hits
+  first: the dominant noise is a table read in part, marked by attributing each key to the table
+  the sentence attaches it to — the ninth sweep's rule, and without it §12.11's own claim demotes
+  itself on its neighbour's keys. The noise it leaves is a partitive with no table to divide it
+  ("three of the four locations a `/Lang` may occupy"), which is left to the reader on purpose.
+  Its first run found two live defects, §9.9.1's and §9.7.6's, both below.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the
@@ -3449,7 +3471,9 @@ the arrays the corrected note rests on. So:
 > are not corrected at all.** A note argues about three children and cites one child's test; the
 > prose reads as maintained and the evidence is whatever the row was first written with.
 
-That is greppable and it is a thirteenth sweep somebody could write beside the twelfth: for each
+That is greppable and it is a **nineteenth** sweep somebody could write — it was written here as
+"a thirteenth", which was an ordinal two other things already had, and the six-hundred-and-forty-fifth
+separated the count of sweeps from the count of committed programs (ADR 0475 §1): for each
 row, does its `note` name a source file that its own `code` array omits? §12.7.4 named `view.rs`
 and `form.rs` in prose and neither in its array, which is the hit. The eighth sweep already checks
 that a path a note names *exists*; this asks whether the row's own arrays agree with its own
@@ -3472,6 +3496,77 @@ anything behind it, and the difference between them was invisible until both wer
 It is the ledger's half of what `tools/state.sh` is for the instruction files, and it is cheaper
 than the alternative the tenth sweep already measures: a cardinal that outlives its measurement
 gets *quoted*, and then a later round has two documents to correct instead of one.
+
+## An eighteenth sweep, built in the six-hundred-and-forty-fifth: **a parent's claim against its own children**
+
+The six-hundred-and-forty-first found §12.11 by reading and said outright that no sweep could have
+printed it. This is that sweep — `cargo run --release -p conformance --bin overstated`, ADR 0475 —
+and it is the **first one that opens no source file at all**: a parent row saying an entry or a
+table *is read* makes a claim its descendants are the detail of, so both sides are sentences in
+`ledger.toml` written by this project about its own code. A contradiction is then a contradiction
+whatever the standard says, which is the ambiguity every tree-facing sweep has to read past.
+
+**Why the twelve committed programs are blind, stated once.** The seventh reads a term the tree *names* under a row
+claiming nothing is owed; the fourteenth reads a term the tree *lacks* under a row claiming a debt.
+An overstating parent names a thing the tree lacks under a row claiming the **opposite** of a debt.
+The sign is reversed twice, so neither can be widened to reach it without turning into the other.
+
+Three judgements went into it and each is worth keeping:
+
+- **The denial vocabulary is `unread::CLAIMS` unchanged**, so this sweep and the second cannot come
+  to disagree about what a denial is.
+- **The assertion vocabulary is five words on a word boundary** — "read" as a whole word is this
+  ledger's verb, and the boundary is what keeps "unread", "reader", "reading" and "already" out. One
+  idiom had to be excluded by name: "**Read and kept** in the five-hundred-and-sixty-fifth" says a
+  *round read the row*, not that the tree reads the entry, and it was two of the first run's hits.
+- **Stance is a property of a clause rather than of a sentence**, so `unread::sentences` could not be
+  reused. §14.12.4's row is the witness — "Table 409's `/Start` and `/DParts` are read; Table 408 is
+  not" holds both stances inside one full stop, and read whole it asserts the opposite of what it
+  says.
+
+**Read the unmarked hits first.** The dominant noise is *a table read in part*: the parent names the
+entries it reads and the child the entries nobody reads, both citing the same table. Marking it needs
+the **ninth sweep's attribution rule** rather than a plain key comparison, and §12.11 is why — its own
+row enumerates "Table 273's `/S`, `/V` and `/Penalty`, Table 275's twenty-five types, Table 276's
+handlers", so a mark counting every key in the part as the asserted table's would have demoted the
+Table 276 claim on Table 273's keys, and the one defect the sweep was built for would have printed as
+noise. The noise it leaves on purpose is a partitive with no table to divide it — §14.9.2's "[t]hree of
+the four locations a `/Lang` may occupy are read" against §14.9.2.2's fourth read by nothing, both true.
+
+### Its first run: nine contradictions, two defects, and the planted one it names
+
+170 rows have descendants and assert 118 terms between them; 49 of those a child asserts too. Nine
+are contradicted: four carry a mark that demotes them, two more sit on the third rung, one is
+§14.9.2's partitive, and **two were defects**.
+
+**§9.9.1 said Table 125's three lengths were "read by nobody", and §9.9's own row had contradicted it
+for twenty sessions.** `pdf_font::program::stated_extent` reads all three since ADR 0459 — `/Length1`
+alone for a `/FontFile2`, since Table 125 makes it "the entire TrueType font program", and the sum of
+the three for a `/FontFile` — and the claim is checkable at all because each is stated in bytes "after
+it has been decoded using the filters specified by the stream's Filter entry". What the lengths are
+*not* used for is what the sentence was written about: `read-fonts` finds the eexec boundary in the
+bytes rather than at `/Length1`, so no outline depends on them. The row even carried "**Read and kept
+in the five-hundred-and-forty-fifth session**", which was true when written; the six-hundred-and-twenty-fifth
+made it false and did not come back. **The fifth failure shape with the sign reversed, inside one
+family: a parent that had outgrown its child.** The `partial` is unchanged and is the `/Length3`-of-zero
+requirement, still not executed.
+
+**§9.7.6 said "Table 119's entries are read" and its own child says one of the six is not.**
+`/BaseFont` is deliberately unread for a Type 0 font on the clause's own NOTE — "an arbitrary name,
+since there is no font program associated directly with a Type 0 font dictionary" — which §9.7.6.1's
+row has said all along. Five of six, and the parent claimed the table.
+
+**And the instance it was built from was planted back**, which is trap 13 and is the whole reason to
+run that check: with §12.11's pre-six-hundred-and-forty-first note restored the sweep names it on
+rung 2, unmarked, quoting both sides; with the corrected note it names the correction instead, marked
+as a row quoting the wording it retired. A sweep written over the wrong side of a defect reports a
+clean tree.
+
+**The discriminator not taken is named in ADR 0475 §5** — a row against the *tree*, `--bin capabilities`
+with the sign flipped — with what it would cost: its answer side is already `--bin owed`'s
+measurement, its noise is the half a program cannot settle (a row describing what a *clause* requires
+rather than what this tree does), and **it would not have found §12.11**, because source comments cite
+table numbers freely and a tree-facing matcher would have reported the claim corroborated.
 
 ## What is still owed, named
 
