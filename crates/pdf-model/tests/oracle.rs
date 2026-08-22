@@ -638,26 +638,119 @@ const CONTRADICTED_CALRGB_TO_SCREEN: [&str; 5] = [
 /// one this project wrote.
 const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf page 1"];
 
-/// Contradicted, where the document asks for a line width the clause forbids.
+/// Contradicted, where the document asks for a line width the clause forbids — **and we are
+/// the ones carrying the clause out**.
 ///
-/// 1 page, and one operator in it: `issue19633.pdf` strokes a single diagonal under `-0.1 w`.
-/// §8.4.3.2 says the line width "shall be a non-negative number expressed in user space
-/// units", so the value is outside the parameter's stated domain, and the clause states no
-/// recovery for one that is.
+/// 1 page. `issue19633.pdf` is 312 652 bytes of iTextSharp form, not the four-object file this
+/// entry used to describe, but its crop box `[131.5 439.89 383.0 600.89]` admits exactly one
+/// mark: `/Fm0`, drawn under `0.85409 0 0 0.85409 43.38 44.22 cm`, whose whole content is
+/// `-0.1 w 1 j 1 J`, `0 0 m -185.44 77.07 l`, `S`. Everything else the content stream draws —
+/// `/Fm1` to `/Fm6`, all of them `/Tx BMC EMC` with a `[32768 32768 -32768 -32768]` bounding
+/// box — is placed at page y 771 and above, outside the crop box. So the raster is 252 × 161
+/// and the page really is one stroked diagonal, 171.51 points long at 22.56° from horizontal,
+/// asked for at a device width of 0.0854.
 ///
-/// **Three readings are available and each renderer takes a different one.** We clamp the
-/// value into the domain, which makes it zero, and §8.4.3.2's rule for zero is "the thinnest
-/// line that can be rendered at device resolution: 1 device pixel wide" — a dark, solid line.
-/// `poppler` and `mupdf` draw a very faint one, consistent with the magnitude, 0.1 of a pixel's
-/// coverage. `ghostscript` draws something between the two. A *fourth* reading is the clause's
-/// own definition of stroking — "painting all points whose perpendicular distance from the path
-/// in user space is less than or equal to half the line width" — under which a negative width
-/// paints nothing at all, and nobody takes it.
+/// # This entry was written from the picture, and every sentence it made about a reference was
+/// wrong
 ///
-/// Listed rather than chased, and the choice is written down where it is made
-/// (`content.rs`'s `w` handler and `Stroke::device_width`) rather than left in a `.max(0.0)`
-/// that answers a question nobody asked. **One operator in one of 974 documents**, measured —
-/// so the corpus cannot rank this and the clause does not decide it.
+/// It said "[t]hree readings are available and each renderer takes a different one", that
+/// `poppler` and `mupdf` draw "a very faint one, consistent with the magnitude, 0.1 of a
+/// pixel's coverage", that `ghostscript` "draws something between the two", and that "the
+/// clause does not decide it". Ink over the page's own raster (`-alpha off`, R channel; the
+/// mark's length is known, so ink ÷ length is the width the renderer actually painted):
+///
+/// | | ink, in whole pixels | ÷ 171.51 |
+/// |---|---|---|
+/// | ours | 172.54 | **1.006** |
+/// | `hayro` | 170.87 | 0.996 |
+/// | `ghostscript` | 96.81 | 0.564 |
+/// | `poppler` | 42.44 | 0.247 |
+/// | `mupdf` | 37.49 | 0.219 |
+///
+/// The document asked for 0.0854. `poppler` paints 2.9 times that, `mupdf` 2.6, `ghostscript`
+/// 6.6 — so "consistent with the magnitude" was true of nobody, and no two of the five agree
+/// about anything.
+///
+/// # The instrument, which is ADR 0419's ladder continued through zero
+///
+/// The five-hundred-and-eighty-fourth session built a ladder of one rule at seventeen positive
+/// widths to price each renderer's *floor*; it never asked the sign question, and the sign is
+/// what this page turns on. Same geometry, same metric — a 160-unit rule on a 200 × 200 page at
+/// 72 dpi, mean ink in levels of 255, so the geometry's own answer is `1.02 × w` — with the
+/// ladder run down through zero into the negatives:
+///
+/// ```text
+///    width   geometry      ours   poppler     mupdf        gs     hayro
+///      1.0     1.0200    1.0200    1.0200    1.0241    1.3000    1.0241
+///      0.5     0.5100    0.5120    1.0200    0.4761    0.8201    1.0241
+///      0.2     0.2040    0.1999    1.0200    0.2040    0.2721    1.0241
+///     0.05     0.0510    0.0479    1.0200    0.2040    0.2721    1.0241
+///      0.0     0.0000    1.0200    1.0264    0.2040    0.2721    1.0241
+///    -0.05     0.0000    1.0200    1.0200    0.0000    0.2721    1.0241
+///     -0.2     0.0000    1.0200    1.0200    0.0000    0.2721    1.0241
+///     -0.5     0.0000    1.0200    1.0200    0.0000    0.8201    1.0241
+///     -1.0     0.0000    1.0200    1.0200    0.0000    1.3000    1.0241
+/// ```
+///
+/// The positive half reproduces ADR 0419's 72 dpi table to the digit, which is how the
+/// instrument is checked before its new half is believed. The new half says three things.
+///
+/// - **`poppler` and `ghostscript` stroke the *magnitude*.** Every negative rung equals the
+///   positive rung of the same size, at every width and — swept at 0°, 1°, 5°, 10°, 20°,
+///   29.4°, 45°, 60° and 90° — at every angle, to four figures.
+/// - **`mupdf` does not**, and does not take one reading either: within 5° of an axis a
+///   negative width paints **nothing at all**, and beyond 10° it paints exactly what that
+///   renderer paints for a width of *zero*, which is its own 0.2-device-pixel floor. One
+///   renderer, two answers, chosen by the angle of the line.
+/// - **Ours and `hayro`'s are one device pixel at every negative rung**, which is the same
+///   answer they give for zero.
+///
+/// # So the consensus that outvotes us is two mechanisms meeting by accident
+///
+/// On this page `poppler` paints 0.247 of a pixel because it is stroking |−0.1| × 0.85409 plus
+/// its own anti-aliasing spread, and `mupdf` paints 0.219 because that is its floor and it
+/// would paint the same for any width it will not go below. They are inside the fixed tolerance
+/// of each other and they are answering different questions: at `-1 w` they are 1.02 and 0.00
+/// apart, the widest disagreement on the ladder. Trap 9's second shape sitting on its first —
+/// and it is decided by the *angle*: had this file drawn the same rule horizontally, `mupdf`
+/// would have drawn nothing and there would have been no pair to vote.
+///
+/// # And the clause does decide it, one subclause above the one this entry was reading
+///
+/// §8.4.3.2 gives the parameter its range and stops there — "[i]t shall be a nonnegative number
+/// expressed in user space units" — which is why this entry concluded that nothing decides a
+/// value outside it. §8.4.1 decides it, and names this parameter while doing so:
+///
+/// > Parameters that are numeric values, such as the current colour, line width, and miter
+/// > limit, shall be clipped into valid range, if necessary. However, they shall not be
+/// > adjusted to reflect capabilities of the raster output device, such as resolution or number
+/// > of distinguishable colours. Painting operators perform such adjustments, but the adjusted
+/// > values shall not be stored back into the graphics state.
+///
+/// Three sentences and this tree obeys all three: `content.rs`'s `w` clips `-0.1` to 0,
+/// `Stroke::device_width` substitutes one device pixel at painting time because §8.4.3.2
+/// requires that of zero, and the substituted value is never stored back. The magnitude reading
+/// is the one the first sentence forbids, because |−0.1| is not a clip of −0.1 into `[0, ∞)`.
+///
+/// §10.7.5's floor is not an alternative route to the references' answer either, for ADR 0419's
+/// reason on a second document: it applies where "stroke adjustment is enabled", Table 52
+/// initialises that parameter to `false`, and this file contains no `/SA` and no `/ExtGState`
+/// at all.
+///
+/// **The sentence was already quoted in this crate** — `content.rs`'s `miter_limit`, for the
+/// parameter the same list names one later, since the twenty-fourth session — and the §8.4.1
+/// ledger row states the line-width half of it outright while §8.4.3.2's row called the same
+/// clamp a documented choice. `CLAUDE.md`'s rule about reading the titles around a subject
+/// before recording a silence had a shorter distance to travel here than it has ever had.
+///
+/// So this group is [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]'s shape and
+/// [`CONTRADICTED_VISIBILITY_EXPRESSION`]'s: the specification answers, and it answers against
+/// the two renderers that agree. The page stays listed because nothing about our rendering
+/// should change and the gate should keep watching it.
+///
+/// **The group's *name* survived the measurement, which is the first time in this file.** The
+/// page is about the negative line width and nothing else; what was a hypothesis was every
+/// clause reading and every reference attribution underneath the name.
 const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.

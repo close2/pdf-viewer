@@ -418,13 +418,22 @@ impl Interpreter<'_> {
                 // --- line parameters ---
                 b"w" => {
                     if let Some(width) = number_at(operands, 0) {
-                        // ISO 32000-2 §8.4.3.2: the line width "shall be a non-negative
-                        // number expressed in user space units". A negative one is outside
-                        // the parameter's stated domain and the clause states no recovery,
-                        // so clamping it into the domain is a **documented choice** and not a
-                        // derivation — see `Stroke::device_width` for what 0 then means, and
-                        // `oracle.rs`'s `CONTRADICTED_NEGATIVE_LINE_WIDTH` for the page that
-                        // shows the three answers apart.
+                        // ISO 32000-2 §8.4.3.2 gives the parameter its range — the line width
+                        // "shall be a nonnegative number expressed in user space units" — and
+                        // §8.4.1 states what a processor does with a value outside it, naming
+                        // this parameter in the sentence: "[p]arameters that are numeric
+                        // values, such as the current colour, line width, and miter limit,
+                        // shall be clipped into valid range, if necessary."
+                        //
+                        // So `-0.1 w` is a `shall`, not a choice: it is clipped to 0, and
+                        // §8.4.3.2's rule for 0 then makes the mark one device pixel wide.
+                        // That second step is a *device* adjustment, which the same bullet
+                        // requires to happen at painting time and never to be stored back
+                        // into the graphics state — which is why it is in
+                        // `Stroke::device_width` and only the clipped value is kept here.
+                        // `content.rs`'s `miter_limit` has quoted that same sentence since the
+                        // twenty-fourth session, for the parameter the list names third; the
+                        // one it names second sat here calling itself undecided.
                         state.stroke.width = width.max(0.0);
                     }
                 }

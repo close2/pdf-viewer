@@ -709,7 +709,12 @@ of it is `hayro`, which shares `skrifa` with this tree, so it is not evidence ab
 status is unchanged and now has a reason beside it.
 
 **Two cautions the contradicted list earned.** A page may be contradicted for a reason other than
-the one its group names — **twelve for twelve, so far, on the group being wrong**. (The newest is
+the one its group names — **twelve for twelve, so far, on the group being wrong, and the
+thirteenth examination is the first where the name held**: `CONTRADICTED_NEGATIVE_LINE_WIDTH` in
+the six-hundred-and-fifty-first, where the page really is the `-0.1 w` the name says and every
+sentence under the name was wrong instead — the clause was read one subclause too low, and the
+two references that vote turned out to be answering different questions (ADR 0480). (The newest
+wrong name is
 `colors.pdf` pages 1 and 2 in the six-hundred-and-forty-third, whose group had called them a
 *spectrum of edge softness*: the page is sixteen axis-aligned rectangles at known sub-pixel
 boundaries and therefore a closed form, ours is that form with every coverage rounded to

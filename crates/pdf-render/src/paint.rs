@@ -242,20 +242,33 @@ impl Stroke {
     /// only where the stroke is under half a pixel in *every* direction. For a similarity
     /// transform, which is what every page transform in this renderer is, the two singular
     /// values coincide and the choice does not arise.
+    ///
+    /// # A negative width is not a width, and the clause that says so is one subclause up
+    ///
+    /// §8.4.3.2 gives the parameter its range — "[i]t shall be a nonnegative number expressed
+    /// in user space units" — and §8.4.1 states what a processor does with a value outside a
+    /// range, naming this parameter as it does:
+    ///
+    /// > Parameters that are numeric values, such as the current colour, line width, and miter
+    /// > limit, shall be clipped into valid range, if necessary. However, they shall not be
+    /// > adjusted to reflect capabilities of the raster output device, such as resolution or
+    /// > number of distinguishable colours. Painting operators perform such adjustments, but
+    /// > the adjusted values shall not be stored back into the graphics state.
+    ///
+    /// So `-0.1 w` is decided twice over and neither step is a choice: `content.rs` clips it to
+    /// zero because the first sentence requires clipping, and this function substitutes one
+    /// device pixel because §8.4.3.2 requires that of zero — at *painting* time, into a value
+    /// the graphics state never sees, because the third sentence requires that too. This
+    /// comment claimed the opposite until the six-hundred-and-fifty-first session, calling the
+    /// clamp a documented choice among three readings; the sentence above was quoted in
+    /// `content.rs` all along, for the miter limit, which the same list names one parameter
+    /// later.
+    ///
+    /// It also decides *against* the references. `poppler` and `ghostscript` stroke a negative
+    /// width at its magnitude, which is the unclipped value the first sentence forbids, and
+    /// `poppler` is half of the pair that outvotes us on `issue19633.pdf`.
+    /// `oracle.rs`'s `CONTRADICTED_NEGATIVE_LINE_WIDTH` has the ladder and the other half.
     #[must_use]
-    /// # A negative width is not a width, and this is where that is decided
-    ///
-    /// The clause says the parameter "shall be a non-negative number", so `-0.1 w` is outside
-    /// its domain and no recovery is stated. `content.rs` clamps such a value to zero, which
-    /// brings it into the domain, and this function then applies the clause's rule for zero —
-    /// so a negative width draws one device pixel. That is a **choice**, not a derivation, and
-    /// two others are equally available: the clause's own definition of stroking paints "all
-    /// points whose perpendicular distance from the path … is less than or equal to half the
-    /// line width", which for a negative width is no point at all; and the magnitude, which
-    /// covers the same region a positive width of the same size would. `issue19633.pdf` is the
-    /// corpus's only witness — one operator in one document — and the three readings put a
-    /// visibly different line on it.
-    ///
     pub fn device_width(&self, to_device: Transform) -> f32 {
         // A degenerate transform has collapsed the path to a line or a point; there is no
         // width in device space to compare against and nothing to divide by.

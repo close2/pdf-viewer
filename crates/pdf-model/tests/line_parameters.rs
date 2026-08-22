@@ -19,8 +19,9 @@
     clippy::arithmetic_side_effects,
     clippy::float_cmp,
     reason = "test code: a malformed fixture should fail loudly, the one length computed \
-              here is a fixed string's, and the miter limits compared are exactly \
-              representable values a clause states"
+              here is a fixed string's, and the miter limits and line widths compared are \
+              values a clause states, carried from a decimal literal in the fixture to the \
+              same literal here with no arithmetic between them"
 )]
 
 use std::fmt::Write as _;
@@ -72,6 +73,29 @@ fn parameters(setup: &str, ext_gstate: &str) -> (LineCap, LineJoin, f32) {
         .iter()
         .filter_map(|command| match command {
             Command::Stroke { stroke, .. } => Some((stroke.cap, stroke.join, stroke.miter_limit)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(found.len(), 1, "the fixture strokes exactly one line");
+    found.remove(0)
+}
+
+/// The line width of the one stroke the fixture paints, in the path's own space.
+///
+/// Separate from [`parameters`] because it is a different clause's question: the cap, join and
+/// limit are §8.4.3.3 to §8.4.3.5, and this is §8.4.1's clipping rule reaching §8.4.3.2's
+/// parameter.
+fn width(setup: &str, ext_gstate: &str) -> f32 {
+    let content = format!("{setup} 10 10 m 90 10 l S");
+    let document =
+        Document::open(fixture(&content, ext_gstate)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let mut found: Vec<f32> = list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Stroke { stroke, .. } => Some(stroke.width),
             _ => None,
         })
         .collect();
@@ -154,6 +178,33 @@ fn a_code_outside_the_clauses_three_is_the_initial_value() {
 fn a_miter_limit_below_one_is_clipped_into_range() {
     assert_eq!(parameters("0.5 M", "").2, 1.0);
     assert_eq!(parameters("/GS gs", "/ML 0.5").2, 1.0);
+}
+
+/// A negative line width is clipped to zero, by either route, which §8.4.1 requires.
+///
+/// The clause names this parameter in the sentence that requires it — "[p]arameters that are
+/// numeric values, such as the current colour, line width, and miter limit, shall be clipped
+/// into valid range, if necessary" — and §8.4.3.2 gives the range: "[i]t shall be a nonnegative
+/// number expressed in user space units".
+///
+/// The width kept here is the *clipped* one rather than the device-pixel minimum §8.4.3.2 then
+/// substitutes for zero, because the same bullet forbids storing a device adjustment back into
+/// the graphics state. `Stroke::device_width` is where that minimum is applied, and
+/// `render-cpu`'s `stroke_width.rs` is where it is asserted.
+///
+/// `issue19633.pdf` is the corpus's only witness, and `oracle.rs`'s
+/// `CONTRADICTED_NEGATIVE_LINE_WIDTH` has the ladder that says two references stroke the
+/// magnitude instead.
+#[test]
+fn a_negative_line_width_is_clipped_into_range() {
+    assert_eq!(width("-0.1 w", ""), 0.0);
+    assert_eq!(width("/GS gs", "/LW -0.1"), 0.0);
+    assert_eq!(width("-1000 w", ""), 0.0);
+    assert_eq!(
+        width("0.4 w", ""),
+        0.4,
+        "a width inside the range is untouched"
+    );
 }
 
 /// `q` and `Q` save and restore all three, §8.4.2.

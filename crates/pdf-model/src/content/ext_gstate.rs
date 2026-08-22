@@ -227,6 +227,9 @@ impl Interpreter<'_> {
             state.stroke.miter_limit = miter_limit(narrow(limit));
         }
         self.apply_ext_gstate_font(dict, state);
+        // Table 57's `/LW`, which §8.4.1's NOTE 1 makes the second route to the same
+        // parameter the `w` operator sets — so it is clipped into range by §8.4.1's own
+        // sentence, exactly as `run.rs`'s `w` is, and for the reason written there.
         if let Some(width) = self.document.get_key(dict, "LW").as_number() {
             #[expect(
                 clippy::cast_possible_truncation,

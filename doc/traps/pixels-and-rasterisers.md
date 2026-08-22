@@ -44,8 +44,18 @@ references about one is `doc/oracle-and-corpus.md` §3d (ADR 0410).
 were both code that was right about the clause it cited.
 
 **A contradicted page's group names a hypothesis, not a diagnosis — twelve for twelve on being
-wrong**, the newest being `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had said
-since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us
+wrong, and the thirteenth examination is the first where the name held.** That one is
+`CONTRADICTED_NEGATIVE_LINE_WIDTH` in the six-hundred-and-fifty-first session: `issue19633.pdf`
+really is about the `-0.1 w` its group names, and what was a hypothesis was everything written
+*under* the name — the clause reading (§8.4.1 decides a value outside a parameter's range and
+names the line width while doing it, so our clamp is a `shall` rather than the documented choice
+the note claimed), and every attribution to a reference (`poppler` and `ghostscript` stroke the
+magnitude, `mupdf` paints nothing within 5° of an axis and its own floor beyond 10°, and the two
+that vote were answering different questions). **So the thing to distrust is the note, and the
+name is only its first sentence** — ADR 0480.
+
+The newest wrong *name* is `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had
+said since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us
 at the soft end. They do not. Each page is sixteen axis-aligned rectangles at known sub-pixel
 boundaries, so the page is a closed form; ours was that form with every edge's coverage **rounded to
 a quarter** — `tiny-skia` samples four times per axis — to one level of 255 over the whole raster,
