@@ -3497,6 +3497,30 @@ It is the ledger's half of what `tools/state.sh` is for the instruction files, a
 than the alternative the tenth sweep already measures: a cardinal that outlives its measurement
 gets *quoted*, and then a later round has two documents to correct instead of one.
 
+### What the six-hundred-and-forty-eighth adds: **the count and the walk that produced it**
+
+The rule above paid four times in one round — §12.8.2.2's "the corpus's one certification
+signature", §12.8.3.4.2's "four corpus documents", §7.6.4.1's "eight corpus documents" and a
+comment's "exactly one states a `/S /Launch` action" — and three of the four were **right**. The
+fourth was wrong, and the way it was wrong is the part worth keeping:
+
+> **A count over the corpus is a claim about a walk as much as about the world.** "Exactly one
+> document states a `/S /Launch` action" was produced by something that visited only the objects
+> the cross-reference table lists, and an action dictionary written *directly* inside its
+> annotation or its outline item has no object number. The right answer is two. The same bound
+> reported zero `/S /GoToR` and zero `/S /SubmitForm` over a corpus that states one of each — which
+> would have made two of this round's rows look unrankable.
+
+So when a note's count is re-derived, re-derive the *population* with it: ask what the walk cannot
+see before believing a zero, and prefer a zero that has been probed to one that has been computed.
+The cheapest probe is the crudest one — `grep -l` for the literal name over the corpus's bytes,
+which is what caught this: two files held `/GoToR` and the census claimed none did.
+
+Three of this round's four counts also needed no new instrument. §7.6.4.1's was already produced by
+a gate — `cargo test -p pdf-model --test corpus -- --ignored` prints every locked file and
+`MAX_LOCKED` ratchets the total — and the row simply never said so. **A note whose count already
+has a command owes the command's name, not a new census.** Look for the gate before writing one.
+
 ## An eighteenth sweep, built in the six-hundred-and-forty-fifth: **a parent's claim against its own children**
 
 The six-hundred-and-forty-first found §12.11 by reading and said outright that no sweep could have
@@ -3613,9 +3637,27 @@ table numbers freely and a tree-facing matcher would have reported the claim cor
   tree had ever asserted the report those rows *are*. §12.8.3.4.1 turned out to be a sixth of the
   same shape — its note says "which is what a test asserts" and its array named no PAdES test at
   all. Two counted claims went with them: §12.8.3.3.2's "the corpus's one witness" is three
-  documents, and §12.8.5's "no corpus document carries a document timestamp" holds. **The band's
+  documents, and §12.8.5's "no corpus document carries a document timestamp" holds. ~~**The band's
   remaining rows are §12.7.6.2 and the four §12.8.3.4.x that keep their statuses**; the next band
-  begins forty-two commits above at §10.4.2.4 and §10.4.2.5.
+  begins forty-two commits above at §10.4.2.4 and §10.4.2.5.~~ **Taken in the
+  six-hundred-and-forty-eighth**, over a base of 843 commits where the band had shrunk to three —
+  §12.7.6.2 at rank 513 and §12.8.2.2 with §12.8.3.4.2 at 517, with the gap above now fifty-nine
+  commits to §10.4.2.4 rather than forty-two. All three were read and a fourth taken from below
+  the gap, §7.6.4.1 at rank 578; every one of the four stated a reason that is a claim about this
+  tree rather than about the standard, which is 620's rule choosing the work for the sixth time.
+  **620's third shape paid for the seventh round running, and this time the defect was one an
+  earlier round had already fixed for its siblings.** §12.7.6.2 is `reported` — a status whose
+  whole content is "a person is told" — and cited
+  `action.rs::a_name_the_table_does_not_hold_is_not_an_action`, which asserts that `/Teleport`
+  yields *no* action and therefore never calls `action::refused` at all. That is the exact citation
+  the six-hundred-and-twenty-sixth session found false for §12.6.4.6, §12.6.4.9 and §12.6.4.10 and
+  replaced with an end-to-end click test. **Enumerating `refused`'s ten arms against the ledger
+  found the second survivor**: §12.6.4.3 carried the same dead citation, twenty-two rounds after
+  the shape was named and closed for three of its five siblings. So the enumeration technique found
+  the row the band's ordering could not — §12.6.4.3's note had been rewritten since and ranks
+  nowhere near the top — and the lesson is narrower than "enumerate call sites": **when a round
+  fixes a defect that a family shares, the population it fixed is the arms of the function, not the
+  rows it happened to be reading.**
   **And the shape 616 warned about has a second direction now**: a *parent* row overstating what
   its children do. §12.11 listed "Table 276's handlers" among what it reads while both of its
   children say `/RH` is read by nobody — every previous instance of the fifth failure shape had the

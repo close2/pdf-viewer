@@ -88,7 +88,20 @@ struct Counts {
     /// gap: the attribute's *presence* is the only thing this program says about revocation, so
     /// how many files say it is the size of what that sentence is about.
     revocation_material: usize,
-    /// The documents those two came from, so that a witness is named rather than only counted.
+    /// Signature values whose ASN.1 states X.690 clause 8.1.3.6's indefinite length anywhere.
+    ///
+    /// `der`'s module comment and §12.8.3.4.2's ledger row both price this reader's tolerance for
+    /// the encoding DER forbids, and they price it with a bare number apiece — "four of the ten
+    /// signature values" in one and "four corpus documents" in the other, which are not even the
+    /// same denominator. This is the command that settles which is which.
+    indefinite_lengths: usize,
+    /// §12.8.2.2's certification signatures: a `/Perms /DocMDP`, keyed by the `/P` it states.
+    ///
+    /// §12.8.2.2's row calls one out by name — "[t]he corpus's one certification signature states
+    /// `/P 2`" — and that is two claims a command can check and nothing was checking: how many
+    /// there are, and which level each asserts.
+    certifications: BTreeMap<String, usize>,
+    /// The documents those came from, so that a witness is named rather than only counted.
     witnesses: Vec<String>,
     /// Documents carrying a signature whose algorithm this program does not verify.
     unverifiable_documents: Vec<String>,
@@ -105,8 +118,12 @@ impl Counts {
         self.revocation_material = self
             .revocation_material
             .saturating_add(other.revocation_material);
+        self.indefinite_lengths = self
+            .indefinite_lengths
+            .saturating_add(other.indefinite_lengths);
         self.witnesses.append(&mut other.witnesses);
         for (map, theirs) in [
+            (&mut self.certifications, other.certifications),
             (&mut self.unreadable, other.unreadable),
             (&mut self.sub_filters, other.sub_filters),
             (&mut self.signature_algorithms, other.signature_algorithms),
@@ -222,6 +239,18 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
         opened: 1,
         ..Counts::default()
     };
+    // §12.8.2.2's certification: read from the permissions dictionary rather than from a
+    // signature, because `/Perms /DocMDP` is what §12.8.6 makes the transform *binding* — a
+    // `/DocMDP` transform on a signature nothing points at asserts nothing.
+    if let Some(level) = permissions(document).doc_mdp {
+        let named = format!("{level:?}");
+        let slot = counts.certifications.entry(named).or_default();
+        *slot = slot.saturating_add(1);
+        counts
+            .witnesses
+            .push(format!("{path}: §12.8.2.2 certification, /P {level:?}"));
+    }
+
     let signatures = every_signature(document);
     if signatures.is_empty() {
         return counts;
@@ -240,6 +269,12 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
             counts
                 .witnesses
                 .push(format!("{path}: §12.8.5 document timestamp"));
+        }
+        if states_indefinite_length(&signature.contents) {
+            counts.indefinite_lengths = counts.indefinite_lengths.saturating_add(1);
+            counts
+                .witnesses
+                .push(format!("{path}: §12.8.3.4.2 indefinite ASN.1 length"));
         }
         let answer = signature.authenticity(bytes);
         let unverifiable = matches!(
@@ -300,6 +335,34 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
         }
     }
     counts
+}
+
+/// Whether any value in one encoding states X.690 clause 8.1.3.6's indefinite length.
+///
+/// The whole tree rather than the outermost value: `der`'s comment says Adobe's handler writes
+/// `30 80` for the `ContentInfo`, and that is the *observed* shape rather than the only legal one
+/// — an encoder may state a definite length outside and an indefinite one for a `SignerInfo`
+/// within. A reader that asked only the first value would confirm the observation and miss the
+/// question.
+///
+/// An unreadable encoding answers `false`: a value that cannot be walked has not been shown to
+/// use the indefinite form, and this census counts what a file *states*.
+fn states_indefinite_length(contents: &[u8]) -> bool {
+    fn any(mut reader: pdf_model::der::Reader<'_>) -> bool {
+        while let Ok(Some(value)) = reader.next_value() {
+            if value.had_indefinite_length() {
+                return true;
+            }
+            if value.is_constructed()
+                && let Ok(children) = value.children()
+                && any(children)
+            {
+                return true;
+            }
+        }
+        false
+    }
+    pdf_model::der::Reader::new(contents).is_ok_and(any)
 }
 
 /// One map printed largest first, which is the order a population reads in.
@@ -369,9 +432,18 @@ fn main() {
          §12.8.3.3.2's adbe-revocationInfoArchival",
         counts.timestamps, counts.revocation_material,
     );
+    println!(
+        "{} signature values state X.690's indefinite length, which DER forbids and \
+         §12.8.3.4.2's row prices",
+        counts.indefinite_lengths
+    );
     for witness in &counts.witnesses {
         println!("  {witness}");
     }
+    report(
+        "§12.8.2.2 certification signatures, by Table 257 /P",
+        &counts.certifications,
+    );
     report("what stopped the rest", &counts.unreadable);
     report("/SubFilter", &counts.sub_filters);
     report(

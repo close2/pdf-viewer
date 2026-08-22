@@ -1235,7 +1235,14 @@ impl Change {
     }
 }
 
-/// Table 201's other seventeen types, each named rather than lumped together.
+/// The ten of Table 201's types this reader declines, each named rather than lumped together.
+///
+/// **This comment said "Table 201's other seventeen types" until the six-hundred-and-forty-eighth
+/// session**, and no reading of the table produced that number: ISO 32000-2's Table 201 lists
+/// twenty types, [`one`] performs eleven of them, and nine are left with no arm of its own. Ten
+/// are named here rather than nine because `Thread` appears on both sides — §12.6.4.7's action is
+/// performed for a thread in this file and refused for one in another — which is the clause's
+/// distinction rather than this function's.
 ///
 /// Returning `None` for a name outside the table matters: §12.6.2 says `/S` names a type "see
 /// Table 201 for specific values", so a name the table does not hold is not an action this

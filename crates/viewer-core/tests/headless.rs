@@ -1044,20 +1044,31 @@ fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
 
 #[test]
 fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
-    // §12.6.4.6's `Launch`, §12.6.4.9's `Sound` and §12.6.4.10's `Movie` — the three types whose
-    // ledger rows are `reported` rather than `silent`, which is a claim that the refusal reaches
-    // a person. **Nothing in the tree reached it.** The rows cited
+    // The five action types whose ledger rows are `reported` rather than `silent`, which is a
+    // claim that the refusal reaches a person: §12.6.4.3's `GoToR`, §12.6.4.6's `Launch`,
+    // §12.6.4.9's `Sound`, §12.6.4.10's `Movie` and §12.7.6.2's `SubmitForm`. **Nothing in the
+    // tree reached it.** All five rows cited
     // `action.rs::a_name_the_table_does_not_hold_is_not_an_action`, which asserts that `/Teleport`
     // produces *no* action at all and therefore never touches `action::refused`; the only other
     // test that came near was `a_next_chain_is_flattened_in_execution_order`, which reaches
-    // `Launch`'s refusal and splits the sentence off at the colon. `Sound` and `Movie` were
-    // reached by nothing.
+    // `Launch`'s refusal and splits the sentence off at the colon.
     //
-    // The witness is built rather than borrowed, and the measurement is why: of the 974 corpus
-    // documents exactly one states a `/S /Launch` action (`issue17846.pdf`), **none states a
-    // `/S /Sound` or a `/S /Movie` one** — `multimedia_annotations.pdf`'s `/Sound` names are
-    // §13.6.2's annotation subtype and §13.3's sound object, not §12.6.4.9's action, and `Movie`
-    // does not appear in the corpus in any form.
+    // **Three of the five were covered here in the six-hundred-and-twenty-sixth session and two
+    // were left behind**, still citing the test that cannot reach them, which is why `GoToR` and
+    // `SubmitForm` join the table below. `refused`'s arms are the population: every name it
+    // answers either has a row that owes this assertion or an `out-of-scope` one that owes
+    // nothing, and those two were the remainder.
+    //
+    // The witness is built rather than borrowed, and the population is a command rather than a
+    // sentence — `cargo run --release -p pdf-model --example refused_action_census`, which walks
+    // every numbered object *and every dictionary inside one* and asks `action::read` what it made
+    // of each. A built witness keeps the click deterministic; the census says whether the refusal
+    // is one a reader ever meets. **The comment this replaces stated the population as a bare
+    // number and got it wrong**: "of the 974 corpus documents exactly one states a `/S /Launch`
+    // action" missed `externalLink.pdf`, whose action dictionary is written directly inside its
+    // annotation and so has no object number to be found by. `/S /Sound` and `/S /Movie` are the
+    // ones genuinely absent — `multimedia_annotations.pdf`'s `/Sound` names are §13.6.2's
+    // annotation subtype and §13.3's sound object, not §12.6.4.9's action.
     //
     // What it pins is the whole path the rows claim: `action::refused`'s sentence, `Action::Refused`
     // carrying it out of `pdf-model`, `interact::perform` turning it into a note rather than
@@ -1122,6 +1133,18 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
         (
             "<< /S /Movie /Operation /Play >>",
             "Movie: clause 13's multimedia, excluded by CLAUDE.md principle 5",
+        ),
+        // Table 203's two required entries, so that the refusal is the clause's rather than a
+        // malformed dictionary's: a `GoToR` naming neither a file nor a destination would be
+        // refused by the same arm and would prove nothing about a well-formed one.
+        (
+            "<< /S /GoToR /F (other.pdf) /D [0 /Fit] >>",
+            "GoToR: a destination in another file, which this reader has no filesystem to open",
+        ),
+        // Table 239's required `/F`, a §7.11.5 URL file specification, for the same reason.
+        (
+            "<< /S /SubmitForm /F << /FS /URL /F (https://example.invalid/) >> >>",
+            "SubmitForm: §12.7.6.2's submission, which needs a network",
         ),
     ] {
         let notes = said(action);
