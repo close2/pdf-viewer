@@ -24,8 +24,15 @@
 //! ```sh
 //! cargo run --release -p pdf-model --example witness_census -- Collection Threads Trans Lock
 //! cargo run --release -p pdf-model --example witness_census -- --pdfjs Collection  # the 974 only
+//! cargo run --release -p pdf-model --example witness_census -- --crawl Cap    # CC-MAIN-2021-31
 //! cargo run --release -p pdf-model --example witness_census -- --names        # every name, ranked
 //! ```
+//!
+//! **`--crawl` is the six-hundred-and-sixty-seventh session's**, and it is the flag a ledger
+//! negative needs: ADR 0490 established that a claim measured before `CC-MAIN-2021-31` was on
+//! this disk is a claim nobody has measured, and this census had no way to ask it. Run it *with*
+//! the control run rather than instead of one — the old sentence is usually right about its own
+//! population, which is why nothing in the tree could see it.
 //!
 //! **`--pdfjs` narrows the population to the pdf.js corpus**, which is what most of this project's
 //! written claims are about — "the 974". Without it the four `doc/corpora/` submodules and this
@@ -62,18 +69,34 @@ const MAX_DEPTH: usize = 64;
 /// How many witnessing document names are printed per term before the list is truncated.
 const MAX_NAMED: usize = 12;
 
-/// Every PDF this project can measure over: the pdf.js corpus, the four `doc/corpora/`
-/// submodules, and this project's own fixtures.
+/// Which population a run is over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// The pdf.js corpus alone — "the 974", which most of this project's claims are about.
+    PdfJs,
+    /// That, the four `doc/corpora/` submodules, and this project's own fixtures.
+    Curated,
+    /// The `SafeDocs` `CC-MAIN-2021-31` crawl under `corpus-cache/`, and nothing else.
+    Crawl,
+}
+
+/// Every PDF this project can measure over, in the scope asked for.
 ///
-/// The population ADR 0403 used, so that a claim re-checked here is re-checked against the same
-/// world the claim was made about.
-fn corpus(pdfjs_only: bool) -> Vec<PathBuf> {
+/// [`Scope::Curated`] is the population ADR 0403 used, so that a claim re-checked here is
+/// re-checked against the same world the claim was made about.
+///
+/// **[`Scope::Crawl`] is separate rather than added**, and the six-hundred-and-sixty-third
+/// session is why: a ledger negative written before the crawl arrived is usually *true* of the
+/// population it was measured over, which is exactly why nothing in the tree could see it. A run
+/// that merged the two would answer with one number and hide which of the two claims moved, so a
+/// re-derivation runs both and states both — the control and the growth (ADR 0490).
+fn corpus(scope: Scope) -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut files = Vec::new();
-    let scope: &[&str] = if pdfjs_only {
-        &["doc/pdf.js/test/pdfs"]
-    } else {
-        &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"]
+    let scope: &[&str] = match scope {
+        Scope::PdfJs => &["doc/pdf.js/test/pdfs"],
+        Scope::Curated => &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"],
+        Scope::Crawl => &["corpus-cache/safedocs/cc-main-2021-31"],
     };
     for relative in scope {
         collect(&root.join(relative), &mut files);
@@ -119,14 +142,20 @@ struct Found {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let want_names = args.iter().any(|a| a == "--names");
-    let pdfjs_only = args.iter().any(|a| a == "--pdfjs");
+    let scope = if args.iter().any(|a| a == "--crawl") {
+        Scope::Crawl
+    } else if args.iter().any(|a| a == "--pdfjs") {
+        Scope::PdfJs
+    } else {
+        Scope::Curated
+    };
     let terms: Vec<String> = args.into_iter().filter(|a| !a.starts_with("--")).collect();
     if terms.is_empty() && !want_names {
-        eprintln!("usage: witness_census [--names] [--pdfjs] <name> [<name> ...]");
+        eprintln!("usage: witness_census [--names] [--pdfjs|--crawl] <name> [<name> ...]");
         return;
     }
 
-    let files = corpus(pdfjs_only);
+    let files = corpus(scope);
     eprintln!("{} PDF(s) in the population", files.len());
 
     let results: Vec<(String, Found)> = files
