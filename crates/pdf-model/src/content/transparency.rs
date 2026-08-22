@@ -56,27 +56,20 @@ pub(super) enum Painted {
     Shading {
         /// Whether it was the stroke colour, for the first condition.
         stroking: bool,
-        /// Whether the transfer function the shading's colours were built under is no longer the
-        /// one in force. See [`Interpreter::note_transfer`]'s §10.5 section.
-        stale: bool,
     },
 }
 
 impl Painted {
     /// Which kind a fill or a stroke is, given the state it is painted under.
     ///
-    /// §8.7.2 makes a pattern a colour — "[a]ll patterns shall be treated as colours" — and only
-    /// one of the three answers has anything more to ask about §10.5: a shading's colours are
-    /// built when the pattern is *selected*, so the transfer they carry is the one that was in
-    /// force then. A tiling pattern is not a paint at all, so it never reaches a call site of
-    /// this; a solid colour is mapped by `GraphicsState::fill_paint` at the mark.
+    /// §8.7.2 makes a pattern a colour — "[a]ll patterns shall be treated as colours" — and the
+    /// three answers differ only in which of §11.7.5.2's six conditions they can fail. A tiling
+    /// pattern is not a paint at all, so it never reaches a call site of this.
     ///
-    /// The staleness test is `Arc::ptr_eq` rather than an equality of functions, and it is an
-    /// over-approximation in the safe direction: two `gs` operators naming one `/ExtGState` parse
-    /// two `Transfer`s that are equal and not identical, so a stream that re-states the same
-    /// transfer between the `scn` and the paint is reported although its picture is right.
-    /// Comparing parsed §7.10 functions for equality would be a new definition of equality on a
-    /// type that has none, for a population measured at zero.
+    /// **This used to carry a `stale` flag** saying that a shading pattern's colours had been
+    /// built under a transfer function the mark no longer states. There is no such state now:
+    /// `Interpreter::shading_paint` rebuilds them, so §10.5's function at a mark is the mark's
+    /// own whichever kind of paint carries it.
     pub(super) fn of(state: &GraphicsState, stroking: bool) -> Self {
         let pattern = if stroking {
             state.stroke_pattern.as_ref()
@@ -84,14 +77,7 @@ impl Painted {
             state.fill_pattern.as_ref()
         };
         match pattern {
-            Some(super::pattern::PatternPaint::Shading { transfer, .. }) => Self::Shading {
-                stroking,
-                stale: !match (transfer, state.transfer.as_ref()) {
-                    (None, None) => true,
-                    (Some(built), Some(now)) => Arc::ptr_eq(built, now),
-                    _ => false,
-                },
-            },
+            Some(super::pattern::PatternPaint::Shading(_)) => Self::Shading { stroking },
             _ if stroking => Self::Stroked,
             _ => Self::Filled,
         }
@@ -1138,17 +1124,6 @@ impl Interpreter<'_> {
     ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
     ///   compositing, and reinterpreting them in ink would convert a colour that was never
     ///   stated here.
-    /// - **No shading pattern is carried in over the `Do`**, which is the same sentence one
-    ///   colour over and was missing until the six-hundred-and-fifty-fifth session. §11.6.7
-    ///   makes a shading pattern's definition "implicitly enclosed in a non-isolated
-    ///   transparency group", and §11.7.2 then says where such a group's colour space comes
-    ///   from — "[n]on-isolated groups shall inherit their colour space from the nearest
-    ///   ancestor isolated parent group", which for a pattern painted inside this group is
-    ///   *this* group. Its colours were resolved where the `scn` was, one space out, and the
-    ///   two runs of a paired press would carry that same resolved colour into both halves —
-    ///   an ink neither the file nor this tree ever stated. So the group is composited on the
-    ///   device's components and keeps §11.6.6's standing report, exactly as an uncoloured
-    ///   cell does and for the identical reason.
     /// - **No `/ExtGState` has stated Table 57's black generation**, which §11.7.5.3 puts
     ///   inside the conversion into the space and this conversion does not read. Checked
     ///   again after the run, since a `gs` inside the group can state one.
@@ -1156,17 +1131,33 @@ impl Interpreter<'_> {
     ///   the runs, and editing one half of a pair would leave the other describing a
     ///   different construction. Such a group keeps the report it has; no corpus document
     ///   states the combination.
+    ///
+    /// # The condition that came off, and why the uncoloured one did not go with it
+    ///
+    /// The six-hundred-and-fifty-fifth session added a fifth condition — a group a *shading
+    /// pattern* was carried into over the `Do` — for the same reason as the uncoloured cell:
+    /// §11.6.7 makes the pattern's definition a non-isolated group, §11.7.2 gives such a group
+    /// the space of "the nearest ancestor isolated parent group", and this tree resolved the
+    /// pattern's colours where the `scn` stood instead. ADR 0483 wrote that it would come off
+    /// when §10.5's rebuild landed, and it has: `Interpreter::shading_paint` builds a shading
+    /// pattern's colours at the mark, in whatever this run is compositing into, so a pattern
+    /// painted inside a press is resolved in that press's half like every other colour there.
+    ///
+    /// **[`Interpreter::uncoloured`] stays, and the difference is which way the colour travels.**
+    /// §8.6.8's uncoloured cell takes its colour from the `scn` *outside* — "the pattern's
+    /// content stream shall not specify any colour" — so there is nothing inside the group to
+    /// rebuild from; the tint is a resolved [`pdf_render::Color`] and reinterpreting it as ink
+    /// would state one the file never did. A shading pattern carries its whole definition, which
+    /// is exactly what made the rebuild possible.
     fn group_press(
         &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
-        carries_shading_pattern: bool,
     ) -> Option<Arc<Press>> {
         if self.compositing != Compositing::Device
             || !group.isolated
             || group.knockout
             || self.uncoloured
-            || carries_shading_pattern
             || self.black_generation_stated
         {
             return None;
@@ -1759,19 +1750,7 @@ impl Interpreter<'_> {
             AlphaSourcesSeen::of(inner.alpha_is_shape),
         );
         let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
-        // §11.6.7's pattern carried in over the `Do`, read off the state the group's content
-        // starts from: §11.6.6 resets the transparency parameters on `inner` and leaves the
-        // colour alone, so a shading pattern selected outside is still the current colour here.
-        // An over-approximation in the safe direction — the group may never fill with it — and
-        // the tight test would have to name the marks a run has not made yet.
-        let carries_shading_pattern = matches!(
-            inner.fill_pattern,
-            Some(super::pattern::PatternPaint::Shading { .. })
-        ) || matches!(
-            inner.stroke_pattern,
-            Some(super::pattern::PatternPaint::Shading { .. })
-        );
-        let ink = self.group_press(group, resources, carries_shading_pattern);
+        let ink = self.group_press(group, resources);
         let saved = self.compositing.clone();
         // Scoped only where a pair is being attempted: everywhere else the record has to
         // propagate *up* to whatever pair run this group may be inside.
@@ -1972,20 +1951,12 @@ impl Interpreter<'_> {
     /// > In the sequence of steps for processing colours, the PDF processor shall apply the
     /// > transfer function after performing any needed conversions between colour spaces.
     ///
-    /// [`GraphicsState::fill_paint`] applies it to a solid colour, `image::transferred_image` to
+    /// [`GraphicsState::solid_fill`] applies it to a solid colour, `image::transferred_image` to
     /// an image's samples, and `shading::kind_of` to every colour a shading produces — a ramp's
-    /// samples, a mesh's corners and a function-based shading's grid alike. The one place the
-    /// answer can still be the wrong function is a **shading pattern**: §8.7.2 makes it a colour,
-    /// `scn` is where that colour is resolved, and the mark may be several graphics states later.
-    /// A file that states a different `/TR` between the two paints colours built under the first,
-    /// and this says so.
-    ///
-    /// Reported rather than closed because closing it means resolving a pattern's colours at the
-    /// mark instead of at the selection, which is where this tree also resolves §8.6.5.9's black
-    /// point and §11.4.7's compositing target for the same colours — so the staleness is a
-    /// property of *when a shading pattern is built* rather than of this clause, and moving it
-    /// would be answering three clauses' question in a round that read one. `doc/todo/13` prices
-    /// it.
+    /// samples, a mesh's corners and a function-based shading's grid alike. A **shading pattern**
+    /// was the one route on which the answer could still be the wrong function, because §8.7.2
+    /// makes a pattern a colour and `scn` is where a colour is resolved; `Interpreter::fill_paint`
+    /// now builds those colours at the mark, so there is nothing left for this half to report.
     ///
     /// # §11.7.5.2, and the parameter that belongs to a region
     ///
@@ -2019,17 +1990,9 @@ impl Interpreter<'_> {
     /// document of either corpus paints a shading while one is in force, which is why the report
     /// above has no witness but a fixture.
     pub(super) fn note_transfer(&mut self, state: &GraphicsState, painted: Painted) {
-        if matches!(painted, Painted::Shading { stale: true, .. }) {
-            self.note(Unsupported::TransferFunction {
-                detail: "§10.5: a shading pattern's colours were built under the transfer \
-                         function in force when `scn` selected it, and the graphics state \
-                         states a different one at the mark"
-                    .to_owned(),
-            });
-        }
-        // A stale shading is a mark carrying a function too, whichever of the two states named
-        // one: `stale` means the pair differs, and a pair of `None`s does not.
-        if state.transfer.is_some() || matches!(painted, Painted::Shading { stale: true, .. }) {
+        // Every mark's function is the one its own state states, shadings included since the
+        // rebuild landed — so this is the whole of "some mark on this page carried one".
+        if state.transfer.is_some() {
             self.transfer_painted = true;
         }
         if !self.transfer_painted {

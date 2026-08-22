@@ -2612,16 +2612,17 @@ fn a_group_that_introduces_a_press_composites_in_it() {
 /// > group").
 ///
 /// The nearest ancestor of a pattern *painted inside* this group is this group, so its colours
-/// belong in the group's four components. This tree resolves them where the `scn` is — one space
-/// out — and the pair the group would otherwise be drawn as would carry that one resolved colour
-/// into both of its halves, which is an ink neither the file nor this tree ever stated. So the
-/// press is refused and §11.6.6's standing report names the space, exactly as it does for an
-/// uncoloured cell and for §11.7.5.3's black generation.
+/// belong in the group's four components — whichever content stream the `scn` stood in.
 ///
-/// The mutation is the same page with the `scn` moved *inside* the form, where the pattern's
-/// parent content stream is the one compositing in the press and nothing is carried across.
+/// **The six-hundred-and-fifty-fifth session answered this by refusing the press** and the
+/// six-hundred-and-sixtieth answers it by building: a shading pattern carries its whole
+/// definition now, so the mark inside the group rebuilds its colours in the group's own
+/// compositing and the pair is built like any other. The two arms below are the same page with
+/// the `scn` outside the form and inside it, and they agree — which is the claim, since §11.6.7
+/// puts the pattern's *definition* in the parent content stream and its *painting* in the group
+/// either way.
 #[test]
-fn a_shading_pattern_carried_into_a_press_keeps_the_group_on_the_device() {
+fn a_shading_pattern_carried_into_a_press_is_rebuilt_in_the_groups_space() {
     let page_with = |page: &str, form: &str| {
         let pattern = "/Pattern << /P0 << /PatternType 2 /Shading << /ShadingType 2 \
                        /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Extend [true true] \
@@ -2659,13 +2660,14 @@ fn a_shading_pattern_carried_into_a_press_keeps_the_group_on_the_device() {
         "/GS gs 0 0 100 100 re f 1 1 1 1 k 20 20 60 60 re f",
     );
     assert!(
-        !paired(&carried),
-        "a colour resolved outside the group cannot be reinterpreted as ink inside it: {:?}",
+        paired(&carried),
+        "the pattern's colours are rebuilt in the group's press, so the group composites in the \
+         space it declares: {:?}",
         carried.display_list.commands()
     );
     assert!(
-        format!("{:?}", carried.unsupported).contains("blending colour space /DeviceCMYK"),
-        "and the group says so rather than drawing an ink nobody stated: {:?}",
+        !format!("{:?}", carried.unsupported).contains("blending colour space /DeviceCMYK"),
+        "and there is no departure left to name: {:?}",
         carried.unsupported
     );
 
@@ -2678,6 +2680,12 @@ fn a_shading_pattern_carried_into_a_press_keeps_the_group_on_the_device() {
         "a pattern whose parent content stream is the group's composites in the group's own \
          space: {:?}",
         inside.display_list.commands()
+    );
+    assert_eq!(
+        pixel(&carried, 50, 50),
+        pixel(&inside, 50, 50),
+        "and where the `scn` stood decides the definition, not the painting: the two pages draw \
+         the same pixel"
     );
 }
 

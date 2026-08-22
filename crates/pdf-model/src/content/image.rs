@@ -452,11 +452,12 @@ impl Interpreter<'_> {
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
         self.note_transfer(state, Painted::of(state, false));
+        let paint = self.fill_paint(state);
         self.draw(Command::Fill {
             path: Arc::new(path),
             transform: state.transform,
             fill_rule: FillRule::NonZero,
-            paint: state.fill_paint(),
+            paint,
             clip,
             mask: Some(mask),
             blend: state.blend,

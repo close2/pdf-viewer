@@ -437,3 +437,37 @@ fn a_patterns_own_ext_gstate_augments_that_state() {
         "a pattern whose /ExtGState states an absolute intent",
     );
 }
+
+/// The rebuild §10.5 needs at the mark does **not** take §11.6.7's parameters with it.
+///
+/// A shading pattern's colours are built again where it is painted, because §11.7.5.2 puts the
+/// transfer function at the topmost object enclosing a point and §11.7.2 puts the compositing
+/// space at the mark's group. The trap the six-hundred-and-fifty-fifth session left written down
+/// is that such a rebuild trades one departure for another if it reads the *state* for the black
+/// point, the intent and the smoothness — which §11.6.7 has already fixed at the beginning of the
+/// content stream, augmented by Table 75's `/ExtGState`.
+///
+/// So the fixture forces the rebuild without changing a colour by any other route: the `gs` at
+/// the mark states a transfer function that is §7.10.3's identity written as a function, which
+/// Table 57 makes a stated function rather than the `/Identity` name that clears one. The
+/// pattern's own `/ExtGState` says `/UseBlackPtComp /OFF`; the state at the mark says nothing and
+/// therefore compensates. A rebuild reading the state would compensate and this would be black.
+#[test]
+fn a_rebuilt_patterns_black_point_is_still_its_definitions() {
+    let pattern = "/Pattern << /P0 << /PatternType 2 /ExtGState << /UseBlackPtComp /OFF >> \
+                   /Shading << /ShadingType 2 /ColorSpace [/ICCBased 5 0 R] /Coords [0 0 20 0] \
+                   /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [1] \
+                   /C1 [1] /N 1 >> >> >> >> \
+                   /ExtGState << /GS << /TR << /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [1] \
+                   /N 1 >> >> >>";
+
+    let rebuilt = centre_colour(pdf_with(
+        &profile_object(5),
+        pattern,
+        "/Pattern cs /P0 scn /GS gs 0 0 20 20 re f",
+    ));
+    assert_uncompensated(
+        rebuilt,
+        "a pattern rebuilt at a mark that states a transfer function",
+    );
+}

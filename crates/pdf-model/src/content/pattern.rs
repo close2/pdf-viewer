@@ -60,8 +60,8 @@ use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERATIONS};
 /// > all colour compositing has been completed and rasterization is being performed.
 ///
 /// So a transfer is not part of a pattern's evaluation at all; §11.7.5.2 puts it at the topmost
-/// painting object, which is the mark. That half is still resolved at the `scn` here and is
-/// reported by [`Interpreter::note_transfer`].
+/// painting object, which is the mark — and [`ShadingDefinition`] is what lets the mark have it
+/// without any of these three moving with it.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PatternInitial {
     /// Table 57's `/UseBlackPtComp` as the beginning of this content stream had it.
@@ -188,31 +188,122 @@ impl Interpreter<'_> {
 /// travels into the display list as one. A tiling pattern is a *content stream*, drawn once
 /// inside a clip shaped like the path being filled and copied to every other tile position —
 /// so it never becomes a paint and is expanded here instead.
+///
+/// Both arms are one reference count wide because this rides in [`GraphicsState`], which `q`
+/// copies: a page that selects a pattern and then saves and restores around every mark pays a
+/// pointer per level rather than a shading, a box and a transfer apiece.
 #[derive(Debug, Clone)]
 pub(super) enum PatternPaint {
-    /// A shading pattern (`/PatternType 2`), with Table 77's `/BBox` where it states one.
+    /// A shading pattern (`/PatternType 2`).
+    Shading(Rc<ShadingPattern>),
+    /// A tiling pattern (`/PatternType 1`).
+    Tiling(Rc<Tiling>),
+}
+
+/// A shading pattern as the `scn` left it, and everything the *mark* needs to finish it.
+///
+/// ISO 32000-2 §11.6.7 splits a shading pattern in two, and the split is this struct. One half
+/// is fixed before the `scn` and no later operator may move it:
+///
+/// > The definition shall not inherit the current values of the graphics state parameters at the
+/// > time it is evaluated; those parameters shall take effect only when the resulting pattern is
+/// > later used to paint an object.
+///
+/// The other half belongs to whichever mark paints it, and the same clause says so in as many
+/// words:
+///
+/// > This painting operation is subject to the values of the graphics state parameters in effect
+/// > at the time, just as in painting an object with a constant colour.
+///
+/// [`ShadingDefinition`] is the first half; [`MarkColouring`] is the second. `shading` is the
+/// colours one particular [`MarkColouring`] produced — recorded in `built`, so that a mark asking
+/// for a different one can tell, and rebuild through `shading::Cache` rather than paint colours
+/// the clause does not put there. See [`Interpreter::shading_paint`].
+#[derive(Debug)]
+pub(super) struct ShadingPattern {
+    /// The colours and the geometry, as built under `built`.
+    shading: Arc<Shading>,
+    /// Table 77's `/BBox` where the pattern's shading states one, and the transform that
+    /// places it.
     ///
     /// The box travels as a rectangle and a transform rather than as a `ClipId`, because
     /// the clause makes it a clip "in addition to the current clipping path … in effect at
     /// that time" — the time being when the *pattern is painted*, which may be several `q`
     /// levels away from the `scn` that selected it.
-    Shading {
-        /// The geometry and the colours, the second built under [`Self::Shading::transfer`].
-        shading: Arc<Shading>,
-        /// Table 77's `/BBox` where the pattern's shading states one, and the transform that
-        /// places it.
-        bbox: Option<([f32; 4], Transform)>,
-        /// ISO 32000-2 §10.5's transfer function that `shading`'s colours were built under —
-        /// the one in force at the `scn` that selected this pattern.
-        ///
-        /// Kept so that the paint can tell whether it is still the one the clause asks for.
-        /// A shading's colours are resolved when the pattern is *selected* and painted later,
-        /// possibly several graphics states later; `Interpreter::note_transfer` compares this
-        /// with the state at the mark and says so when they differ.
-        transfer: Option<Arc<crate::content::Transfer>>,
-    },
-    /// A tiling pattern (`/PatternType 1`).
-    Tiling(Rc<Tiling>),
+    bbox: Option<([f32; 4], Transform)>,
+    /// What §11.6.7 fixed before the `scn`, which is all a rebuild is allowed to read.
+    definition: ShadingDefinition,
+    /// The mark-time colouring `shading` carries, which one mark later may no longer be current.
+    built: MarkColouring,
+}
+
+/// The half of a shading pattern's colours ISO 32000-2 §11.6.7 fixes before the `scn`.
+///
+/// Held whole rather than resolved once because the colours are built again at the mark, and the
+/// rebuild has to reach the same answer for every parameter but the two [`MarkColouring`] carries.
+/// Keeping the definition's own [`PatternInitial`] *in* this struct is what makes that structural:
+/// [`Interpreter::mark_colouring`] and [`Interpreter::build_shading`] take a `&ShadingDefinition`
+/// and no `&GraphicsState`, so there is no argument through which the state at the mark could
+/// supply the black point, the intent or the smoothness the clause has already decided.
+#[derive(Debug)]
+pub(super) struct ShadingDefinition {
+    /// Table 75's `/Shading`, **unresolved**: `shading::Cache` is keyed by the reference, so a
+    /// rebuild of a pattern painted a thousand times costs one build.
+    object: Object,
+    /// The resource dictionary §8.6.5.1 resolves the shading's `/ColorSpace` name through.
+    resources: Dictionary,
+    /// §8.7.2's pattern matrix composed with the parent content stream's default space.
+    ///
+    /// A property of the definition for the same reason as the three `initial` carries: §8.7.2 maps it to
+    /// "the default coordinate system of the pattern's parent content stream", which is
+    /// §11.6.7's first named parameter and which [`Interpreter::base`] has scoped since the
+    /// fifty-second session.
+    transform: Transform,
+    /// §11.6.7's black point compensation, rendering intent and smoothness.
+    initial: PatternInitial,
+}
+
+/// The half of a shading pattern's colours that belongs to the mark painting it.
+///
+/// Two quantities, each put here by a clause of its own rather than by symmetry with the other:
+///
+/// - **§11.7.2's compositing target**, inside [`crate::colour::Conversion`]. §11.6.7 makes the
+///   pattern's definition a non-isolated group and §11.7.2 says "[n]on-isolated groups shall
+///   inherit their colour space from the nearest ancestor isolated parent group" — which for a
+///   pattern painted inside a group is *that* group, not whichever one the `scn` stood in.
+/// - **§10.5's transfer function**, which §11.7.5.2 puts at "the last (topmost) elementary
+///   graphics object enclosing that point" and §11.7.5.3's NOTE takes out of the group evaluation
+///   altogether.
+///
+/// The black point [`crate::colour::Conversion`] also carries is the *definition's* and never the
+/// mark's — [`Interpreter::mark_colouring`] is the only constructor, and it reads it from
+/// [`ShadingDefinition`].
+#[derive(Debug, Clone)]
+pub(super) struct MarkColouring {
+    /// §11.7.2's target, with §11.6.7's black point decision folded in.
+    conversion: crate::colour::Conversion,
+    /// §10.5's function as the mark's graphics state states it.
+    transfer: Option<Arc<crate::content::Transfer>>,
+}
+
+impl MarkColouring {
+    /// Whether two marks ask a pattern's definition for the same colours.
+    ///
+    /// The transfer functions are compared by `Arc::ptr_eq` rather than by value, which
+    /// over-approximates in the direction that costs a rebuild rather than a wrong colour: two
+    /// `gs` operators naming one `/ExtGState` parse two `Transfer`s that are equal and not
+    /// identical, so a stream re-stating the same function between the `scn` and the mark builds
+    /// colours that were already right. Equality of parsed §7.10 functions is a relation this
+    /// tree does not have, and inventing one for a population
+    /// `examples/pattern_state_census` measures would buy nothing.
+    fn same_as(&self, other: &Self) -> bool {
+        self.conversion == other.conversion
+            && match (self.transfer.as_ref(), other.transfer.as_ref()) {
+                (None, None) => true,
+                (Some(one), Some(two)) => Arc::ptr_eq(one, two),
+                _ => false,
+            }
+    }
 }
 
 /// What one pattern cell's commands fold, by position within the cell.
@@ -274,11 +365,13 @@ impl Interpreter<'_> {
         } else {
             state.stroke_pattern.as_ref()
         };
-        let Some(PatternPaint::Shading { shading, bbox, .. }) = pattern else {
+        let Some(PatternPaint::Shading(pattern)) = pattern else {
             return state.clip;
         };
-        let shading = Arc::clone(shading);
-        let bbox = *bbox;
+        // The geometry, which is the half of a shading no colouring can move: a rebuild at the
+        // mark states the same domain and the same matrix, so the clip is the selection's.
+        let shading = Arc::clone(&pattern.shading);
+        let bbox = pattern.bbox;
         let clip = match bbox {
             Some((corners, transform)) => self
                 .rect_clip(corners, transform, state.clip)
@@ -983,16 +1076,8 @@ impl Interpreter<'_> {
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
 
-                // §11.6.4.4 makes `sh` a non-stroking painting operation. `stale: false`
-                // because the shading above was built from this very state: §10.5's function
-                // has reached every colour it carries.
-                self.note_transfer(
-                    state,
-                    Painted::Shading {
-                        stroking: false,
-                        stale: false,
-                    },
-                );
+                // §11.6.4.4 makes `sh` a non-stroking painting operation.
+                self.note_transfer(state, Painted::Shading { stroking: false });
                 self.draw(Command::Fill {
                     path: Arc::new(path),
                     transform,
@@ -1150,42 +1235,34 @@ impl Interpreter<'_> {
         // §11.6.7 and Table 75 both say which graphics state a shading pattern's definition is
         // evaluated under, and it is the one the *content stream began with*, augmented by the
         // pattern's own `/ExtGState` — neither the `scn` that selects it nor the mark that paints
-        // it. §8.6.5.9's black point compensation and §10.7.3's smoothness come from there.
+        // it. §8.6.5.9's black point compensation, §8.6.5.8's intent and §10.7.3's smoothness
+        // come from there, and they are carried in the definition so that no mark can reach past
+        // them for the state's own.
         //
-        // The two quantities this does *not* move are the two the clause puts somewhere else, and
-        // both are reported rather than drawn in silence:
-        //
-        // - **The transfer function** of §10.5, which §11.7.5.2 assigns to the topmost object
-        //   *painting* the point. Still the state's at the `scn`; `note_transfer` reports a mark
-        //   whose state states a different one.
-        // - **The compositing target** of §11.4.7, which §11.6.7 makes a *non-isolated* group's
-        //   and §11.7.2 then inherits "from the nearest ancestor isolated parent group" — the
-        //   group the mark is in. Still this run's; `group_press` refuses to reinterpret one of
-        //   these as ink and the group keeps §11.6.6's standing report.
-        let initial = self.pattern_initial.augmented(self.document, &dict);
+        // The colours built here are the ones a mark under *this* state would ask for. That is
+        // the whole of what the `scn` decides: §11.7.2's compositing target and §10.5's transfer
+        // function belong to the mark, so [`Interpreter::shading_paint`] compares and rebuilds
+        // where the mark asks for something else. Building now rather than only at the paint is
+        // what makes the common page — one state from the `scn` to every mark — one build.
+        let definition = ShadingDefinition {
+            object: shading_object,
+            resources: resources.clone(),
+            transform: matrix.then(self.base),
+            initial: self.pattern_initial.augmented(self.document, &dict),
+        };
         self.note_black_generation(&dict);
-        let conversion = self.conversion_under(initial.black_point());
-        let colouring = crate::shading::Colouring::new(
-            initial.smoothness,
-            &conversion,
-            state.transfer.as_deref(),
-        );
-        match self.shadings.build(
-            self.document,
-            &shading_object,
-            resources,
-            matrix.then(self.base),
-            colouring,
-        ) {
-            Ok(shading) => Some(PatternPaint::Shading {
+        let built = self.mark_colouring(&definition, state.transfer.as_ref());
+        match self.build_shading(&definition, &built) {
+            Ok(shading) => Some(PatternPaint::Shading(Rc::new(ShadingPattern {
                 shading: Arc::new(shading),
                 // Stated "in the shading's target coordinate space", which for a pattern is
                 // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
                 // inside `build` and comes *after* this.
-                bbox: crate::shading::bbox_of(self.document, &shading_object)
-                    .map(|corners| (corners, matrix.then(self.base))),
-                transfer: state.transfer.clone(),
-            }),
+                bbox: crate::shading::bbox_of(self.document, &definition.object)
+                    .map(|corners| (corners, definition.transform)),
+                definition,
+                built,
+            }))),
             Err(error) => {
                 self.note(Unsupported::Shading {
                     name: format!("/{label}: {error}"),
@@ -1193,6 +1270,144 @@ impl Interpreter<'_> {
                 None
             }
         }
+    }
+
+    /// What a mark asks a shading pattern's definition to build its colours under.
+    ///
+    /// **The graphics state is not an argument here, and that is the design rather than an
+    /// omission.** ISO 32000-2 §11.6.7 says a shading pattern's definition "shall not inherit the
+    /// current values of the graphics state parameters at the time it is evaluated", and the
+    /// three parameters that decide its colours — §8.6.5.9's black point compensation, §8.6.5.8's
+    /// intent and §10.7.3's smoothness — are therefore taken from [`ShadingDefinition`]'s own
+    /// [`PatternInitial`]. A signature that could reach a `&GraphicsState` would make that a rule
+    /// somebody has to keep; this way the wrong version does not compile.
+    ///
+    /// The two quantities that *do* come from the mark arrive by the two routes the clauses give
+    /// them: §11.7.2's compositing target through [`Interpreter::conversion_under`], which reads
+    /// the target this run is compositing into, and §10.5's transfer function as the one argument
+    /// — passed by a caller that has read `GraphicsState::transfer`, which is exactly what
+    /// §11.7.5.2 puts at "the last (topmost) elementary graphics object enclosing that point".
+    fn mark_colouring(
+        &self,
+        definition: &ShadingDefinition,
+        transfer: Option<&Arc<crate::content::Transfer>>,
+    ) -> MarkColouring {
+        MarkColouring {
+            conversion: self.conversion_under(definition.initial.black_point()),
+            transfer: transfer.cloned(),
+        }
+    }
+
+    /// Builds a shading pattern's colours, for a definition and one mark's colouring.
+    ///
+    /// The only place a shading pattern's colours are made, so the `scn` and every later mark
+    /// cannot read §11.6.7's parameters differently. `shading::Cache` is keyed by the object, the
+    /// resolution and the conversion, so the second mark asking for a colouring the first already
+    /// built pays a lookup — the exception being a transfer function in force, which that table
+    /// deliberately does not cache and which no document in either corpus states over a shading.
+    ///
+    /// # Errors
+    ///
+    /// See [`crate::shading::ShadingError`]. The caller decides what a failure means: at the
+    /// `scn` it is a pattern that paints nothing and is named; at a mark it is a rebuild that
+    /// falls back to the colours the selection made.
+    fn build_shading(
+        &mut self,
+        definition: &ShadingDefinition,
+        colouring: &MarkColouring,
+    ) -> Result<Shading, crate::shading::ShadingError> {
+        self.shadings.build(
+            self.document,
+            &definition.object,
+            &definition.resources,
+            definition.transform,
+            crate::shading::Colouring::new(
+                definition.initial.smoothness,
+                &colouring.conversion,
+                colouring.transfer.as_deref(),
+            ),
+        )
+    }
+
+    /// The paint a shading pattern makes at the mark that is painting it.
+    ///
+    /// ISO 32000-2 §11.6.7 gives the painting operation its own sentence, and it is the reason
+    /// this is not a field read:
+    ///
+    /// > This painting operation is subject to the values of the graphics state parameters in
+    /// > effect at the time, just as in painting an object with a constant colour.
+    ///
+    /// Two of the parameters in effect at the time reach a shading's colours rather than the
+    /// compositing that follows them — §10.5's transfer function, which §11.7.5.2 places at the
+    /// topmost object painting the point, and §11.7.2's compositing space, which a non-isolated
+    /// group inherits "from the nearest ancestor isolated parent group". Both are
+    /// [`MarkColouring`], and where the mark's differs from the one the `scn` built under the
+    /// colours are made again.
+    ///
+    /// # Why the colours cannot simply be mapped afterwards
+    ///
+    /// The same reason `shading::kind_of` applies §10.5 inside the sampling (ADR 0479): a `Ramp`
+    /// reaching the display list has been through §10.7.3's simplifier, which drops every stop
+    /// within half an eight-bit level of the line its neighbours draw. A `/FunctionType 2`
+    /// interpolation with `/N 1` is two stops by then, and mapping two stops draws the chord
+    /// where the clause asks for the curve.
+    ///
+    /// A rebuild that fails paints the colours the selection made and says so. The build
+    /// succeeded once for this object, so a failure here is a resource the document changed under
+    /// us rather than a shading this tree cannot read; drawing the earlier colours is closer to
+    /// the page than dropping the mark.
+    pub(super) fn shading_paint(
+        &mut self,
+        pattern: &ShadingPattern,
+        transfer: Option<&Arc<crate::content::Transfer>>,
+        alpha: f32,
+    ) -> Paint {
+        let wanted = self.mark_colouring(&pattern.definition, transfer);
+        if wanted.same_as(&pattern.built) {
+            return Paint::Shading(shading_with_alpha(&pattern.shading, alpha));
+        }
+        match self.build_shading(&pattern.definition, &wanted) {
+            Ok(shading) => Paint::Shading(shading_with_alpha(&Arc::new(shading), alpha)),
+            Err(error) => {
+                self.note(Unsupported::Shading {
+                    name: format!("a shading pattern's colours could not be rebuilt: {error}"),
+                });
+                Paint::Shading(shading_with_alpha(&pattern.shading, alpha))
+            }
+        }
+    }
+
+    /// The paint a non-stroking mark under `state` puts on the page.
+    ///
+    /// On the interpreter rather than on [`GraphicsState`] because a shading pattern's colours
+    /// are the *mark's* (§11.6.7, [`Interpreter::shading_paint`]) and building them needs the
+    /// document, the resource dictionary and `shading::Cache` — none of which a graphics state
+    /// has. Every other paint is the state's own and comes straight back from
+    /// [`GraphicsState::solid_fill`].
+    ///
+    /// §11.6.4.4's constant alpha is applied here, and reaching every colour a shading carries is
+    /// the only way to apply it to one (`Shading::with_alpha`). Until the fifteenth session this
+    /// was dropped: `alphatrans.pdf` states `Gradient: .5` on the page and draws its gradient
+    /// over three other objects, and we painted it opaque while three references showed what was
+    /// behind it.
+    ///
+    /// Called **once per mark**: a rebuild costs a build, so asking twice for one command would
+    /// pay twice.
+    pub(super) fn fill_paint(&mut self, state: &GraphicsState) -> Paint {
+        let Some(PatternPaint::Shading(pattern)) = &state.fill_pattern else {
+            return state.solid_fill();
+        };
+        let pattern = Rc::clone(pattern);
+        self.shading_paint(&pattern, state.transfer.as_ref(), state.fill_alpha)
+    }
+
+    /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
+    pub(super) fn stroke_paint(&mut self, state: &GraphicsState) -> Paint {
+        let Some(PatternPaint::Shading(pattern)) = &state.stroke_pattern else {
+            return state.solid_stroke();
+        };
+        let pattern = Rc::clone(pattern);
+        self.shading_paint(&pattern, state.transfer.as_ref(), state.stroke_alpha)
     }
 
     /// Reads a tiling pattern's cell and how it repeats.
