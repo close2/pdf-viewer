@@ -40,7 +40,9 @@ Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.
 Code: `crates/pdf-render/src/paint.rs`'s `paint_space` (item 8's condition, for all three
 backends), `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
 `crates/render-cpu/src/lib.rs`,
-`crates/render-cpu/src/scan.rs` (item 4's composition),
+`crates/render-cpu/src/scan.rs` (item 4's composition) and
+`crates/pdf-model/examples/coincident_edge_probe.rs` (item 4's instrument: one rectangle stated
+twice, eight ways, so that the composition still taking a product is a printed row),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
 `crates/render-quorra/examples/sub_pixel_marks.rs` and
 `crates/pdf-model/examples/sub_pixel_width_census.rs` (the two instruments: what a backend does
@@ -396,6 +398,40 @@ the mark is whole where the clip is not.
   tree carries today and which would cost a band's bytes per live group.
 
   **And it is where `issue21346.pdf`'s next factor actually is**, which is the correction below.
+
+### Which composition is still a product — a ladder, and its eighth rung
+
+**Written in the six-hundred-and-sixty-second session, and it is the first time this item has been
+put to a document it built itself.** `crates/pdf-model/examples/coincident_edge_probe` is one 40 × 40
+page holding one black fill of `[10 10 30 30.504]`, so a single device row holds the shape's edge at
+coverage 0.504, restated a second time four ways and each of those with and without §11.6.5.2's
+luminosity soft mask whose `/BC` is white — a mask worth 1.0 at every pixel, which cannot change
+what any pixel should be and does change which composition the mark goes through:
+
+```text
+  restated as     no soft mask     soft mask
+  fill alone            0.5059        0.5059
+  W n clip              0.5059        0.5059
+  form /BBox            0.5059        0.5059
+  group /BBox           0.5059        0.2549
+```
+
+(0.5059 rather than 0.5040 is one eight-bit level; 0.2549 is `0.504²` to four digits.)
+
+**Seven of the eight give the edge its own coverage and the eighth squares it**, which is the group
+blit and nothing else — so of the three bullets above, the stroke and the image edge have no
+witness on this construction at all and the group's raster has a two-factor one. The reason it took
+this long to find a small witness is §11.4.4's NOTE 5: a group is flattened away unless a soft mask
+is in force, so `draw_group`'s blit is only *reached* when there is a mask beside it, and every
+probe anybody would write without one goes down the flattened path where ADR 0355 already pays.
+
+**`issue7891_bc1.pdf` page 1 is the corpus witness for it**, and a cleaner one than `issue21346.pdf`:
+object 16 is a form XObject whose `/Group` is a transparency group and whose `/BBox` is exactly the
+rectangle its content fills, under a `/SMask`, so exactly two statements of one rectangle are
+multiplied. Its two boundary rows are covered 0.504 and 0.456 and this tree paints them 0.2549 and
+0.2079. That page is `CONTRADICTED_TIGHT_CONSENSUS` in `oracle.rs` and stays there: the two rows are
+0.0197 of a distance of 0.1721 from the nearer voting reference, so paying this moves the page toward
+the bound and past neither.
 
 ### The witness's residual is not where ADR 0355 said it was
 
