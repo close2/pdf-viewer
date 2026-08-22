@@ -514,6 +514,13 @@ item priced by an earlier round re-derives the price before believing it**, exac
 a count or a population — and the cheapest re-derivation is asking what the libraries and the layers
 *already contain*, because that is the part a pricing round tends not to enumerate.
 
+**Three shapes of wrong price are known now, and the third is the one to watch for.** ADR 0474's was
+too high because a library already held the pieces; ADR 0469's named the wrong *place*, and would have
+shipped a 64-level error; and ADR 0489's was **one price quoted for two cases** — a group's shape and
+its alpha are one number wherever its opacity is 1.0 throughout, which is decidable while the content
+stream runs, so the shape channel it priced was the cost of the *other* case only. A price that names
+no condition is a price for the hardest case, charged to every case.
+
 **And a *negative* claim decays when the population grows**, which is not the same decay as any of the
 others, because nothing in the tree changes. The six-hundred-and-fifty-fifth found the ledger saying
 "no corpus document writes one" of a shading pattern's `/ExtGState`: true when written, and measured
