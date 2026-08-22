@@ -14,7 +14,16 @@
 //! ```sh
 //! cargo run --release -p pdf-model --example absence_audit
 //! cargo run --release -p pdf-model --example absence_audit -- --pdfjs
+//! cargo run --release -p pdf-model --example absence_audit -- --crawl   # CC-MAIN-2021-31
 //! ```
+//!
+//! **`--crawl` is the six-hundred-and-seventy-first session's**, and it is here for the reason
+//! ADR 0493 put it on `witness_census`: an instrument has a population too, and a claim can only
+//! decay as far as its instrument can reach. This one's was `doc/pdf.js`, `doc/corpora` and this
+//! project's fixtures, hard-coded, while the crawl sat on the same disk. Run it *with* the
+//! control run rather than instead of one — a negative measured before the crawl arrived is
+//! usually right about its own population, which is exactly why nothing in the tree could see it
+//! (ADR 0490).
 
 #![expect(
     clippy::print_stdout,
@@ -29,17 +38,39 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_syntax::{Document, Object};
+use pdf_syntax::{Dictionary, Document, Object, ObjectId};
 use rayon::prelude::*;
 
-/// Every PDF this project can measure over, or the pdf.js corpus alone under `--pdfjs`.
-fn corpus(pdfjs_only: bool) -> Vec<PathBuf> {
+/// How many witnessing documents are named per claim before the list is truncated.
+///
+/// The curated population is small enough to print whole and the crawl is not: a claim the crawl
+/// answers in the thousands would otherwise bury the claims it answers with none, which are the
+/// ones this example exists to show.
+const MAX_NAMED: usize = 12;
+
+/// Which population a run is over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// The pdf.js corpus alone — "the 974", which most of this project's claims are about.
+    PdfJs,
+    /// That, the four `doc/corpora/` submodules, and this project's own fixtures.
+    Curated,
+    /// The `SafeDocs` `CC-MAIN-2021-31` crawl under `corpus-cache/`, and nothing else.
+    Crawl,
+}
+
+/// Every PDF this project can measure over, in the scope asked for.
+///
+/// [`Scope::Crawl`] is separate rather than added, for ADR 0490's reason: a re-derivation states
+/// the control and the growth apart, because one number over both would hide which of the two
+/// moved.
+fn corpus(scope: Scope) -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut files = Vec::new();
-    let scope: &[&str] = if pdfjs_only {
-        &["doc/pdf.js/test/pdfs"]
-    } else {
-        &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"]
+    let scope: &[&str] = match scope {
+        Scope::PdfJs => &["doc/pdf.js/test/pdfs"],
+        Scope::Curated => &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"],
+        Scope::Crawl => &["corpus-cache/safedocs/cc-main-2021-31"],
     };
     for relative in scope {
         collect(&root.join(relative), &mut files);
@@ -78,17 +109,43 @@ struct Answers {
     collection: Option<String>,
     /// §12.9's `/VP` viewports on any page.
     viewports: Option<String>,
+    /// §12.9.2's own population: a viewport whose `/Measure` is Table 267's rectilinear one.
+    ///
+    /// Separate from [`Answers::viewports`] because it is a separate claim, and because a count
+    /// is what a report line gives: a document with a `GEO` measure exercises §12.10 and leaves
+    /// §12.9.2's number format algorithm untouched.
+    rectilinear: Option<String>,
     /// §14.10.2's `/SpiderInfo`, and on what.
     spider: Option<String>,
     /// §12.7.5.5's `/Lock` on a signature field.
     field_lock: Option<String>,
     /// §12.8.2.4's `FieldMDP` transform.
     field_mdp: Option<String>,
+    /// §12.2's four deprecated page-boundary entries of Table 147.
+    boundaries: Option<String>,
+    /// §12.11.1's `/Requirements`, and which types the document states.
+    requirements: Option<String>,
+    /// §12.5.6.21 and §14.11.6.2's `/Subtype /TrapNet` annotation.
+    trap_net: Option<String>,
+    /// §10.7.2's `/FL` in a graphics state parameter dictionary.
+    flatness: Option<String>,
+    /// §7.11.4.2's `/RF` on a file specification.
+    related_files: Option<String>,
+    /// §12.6.3's `/PV` and `/PI`, Table 197's two page-visibility triggers.
+    page_visibility: Option<String>,
+    /// §12.6.4.7's thread action — an action dictionary whose `/S` is `Thread`.
+    thread_action: Option<String>,
 }
 
 fn main() {
-    let pdfjs_only = std::env::args().any(|a| a == "--pdfjs");
-    let files = corpus(pdfjs_only);
+    let scope = if std::env::args().any(|a| a == "--crawl") {
+        Scope::Crawl
+    } else if std::env::args().any(|a| a == "--pdfjs") {
+        Scope::PdfJs
+    } else {
+        Scope::Curated
+    };
+    let files = corpus(scope);
     eprintln!("{} PDF(s) in the population", files.len());
 
     let results: Vec<(String, Answers)> = files
@@ -119,9 +176,14 @@ fn main() {
         |a| a.collection.as_deref(),
     );
     report(
-        "§12.9's /VP — §12.9.2 has no witness and this SURVIVES: the one /VP is GEO, not RL",
+        "§12.9's /VP, with each viewport's /Measure subtype named",
         &results,
         |a| a.viewports.as_deref(),
+    );
+    report(
+        "§12.9.2's algorithm — its population is Table 267's RL measure, not §12.10's GEO",
+        &results,
+        |a| a.rectilinear.as_deref(),
     );
     report(
         "§14.10.2's /SpiderInfo — the claim was \"none\" and is FALSE (ADR 0405)",
@@ -129,7 +191,7 @@ fn main() {
         |a| a.spider.as_deref(),
     );
     report(
-        "§12.7.5.5's /Lock — the claim is \"none\" and it SURVIVES",
+        "§12.7.5.5's /Lock on a signed field — the claim was \"none\" (curated) and is FALSE wider",
         &results,
         |a| a.field_lock.as_deref(),
     );
@@ -138,6 +200,165 @@ fn main() {
         &results,
         |a| a.field_mdp.as_deref(),
     );
+    report(
+        "§12.2's Table 147 boundary entries — the claim was \"none of the four\" (curated)",
+        &results,
+        |a| a.boundaries.as_deref(),
+    );
+    report(
+        "§12.11.1's /Requirements — the claim was \"no corpus document states a requirement\"",
+        &results,
+        |a| a.requirements.as_deref(),
+    );
+    report(
+        "§12.5.6.21 and §14.11.6.2's /TrapNet — the claim was \"none at all\"",
+        &results,
+        |a| a.trap_net.as_deref(),
+    );
+    report(
+        "§10.7.2's /FL in an /ExtGState — the claim was \"none writes it in one at all\"",
+        &results,
+        |a| a.flatness.as_deref(),
+    );
+    report(
+        "§7.11.4.2's /RF — the claim was \"no corpus file specification carries one\"",
+        &results,
+        |a| a.related_files.as_deref(),
+    );
+    report(
+        "§12.6.3's /PV and /PI — the claim was \"no document states\" either",
+        &results,
+        |a| a.page_visibility.as_deref(),
+    );
+    report(
+        "§12.6.4.7's thread action — the claim was \"no corpus document states\" one",
+        &results,
+        |a| a.thread_action.as_deref(),
+    );
+}
+
+/// How deep an object's own structure is walked before [`visit`] gives up.
+///
+/// The walk never follows a reference, so this bounds one object's own nesting rather than the
+/// document's graph — the same bound and the same reason as `witness_census`'s.
+const MAX_DEPTH: usize = 64;
+
+/// What one document's objects hold, for the claims whose subject is a dictionary somewhere.
+#[derive(Default)]
+struct Sightings {
+    /// §14.10.2: the `/Type` of each dictionary carrying a `/SpiderInfo`.
+    spider: Vec<String>,
+    /// §12.5.6.21, §14.11.6.2: trap network annotations.
+    trap_nets: usize,
+    /// §10.7.2: how each `/FL` was reached — a typed dictionary, or a resource entry.
+    flatness: Vec<String>,
+    /// §7.11.4.2: what `attachment::related` returns for each file specification with an `/RF`.
+    related: Vec<String>,
+    /// §12.6.3: which of `/PV` and `/PI` an annotation's `/AA` states.
+    visibility: Vec<String>,
+    /// §12.6.4.7: action dictionaries whose `/S` is `Thread`.
+    threads: usize,
+}
+
+/// Asks one object, and everything nested inside it, the six object-scoped claims.
+///
+/// References are not followed — an indirect object is asked when the loop reaches it — so this
+/// terminates on a document whose graph is a cycle, which is a shape a hostile file states.
+fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sightings) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    let dict = match object {
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        Object::Array(items) => {
+            for item in items {
+                visit(document, item, depth + 1, into);
+            }
+            return;
+        }
+        _ => return,
+    };
+
+    // §14.10.2's `/SpiderInfo`, which Table 28 puts on the catalog and Table 358 on a structure
+    // element's `/K`.
+    if !document.get_key(dict, "SpiderInfo").is_null() {
+        let owner = document.get_key(dict, "Type");
+        into.spider.push(match owner.as_name() {
+            Some(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
+            None => "untyped".to_owned(),
+        });
+    }
+
+    // §12.5.6.21's and §14.11.6.2's trap network annotation, which is a `/Subtype` *value* rather
+    // than a key — the direction `witness_census`'s own comment distinguishes.
+    if named(document, dict, "Subtype", b"TrapNet") {
+        into.trap_nets += 1;
+    }
+
+    // §10.7.2's flatness tolerance, asked two ways because Table 57's `/Type` is optional: a
+    // dictionary that declares itself a graphics state parameter dictionary, and one a resource
+    // dictionary names under `/ExtGState`. Both are printed, because a document that states `/FL`
+    // only in an untyped one is still a document that states it.
+    if named(document, dict, "Type", b"ExtGState") && !document.get_key(dict, "FL").is_null() {
+        into.flatness.push("a typed /ExtGState".to_owned());
+    }
+    if let Some(states) = document.get_key(dict, "ExtGState").as_dict() {
+        for (_, value) in states.iter() {
+            if let Some(state) = document.resolve(value).as_dict()
+                && !document.get_key(state, "FL").is_null()
+            {
+                into.flatness
+                    .push("a /Resources /ExtGState entry".to_owned());
+            }
+        }
+    }
+
+    // §7.11.4.2's related files array. A file specification is what Table 43 describes, so the
+    // question is asked of a dictionary that says it is one or that carries the `/EF` making it
+    // an attachment — and the answer is `attachment::related`'s, which knows that `/RF` is keyed
+    // like `/EF` and holds a flat array of `2 × n` elements rather than an array of pairs.
+    let specification = named(document, dict, "Type", b"Filespec")
+        || document.get_key(dict, "EF").as_dict().is_some();
+    if specification && !document.get_key(dict, "RF").is_null() {
+        let pairs = pdf_model::attachment::related(document, dict);
+        into.related.push(format!("{} pair(s)", pairs.len()));
+    }
+
+    // §12.6.3's `/PV` and `/PI`. Table 197's ten events are an *annotation's* and Table 198's two
+    // are a page's, told apart by the dictionary holding the `/AA` rather than by the key — which
+    // is the rule `actions.rs::the_corpus_states_these_page_scoped_triggers` applies, and this is
+    // that gate's question asked over a wider population.
+    if !named(document, dict, "Type", b"Page")
+        && let Some(additional) = document.get_key(dict, "AA").as_dict()
+    {
+        for key in ["PV", "PI"] {
+            if additional.get(key).is_some() {
+                into.visibility.push(format!("/{key}"));
+            }
+        }
+    }
+
+    // §12.6.4.7's thread action. `/S` is Table 206's required action type, and `Thread` is a value
+    // no other table gives that key, so the name settles it.
+    if named(document, dict, "S", b"Thread") {
+        into.threads += 1;
+    }
+
+    for (_, value) in dict.iter() {
+        visit(document, value, depth + 1, into);
+    }
+}
+
+/// Whether one key of a dictionary is a name with this spelling.
+///
+/// A `Name` token compared as a token, so that `/TrapNet` does not match a `/TrapNetwork` a
+/// producer invented and a name inside a string does not match at all.
+fn named(document: &Document, dict: &Dictionary, key: &str, value: &[u8]) -> bool {
+    document
+        .get_key(dict, key)
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == value)
 }
 
 /// Prints one claim's witnesses, or says it has none.
@@ -153,8 +374,11 @@ fn report(claim: &str, results: &[(String, Answers)], pick: impl Fn(&Answers) ->
         return;
     }
     println!("  {} witness(es)", found.len());
-    for entry in &found {
+    for entry in found.iter().take(MAX_NAMED) {
         println!("    {entry}");
+    }
+    if found.len() > MAX_NAMED {
+        println!("    … and {} more", found.len() - MAX_NAMED);
     }
 }
 
@@ -163,6 +387,12 @@ fn report(claim: &str, results: &[(String, Answers)], pick: impl Fn(&Answers) ->
 /// One block per written claim, each cited to the clause it is about: splitting them into
 /// helpers would separate a claim from the reader that settles it, which is the whole point of
 /// this example existing beside `witness_census`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one block per written claim is this example's design, stated above: a helper per \
+              claim would put the claim in one place and the reader that settles it in another, \
+              and a helper for several would put unrelated clauses in one function"
+)]
 fn measure(path: &Path) -> Answers {
     let mut answers = Answers::default();
     let Ok(bytes) = std::fs::read(path) else {
@@ -206,45 +436,131 @@ fn measure(path: &Path) -> Answers {
 
     // §12.9's `/VP`, asked of every page rather than of page one: a viewport is a region of a
     // page and a document that states one need not state it first.
+    //
+    // **The `/Measure` subtype is named rather than counted**, and that is §12.9.2's claim rather
+    // than §12.9's: the number format algorithm is Table 267's, so a page full of `GEO` viewports
+    // leaves "[n]o corpus document exercises it" standing while one `RL` with a number format
+    // array retires it. Table 266 makes `RL` the *default*, so a measure dictionary with no
+    // `/Subtype` is one — which is why this asks the reader rather than the key.
     let pages = pdf_model::Pages::new(&document);
     let mut viewports = 0usize;
+    let mut measures: Vec<&'static str> = Vec::new();
     for index in 0..pages.len() {
         let Some(page) = pages.get(index) else {
             continue;
         };
-        viewports += pdf_model::measurement::Viewports::read(&document, &page.dict)
-            .viewports
-            .len();
+        for viewport in pdf_model::measurement::Viewports::read(&document, &page.dict).viewports {
+            viewports += 1;
+            match viewport.measure {
+                Some(pdf_model::measurement::Measure::Rectilinear(_)) => measures.push("RL"),
+                Some(pdf_model::measurement::Measure::Geospatial(_)) => measures.push("GEO"),
+                Some(pdf_model::measurement::Measure::Other(_)) => measures.push("another subtype"),
+                None => measures.push("no /Measure"),
+            }
+        }
     }
     if viewports > 0 {
-        answers.viewports = Some(format!("{viewports} viewport(s)"));
+        measures.sort_unstable();
+        measures.dedup();
+        if measures.contains(&"RL") {
+            answers.rectilinear = Some("a rectilinear measure".to_owned());
+        }
+        answers.viewports = Some(format!("{viewports} viewport(s), {}", measures.join(", ")));
     }
 
     // §14.10.2's `/SpiderInfo`, which Table 28 puts on the catalog and Table 358 on a structure
     // element's `/K`; asked of every object, because the claim is about the document.
-    let mut spider = Vec::new();
+    //
+    // **Five later claims share this walk rather than each opening one of their own.** Each is a
+    // question about some dictionary *somewhere* in the file — a trap network annotation, a
+    // graphics state parameter dictionary, a file specification, an annotation's `/AA`, an action
+    // — and the object walk is where all five of those live. `document.xref().object_numbers()`
+    // reaches the objects inside §7.5.7 object streams as well as the ones the table lists
+    // directly, which is the scope a byte search does not have (ADR 0405).
+    //
+    // **The walk goes into each object's own nested structure**, which the `/SpiderInfo` block
+    // never needed and the five do. A hand-built witness stating all seven constructs was run
+    // through this example before the numbers were believed (`doc/habits.md`'s planted-witness
+    // rule), and a first version that asked only the top-level dictionaries scored it **zero for
+    // a thread action** — the action was written inline inside the annotation's `/AA`, which is
+    // the six-hundred-and-forty-eighth session's finding exactly. A resource dictionary's
+    // `/ExtGState` was invisible for the same reason, being one level under `/Resources`.
+    let mut sightings = Sightings::default();
     for number in document.xref().object_numbers() {
-        let object = document.get(pdf_syntax::ObjectId {
+        let object = document.get(ObjectId {
             number,
             generation: 0,
         });
-        let dict = match &object {
-            Object::Dictionary(dict) => dict,
-            Object::Stream(stream) => &stream.dict,
-            _ => continue,
-        };
-        if !document.get_key(dict, "SpiderInfo").is_null() {
-            let owner = document.get_key(dict, "Type");
-            spider.push(match owner.as_name() {
-                Some(name) => String::from_utf8_lossy(name.as_bytes()).into_owned(),
-                None => "untyped".to_owned(),
-            });
+        visit(&document, &object, 0, &mut sightings);
+    }
+    if !sightings.spider.is_empty() {
+        sightings.spider.sort();
+        sightings.spider.dedup();
+        answers.spider = Some(format!("on /Type {}", sightings.spider.join(", ")));
+    }
+    if sightings.trap_nets > 0 {
+        answers.trap_net = Some(format!("{} annotation(s)", sightings.trap_nets));
+    }
+    if !sightings.flatness.is_empty() {
+        let total = sightings.flatness.len();
+        sightings.flatness.sort();
+        sightings.flatness.dedup();
+        answers.flatness = Some(format!("{total} — {}", sightings.flatness.join(", ")));
+    }
+    if !sightings.related.is_empty() {
+        answers.related_files = Some(sightings.related.join(", "));
+    }
+    if !sightings.visibility.is_empty() {
+        sightings.visibility.sort();
+        sightings.visibility.dedup();
+        answers.page_visibility = Some(sightings.visibility.join(" "));
+    }
+    if sightings.threads > 0 {
+        answers.thread_action = Some(format!("{} action(s)", sightings.threads));
+    }
+
+    // §12.2's four deprecated page-boundary entries, read as *statements*: `ViewerPreferences`
+    // resolves an absent entry to Table 147's `CropBox` default, so the reader alone cannot tell
+    // a document that states the default from one that states nothing, and the claim is about
+    // what a document states. Both are printed — the key, and what this tree makes of it.
+    if let Ok(catalog) = document.catalog()
+        && let Some(preferences) = document.get_key(&catalog, "ViewerPreferences").as_dict()
+    {
+        let stated: Vec<String> = ["ViewArea", "ViewClip", "PrintArea", "PrintClip"]
+            .into_iter()
+            .filter(|key| preferences.get(key).is_some())
+            .map(|key| {
+                let value = document.get_key(preferences, key);
+                match value.as_name() {
+                    Some(name) => {
+                        format!("/{key} /{}", String::from_utf8_lossy(name.as_bytes()))
+                    }
+                    None => format!("/{key} (not a name)"),
+                }
+            })
+            .collect();
+        if !stated.is_empty() {
+            let read =
+                pdf_model::viewer_preferences::ViewerPreferences::in_catalog(&document, &catalog);
+            answers.boundaries = Some(format!(
+                "{} — this tree reads view {:?}/{:?}, print {:?}/{:?}",
+                stated.join(", "),
+                read.view_area,
+                read.view_clip,
+                read.print_area,
+                read.print_clip
+            ));
         }
     }
-    if !spider.is_empty() {
-        spider.sort();
-        spider.dedup();
-        answers.spider = Some(format!("on /Type {}", spider.join(", ")));
+
+    // §12.11.1's requirements, through the reader that answers whether each is met.
+    let requirements = pdf_model::requirements::read(&document);
+    if !requirements.is_empty() {
+        let kinds: Vec<&str> = requirements
+            .iter()
+            .map(|requirement| requirement.kind.as_str())
+            .collect();
+        answers.requirements = Some(kinds.join(" "));
     }
 
     // §12.7.5.5 and §12.8.2.4, the pair ADR 0403 corrected, re-asked over the wider population.
