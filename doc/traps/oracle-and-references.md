@@ -28,7 +28,8 @@ as a verdict.**
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
 evidence. Eight ways for that to fail — and the count has moved four times, so read the list rather
-than the number.
+than the number. The last two entries are not a ninth and a tenth mechanism: one is about a page
+carrying two of the eight, the other about how a mechanism gets *checked*.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
   programs that skipped the same clause produce the same picture. `visibility_expressions.pdf`:
@@ -142,6 +143,30 @@ than the number.
   **The generalisation is the tell**: where two renderers agree on a page whose colour space is
   *described* rather than embedded, ask whether either of them will write the description back out
   as data. ADR 0494.
+
+- **And a page can carry two of the eight at once, in which case the one it is *named* for need
+  not be the one the gate is failing.** `visibility_expressions.pdf` is filed under the first
+  bullet and correctly: `mupdf`, `ghostscript` and `hayro` all ignore §8.11.2.2's `/VE` and draw
+  two sections this tree hides. It is also a page whose only colours are `0 0 0 k`, so the sixth
+  bullet's shared press is on every glyph of it as well. Priced by taking each mechanism out of
+  the file in turn — two §7.5.6 incremental updates, `/VE` replaced by an `/OCGs` and `/P` every
+  renderer implements, then the `k` colours restated as the `rg` triples they reach here — the
+  gap owns 45.42 of a failing worst tile of 50.01 and **0.037 of the 1.35 percentage points** by
+  which the failing differing fraction misses its bound; the press owns 4.371 of those points and
+  glyph edges 1.938. **Verified is not sufficient**: 668's question was whether a note's mechanism
+  is real, and this one is, while the page would stay contradicted with it entirely removed. The
+  instrument is the cheap half of ADR 0048's — *edit the document so that one mechanism cannot
+  act, and re-measure* — and its control is the other renderers not moving at all (`mupdf`,
+  `ghostscript` and `hayro` render the `/VE`-free variant byte for byte as they render the
+  original). ADR 0497.
+
+- **And a citation of another project's *source* is a claim with no gate on it, which decays like
+  a ledger row.** The same note quoted `ghostscript`'s `WARNING: OCMD contains VE, which is not
+  supported (ignoring)`; `strings` on `libgs.so.10` at 10.07.1 finds neither that sentence nor
+  `not supported (ignoring)`, and the run without `-q` says nothing about optional content. The
+  behaviour had not changed and the evidence for it had. Where a source citation can be replaced
+  by an experiment on the installed binary, replace it: a raster is a measurement of the program
+  that ran.
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
