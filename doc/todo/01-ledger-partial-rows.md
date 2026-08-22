@@ -25,7 +25,10 @@ a claim that nothing is owed has no missing thing to grep for (ADR 0465).
 **Eighteen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405), a
 seventeenth in `tools/spec-errata`, where the errata are (ADR 0426), and **an eighteenth built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
-against its own children's denials, `--bin overstated`, ADR 0475 — **thirteen of them are committed
+against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
+declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
+contradicted, all three noise, and it would not have printed that round's own §9.8 because a denial
+generalises where an assertion enumerates (ADR 0481) — **thirteen of them are committed
 programs and run every round**, one was run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
@@ -3592,6 +3595,82 @@ measurement, its noise is the half a program cannot settle (a row describing wha
 rather than what this tree does), and **it would not have found §12.11**, because source comments cite
 table numbers freely and a tree-facing matcher would have reported the claim corroborated.
 
+## The mirror of the eighteenth sweep, measured in the six-hundred-and-fifty-second and **not** built
+
+The obvious next instrument after ADR 0475 is the same comparison with the sign flipped: a parent
+row **denying** that anything reads a term its own descendant asserts. It costs almost nothing —
+`overstated`'s extraction, its `parts` splitter and both vocabularies already exist, and the change
+is which side each is applied to. It was measured before being built, which is trap 11, and the
+measurement says not to build it:
+
+> **170 parent rows with descendants; 14 denied term-mentions between them; 3 contradicted by a
+> descendant, and all three are noise on reading.** §8.11.4's `/Name` against §8.11.4.3's is the
+> one-short-key shape (a *configuration's* `/Name` and a *group's*), and §9.8.3's Table 122 and
+> §9.8's Table 120 are both a table denied in part beside a table read in part.
+
+Fourteen mentions is not a population, and the reason is structural rather than a small sample: a
+row asserting a capability **enumerates** — that is what makes it a summary of its children — while
+a row denying one **generalises**, and a generalisation names no term for a program to match.
+
+**The proof is this round's own defect.** §9.8 said "[t]he dimensional metrics are read by nobody"
+while §9.8.1 has said `/Ascent` and `/Descent` are read since the three-hundred-and-seventy-eighth
+session. That is exactly the mirror shape, in the family the mirror sweep would have been aimed at
+— and the mirror sweep **would not have printed it**, because "the dimensional metrics" is neither
+a `/Key` nor a `Table NNN`. Mapping a category noun onto a table's entries is a judgement about
+what a sentence means, which is the one thing every sweep in this file refuses to do.
+
+So the eighteenth sweep is directional on purpose, and the entry that would have said *build the
+mirror* says instead: **an understating parent is found by reading, and the reading list is the
+blame ordering.** ADR 0481.
+
+## Rows read in the six-hundred-and-fifty-second, the band at the top of the blame list
+
+The ordering was re-derived rather than taken (616's rule): `git blame --line-porcelain
+doc/conformance/ledger.toml`, each `partial` or `reported` row's own `note = ` line, ranked by where
+its commit falls in `git log --reverse`. This base has **851 commits** and **240** `partial`-or-
+`reported` rows with a blamed note. 648 left the list beginning at §10.4.2.4 and §10.4.2.5, and both
+were still rank 1 and 2; §9.7.5 and §11.7 are 3 and 4, §9.8 is 5.
+
+Five read — ranks 1, 2, 3, 5 and 13 — and **three were defects, all of them the fifth failure shape
+inside one family**:
+
+| row | shape | was | is |
+|---|---|---|---|
+| **§10.4.2.4** | 5 | `partial` because "Table 57's `/BG`, `/BG2`, `/UCR` and `/UCR2` are read by nobody" | all four have been read since the four-hundred-and-twenty-sixth session — `content/ext_gstate.rs` sets `black_generation_stated` — and what is owed is that they are not **evaluated**. §8.4.5's row has said they are read since the five-hundred-and-sixty-fifth and §11.7.5.3's since the four-hundred-and-twenty-seventh, so the answer stood in two other rows while this one denied it through two rewrites of its own tail |
+| **§9.8** | 5 | "[t]he dimensional metrics are read by nobody" | `/Ascent` and `/Descent` are read by `pdf_font::vertical_extent` and `variable_text::Metrics::read`, which §9.8.1's row has said since the three-hundred-and-seventy-eighth. The parent *denying* what its child asserts — the shape the section above measures and declines to build a sweep for |
+| **§10.4.2** | 6, in prose | "`partial` for what **two** of the four conversions below owe" | **three**: §10.4.2.4 is `partial` too, and its debt is of a different kind — not a direction nobody takes but a pair of functions a file may state. `--bin counts` cannot see it, because the cardinal governs *conversions* rather than one of the ledger's own words for a row |
+
+**The two kept rows each gained the evidence that kept them, and both were 620's third shape** —
+the row is right and its evidence is not, for the eighth round running:
+
+- **§10.4.2.5** cited `colour_paths.rs::a_cmyk_colour_is_the_same_however_it_is_drawn`, which asserts
+  that `k`, `scn` and an image's samples agree with **one another**. That is trap 6's one-conversion
+  rule and it is true whichever conversion is used, so it cannot see this row's subject. The test
+  that can was already in the tree and cited by nothing:
+  `colour.rs::the_conversion_into_ink_round_trips_through_the_classic_formula_and_not_the_cube`
+  writes the clause's own formula out, pins §10.4.2.4-then-§10.4.2.5 exact on pure red and on
+  §10.4.2.3's grey, and pins the ink cube as a different answer.
+- **§9.7.5** cited one embedded-CMap test for a sentence whose other two thirds are the Identity
+  pair and the 239 predefined files. §9.7.5.2's two are cited beside it now, and the **239 has a
+  command**: it is `pdf_font::predefined::PREDEFINED`'s length, which `build.rs` writes from a
+  directory walk, so `ls data/cmaps | wc -l` gives 242 less the three things beside the data that
+  are not data (`LICENSE_ADOBE`, `SHA256SUMS`, `PROVENANCE.md`).
+
+**Enumeration was run third and its yield was a bounded negative.** Walking `ext_gstate.rs`'s Table
+57 arms against every ledger sentence denying one of that table's entries finds §10.4.2.4 and
+nothing else live: §10.6.5's `/HT` and `/HTO` and §8.6.7's `/OP`, `/op` and `/OPM` are true denials,
+and §11.5.1's `/AIS` and §9.6.4's `/FontBBox` are corrections quoting what they retired. Walking
+`ColourSpace::to_cmyk`'s arms the same way corroborates §10.4.2.3 — a `Gray` space falls to the
+`rgb_to_ink` arm, so that clause's own grey-to-CMYK arithmetic still has no caller. Neither found a
+row the other two instruments could not; what enumeration bought was the *bound*, which is what
+turns "and nothing else" from an impression into a statement.
+
+**And `emit` filed an erratum two clauses from where it belongs, for the second round running.**
+Issue #640 prints under `## 10.4.2.4` and strikes the *grey* of §10.4.2.2's `red = grey` formula and
+of §10.4.2.3's `black = 1.0 − grey`, writing *gray* — the spelling both clauses already use
+everywhere else. The annotations sit on the page whose last line is §10.4.2.4's heading, and `emit`
+files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it changes nothing.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
@@ -3662,6 +3741,12 @@ table numbers freely and a tree-facing matcher would have reported the claim cor
   its children do. §12.11 listed "Table 276's handlers" among what it reads while both of its
   children say `/RH` is read by nobody — every previous instance of the fifth failure shape had the
   parent understating, so a sweep looking for a missing thing would never have printed it.
+  **The next band was taken in the six-hundred-and-fifty-second**, over a base of 851 commits:
+  §10.4.2.4 and §10.4.2.5 at ranks 1 and 2, §9.7.5 at 3, §9.8 at 5 and §10.4.2 at 13, five rows and
+  three defects, each one the fifth failure shape inside its own family. **The rows left at the top
+  are §11.7 at rank 4, §10.7.5 at 6, §10.7 at 7 and §8.6.5.7 at 8**, then the cluster of six at
+  rank 9, of which five are left once §10.4.2 comes out — §7.6.4, §7.6.4.4, §8.11.4.1, §9.7 and
+  §12.8.4.2, all sharing one commit.
   Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.
