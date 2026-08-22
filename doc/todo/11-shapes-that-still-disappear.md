@@ -10,8 +10,9 @@ item 4, the same subclause's clipping paragraph, is **paid for a fill** — the 
 a set intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and since ADR 0355
 a *clipping region* meets a filled mark's own coverage by `min` on this backend rather than by a
 product, and since ADR 0363 a clip standing *beside* a soft mask does too.** What is left of it is a
-stroke, an image, **a group's raster — which ADR 0355 called not owed and §8.5.4's third sentence
-says is owed** — and the two
+stroke, an image, **half of a group's raster — the half where §11.4.4's Table 139 shape and alpha
+are one number, which is a group whose opacity is 1.0 everywhere, is paid on this backend since
+ADR 0492 and the other half is not** — and the two
 backends that still multiply; and what is left of the file is two marks abutting — which item 2
 had only across a cell's box edge and which the four-hundred-and-seventy-third session measured in
 its general form on a document the project owner reported (ADR 0308). **It is not a defect of this
@@ -42,7 +43,9 @@ backends), `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs
 `crates/render-cpu/src/lib.rs`,
 `crates/render-cpu/src/scan.rs` (item 4's composition) and
 `crates/pdf-model/examples/coincident_edge_probe.rs` (item 4's instrument: one rectangle stated
-twice, eight ways, so that the composition still taking a product is a printed row),
+twice, eight ways, so that a composition still taking a product is a printed row) and
+`crates/render-cpu/tests/group_clip_intersection.rs` (item 4's gate for the group blit, which also
+pins that a group whose alpha is *not* its shape still gets the product),
 `crates/pdf-model/src/content.rs`'s `tile`, `crates/pdf-render/src/repeat.rs`,
 `crates/render-quorra/examples/sub_pixel_marks.rs` and
 `crates/pdf-model/examples/sub_pixel_width_census.rs` (the two instruments: what a backend does
@@ -394,8 +397,24 @@ the mark is whole where the clip is not.
   a shape and the clip at the blit intersects it. What is true is narrower: **this backend's group
   buffer carries alpha, which is shape times opacity** (§11.3.7.1), and the two coincide only where
   every element's opacity is 1 — §11.6.4.2's default, which `ca`, `CA` and a nested soft mask make
-  false. So what it needs is **a shape channel beside a group's raster**, which nothing in this
-  tree carries today and which would cost a band's bytes per live group.
+  false.
+
+  **This bullet used to price the answer at "a shape channel beside a group's raster, which nothing
+  in this tree carries today", and that was one price quoted for two cases** (ADR 0492). Where the
+  group's opacity *is* 1.0 everywhere the shape is already in the raster, so the price is **one
+  boolean on the command and one linear pass over the band** — no channel, no second buffer, no
+  second render. `pdf_render::Command::Group::alpha_is_shape` is that boolean, answered in
+  `pdf-model` because only the interpreter knows §11.6.4.3's `/AIS` reading, and
+  `render_cpu::scan::intersect_group` is the pass. **Paid on `render-cpu` for an isolated group in
+  the six-hundred-and-sixty-sixth session**; the ladder below is the eighth rung moving and the
+  other seven staying.
+
+  The re-derivation's other half is that **the layers already held the shape**: `pdf-model`'s
+  `shape_without_the_mask_and_the_constants` has built a command that draws a *group's* shape since
+  ADR 0234 — "a group's shape is the union of its elements'" — `Command::Shaped` carries one
+  through the display list, and `render-cpu` draws one in `encode_shaped`. So the general case is a
+  second render of the group's content into a band-sized mask rather than a new mechanism, and it
+  stays owed because no document has been shown to need it.
 
   **And it is where `issue21346.pdf`'s next factor actually is**, which is the correction below.
 
@@ -409,16 +428,16 @@ luminosity soft mask whose `/BC` is white — a mask worth 1.0 at every pixel, w
 what any pixel should be and does change which composition the mark goes through:
 
 ```text
-  restated as     no soft mask     soft mask
-  fill alone            0.5059        0.5059
-  W n clip              0.5059        0.5059
-  form /BBox            0.5059        0.5059
-  group /BBox           0.5059        0.2549
+  restated as     no soft mask     soft mask       and in 662, before ADR 0492
+  fill alone            0.5059        0.5059          0.5059  0.5059
+  W n clip              0.5059        0.5059          0.5059  0.5059
+  form /BBox            0.5059        0.5059          0.5059  0.5059
+  group /BBox           0.5059        0.5059          0.5059  0.2549
 ```
 
 (0.5059 rather than 0.5040 is one eight-bit level; 0.2549 is `0.504²` to four digits.)
 
-**Seven of the eight give the edge its own coverage and the eighth squares it**, which is the group
+**Seven of the eight gave the edge its own coverage and the eighth squared it**, which was the group
 blit and nothing else — so of the three bullets above, the stroke and the image edge have no
 witness on this construction at all and the group's raster has a two-factor one. The reason it took
 this long to find a small witness is §11.4.4's NOTE 5: a group is flattened away unless a soft mask
@@ -427,11 +446,18 @@ probe anybody would write without one goes down the flattened path where ADR 035
 
 **`issue7891_bc1.pdf` page 1 is the corpus witness for it**, and a cleaner one than `issue21346.pdf`:
 object 16 is a form XObject whose `/Group` is a transparency group and whose `/BBox` is exactly the
-rectangle its content fills, under a `/SMask`, so exactly two statements of one rectangle are
-multiplied. Its two boundary rows are covered 0.504 and 0.456 and this tree paints them 0.2549 and
-0.2079. That page is `CONTRADICTED_TIGHT_CONSENSUS` in `oracle.rs` and stays there: the two rows are
-0.0197 of a distance of 0.1721 from the nearer voting reference, so paying this moves the page toward
-the bound and past neither.
+rectangle its content fills, under a `/SMask`, so exactly two statements of one rectangle were
+multiplied. Its two boundary rows are covered 0.504 and 0.456 and this tree painted them 0.2549 and
+0.2079; they now read **0.5059 and 0.4549**. That page is `CONTRADICTED_TIGHT_CONSENSUS` in
+`oracle.rs` before and after, which is what 662 predicted: the two rows are 0.0197 of a distance of
+0.1721 from the nearer voting reference, so paying this moves the page toward the bound and past
+neither.
+
+**No gate in this tree can see the change, and that is a fact about the gates.** Measured both ways
+in the six-hundred-and-sixty-sixth by disabling the composition and re-running: the oracle's verdicts
+are identical, the cross-backend gate is identical to the name and the mean, and step 7's ink sweep
+moves four rows of 786 — all upward, 0.003 to 0.013 of 255, negative tail byte-identical. The
+instrument that can see it is the probe.
 
 ### The witness's residual is not where ADR 0355 said it was
 
@@ -457,7 +483,9 @@ its own coverage is 0.827. Measuring a rectangular fill and a rectangular clip r
 device column 14 from `(240, 245, 249)` to `(232, 240, 246)`, **0.306 → 0.469** of the mark, and the
 page agrees. The two edges stand in the ratio `(0.75/0.827)^4.4`, so **four to five factors are
 still products** and everything above is still owed; what changed is that the page is no longer the
-list's witness for it. A round taking the group blit owes the ladder from 0.469 now.
+list's witness for it. **The group blit was taken in the six-hundred-and-sixty-sixth and the ladder is 0.469 → 0.694**:
+device column 14 of row 89 goes `(232, 240, 246)` to `(221, 233, 241)` against the same interior, so
+`0.827^4.0` became `0.827^1.9` — about two of the page's factors paid and about two left.
 
 Two things bound any attempt at the rest:
 
@@ -476,6 +504,14 @@ Two things bound any attempt at the rest:
   *fill* in ADR 0355 and quorra has not**, so the two part at the mark: the cross-backend gate went
   934 agree / 20 differ to 930 / 24, every arrival a widget border sitting on its own `/BBox`, and
   `doc/QUORRA_FEEDBACK.md`'s twenty-fourth section is the ask. The magnified lane does not see it.
+
+  **And they part at the group blit too since ADR 0492, at no cost to the gate at all** — 933 agree /
+  22 differ before and after, the same names and the same means. Neither of the other two backends
+  *can* take it, which is where the composite is rather than a choice: `render-quorra` hands a group
+  to `quorra_scene::GroupSpec` and the library multiplies the clip into one weight in
+  `composite.wgsl`, and `render-gpu` hands it to Vello with the clip already open as a stack of
+  layers. `doc/QUORRA_FEEDBACK.md` section 36 is that ask, and it asks for the flag plus a `min`
+  rather than for a shape channel.
 
 ## 2. Two marks that abut across a cell's box edge without repeating
 

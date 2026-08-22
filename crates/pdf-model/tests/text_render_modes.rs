@@ -231,6 +231,9 @@ fn a_translucent_mode_2_glyph_is_one_knockout_group() {
             blend,
             isolated,
             knockout,
+            // §11.4.6's accumulation is not §11.4.4's union, so `pdf-model` declines the
+            // equality for every knockout group — `group_alpha_is_shape` says why.
+            alpha_is_shape: false,
             blending: None,
         },
     ] = commands

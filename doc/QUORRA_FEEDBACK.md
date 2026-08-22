@@ -4135,3 +4135,95 @@ It closes it **for us**, by construction, and it does not close §35.3's second 
 anybody. A host that presents its first frame straight from the render loop — which is the obvious
 way to use `Presenter` and what we did for four hundred sessions — has no such ordering and gets
 the core dump.
+
+## 36. A **group's** raster meets its clip by a product where §8.5.4 asks for an intersection — the same seam as §24, one level up
+
+This is §24's ask again, moved from the mark to the group. §24 is about a *mark*'s coverage meeting
+the clip in force over it; this one is about the group's own composited raster meeting the clip in
+force at its blit. We have taken the second on our CPU backend and cannot take it on yours, because
+on your side the arithmetic is inside the library.
+
+### 36.1 The clause, which says it of a group in its own sentence
+
+ISO 32000-2 §8.5.4 states the rule for a mark and then again for a group:
+
+> In the context of the transparent imaging model ( PDF 1.4 ), the current clipping path constrains
+> an object's shape ( see 11.2, "Overview of transparency"). The effective shape is the
+> intersection of the object's intrinsic shape with the clipping path; the source shape value shall
+> be 0.0 outside this intersection. Similarly, the shape of a transparency group (defined as the
+> union of the shapes of its constituent objects) shall be influenced both by the clipping path in
+> effect when each of the objects is painted and by the one in effect at the time the group's
+> results are painted onto its backdrop.
+
+and §10.7.4 makes "influenced by" an intersection of sets rather than a product:
+
+> For clipping, the clipping region consists of the set of pixels that would be included by a fill
+> operation. Subsequent painting operations shall affect a region that is the intersection of the
+> set of pixels defined by the clipping region with the set of pixels for the region to be painted.
+
+### 36.2 Where it is in your tree, and why it is not something `render-quorra` can fix
+
+`quorra-gpu/src/shaders/composite.wgsl`, in the child composite:
+
+```wgsl
+let w = params.alpha * soft_mask_at(p) * clip_coverage(p) * residue_value(p);
+```
+
+The group's own alpha, the soft mask, the analytic clip-rectangle overlap and the clip residue are
+multiplied into one scalar. Three of those four factors are right: §11.6.4.4's constant and
+§11.6.4.3's mask are multiplied by §11.3.7.2 in as many words, and so is the group's alpha. The
+fourth is the clip, and the clip is a **set**.
+
+Where a group's `/BBox` is exactly the rectangle its content fills — which is the common shape of a
+form XObject with a `/Group` — the boundary pixel gets the group's own coverage times the clip's
+coverage of the same edge, so it is painted at the **square** of what it should be. At an edge
+covering 0.504 of a device row, 0.254.
+
+### 36.3 The small witness, and why one is hard to build
+
+`crates/pdf-model/examples/coincident_edge_probe` states one rectangle twice, four ways, each with
+and without a soft mask worth 1.0 at every pixel. The mask cannot change what any pixel should be
+and it changes the *route*, because §11.4.4's NOTE 5 flattens a group away entirely unless something
+is applied to it as a whole:
+
+```text
+  restated as     no soft mask     soft mask
+  fill alone            0.5059        0.5059
+  W n clip              0.5059        0.5059
+  form /BBox            0.5059        0.5059
+  group /BBox           0.5059        0.5059   <- was 0.2549 before ADR 0492
+```
+
+Seven rungs always gave the edge its own coverage; the eighth squared it, and now does not.
+
+### 36.4 What we did, and what it needs from you
+
+The condition is that the group's raster carries §11.4.4's Table 139 **shape** and not only its
+alpha, which holds exactly where the group's opacity is 1.0 at every point (§11.3.7.1's
+`α = f × q`, with §11.6.4.2 giving every elementary object an opacity of 1.0 and §11.6.4.3's `/AIS`
+deciding whether a mask and the constants are shape or opacity). Our display list states that as a
+flag on the group — `pdf_render::Command::Group::alpha_is_shape` — because only the interpreter
+knows the `/AIS` reading; a scene vocabulary cannot derive it from the commands.
+
+So the ask, if you want it, is two things:
+
+- **`GroupSpec` gains a boolean** — call it what you like; ours says the group's alpha is its shape.
+- **When it is set, `composite.wgsl` takes `min(group_alpha, clip)` rather than the product**, with
+  the soft mask still multiplying: `min(f·S, C·S) = min(f·S, P)`, which needs no third buffer and is
+  exact under eight-bit rounding because rounding is monotone. When it is unset, nothing changes.
+
+We are not asking you to hold a shape channel. The whole point of the flag is that it says when you
+do not need one.
+
+### 36.5 What it costs, measured on our side
+
+Nothing a gate can see. Over the 974-document pdf.js corpus, the oracle's verdicts are identical
+before and after — 908 agree, 65 contradicted, 786 ambiguous — the cross-backend gate is identical
+at 933 agree / 22 differ, and `doc/todo/00`'s ink sweep moves **4 rows of 786**, all upward, by
+0.003 to 0.013 of 255. What it moves is the pages nobody was ranking: `issue7891_bc1.pdf`'s two
+boundary rows went from `0.504²` and `0.456²` to `0.504` and `0.456`.
+
+**Which means the two backends now part here**, the way §24 records them parting at the mark. If you
+decline this one, that is a legitimate answer and we will record it beside §24's; what we would ask
+is that the decline be by argument rather than by the gate staying green, because the gate cannot
+see it.

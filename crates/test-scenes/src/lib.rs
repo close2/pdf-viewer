@@ -200,6 +200,7 @@ pub fn transparency_group() -> DisplayList {
         blend: BlendMode::Multiply,
         isolated: true,
         knockout: false,
+        alpha_is_shape: true,
         blending: None,
     });
 
@@ -292,6 +293,7 @@ pub fn knockout_group() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: true,
         knockout: true,
+        alpha_is_shape: false,
         blending: None,
     });
 
@@ -353,6 +355,7 @@ pub fn knockout_stated_shape() -> DisplayList {
             blend: BlendMode::Normal,
             isolated: true,
             knockout: false,
+            alpha_is_shape: true,
             blending: None,
         }),
         shape: Box::new(Command::Group {
@@ -363,6 +366,7 @@ pub fn knockout_stated_shape() -> DisplayList {
             blend: BlendMode::Normal,
             isolated: true,
             knockout: false,
+            alpha_is_shape: true,
             blending: None,
         }),
     };
@@ -386,6 +390,7 @@ pub fn knockout_stated_shape() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: true,
         knockout: true,
+        alpha_is_shape: false,
         blending: None,
     });
 
@@ -447,6 +452,7 @@ pub fn non_isolated_group() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: false,
         knockout: false,
+        alpha_is_shape: true,
         blending: None,
     });
 
@@ -726,6 +732,7 @@ pub fn knockout_group_on_its_own_backdrop() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: false,
         knockout: true,
+        alpha_is_shape: false,
         blending: None,
     });
     list
@@ -815,6 +822,7 @@ pub fn group_in_its_own_blending_space() -> DisplayList {
         blend: BlendMode::Normal,
         isolated: true,
         knockout: false,
+        alpha_is_shape: false,
         blending: Some(Box::new(pdf_render::GroupBlending {
             space,
             black: elements(),

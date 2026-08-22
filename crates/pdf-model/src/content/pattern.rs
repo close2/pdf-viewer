@@ -19,7 +19,7 @@ use crate::colour::ColourSpace;
 use super::colour::{BlackPoint, Intent, convert};
 use super::report::Unsupported;
 use super::run::narrow;
-use super::transparency::{Painted, any_command, command_blends};
+use super::transparency::{Painted, any_command, command_blends, group_alpha_is_shape};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERATIONS};
 
 /// The graphics state a shading pattern's *definition* is evaluated under (ISO 32000-2 §11.6.7).
@@ -1002,6 +1002,11 @@ impl Interpreter<'_> {
                     .to_owned(),
             });
         }
+        // Asked of the cell's own marks under the `/AIS` reading the content ran under, the
+        // way every other group is asked — see `group_alpha_is_shape`. It changes no pixel
+        // today, because this group states no clip of its own, and it is stated truthfully
+        // rather than as `false` so that the field means one thing everywhere it is written.
+        let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled());
         self.draw(Command::Group {
             commands: parts,
             alpha: state.fill_alpha,
@@ -1012,6 +1017,7 @@ impl Interpreter<'_> {
             blend: state.blend,
             isolated,
             knockout: false,
+            alpha_is_shape,
             // §8.7.3.1: a pattern cell's colours are resolved in the compositing already in
             // force, so the implicit group introduces no space of its own.
             blending: None,

@@ -910,6 +910,8 @@ impl Interpreter<'_> {
                     blend: BlendMode::Normal,
                     isolated: true,
                     knockout: true,
+                    // A knockout group, which `group_alpha_is_shape` declines by name.
+                    alpha_is_shape: false,
                     blending: None,
                 });
             } else {
@@ -1034,6 +1036,9 @@ impl Interpreter<'_> {
                     blend: BlendMode::Normal,
                     isolated: true,
                     knockout: true,
+                    // §11.4.6's accumulation is not §11.4.4's union, so this group's raster is not
+                    // asked to carry Table 139's shape — see `group_alpha_is_shape`.
+                    alpha_is_shape: false,
                     blending: None,
                 });
             } else {

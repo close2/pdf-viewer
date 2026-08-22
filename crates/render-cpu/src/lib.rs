@@ -769,6 +769,7 @@ impl CpuRasterizer {
             blend,
             isolated,
             knockout,
+            alpha_is_shape,
             blending,
             ..
         } = command
@@ -796,6 +797,7 @@ impl CpuRasterizer {
                 clip: command.clip(),
                 mask: command.mask(),
                 isolated: *isolated,
+                alpha_is_shape: *alpha_is_shape,
                 compose: if *knockout {
                     Compose::Knockout
                 } else {
@@ -910,7 +912,7 @@ impl CpuRasterizer {
         // per pixel, exactly the page-level construction in `rasterize` one scope down.
         // §11.4.6 with `isolated: false` is the other construction with a buffer discipline
         // of its own; everything else is one buffer and one pass.
-        let buffer = if let Some(pair) = group.blending {
+        let mut buffer = if let Some(pair) = group.blending {
             self.composite_in_own_space(list, pair, &group, surface, masks, depth)?
         } else if !group.isolated && group.compose == Compose::Knockout {
             self.knockout_on_backdrop(pixmap, list, &group, surface, band, masks, depth)?
@@ -963,6 +965,10 @@ impl CpuRasterizer {
             }
         })?;
 
+        // The mask the blit still owes, which is none where §8.5.4's intersection has already
+        // folded it into the buffer — see `group_blit_mask`.
+        let blit_mask = group_blit_mask(&mut buffer, &group, (surface, band, top), clip);
+
         // §11.4.4's own model, for a group whose elements were drawn onto a copy of the
         // page: `(1 − w) × page + w × buffer`, with `w` the group's constant alpha times its
         // soft mask at the pixel. One pass over the band rather than two Porter-Duff draws,
@@ -977,10 +983,15 @@ impl CpuRasterizer {
                     width: surface.width(),
                     height: band.height,
                 })?;
-            // A group's raster is composited through its clip as a *product*, and that is not
-            // `scan::fill`'s question one level up: what a group's buffer carries at a pixel is
-            // §11.4.5's group alpha rather than one mark's coverage, so there is no second
-            // shape here for §10.7.4's intersection to be taken with.
+            // A **non-isolated** group's raster is still composited through its clip as a
+            // product, and here that is the buffer's own construction rather than a reading
+            // of §10.7.4: §8.5.4 does give a group a shape for the clip to intersect — "the
+            // shape of a transparency group … shall be influenced … by the [clipping path] in
+            // effect at the time the group's results are painted onto its backdrop" — and this
+            // buffer started as a copy of the page, so what its alpha holds is the backdrop's
+            // unioned with the group's and not that shape. The interpolation buries the
+            // group's own shape inside `E(B)` besides, where no factor can reach it.
+            // `doc/todo/11` item 4 carries it; ADR 0492 pays the isolated case above.
             blend::interpolate(&mut rows, &buffer, from_row, paint.opacity, clip.mask());
             return Ok(());
         }
@@ -1005,7 +1016,7 @@ impl CpuRasterizer {
                     ..paint
                 },
                 tiny_skia::Transform::identity(),
-                clip.mask(),
+                blit_mask,
             );
             let mut rows = band
                 .rows(pixmap, surface)
@@ -1029,7 +1040,7 @@ impl CpuRasterizer {
             buffer.as_ref(),
             &paint,
             tiny_skia::Transform::identity(),
-            clip.mask(),
+            blit_mask,
         );
         Ok(())
     }
@@ -1693,6 +1704,9 @@ struct Group<'a> {
     mask: Option<SoftMaskId>,
     /// What the elements are composited onto — see `Command::Group`'s `isolated`.
     isolated: bool,
+    /// Whether the raster the elements accumulate carries Table 139's shape as well as its
+    /// alpha — see `Command::Group`'s `alpha_is_shape`, which is where the argument is.
+    alpha_is_shape: bool,
     /// How this group's own elements combine with each other (§11.4.6).
     compose: Compose,
     /// How the finished group combines with what it is drawn onto.
@@ -2498,6 +2512,48 @@ fn crop_to_mask(
 /// in one sitting (ADR 0328). What it costs in readability is this paragraph and one block
 /// of slice arithmetic below.
 ///
+/// The mask a group's blit still owes, after §8.5.4's intersection has been taken over
+/// `buffer`'s band where it could be.
+///
+/// `None` says the intersection is in the buffer already and the blit carries no mask; the clip's
+/// own mask says it was not taken and the blit owes it, which is what this backend did for every
+/// group before ADR 0492.
+///
+/// The arithmetic and its exactness are [`scan::intersect_group`]'s; this is the two conditions
+/// that decide whether the buffer is one it may be asked of.
+///
+/// - **`alpha_is_shape`**, which is `pdf_render::Command::Group`'s own field and the whole
+///   argument: Table 139 returns a group's shape beside its alpha and this buffer holds one
+///   number per pixel, so the composition is expressible only for a group whose opacity is 1.0
+///   everywhere. `pdf-model` answers it, because the display list holds a translucent colour
+///   and not the reason it is translucent.
+/// - **Isolated only.** A non-isolated group's buffer starts as a copy of the page
+///   ([`initial_backdrop`]), so the alpha in it is the backdrop's unioned with the group's and
+///   is not that shape at all — the sentence `pdf-model`'s `element_alpha_is_shape` writes one
+///   layer up, and the reason the caller's interpolation is left alone.
+///
+/// A group composited in a blending colour space of its own is *not* excluded: `resolve_blending`
+/// rewrites three channels of every pixel and leaves the fourth, so the alpha that reaches here
+/// is the one the elements accumulated.
+fn group_blit_mask<'a>(
+    buffer: &mut tiny_skia::Pixmap,
+    group: &Group<'_>,
+    (surface, band, top): (Surface, Band, i32),
+    clip: scan::Clip<'a>,
+) -> Option<&'a tiny_skia::Mask> {
+    if !group.isolated || !group.alpha_is_shape {
+        return clip.mask();
+    }
+    let stride = (surface.width() as usize).saturating_mul(4);
+    let start = (top.unsigned_abs() as usize).saturating_mul(stride);
+    let end = start.saturating_add((band.height as usize).saturating_mul(stride));
+    let composed = buffer
+        .data_mut()
+        .get_mut(start..end)
+        .is_some_and(|rows| scan::intersect_group(rows, clip));
+    if composed { None } else { clip.mask() }
+}
+
 /// # Errors
 ///
 /// [`CpuRasterError::Allocation`] if the buffer does not fit or `band` lies outside it, and
@@ -3794,6 +3850,7 @@ mod tests {
             clip: None,
             mask: None,
             isolated: false,
+            alpha_is_shape: false,
             compose: super::Compose::Over,
             into: super::Compose::Over,
             blending: None,
@@ -3860,6 +3917,7 @@ mod tests {
                 blend: BlendMode::Normal,
                 isolated: true,
                 knockout: false,
+                alpha_is_shape: true,
                 blending: None,
             }],
             surface,

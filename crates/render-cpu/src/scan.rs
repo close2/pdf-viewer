@@ -511,6 +511,20 @@ struct Reach {
 }
 
 impl Reach {
+    /// Every pixel of a buffer this wide and this tall.
+    ///
+    /// A mark reaches the pixels its path covers; a group's raster covers the band it was
+    /// accumulated over, so [`intersect_group`] asks for that band whole. `None` for an empty
+    /// one, which has nothing to compose.
+    fn whole(width: u32, height: u32) -> Option<Self> {
+        (width > 0 && height > 0).then_some(Self {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        })
+    }
+
     /// The rows it covers.
     fn rows(self) -> std::ops::Range<u32> {
         self.top..self.bottom
@@ -575,6 +589,97 @@ fn is_a_set(admitted: &tiny_skia::Mask, value: Option<&[u8]>, reach: Reach, stri
                 .all(|(&product, &value)| product == 0 || product == value),
         })
     })
+}
+
+/// §8.5.4's intersection of a **group's** shape with the clip at its blit, written into the
+/// group's own raster (ISO 32000-2 §8.5.4, §10.7.4, §11.4.4).
+///
+/// [`intersected`] is this same composition for a mark whose coverage the caller rasterises;
+/// this is it for a group, whose coverage has already been accumulated into `band` and needs no
+/// second scan converter. §8.5.4 states the group case in its own sentence:
+///
+/// > Similarly, the shape of a transparency group (defined as the union of the shapes of its
+/// > constituent objects) shall be influenced both by the clipping path in effect when each of
+/// > the objects is painted
+///
+/// — and, the sentence goes on, by the one in effect at the time the group's results are
+/// painted onto its backdrop. (The quotation stops where it does because the extraction in
+/// `doc/md/` breaks that last word across a space, so the rest cannot be quoted verbatim.)
+///
+/// # What it may do this to, and what makes it exact
+///
+/// Table 139 returns a group's shape `f` and its alpha `α` separately and `band` holds one
+/// number per pixel. The caller passes `alpha_is_shape` only for a group whose opacity is 1.0
+/// everywhere (`pdf_render::Command::Group`'s field), where §11.3.7.1's `α = f × q` makes the
+/// stored alpha the shape itself — so `min(α, C)` is the clause's intersection rather than an
+/// estimate of it. Where the flag is false the group's `f` is not in this buffer at all and the
+/// caller draws through the mask as before.
+///
+/// The soft mask beside the clip needs no third buffer, for [`intersected`]'s reason and by the
+/// same identity: `min(f, C) · S = min(f · S, C · S) = min(f · S, P)`, with `P` the product the
+/// cache already holds, and `min` commutes with the rounding because rounding is monotone.
+///
+/// # Why the colours are rescaled rather than the mask handed on
+///
+/// `band` is premultiplied, so lowering a pixel's alpha without lowering its colour would state
+/// a colour brighter than its own alpha admits. Each channel is therefore scaled by `α′ / α`,
+/// which is the group's *unpremultiplied* colour left exactly where it was — §11.4.4 changes a
+/// group's shape here and not its colour. `α′ ≤ α` always, so nothing can overflow, and where
+/// `α` is zero so is `α′` and the pixel is left alone.
+///
+/// Returns `false` where it declined, which leaves the caller's ordinary masked blit to run.
+/// The one decline is [`intersected`]'s first and it is there for the same reason: where the
+/// clip is already a set of pixels the product *is* the intersection, so the cheaper path is
+/// also the correct one, and that is what keeps this pass off the pages that do not need it.
+pub(crate) fn intersect_group(band: &mut [u8], clip: Clip<'_>) -> bool {
+    let Some((admitted, value, _)) = clip.composable() else {
+        return false;
+    };
+    let stride = admitted.width();
+    let pixels = admitted.data().len();
+    // A band whose bytes are not four per mask sample is a pairing this cannot make; declining
+    // composites the group the way it was composited before.
+    if band.len() != pixels.saturating_mul(4) {
+        return false;
+    }
+    if value.is_some_and(|value| value.len() != pixels) {
+        return false;
+    }
+    let Some(reach) = Reach::whole(stride, admitted.height()) else {
+        return false;
+    };
+    if is_a_set(admitted, value, reach, stride) {
+        return false;
+    }
+    for (index, sample) in band.chunks_exact_mut(4).enumerate() {
+        let (Some(&bound), Some(&alpha)) = (admitted.data().get(index), sample.get(3)) else {
+            continue;
+        };
+        if alpha == 0 {
+            continue;
+        }
+        let soft = value.map_or(u8::MAX, |value| value.get(index).copied().unwrap_or(0));
+        let composed = scaled(alpha, soft).min(bound);
+        if composed == alpha {
+            continue;
+        }
+        for channel in sample {
+            // `channel ≤ alpha` holds for every premultiplied sample and `composed ≤ alpha`,
+            // so the quotient is at most `composed` and the clamp is belt and braces rather
+            // than arithmetic. Rounded, because the caller's blit rounds and a colour biased
+            // down at every group boundary is what ADR 0418 measured the cost of.
+            //
+            // The divisor cannot be zero — `alpha == 0` was skipped above — and `checked_div`
+            // rather than `/` because a division that cannot fail still has to say so.
+            let scaled = u32::from(*channel)
+                .saturating_mul(u32::from(composed))
+                .saturating_add(u32::from(alpha) / 2)
+                .checked_div(u32::from(alpha))
+                .unwrap_or(0);
+            *channel = u8::try_from(scaled).unwrap_or(u8::MAX).min(composed);
+        }
+    }
+    true
 }
 
 /// [`tiny_skia::PixmapMut::stroke_path`], with the range applied to `paint.anti_alias`.

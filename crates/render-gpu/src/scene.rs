@@ -818,6 +818,12 @@ fn encode(
                 *alpha,
                 (spec.compose, *blend),
             )?,
+            // `alpha_is_shape` is among the fields `..` drops, and deliberately: §8.5.4's
+            // intersection of a group's shape with the clip at its blit would have to be
+            // performed where the layer is composited, and that is Vello's — the clip reaches
+            // this group as a stack of `push_clip_layer` calls already open around it, whose
+            // composition with the layer's own alpha is the library's arithmetic rather than
+            // this backend's. `render-cpu` is the one backend that owns its blit; ADR 0492.
             Command::Group {
                 commands,
                 alpha,

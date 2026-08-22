@@ -441,6 +441,107 @@ fn knockout_shape_is_coverage(commands: &[Command], alpha: AlphaSource) -> bool 
         .all(|command| element_shape_is_coverage(command, alpha))
 }
 
+/// Whether the raster a group accumulates carries Table 139's shape `f` as well as its alpha
+/// `α` — `Command::Group`'s `alpha_is_shape` (ISO 32000-2 §11.4.4, §11.3.7.1, §11.6.4.2).
+///
+/// §11.3.7.1 gives alpha as "the product of shape and opacity", so the two coincide exactly
+/// where the group's opacity is 1.0 at every point, and §11.6.4.2 says where that is:
+///
+/// > All elementary objects shall have an intrinsic opacity q j of 1.0 everywhere. Any desired
+/// > opacity less than 1.0 shall be applied by means of an opacity mask or constant, as
+/// > described in ' 11.6.4.3 , ' Mask shape and opacity ' and 11.6.4.4 , ' Constant shape and
+/// > opacity ' .
+///
+/// So the question is only whether anything inside the group states one of those two **as
+/// opacity**, and §11.6.4.3's NOTE 1 gives the flag that decides it: `/AIS` is "true if the
+/// soft mask contains shape values, false for opacity", and §11.6.4.4 says the same of `CA`
+/// and `ca`. Under [`AlphaSource::Shape`] every mask and constant inside the group is *shape*,
+/// so §11.3.7.2's three opacity inputs are all 1.0 and an elementary element's drawn alpha is
+/// its shape whatever it carries — the argument [`shape_the_alpha_already_is`] already makes.
+/// Under [`AlphaSource::Opacity`] each element has to be opaque on its own terms, which is the
+/// same list [`shape_without_the_mask_and_the_constants`] removes.
+///
+/// A nested group answers with the flag it was given, so each group is asked under the `/AIS`
+/// reading **its own** content ran under rather than its parent's; what the parent adds is
+/// §11.6.4.3's and §11.6.4.4's inputs at the nested blit, which are opacity under
+/// [`AlphaSource::Opacity`] and shape under the other.
+///
+/// # What the answer is for
+///
+/// §8.5.4 constrains a group's shape by the clip in force where the group is painted — "the
+/// shape of a transparency group … shall be influenced … by the one in effect at the time the
+/// group's results are painted onto its backdrop" — and §10.7.4 makes that an intersection of
+/// sets. A backend can only take it against a shape it holds, so this is the condition under
+/// which a group's raster is that shape and the composition is exact rather than a product.
+/// ADR 0492.
+///
+/// # The three it declines, none of them because the equality fails
+///
+/// - **A knockout group.** Its accumulation is §11.4.6's `(1 − f) × P + f × E` rather than
+///   §11.4.4's union, and the equality holds there too for an opaque element — but its
+///   elements reach a backend as [`Command::Shaped`] pairs whose two halves are drawn by two
+///   separate composites, and proving the alpha those leave is the shape is a separate
+///   argument from this one. Declining costs the exact composition and never correctness.
+/// - **A [`Command::Shaped`] element**, for the same reason one level down.
+/// - **A command whose kind is unknown**, because [`Command`] is non-exhaustive.
+pub(super) fn group_alpha_is_shape(commands: &[Command], alpha: Option<AlphaSource>) -> bool {
+    let Some(alpha) = alpha else {
+        // §11.6.4.3's flag decides which of the two arguments above applies, so content that
+        // painted under both readings is described by neither.
+        return false;
+    };
+    commands
+        .iter()
+        .all(|command| element_alpha_is_shape(command, alpha))
+}
+
+/// One element's half of [`group_alpha_is_shape`].
+fn element_alpha_is_shape(command: &Command, alpha: AlphaSource) -> bool {
+    match command {
+        Command::Fill { paint, .. } | Command::Stroke { paint, .. } => {
+            alpha == AlphaSource::Shape || (command.mask().is_none() && paint_is_opaque(paint))
+        }
+        Command::Image {
+            image, alpha: at, ..
+        } => {
+            alpha == AlphaSource::Shape
+                || (command.mask().is_none() && *at >= 1.0 && image.is_opaque())
+        }
+        // A nested group's own alpha and mask are §11.6.4.4's constant and §11.6.4.3's mask
+        // applied to it as an object, so under `Opacity` they lower its alpha below its shape
+        // and under `Shape` they lower both together. Isolation is the third condition and it
+        // is about the *buffer* rather than about the clause: a non-isolated group is
+        // accumulated on a copy of its backdrop (ADR 0237), so what its raster holds is not
+        // the group's own alpha at all — the sentence `stated_shape` already writes.
+        Command::Group {
+            alpha: at,
+            isolated,
+            knockout,
+            alpha_is_shape,
+            ..
+        } => {
+            *alpha_is_shape
+                && *isolated
+                && !*knockout
+                && (alpha == AlphaSource::Shape || (command.mask().is_none() && *at >= 1.0))
+        }
+        _ => false,
+    }
+}
+
+/// Whether a paint marks at full opacity wherever it marks at all.
+///
+/// §11.6.4.4's constant is folded into a solid colour's alpha and into a shading's own colours
+/// by the time a command carries them, which is why this asks the paint rather than the state.
+fn paint_is_opaque(paint: &Paint) -> bool {
+    match paint {
+        Paint::Solid(colour) => colour.a >= 1.0,
+        Paint::Shading(shading) => shading.is_opaque(),
+        // `Paint` is non-exhaustive; a paint whose opacity is unknown is not proven to be 1.0.
+        _ => false,
+    }
+}
+
 /// Whether one element's shape is the coverage a rasteriser draws it with.
 ///
 /// The three conditions are [`knockout_shape_is_coverage`]'s, asked of one command.
@@ -577,6 +678,9 @@ fn shape_the_alpha_already_is(command: &Command) -> Option<Command> {
             blend: BlendMode::Normal,
             isolated: true,
             knockout: *knockout,
+            // What this function returns *is* the shape, by its own contract, so the alpha
+            // drawing it leaves is that shape whatever the original group's flag said.
+            alpha_is_shape: true,
             blending: blending.clone(),
         }),
         // An inner knockout group's elements arrive with their shape already stated, under
@@ -676,6 +780,10 @@ fn shape_without_the_mask_and_the_constants(command: &Command) -> Option<Command
             // from geometry alone — so the backdrop this is drawn over states nothing.
             isolated: true,
             knockout: false,
+            // Every element here has had §11.6.4.3's mask and §11.6.4.4's constants removed,
+            // so each draws at its own shape and their union is this group's — Table 139's
+            // `f` and `α` are one number in this raster because the opacities are all 1.0.
+            alpha_is_shape: true,
             // And a shape has no colour, so it composites in no space: a pair carried by
             // the object states which components its *colours* resolve to, and the
             // chromatic half's geometry is the group's whole shape already.
@@ -1685,6 +1793,10 @@ impl Interpreter<'_> {
         // by the caller. `ca` and not `CA`, because painting a form is not a stroking
         // operation and §11.6.4.4 gives `CA` to those alone.
         self.draw(Command::Group {
+            // What §8.5.4's clip at this `Do` has to intersect with — see
+            // `group_alpha_is_shape`. Written before the elements because it reads them and
+            // the next field moves them.
+            alpha_is_shape: !knockout && group_alpha_is_shape(&commands, ais_inside.settled()),
             commands,
             alpha: outer.fill_alpha,
             clip: inner.clip,

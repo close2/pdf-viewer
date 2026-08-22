@@ -370,6 +370,13 @@ impl<'a> Encoder<'a> {
                     blend,
                     isolated,
                     knockout,
+                    // §8.5.4's intersection of a group's shape with the clip at its blit is
+                    // arithmetic this backend does not perform: the composite is
+                    // `quorra_scene::GroupSpec`'s, and the library multiplies the clip's
+                    // coverage into the group's weight (`composite.wgsl`). So the flag is
+                    // read by nothing here and the ask is `doc/QUORRA_FEEDBACK.md`
+                    // section 36.
+                    alpha_is_shape: _,
                     blending,
                 } => {
                     refuse_untranslatable_group(*isolated, *knockout, blending.is_some())?;
@@ -521,6 +528,8 @@ impl<'a> Encoder<'a> {
             blend,
             isolated,
             knockout,
+            // Unread here for the reason `Encoder::commands` gives.
+            alpha_is_shape: _,
             blending,
         } = half
         {

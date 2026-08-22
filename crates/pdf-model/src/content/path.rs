@@ -139,6 +139,8 @@ impl Interpreter<'_> {
                         blend: BlendMode::Normal,
                         isolated: true,
                         knockout: true,
+                        // A knockout group, which `group_alpha_is_shape` declines by name.
+                        alpha_is_shape: false,
                         blending: None,
                     });
                 } else {

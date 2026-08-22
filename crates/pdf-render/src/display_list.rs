@@ -317,6 +317,45 @@ pub enum Command {
         /// knockout group. A backend that cannot retain the backdrop refuses the
         /// combination rather than substituting either backdrop for the other.
         knockout: bool,
+        /// Whether the raster this group accumulates carries Table 139's shape `f` as well as
+        /// its alpha `α` (ISO 32000-2 §11.4.4, §11.3.7.1).
+        ///
+        /// # Why a group has two numbers per pixel and a raster has one
+        ///
+        /// §11.4.4's group compositing function returns three things, and Table 139 names two
+        /// of them separately: a computed *shape* `f`, which is used as the object shape when
+        /// the group is treated as an object, and a computed *alpha* `α`, used as its object
+        /// alpha. A buffer of premultiplied samples holds the second and not the first. §11.3.7.1
+        /// gives the relation between them — alpha is "the product of shape and opacity" — so
+        /// the two coincide exactly where the group's opacity is 1.0 at every point, and
+        /// §11.6.4.2 says where that is:
+        ///
+        /// > All elementary objects shall have an intrinsic opacity q j of 1.0 everywhere. Any
+        /// > desired opacity less than 1.0 shall be applied by means of an opacity mask or
+        /// > constant
+        ///
+        /// So this is `true` for a group nothing inside which states §11.6.4.3's mask or
+        /// §11.6.4.4's constant *as opacity* — which is what §11.6.4.3's NOTE 1 `/AIS` flag
+        /// decides, and why `pdf-model` rather than a backend answers it: the display list
+        /// holds a translucent colour, not the reason it is translucent.
+        ///
+        /// # What it is for
+        ///
+        /// §8.5.4 constrains a group's shape by the clip at its blit as well as by the clips
+        /// its elements were painted under — the shape being, in that subclause's own words,
+        /// the union of the shapes of the group's constituent objects — and §10.7.4 makes that
+        /// influence an intersection of
+        /// sets rather than a product. A backend that composites `α × C` where the clause asks
+        /// for `min(f, C) × q` paints a group's own boundary pixel at the square of its
+        /// coverage; with this flag set, `α` *is* `f` and the intersection is expressible
+        /// without a second channel. Where it is `false` a backend has no `f` and the product
+        /// is what it can state.
+        ///
+        /// A backend may treat it as `false` at any time — it enables an exact composition
+        /// rather than licensing anything — and `pdf-model` answers `false` wherever it cannot
+        /// prove the equality, including for a knockout group and for any element whose own
+        /// shape it declines to state.
+        alpha_is_shape: bool,
         /// The four-component blending colour space this group's elements composite in,
         /// or `None` for a group composited in the space its parent already composites in
         /// (§11.6.6, §11.7.2). See [`GroupBlending`].

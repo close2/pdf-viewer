@@ -402,6 +402,9 @@ fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_ren
         blend,
         isolated: false,
         knockout: false,
+        // One opaque fill, so §11.3.7.1's opacity is 1.0 and the group's alpha is its shape.
+        // It changes no pixel here: the group states no clip for §8.5.4 to intersect with.
+        alpha_is_shape: true,
         blending: None,
     });
     list
