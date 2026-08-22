@@ -61,7 +61,7 @@ impl Interpreter<'_> {
                 self.tile(&shared, state.transform, rule, &tiling, state);
             } else if let Some(rule) = fill {
                 self.note_transfer(state, Painted::of(state, false));
-                self.list.push(Command::Fill {
+                self.draw(Command::Fill {
                     path: Arc::clone(&shared),
                     transform: state.transform,
                     fill_rule: rule,
@@ -83,7 +83,7 @@ impl Interpreter<'_> {
             }
             if stroke.is_some() {
                 self.note_transfer(state, Painted::of(state, true));
-                self.list.push(Command::Stroke {
+                self.draw(Command::Stroke {
                     path: Arc::clone(&shared),
                     transform: state.transform,
                     stroke: state.stroke.clone(),
@@ -132,7 +132,7 @@ impl Interpreter<'_> {
                 if let Some(elements) =
                     knockout_group_elements(&parts, self.alpha_sources.settled())
                 {
-                    self.list.push(Command::Group {
+                    self.draw(Command::Group {
                         commands: elements,
                         alpha: 1.0,
                         clip: None,
@@ -144,7 +144,7 @@ impl Interpreter<'_> {
                     });
                 } else {
                     for part in parts {
-                        self.list.push(part);
+                        self.draw(part);
                     }
                     self.note(Unsupported::CompositedInParts {
                         detail: "a path filled and stroked by one operator",

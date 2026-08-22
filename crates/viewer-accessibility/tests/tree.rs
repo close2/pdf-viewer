@@ -33,6 +33,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         annotation: None,
         headers: Vec::new(),
         lines: Vec::new(),
+        drawn: None,
     }
 }
 
@@ -302,6 +303,57 @@ fn a_figure_that_drew_no_text_is_placed_by_its_stated_bounds() {
         .bounds()
         .expect("a paragraph is placed by what was drawn");
     assert!((measured.x1 - 110.0).abs() < 1e-6, "{measured:?}");
+}
+
+/// An element that drew no text and states no `/BBox` is placed by what its content drew.
+///
+/// §14.8.3.3's content rectangle, which `viewer_core::AccessibilityNode::drawn` carries: "derived
+/// from the shape of the enclosed content", for exactly the elements neither of the other two
+/// statements answers for. Without it such a node reaches AT-SPI implementing no `Component`
+/// interface at all, which is what "no place" looks like from the outside.
+///
+/// The second half is the ordering, and it is ADR 0301's argument one mark further along: where a
+/// producer *also* wrote a rectangle, the marks win, because the attribute is a claim about a
+/// layout this program has already carried out. `doc/PDF20_AN001-BPC.pdf` states
+/// `[-32768 -32768 32767 32767]` for a figure, which is the shape of that claim going wrong.
+#[test]
+fn an_element_with_no_text_and_no_stated_bounds_is_placed_by_what_it_drew() {
+    let mut figure = element(None, "Figure", "a chart of sales");
+    figure.drawn = Some([12.0, 24.0, 212.0, 124.0]);
+    let mut plane = element(
+        None,
+        "Figure",
+        "a figure whose producer wrote the whole plane",
+    );
+    plane.bounds = Some([0.0, 0.0, 400.0, 400.0]);
+    plane.drawn = Some([10.0, 10.0, 30.0, 30.0]);
+    let mut caption = element(None, "P", "a caption");
+    caption.quads = vec![[10.0, 20.0, 110.0, 20.0, 110.0, 32.0, 10.0, 32.0]];
+    caption.drawn = Some([0.0, 0.0, 400.0, 400.0]);
+    let nodes = [figure, plane, caption];
+    let update = built(view(&nodes, &[]));
+
+    let placed = node(&update, NodeId(16))
+        .bounds()
+        .expect("a figure with no shapes and no attribute still has what it drew");
+    assert!((placed.x0 - 12.0).abs() < 1e-6, "{placed:?}");
+    assert!((placed.y1 - 124.0).abs() < 1e-6, "{placed:?}");
+
+    let over_the_claim = node(&update, NodeId(17))
+        .bounds()
+        .expect("the figure has both statements");
+    assert!(
+        (over_the_claim.x1 - 30.0).abs() < 1e-6,
+        "the marks win over the producer's rectangle: {over_the_claim:?}"
+    );
+
+    let measured = node(&update, NodeId(18))
+        .bounds()
+        .expect("a paragraph is placed by what was drawn");
+    assert!(
+        (measured.x1 - 110.0).abs() < 1e-6,
+        "the text quadrilaterals win over the coarser union: {measured:?}"
+    );
 }
 
 /// §12.4.2's page label names the page where the document states one.

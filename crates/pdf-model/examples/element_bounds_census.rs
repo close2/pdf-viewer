@@ -8,8 +8,8 @@
 //! respectively, of the structure element's bounding box (the rectangle that completely encloses
 //! its visible content)", in default user space.
 //!
-//! This counts five things, and the third and fifth are the ones that decide whether reading an
-//! entry is worth anything:
+//! This counts six things, and the third, fifth and sixth are the ones that decide whether reading
+//! an entry is worth anything:
 //!
 //! 1. how many documents state a `/BBox` layout attribute at all, and on which structure types;
 //! 2. how many elements mark **no text** and so have no place today;
@@ -17,7 +17,10 @@
 //! 4. how many of the rest §14.7.5.3's object reference places instead, out of §12.5.2's
 //!    annotation rectangle — which is the only other statement the standard makes about where an
 //!    element is;
-//! 5. how many `Form` elements name a widget annotation whose §12.7 field type is readable, and
+//! 5. how many of the remainder the page's *marks* place — §14.8.3.3's content rectangle, "derived
+//!    from the shape of the enclosed content", which is a **derived** extent rather than a stated
+//!    one and is the only route left for an element that marks no text and names no annotation;
+//! 6. how many `Form` elements name a widget annotation whose §12.7 field type is readable, and
 //!    which of §12.7.5's four types those are. §14.8.4.7.2 makes `Form` "[e]ncloses a PDF widget
 //!    annotation and associated content, if any", so the count says how many of them a screen
 //!    reader could be told the control of instead of a generic group.
@@ -59,6 +62,28 @@ struct Counts {
     placeless_bounded: usize,
     /// Of [`Self::placeless`], those whose only content is §14.7.5.3's object reference.
     placeless_object: usize,
+    /// Of [`Self::placeless`], those whose marked-content sequences drew something.
+    ///
+    /// The population §14.8.3.3's content rectangle answers for and Table 379's `/BBox` does not:
+    /// an element that marks no *text* but whose sequences painted an image, a rule or a vector
+    /// drawing has an extent this program can derive from what it drew.
+    placeless_by_marks: usize,
+    /// Of [`Self::placeless`], those the marks place and **no stated route does**.
+    ///
+    /// The number that says what deriving the rectangle is worth: an element with no Table 379
+    /// `/BBox` and no §12.5.2 annotation behind it had no place at all before this, whatever a
+    /// client asked.
+    placeless_only_by_marks: usize,
+    /// Of [`Self::placeless`], those that neither route places.
+    ///
+    /// An element whose content items mark nothing at all — a sequence a producer opened and
+    /// closed around no operator, or one whose every command was clipped away. The residue after
+    /// all four routes, which is what a later round has left to argue about.
+    placeless_unanswered: usize,
+    /// Which structure types the elements a union places are.
+    marked_by_type: BTreeMap<String, usize>,
+    /// Which structure types the residue are.
+    unanswered_by_type: BTreeMap<String, usize>,
     /// Of [`Self::placeless`], those with **no** `/BBox` that §12.5.2's annotation rectangle
     /// places.
     ///
@@ -100,6 +125,17 @@ impl Counts {
             .placeless_bounded
             .saturating_add(other.placeless_bounded);
         self.placeless_object = self.placeless_object.saturating_add(other.placeless_object);
+        self.placeless_by_marks = self
+            .placeless_by_marks
+            .saturating_add(other.placeless_by_marks);
+        self.placeless_only_by_marks = self
+            .placeless_only_by_marks
+            .saturating_add(other.placeless_only_by_marks);
+        self.placeless_unanswered = self
+            .placeless_unanswered
+            .saturating_add(other.placeless_unanswered);
+        merge(&mut self.marked_by_type, &other.marked_by_type);
+        merge(&mut self.unanswered_by_type, &other.unanswered_by_type);
         self.placeless_by_annotation = self
             .placeless_by_annotation
             .saturating_add(other.placeless_by_annotation);
@@ -138,6 +174,11 @@ struct Element {
     bounded: bool,
     /// Whether any marked-content sequence below it produced text.
     marks_text: bool,
+    /// Whether any marked-content sequence below it *marked the page*, text or not.
+    ///
+    /// §14.8.3.3's content rectangle is "derived from the shape of the enclosed content", so this
+    /// is the question that decides whether a union answers where a text layer cannot.
+    marks_drawn: bool,
     /// How many §14.7.5.2 marked-content sequences are below it.
     marked_items: usize,
     /// How many §14.7.5.3 object references are below it.
@@ -202,30 +243,64 @@ fn control_name(control: &pdf_model::form::Control) -> &'static str {
     }
 }
 
-/// Every `/MCID` that produced a non-empty span of the readback, per page object.
+/// Which `/MCID`s produced something, per page object and anywhere in the document.
 ///
 /// The page matters because an identifier is unique within one page's content, not within a
-/// document — Table 355's `/Pg` is what says which. An element that states no `/Pg` anywhere in
-/// its ancestry is matched against every page, which is the same latitude
+/// document — Table 355's `/Pg` is what says which, and Errata Collection 3's Issue #308 adds a
+/// NOTE saying so outright: identifiers are scoped by content stream and start at zero, so the
+/// same one may reappear on another page or in a form `XObject`. An element that states no `/Pg`
+/// anywhere in its ancestry is matched against every page, which is the same latitude
 /// [`pdf_model::structure::Tree::logical_order`] gives it.
-fn text_producing(document: &Document) -> (BTreeMap<ObjectId, BTreeSet<i64>>, BTreeSet<i64>) {
-    let mut per_page: BTreeMap<ObjectId, BTreeSet<i64>> = BTreeMap::new();
-    let mut anywhere: BTreeSet<i64> = BTreeSet::new();
+fn produced(document: &Document) -> Produced {
+    let mut answer = Produced::default();
     let pages = pdf_model::Pages::new(document);
     for (object, index) in pages.indices() {
         let Some(page) = pages.get(index) else {
             continue;
         };
         let interpretation = pdf_model::interpret(document, &page);
-        let entry = per_page.entry(object).or_default();
+        let text = answer.text.entry(object).or_default();
+        let drawn = answer.drawn.entry(object).or_default();
         for span in &interpretation.marked {
             if span.range.start < span.range.end {
-                entry.insert(span.mcid);
-                anywhere.insert(span.mcid);
+                text.insert(span.mcid);
+                answer.text_anywhere.insert(span.mcid);
+            }
+            if span.drawn.is_some() {
+                drawn.insert(span.mcid);
+                answer.drawn_anywhere.insert(span.mcid);
             }
         }
     }
-    (per_page, anywhere)
+    answer
+}
+
+/// What one document's pages turned each `/MCID` into.
+#[derive(Default)]
+struct Produced {
+    /// The identifiers whose sequence read back text, per page.
+    text: BTreeMap<ObjectId, BTreeSet<i64>>,
+    /// The same, for an element whose ancestry names no page at all.
+    text_anywhere: BTreeSet<i64>,
+    /// The identifiers whose sequence marked the page — §14.8.3.3's content rectangle, per page.
+    drawn: BTreeMap<ObjectId, BTreeSet<i64>>,
+    /// The same, for an element whose ancestry names no page at all.
+    drawn_anywhere: BTreeSet<i64>,
+}
+
+impl Produced {
+    /// Whether `mcid` is in `set`, taking the page where the content item named one.
+    fn holds(
+        per_page: &BTreeMap<ObjectId, BTreeSet<i64>>,
+        anywhere: &BTreeSet<i64>,
+        mcid: i64,
+        page: Option<ObjectId>,
+    ) -> bool {
+        match page {
+            Some(object) => per_page.get(&object).is_some_and(|set| set.contains(&mcid)),
+            None => anywhere.contains(&mcid),
+        }
+    }
 }
 
 /// Whether the `/BBox` attribute is present, and whether it is four numbers.
@@ -282,7 +357,7 @@ fn census(document: &Document) -> Counts {
     // Every tagged document is interpreted, not only the ones stating a `/BBox`: the count this
     // is for is *placeless against bounded*, and taking the denominator from a subset of the
     // documents the numerator comes from would be a ratio of two different populations.
-    let (per_page, anywhere) = text_producing(document);
+    let produced = produced(document);
     counts.with_bounds = usize::from(walk.items.iter().any(
         |(_, child)| matches!(child, Child::Element(dict) if bounds(document, &tree, dict).0),
     ));
@@ -313,20 +388,20 @@ fn census(document: &Document) -> Counts {
                     role,
                     bounded: present && readable,
                     marks_text: false,
+                    marks_drawn: false,
                     marked_items: 0,
                     object_items: 0,
                     own_objects: Vec::new(),
                 });
             }
             Child::MarkedContent { mcid, page } => {
-                let produced = match page {
-                    Some(object) => per_page.get(&object).is_some_and(|set| set.contains(&mcid)),
-                    None => anywhere.contains(&mcid),
-                };
+                let text = Produced::holds(&produced.text, &produced.text_anywhere, mcid, page);
+                let drawn = Produced::holds(&produced.drawn, &produced.drawn_anywhere, mcid, page);
                 for index in &stack {
                     if let Some(element) = elements.get_mut(*index) {
                         element.marked_items = element.marked_items.saturating_add(1);
-                        element.marks_text |= produced;
+                        element.marks_text |= text;
+                        element.marks_drawn |= drawn;
                     }
                 }
             }
@@ -376,15 +451,26 @@ fn tally(elements: &[Element], referenced: &Referenced, counts: &mut Counts) {
         if element.object_items > 0 {
             counts.placeless_object = counts.placeless_object.saturating_add(1);
         }
+        if element.marks_drawn {
+            counts.placeless_by_marks = counts.placeless_by_marks.saturating_add(1);
+            bump(&mut counts.marked_by_type, &element.role);
+        }
         // Taken after the `/BBox` one so that the two routes do not both claim the same element:
         // Table 379's rectangle is the element's own statement and wins where it exists.
-        if !element.bounded
+        let by_annotation = !element.bounded
             && element
                 .own_objects
                 .iter()
-                .any(|object| referenced.places.contains_key(object))
-        {
+                .any(|object| referenced.places.contains_key(object));
+        if by_annotation {
             counts.placeless_by_annotation = counts.placeless_by_annotation.saturating_add(1);
+        }
+        if !element.bounded && !by_annotation && element.marks_drawn {
+            counts.placeless_only_by_marks = counts.placeless_only_by_marks.saturating_add(1);
+        }
+        if !element.bounded && !by_annotation && !element.marks_drawn {
+            counts.placeless_unanswered = counts.placeless_unanswered.saturating_add(1);
+            bump(&mut counts.unanswered_by_type, &element.role);
         }
     }
 }
@@ -434,6 +520,20 @@ fn main() {
          rectangle through §14.7.5.3's object reference",
         total.placeless_by_annotation
     );
+    println!(
+        "{} of the placeless elements have marked-content sequences that drew something, so \
+         §14.8.3.3's content rectangle places them; {} of those had no stated route at all and \
+         are the ones deriving it rescues; {} are placed by no route at all",
+        total.placeless_by_marks, total.placeless_only_by_marks, total.placeless_unanswered
+    );
+    println!("the placeless elements a union of their marks places, by role:");
+    for (role, count) in &total.marked_by_type {
+        println!("  {role}: {count}");
+    }
+    println!("the placeless elements no route places, by role:");
+    for (role, count) in &total.unanswered_by_type {
+        println!("  {role}: {count}");
+    }
     println!(
         "{} Form elements, {} of which name a widget whose field type is readable",
         total.form, total.form_with_control

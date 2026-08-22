@@ -302,7 +302,7 @@ impl Interpreter<'_> {
             &conversion,
             &mut self.image_masks,
         ) {
-            Ok(decoded) => self.list.push(Command::Image {
+            Ok(decoded) => self.draw(Command::Image {
                 // §10.5 applies to "any object for which transfer functions are in effect", and an
                 // image is one object however many samples it has: the clause's input is "the
                 // value of a colour component in the device's native colour space", which by this
@@ -452,7 +452,7 @@ impl Interpreter<'_> {
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
         self.note_transfer(state, Painted::of(state, false));
-        self.list.push(Command::Fill {
+        self.draw(Command::Fill {
             path: Arc::new(path),
             transform: state.transform,
             fill_rule: FillRule::NonZero,

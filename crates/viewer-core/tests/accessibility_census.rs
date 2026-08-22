@@ -151,6 +151,15 @@ struct Census {
     nodes: usize,
     substituted: usize,
     placed: usize,
+    /// Elements placed by §14.8.3.3's content rectangle — what their own marks drew.
+    ///
+    /// A different route from [`Self::placed`] and counted apart from it, because the two are
+    /// different kinds of fact: that one is what a *producer* wrote about an element and this is
+    /// what the page turned out to draw. Their sum is not a total — an element may have both, and
+    /// most of the ones that have this have neither `/BBox` nor an annotation (ADR 0486).
+    derived: usize,
+    /// Elements with no place by any of the three routes, which is what a client cannot point at.
+    placeless: usize,
     header_cells: usize,
     header_associations: usize,
     controls: usize,
@@ -205,6 +214,8 @@ impl Census {
         self.nodes = self.nodes.saturating_add(from.nodes);
         self.substituted = self.substituted.saturating_add(from.substituted);
         self.placed = self.placed.saturating_add(from.placed);
+        self.derived = self.derived.saturating_add(from.derived);
+        self.placeless = self.placeless.saturating_add(from.placeless);
         self.header_cells = self.header_cells.saturating_add(from.header_cells);
         self.header_associations = self
             .header_associations
@@ -230,6 +241,15 @@ impl Census {
             }
             if node.bounds.is_some() {
                 self.placed = self.placed.saturating_add(1);
+            }
+            if node.drawn.is_some() {
+                self.derived = self.derived.saturating_add(1);
+            }
+            // The three routes `viewer_accessibility::tree::place` asks in order. A node that has
+            // none of them implements no `Component` interface on AT-SPI at all, so this is the
+            // count of what a magnifier cannot be pointed at.
+            if node.bounds.is_none() && node.drawn.is_none() && node.quads.is_empty() {
+                self.placeless = self.placeless.saturating_add(1);
             }
             if !node.headers.is_empty() {
                 self.header_cells = self.header_cells.saturating_add(1);
@@ -566,6 +586,14 @@ fn report(census: &Census, files: usize, seconds: f64) {
         census.placed
     );
     println!(
+        "  placed by §14.8.3.3's content rectangle, which is what they drew: {}",
+        census.derived
+    );
+    println!(
+        "  with no place by any of the three routes: {}",
+        census.placeless
+    );
+    println!(
         "  cells with §14.8.4.8.3's headers resolved: {} ({} associations)",
         census.header_cells, census.header_associations
     );
@@ -706,6 +734,7 @@ fn ratchet(census: &Census, files: usize) {
     floor("elements reached", census.nodes, 102_853);
     floor("§14.9.3's /Alt carried", census.substituted, 664);
     floor("elements placed", census.placed, 7538);
+    floor("elements placed by their own marks", census.derived, 93_267);
     floor("cells with headers", census.header_cells, 16_617);
     floor("header associations", census.header_associations, 27_273);
     floor("§12.7.5's controls", census.controls, 272);

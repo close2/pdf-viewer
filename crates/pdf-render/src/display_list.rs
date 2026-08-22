@@ -955,6 +955,43 @@ impl DisplayList {
         self.clips.get(id.index())
     }
 
+    /// The region a clip chain admits, in this list's own space, as a bound.
+    ///
+    /// ISO 32000-2 §8.5.4 makes the clipping path "the boundary of the area to be painted"
+    /// and makes each `W` intersect it with what is already there — "the new clipping path
+    /// shall be the intersection of the current clipping path with the path" — so the chain's
+    /// region lies inside every one of its paths, and the rectangles that bound them intersect
+    /// to a rectangle that bounds it.
+    ///
+    /// A **bound and never an underestimate**, the same direction [`Command::device_bounds`]
+    /// errs in and for the same reason: the corners come from control points, so a curved clip
+    /// admits less than this says and never more.
+    ///
+    /// `None` where the chain admits nothing — an empty clipping path (see
+    /// [`Clip::admits_nothing`]) or two paths that do not meet — and where the identifier
+    /// belongs to another list. The costly part is each path's hull, which [`Path::hull`]
+    /// computes once and keeps, so a chain shared by a thousand commands is walked once.
+    #[must_use]
+    pub fn clip_bounds(&self, id: ClipId) -> Option<Rect> {
+        let mut region: Option<Rect> = None;
+        let mut at = Some(id);
+        // The chain is a parent list rather than a cycle by construction — `add_clip` can only
+        // name a clip already in the table — but a bound keeps a malformed caller from spinning.
+        for _ in 0..=self.clips.len() {
+            let Some(next) = at else {
+                return region;
+            };
+            let clip = self.clip(next)?;
+            let bounds = clip.path.hull()?.mapped(clip.transform);
+            region = Some(match region {
+                None => bounds,
+                Some(region) => region.intersection(bounds)?,
+            });
+            at = clip.parent;
+        }
+        region
+    }
+
     /// Returns the page bounds in user space, with the origin at the bottom left.
     #[must_use]
     pub fn page_bounds(&self) -> Rect {

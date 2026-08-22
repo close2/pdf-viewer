@@ -11,10 +11,11 @@ in the five-hundred-and-seventh (ADR 0342) — found by the census that round bu
 `tools/state.sh accessibility` now prints; and **a caret, with a third taken off what a page turn
 was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394), and **the actions a client may
 request**, in the five-hundred-and-ninetieth (ADR 0425) — which also made the census a ratchet and
-so closed `doc/todo/05`'s third instrument.
+so closed `doc/todo/05`'s third instrument — and **§14.8.3.3's content rectangle, the place an
+element's own marks give it**, in the six-hundred-and-fifty-eighth (ADR 0486).
 Priority: 31 — capability
-Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.3, §14.7.5.4, §14.8.4, §14.8.4.7.2, §14.8.4.8.3,
-§14.8.5.4.3, §14.8.5.7, §14.9
+Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
+§14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
 Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
 `crates/viewer-ui/src/bin/pdf-viewer/access.rs` (`App::attend`, `App::speak`, `App::act`)
@@ -107,24 +108,57 @@ search rather than from the array**.
   `supports_text_ranges` admits `Label`, `Document`, `Terminal` and a text input, and not one of
   §14.8.4's forty-one types maps to any of them.
 
-- ~~An element that marks no text and states no `/BBox` still has no place~~ — **the strongest
-  route is taken** (ADR 0338), and it was the same missing link the `Form` entry needed: an object
-  reference names an annotation and §12.5.2 states where an annotation is. What is left is what no
-  clause answers. Of the 1675 corpus elements that mark no text and state no Table 379 `/BBox`, 333
-  are now placed and **1342 are not** — `P`, `Div`, `Span`, `TD` and `Figure` elements that name no
-  annotation. A bound for those has to come from the *marks* rather than from the document, which
-  is a different kind of answer and wants an argument before it wants code: the display list
-  records no `/MCID`, so nothing today can say which commands an element's content items made.
+- ~~An element that marks no text and states no `/BBox` still has no place~~ — **the third route
+  is taken** (ADR 0486), and the argument this entry asked for came out the other way round from
+  the way it was posed. It said a bound from the marks "is a different kind of answer" and one this
+  program would be inventing; it is not. §14.8.3.3 gives every block- and inline-level element a
+  *content rectangle* and makes it a `shall` — "derived from the shape of the enclosed content" —
+  and §14.8.5.4.5 states the derivation for the two cases that are marks rather than layout, a
+  table cell's and an illustration's, as "the bounding box of all graphics objects" in the content.
+  So the union is the standard's construction under its own name, carried beside Table 379's
+  rectangle rather than in place of it (`AccessibilityNode::drawn` against `::bounds`), and on the
+  bus the order is measured quadrilaterals, then the marks, then what the producer wrote.
+
+  It is accumulated in the *interpreter* rather than in the display list, and the entry's guess
+  about why — "the display list records no `/MCID`" — is right about the fact and wrong about the
+  fix: a range of command indices per sequence would cost nothing and would silently break the
+  moment `split_off_commands` collects a form `XObject`'s commands into a `Command::Group`, which
+  §14.7.5.2 explicitly permits. `Interpreter::draw` is the one moment both are in hand.
+
+  **What is left is the residue and it is the largest of the four routes.** Of the 2124 corpus
+  elements that mark no text: 406 state a `/BBox`, 348 are placed by an annotation, **349 by their
+  own marks**, and **1021 by nothing** — because their sequences marked nothing at all. `P`, `TD`,
+  `Div`, `Span` and `TR` elements around an empty `BDC` … `EMC`, or around content a clip excludes.
+  No clause derives a rectangle from no marks, so that is an answer rather than a debt; the count
+  is `pdf-model --example element_bounds_census` and it is what will say if it stops being true.
+
   **An `XObject` object reference is refused rather than pending**: its place is the matrix in
   force at the `Do` that painted it, and Table 358's NOTE 2 says one reference suffices however
   many times the object is drawn — so the reference is not naming a position.
+
+- **A sequence inside a form `XObject` shares one numbering with the page's, and nothing tells them
+  apart.** §14.7.5.2 identifies such a sequence by Table 357's `/Stm`, and Errata Collection 3's
+  Issue #308 says the consequence outright: "MCIDs are scoped by content stream and must start at
+  zero, so the same MCID may reappear across pages or XObjects." `Interpretation::marked` is keyed
+  by the identifier alone, so on a page that uses both routes a form's content rectangle — and its
+  *text range*, which has had the same key since ADR 0134 — could be attributed to the page's own
+  element. **Unmeasured**: no corpus document has been checked for a page whose `/Contents` and
+  whose form `XObject` both carry structure content items. The census would need to read `/Stm`,
+  which it does not.
 
 - **Whether a stated `/BBox` should win over the shapes that were drawn.** `tree::place` prefers
   the quads where an element has both, on the conservative reading — the marks are what is on the
   screen. A `Figure` holding a caption *and* a picture has text quads covering only the caption
   while the attribute covers both, so the two disagree by exactly the picture. Nothing has measured
-  how often that happens or by how much; `element_bounds_census` has the walk and would need the
-  text layer beside it.
+  how often that happens or by how much.
+
+  **Since ADR 0486 the question is measurable and one third of it is answered.** The sequence's own
+  content rectangle covers the caption *and* the picture, so `AccessibilityNode::drawn` is the
+  quantity the attribute should be compared against — and where an element has no text at all the
+  comparison has been made and the marks win, on `doc/PDF20_AN001-BPC.pdf`'s `[-32768 -32768 32767
+  32767]`. What is still unmeasured is the mixed element: `tree::place` asks the quadrilaterals
+  first and they exist, so the picture inside a `Figure` that also has a caption is still outside
+  the ring. `element_bounds_census` now has both rectangles and could count the disagreement.
 
 - ~~A `Form` element's control role~~ — **closed in the five-hundred-and-third session**
   (ADR 0338), and checked on a real bus against a document that labels its own answers.

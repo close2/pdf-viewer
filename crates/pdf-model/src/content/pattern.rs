@@ -585,7 +585,7 @@ impl Interpreter<'_> {
             }
         }
         for command in commands {
-            self.list.push(command);
+            self.draw(command);
         }
         if owed {
             self.note(Unsupported::Shading {
@@ -639,7 +639,7 @@ impl Interpreter<'_> {
             command.set_clip(outer);
         }
         for command in commands {
-            self.list.push(command);
+            self.draw(command);
         }
         true
     }
@@ -909,7 +909,7 @@ impl Interpreter<'_> {
                     .to_owned(),
             });
         }
-        self.list.push(Command::Group {
+        self.draw(Command::Group {
             commands: parts,
             alpha: state.fill_alpha,
             // The tiles carry the path's clip already; a second copy on the group would be
@@ -993,7 +993,7 @@ impl Interpreter<'_> {
                         stale: false,
                     },
                 );
-                self.list.push(Command::Fill {
+                self.draw(Command::Fill {
                     path: Arc::new(path),
                     transform,
                     fill_rule: FillRule::NonZero,

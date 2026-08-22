@@ -770,7 +770,7 @@ impl Interpreter<'_> {
             return;
         }
         self.note_transfer(state, Painted::of(state, false));
-        self.list.push(Command::Fill {
+        self.draw(Command::Fill {
             // The font hands out shared outlines and the display list keeps them shared: a
             // page of text is the same few dozen glyphs over and over, so this is a refcount
             // rather than a copy of the segments.
@@ -827,7 +827,7 @@ impl Interpreter<'_> {
         in_user_space.extend_transformed(outline, glyph_to_user);
         let glyph_stroke_clip = self.paint_clip(state, false);
         self.note_transfer(state, Painted::of(state, true));
-        self.list.push(Command::Stroke {
+        self.draw(Command::Stroke {
             path: Arc::new(in_user_space),
             transform: state.transform,
             stroke: state.stroke.clone(),
@@ -902,7 +902,7 @@ impl Interpreter<'_> {
                 .then(|| knockout_group_elements(&elements, self.alpha_sources.settled()))
                 .flatten();
             if let Some(elements) = stated {
-                self.list.push(Command::Group {
+                self.draw(Command::Group {
                     commands: elements,
                     alpha: 1.0,
                     clip: None,
@@ -1015,7 +1015,7 @@ impl Interpreter<'_> {
         while let Some(command) = rest.next() {
             let pair = pairs.next_if(|(from, _)| *from == index).copied();
             let Some((from, to)) = pair else {
-                self.list.push(command);
+                self.draw(command);
                 index = index.saturating_add(1);
                 continue;
             };
@@ -1026,7 +1026,7 @@ impl Interpreter<'_> {
             );
             index = to;
             if let Some(elements) = knockout_group_elements(&parts, self.alpha_sources.settled()) {
-                self.list.push(Command::Group {
+                self.draw(Command::Group {
                     commands: elements,
                     alpha: 1.0,
                     clip: None,
@@ -1039,7 +1039,7 @@ impl Interpreter<'_> {
             } else {
                 owed = true;
                 for part in parts {
-                    self.list.push(part);
+                    self.draw(part);
                 }
             }
         }

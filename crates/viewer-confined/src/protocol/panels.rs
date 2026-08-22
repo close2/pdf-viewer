@@ -1463,6 +1463,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             annotation,
             headers,
             lines,
+            drawn,
         } = node;
         writer
             .option_usize(*parent)
@@ -1472,6 +1473,16 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             .option_str(language.as_deref())
             .u8(scope_kind(*header_scope));
         match bounds {
+            Some(rect) => {
+                writer.u8(1).numbers(rect);
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        // §14.8.3.3's content rectangle, beside the stated one rather than folded into it: the
+        // two are different kinds of fact and the host decides between them (`tree::place`).
+        match drawn {
             Some(rect) => {
                 writer.u8(1).numbers(rect);
             }
@@ -1544,6 +1555,7 @@ pub(super) fn decode_accessibility(
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,
             bounds: reader.option_rect("a node's stated bounding box")?,
+            drawn: reader.option_rect("a node's drawn extent")?,
             control: decode_optional_control(reader)?,
             annotation: reader.option_object("a node's annotation")?,
             // §14.8.4.8.3's header cells, checked the same way the parent link is: a header is a
