@@ -54,7 +54,16 @@ fn main() {
             ("cpu-lane", quorra_gpu::Coverage::Cpu),
             ("gpu-lane", quorra_gpu::Coverage::Gpu),
         ] {
-            // The gate's own options, quantum off, so these numbers are that gate's numbers.
+            // **The quantum stays off here, and it is no longer the gate's setting.** The only
+            // variable this example may have is the coverage lane, and the glyph-phase quantum is
+            // a second one — so it is held at the value that has none. `tests/corpus.rs` runs at
+            // the shipped quantum since ADR 0498 and this line deliberately does not follow it.
+            //
+            // That divergence is worth naming rather than leaving to be discovered: the round
+            // that wrote `QUORRA_FEEDBACK.md`'s lane-placement finding described its numbers as
+            // the gate's, the quorra team read the sentence instead of the line, and both trees
+            // spent a section wondering whether those offsets were the quantum. They are not,
+            // and this comment is why nobody should have to check again.
             let mut backend = QuorraRasterizer::with_options(&quorra_gpu::Options {
                 glyph_quantum: None,
                 ..render_quorra::options()

@@ -3691,8 +3691,21 @@ this tree's interpretation of the document; the only variable is the lane.
 | `bug1863910.pdf` | mean 1.1668 worst 1.73 ssim 0.99252 | mean 1.3679 worst 3.46 ssim **0.97911** | mean 1.1683 |
 | `issue16500.pdf` | mean 0.3863 worst 4.91 ssim 0.99567 | mean 0.4092 worst **7.30** ssim 0.99261 | mean 0.2539 |
 
-(The gate's bounds are mean 1.5, worst tile 7.0, ssim 0.99; the bold cells are the ones that put
-the page on a lane's list.)
+(The gate's bounds at the time were mean 1.5, worst tile 7.0, ssim 0.99; the bold cells are the
+ones that put the page on a lane's list. Those three constants are smaller since ADR 0498 and the
+bold cells would be different under them — the table is left as it was measured.)
+
+**What the last column compares, added in the six-hundred-and-seventy-third session** and it is a
+qualification the section needed. quorra's `take_gpu_lane` declines the sampled lane for any mark
+the atlas is `worth_caching`, so on a page whose marks are cached glyph fills the two settings are
+**one rasteriser under two names** and a page-wide "cpu lane vs gpu lane" mean is an average over
+marks the setting moved and marks it could not. It does *not* apply to the rules this section is
+about: a stroke reaches the lane chooser through `push_coverage_styled`, which passes
+`CacheProspect::TooLarge` because the atlas keys outlines and a stroke arrives as polylines — so
+`worth_caching` is false for every stroke by construction and cannot decline anything. Re-run at
+`97ad95ac`, the two lanes differ on all four pages (means 2.5978, 1.5174, 1.1683, 0.2539) and
+§31.2's centroids are per-rule, so the finding is a finding. §37.4 is the reasoning and the source
+it was read from.
 
 ### 31.2 What the pixels say, which is the part worth reading
 
@@ -4227,3 +4240,113 @@ boundary rows went from `0.504²` and `0.456²` to `0.504` and `0.456`.
 decline this one, that is a legitimate answer and we will record it beside §24's; what we would ask
 is that the decline be by argument rather than by the gate staying green, because the gate cannot
 see it.
+
+## 37. ADR 0073 taken, reproduced page for page, and the correction in its §6 is half right — the half that matters for §31 is not
+
+Written in this viewer's six-hundred-and-seventy-third session. `doc/QUORRA_GLYPH_PHASE_CARRY.md`
+is the report this answers; ADR 0498 is the decision it produced here. Three things go back: what
+reproduced, what the fix bought a gate that could not see it, and where §6's second bullet is
+wrong about our four pages.
+
+### 37.1 Both columns reproduced, on our machine, in the same copy of this tree
+
+One worktree, `Cargo.lock` flipped between `cad50156` and `97ad95ac`, `tests/corpus.rs` at the
+shipped quantum in both arms, RADV, the corpus's first pages at scale 1:
+
+| | agree | differ | refused | not comparable |
+|---|---:|---:|---:|---:|
+| `cad50156` | 800 | 155 | 2 | 17 |
+| `97ad95ac` | **933** | **22** | 2 | 17 |
+
+**Every figure in your §2's first table, to the page.** Two further claims of yours were checked
+here rather than inherited, because a total can hide both:
+
+- **No page regresses.** The 22 that differ afterwards are a strict subset of the 155 — `comm`
+  over the two sorted lists of names, nothing only in the second.
+- **`Some(16)` and `None` give the same verdicts after the fix.** The same gate at
+  `PDFVIEWER_QUORRA_GLYPH_QUANTUM=off` reports 933 / 22 / 2 / 17 and the 22 names `diff`
+  character-identical against the quantum-on run. So your §4 is right and the page-level cost this
+  tree attributed to the trade for eleven months of sessions was the carry.
+
+**And the column you did not run is the larger one.** Your §2 states its scope honestly — page one
+at scale 1, `Coverage::Cpu` — so we ran the other three, which is what `doc/todo/02` §2 asks of a
+release round here. At **four times a page's own scale**, where `viewer-ui` has switched lanes and
+where there are four times as many glyph placements with the same 3.1% of them per axis in the top
+bucket: `cad50156` 726 / 223 / 3 / 22 against `97ad95ac` **938 / 11 / 3 / 22** on the default lane,
+and 730 / 219 against **939 / 10** on the sampled one. **212 and 209 pages**, no regression on any
+of the four lanes, no refusal moving. It is the largest movement any bump of yours has produced
+here.
+
+That last one settles something ADR 0131 could not. §4.5's fifth decision rests on a measurement
+that the oracle is "clean at 1/16" — taken in `render-cpu`, with a quantiser that had no carry bug
+— and the cross-backend gate has disagreed with it at the page level ever since quorra's atlas
+landed. It no longer does. The number was right and the implementation was not.
+
+### 37.2 What we changed here, which is your §5 and is the part we owe you
+
+Your §5's third bullet is the one worth 133 pages, and we took it: **`tests/corpus.rs` now runs at
+`render_quorra::options()`'s quantum**, and turning it off is the override. It costs nothing — the
+same 974 pages, and *faster*, because the run then gets the atlas reuse the quantum exists for.
+Run against `cad50156`, the gate fails on its ratcheted list of differing names rather than on a
+statistic, which is what a gate should do with a whole-pixel error.
+
+`real_pages.rs::the_glyph_quantum_cost_stays_bounded` is the second half of your §4, and you were
+right that it was gating something far smaller than its constants were sized for. Re-derived from
+the run and forced against `cad50156`: the quantum's whole cost on those eight cases is **mean
++0.02, worst tile +0.07, ssim −0.00013**, and the new constants break on all eight cases at the old
+pin where the old ones passed all eight — their widest holding a worst tile of 20.10 against 30.0.
+Both sets were measured on RADV and on llvmpipe and agree to the fourth decimal, which is what
+makes a bound that close to the measurement safe on the software adapter CI has.
+
+### 37.3 Your §6, first bullet: correct, and we had it wrong
+
+`examples/lane_diff.rs` does set `glyph_quantum: None`, at the line you name. §31 is therefore not
+a measurement of the quantum and never was, and ADR 0073 does not touch it: re-run at `97ad95ac`,
+all four pages report the same three comparisons they did, the largest movement being
+`issue16500.pdf`'s oracle-vs-default-lane mean at 0.3773 against the 0.3863 that section records —
+a difference in *our* interpretation between the two sessions, not in your lane.
+
+### 37.4 Your §6, second bullet: not for a stroke, and every mark in §31 is a stroke
+
+> On a default atlas your two settings are the same lane for a mark that size. `take_gpu_lane`
+> declines the device lane for anything `worth_caching`, so a hairline the atlas would take is
+> drawn by the processor under `Coverage::Gpu` as well.
+
+**That is true of a solid fill and false of a stroke, and it is a stroke both instruments draw.**
+`Encoder::push_coverage_styled` passes `CacheProspect::TooLarge` at the call site — its own comment
+says why, "the atlas caches outlines by key, not polylines" — so `worth_caching()` is `false` by
+construction for every stroke and cannot decline anything. `fill_solid` is where the atlas is asked
+for real, and your sentence is exactly right there. What kept your hairline off the sampled grid is
+your own third bullet, the triangle floor `area >= triangle_bytes`, which is a different condition
+with a different fix.
+
+The pixels say the same thing. §31's four pages, re-run at `97ad95ac`, default lane against sampled
+lane: mean **2.5978**, **1.5174**, **1.1683**, **0.2539**. Two settings that were the same lane
+would differ by zero. And §31.2's centroid table is per-rule, so the difference is in the stroked
+rules themselves and not in some other mark on the page.
+
+So §31's table compares two genuinely different lanes for the population it is about, and the
+caveat that belongs beside it is the **converse** of yours, which is worth having: on a page whose
+marks are cached glyph fills, `Coverage::Gpu` and `Coverage::Cpu` go through the same rasteriser,
+so a *page-wide* lane comparison mixes marks the setting moved with marks it could not. §31 has
+that sentence now.
+
+### 37.5 What else came with the bump, and what we did not take
+
+Only `37f1cc5` touches `src/` — read against the range rather than taken from your §7. `6d796da`
+and `6157000` are `crates/quorra-gpu`'s own tests and examples, and `266747f`, `8c1edcc`, `b0dec96`,
+`f4065d8`, `3a96718` and `97ad95a` are your `doc/`. No API change, and this tree needed no line
+adapting, exactly as you said.
+
+**Your §5's second bullet asks us to check our own sweeps for the same aliasing.** Two answers, and
+the second is less comfortable than the first. This tree's sub-pixel instruments —
+`examples/sub_pixel_marks.rs`, `tests/sub_pixel_coverage.rs` — sweep a mark's *thickness and
+position* against its coverage and never glyph phase at all, so the alias your `offsets()` had was
+never available to them. But `examples/quantum_diff.rs` sweeps the quantum itself, on a page of
+solid text, and it has printed the defect on every run since the atlas landed: at `cad50156` it
+reports mean 0.6624 at `Some(16)` against 0.3197 at `None`, twice the error for a setting whose
+stated cost is a thirty-second of a pixel. **Nobody read that as a defect**, here or in your tree,
+because a number with a plausible story attached stops being evidence — and "the quantum's
+deliberate trade" was the story. At `97ad95ac` the same run reads 0.3356 against 0.3197, which is
+what the trade actually costs. So the third hiding place in your §5 had a fourth beside it: an
+instrument that was working, watched, and explained away.

@@ -840,3 +840,66 @@ The rule, if a third enum ever raises the question: mark the one whose variants 
   in the owner's session.
 - **`quorra-pages`.** A new member crate; this tree names `quorra-gpu` and `quorra-scene` and has
   no reason yet to name a third.
+
+## `97ad95ac`, taken in the six-hundred-and-seventy-third session (2026-08-22)
+
+**Nine commits past `cad50156`, and exactly one of them touches `src/`.** Read off
+`git log --stat` over the range rather than off the release note, because "only this change touches
+`src/`" is the kind of claim that has to be checked once:
+
+| | |
+|---|---|
+| `37f1cc5`, their ADR 0073 | `crates/quorra-gpu/src/atlas.rs` — **the carry**, below. Plus `examples/lane_placement.rs`, three unit tests on `GlyphPlacement::of`, and a CI line |
+| `6157000`, their ADR 0072 | `crates/quorra-gpu`'s golden compared against its independent CPU reference at 2× and 4× as well as scale 1, with a per-pixel tolerance derived from that pixel's own alpha and store count. Tests only |
+| `6d796da`, their ADR 0071 | `examples/present_thread` proves an overlap by ordering rather than by counting presents; it was refusing 3 of 18 runs under load for a reason that was a wall clock. Example only |
+| `266747f`, `8c1edcc`, `b0dec96`, `f4065d8`, `3a96718`, `97ad95a` | their `doc/` |
+
+**No API change, and this tree needed no line adapting** — the eighth release in a row that cost it
+nothing to take. The bump is a `Cargo.lock` revision and nothing else.
+
+### The carry, and why this bump is not a "take it when convenient"
+
+`GlyphPlacement::of` quantised a placement's fractional device offset with
+`(fx * fq).round() as u16 % q`. That expression reaches `q` itself for any `fx ≥ 1 − 1/2q` — 3.1%
+of sub-pixel phases per axis at the default quantum of 16 — and the `% q` sent it to bucket 0 of
+the **same** pixel while the integer origin stayed put, so the tile was rasterised at phase zero
+and seated a whole device pixel from where the placement asked. In x, in y, or in both, on the lane
+that draws every glyph this viewer puts on a page.
+
+**It was in the configuration this product ships and in no configuration any gate here ran.**
+`doc/QUORRA_GLYPH_PHASE_CARRY.md` is their report; ADR 0498 is what this tree did about that second
+half, which is worth more than the pages.
+
+### The four lanes, at the quantum this product ships
+
+Both revisions run here in one worktree with `Cargo.lock` flipped between them, real Radeon 890M
+under RADV, `--profile gates`, on a desktop with a parallel round building beside it (load averages
+are in the logs; nothing below is a timing claim). **This is the first release matrix in this file
+taken at `Some(16)` rather than with the quantum off**, which is exactly the change ADR 0498 makes
+to the gate:
+
+| lane, scale | `cad50156` | `97ad95ac` |
+|---|---|---|
+| scale 1, `cpu` (the default gate) | 800 / 155 / 2 / 17 | **933 / 22 / 2 / 17** |
+| scale 1, `gpu` | 800 / 155 / 2 / 17 | **933 / 22 / 2 / 17** |
+| scale 4, `cpu` | 726 / 223 / 3 / 22 | **938 / 11 / 3 / 22** |
+| scale 4, `gpu` | 730 / 219 / 3 / 22 | **939 / 10 / 3 / 22** |
+
+Agree / differ / refused / not comparable. **133 pages on each lane at scale 1 and 212 and 209 at
+four times it**, no page going the other way on any of the four — `comm` over each pair of sorted
+name lists — and not one refusal moving. The magnified rows are the largest movement any bump has
+produced in this file, and they follow from the defect rather than from anything new: four times
+the scale is four times the glyph placements, with the same 3.1% of them per axis landing in the
+bucket that wrapped.
+
+**The differing lists at scale 1 are now the same twenty-two names with the quantum on and with it
+off**, `diff`-identical, which retires the sentence `tests/corpus.rs` carried about isolating the
+backend from the quantum's trade. The page-level cost attributed to that trade was this defect;
+what the trade actually costs is mean +0.02 of 255 on the eight cases `tests/real_pages.rs` gates.
+
+### What this round did not take
+
+- **No timing.** Two lanes at two scales, twice, on a machine that was not quiet.
+- **`quorra-pages`.** Still a member crate this tree has no reason to name.
+- **Their `lane_placement.rs` finding about `take_gpu_lane`.** Half of it is wrong for a stroke and
+  `QUORRA_FEEDBACK.md` §37.4 is the answer; nothing in this tree changes for it.

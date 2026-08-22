@@ -17,8 +17,13 @@
 //!
 //! # What it measures
 //!
-//! - **Fidelity**, with the glyph-phase quantum **off**, so that what is measured is the
-//!   adapter and the translation rather than a trade `real_pages.rs` already gates.
+//! - **Fidelity**, at **the glyph-phase quantum this product ships** — because a gate that turns
+//!   a setting off cannot see what the setting does. It ran with the quantum off for the whole of
+//!   its life, on the reasoning that doing so isolated the backend from a separately-gated trade,
+//!   and that is exactly where quorra's ADR 0073 hid: a rounding that reached the bucket count
+//!   itself and wrapped, seating 3.1% of sub-pixel phases per axis a whole device pixel out of
+//!   place, on the lane that draws text. `PDFVIEWER_QUORRA_GLYPH_QUANTUM=off` still runs the
+//!   isolation column (ADR 0498).
 //! - **Refusals**, by name: a page quorra cannot draw is a hole in the backend, and it must
 //!   be one somebody wrote down rather than one nobody counted.
 //! - **Speed**, both totals and the per-page median ratio, which answer different questions.
@@ -34,8 +39,10 @@
 //!
 //! `PDFVIEWER_QUORRA_ONLY=a,b` restricts it to matching file names and **refuses to check the
 //! ratchets**, saying so — a list held to equality over a subset would report every document
-//! the filter excluded as fixed. Debug builds are ~15× slower here; the numbers below are
-//! release numbers and the run says which it took.
+//! the filter excluded as fixed. `PDFVIEWER_QUORRA_SCALE`, `PDFVIEWER_QUORRA_COVERAGE` and
+//! `PDFVIEWER_QUORRA_GLYPH_QUANTUM` are the other three knobs, each documented at the function
+//! that reads it, and each turning the ratchets off for the same reason. Debug builds are ~15×
+//! slower here; the numbers below are release numbers and the run says which it took.
 
 #![expect(
     clippy::print_stdout,
@@ -118,6 +125,61 @@ fn coverage() -> quorra_gpu::Coverage {
         "gpu" => quorra_gpu::Coverage::Gpu,
         other => panic!("PDFVIEWER_QUORRA_COVERAGE={other}: expected `cpu` or `gpu`"),
     }
+}
+
+/// The glyph-phase quantum this run draws with, which `PDFVIEWER_QUORRA_GLYPH_QUANTUM` may
+/// override with `off` or a bucket count.
+///
+/// **The default is [`render_quorra::options`]'s, so the gate draws what the viewer draws.** It
+/// was `None` for the whole of this gate's life, on the reasoning that a quantum-off run isolates
+/// the backend's fidelity from a sub-1/32-pixel trade `real_pages.rs` gates separately — and that
+/// reasoning is what let a whole-pixel misplacement live in the shipped configuration where the
+/// 974-page instrument could not reach it. quorra's ADR 0073: `(fx · q).round()` reaches `q`
+/// itself on 3.1% of sub-pixel phases per axis, and the `% q` that followed seated the mark in
+/// the *previous* pixel. The only gate that could see it was an envelope over a mean, a worst
+/// tile and an SSIM, which a 3% population of whole-pixel errors moves without breaking. So the
+/// default is the shipped setting and the isolation run is the override, not the other way round
+/// (ADR 0498).
+///
+/// Overriding it **skips the ratchets**, for the same reason the scale and coverage knobs do: the
+/// lists below are measured at one setting, and a list held to equality under another would report
+/// that setting's own difference as a change in this backend. That the two settings currently
+/// *agree* page for page is a measurement rather than a property — it is what ADR 0498 ran — and
+/// a gate that assumed it would be asserting the very thing it exists to watch.
+///
+/// A value that is neither `off` nor a positive bucket count is a **panic**, for
+/// [`coverage`]'s reason: a typo that quietly measured the default would be a run reported as the
+/// setting it did not use.
+#[expect(
+    clippy::panic,
+    reason = "a mistyped quantum must stop the run: the alternative is a survey headed \
+              `quantum off` that measured the shipped one"
+)]
+fn glyph_quantum() -> Option<u16> {
+    let Ok(value) = std::env::var("PDFVIEWER_QUORRA_GLYPH_QUANTUM") else {
+        return render_quorra::options().glyph_quantum;
+    };
+    match value.trim() {
+        "" => render_quorra::options().glyph_quantum,
+        "off" | "none" => None,
+        other => Some(
+            other
+                .parse::<u16>()
+                .ok()
+                .filter(|q| *q > 0)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "PDFVIEWER_QUORRA_GLYPH_QUANTUM={other}: expected `off` or a positive \
+                         bucket count"
+                    )
+                }),
+        ),
+    }
+}
+
+/// How a quantum reads in a line a person reads.
+fn quantum_name(quantum: Option<u16>) -> String {
+    quantum.map_or_else(|| "off".to_owned(), |q| format!("1/{q}"))
 }
 
 /// How many threads quorra's geometry phase may use for this run, which
@@ -599,22 +661,13 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
         println!("skipped: the doc/pdf.js submodule is not checked out");
         return;
     };
-    let scale = scale();
-    let coverage = coverage();
+    let settings = Settings::from_environment();
+    let scale = settings.scale;
     let only = std::env::var("PDFVIEWER_QUORRA_ONLY").ok();
     let files = selected(files, only.as_deref());
 
-    // The quantum off: this gate isolates the backend's fidelity from the deliberate
-    // sub-1/32-pixel trade `real_pages.rs` gates separately.
-    let threads = encode_threads();
-    let mut quorra = QuorraRasterizer::with_options(&quorra_gpu::Options {
-        glyph_quantum: None,
-        encode_threads: threads,
-        ..render_quorra::options()
-    })
-    .unwrap_or_else(|e| panic!("no adapter available for quorra: {e}"));
-    quorra.set_coverage(coverage);
-    announce(&quorra, files.len(), scale, coverage, threads);
+    let mut quorra = settings.rasterizer();
+    announce(&quorra, files.len(), settings);
 
     let started = Instant::now();
     let mut agreed = 0usize;
@@ -698,7 +751,7 @@ fn every_corpus_page_agrees_with_the_cpu_oracle() {
     );
 
     hold(
-        ratchets(files.len(), scale, coverage, only.is_some()),
+        ratchets(files.len(), settings, only.is_some()),
         &refused,
         &differing,
     );
@@ -748,28 +801,75 @@ enum Ratchets {
     None,
 }
 
+/// What a run was configured with: the four knobs, carried together so that the one function
+/// that decides which lists a run may be held to sees all of them.
+#[derive(Clone, Copy)]
+struct Settings {
+    scale: f32,
+    coverage: quorra_gpu::Coverage,
+    threads: usize,
+    quantum: Option<u16>,
+}
+
+impl Settings {
+    /// The four knobs as the environment leaves them, each read by the function that documents it.
+    fn from_environment() -> Self {
+        Self {
+            scale: scale(),
+            coverage: coverage(),
+            threads: encode_threads(),
+            quantum: glyph_quantum(),
+        }
+    }
+
+    /// A backend configured this way.
+    ///
+    /// **The quantum and the thread count are the only two of quorra's options this overrides**,
+    /// and both default to what [`render_quorra::options`] ships: the gate draws what the viewer
+    /// draws, because a gate that turns a shipped setting off is measuring a configuration nobody
+    /// runs (ADR 0498). The coverage lane is not an option but a call, so it is set after.
+    #[expect(
+        clippy::panic,
+        reason = "test code: a machine with no adapter cannot run this gate, and saying so is \
+                  the intended failure"
+    )]
+    fn rasterizer(self) -> QuorraRasterizer {
+        let mut quorra = QuorraRasterizer::with_options(&quorra_gpu::Options {
+            glyph_quantum: self.quantum,
+            encode_threads: self.threads,
+            ..render_quorra::options()
+        })
+        .unwrap_or_else(|e| panic!("no adapter available for quorra: {e}"));
+        quorra.set_coverage(self.coverage);
+        quorra
+    }
+}
+
 /// Which ratchets below the survey are checked, saying why when some are not.
 ///
 /// The refusal lists and the differing lists are measured over the whole corpus, at [`SCALE`], on
-/// quorra's default coverage lane — exactly, because a measurement taken anywhere else is a
-/// different measurement — so each of the three knobs turns them off. A list held to equality
-/// over a subset would report every document the filter excluded as fixed, and a list held over
-/// the *other* lane would report the two lanes' stated difference (quorra's ADR 0016) as a change
-/// in this backend.
+/// quorra's default coverage lane, at the shipped glyph quantum — exactly, because a measurement
+/// taken anywhere else is a different measurement — so each of those knobs turns them off. A list
+/// held to equality over a subset would report every document the filter excluded as fixed, and a
+/// list held over the *other* lane would report the two lanes' stated difference (quorra's ADR
+/// 0016) as a change in this backend.
 ///
 /// **One knob has a ratchet of its own since the four-hundred-and-seventy-eighth session**:
 /// the same corpus at [`MAGNIFIED`] on the default lane holds [`REFUSED_BY_THE_DEVICE_AT_FOUR`]
 /// beside [`REFUSED_BEFORE_THE_SCENE`]. Its doc
 /// comment is the argument for why that list can be held now and could not be before.
-fn ratchets(
-    documents: usize,
-    scale: f32,
-    coverage: quorra_gpu::Coverage,
-    filtered: bool,
-) -> Ratchets {
-    // Every list below was measured over the whole corpus on the default lane; only the scale
-    // decides which of them a run can still be held to.
-    let as_measured = !filtered && coverage == quorra_gpu::Coverage::Cpu;
+fn ratchets(documents: usize, settings: Settings, filtered: bool) -> Ratchets {
+    let Settings {
+        scale,
+        coverage,
+        quantum,
+        ..
+    } = settings;
+    // Every list below was measured over the whole corpus on the default lane at the shipped
+    // quantum; only the scale decides which of them a run can still be held to.
+    let as_measured = !filtered
+        && coverage == quorra_gpu::Coverage::Cpu
+        && quantum == render_quorra::options().glyph_quantum;
     if as_measured && is_exactly(scale, SCALE) {
         return Ratchets::All;
     }
@@ -784,11 +884,12 @@ fn ratchets(
         return Ratchets::RefusalsUnderMagnification;
     }
     println!(
-        "{documents} of the corpus at scale {scale} on the {} lane. The ratchets below are NOT \
-         checked: they are measured over the whole corpus at scale {SCALE} on the default lane, \
-         and a list held to equality over anything else would report every document it excluded \
-         as fixed.",
-        lane_name(coverage)
+        "{documents} of the corpus at scale {scale} on the {} lane with the glyph quantum {}. The \
+         ratchets below are NOT checked: they are measured over the whole corpus at scale {SCALE} \
+         on the default lane at the shipped quantum, and a list held to equality over anything \
+         else would report every document it excluded as fixed.",
+        lane_name(coverage),
+        quantum_name(quantum)
     );
     Ratchets::None
 }
@@ -815,18 +916,19 @@ fn lane_name(coverage: quorra_gpu::Coverage) -> &'static str {
 ///
 /// Both matter to every number this gate prints: a software adapter and a discrete GPU are
 /// different machines, and a debug build is ~15× slower here.
-fn announce(
-    quorra: &QuorraRasterizer,
-    documents: usize,
-    scale: f32,
-    coverage: quorra_gpu::Coverage,
-    threads: usize,
-) {
+fn announce(quorra: &QuorraRasterizer, documents: usize, settings: Settings) {
+    let Settings {
+        scale,
+        coverage,
+        threads,
+        quantum,
+    } = settings;
     println!("adapter: {}", quorra.adapter_description());
     println!(
         "{documents} documents, page one, at scale {scale}, {} coverage lane, \
-         {threads} encode thread(s), {} build",
+         glyph quantum {}, {threads} encode thread(s), {} build",
         lane_name(coverage),
+        quantum_name(quantum),
         if cfg!(debug_assertions) {
             "debug"
         } else {

@@ -220,6 +220,27 @@ here:
   §2 does not exercise — which `74c4994d` was, and it took 24 refusals off that lane at 4× while
   moving nothing at all on the default one (ADR 0283) — and one that changes the zoom path.
 
+- **The quorra gate runs at the quantum this product ships, and that is the line above rather than
+  a fourth run.** It is the same invocation: since the six-hundred-and-seventy-third session
+  `tests/corpus.rs` takes `render_quorra::options()`'s `glyph_quantum` instead of forcing it off,
+  so the sequence's own line measures the shipped configuration and **costs nothing extra** — it is
+  in fact the *faster* of the two settings, because the atlas reuse the quantum exists for is what
+  the run then gets. `PDFVIEWER_QUORRA_GLYPH_QUANTUM=off` is the isolation column, and like the
+  other knobs it turns the ratchets off.
+
+  **What that column would have caught is the reason it is here.** For the whole of this gate's
+  life it turned the setting off, on reasoning that sounded like isolation — and quorra's ADR 0073
+  then found `GlyphPlacement::of` rounding a fractional phase up to the bucket count and taking
+  `% q` of it, which seated 3.1% of sub-pixel phases per axis a whole device pixel from where the
+  placement asked, on the lane that draws text. Run at the shipped quantum against the pin before
+  the fix, this gate reports **155 pages differing where its ratchet holds 22**, and fails on the
+  list rather than on a statistic. The only gate that could see it at all was
+  `real_pages.rs::the_glyph_quantum_cost_stays_bounded`, an envelope over a mean, a worst tile and
+  an SSIM — and a 3% population of whole-pixel misplacements moves an envelope without breaking it,
+  which is exactly what it did. ADR 0498. **The general rule is worth more than the instance: a
+  gate that turns a shipped setting off is measuring a configuration nobody runs**, and the
+  isolation it buys is worth having as a second column and not as the only one.
+
 - **`fuzz/` is not in the workspace, so nothing above it builds the targets.** `members` is
   `["crates/*", "tools/*"]`; `--workspace` reaches neither the fuzz crate nor its fourteen binaries,
   and the line added above is the whole fix. It is a `check`, not a `build`: it costs seconds, wants

@@ -10,12 +10,18 @@
 //!
 //! - **Fidelity**, with the glyph-phase quantum off: what the adapter and quorra
 //!   add on top of the unavoidable rasteriser-vs-rasteriser antialiasing floor.
-//!   Measured answer: nothing — quorra sits at the Vello backend's exact distance
-//!   from the oracle on every case (see the constants).
+//!   Measured answer: nothing beyond that floor (see the constants).
 //! - **The quantum's cost envelope**, at the default 1/16: the caller's own `RENDER_LIBRARY.md` section 4.5
 //!   decision (ADR 0131, 5× glyph-cache reuse) moves text by at most 1/32 px,
 //!   which trades edge pixels without touching structure. Its measured cost is
 //!   pinned so a quantisation regression shows as a failure, not a drift.
+//!
+//! **The second gate was the only instrument in either tree that could see quorra's ADR
+//! 0073**, and its constants were four to nine times what they were holding, so it did not.
+//! Both sets are re-derived from the run in ADR 0498 and both are forced against the pin
+//! before the fix; the constants' own doc comments carry the numbers and the forcing.
+//! `tests/corpus.rs` now runs the 974-page instrument at the shipped quantum too, which is
+//! the wider half of that answer — this file gates four pages and that one gates the corpus.
 
 #![expect(
     clippy::expect_used,
@@ -33,21 +39,38 @@ use render_quorra::QuorraRasterizer;
 
 const GENEROUS: u64 = 1 << 30;
 
-/// Fidelity gates, quantum off. Measured on this machine (RADV): quorra's worst
-/// case across the eight page/scale combinations is mean 1.18 / worst tile 5.4 /
-/// ssim 0.9944 (pages 5 and 6 @1.0) — the Vello backend measures mean 1.16 /
-/// worst 3.2 / ssim 0.9955 on the same cases, so the two rasterisers' glyph
-/// antialiasing is essentially the whole floor. A missing paragraph is worst
-/// tile > 100.
-const MAX_MEAN_ERROR: f64 = 1.5;
-const MAX_WORST_TILE_ERROR: f64 = 7.0;
-const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
+/// Fidelity gates, quantum off: the rasteriser-vs-rasteriser antialiasing floor and
+/// nothing else. Worst across the eight page/scale combinations is **mean 0.4989 /
+/// worst tile 3.15 / ssim 0.99870** (page 6 @1.0 for the first and third, page 0 of
+/// `PDF20_AN001-BPC` @1.0 for the second). A missing paragraph is worst tile > 100.
+///
+/// **Both numbers below were measured on two adapters** — RADV on this machine and
+/// llvmpipe, which is what CI has — and they agree to the fourth decimal, which is
+/// why a bound this close to the measurement is not an adapter's luck (ADR 0498).
+const MAX_MEAN_ERROR: f64 = 0.75;
+const MAX_WORST_TILE_ERROR: f64 = 4.5;
+const MIN_STRUCTURAL_SIMILARITY: f64 = 0.9975;
 
-/// The quantum's measured envelope at the default 1/16 (worst observed: mean 1.85,
-/// worst tile 20.2, ssim 0.9670 — page 4 @1.0 and page 6 @1.9008), with margin.
-const QUANTISED_MAX_MEAN: f64 = 2.5;
-const QUANTISED_MAX_WORST_TILE: f64 = 30.0;
-const QUANTISED_MIN_SSIM: f64 = 0.95;
+/// The quantum's measured envelope at the default 1/16: worst observed **mean 0.5194 /
+/// worst tile 3.22 / ssim 0.99857**, on the same three cases as the floor above. The
+/// whole of what the quantum costs on these pages is therefore **mean +0.02, worst tile
+/// +0.07, ssim −0.00013** — which is what a sub-1/32-pixel trade should look like.
+///
+/// **These constants were 2.5 / 30.0 / 0.95 and are not any more, because the numbers
+/// they were sized for were a defect rather than the trade.** Their doc comment recorded
+/// a worst observed of mean 1.85 / worst tile 20.2 / ssim 0.9670; quorra's ADR 0073
+/// found `GlyphPlacement::of` rounding a fractional phase up to the bucket count and then
+/// taking `% q` of it, which seated 3.1% of phases per axis a whole device pixel from
+/// where the placement asked. This gate was the only one in either tree that could see
+/// that at all, and an envelope five times the size of what it was holding did not — it
+/// is the whole of ADR 0498's argument for tightening rather than a tidy-up. **Forced
+/// both ways**: at the previous pin (`cad50156`) every one of the eight cases breaks at
+/// least two of these three — worst tile ran from 7.79 to 20.10 and SSIM down to 0.99155
+/// — while the old envelope passed all eight, its widest constant holding 20.10 against
+/// 30.0. At `97ad95ac` the worst case sits at two thirds of the mean bound.
+const QUANTISED_MAX_MEAN: f64 = 0.80;
+const QUANTISED_MAX_WORST_TILE: f64 = 4.8;
+const QUANTISED_MIN_SSIM: f64 = 0.9970;
 
 /// The specification's own PDFs, which every checkout has (the same cases as
 /// render-gpu's real-page suite; page 6 of ISO 32000-2 is the dense witness).
@@ -142,6 +165,14 @@ fn the_glyph_quantum_cost_stays_bounded() {
                 .rasterize(&list, target)
                 .unwrap_or_else(|e| panic!("{what}: quorra refused: {e}"));
             let c = raster_compare::compare(&cpu, &ours).expect("same dimensions");
+            // **Printed, because a bound is only re-derivable from what it is holding.** This
+            // gate asserted three constants for its whole life and printed nothing, so the round
+            // that found them oversized by an order of magnitude had to add a line to see it
+            // (ADR 0498).
+            println!(
+                "{what}: mean {:.4} worst tile {:.2} at {:?} ssim {:.5}",
+                c.mean_error, c.worst_tile_error, c.worst_tile_at, c.structural_similarity,
+            );
             assert!(
                 c.mean_error < QUANTISED_MAX_MEAN
                     && c.worst_tile_error < QUANTISED_MAX_WORST_TILE
