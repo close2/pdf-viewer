@@ -36,7 +36,21 @@ pub(super) enum PatternPaint {
     /// the clause makes it a clip "in addition to the current clipping path … in effect at
     /// that time" — the time being when the *pattern is painted*, which may be several `q`
     /// levels away from the `scn` that selected it.
-    Shading(Arc<Shading>, Option<([f32; 4], Transform)>),
+    Shading {
+        /// The geometry and the colours, the second built under [`Self::Shading::transfer`].
+        shading: Arc<Shading>,
+        /// Table 77's `/BBox` where the pattern's shading states one, and the transform that
+        /// places it.
+        bbox: Option<([f32; 4], Transform)>,
+        /// ISO 32000-2 §10.5's transfer function that `shading`'s colours were built under —
+        /// the one in force at the `scn` that selected this pattern.
+        ///
+        /// Kept so that the paint can tell whether it is still the one the clause asks for.
+        /// A shading's colours are resolved when the pattern is *selected* and painted later,
+        /// possibly several graphics states later; `Interpreter::note_transfer` compares this
+        /// with the state at the mark and says so when they differ.
+        transfer: Option<Arc<crate::content::Transfer>>,
+    },
     /// A tiling pattern (`/PatternType 1`).
     Tiling(Rc<Tiling>),
 }
@@ -100,7 +114,7 @@ impl Interpreter<'_> {
         } else {
             state.stroke_pattern.as_ref()
         };
-        let Some(PatternPaint::Shading(shading, bbox)) = pattern else {
+        let Some(PatternPaint::Shading { shading, bbox, .. }) = pattern else {
             return state.clip;
         };
         let shading = Arc::clone(shading);
@@ -789,22 +803,36 @@ impl Interpreter<'_> {
             self.rect_clip(corners, state.transform, state.clip)
                 .or(state.clip)
         });
+        // §10.5's transfer function. An `sh` builds its shading at the mark, so the state here is
+        // the state the clause asks about and nothing can have moved between them.
+        let conversion = self.conversion(state);
+        let colouring = crate::shading::Colouring::new(
+            state.smoothness,
+            &conversion,
+            state.transfer.as_deref(),
+        );
         match self.shadings.build(
             self.document,
             &object,
             resources,
             state.transform,
-            state.smoothness,
-            &self.conversion(state),
+            colouring,
         ) {
             Ok(shading) => {
                 // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
 
-                // §11.6.4.4 makes `sh` a non-stroking painting operation, and §10.5's function
-                // reaches none of the colours this shading carries.
-                self.note_transfer(state, Painted::Shading { stroking: false });
+                // §11.6.4.4 makes `sh` a non-stroking painting operation. `stale: false`
+                // because the shading above was built from this very state: §10.5's function
+                // has reached every colour it carries.
+                self.note_transfer(
+                    state,
+                    Painted::Shading {
+                        stroking: false,
+                        stale: false,
+                    },
+                );
                 self.list.push(Command::Fill {
                     path: Arc::new(path),
                     transform,
@@ -959,22 +987,32 @@ impl Interpreter<'_> {
             });
         }
 
+        // §10.5's transfer function is applied to every colour the shading produces, and it is the
+        // state's at the `scn` rather than at the paint — which is where this tree already resolves
+        // §8.6.5.9's black point and §11.4.7's compositing target for the same colours.
+        // `note_transfer` reports the case where the two states differ.
+        let conversion = self.conversion(state);
+        let colouring = crate::shading::Colouring::new(
+            state.smoothness,
+            &conversion,
+            state.transfer.as_deref(),
+        );
         match self.shadings.build(
             self.document,
             &shading_object,
             resources,
             matrix.then(self.base),
-            state.smoothness,
-            &self.conversion(state),
+            colouring,
         ) {
-            Ok(shading) => Some(PatternPaint::Shading(
-                Arc::new(shading),
+            Ok(shading) => Some(PatternPaint::Shading {
+                shading: Arc::new(shading),
                 // Stated "in the shading's target coordinate space", which for a pattern is
                 // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
                 // inside `build` and comes *after* this.
-                crate::shading::bbox_of(self.document, &shading_object)
+                bbox: crate::shading::bbox_of(self.document, &shading_object)
                     .map(|corners| (corners, matrix.then(self.base))),
-            )),
+                transfer: state.transfer.clone(),
+            }),
             Err(error) => {
                 self.note(Unsupported::Shading {
                     name: format!("/{label}: {error}"),

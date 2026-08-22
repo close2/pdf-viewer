@@ -221,10 +221,13 @@ pub enum Unsupported {
     /// the topmost object is fully opaque and nowhere else. See
     /// [`Interpreter::note_transfer`] for the six conditions and how the ancestry is carried.
     ///
-    /// **§10.5 asks for every component value the device receives**, and a shading's colours do
-    /// not pass through the map at all — they are produced by a ramp, a mesh or a sampled
-    /// function that the display list carries whole, and the transfer would have to reach each
-    /// of them. Reported where a shading is painted with one in force.
+    /// **§10.5 asks for every component value the device receives**, and a shading's are made in
+    /// `crate::shading` — a ramp's samples, a mesh's corners, a function-based shading's grid —
+    /// where the function reaches all of them since the six-hundred-and-fiftieth session. What is
+    /// left is *when*: §8.7.2 resolves a shading pattern's colour at the `scn` that selects it,
+    /// and the mark may be several graphics states later, so a file that states a different
+    /// transfer function in between is painted with the earlier one. Reported for that case
+    /// alone, which is one the `sh` operator cannot reach.
     TransferFunction {
         /// Which clause, which condition matched, and what it costs the page.
         detail: String,

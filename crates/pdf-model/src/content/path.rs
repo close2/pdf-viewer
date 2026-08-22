@@ -60,7 +60,7 @@ impl Interpreter<'_> {
             {
                 self.tile(&shared, state.transform, rule, &tiling, state);
             } else if let Some(rule) = fill {
-                self.note_transfer(state, Painted::of(state.fill_pattern.as_ref(), false));
+                self.note_transfer(state, Painted::of(state, false));
                 self.list.push(Command::Fill {
                     path: Arc::clone(&shared),
                     transform: state.transform,
@@ -82,7 +82,7 @@ impl Interpreter<'_> {
                 });
             }
             if stroke.is_some() {
-                self.note_transfer(state, Painted::of(state.stroke_pattern.as_ref(), true));
+                self.note_transfer(state, Painted::of(state, true));
                 self.list.push(Command::Stroke {
                     path: Arc::clone(&shared),
                     transform: state.transform,
