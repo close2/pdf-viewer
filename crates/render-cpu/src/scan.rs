@@ -202,11 +202,97 @@ pub(crate) fn fill(
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
     if let Some(inputs) = clip.composable()
-        && intersected(pixmap, path, &paint, fill_rule, at, inputs)
+        && intersected(pixmap, path, &paint, fill_rule, (at, None), inputs)
     {
         return;
     }
     pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
+}
+
+/// [`fill`], for a mark `pdf_render::device_rectangle` says is one axis-aligned rectangle on the
+/// device's own grid — ISO 32000-2 §10.7.4.
+///
+/// `rect` is that rectangle, already in device space; `path` is the same shape in the space `at`
+/// maps from, and is what every branch below that is not the rectangle scan converter falls back
+/// to. The two are the same mark stated twice, which is what lets this decline without the caller
+/// having to know it did.
+///
+/// # Why a rectangle gets its own call, when `fill_path` would draw it
+///
+/// `tiny-skia`'s anti-aliased **path** scan converter supersamples four times per axis. An
+/// axis-aligned edge looks the same to all four sub-rows, so it is measured four ways and answers
+/// the same one: an edge's coverage comes out **rounded to a quarter of a pixel**, and to nothing
+/// at all below an eighth. §10.7.4's third sentence is what that is on the wrong side of —
+///
+/// > The area covered by painted pixels shall always be at least as large as the area of the
+/// > original shape.
+///
+/// — and the anti-aliasing departure §10.7.1's NOTE licenses does not reach it, because
+/// "anti-aliasing gives the shape's area; coming out *under* it is a defect" is this tree's own
+/// rule for telling the two apart (`doc/todo/_scan-conversion.md`).
+///
+/// `tiny_skia::PixmapMut::fill_rect` is the same library's **rectangle** scan converter, and it is
+/// the clause's own arithmetic rather than a sampler: it walks the rectangle as one interior run,
+/// four edges and four corners in 8.8 fixed point, giving each boundary pixel the product of its
+/// two one-dimensional overlaps — which `pdf_render::edge` derives from §10.7.4's definition of a
+/// pixel as `[i, i+1) × [j, j+1)`. So the nine pieces `doc/todo/11` item 7 priced are one call,
+/// and the call is *cheaper* than the path it replaces rather than dearer: no supersampled
+/// accumulation, no alpha-run buffer, and a `memset` for the interior. ADR 0476 has the
+/// measurement.
+///
+/// # A composable clip goes the other way, and it has to
+///
+/// Where [`intersected`] applies, the mark's coverage is built into a buffer and met by `min`
+/// rather than by a product (ADR 0355), so it cannot go through the library's rectangle call at
+/// all. It is handed the rectangle instead — [`mask_fill`] writes the same closed form into that
+/// buffer — and **the alternative is not "keep the quantum there", it is a broken clause**: a mark
+/// painted at its exact area under a region still measured to a quarter differs from the same mark
+/// unclipped by up to 26 levels of 255, where §10.7.4's own set identity `S ∩ C = S` says a clip
+/// containing a mark takes nothing from it. `render-cpu/tests/clip_intersection.rs` measures
+/// exactly that and is what caught it.
+///
+/// # The two things it does hand back
+///
+/// - **A mark whose anti-aliasing was withdrawn**, which is `fill`'s range rule: outside
+///   [`SUPERSAMPLED_LIMIT`] the aliased converter is what draws, and the two round a boundary
+///   pixel to opposite ends. Nothing about the range changes here.
+/// - **Nothing else.** Every blend mode and every shader is safe, because `fill_rect_aa` and
+///   `fill_path` hand their coverage to the *same* `RasterPipelineBlitter` — as alpha runs and as
+///   one-pixel masks — so the composition each pixel receives is the same function of its
+///   coverage. That is why this does not carry [`crate::carries_coverage_as_alpha`]'s condition,
+///   which is about a construction that delivers coverage some other way.
+pub(crate) fn fill_rectangle(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    (path, rect): (&tiny_skia::Path, tiny_skia::Rect),
+    paint: &tiny_skia::Paint<'_>,
+    at: tiny_skia::Transform,
+    clip: Clip<'_>,
+) {
+    let mut paint = paint.clone();
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, within(Some(rect)));
+    if let Some(inputs) = clip.composable()
+        && intersected(
+            pixmap,
+            path,
+            &paint,
+            tiny_skia::FillRule::Winding,
+            (at, Some(rect)),
+            inputs,
+        )
+    {
+        return;
+    }
+    if !paint.anti_alias {
+        pixmap.fill_path(path, &paint, tiny_skia::FillRule::Winding, at, clip.mask());
+        return;
+    }
+    // The paint carries the transform the library would have applied to it. `fill_rect` reaches
+    // its own scan converter only for an identity transform — with any other it builds a path and
+    // goes back to the supersampled one — so the shape is stated on the device's grid and the
+    // shader is moved there one call earlier, which is what [`intersected`] does for the same
+    // reason. Trap 2 is what this costs to get wrong.
+    paint.shader.transform(at);
+    pixmap.fill_rect(rect, &paint, tiny_skia::Transform::identity(), clip.mask());
 }
 
 /// Draws `path` with its own coverage meeting `admitted` by `min`, ISO 32000-2 §10.7.4.
@@ -274,7 +360,7 @@ fn intersected(
     path: &tiny_skia::Path,
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
-    at: tiny_skia::Transform,
+    (at, exact): (tiny_skia::Transform, Option<tiny_skia::Rect>),
     (admitted, value, scratch): (&tiny_skia::Mask, Option<&[u8]>, &Scratch),
 ) -> bool {
     if !crate::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
@@ -324,7 +410,7 @@ fn intersected(
             row.fill(0);
         }
     }
-    mask_fill(coverage, path, fill_rule, paint.anti_alias, at);
+    mask_fill(coverage, path, fill_rule, paint.anti_alias, (at, exact));
     let bound = admitted.data();
     let mark = coverage.data_mut();
     for row in reach.rows() {
@@ -519,15 +605,135 @@ pub(crate) fn stroke(
 }
 
 /// [`tiny_skia::Mask::fill_path`], with the range applied to `anti_alias`.
+///
+/// `exact` is the device rectangle `pdf_render::device_rectangle` says this path is, where it says
+/// so, and it is the same substitution [`fill_rectangle`] makes for a mark: §10.7.4 says the
+/// clipping region "consists of the set of pixels that would be included by a fill operation", so a
+/// rectangular clip is scan-converted by the rule a rectangular fill is. **The two have to agree or
+/// the identity `S ∩ C = S` breaks**: a mark painted at its exact area under a region measured to a
+/// quarter is drawn at the quarter, which is 26 levels of 255 at a boundary pixel and is what
+/// `render-cpu/tests/clip_intersection.rs` measures. ADR 0476.
 pub(crate) fn mask_fill(
     mask: &mut tiny_skia::Mask,
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
-    at: tiny_skia::Transform,
+    (at, exact): (tiny_skia::Transform, Option<tiny_skia::Rect>),
 ) {
     let anti_alias = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
+    if anti_alias
+        && let Some(rect) = exact
+        && within(Some(rect))
+    {
+        mask_rectangle(mask, rect);
+        return;
+    }
     mask.fill_path(path, fill_rule, anti_alias, at);
+}
+
+/// Writes an axis-aligned rectangle's own coverage into `mask` — ISO 32000-2 §10.7.4.
+///
+/// The same nine pieces [`fill_rectangle`] hands to `tiny-skia`'s rectangle scan converter — one
+/// interior run, four edges, four corners — written out here because a `Mask` has no rectangle
+/// entry point of its own, only `fill_path`. `pdf_render::rectangle_coverage` is the arithmetic in
+/// both places, so the mark and the region are measured by one rule.
+///
+/// A positive coverage under one level of 255 is stated *at* one level, which is
+/// `pdf_render::expressible_coverage` and ADR 0419's reading of "no shape ever disappears": a
+/// region that admits a sliver of a pixel must not be a region that admits nothing there.
+///
+/// **It takes the larger of what is there and what it writes**, which keeps
+/// [`tiny_skia::Mask::fill_path`]'s "draws on top of existing data" contract in the only direction
+/// that matters. Every caller in this crate fills a region that is clear — a fresh mask, a cleared
+/// scratch, or the rows [`intersected`] has just zeroed — so the two are the same value there.
+///
+/// **The interior is a run rather than a loop of pixels**, and that is the measurement rather than
+/// a preference: a page-wide rectangular clip is the commonest clip in the corpus, and asking
+/// `pdf_render::rectangle_coverage` per pixel over one costs `colors.pdf`'s page **+33% of its
+/// whole rasterisation**, where filling the run costs nothing measurable. The three calls a row
+/// makes are its two boundary columns and one interior column, whose answer is the row's own
+/// overlap because an interior column's is 1.
+fn mask_rectangle(mask: &mut tiny_skia::Mask, rect: tiny_skia::Rect) {
+    let (width, height) = (mask.width(), mask.height());
+    let stride = width as usize;
+    let (left, right) = (
+        clamped(rect.left(), width),
+        clamped(rect.right().ceil(), width),
+    );
+    let (top, bottom) = (
+        clamped(rect.top(), height),
+        clamped(rect.bottom().ceil(), height),
+    );
+    if left >= right || top >= bottom {
+        return;
+    }
+    let area = pdf_render::Rect::from_corners(
+        pdf_render::Point::new(rect.left(), rect.top()),
+        pdf_render::Point::new(rect.right(), rect.bottom()),
+    );
+    // The columns whose overlap is a whole pixel, which is where the run goes. Both boundary
+    // columns are outside it, whether or not their own overlap happens to be whole.
+    let inner =
+        clamped(rect.left().ceil(), width) as usize..clamped(rect.right().floor(), width) as usize;
+    let (left, right) = (left as usize, right as usize);
+    let (top, bottom) = (top as usize, bottom as usize);
+    for (row, scanline) in mask
+        .data_mut()
+        .chunks_exact_mut(stride)
+        .enumerate()
+        .skip(top)
+        .take(bottom.saturating_sub(top))
+    {
+        let mut boundaries = [None, None];
+        if inner.start > left {
+            boundaries[0] = Some(left);
+        }
+        if inner.end < right {
+            boundaries[1] = Some(right.saturating_sub(1));
+        }
+        for column in boundaries.into_iter().flatten() {
+            let coverage = pdf_render::rectangle_coverage(area, f32_of(column), f32_of(row));
+            if coverage > 0.0
+                && let Some(byte) = scanline.get_mut(column)
+            {
+                *byte = (*byte).max(level_of(pdf_render::expressible_coverage(coverage)));
+            }
+        }
+        if inner.is_empty() {
+            continue;
+        }
+        let down = pdf_render::rectangle_coverage(area, f32_of(inner.start), f32_of(row));
+        if down <= 0.0 {
+            continue;
+        }
+        let level = level_of(pdf_render::expressible_coverage(down));
+        if let Some(run) = scanline.get_mut(inner.start..inner.end) {
+            for byte in run {
+                *byte = (*byte).max(level);
+            }
+        }
+    }
+}
+
+/// A pixel index as the coordinate of its own lower corner, which is what §10.7.4's `i` and `j`
+/// are. Exact for every raster this backend can allocate.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a raster's own pixel index, bounded by `MAX_EXTENT` and far inside f32's integers"
+)]
+fn f32_of(index: usize) -> f32 {
+    index as f32
+}
+
+/// A coverage in `0.0..=1.0` as the level an eight-bit mask holds, rounded to nearest.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is a coverage clamped to 0..=1 multiplied by 255, so the cast is in range \
+              by construction"
+)]
+fn level_of(coverage: f32) -> u8 {
+    (coverage.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 /// Narrows `mask` by a further clip path, taking the **smaller** of the two coverages.
@@ -574,10 +780,10 @@ pub(crate) fn mask_intersect(
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
-    at: tiny_skia::Transform,
+    (at, exact): (tiny_skia::Transform, Option<tiny_skia::Rect>),
 ) {
     scratch.clear();
-    mask_fill(scratch, path, fill_rule, anti_alias, at);
+    mask_fill(scratch, path, fill_rule, anti_alias, (at, exact));
     for (kept, &added) in mask.data_mut().iter_mut().zip(scratch.data()) {
         *kept = (*kept).min(added);
     }
@@ -608,7 +814,7 @@ mod tests {
             &half_plane(*root),
             tiny_skia::FillRule::Winding,
             true,
-            tiny_skia::Transform::identity(),
+            (tiny_skia::Transform::identity(), None),
         );
         for edge in nested {
             super::mask_intersect(
@@ -617,7 +823,7 @@ mod tests {
                 &half_plane(*edge),
                 tiny_skia::FillRule::Winding,
                 true,
-                tiny_skia::Transform::identity(),
+                (tiny_skia::Transform::identity(), None),
             );
         }
         mask.data().to_vec()
@@ -671,7 +877,7 @@ mod tests {
             &half_plane(x),
             tiny_skia::FillRule::Winding,
             true,
-            tiny_skia::Transform::identity(),
+            (tiny_skia::Transform::identity(), None),
         );
         mask
     }

@@ -24,13 +24,27 @@ the first three all in one direction:
 
 1. Both backends **anti-alias**, so a partly covered pixel is partly painted. **How finely
    "partly" is measured is the departure's own second half, and it went unstated for six hundred
-   sessions**: `render-cpu` rounds an edge's coverage to a *quarter* — `tiny-skia` samples four
+   sessions**: `render-cpu` rounded an edge's coverage to a *quarter* — `tiny-skia` samples four
    times per axis, at 0.125, 0.375, 0.625 and 0.875 — while the graphics device tracks the
    fraction to a level of 255. `render-quorra/examples/edge_coverage_ladder` prints both ladders
-   against the geometry, and ADR 0474 has what it costs: on `colors.pdf` our whole raster is the
+   against the geometry, and ADR 0474 has what it cost: on `colors.pdf` our whole raster was the
    page's closed form with every coverage so rounded, 33 levels of 255 from the exact one at the
    worst pixel. It is the quantum this file already records for a shape *thinner* than a pixel,
-   met at the edge of a thick one, and `doc/todo/11` item 7 prices the cure.
+   met at the edge of a thick one.
+
+   **The commonest shape in every PDF stopped paying it in the six-hundred-and-forty-sixth
+   session** (ADR 0476). §10.7.4 defines a pixel as a product of two half-open intervals and gives
+   a filled shape the same form, so an axis-aligned rectangle's coverage of a pixel is the product
+   of its two one-dimensional overlaps — exact, at every placement, and derived rather than
+   fitted. `pdf_render::edge` states the geometry for both backends, `render-cpu` hands such a
+   fill to `tiny-skia`'s **rectangle** scan converter rather than its path one, and writes the same
+   closed form into a rectangular **clip region's** mask, because this subclause says the region
+   "consists of the set of pixels that would be included by a fill operation" and the two must
+   therefore be one rule. Both backends now answer the ladder to a level of 255 at all twenty-one
+   rungs. **What still carries the quantum is every shape that is not a single axis-aligned
+   rectangle**, where it is a sixteenth rather than a quarter and averages along the edge; a glyph,
+   a curve, a diagonal and a path stating several rectangles are all in it, and `doc/todo/11`
+   item 7 says why the last of those is deliberate.
 2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
    four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
    states one region as *many* opaque fills, every internal boundary falls inside some device
@@ -207,14 +221,23 @@ departure explains and one it does not:
   thing about them until the six-hundred-and-forty-third session**: "every renderer agrees about
   the swatch interiors to the byte and sits on a spectrum of edge softness … we are furthest. The
   departure explains it whole." The interiors half is right and the rest is not. Sixteen
-  axis-aligned rectangles at known sub-pixel boundaries make each page a closed form; ours is that
+  axis-aligned rectangles at known sub-pixel boundaries make each page a closed form; ours was that
   form with every coverage rounded to `tiny-skia`'s quarter (max 1 level of 255 over the whole
   raster) and `hayro`'s is the exact one (max 2). From the geometry at the worst pixel: `hayro` 2,
   `mupdf` 13, ours 33, `ghostscript` 54, `poppler` 124 — two paint the shape's area, `poppler`
-  paints whole pixels, and we are third of five rather than the soft end of a spectrum. And the
+  paints whole pixels, and we were third of five rather than the soft end of a spectrum. And the
   departure does not explain the *verdict* at all: the exact
   form is contradicted here too, at ssim 0.98772 against a bound of 0.98862, because the pair that
   votes is the pair furthest from the geometry. ADR 0474.
+
+  **Since the six-hundred-and-forty-sixth our raster *is* the exact form (ADR 0476), and the two
+  pages confirm 643's prediction to the fourth decimal.** That session computed, from the file's
+  own arithmetic and with no code written, that a rasteriser painting precisely the covered area
+  would read ssim **0.98772** on page 1 and **0.98001** on page 2. The gate now measures
+  **0.9879** and **0.9802**, against bounds of 0.9886 and 0.9840. So both pages are still
+  contradicted, exactly as predicted and for the predicted reason — and the two numbers arriving
+  where a closed form said they would, by a route with no renderer in it, is the strongest evidence
+  this file has that the construction is the clause's and not a fit.
 - `AMBIGUOUS_SUB_PIXEL_LINE_WORK` — `22060_A1_01_Plans.pdf`: an A1 drawing whose four floor plans
   are **72 sampled images**, not strokes, which the four-hundred-and-thirty-second session counted
   after four sessions of this file calling it "*all* strokes under a pixel wide". Its 26 sub-pixel

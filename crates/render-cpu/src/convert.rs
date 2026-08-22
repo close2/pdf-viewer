@@ -30,6 +30,14 @@ pub(crate) fn from_skia_rect(r: tiny_skia::Rect) -> Rect {
     )
 }
 
+/// Converts a rectangle the other way, returning `None` where `tiny-skia` will not hold it.
+///
+/// That library keeps a rectangle valid by construction — finite, and with both sides positive —
+/// so a rectangle it refuses is one no painting operation could have used anyway.
+pub(crate) fn to_skia_rect(r: Rect) -> Option<tiny_skia::Rect> {
+    tiny_skia::Rect::from_ltrb(r.min.x, r.min.y, r.max.x, r.max.y)
+}
+
 /// Converts a path, returning `None` if `tiny-skia` rejects it.
 ///
 /// `tiny-skia` rejects empty paths and paths containing non-finite coordinates.

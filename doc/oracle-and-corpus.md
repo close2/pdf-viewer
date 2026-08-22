@@ -507,7 +507,13 @@ both pages. **The group is empty and both pages are diagnosed by what they diffe
   at 0.041 where the geometry is 0.827 and §10.7.4's clipping paragraph — a *set* of pixels
   intersected with a *set* of pixels — is 1.000. A ladder of `n` coincident clips reads 0.5025,
   0.2487, 0.1218, 0.0609, 0.0305, 0.0152. `CONTRADICTED_COINCIDENT_CLIP_EDGES`, left listed with the
-  price of `min` measured (ADR 0279, `doc/todo/11` item 4).
+  price of `min` measured (ADR 0279, `doc/todo/11` item 4). **It agrees since the
+  six-hundred-and-forty-sixth session and that group is empty**, by a route neither ADR predicted:
+  the boundary they all state falls at device 14.173, so each surviving factor was worth
+  `tiny-skia`'s quarter — 0.75 — where its own coverage is 0.827, and measuring an axis-aligned
+  rectangle's fill *and* its clip region at the product of their two overlaps took the edge
+  0.306 → 0.469 of the mark (ADR 0476). Four to five of the seven statements are still products, so
+  item 4 is unpaid and has lost its witness rather than been answered.
 
 **And the ranking's own head came off**: `issue15716.pdf` at **3.10 from the nearest against 3.92
 from the furthest**, the tightest ratio on the list that is not a link border, is

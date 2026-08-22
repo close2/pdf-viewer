@@ -534,13 +534,23 @@ const DIFFERS_AT_THE_EDGES: [&str; 6] = [
 /// multiplied, and quorra multiplies inside the graphics library. That is the same divergence ADR
 /// 0280 recorded one step earlier, and `doc/QUORRA_FEEDBACK.md`'s twenty-fourth section is the ask.
 ///
+/// **`issue18823.pdf` left that population in the six-hundred-and-forty-sixth session, and it left
+/// by the processor moving to the device rather than the other way about.** A `/BBox` clip is an
+/// axis-aligned rectangle, and `render-cpu` measured its region with `tiny-skia`'s supersampled
+/// path converter, whose answer at an axis-aligned edge is a quarter of a pixel; the graphics
+/// device has never had that quantum and tracks the fraction to a level of 255. ADR 0476 gives
+/// both a rectangular fill and a rectangular clip region the coverage §10.7.4's own definition of
+/// a pixel implies, so on a page whose only disagreement was that quantum the two backends now
+/// answer alike. The other three stay: their disagreement is the clip *product* ADR 0355 narrowed
+/// rather than the coverage this measures, which is why one of four moved and not four.
+///
 /// **This list's own note about `issue21068.pdf` is the same finding two hundred sessions early**:
 /// it left in the two-hundred-and-seventh session because a *redundant* clip came off its comb
 /// separators, and the sentence written then — "the anti-aliased clip was costing each of them a
 /// fraction of a pixel" — is what the general rule now answers for every such page.
 /// `issue16038.pdf` moved the other way, mean 1.3235 → 1.2808, because a tiling cell's clip is
 /// also coincident with the rule it admits.
-const DIFFERS_IN_SHAPE: [&str; 17] = [
+const DIFFERS_IN_SHAPE: [&str; 16] = [
     "22060_A1_01_Plans.pdf",
     "bug1844576.pdf",
     "bug1844583.pdf",
@@ -552,7 +562,6 @@ const DIFFERS_IN_SHAPE: [&str; 17] = [
     "issue16316.pdf",
     "issue16473.pdf",
     "issue18030.pdf",
-    "issue18823.pdf",
     "issue20232.pdf",
     "issue21068.pdf",
     "issue269_2.pdf",

@@ -27,6 +27,7 @@ pub mod collapsed;
 pub mod crop;
 pub mod degenerate;
 pub mod display_list;
+pub mod edge;
 pub mod geom;
 pub mod medium;
 pub mod mitre;
@@ -50,6 +51,7 @@ pub use degenerate::{
     split_degenerate,
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
+pub use edge::{device_rectangle, rectangle_coverage};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use medium::{
     Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, page_area,

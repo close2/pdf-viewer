@@ -47,10 +47,12 @@ were both code that was right about the clause it cited.
 wrong**, the newest being `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had said
 since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us
 at the soft end. They do not. Each page is sixteen axis-aligned rectangles at known sub-pixel
-boundaries, so the page is a closed form; ours is that form with every edge's coverage **rounded to a
-quarter** — `tiny-skia` samples four times per axis — to one level of 255 over the whole raster, and
-`hayro`'s is the exact form to two. From the geometry at the worst pixel: `hayro` 2, `mupdf` 13,
-ours 33, `ghostscript` 54, `poppler` 124 — we are *third of five*, not the soft end of anything. The
+boundaries, so the page is a closed form; ours was that form with every edge's coverage **rounded to
+a quarter** — `tiny-skia` samples four times per axis — to one level of 255 over the whole raster,
+and `hayro`'s is the exact form to two. From the geometry at the worst pixel: `hayro` 2, `mupdf` 13,
+ours 33, `ghostscript` 54, `poppler` 124 — we were *third of five*, not the soft end of anything.
+(Ours is the **exact** form since the six-hundred-and-forty-sixth session, ADR 0476, and the pages
+are still contradicted — which is the point of the next sentence rather than a change to it.) The
 verdict, separately, is trap 12's: the exact form is contradicted
 on both pages too (ADR 0474). The one before it is
 `smask_luminosity_oob_transfer.pdf`, whose `CONTRADICTED_MASK_QUANTISATION`

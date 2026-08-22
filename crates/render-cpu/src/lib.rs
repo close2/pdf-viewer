@@ -1501,6 +1501,16 @@ impl CpuRasterizer {
             Some(split) => convert::path(&split.filled).ok_or(CpuRasterError::InvalidPath)?,
             None => path,
         };
+        // §10.7.4 a third time, for the *edge* of a shape thicker than a pixel: an axis-aligned
+        // rectangle's coverage is the product of its two overlaps, which `pdf_render::edge`
+        // derives from the clause's own definition of a pixel and `scan::fill_rectangle` draws
+        // exactly where this converter would round it to a quarter.
+        if let Some(rect) = pdf_render::device_rectangle(remaining, at)
+            && let Some(rect) = convert::to_skia_rect(rect)
+        {
+            scan::fill_rectangle(pixmap, (&path, rect), &brush, convert::transform(at), clip);
+            return Ok(());
+        }
         scan::fill(
             pixmap,
             &path,
@@ -2695,8 +2705,17 @@ fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Ve
 }
 
 /// One clip of a chain, ready to be drawn into a mask.
-struct Shape {
+struct Shape<'a> {
     path: tiny_skia::Path,
+    /// The same shape before the rasteriser's library saw it, kept so that §10.7.4's
+    /// rectangle question can be asked once the band transform is known.
+    ///
+    /// The clipping region "consists of the set of pixels that would be included by a fill
+    /// operation", so a rectangular clip is scan-converted by the rule a rectangular fill is —
+    /// and [`pdf_render::device_rectangle`] is the one place that rule decides what a rectangle
+    /// is (ADR 0476). It cannot be asked in the loop that builds this, because the band the mask
+    /// covers is not known until every clip in the chain has been measured.
+    source: &'a Path,
     /// The clip's own transform; the target and band transforms are applied later,
     /// because the band is not known until every clip in the chain has been measured.
     transform: Transform,
@@ -3306,6 +3325,7 @@ impl MaskCache {
             }
             shapes.push(Shape {
                 path,
+                source: &clip.path,
                 transform: clip.transform,
                 fill_rule: convert::fill_rule(clip.fill_rule),
             });
@@ -3355,12 +3375,16 @@ impl MaskCache {
             },
         )?;
         // A fresh mask blocks everything, so filling the root path is what opens it.
+        let exact = |shape: &Shape<'_>| {
+            let at = to_band.of(shape.transform);
+            pdf_render::device_rectangle(shape.source, at).and_then(convert::to_skia_rect)
+        };
         scan::mask_fill(
             &mut mask,
             &root.path,
             root.fill_rule,
             self.anti_alias,
-            convert::transform(to_band.of(root.transform)),
+            (convert::transform(to_band.of(root.transform)), exact(root)),
         );
         if !nested.is_empty() {
             // One scratch mask for the whole chain, allocated from the same width and height as
@@ -3380,7 +3404,10 @@ impl MaskCache {
                     &shape.path,
                     shape.fill_rule,
                     self.anti_alias,
-                    convert::transform(to_band.of(shape.transform)),
+                    (
+                        convert::transform(to_band.of(shape.transform)),
+                        exact(shape),
+                    ),
                 );
             }
         }

@@ -405,6 +405,16 @@ of the mark, where departure (1) gives 0.827 and the clause 1.000. The construct
 is not, which is the same approximation the item above says has to go away. So the group blit is one of the
 remaining factors and not the last of them, and a round taking it owes the ladder again.
 
+**The witness left the oracle's contradicted list in the six-hundred-and-forty-sixth session, and
+not by any of the above.** ADR 0476 changed *how finely each surviving factor is measured* rather
+than how many there are: every one of the page's seven statements is the same axis-aligned device
+rectangle whose edge falls at device 14.173, so each was worth `tiny-skia`'s quarter — 0.75 — where
+its own coverage is 0.827. Measuring a rectangular fill and a rectangular clip region exactly took
+device column 14 from `(240, 245, 249)` to `(232, 240, 246)`, **0.306 → 0.469** of the mark, and the
+page agrees. The two edges stand in the ratio `(0.75/0.827)^4.4`, so **four to five factors are
+still products** and everything above is still owed; what changed is that the page is no longer the
+list's witness for it. A round taking the group blit owes the ladder from 0.469 now.
+
 Two things bound any attempt at the rest:
 
 - **`min` is not exact for boundaries that merely share a pixel**, only for ones that coincide or
@@ -582,53 +592,91 @@ library's stroker made in the layer above it, and a report with no members costs
 11). What watches them is `render-quorra/tests/corpus.rs` — the two backends agree about a long mitre
 now, so a page where a decline mattered becomes a differing page rather than a silence.
 
-## 7. An edge's coverage rounded to a quarter — **measured, priced, not started**
+## 7. An edge's coverage rounded to a quarter — **paid for a rectangle (ADR 0476), open elsewhere**
 
 Items 1 and 3 are what `tiny-skia`'s coverage quantum does to a mark *thinner* than it. This is
 what the same quantum does to the edge of a mark thicker than it, and it took six hundred sessions
 to be asked because the page it is visible on was filed under the anti-aliasing departure's own
 name.
 
-**The measurement.** `render-quorra/examples/edge_coverage_ladder` puts a rectangle's edge at every
-twentieth of a pixel and reads the boundary pixel:
+**The measurement, which is what the six-hundred-and-forty-third session left.**
+`render-quorra/examples/edge_coverage_ladder` puts a rectangle's edge at every twentieth of a pixel
+and reads the boundary pixel:
 
 ```text
   shape   0.05  0.10  0.15  0.25  0.35  0.40  0.60  0.65  0.85  0.90
-  cpu     0.00  0.00  0.25  0.25  0.25  0.50  0.50  0.75  0.75  1.00
+  cpu     0.00  0.00  0.25  0.25  0.25  0.50  0.50  0.75  0.75  1.00     <- before ADR 0476
+  cpu     0.05  0.10  0.15  0.25  0.35  0.40  0.60  0.65  0.85  0.90     <- after
   quorra  0.05  0.10  0.15  0.25  0.35  0.40  0.60  0.65  0.85  0.90
 ```
 
 Both axes, to a level of 255 on the device and to a quarter on the processor — `tiny-skia`
 supersamples four times per axis at 0.125, 0.375, 0.625 and 0.875, so an axis-aligned edge, whose
 four sub-rows all see the same run, is measured four ways and answers the same one. The whole-page
-form of it is `colors.pdf`, where our raster reproduces the page's closed form **with every
+form of it is `colors.pdf`, where our raster reproduced the page's closed form **with every
 coverage so rounded**, to one level of 255 over 595 × 841 pixels, while `hayro`'s reproduces the
 exact form to two (ADR 0474).
 
 **Why it is a defect rather than a third departure.** The departure §10.7.1's NOTE licenses is
 anti-aliasing; what this file's own `AMBIGUOUS_TILING_CELL_CLIP` reading says about it is
 "anti-aliasing gives the shape's area; coming out *under* it is a defect", and an edge covering a
-tenth of its pixel paints **nothing** here — §10.7.4's "The area covered by painted pixels shall
+tenth of its pixel painted **nothing** — §10.7.4's "The area covered by painted pixels shall
 always be at least as large as the area of the original shape" is the sentence, and it is the same
 one items 1 and 3 were paid to honour.
 
-**What it is worth, measured rather than assumed.** On `colors.pdf` it is 33 levels of 255 at the
-worst pixel and 0.04 of a mean, and it moves **no verdict**: the exact closed form is contradicted
-on that page too, because the consensus pair is the two renderers furthest from the geometry
-(`CONTRADICTED_TIGHT_CONSENSUS`). So this is a correctness item with a small corpus dividend, and
-the reason to do it is the clause and the fact that this tree's *own* two backends disagree by up
-to an eighth of a pixel's coverage at every axis-aligned edge — with the oracle being the less
-exact of the two.
+### What was taken, and the price that was feared did not exist
 
-**What a cure costs.** Not a rasteriser: an axis-aligned rectangle's coverage is a product of two
-one-dimensional overlaps, so the interior at full alpha plus up to eight edge and corner pieces at
-their own exact coverage draws it exactly, in the shape `sub_pixel_bands` already uses for a thin
-one and under the same `carries_coverage_as_alpha` condition. What has to be measured before it is
-taken is the other end: nine `scan::fill` calls where there was one, on the commonest command in
-the corpus, against a project whose second principle is latency — and every axis-aligned edge in
-every gated page moving by up to an eighth of its coverage, which is trap 1's sweep over a
-population no previous change here has touched. Anything that is not axis-aligned keeps the
-quantum, where it is a sixteenth rather than a quarter and averages along the edge.
+The geometry is the clause's own and needed no rasteriser: §10.7.4 defines a pixel as a product of
+two half-open intervals and gives a filled shape the same form, so an axis-aligned rectangle's
+coverage of a pixel is the **product of its two one-dimensional overlaps**, exactly, at every
+placement. `pdf_render::edge` states it for both backends — `device_rectangle` decides which fills
+are that shape and `rectangle_coverage` is the area — and `render-cpu` uses it in two places,
+which have to be one rule:
+
+- a **fill**, handed to `tiny-skia`'s *rectangle* scan converter rather than its path one;
+- a rectangular **clip region's** mask, written from the same closed form, because this subclause
+  says the region "consists of the set of pixels that would be included by a fill operation".
+
+**Measuring only the first breaks the clause.** A mark painted at its exact area under a region
+still measured to a quarter differs from the same mark unclipped by 26 levels of 255, where
+§10.7.4's own set identity `S ∩ C = S` says a clip containing a mark takes nothing from it;
+`clip_intersection.rs` caught it inside one round of writing.
+
+**This item priced the cure at nine `scan::fill` calls where there was one. It is one call**, and
+the library already contained the nine pieces: `PixmapMut::fill_rect` walks a rectangle as one
+interior run, four edges and four corners in 8.8 fixed point, with no supersampling and no alpha-run
+buffer. `callgrind_rasterise`, `RAYON_NUM_THREADS=1`, twenty repeats, two passes agreeing to 0.001%:
+
+```text
+  ISO 32000-2 p101 (text)      5,420,405,148 -> 5,396,982,320   -0.43%
+  ISO 32000-2 p6   (one page-wide clip, 303 runs)
+                               3,993,290,492 -> 3,608,520,927   -9.64%
+  colors.pdf p1    (16 rectangles)
+                               1,758,375,215 -> 1,617,776,872   -7.99%
+```
+
+Cheaper on all three, most on the clip-heavy page, because a page-wide rectangular clip stops being
+a supersampled path fill. **The de-optimisation this item was afraid of is a speed-up**, and the
+reason is worth keeping: the cost was priced as nine calls into a *path* converter, and the right
+question was which converter, not how many calls.
+
+### What it still owes
+
+- **Every shape that is not a single axis-aligned rectangle keeps the quantum**, where it is a
+  sixteenth rather than a quarter and averages along the edge: a glyph, a curve, a diagonal, a
+  stroke's outline, and a path stating *several* rectangles. The last is deliberate and is item 5's
+  subject — two rectangles drawn as two marks composite by §11.3.7.3's union where one scan
+  conversion accumulates them, so taking them one at a time would trade this defect for a worse one
+  along every seam. A round that wants it needs the seam answered first.
+- **A rectangle is measured exactly and then still *multiplied* into its clip**, which is item 4 and
+  is unchanged: what moved is what each surviving factor is worth. `issue21346.pdf`'s edge went
+  0.306 → 0.469 of the mark, and the two stand in the ratio `(0.75/0.827)^4.4`, so four to five of
+  that page's seven statements of one rectangle are still products.
+- **`colors.pdf` is still contradicted and that is the predicted outcome**, not a residue: 643
+  computed that the exact form would read ssim 0.98772 and 0.98001 against bounds of 0.98862 and
+  0.98402, and the gate now measures 0.9879 and 0.9802. The pages belong to
+  `CONTRADICTED_TIGHT_CONSENSUS` because the pair that votes is the pair furthest from the geometry.
+
 ## 8. A paint that cannot be positioned costs the page rather than the mark
 
 Found in the six-hundred-and-fortieth session, on the SafeDocs crawl and not by ink: `4605705.pdf`

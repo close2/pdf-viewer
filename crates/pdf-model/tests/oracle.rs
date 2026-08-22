@@ -118,9 +118,10 @@ const PIXEL_BUDGET: u64 = 64 << 20;
 /// only place our page size can be read is a render of our own.** `report::write_artefacts`
 /// carries the same sentence where the file is written.
 ///
-/// Both pages are still contradicted and both are now diagnosed by what they actually differ
-/// by, one clause apart: `issue21346.pdf` is [`CONTRADICTED_COINCIDENT_CLIP_EDGES`] and
-/// `colorkeymask.pdf` is [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]. That is the tenth
+/// Both pages were then diagnosed by what they actually differ by, one clause apart:
+/// `issue21346.pdf` went to [`CONTRADICTED_COINCIDENT_CLIP_EDGES`] — which it has since left
+/// altogether, agreeing since ADR 0476 measured a rectangular clip's edge at its own coverage —
+/// and `colorkeymask.pdf` to [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]. That is the tenth
 /// and eleventh time a group's name in this file has named a hypothesis rather than a diagnosis,
 /// and the first time the hypothesis was contradicted by the harness's own output.
 ///
@@ -276,7 +277,28 @@ const CONTRADICTED_PAGE_ROUNDING: [&str; 0] = [];
 /// into a buffer of its own instead of handing the mask to the library. The third, the mask's value
 /// multiplying the mark, is §11.6.5's alpha and the standard says multiply.
 /// [`doc/todo/11`](../../../doc/todo/11-shapes-that-still-disappear.md) carries what is owed.
-const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 1] = ["issue21346.pdf page 1"];
+///
+/// # The page left, and what moved was how finely each factor was measured
+///
+/// Every one of the seven statements tabulated above is the **same axis-aligned device
+/// rectangle**, and this backend measured each of them with `tiny-skia`'s supersampled *path*
+/// converter — whose answer at an axis-aligned edge is a quarter of a pixel, because all four of
+/// its sub-rows see the same run. This page's boundary falls at device 14.173, so the edge's own
+/// coverage is **0.827** and the quantum gave **0.75**: every surviving factor short by one ratio.
+///
+/// ADR 0476 gives a rectangular fill *and* a rectangular clip region the coverage §10.7.4's own
+/// definition of a pixel implies — the region "consists of the set of pixels that would be
+/// included by a fill operation", so the two are one rule — and the mark's edge went
+/// **0.306 → 0.469** of the mark on both axes, level 240 to level 232 against an interior of 206.
+/// Both numbers are `examples/render_at` at scale 1, either side of the change in one sitting.
+/// That crossed the bound and the page agrees.
+///
+/// **It does not mean item 4 is paid**, and the arithmetic says so rather than a hope: departure
+/// (1)'s answer for a single anti-aliased boundary is 0.827 and the clause's is 1.000, and the two
+/// edges stand in the ratio `(0.75/0.827)^4.4` — so between four and five of the seven statements
+/// are still *multiplied* where §10.7.4 intersects sets. What this changed is what each surviving
+/// factor is worth, not how many there are.
+const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 0] = [];
 
 /// Contradicted, and **we are the ones who are right**: an image sample at the pixel's centre.
 ///
@@ -374,8 +396,14 @@ const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["colorkeymask.
 ///
 /// `render-quorra/examples/edge_coverage_ladder` is the same finding without a document, and it
 /// says which backend owns it: at a rectangle edge placed every twentieth of a pixel, `render-cpu`
-/// answers 0, 0.2510, 0.5020, 0.7529 and 1.0000 on both axes while the graphics device tracks the
+/// answered 0, 0.2510, 0.5020, 0.7529 and 1.0000 on both axes while the graphics device tracks the
 /// fraction to a level of 255. ADR 0474 has the price and `doc/todo/11` item 7 what a cure costs.
+///
+/// **Every past tense above is the six-hundred-and-forty-sixth session's** (ADR 0476): an
+/// axis-aligned rectangle's coverage is the product of its two overlaps, which §10.7.4's own
+/// definition of a pixel gives, and `render-cpu` draws a rectangular fill and a rectangular clip
+/// region at it. Our raster of these two pages **is** the exact closed form now, both backends read
+/// the ladder to a level of 255, and the paragraph below is unaffected — which it predicted.
 ///
 /// # Why the pages still moved to a *bound* group rather than to a defect
 ///
