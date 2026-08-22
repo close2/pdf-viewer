@@ -3395,6 +3395,137 @@ fn an_element_that_marks_no_text_crosses_with_the_rectangle_its_content_drew() {
     );
 }
 
+/// A page whose `/Contents` and whose form `XObject` both mark `/MCID 0`, and the twin that
+/// does not.
+///
+/// ISO 32000-2 §14.7.5.2 makes the identifier unique "within its content stream", and permits the
+/// form to carry sequences of its own — so both streams numbering from zero is conforming, and
+/// §14.7.5.4 gives each stream its own `/StructParents` entry to tell them apart. `form_mcid`
+/// chooses which of the pair this is.
+///
+/// The two sequences draw in different places on purpose: the page's fill is `10 10 20 20` and the
+/// form's is `120 10 40 40`, so an element handed both would be four times as wide as the marks it
+/// names. Neither states a `/BBox`, so what places them is the marks and nothing else.
+fn with_a_form_that_marks(form_mcid: i64) -> Vec<u8> {
+    use std::fmt::Write as _;
+    // §14.7.5.2: "any Do operator that paints the form XObject shall not be part of a logical
+    // structure content item", which is why the `Do` is outside the page's sequence.
+    let page = "/P <</MCID 0>> BDC 10 10 20 20 re f EMC\n/Fm Do\n";
+    let form = format!("/Figure <</MCID {form_mcid}>> BDC 120 10 40 40 re f EMC\n");
+    let entry = if form_mcid == 0 {
+        "[9 0 R]"
+    } else {
+        "[null 9 0 R]"
+    };
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R \
+          /MarkInfo << /Marked true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+          /Resources << /XObject << /Fm 5 0 R >> >> /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}endstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 200 100] /StructParents 1 \
+          /Length {} >>\nstream\n{form}endstream\nendobj\n\
+         6 0 obj\n<< /Type /StructTreeRoot /K [8 0 R 9 0 R] /ParentTree 7 0 R >>\nendobj\n\
+         7 0 obj\n<< /Nums [0 [8 0 R] 1 {entry}] >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K [0] \
+          /Alt (the page's own) >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /Figure /P 6 0 R /Alt (the form's own) \
+          /K << /Type /MCR /Pg 3 0 R /Stm 5 0 R /MCID {form_mcid} >> >>\nendobj\n",
+        page.len(),
+        form.len(),
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// §14.8.3.3's content rectangle stops at the stream its sequence's identifier is unique within.
+///
+/// ISO 32000-2 §14.7.5.2 makes an `/MCID` "an integer marked-content identifier that uniquely
+/// identifies the marked-content sequence within its content stream", and Errata Collection 3's
+/// Issue #308 adds §14.7.5.4 the NOTE that draws the consequence: identifiers are scoped by content
+/// stream and start at zero, so the same one may reappear across pages or `XObject`s.
+///
+/// So the paragraph and the figure below are two different sequences both called `/MCID 0`, and
+/// what places each is its own marks. Written out from the page's own space rather than from the
+/// code (trap 12a): the fills are `10 10 20 20` and `120 10 40 40`, so the boxes are `[10 10 30 30]`
+/// and `[120 10 160 50]` with y up from the bottom of a 100-unit page.
+///
+/// **Asserted of the pair**, because a reader that lost the form's content altogether would pass
+/// half of this: the twin numbers the form's sequence 1 instead, and every rectangle below is the
+/// same.
+#[test]
+fn a_content_rectangle_is_not_taken_from_another_content_stream() {
+    for (name, form_mcid) in [("collide", 0_i64), ("distinct", 1)] {
+        let mut viewer = Viewer::new(400, 300, 1.0);
+        let events: Vec<Event> = viewer
+            .handle(Command::Open {
+                id: DOCUMENT,
+                bytes: with_a_form_that_marks(form_mcid),
+                password: None,
+                fragment: None,
+            })
+            .collect();
+        let first_frame = request(&events).clone();
+        serve(&mut viewer, &first_frame);
+
+        let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+            panic!("a page has a geometry");
+        };
+        let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+            panic!("the query always answers");
+        };
+        let nodes = on_one_page(pages);
+        // §8.3.2.3's default user space has y up from the bottom of the page and the viewport has
+        // it down from the top, so the page's 100 units become the flip: the box's *top* edge is
+        // the smaller device coordinate. Written from the page's own numbers and the geometry the
+        // viewer answers separately, never from the answer under test.
+        let place = |box_: [f32; 4]| {
+            Some([
+                geometry.origin.0 + box_[0] * geometry.scale,
+                geometry.origin.1 + (100.0 - box_[3]) * geometry.scale,
+                geometry.origin.0 + box_[2] * geometry.scale,
+                geometry.origin.1 + (100.0 - box_[1]) * geometry.scale,
+            ])
+        };
+        let named = |want: &str| {
+            nodes
+                .iter()
+                .find(|node| node.name == want)
+                .unwrap_or_else(|| panic!("{name}: {want} is on the page: {nodes:?}"))
+                .clone()
+        };
+
+        assert_eq!(
+            named("the page's own").drawn,
+            place([10.0, 10.0, 30.0, 30.0]),
+            "{name}: the paragraph is where the page's own stream drew"
+        );
+        assert_eq!(
+            named("the form's own").drawn,
+            place([120.0, 10.0, 160.0, 50.0]),
+            "{name}: the figure is where the form drew, and Table 357's /Stm is what says so"
+        );
+    }
+}
+
 /// Table 384's `/Scope` crosses for a `TH`, stated or assumed, and for nothing else.
 ///
 /// §14.8.4.8.3 makes a `TH` a cell "describing one or more rows, columns or rows and columns of

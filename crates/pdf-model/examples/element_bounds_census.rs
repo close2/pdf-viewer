@@ -243,7 +243,10 @@ fn control_name(control: &pdf_model::form::Control) -> &'static str {
     }
 }
 
-/// Which `/MCID`s produced something, per page object and anywhere in the document.
+/// One §14.7.5.2 marked-content sequence: the identifier, and the stream it is unique within.
+type Sequence = (i64, pdf_model::content::ContentStream);
+
+/// Which sequences produced something, per page object and anywhere in the document.
 ///
 /// The page matters because an identifier is unique within one page's content, not within a
 /// document — Table 355's `/Pg` is what says which, and Errata Collection 3's Issue #308 adds a
@@ -262,13 +265,15 @@ fn produced(document: &Document) -> Produced {
         let text = answer.text.entry(object).or_default();
         let drawn = answer.drawn.entry(object).or_default();
         for span in &interpretation.marked {
+            // Both halves of §14.7.5.2's key: the identifier and the stream it is unique within.
+            let sequence = (span.mcid, span.stream);
             if span.range.start < span.range.end {
-                text.insert(span.mcid);
-                answer.text_anywhere.insert(span.mcid);
+                text.insert(sequence);
+                answer.text_anywhere.insert(sequence);
             }
             if span.drawn.is_some() {
-                drawn.insert(span.mcid);
-                answer.drawn_anywhere.insert(span.mcid);
+                drawn.insert(sequence);
+                answer.drawn_anywhere.insert(sequence);
             }
         }
     }
@@ -278,27 +283,32 @@ fn produced(document: &Document) -> Produced {
 /// What one document's pages turned each `/MCID` into.
 #[derive(Default)]
 struct Produced {
-    /// The identifiers whose sequence read back text, per page.
-    text: BTreeMap<ObjectId, BTreeSet<i64>>,
+    /// The sequences that read back text, per page.
+    text: BTreeMap<ObjectId, BTreeSet<Sequence>>,
     /// The same, for an element whose ancestry names no page at all.
-    text_anywhere: BTreeSet<i64>,
-    /// The identifiers whose sequence marked the page — §14.8.3.3's content rectangle, per page.
-    drawn: BTreeMap<ObjectId, BTreeSet<i64>>,
+    text_anywhere: BTreeSet<Sequence>,
+    /// The sequences that marked the page — §14.8.3.3's content rectangle, per page.
+    drawn: BTreeMap<ObjectId, BTreeSet<Sequence>>,
     /// The same, for an element whose ancestry names no page at all.
-    drawn_anywhere: BTreeSet<i64>,
+    drawn_anywhere: BTreeSet<Sequence>,
 }
 
 impl Produced {
     /// Whether `mcid` is in `set`, taking the page where the content item named one.
     fn holds(
-        per_page: &BTreeMap<ObjectId, BTreeSet<i64>>,
-        anywhere: &BTreeSet<i64>,
+        per_page: &BTreeMap<ObjectId, BTreeSet<Sequence>>,
+        anywhere: &BTreeSet<Sequence>,
         mcid: i64,
         page: Option<ObjectId>,
+        stream: Option<ObjectId>,
     ) -> bool {
+        let names = |set: &BTreeSet<Sequence>| {
+            set.iter()
+                .any(|(is, within)| *is == mcid && within.named_by(stream))
+        };
         match page {
-            Some(object) => per_page.get(&object).is_some_and(|set| set.contains(&mcid)),
-            None => anywhere.contains(&mcid),
+            Some(object) => per_page.get(&object).is_some_and(names),
+            None => names(anywhere),
         }
     }
 }
@@ -394,9 +404,16 @@ fn census(document: &Document) -> Counts {
                     own_objects: Vec::new(),
                 });
             }
-            Child::MarkedContent { mcid, page } => {
-                let text = Produced::holds(&produced.text, &produced.text_anywhere, mcid, page);
-                let drawn = Produced::holds(&produced.drawn, &produced.drawn_anywhere, mcid, page);
+            Child::MarkedContent { mcid, page, stream } => {
+                let text =
+                    Produced::holds(&produced.text, &produced.text_anywhere, mcid, page, stream);
+                let drawn = Produced::holds(
+                    &produced.drawn,
+                    &produced.drawn_anywhere,
+                    mcid,
+                    page,
+                    stream,
+                );
                 for index in &stack {
                     if let Some(element) = elements.get_mut(*index) {
                         element.marked_items = element.marked_items.saturating_add(1);

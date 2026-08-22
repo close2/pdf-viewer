@@ -7,7 +7,9 @@
 
 use pdf_render::display_list::Command;
 use pdf_render::geom::{Rect, Transform};
-use pdf_syntax::{Dictionary, Object};
+use std::sync::Arc;
+
+use pdf_syntax::{Dictionary, Object, ObjectId};
 
 use super::Interpreter;
 use super::report::Unsupported;
@@ -307,6 +309,66 @@ impl Interpreter<'_> {
                 .or_else(|| crate::structure::language(document, &element));
         }
         (actual_text, described.or_nothing())
+    }
+
+    /// Swaps in a content stream's own §14.7.5.4 parent tree, for as long as that stream runs.
+    ///
+    /// The clause makes the route back from a mark to its element **per stream** by construction:
+    ///
+    /// > The tree shall contain an entry for each object that is a content item of at least one
+    /// > structure element and for each content stream containing at least one marked-content
+    /// > sequence that is a content item.
+    ///
+    /// and Table 359 puts the key on the stream itself:
+    ///
+    /// > Depending on the type of content item, this entry may appear in the page object of a page
+    /// > containing marked-content sequences, in the stream dictionary of a form or image XObject,
+    /// > or in an annotation dictionary.
+    ///
+    /// So a form's `/MCID 3` indexes the *form's* array, and reading the page's array with it
+    /// answers with whatever element happens to sit at index 3 of somebody else's content.
+    ///
+    /// A stream stating no `/StructParents` keeps the enclosing tree, which is what §14.7.5.2's
+    /// *first* method means: a `Do` inside the page's own sequence makes the whole form part of
+    /// that sequence, so the page's array is still the right one.
+    ///
+    /// Answers what to hand [`Self::leave_stream_structure`], and `None` where nothing was
+    /// swapped — which is every stream of every untagged document and costs one dictionary lookup.
+    pub(super) fn enter_stream_structure(
+        &mut self,
+        named: Option<ObjectId>,
+        dict: &Dictionary,
+    ) -> Option<Arc<crate::structure::ParentTree>> {
+        if self.document.get_key(dict, "StructParents").as_integer()? < 0 {
+            // Table 359 makes it "[t]he integer key of this object's entry", and a number tree's
+            // keys are what §7.9.7 admits; a negative one names nothing, and taking it as "no
+            // entry" is the same reading `ParentTree::for_page` gives a missing one.
+            return None;
+        }
+        // A form drawn a hundred times states the same `/StructParents` a hundred times, and the
+        // tree behind it is a number-tree walk plus an array copy. Memoised by the object the
+        // stream is, which is exactly what makes two drawings of one form the same stream.
+        let known = named.and_then(|object| self.stream_structures.get(&object));
+        let read = if let Some(known) = known {
+            Arc::clone(known)
+        } else {
+            let read = Arc::new(crate::structure::ParentTree::for_page(self.document, dict));
+            if let Some(object) = named {
+                self.stream_structures.insert(object, Arc::clone(&read));
+            }
+            read
+        };
+        Some(std::mem::replace(&mut self.structure, read))
+    }
+
+    /// Puts back what [`Self::enter_stream_structure`] took away.
+    pub(super) fn leave_stream_structure(
+        &mut self,
+        outer: Option<Arc<crate::structure::ParentTree>>,
+    ) {
+        if let Some(outer) = outer {
+            self.structure = outer;
+        }
     }
 
     /// The property list a `BDC` operand names, inline or through `/Properties`.

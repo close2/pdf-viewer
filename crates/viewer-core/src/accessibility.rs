@@ -376,18 +376,40 @@ pub struct Character {
     pub bounds: [f32; 4],
 }
 
+/// One marked-content sequence as a structure element names it, in both halves of its key.
+///
+/// ISO 32000-2 §14.7.5.2 makes a `/MCID` "an integer marked-content identifier that uniquely
+/// identifies the marked-content sequence within its content stream" — within it and no further —
+/// so an identifier on its own does not name a sequence. Table 357's `/Stm` is the other half, and
+/// its absence is a statement rather than a silence: the sequence is then in the page's own
+/// `/Contents`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Sequence {
+    /// §14.7.5.2's identifier, unique only within [`Self::stream`].
+    pub(crate) mcid: i64,
+    /// Table 357's `/Stm`, or `None` for the page's own content stream.
+    pub(crate) stream: Option<ObjectId>,
+}
+
+impl Sequence {
+    /// The interpreted spans this content item names, by §14.7.5.2's rule and its one recovery.
+    fn of(self, marked: &[MarkedSpan]) -> Vec<&MarkedSpan> {
+        pdf_model::content::named_sequences(marked, self.mcid, self.stream)
+    }
+}
+
 /// What one element contributes before its quads are mapped into the viewport.
 pub(crate) struct Gathered {
     /// The element's `/S`, role mapped.
     pub(crate) role: String,
-    /// The `/MCID`s below it, including those of its descendants.
+    /// The marked-content sequences below it, including those of its descendants.
     ///
     /// Descendants' too, because the *place* an element occupies is everything it encloses: a
     /// focus ring round a table cell is drawn round what the cell contains. What it is *spoken*
     /// as is [`Self::own`], for the reason [`AccessibilityNode::name`] gives.
-    pub(crate) mcids: Vec<i64>,
-    /// The `/MCID`s of the element's own content items, without its descendants'.
-    pub(crate) own: Vec<i64>,
+    pub(crate) mcids: Vec<Sequence>,
+    /// The sequences of the element's own content items, without its descendants'.
+    pub(crate) own: Vec<Sequence>,
     /// Whether this element, or one below it, names a content item on the page being asked about.
     ///
     /// The one thing an `/OBJR` contributes: §14.7.5.3's object reference is an annotation or an
@@ -697,31 +719,18 @@ fn walk(
                     out,
                 );
             }
-            Child::MarkedContent { mcid, page: on } => {
+            Child::MarkedContent {
+                mcid,
+                page: on,
+                stream,
+            } => {
                 // Table 355 makes `/Pg` the page a bare integer belongs to; an element with no
                 // `/Pg` anywhere up the chain is taken to be on the page being asked about,
                 // which is what a single-page structure tree means by stating nothing.
                 if on.is_some_and(|object| object != page) {
                     continue;
                 }
-                // The identifier belongs to the element that contains it *and* to every element
-                // above it, because an ancestor's *extent* is everything it encloses. Its own
-                // spoken text is only the first of those, which is what `own` records.
-                if let Some(index) = parent
-                    && let Some((_, entry)) = out.get_mut(index)
-                {
-                    entry.own.push(mcid);
-                }
-                let mut at = parent;
-                while let Some(index) = at {
-                    let Some((above, entry)) =
-                        out.get_mut(index).map(|(above, entry)| (*above, entry))
-                    else {
-                        break;
-                    };
-                    entry.mcids.push(mcid);
-                    at = above;
-                }
+                attribute(Sequence { mcid, stream }, parent, out);
             }
             // §14.7.5.3's object reference is an annotation or an XObject rather than text on
             // this page's readback. It contributes no `/MCID`, so its element gets no quads — but
@@ -793,14 +802,37 @@ fn text_entry(document: &Document, dict: &Dictionary, key: &str) -> Option<Strin
     (!text.is_empty()).then_some(text)
 }
 
+/// Records one content item against the element holding it and against every element above it.
+///
+/// The sequence belongs to the element that contains it *and* to every element above it, because
+/// an ancestor's *extent* is everything it encloses. What it is *spoken* as is only the first of
+/// those, which is what [`Gathered::own`] records and [`AccessibilityNode::name`] explains.
+fn attribute(sequence: Sequence, parent: Option<usize>, out: &mut [(Option<usize>, Gathered)]) {
+    if let Some(index) = parent
+        && let Some((_, entry)) = out.get_mut(index)
+    {
+        entry.own.push(sequence);
+    }
+    let mut at = parent;
+    while let Some(index) = at {
+        let Some((above, entry)) = out.get_mut(index).map(|(above, entry)| (*above, entry)) else {
+            break;
+        };
+        entry.mcids.push(sequence);
+        at = above;
+    }
+}
+
 /// The byte ranges of the readback that a set of `/MCID`s covers.
-pub(crate) fn ranges(marked: &[MarkedSpan], mcids: &[i64]) -> Vec<(usize, usize)> {
-    let mut out: Vec<(usize, usize)> = marked
+pub(crate) fn ranges(marked: &[MarkedSpan], mcids: &[Sequence]) -> Vec<(usize, usize)> {
+    let mut out: Vec<(usize, usize)> = mcids
         .iter()
-        .filter(|span| mcids.contains(&span.mcid) && span.range.start < span.range.end)
+        .flat_map(|sequence| sequence.of(marked))
+        .filter(|span| span.range.start < span.range.end)
         .map(|span| (span.range.start, span.range.end))
         .collect();
     out.sort_unstable();
+    out.dedup();
     out
 }
 
@@ -887,11 +919,11 @@ pub(crate) fn finish(
 /// `None` where none of them marked the page. That is the honest answer and not a gap — a sequence
 /// a producer opened around no operator, or one whose every command a clip excluded, has drawn
 /// nothing anywhere, and a rectangle standing in for it would be this program inventing a place.
-fn marked_extent(marked: &[MarkedSpan], mcids: &[i64]) -> Option<[f32; 4]> {
+fn marked_extent(marked: &[MarkedSpan], mcids: &[Sequence]) -> Option<[f32; 4]> {
     let mut union: Option<[f32; 4]> = None;
-    for rect in marked
+    for rect in mcids
         .iter()
-        .filter(|span| mcids.contains(&span.mcid))
+        .flat_map(|sequence| sequence.of(marked))
         .filter_map(|span| span.drawn)
     {
         union = Some(match union {

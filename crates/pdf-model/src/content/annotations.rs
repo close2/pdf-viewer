@@ -15,7 +15,7 @@ use pdf_syntax::{Dictionary, Object, ObjectId};
 use crate::page::Page;
 
 use super::ext_gstate::blend_mode;
-use super::report::Unsupported;
+use super::report::{ContentStream, Unsupported};
 use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
@@ -377,10 +377,34 @@ impl Interpreter<'_> {
         // landed off the visible page and `/Extend [true true]` painted the box one flat colour.
         // ADR 0160.
         let outer_base = std::mem::replace(&mut self.base, transform);
+        // §14.7.5.2's identifier is unique within its own content stream, and Table 357's `/Stm`
+        // names an appearance stream as readily as a form — "see 8.10, "Form XObjects" and 12.5.5,
+        // "Appearance streams"". So a sequence closing in here is *not* the page's, whatever
+        // number it carries.
+        //
+        // **`Unnameable` rather than the stream's own object**, and it is a limit written down
+        // rather than a gap left open: `crate::annotation::Appearance` resolves `/AP` and keeps
+        // the stream, not the reference to it, and a construction (§12.7.4.3) is this program's
+        // bytes and has no object at all. What that costs is one direction only — a marked-content
+        // reference whose `/Stm` names an appearance stream finds no span — and what it buys is
+        // the other, which is the one that misleads: the page's own `/MCID 0` can no longer be
+        // answered with a widget's. `doc/todo/31` carries the remainder.
+        let outer_stream = std::mem::replace(&mut self.stream, ContentStream::Unnameable);
+        // §14.7.5.4's route back is per stream, and an appearance stream may state a
+        // `/StructParents` of its own like any other; a stored one that does is read with its own
+        // array rather than with the page's.
+        let outer_structure = match &appearance.content {
+            crate::annotation::Content::Stored(stream) => {
+                self.enter_stream_structure(None, &stream.dict)
+            }
+            crate::annotation::Content::Constructed { .. } => None,
+        };
         // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
         // inside it is bounded the same way one inside the page content is.
         let mark = self.list.command_count();
         self.run(&data, &resources, &state, 1);
+        self.leave_stream_structure(outer_structure);
+        self.stream = outer_stream;
         // §8.10.2's box clips the appearance, and where it cuts nothing it is taken back off.
         // A widget's border is the case this was found on: `bug1863910.pdf` states
         // `0.5 0.5 149 21 re s` inside a `/BBox [0 0 150 22]`, so a one-point stroke's outer
