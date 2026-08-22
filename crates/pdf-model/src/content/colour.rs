@@ -107,7 +107,18 @@ impl Interpreter<'_> {
     /// certain colour conversions … they may need to be applied earlier than the actual
     /// rendering of colour onto the page".
     pub(super) fn conversion(&self, state: &GraphicsState) -> Conversion {
-        Conversion::new(self.compositing.clone(), state.black_point().applies())
+        self.conversion_under(state.black_point())
+    }
+
+    /// As [`Interpreter::conversion`], for colours whose black point setting is not the current
+    /// state's.
+    ///
+    /// One caller: a shading pattern's definition, which §11.6.7 evaluates under the graphics
+    /// state the content stream *began* with rather than the one the `scn` or the mark is in.
+    /// Split out rather than inlined there so that the compositing target is still read in one
+    /// place — see [`Interpreter::colour`].
+    pub(super) fn conversion_under(&self, black_point: BlackPoint) -> Conversion {
+        Conversion::new(self.compositing.clone(), black_point.applies())
     }
 
     /// Sets a colour space, which decides how the operands of `sc`/`scn` are read.
