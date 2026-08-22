@@ -72,9 +72,27 @@ rung it named `CONTRADICTED_ANTIALIASED_EDGES`, which had carried the pre-0476 s
 nineteen sessions **in the paragraph immediately below the ADR 0476 correction, which said that
 paragraph was unaffected**. A correction that scopes itself is a claim, and this one was wrong.
 
-The by-hand tell is still the cheapest and still worth knowing, because the sweep only ranks:
-a group note quoting a number the gate also prints, where the two disagree — that one said ssim
-0.98591 while the run prints 0.9879.
+**That tell has an instrument of its own now, and the argument for building one was a count.**
+`cargo run --release -p conformance --bin quoted -- <the oracle's log>` compares every figure a
+note quotes in the gate's own vocabulary against what the gate prints for that note's pages, and
+prints the gate's value under each disagreement (ADR 0495). The round that measured the population
+before building it found the earlier estimate had been taken over two tokens of a five-token
+vocabulary: `mean`, `worst tile`, `differing` as a percentage in either word order, and `ssim`
+under three spellings, which is about a quarter of the tree's page-list notes and over a hundred
+figures. **Two rules come with it.** A figure quoted in a note is written to the precision the gate
+prints — two decimals for the three that are levels or a percentage, four for the similarity —
+because a figure written finer is another instrument's and can only be ranked. And a note whose
+list is *emptied* keeps its figures and loses its anchor, which is where the archetypes turned out
+to live: `CONTRADICTED_UNEXPLAINED`'s list is empty and its four paragraphs about
+`issue7891_bc1.pdf` were corrected in the six-hundred-and-sixty-fifth session and stale again by
+the six-hundred-and-seventieth.
+
+**And a note has a *fourth* way of being wrong, which the same sweep found by arithmetic.** A doc
+comment attaches to whatever declaration follows it, and both of two adjacent declarations can be
+page lists — so a note can end up above the wrong one and nothing says so. Forty lines diagnosing
+one paper under fifteen names sat above a one-page `DeviceN` group for an unknown number of
+sessions, and the tell was that group's note quoting a band `mean 3.51 to 9.93` that none of its
+one page carries.
 
 The newest wrong *name* is `colors.pdf` pages 1 and 2, whose `CONTRADICTED_ANTIALIASED_EDGES` had
 said since the sixty-eighth session that the five renderers "sit on a spectrum of edge softness" with us

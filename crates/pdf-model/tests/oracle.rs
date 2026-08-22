@@ -1685,8 +1685,11 @@ const CONTRADICTED_LINK_BORDER: [&str; 3] = [
 /// `CONTRADICTED_UNEXPLAINED` where the reason for it is the honest label. Its numbers are
 /// worth keeping here as the archetype: 200 by 40 pixels holding nothing but the words "The
 /// Free Software Definition" at about eight pixels, every absolute bound met with room to
-/// spare, and 9.89% of pixels differing — which on a page that is entirely glyph edges is the
-/// anti-aliasing of every letter, against two references that share `FreeType`.
+/// spare, and 10.12% of pixels differing against a bound of 7.98% — which on a page that is
+/// entirely glyph edges is the anti-aliasing of every letter, against two references that share
+/// `FreeType`. (The differing fraction read 9.89% when this paragraph was written and the gate
+/// prints 10.12% now; the bound is quoted beside it from the same line, so the next round that
+/// finds one of them moved can see which — ADR 0495.)
 ///
 /// The reverse direction is real too and arrived with it: a page of *invisible* text over a
 /// scanned image reads back plenty of text and marks the page with no glyph at all, and it is
@@ -2006,7 +2009,7 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// It is also *not* `CONTRADICTED_GLYPH_EDGES`, and the bounds now say which: that group's
 /// pages fail on the differing fraction and nothing else, while this one fails **three of the
-/// four** — mean 8.45 of 5.00, differing 9.15% of 8.09%, structural similarity 0.8582 of
+/// four** — mean 8.45 of 5.00, differing 9.16% of 8.09%, structural similarity 0.8581 of
 /// 0.9000, with only the worst tile inside. A different face and a different sub-pixel phase
 /// are different measurements, and one page of each is what shows it.
 ///
@@ -2033,8 +2036,8 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// Three renderers putting the page's ink in the *same box to the pixel* over 1600 columns is
 /// §9.2.4's advances and the same cap height; `issue8088.pdf`'s three boxes are identical in all
 /// of ours, `poppler`'s and `mupdf`'s, and the other two differ by one column in 1440. Each of
-/// the five fails exactly one of the four bounds and it is the differing fraction — 5.01% to
-/// 5.68% against 5.00% — with mean at most 1.64 of 5.00 and structural similarity at worst 0.9906
+/// the five fails exactly one of the four bounds and it is the differing fraction — 5.03% to
+/// 5.59% against 5.00% — with mean at most 1.62 of 5.00 and structural similarity at worst 0.9909
 /// of 0.9000. **That is `CONTRADICTED_GLYPH_EDGES`' diagnosis and not this one's**, so the five
 /// have moved there. (`franz_2.pdf`'s wide spread is `mupdf` alone, and it is not a glyph: the
 /// page is a `0.5 0.5 0.5 sc` background that four renderers give as 146 and `mupdf` as 145, on a
@@ -2523,7 +2526,7 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 26] = [
 /// `issue7891_bc1.pdf` is a **soft mask's backdrop colour**. Its issue says the two files
 /// `_bc0` and `_bc1` are identical but for `/BC`, that the mask is deliberately smaller than
 /// the group it applies to, and that Adobe draws the transparency group's boundary as a red
-/// line where pdf.js drew a black one. Our own numbers fit a thin line: mean 0.17 of a level
+/// line where pdf.js drew a black one. Our own numbers fit a thin line: mean 0.15 of a level
 /// against a bound of 1.00, one tile at 6.73 against 6.04, 0.54% of pixels differing, with
 /// `mupdf` and `ghostscript` the pair that agree. `soft_mask.rs` does read Table 142's `/BC`,
 /// so the question is not whether the entry is read but what fills the area the mask's group
@@ -2666,9 +2669,10 @@ const CONTRADICTED_GLYPH_EDGES: [&str; 26] = [
 /// ours* and its content sitting one row higher. A one-pixel offset reads as a rounding
 /// difference until you notice that the renderer which rounded the same way disagrees anyway.
 ///
-/// `issue3694_reduced.pdf` stays on this list at 0.60 instead of 1.81 — mean 3.02 against a
-/// bound of 5.00, 8.93% of pixels differing — which is a page of hairline-outlined display
-/// type at seventeen pixels against two references that share `FreeType`.
+/// `issue3694_reduced.pdf` stays on this list at 0.60 instead of 1.81 — mean 2.51 against a
+/// bound of 5.00, 9.39% of pixels differing against a bound of 6.26% — which is a page of
+/// hairline-outlined display type at seventeen pixels against two references that share
+/// `FreeType`.
 ///
 /// `bug1175962.pdf` at 1.61 was measured in the sixty-eighth session and is the same shape as
 /// `colors.pdf` one step along: a 220x180 page of runic display type at about five pixels, where
@@ -3832,7 +3836,10 @@ const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_sh
 /// 1.00 ink on both backends at 1×, 2× and 4×** after. The page's own numbers moved with it —
 /// mean 13.31 → 13.09, differing 10.02% → 6.87%, similarity 0.5619 → 0.5835 — and the verdict
 /// did not, because the references still disagree with each other about the weight. It is also
-/// the only page in the 1794 whose numbers moved at all. ADR 0208.
+/// the only page in the 1794 whose numbers moved at all. ADR 0208. (That pair is what ADR 0208
+/// measured and it stays; **the gate prints mean 13.06, differing 7.03% and similarity 0.5842
+/// today**, which is later work on the same page rather than a correction to the movement —
+/// ADR 0495.)
 ///
 /// The verdict was `ambiguous` before the fix as well, because the references disagree about the
 /// weight among themselves, so nobody's pair ever agreed closely enough to contradict us for
@@ -3976,7 +3983,9 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// processor was smearing it as a hairline. Against the *references* the same change reads the
 /// other way — worst mean 40.55 → 42.78, similarity 0.3935 → 0.3228 — and that is expected here
 /// rather than a contradiction: the worst reference on this page is `ghostscript` at 2.13× the
-/// geometry, so approaching the geometry is receding from it.
+/// geometry, so approaching the geometry is receding from it. (The gate prints worst mean 42.17
+/// and similarity 0.3400 today; the pair above is the movement that session measured, and the
+/// two figures preceding it are `render-quorra`'s gate rather than this one's — ADR 0495.)
 const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 
 /// Ambiguous, and it is a page made almost entirely of sub-pixel line work.
@@ -4553,8 +4562,8 @@ const AMBIGUOUS_SUBSTITUTED_FACE: [&str; 9] = [
 /// Ambiguous, and the reason is a JPEG 2000 decoder that is measurably wrong.
 ///
 /// `S2.pdf` page 1 is a set of six colour photographs and four greyscale plates; `issue5475.pdf`
-/// page 1 is one 512×512 greyscale image. Both sat undiagnosed on §3a's ranking — S2 at 3.89
-/// worst mean over 23.28% of the page, `issue5475.pdf` at 6.68 over 31.05% — and both are made
+/// page 1 is one 512×512 greyscale image. Both sat undiagnosed on §3a's ranking — S2 at 3.07
+/// worst mean over 16.06% of the page, `issue5475.pdf` at 6.77 over 31.63% — and both are made
 /// almost entirely of `JPXDecode` images.
 ///
 /// # What the standard determines, and it determines all of it
@@ -5246,12 +5255,20 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 ///
 /// # The band, over all 364, and the one page it caught
 ///
-/// A sample is a sample, so the *whole* population's printed metrics were read as well: after the
-/// two pages this group does not claim, `freeculture`'s 312 sit at mean 2.43 to 8.98, worst tile
-/// 11.59 to 29.09, similarity 0.7209 to 0.9716, and `pdkids`'s 52 at mean 5.78 to 11.67, worst
-/// tile 28.27 to 39.42, similarity 0.8075 to 0.9036. One band, no gaps, and the text tolerance —
-/// 0.90 similarity, measured over 153 reference-against-reference pairs — running through the
-/// middle of it.
+/// A sample is a sample, so the *whole* population's printed metrics were read as well. Re-derived
+/// from the gate's own per-page lines over the list as it stands (ADR 0495): `freeculture`'s 318
+/// sit at mean 2.43 to 8.99, worst tile 11.60 to 29.05, similarity 0.7210 to 0.9648 **once page
+/// 255 is set aside**, and `pdkids`'s 52 at mean 5.80 to 11.67, worst tile 28.27 to 39.45,
+/// similarity 0.8075 to 0.9033. One band, no gaps, and the text tolerance — 0.90 similarity,
+/// measured over 153 reference-against-reference pairs — running through the middle of it.
+///
+/// **`freeculture.pdf` page 255 is a second page outside the band, and this note did not name it
+/// until the twentieth sweep contradicted the band's own ends.** Mean 16.63 where nothing else in
+/// the book reaches 9, a worst tile of 51.93 against a next-highest 29.05, and 19.98% of pixels
+/// differing. It is in this list and it has never been opened. Whatever it is, it is not the
+/// diagnosis these paragraphs make, which is the same lesson the paragraph below draws: **a band
+/// is a claim about every member, and re-deriving one is how a member that stopped belonging is
+/// found.**
 ///
 /// **One page stood outside the band and it was not ours.** `freeculture.pdf` page 171 has a
 /// worst tile of 81.57 where nothing else in the book exceeds 29.09; its cartoon is a one-bit
@@ -5633,45 +5650,6 @@ const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 370] = [
     "pdkids.pdf page 54",
 ];
 
-/// Ambiguous, and it is **one paper under twelve names** — 154 of the bucket's 678.
-///
-/// `tracemonkey.pdf` is pdf.js's canonical fixture: *Trace-based Just-in-Time Type
-/// Specialization for Dynamic Languages*, fourteen pages of two-column academic text at about
-/// nine points. Eleven other corpus documents are the same fourteen pages with something added
-/// — highlights, comments, free text, an editable annotation, an accessibility tree — and
-/// `pdftotext` on page 9 gives the *same md5* for all of them. So this group is 154 names and
-/// **one** finding, and saying otherwise would make the count a vanity number.
-///
-/// # What the closed form says, on five pages of it
-///
-/// ```text
-///          ours 1x   ours 8x   poppler 1x   poppler 8x   mupdf 8x
-/// page 1   14.8523   14.8523    14.7315      14.8540     14.8678
-/// page 4   19.9253   19.9064    19.7787      19.9137     19.9328
-/// page 9   20.0751   20.0599    19.9217      20.0695     20.0890
-/// page 11  14.8750   14.9197    15.7177      14.9441     14.9504
-/// page 14   7.1371    7.1170     7.0054       7.1184      7.1290
-/// ```
-///
-/// The two ladders agree to **0.014 to 0.023 of 255** on every page, so there is a limit each
-/// time; ours at 8× lands between them or a hundredth under, and **ours at the page's own scale
-/// is already there** — 0.02 to 0.05 from our own limit, where `poppler` at 72 dpi is 0.12 to
-/// 0.15 *below* its. On page 9 the five renderers' ink is ours 20.075, `ghostscript` 20.249,
-/// `mupdf` 19.942, `poppler` 19.922, `hayro` 19.723: a spread of 0.53, and ours is the nearest
-/// of the five to the geometry.
-///
-/// So nobody is drawing anything anybody else is not. What makes all 154 `ambiguous` is the
-/// **text** tolerance — 0.90 structural similarity, measured over 153 reference-against-
-/// reference pairs because five rasterisers cannot agree more closely than that about small
-/// glyphs — applied to a page that is nothing but small glyphs. Across the 154 the metrics form
-/// one band: mean 3.51 to 9.93, worst tile 20.94 to 48.31, ssim 0.7977 to 0.9194, against
-/// bounds of 5.00, 40.00 and 0.9000. §10.7.4's own last sentence is what licenses the spread,
-/// and `AMBIGUOUS_GLYPH_SCAN_CONVERSION` quotes it.
-///
-/// **`poppler` on page 11 is the one number worth keeping.** It is 15.7177 at 72 dpi against its
-/// own 14.9441 at 576 — 5% over its geometry where every other page has it 1% under. That is
-/// §10.7.4 as written on marks a fraction of a pixel wide, one page over from where
-/// `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` found it, and it is not ours.
 /// Ambiguous because one reference is alone by eighteen levels, and it is not this one.
 ///
 /// `issue17065.pdf` is one axial shading — `/ShadingType 2`, `/Extend [true true]` — painted
@@ -5712,7 +5690,7 @@ const AMBIGUOUS_DEVICE_N_ALTERNATE: [&str; 1] = ["issue17065.pdf page 1"];
 /// `calrgb.pdf` is a test sheet: seventeen pages of `CalRGB` patches, each page stating its own
 /// `/WhitePoint`, `/BlackPoint`, `/Gamma` and `/Matrix` in a header and then a grid of swatches
 /// labelled with the `A, B, C` that produced them. Five renderers produce five sheets, and eight
-/// of the pages reach §3a's bucket with a shape nothing else in it has: similarity 0.9319 to
+/// of the pages reach §3a's bucket with a shape nothing else in it has: similarity 0.9322 to
 /// 0.9932 — the same shapes in the same places — with worst tiles up to **76.5**, which is a
 /// large difference in *colour* over a small part of the page.
 ///
@@ -5726,20 +5704,33 @@ const AMBIGUOUS_DEVICE_N_ALTERNATE: [&str; 1] = ["issue17065.pdf page 1"];
 /// and, with the later pages' `/WhitePoint [2.0000 1.0000 1.7000]`, not a plausible illuminant
 /// either. **The sheet is asking every processor what it does outside the gamut.**
 ///
-/// # What it does not determine, and §10.3.1 says so in a sentence
+/// # What it does not determine, and §10.3.1 says so in **one** of its sentences
 ///
 /// > The specific method by which the CIE-based destination colour space is established is
 /// > beyond the scope of this document, but may include the use of Output Intents
 ///
-/// So the second half of the journey — an XYZ to a pixel — is each processor's, and this sheet
-/// is built to make that visible. Ours is one route and it is written down rather than tuned:
-/// Bradford adaptation to D50 and then the sRGB matrix and transfer, in `colour::xyz_d50_to_srgb`,
-/// which is the *only* place in the tree where an XYZ becomes a pixel (ADR 0012) — `Lab`,
-/// `CalGray`, `CalRGB` and every ICC profile arrive there, so the four cannot drift apart.
+/// So the *destination* — which pixel space an XYZ is being carried into — is each processor's,
+/// and this sheet is built to make that visible. Ours is one route and it is written down rather
+/// than tuned: Bradford adaptation to D50 and then the sRGB matrix and transfer, in
+/// `colour::xyz_d50_to_srgb`, which is the *only* place in the tree where an XYZ becomes a pixel
+/// (ADR 0012) — `Lab`, `CalGray`, `CalRGB` and every ICC profile arrive there, so the four cannot
+/// drift apart.
 ///
-/// This is §3a's third shape, and the sharpest instance of it the bucket holds: the clause is
-/// closed about the part it defines, open about the part it does not, and names the clause that
-/// says so.
+/// **The journey to it is not open, and this note said it was for as long as it has existed.**
+/// The next sentence of the same subclause is a `shall`: a CIE-based source colour is to be
+/// converted to a CIE-based destination colour based on the appropriate ICC specification. (Prose
+/// rather than a quotation because Errata Collection 3's Issue #181, `Review`/`Completed`, strikes
+/// that sentence's dated *ISO 15076-1:2010 (ICC.1:2010)* and points at Table 66 instead;
+/// `spec-errata emit` files the strike under §10.4.1's heading and §10.3.1's ledger row carries
+/// it.) So what is a processor's here is the *choice* of destination, and the transform onto it is
+/// the referenced standard's — which is why [`CONTRADICTED_CALRGB_TO_SCREEN`], four pages of this
+/// same document, turned out to be a difference of **route** rather than of taste once somebody
+/// read the sentence after the one quoted above (ADR 0494). This note is the third home of the
+/// half-read and the twentieth sweep is what pointed at it (ADR 0495).
+///
+/// This is still §3a's third shape, and the sharpest instance of it the bucket holds — but the
+/// open part is one sentence narrower than this note claimed: the clause is closed about the
+/// conversion, closed about §8.6.5.3's arithmetic, and open only about which space the pixels are.
 ///
 /// **Four more of this document's pages carry the same reading one verdict over.**
 /// [`CONTRADICTED_CALRGB_TO_SCREEN`] holds pages 1, 5, 11 and 12, which differ from each other only
@@ -5757,11 +5748,65 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
     "calrgb.pdf page 17",
 ];
 
+/// Ambiguous, and it is **one paper under fifteen names** — 155 of this list's 179.
+///
+/// **These paragraphs spent an unknown number of sessions above a different group's list.**
+/// They are this list's opening — the section below begins *and a second document* and the
+/// first was never above it — and they sat instead above `AMBIGUOUS_DEVICE_N_ALTERNATE`, whose
+/// own note therefore opened with forty lines about a paper it holds no page of. Nothing said
+/// so: a doc comment is attached to whatever declaration follows it, and both declarations are
+/// page lists. The twentieth sweep found it by arithmetic rather than by reading — it reported
+/// a one-page `DeviceN` group quoting a band `mean 3.51 to 9.93` that none of its one page
+/// carries — which is a fourth way for a note to be wrong, after its name, its reading and its
+/// figures: **a note attached to the wrong list.** ADR 0495.
+///
+/// `tracemonkey.pdf` is pdf.js's canonical fixture: *Trace-based Just-in-Time Type
+/// Specialization for Dynamic Languages*, fourteen pages of two-column academic text at about
+/// nine points. Eleven other corpus documents are the same fourteen pages with something added
+/// — highlights, comments, free text, an editable annotation, an accessibility tree — and
+/// `pdftotext` on page 9 gives the *same md5* for all of them. So this group is one document
+/// under many names and **one** finding, and saying otherwise would make the count a vanity
+/// number.
+///
+/// # What the closed form says, on five pages of it
+///
+/// ```text
+///          ours 1x   ours 8x   poppler 1x   poppler 8x   mupdf 8x
+/// page 1   14.8523   14.8523    14.7315      14.8540     14.8678
+/// page 4   19.9253   19.9064    19.7787      19.9137     19.9328
+/// page 9   20.0751   20.0599    19.9217      20.0695     20.0890
+/// page 11  14.8750   14.9197    15.7177      14.9441     14.9504
+/// page 14   7.1371    7.1170     7.0054       7.1184      7.1290
+/// ```
+///
+/// The two ladders agree to **0.014 to 0.023 of 255** on every page, so there is a limit each
+/// time; ours at 8× lands between them or a hundredth under, and **ours at the page's own scale
+/// is already there** — 0.02 to 0.05 from our own limit, where `poppler` at 72 dpi is 0.12 to
+/// 0.15 *below* its. On page 9 the five renderers' ink is ours 20.075, `ghostscript` 20.249,
+/// `mupdf` 19.942, `poppler` 19.922, `hayro` 19.723: a spread of 0.53, and ours is the nearest
+/// of the five to the geometry.
+///
+/// So nobody is drawing anything anybody else is not. What makes all of them `ambiguous` is the
+/// **text** tolerance — 0.90 structural similarity, measured over 153 reference-against-
+/// reference pairs because five rasterisers cannot agree more closely than that about small
+/// glyphs — applied to a page that is nothing but small glyphs. Across the paper's 155 pages the
+/// metrics form one band: mean 3.51 to 9.91, worst tile 20.94 to 42.96, ssim 0.7977 to 0.9195,
+/// against bounds of 5.00, 40.00 and 0.9000, with 7.07% to 19.15% of pixels differing against a
+/// bound of 5.00%. (The band read `9.93`, `48.31` and `0.9194` until ADR 0495 re-derived it from
+/// the gate's own per-page lines; the two ends that moved are pages the tree has drawn
+/// differently since, not a different population.) §10.7.4's own last sentence licenses the
+/// spread, and `AMBIGUOUS_GLYPH_SCAN_CONVERSION` quotes it.
+///
+/// **`poppler` on page 11 is the one number worth keeping.** It is 15.7177 at 72 dpi against its
+/// own 14.9441 at 576 — 5% over its geometry where every other page has it 1% under. That is
+/// §10.7.4 as written on marks a fraction of a pixel wide, one page over from where
+/// `AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY` found it, and it is not ours.
+///
 /// # And a second document, on the same instrument, in the two-hundred-and-sixty-third
 ///
 /// `TAMReview.pdf` is 23 pages of a technical review at paper size — dense text, tables, the same
 /// nine-point band — and 22 of them are in this bucket. Read as a population the way both books
-/// were: mean 4.05 to 9.96, worst tile 11.59 to 33.63, similarity 0.7722 to 0.9214, one band and
+/// were: mean 4.05 to 9.96, worst tile 20.15 to 33.65, similarity 0.7723 to 0.9214, one band and
 /// no page outside it. Four pages spread through it, with two ladders each:
 ///
 /// ```text
@@ -5821,8 +5866,8 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// `issue14297.pdf` page 1 is an A3 financial statement — two consolidated tables of five-point
 /// type and nothing else — and it reached this bucket by being *drawn*: it reported a soft mask
 /// group compositing more than one unit of ink until ADR 0220, so the oracle had never judged it
-/// at all. Its verdict is the text tolerance's (mean 4.41 against a bound of 5.00, similarity
-/// 0.9102 against 0.9000), and its ink at the page's own scale is 1.15 of 255 *below* the
+/// at all. Its verdict is the text tolerance's (mean 4.34 against a bound of 5.00, similarity
+/// 0.9135 against 0.9000), and its ink at the page's own scale is 1.15 of 255 *below* the
 /// lightest reference, which is the shape that looks like missing marks.
 ///
 /// It is not. Two ladders and ours beside them:
@@ -6184,7 +6229,7 @@ const AMBIGUOUS_MASKED_BLUR: [&str; 1] = ["issue19634.pdf page 1"];
 /// in the components §11.5.3 composites, so the page stopped reporting and started being judged.
 ///
 /// Its verdict is the ordinary tolerance's on everything but one tile: mean 0.40 against a bound
-/// of 1.00, similarity 0.9902 against 0.9900, and a worst tile of 10.10 against 5.00 — which is
+/// of 1.00, similarity 0.9903 against 0.9900, and a worst tile of 10.01 against 5.00 — which is
 /// the highlight and nothing else, 192 pixels of 1.9 M.
 ///
 /// ```text
@@ -6249,8 +6294,8 @@ const AMBIGUOUS_MATTE_WITHOUT_A_SOFT_MASK_IMAGE: [&str; 1] = ["jpx_smaskindata.p
 /// under a soft mask** whose elements blend `Multiply` and `Screen`, which §11.4.4's NOTE 5
 /// cannot flatten, and the page reported it by name (ADR 0237).
 ///
-/// Its verdict is the ordinary tolerance's on everything but one tile: mean 0.29 against a
-/// bound of 1.00, similarity 0.9964 against 0.9900, 0.44% of pixels differing — and a worst
+/// Its verdict is the ordinary tolerance's on everything but one tile: mean 0.26 against a
+/// bound of 1.00, similarity 0.9963 against 0.9900, 0.48% of pixels differing — and a worst
 /// tile of 8.79 against 5.00, which is the small white type on the band and nothing else.
 ///
 /// ```text
@@ -7605,17 +7650,47 @@ const AMBIGUOUS_CONSTRUCTED_WIDGET: [&str; 1] = ["bug1844576.pdf page 1"];
 /// form itself (ADR 0009); `poppler` evaluates it through `lcms`. Two implementations of the same
 /// transform, differing by about 1.2 of 255 on a photograph.
 ///
-/// # What the specification determines, which is `doc/todo/00`'s third shape
+/// # What the specification determines, and this note over-read the silence twice
 ///
 /// §8.6.5.5 defines the *source*: the profile is the space, and both renderers read the same one.
-/// The destination is where the standard stops, and it says so in one sentence — §10.3.1 puts
-/// "[t]he characteristics of the output device" beyond the scope of this document, and its NOTE
-/// names "assumptions made by the PDF processor software". Neither implementation is departing
-/// from a clause, because there is no clause left to depart from: what a matrix-shaper profile's
-/// XYZ becomes on a screen is each processor's own assumption about that screen.
 ///
-/// So this page is `AMBIGUOUS_DEVICE_CMYK_CONVERSION`'s argument one colour space over, and the
-/// group is separate because the *evidence* is different: there the spread is between four
+/// **What follows was wrong in two ways until ADR 0495, and the second is the one that matters.**
+/// It read: *the destination is where the standard stops, and it says so in one sentence — §10.3.1
+/// puts "[t]he characteristics of the output device" beyond the scope of this document … there is
+/// no clause left to depart from.*
+///
+/// The first fault is the quotation. **§10.3.1 contains no such phrase**; what it puts beyond the
+/// document's scope is
+///
+/// > The specific method by which the CIE-based destination colour space is established
+///
+/// and the words in quotation marks came from §10.4.2.4, which is about black generation and
+/// undercolour removal on the way into `DeviceCMYK`. Principle 5's rule is that quotation marks
+/// mean verbatim, and a sentence attributed to the wrong subclause is how a silence gets asserted
+/// about a clause that never said it. (The NOTE *is* quoted correctly, and it belongs to §10.3.1.)
+///
+/// The second fault is the reading, and it is the one [`CONTRADICTED_CALRGB_TO_SCREEN`] was
+/// corrected for one round earlier (ADR 0494), one colour space over. **§10.3.1's next sentence is
+/// a `shall`**: a CIE-based source colour is to be converted to a CIE-based destination colour
+/// based on the appropriate ICC specification. (Prose rather than a quotation because Errata
+/// Collection 3's Issue #181, `Review`/`Completed`, strikes that sentence's dated *ISO
+/// 15076-1:2010 (ICC.1:2010)* and points at Table 66 instead; `spec-errata emit` files the strike
+/// under §10.4.1's heading and §10.3.1's ledger row carries it.) So there *is* a clause left to
+/// depart from, and it is the one this group is about: two evaluations of one matrix-shaper
+/// profile, differing by about 1.2 of 255, where the referenced standard says how a profile is
+/// evaluated. What each processor may still choose is which space the pixels are — sRGB here, by
+/// ADR 0012 — and that choice cannot produce a 1.2 offset between two renderers reading the same
+/// profile onto the same screen.
+///
+/// **The verdict stays `ambiguous` and the work it names changes.** Nothing here is evidence about
+/// which of the two evaluations ICC.1 licenses; establishing that needs the profile's own tags
+/// worked through by hand, the way ADR 0494 worked `ghostscript`'s synthesised `scnr` profile
+/// through. Until somebody does, this is a page where the standard names an authority this note
+/// had recorded as silence — which is `CLAUDE.md`'s own warning about a recorded silence, for the
+/// second time in two rounds.
+///
+/// It is still `AMBIGUOUS_DEVICE_CMYK_CONVERSION`'s argument one colour space over in *shape*, and
+/// the group is separate because the *evidence* is different: there the spread is between four
 /// conversions of a device space, here it is between two evaluations of one embedded profile,
 /// and only the resolution ladder could tell the second from a scan-conversion difference.
 ///
@@ -8535,7 +8610,7 @@ const AMBIGUOUS_LINE_ENDING_SIZE: [&str; 1] = ["issue13447.pdf page 1"];
 ///
 /// Ours against `hayro` is the second-smallest pair of the ten and `poppler` is the furthest
 /// from everybody, including from the two references that share `FreeType` with it. All fourteen
-/// pages sit in one band — mean 4.66 to 7.10, worst tile 15.62 to 23.71, ssim 0.8632 to 0.9088 —
+/// pages sit in one band — mean 4.72 to 7.09, worst tile 16.73 to 23.71, ssim 0.8592 to 0.9052 —
 /// which is the tolerance's design applied to a page whose whole subject is a typeface.
 ///
 /// **Not `AMBIGUOUS_SUBSTITUTED_FACE`**, which is §9.8.1's *other* route: a face nobody embedded

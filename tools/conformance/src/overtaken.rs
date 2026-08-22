@@ -113,6 +113,17 @@ pub struct Note {
     pub prose: BTreeSet<String>,
     /// The documents the list itself holds.
     pub members: BTreeSet<String>,
+    /// The doc comment's own lines, each with the 1-based line it sits on.
+    ///
+    /// This sweep folds them into one string and never looks at a line again; they are kept
+    /// because [`crate::quoted`] asks a second question of the same population and its answer
+    /// has to name a line a person can open. One scanner, two questions.
+    pub body: Vec<(usize, String)>,
+    /// The pages the list itself holds, as it writes them: `issue7891_bc1.pdf page 1`.
+    ///
+    /// [`Self::members`] is the same list with the page numbers taken off, which is what an ADR
+    /// can be compared against. A figure is quoted about a *page*, so the finer form is kept too.
+    pub pages: BTreeSet<String>,
 }
 
 impl Note {
@@ -402,18 +413,48 @@ fn notes_in(shown: &str, text: &str) -> Vec<Note> {
         match page_list_name(trimmed) {
             Some(name) if !comment.is_empty() => {
                 let prose = comment.join(" ");
+                let body = list_body(&lines, index);
                 found.push(Note {
                     name,
                     file: shown.to_owned(),
                     line: comment_at,
                     cited: citations_in(&prose),
                     prose: documents_in(&prose),
-                    members: documents_in(&list_body(&lines, index)),
+                    members: documents_in(&body),
+                    body: comment
+                        .iter()
+                        .enumerate()
+                        .map(|(offset, text)| {
+                            (comment_at.saturating_add(offset), (*text).to_owned())
+                        })
+                        .collect(),
+                    pages: pages_in(&body),
                 });
             }
             _ => {}
         }
         comment.clear();
+    }
+    found
+}
+
+/// Every page an array literal holds, as it writes it.
+///
+/// A member is a string literal and the whole of it is the page's name, so the quotes are the
+/// delimiter and nothing has to be guessed about the shape of what is between them. A literal
+/// naming no document is dropped: the lists in this tree hold pages, and anything else on such
+/// a line is a comment or a trailing token rather than a member.
+fn pages_in(body: &str) -> BTreeSet<String> {
+    let mut found = BTreeSet::new();
+    let mut rest = body;
+    while let Some(open) = rest.find('"') {
+        let after = rest.get(open.saturating_add(1)..).unwrap_or_default();
+        let Some(close) = after.find('"') else { break };
+        let literal = after.get(..close).unwrap_or_default();
+        if !documents_in(literal).is_empty() {
+            found.insert(literal.to_owned());
+        }
+        rest = after.get(close.saturating_add(1)..).unwrap_or_default();
     }
     found
 }
@@ -580,6 +621,8 @@ mod tests {
             cited: citations_in(prose),
             prose: documents_in(prose),
             members: members.iter().map(|m| (*m).to_owned()).collect(),
+            body: vec![(1, prose.to_owned())],
+            pages: members.iter().map(|m| (*m).to_owned()).collect(),
         }
     }
 
@@ -649,6 +692,37 @@ mod tests {
             &["colors.pdf"],
         )];
         assert!(sweep(&current, &decisions).findings.is_empty());
+    }
+
+    /// The list's own pages and the note's own lines are kept for [`crate::quoted`], which asks
+    /// a figure of a *page* rather than of a document, and prints the line a person opens.
+    #[test]
+    fn a_note_keeps_its_lines_and_its_pages() {
+        let source = "\
+/// The first line, ADR 0474.
+/// The second, about colors.pdf.
+const A_LIST_OF_PAGES: [&str; 2] = [
+    \"colors.pdf page 1\",
+    \"colors.pdf page 2\",
+];
+";
+        let found = notes_in("crates/x/tests/oracle.rs", source);
+        assert_eq!(found.len(), 1);
+        let note = &found[0];
+        assert_eq!(note.line, 1);
+        assert_eq!(note.body.len(), 2);
+        assert_eq!(
+            note.body[1],
+            (2, "The second, about colors.pdf.".to_owned())
+        );
+        assert_eq!(
+            note.pages,
+            BTreeSet::from([
+                "colors.pdf page 1".to_owned(),
+                "colors.pdf page 2".to_owned()
+            ])
+        );
+        assert_eq!(note.members, BTreeSet::from(["colors.pdf".to_owned()]));
     }
 
     #[test]
