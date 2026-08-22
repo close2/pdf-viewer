@@ -240,6 +240,30 @@ with the reading, which is this file. Every bullet below is unchanged.
   and a note may deliberately not cite a later ADR about a different property of the same page.
   **The cheapest way to keep off it: cite your own ADR in the note you rewrite.** The 62 notes that
   cite no ADR at all are counted rather than listed; the comparison has no left-hand side.
+- **One reads no source at all and no row either, and it is the newest**: `cargo run --release -p
+  conformance --bin quoted -- <the oracle's log>`, under a second, over the oracle's page-list
+  notes and **the oracle's own printed output** — the twentieth sweep and the fifteenth to be a
+  program (ADR 0495). Every other sweep here compares two things this tree wrote *down*; this one
+  compares what a note says with what the gate *prints*, which is why it takes an argument. The
+  right-hand side costs nothing extra: the oracle already prints all four measures for every page
+  it does not call agreement, and a round that touched a note has run it. The discriminator is
+  trap 1's by-hand tell mechanised — **a figure quoted in the gate's vocabulary that no page of
+  its own note carries** — and the vocabulary is the whole of it, five spellings over four
+  measures, because the count that preceded this sweep looked for two tokens and concluded there
+  was nothing to anchor. Precision is the discriminator's other half: the gate prints three
+  measures to two decimals and the similarity to four, comparison is made at the coarser of the
+  two, and a figure written *finer* is another instrument's and drops a rung. Three rungs, closest
+  first: contradicted with a confirmed figure beside it on the same line of the note;
+  contradicted and written exactly as the gate writes it; contradicted only after rounding.
+  **Under every hit it prints what the gate says instead**, nearest value first, because the
+  correction comes off the run rather than out of reasoning. Its first run corrected fifteen
+  figures across nine notes and found one thing no figure could have said: a note attached to the
+  wrong list — forty lines diagnosing a paper under fifteen names sat above a one-page `DeviceN`
+  group, and the tell was that group quoting a band none of its one page carries. The noise is a
+  note narrating its own correction (the superseded figure is contradicted by construction and the
+  prose is right), another instrument's table borrowing the gate's words, and a range read as its
+  first endpoint. Calibrated per trap 13 by planting a wrong worst tile in a confirmed sentence:
+  named, with the gate's own value offered first, and gone when the plant was restored.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the

@@ -345,6 +345,16 @@ share and the two that break it:
   a sentence true when written that nothing pointed at when the tree moved under it. **A round
   that rewrites a note cites its own ADR in it**, which is both correct and how the note stays
   off the sweep.
+- **One reads no *document* at all, and it is the newest**: `--bin quoted`, the twentieth sweep
+  (ADR 0495). Its left-hand side is the same population as the nineteenth's — the oracle's
+  page-list notes — and its right-hand side is the oracle's **printed output**, which is why it is
+  the only sweep here that takes an argument. It asks whether a figure a note quotes in the gate's
+  own vocabulary is one the gate still prints for a page of that note, and under every hit it
+  prints what the gate says instead. It renders nothing: a round that touched a note has run the
+  oracle already, and this reads that run's log in under a second. **The rule it comes with is the
+  one that keeps it useful: a round that quotes a gate figure in a note quotes it to the precision
+  the gate prints**, because a figure written finer is another instrument's and this sweep can
+  only rank it.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in

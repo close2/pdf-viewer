@@ -60,6 +60,7 @@ pub mod owed;
 pub mod pointers;
 pub mod prose;
 pub mod quote;
+pub mod quoted;
 pub mod retired;
 pub mod tables;
 pub mod toml_subset;
