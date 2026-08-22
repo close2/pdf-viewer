@@ -763,8 +763,11 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 ///
 /// # What the pages are
 ///
-/// All three reach `DeviceCMYK`: `type4psfunc.pdf` and `postscript_type4_many_outputs.pdf`
-/// through a `/DeviceN` whose alternate it is, `function_based_shading_cmyk.pdf` directly.
+/// **All four documents reach `DeviceCMYK`, and this heading said "all three" while the list
+/// below it named four** — the same arithmetic the paragraph above corrects, one heading down.
+/// `type4psfunc.pdf` and `postscript_type4_many_outputs.pdf` arrive through a `/DeviceN` whose
+/// alternate it is, `function_based_shading_cmyk.pdf` directly and through a `/Separation`,
+/// `transparent.pdf` through a `k` operator.
 /// `postscript_type4_many_outputs.pdf` is the one that settles the group, because it is a
 /// controlled experiment somebody else wrote: a 200-pixel page holding one axial shading
 /// whose function is `{ dup dup dup dup dup dup dup dup }` and whose tint transform is
@@ -785,9 +788,15 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// # Their agreement is one profile seen twice, and this tree's own evaluator proves it
 ///
 /// Trap 9 says two references can agree because they share code or share a gap. This is a
-/// third way: **they share data.** `/usr/share/ghostscript/iccprofiles/default_cmyk.icc`,
-/// evaluated by `pdf_model::icc` — our own A2B evaluator, written for `ICCBased` streams and
-/// pointed at a file on this machine — produces 255/219/186/150/112/59/0/0/0 in red for the
+/// third way: **they share data**, and the six-hundred-and-fifty-sixth session turned the
+/// inference into byte identity. `/usr/share/ghostscript/iccprofiles/default_cmyk.icc` is
+/// 187 484 bytes whose `desc` tag reads *Artifex CMYK SWOP Profile*, `md5` **fd199526f0a7e0bc
+/// eb294a777cd84252**; scanning `libmupdf.so` for ICC headers finds five embedded profiles and
+/// one of them is **the same 187 484 bytes at the same digest**, at offset 3 360 896.
+/// `libgs.so` embeds none, so `ghostscript` reads that file off the disk and `mupdf` carries a
+/// verbatim copy compiled in. Neither reads the other's, and they are the same bytes.
+/// Evaluated by `pdf_model::icc` — our own A2B evaluator, written for `ICCBased` streams and
+/// pointed at a file on this machine — it produces 255/219/186/150/112/59/0/0/0 in red for the
 /// nine eighths of `c`. `mupdf` renders 255/220/186/150/110/54/0/0/0 and `ghostscript`
 /// 254/218/184/148/108/50/0/0/0. That is not two implementations agreeing; it is one CMYK
 /// profile, run twice, and the closeness of *their* agreement is also what tightens the
@@ -849,6 +858,98 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// split is a profile rather than a formula. Nothing here moved; what is worth recording is
 /// that it was checked rather than assumed, because this group's argument is the one most
 /// often mistaken for a page to fix.
+///
+/// # The other three pages had never been opened, and the six-hundred-and-fifty-sixth session
+/// wrote their closed forms out
+///
+/// Two of the five members carried the whole argument. `function_based_shading_cmyk.pdf`'s two
+/// pages and `type4psfunc.pdf`'s one were admitted on the heading above — a sentence about what
+/// their *dictionaries* say — which is the hypothesis trap 9's fourth shape warns is not a
+/// diagnosis. All three admit a closed form, so nobody's opinion is needed for the colour:
+///
+/// - `function_based_shading_cmyk.pdf` page 1 is three §8.7.4.5.2 type 1 shadings on a
+///   290 × 290 page. `/Sh20` and `/Sh21` share object 10, a §7.10.2 sampled function with
+///   `/Size [2 2]`, `/BitsPerSample 8` and the sixteen bytes `00 00 00 00 | FF 00 00 00 |
+///   00 FF 00 00 | 00 00 FF 40`, so with `/Order` defaulting to 1 the colour is bilinear in the
+///   domain: `C = u(1−v)`, `M = (1−u)v`, `Y = uv`, `K = 64uv/255`. `/Sh22` is the same
+///   construction one space out — a `/Separation /Spot /DeviceCMYK` whose tint is bilinear over
+///   0, 128/255, 192/255, 1 and whose §7.10.3 transform is `t · (0.1, 0.9, 0.8, 0.05)`.
+/// - Page 2 is **the same 600 × 600 square six times**: `/Sh30` to `/Sh35` are object 10 again
+///   under `/Matrix [600 0 0 600 …]` at six integer offsets on an 1880 × 1260 page.
+/// - `type4psfunc.pdf` is one §8.7.4.5.3 axial shading through
+///   `[/DeviceN [/Magenta /Yellow] /DeviceCMYK …]`. Its §7.10.5 tint transform is 292 bytes of
+///   `roll`/`index`/`sub` that hand-evaluate to `(0, m, y, 0)` — the identity into two of the
+///   four channels — and its `/Function` is a §7.10.4 stitch over one exponential from
+///   `[.2 .8]` to `[0 0]`, so the colour is `(0, 0.2(1−t), 0.8(1−t), 0)` along a 44.42-point
+///   axis.
+///
+/// **The first thing the forms buy is a sentence with no renderer in it at all.** Multilinear
+/// interpolation of ADR 0009's sixteen ink corners, applied to the closed-form CMYK and compared
+/// with our own raster, is **within one level of 255 at all 125 sample points**. Ours is that
+/// arithmetic, and whatever the rest of this note says about anybody else, nothing here is a
+/// question about our shading.
+///
+/// Sampled against those forms at **125 points over the five shadings** — 25 on the axial band
+/// and 25 on each square — the worst channel difference in levels of 255:
+///
+/// ```text
+///                                   ours  poppler  mupdf  ghostscript  hayro
+///   Artifex SWOP profile              48       51      8            8      8
+///   CGATS001Compat micro profile      48       51      5            4      4
+///   ours                               —        4     48           48     48
+///   poppler                            4        —     51           51     51
+///   mupdf                             48       51      —            6      4
+///   ghostscript                       48       51      6            —      5
+///   hayro                             48       51      4            5      —
+/// ```
+///
+/// **Two camps, and neither of them is a shading.** Ours and `poppler` are within four levels of
+/// each other at every point of every page; `mupdf`, `ghostscript` and `hayro` within six; across
+/// the divide 48 and 51. Both profiles, run through this tree's own evaluator, land inside the
+/// second camp and 48 outside the first. So there is nothing here for §8.7.4.5.2's interpolation,
+/// §7.10.2's `/Order`, §7.10.5's operators or §8.6.6.4's and §8.6.6.5's tint transforms to be
+/// wrong about, and the group's name is right about all five of its members.
+///
+/// # And `hayro` is a third reading of the same press, sharing neither code nor data
+///
+/// The heading above says the agreement is one profile seen twice, and it is — for two of the
+/// three. `hayro` is the third, and `objdump -p` on `pdfref-hayro` lists `libgcc_s.so.1`,
+/// `libm.so.6` and `libc.so.6` and nothing else: no `liblcms2`, no C colour library at all. What
+/// it carries is `hayro-interpret`'s own `assets/CGATS001Compat-v2-micro.icc` — **8 464 bytes,
+/// `desc` `uCMY`, `cprt` `CC0`, one `A2B0` tag**, against Artifex's 187 484 bytes and three
+/// `A2B` tables.
+/// Different size, different author, different licence, and our evaluator on either one predicts
+/// all three renderers.
+///
+/// **That is a mechanism trap 9 did not list, and it is the trap's sixth.** Not shared code, not
+/// shared data, not a shared default argument, not two wrong answers meeting at one angle: two
+/// independently authored files describing **the same printing condition**. Artifex's `desc` says
+/// *SWOP*; CGATS TR 001 is the characterisation data SWOP publishes. Three implementations that
+/// share nothing agree because each went and got a copy of the same press.
+///
+/// And that is what §10.3.2's NOTE describes, which is the sentence this group turns on:
+///
+/// > Establishing a CIE-based source colour space can happen based on a user-driven
+/// > configuration, by assumptions made by the PDF processor software, by analysis of the colour
+/// > values and other properties, or by other mechanisms.
+///
+/// Four processors, four assumptions, one licence. `CMYK_CORNERS` is ours and is the same kind
+/// of thing as theirs — which is why the 48 levels are not a defect on either side, and why
+/// principle 5 forbids closing them by adopting somebody's press. §10.3.1's NOTE says the same
+/// of the *destination*, and `colour.rs` cited that one for a *source* assumption until this
+/// session; the two NOTEs differ by one word and the ledger's §10.3.1 and §10.3.2 rows now say
+/// which is which.
+///
+/// # The six-square page asks each renderer a question about itself, and one answers twice
+///
+/// Page 2's six shadings are one picture six times, so the document states an invariant about
+/// its own raster and every renderer owes six identical 600 × 600 squares — trap 9's
+/// corpus-invariant instrument, with no renderer treated as truth. Ours, `mupdf`, `ghostscript`
+/// and `hayro` return six squares differing in **zero** channels. `poppler` returns two answers:
+/// the square's top row is painted on the three squares at `y` 640 and left white on the three
+/// at `y` 20 — **600 pixels at 255 levels, one row**, on clip rectangles and shading matrices
+/// that differ only by an integer translation. Recorded rather than chased, and unreported
+/// upstream.
 const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
     "function_based_shading_cmyk.pdf page 1",
     "function_based_shading_cmyk.pdf page 2",

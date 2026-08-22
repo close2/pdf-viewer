@@ -27,7 +27,8 @@ as a verdict.**
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
-evidence. Four ways for that to fail.
+evidence. Six ways for that to fail — and the count has moved twice, so read the list rather
+than the number.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
   programs that skipped the same clause produce the same picture. `visibility_expressions.pdf`:
@@ -38,6 +39,13 @@ evidence. Four ways for that to fail.
   with each other to under a level, because they run the same ICC profile. What settled it was
   *this tree's own* A2B evaluator pointed at `default_cmyk.icc`. **When two references agree
   suspiciously closely, ask what data they are both reading, and evaluate it yourself.** ADR 0048.
+  It is byte identity rather than a family resemblance, and the six-hundred-and-fifty-sixth
+  session checked: `/usr/share/ghostscript/iccprofiles/default_cmyk.icc` is 187 484 bytes at
+  `md5 fd199526f0a7e0bceb294a777cd84252`, `libgs.so` embeds no profile at all and reads it off the
+  disk, and scanning `libmupdf.so` for ICC headers finds **the same 187 484 bytes at the same
+  digest** compiled in. Two binaries, one file. **The scan is the instrument worth keeping**:
+  every ICC profile in a binary is a four-byte big-endian length followed by `acsp` at offset 36,
+  so `objdump` is not needed to find what a reference is reading.
 - **A shared *default*, which is neither of the two above and needed a third instrument.** On a page
   whose images run through a profile the *document* embeds, all three references sit within four
   levels of each other and up to twenty from us — and the data is not shared, because it came out of
@@ -90,6 +98,19 @@ evidence. Four ways for that to fail.
   which nothing was watching. Shared code does not only manufacture agreement; it can also
   manufacture the *absence* of one, and the second is invisible where the first is at least
   listed. `AMBIGUOUS_SHARED_JBIG2_DECODER`.
+- **And a sixth, which is none of the five above: a shared external *standard*.** On
+  `CONTRADICTED_DEVICE_CMYK_CONVERSION`'s five pages `hayro` sits with the `mupdf`/`ghostscript`
+  pair — 4 and 5 levels of 255 from them, 48 from us — and it shares nothing with either.
+  `objdump -p` on `pdfref-hayro` names `libgcc_s`, `libm` and `libc` and no colour library at all;
+  what it carries is its own `CGATS001Compat-v2-micro.icc`, 8 464 bytes, `desc` `uCMY`, `cprt`
+  `CC0`, one `A2B0` tag, against Artifex's 187 484 bytes and three `A2B` tables. Different file,
+  different author, different licence — and this tree's own evaluator on **either** of the two
+  predicts all three renderers to within eight levels while sitting 48 from ours. What the three
+  share is the *press*: Artifex's `desc` says **SWOP** and CGATS TR 001 is the characterisation
+  data SWOP publishes. **So implementations can agree because each independently went and got a
+  copy of the same published standard**, which no dependency graph shows, no digest comparison
+  finds and no shared file explains — only the profiles' own `desc` tags do. §10.3.2's NOTE is
+  where all four assumptions live, ours included. ADR 0484.
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose

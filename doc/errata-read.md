@@ -20,6 +20,13 @@ deleted subclause — and `check` caught all three before the commit, which is t
 the direction it was built for. **The rule that follows: a round implementing a clause runs
 `spec-errata emit` on that document before it writes, and not `check` afterwards alone.**
 
+**It is no longer one row, and the later two show that `check` has two blind spots rather than
+one.** §7.4.3's #293 is #236's, a clause away: a pure addition, over text nobody had quoted.
+§10.3.1's #181 is a different one — text this tree *had* quoted, in two places, over a struck run
+of **two words**, under the four-word floor `check` filters on. So a quotation can sit on retired
+text and pass the check that exists to find exactly that, and the only instrument that sees it is
+`emit` read against the caret's `/Rect`. The rule above is unchanged and now has a second reason.
+
 **The instrument was corrected once, between the first table and the third.** Its comparison was
 whitespace-sensitive and both sides are extractions of the same glyphs by different programs, so a
 passage one writes `inthe` and the other writes `in the` was called absent; dropping the spaces took
@@ -92,6 +99,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | §9.7.4.2 Glyph selection | 346 | #106 | cites | Indirect-reference relaxation. |
 | §9.8.2 Font descriptor flags | 360 | #453 | cites | `/MissingWidth`'s "predictable effect only if" becomes "to ensure predictable results … otherwise implementation dependent". No obligation on a reader either way. |
 | §9.10.3 ToUnicode | 373 | #87 | untouched | A Unicode character name corrected in an EXAMPLE. |
+| §10.3.1 CIE-based to device | 376 | #181 | **quotes** | The dated *ISO 15076-1:2010 (ICC.1:2010)* struck from the clause's last sentence, replaced by "the appropriate ICC specification (see "Table 66 - ICC profile versions supported by ICCBased colour spaces")" — the same erratum as §3's, §8.6.5.5's and §0.4's, now in the one place it states a requirement. **`check` never named it and `emit` did**: the struck run is two words, under `check`'s four-word floor, and this is the third row here found by the rule that a round runs `emit` before it writes. `emit` files it under §10.4.1's heading — page 376 carries §10.2 through §10.4.1 — and the StrikeOut's `/Rect [83.128 333.629 238.273 346.049]` is over §10.3.1's last line, which `pdftotext -bbox` puts at (86.42, 494.66)–(237.24, 507.60) on a 841.92-point page. Two quotations of the retired words, in `colour.rs`'s `BRADFORD` and §10.3.1's ledger row, are prose now. The erratum *strengthens* both: `icc.rs` reads the profile header's version byte and accepts 2.x and 4.x alike, which is Table 66's amended shape rather than one dated edition's. Found in the six-hundred-and-fifty-sixth session. |
 | §10.6.5.4, §10.6.5.6 | 391, 395 | #310, #12 | untouched | ×2. Halftone dictionaries. §10.6 is inapplicable on the standard's own condition (`CLAUDE.md`). |
 | §12.5.6.9 Polygon/polyline | 506 | #444 | cites | `/Vertices` "shall be ignored if Path is present". `appearance::path` tries `/Path` first and structurally never reads `/Vertices` after it. |
 | Table 234 `/I` (p.558) | 558 | #468 | **quotes** | `/I` is no longer restricted to `MultiSelect` fields and the "value is an array" trigger is deleted. The code was already right; **the erratum vindicates it** — writing `/I` beside a single selection was a stretch of the retired wording and is the plain sense of the amended one. Two quotations corrected. |
