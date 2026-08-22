@@ -1404,46 +1404,138 @@ const CONTRADICTED_IMAGE_RESAMPLING: [&str; 0] = [];
 /// lesson this entry has taught about itself.
 const CONTRADICTED_MASK_QUANTISATION: [&str; 0] = [];
 
-/// Contradicted, and **we are the ones who are right**: a visibility expression.
+/// Contradicted, where a visibility expression decides the picture and a **press** decides
+/// the verdict.
 ///
 /// 1 page. This entry used to hold three, and the other two left when optional content
 /// landed (§8.11) — `issue12007_reduced.pdf` was drawing a whole hidden screenshot over a
 /// page the references leave nearly blank. What is left is a page where the reference
-/// consensus is wrong, which is rare enough to be worth the paragraph.
+/// consensus is wrong about `/VE`, which is rare enough to be worth the paragraph — and where
+/// the bound it fails is mostly about something else, which is why the title changed.
 ///
-/// `visibility_expressions.pdf` draws five lines twice: once pale, and once dark inside five
-/// `BDC /OC` sections whose membership dictionaries each carry a `/VE` visibility expression
-/// and *no* `/OCGs` or `/P`. With group C off and A and B on, `[/Not 9 0 R]` and
-/// `[/Not [/Or 9 0 R 10 0 R]]` are false, so two of the five dark lines are hidden. We draw
-/// them hidden; `poppler` draws them hidden; `mupdf` and `ghostscript` draw all five dark.
+/// `visibility_expressions.pdf` draws five lines twice: once pale at `0 0 0 0.150 k`, and once
+/// dark at `0 0 0 0.890 k` inside five `BDC /OC` sections whose membership dictionaries each
+/// carry a `/VE` visibility expression and *no* `/OCGs` or `/P`. With group C off and A and B
+/// on, `[/Not 9 0 R]` and `[/Not [/Or 9 0 R 10 0 R]]` are false, so two of the five dark lines
+/// are hidden. We draw them hidden; `poppler` draws them hidden; `mupdf`, `ghostscript` **and
+/// `hayro`** draw all five dark.
 ///
-/// # Why the two that agree are not evidence here
+/// # This note never measured the page, and the heatmap had been saying so all along
 ///
-/// **Neither of them implements `/VE`**, and this was checked in their source rather than
-/// inferred from the picture:
+/// Until the six-hundred-and-seventy-second session the whole entry below was four source
+/// citations and a clause. It counted the page's objects — five lines, five sections, two of
+/// them hidden — and measured not one pixel of it, which made it the only non-empty list in
+/// this file with no measurement of its own raster anywhere in it.
 ///
-/// - `mupdf`, `source/pdf/pdf-layer.c`, in the `OCMD` branch of `pdf_is_ocg_hidden_imp`:
-///   `if (pdf_is_array(ctx, obj)) { /* FIXME: Calculate visibility from array */ return 0; }`
-///   — a `/VE` array means visible, always.
-/// - `ghostscript`, `pdf/pdf_optcontent.c`, in `pdfi_oc_check_OCMD`: `WARNING: OCMD contains
-///   VE, which is not supported (ignoring)`.
-/// - `poppler` does implement it: the installed library exports
-///   `OCGs::evalOCVisibilityExpr(Object const*, int) const` and carries the string
-///   `Loop detected in optional content visibility expression`.
-/// - `pdf.js` implements it too, and prefers it, in `src/core/evaluator_utils.js` — which is
-///   in this repository, under `doc/pdf.js`. Its issue #12097 is closed by PR #13243, and
-///   this very file is the test that came with it.
+/// `<stem>/p1/…-diff-mupdf.png` lights **all five** lines, the two disputed ones orange and
+/// the three undisputed ones yellow, and the three nobody disputes carry most of one of the
+/// two bounds this page fails. [`CONTRADICTED_MASK_QUANTISATION`] closes with *a number
+/// stated correctly is not a mechanism explained*; this entry is the mirror of it —
+/// **a mechanism explained is not a number accounted for** (ADR 0497).
 ///
-/// So the count is three implementations that read the clause the way we do against two that
-/// have not implemented it. **Trap 9 in `doc/HANDOVER.md` generalises**: two renderers can
-/// agree because they share a decoder, and they can also agree because they share a *gap* —
-/// an unimplemented feature almost always falls through to "draw it", so the same silence
-/// produces the same picture in both. Agreement is evidence only where the implementations
-/// can fail independently, and a missing feature is not an independent failure.
+/// # Which bounds fail, and what each is made of
+///
+/// The gate's line is `mean 3.89 worst tile 50.01 differing 6.38% ssim 0.9521` against
+/// `mean 5.00 worst tile 40.00 differing 5.00% ssim 0.9000`. Those four *are*
+/// `Tolerance::TEXT_HEAVY` to the digit, so the bound is the floor and twice the voting pair's
+/// own spread is under it on every measure — which is what `mupdf` and `ghostscript` sitting
+/// 0.55 of 255 and 1.58% apart says directly, measured by hand on the 340 × 340 both of them
+/// cover. **Two of the four fail: the worst tile and the differing fraction.**
+///
+/// Three renders of the same page, each taking one mechanism out, compared with
+/// `examples/compare_rasters` at the gate's own 72 dpi. Both variants are §7.5.6 incremental
+/// updates on the file itself, so nothing but the named entries moves:
+///
+/// ```text
+///   ours vs mupdf                                 mean  worst tile  differing     ssim
+///   the document                                3.8696       50.01    6.3456%  0.95234
+///   /VE replaced by /OCGs 8 0 R /P /AnyOn       0.9012        4.59    6.3086%  0.99553
+///   ... and 0 0 0 k restated as the same rg     0.5133        2.75    1.9378%  0.99589
+/// ```
+///
+/// **Take the `/VE` disagreement away completely and the differing fraction moves by 0.037 of
+/// the 1.35 percentage points it is over by.** The page stays contradicted on that bound with
+/// the group's whole subject removed. Split three ways, the 6.3456 points are `/VE` **0.037**,
+/// the `DeviceCMYK` press **4.371** and glyph edges **1.938** — and the worst tile is the
+/// other way round, `/VE` owning 45.42 of its 50.01.
+///
+/// # The gap, verified on the running binaries rather than in a source tree
+///
+/// The first variant is a control in both directions, and it is stronger than the citations
+/// this entry used to rest on because it measures the programs that were installed:
+///
+/// - `mupdf`, `ghostscript` and `hayro` render it **byte for byte** as they render the
+///   document (mean 0.0000, max 0) — they were drawing all five dark either way.
+/// - ours moves 3.4943 of 255 and `poppler`'s 4.6608, maximum 165 apiece.
+/// - The other direction, so that *they ignore optional content* is excluded: a variant
+///   stating `/OCGs 10 0 R /P /AnyOn` — group C, the one `/OFF` names — is hidden by all of
+///   them. They read §8.11 and they do not read `/VE`.
+///
+/// The source evidence is kept where it was re-checked, and two of the four items are worth
+/// separating from the other two:
+///
+/// - `poppler` 26.07.0 exports `OCGs::evalOCVisibilityExpr(Object const*, int) const` and
+///   carries `Loop detected in optional content visibility expression` — re-checked with `nm`
+///   and `strings` on the installed library.
+/// - `pdf.js` reads `/VE` first and falls back to `/OCGs` and `/P`, in
+///   `src/core/evaluator_utils.js` — in this repository, under `doc/pdf.js`, so it is the one
+///   citation here with a checkout behind it. Its issue #12097 is closed by PR #13243, and this
+///   very file is the test that came with it.
+/// - `mupdf`'s `source/pdf/pdf-layer.c` was cited for
+///   `/* FIXME: Calculate visibility from array */` in the `OCMD` branch of
+///   `pdf_is_ocg_hidden_imp`. **This machine has the package and not the sources**, so the
+///   sentence is inherited rather than re-checked; what is checked is the behaviour, above.
+/// - **`ghostscript`'s no longer reproduces at all.** This entry quoted `WARNING: OCMD contains
+///   VE, which is not supported (ignoring)`; `strings` on `libgs.so.10` at 10.07.1 finds neither
+///   that sentence nor `not supported (ignoring)`, and the run without `-q` prints nothing
+///   about optional content. A citation of another project's source is a claim with no gate on
+///   it, and this one outlived the string. The control above replaces it.
+///
+/// **`hayro` is a fourth program with the same gap, and it is the one that shares `skrifa`
+/// with this tree.** So the count is not three implementations reading the clause our way
+/// against two that have not: it is `poppler`, `pdf.js` and us against `mupdf`, `ghostscript`
+/// and `hayro`. Agreement is evidence only where implementations can fail independently, and
+/// a missing feature is not an independent failure — trap 9's second shape, now measured on
+/// four binaries instead of read in two source trees.
+///
+/// # The other failing bound is a different group's, and a different clause's
+///
+/// A four-object page holding nothing but the document's own two colours (trap 9's probe)
+/// says where the rest of the differing fraction comes from:
+///
+/// ```text
+///                 0 0 0 0.150 k    0 0 0 0.890 k
+///   ours          (222, 221, 222)  ( 59,  56,  57)
+///   poppler       (222, 221, 222)  ( 59,  56,  57)
+///   mupdf         (219, 220, 222)  ( 66,  66,  68)
+///   ghostscript   (220, 221, 222)  ( 67,  67,  68)
+///   hayro         (220, 221, 223)  ( 66,  64,  66)
+/// ```
+///
+/// Ours is `colour::CMYK_CORNERS` written out — `(1 − k)·(255, 255, 255) + k·(35, 31, 32)` is
+/// (222.0, 221.4, 221.6) and (59.2, 55.6, 56.5) — and `poppler` is on it byte for byte, which
+/// is [`CONTRADICTED_DEVICE_CMYK_CONVERSION`]'s two camps arriving on a page whose only
+/// colours are `k`. **Why it lands on this bound and on no other is
+/// `raster_compare::JUST_NOTICEABLE`, which is 4**: the pale difference is 2 to 3 levels and is
+/// counted as noise, the dark one is 7 to 11 and is not, so every dark glyph pixel on a page
+/// that is nothing but dark glyphs enters the differing fraction. What those same pixels are
+/// worth to the *other* metrics is the ladder's second row: 0.90 of 255 against a mean bounded
+/// at 5.00, a worst tile of 4.59 against 40.00, and 0.996 against 0.900. A metric that counts
+/// pixels and a metric that averages them do not see the same mechanism.
+///
+/// # The clause, and it is in two rows rather than one
 ///
 /// §8.11.2.2 is not ambiguous — "If the VE key is present it shall be used in preference to
-/// the OCGs and P keys" — so the clause settles it, and the other renderers are evidence
-/// about that reading rather than a target to move toward.
+/// the OCGs and P keys" — so the clause settles the two hidden lines, and this page is the
+/// corpus's only witness for that `shall`. What it does *not* settle is the bound the page
+/// fails hardest: that one is §8.6.4.4 with §10.3.2's NOTE, where four processors make four
+/// source assumptions and no clause chooses among them (ADR 0484). **Fifth round running in
+/// which the deciding clause sat in a different row than the group cites** — and the first in
+/// which it sits in a different *group*.
+///
+/// The page stays listed and nothing about our rendering should change: we carry out
+/// §8.11.2.2 where three renderers do not, and the colour is the documented choice ADRs 0009
+/// and 0042 argue. What is no longer claimed is that `/VE` is what the gate measures.
 const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.pdf page 1"];
 
 /// Contradicted, where the references that agree are two that did not draw the page.
