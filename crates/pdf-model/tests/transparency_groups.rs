@@ -2597,6 +2597,90 @@ fn a_group_that_introduces_a_press_composites_in_it() {
     );
 }
 
+/// A shading pattern carried over a `Do` into a group that composites somewhere else.
+///
+/// ISO 32000-2 §11.6.7 makes a shading pattern's definition a group of its own:
+///
+/// > In both cases, the pattern definition shall be treated as if it were implicitly enclosed in
+/// > a non-isolated transparency group: a non-knockout group for tiling patterns, a knockout group
+/// > for shading patterns.
+///
+/// and §11.7.2 says where such a group's colour space comes from:
+///
+/// > Non-isolated groups shall inherit their colour space from the nearest ancestor isolated
+/// > parent group (subject to special treatment for the page group, as described in 11.4.7, "Page
+/// > group").
+///
+/// The nearest ancestor of a pattern *painted inside* this group is this group, so its colours
+/// belong in the group's four components. This tree resolves them where the `scn` is — one space
+/// out — and the pair the group would otherwise be drawn as would carry that one resolved colour
+/// into both of its halves, which is an ink neither the file nor this tree ever stated. So the
+/// press is refused and §11.6.6's standing report names the space, exactly as it does for an
+/// uncoloured cell and for §11.7.5.3's black generation.
+///
+/// The mutation is the same page with the `scn` moved *inside* the form, where the pattern's
+/// parent content stream is the one compositing in the press and nothing is carried across.
+#[test]
+fn a_shading_pattern_carried_into_a_press_keeps_the_group_on_the_device() {
+    let page_with = |page: &str, form: &str| {
+        let pattern = "/Pattern << /P0 << /PatternType 2 /Shading << /ShadingType 2 \
+                       /ColorSpace /DeviceRGB /Coords [0 0 100 0] /Extend [true true] \
+                       /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] \
+                       /N 1 >> >> >> >>";
+        let body = format!(
+            "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+             2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+             3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+             /Resources << {pattern} /XObject << /Fm 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
+             4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+             5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+             /Group << /S /Transparency /I true /CS /DeviceCMYK >> \
+             /Resources << {pattern} /ExtGState << /GS << /ca 0.5 >> >> >> /Length {} >>\n\
+             stream\n{form}\nendstream\nendobj\n",
+            page.len() + 1,
+            form.len() + 1
+        );
+        interpret(assemble(&body))
+    };
+    let paired = |drawn: &pdf_model::Interpretation| {
+        drawn.display_list.commands().iter().any(|command| {
+            matches!(
+                command,
+                Command::Group {
+                    blending: Some(_),
+                    ..
+                }
+            )
+        })
+    };
+
+    let carried = page_with(
+        "/Pattern cs /P0 scn /Fm Do",
+        "/GS gs 0 0 100 100 re f 1 1 1 1 k 20 20 60 60 re f",
+    );
+    assert!(
+        !paired(&carried),
+        "a colour resolved outside the group cannot be reinterpreted as ink inside it: {:?}",
+        carried.display_list.commands()
+    );
+    assert!(
+        format!("{:?}", carried.unsupported).contains("blending colour space /DeviceCMYK"),
+        "and the group says so rather than drawing an ink nobody stated: {:?}",
+        carried.unsupported
+    );
+
+    let inside = page_with(
+        "/Fm Do",
+        "/GS gs /Pattern cs /P0 scn 0 0 100 100 re f 1 1 1 1 k 20 20 60 60 re f",
+    );
+    assert!(
+        paired(&inside),
+        "a pattern whose parent content stream is the group's composites in the group's own \
+         space: {:?}",
+        inside.display_list.commands()
+    );
+}
+
 /// A page whose outer form group holds a fill and an inner form group.
 ///
 /// `outer` and `inner` are the two `/Group` dictionaries, written whole so that a test can

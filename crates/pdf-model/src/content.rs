@@ -31,7 +31,7 @@ use crate::page::Page;
 use colour::{BlackPoint, Intent, output_intent_space};
 pub use ext_gstate::Transfer;
 use font::{Font, FontKey};
-use pattern::{PatternPaint, shading_with_alpha};
+use pattern::{PatternInitial, PatternPaint, shading_with_alpha};
 use run::narrow;
 use text::Coverage;
 use transparency::{AlphaSourcesSeen, PagePress, page_blending_space, page_press};
@@ -504,6 +504,10 @@ impl<'a> Interpreter<'a> {
             view_dependent: false,
             text_cursor: None,
             base: base_transform(page),
+            // §11.6.7's companion to `base`, and initialised from the same place: nothing has run
+            // before a page's content stream, so the parameters it begins with are §8.4.1
+            // Table 52's initial values.
+            pattern_initial: PatternInitial::of(&GraphicsState::initial(base_transform(page))),
             page: size,
             shadings: crate::shading::Cache::default(),
             resource_tables: std::cell::RefCell::default(),
@@ -912,6 +916,14 @@ struct Interpreter<'a> {
     /// the transform in force when a pattern is used, so this is kept for patterns and
     /// must not be confused with the current transform.
     base: Transform,
+    /// The parameters ISO 32000-2 §11.6.7 hands a shading pattern selected in the content stream
+    /// now running — the graphics state it *began* with, not the one at the `scn`.
+    ///
+    /// Scoped exactly like [`Self::base`] and for the same sentence: the pattern matrix maps to
+    /// "the default coordinate system of the pattern's parent content stream" (§8.7.2), and
+    /// §11.6.7 says the same of black point compensation, the rendering intent and §10.7.3's
+    /// smoothness. See [`PatternInitial`].
+    pattern_initial: PatternInitial,
     /// The page's extent, used to bound a shading painted by `sh`.
     page: Size,
     /// Shadings already built, by the object that states them (§8.7, ADR 0069).

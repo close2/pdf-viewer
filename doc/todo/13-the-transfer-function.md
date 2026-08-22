@@ -14,6 +14,10 @@ shading's colours are *made*, so it reaches an axial or radial ramp's samples, a
 ramp, a mesh's corners and a function-based shading's grid. Two things are still owed and both are
 below — the per-region model, and the pattern whose colours were resolved a graphics state before
 the mark.
+**The six-hundred-and-fifty-fifth read the three clauses that were said to meet at the `scn`** and
+found they name three different moments (ADR 0483): two of them are implemented and the third is
+what the last section still owes. Its price is smaller than this file used to say and its shape is
+different, which is the whole of that session's contribution here.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, and
@@ -267,7 +271,7 @@ session; the second is what this file still owes.**
    straight to the top — and since the six-hundred-and-thirty-seventh such a document says so out
    loud instead of being drawn wrong in silence.
 
-## What is still owed: the pattern whose colours were resolved a state too early
+## What is still owed: the pattern whose colours are resolved before the mark
 
 **Found in the six-hundred-and-fiftieth session while implementing the above**, and reported rather
 than drawn in silence. §8.7.2 makes a pattern a colour and `scn` is where a colour is set, so a
@@ -282,13 +286,44 @@ its picture is right — an over-approximation in the safe direction, taken beca
 §7.10 functions is a relation this tree does not have and would be inventing for a population of
 zero.
 
-**Why it was not simply fixed.** Closing it means resolving a shading pattern's colours at the mark
-instead of at the selection — and the `scn` is also where this tree resolves §8.6.5.9's black point
-and §11.4.7's compositing target for those same colours, neither of which reports anything when the
-state moves underneath it. So the staleness is a property of *when a shading pattern is built*
-rather than of §10.5, and the right change answers three clauses at once. What it would take: the
-shading object, its resources and its matrix carried in `PatternPaint::Shading` so that
-`Interpreter` can rebuild through `shading::Cache` at the paint — cheap, because the cache is keyed
-by the object — plus a decision about where `fill_paint` moves to, since it is a method on
-`GraphicsState` and has no document. Call it a hundred lines and three fixtures, and take it with
-the two sibling clauses rather than alone.
+### The price this section carried was wrong, and the six-hundred-and-fifty-fifth session read the clauses
+
+This section used to say that closing it "means resolving a shading pattern's colours at the mark
+instead of at the selection", and that the same change answered §8.6.5.9's black point and
+§11.4.7's compositing target because "the `scn` resolves all three". **The three clauses were then
+read verbatim and they give three different answers, one of which is earlier than the `scn` rather
+than later.** ADR 0483 is the reading; what it changes here is the price.
+
+- **§8.6.5.9's black point (and §8.6.5.8's intent, and §10.7.3's smoothness): the beginning of the
+  content stream, augmented by Table 75's `/ExtGState`.** §11.6.7 makes a shading pattern's
+  definition an implicitly enclosed group and states its initial state outright — "[t]he definition
+  shall not inherit the current values of the graphics state parameters at the time it is
+  evaluated", and instead takes "the graphics state that was in effect at the beginning of the
+  content stream in which the shading pattern is set to be the current colour". Its third bullet
+  names *black point compensation and rendering intent* by name. **Implemented**, in
+  `content::PatternInitial`, scoped in `run` exactly as `Interpreter::base` — which had been obeying
+  the same sentence for the transformation matrix since the fifty-second session, one parameter of
+  three.
+- **§11.4.7's compositing target: the group the mark is in.** §11.6.7 makes the pattern's implicit
+  group *non-isolated* and §11.7.2 says such a group inherits "their colour space from the nearest
+  ancestor isolated parent group". **Answered by refusal**: `group_press` no longer builds a
+  subtractive pair for a group that a shading pattern is carried into, exactly as it already
+  refuses one for §8.6.8's uncoloured cell and for §11.7.5.3's black generation, and the group
+  keeps §11.6.6's standing report.
+- **§10.5's transfer function: the mark, and only this one.** §11.7.5.2 puts it at "the last
+  (topmost) elementary graphics object enclosing that point", and §11.7.5.3's NOTE takes it out of
+  the group evaluation altogether — "whose values are used only when all colour compositing has
+  been completed and rasterization is being performed". So it is not one of §11.6.7's parameters
+  and a `/TR` in a pattern's `/ExtGState` says nothing about the pattern's own colours.
+
+**What is left is therefore one clause's question rather than three**, and the mechanical price is
+the one 650 wrote: the shading object, its resources and its matrix carried in
+`PatternPaint::Shading` so that `Interpreter` can rebuild through `shading::Cache` at the paint —
+cheap, because the cache is keyed by the object — plus a decision about where `fill_paint` moves
+to, since it is a method on `GraphicsState` and has no document. A hundred lines and a fixture. The
+one thing a round taking it must not do is move the *other* two quantities with it: the rebuild has
+to keep reading `PatternInitial` for the black point, the intent and the smoothness, or it will
+trade one departure for another.
+
+**And the population is still zero**, re-derived rather than re-read: `examples/pattern_state_census`
+and `examples/transfer_function_census` are the two commands.

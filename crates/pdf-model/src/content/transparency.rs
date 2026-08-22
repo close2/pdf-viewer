@@ -1138,6 +1138,17 @@ impl Interpreter<'_> {
     ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
     ///   compositing, and reinterpreting them in ink would convert a colour that was never
     ///   stated here.
+    /// - **No shading pattern is carried in over the `Do`**, which is the same sentence one
+    ///   colour over and was missing until the six-hundred-and-fifty-fifth session. §11.6.7
+    ///   makes a shading pattern's definition "implicitly enclosed in a non-isolated
+    ///   transparency group", and §11.7.2 then says where such a group's colour space comes
+    ///   from — "[n]on-isolated groups shall inherit their colour space from the nearest
+    ///   ancestor isolated parent group", which for a pattern painted inside this group is
+    ///   *this* group. Its colours were resolved where the `scn` was, one space out, and the
+    ///   two runs of a paired press would carry that same resolved colour into both halves —
+    ///   an ink neither the file nor this tree ever stated. So the group is composited on the
+    ///   device's components and keeps §11.6.6's standing report, exactly as an uncoloured
+    ///   cell does and for the identical reason.
     /// - **No `/ExtGState` has stated Table 57's black generation**, which §11.7.5.3 puts
     ///   inside the conversion into the space and this conversion does not read. Checked
     ///   again after the run, since a `gs` inside the group can state one.
@@ -1149,11 +1160,13 @@ impl Interpreter<'_> {
         &mut self,
         group: &TransparencyGroup,
         resources: &Dictionary,
+        carries_shading_pattern: bool,
     ) -> Option<Arc<Press>> {
         if self.compositing != Compositing::Device
             || !group.isolated
             || group.knockout
             || self.uncoloured
+            || carries_shading_pattern
             || self.black_generation_stated
         {
             return None;
@@ -1746,7 +1759,19 @@ impl Interpreter<'_> {
             AlphaSourcesSeen::of(inner.alpha_is_shape),
         );
         let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
-        let ink = self.group_press(group, resources);
+        // §11.6.7's pattern carried in over the `Do`, read off the state the group's content
+        // starts from: §11.6.6 resets the transparency parameters on `inner` and leaves the
+        // colour alone, so a shading pattern selected outside is still the current colour here.
+        // An over-approximation in the safe direction — the group may never fill with it — and
+        // the tight test would have to name the marks a run has not made yet.
+        let carries_shading_pattern = matches!(
+            inner.fill_pattern,
+            Some(super::pattern::PatternPaint::Shading { .. })
+        ) || matches!(
+            inner.stroke_pattern,
+            Some(super::pattern::PatternPaint::Shading { .. })
+        );
+        let ink = self.group_press(group, resources, carries_shading_pattern);
         let saved = self.compositing.clone();
         // Scoped only where a pair is being attempted: everywhere else the record has to
         // propagate *up* to whatever pair run this group may be inside.

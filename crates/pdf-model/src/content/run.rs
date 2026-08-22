@@ -123,7 +123,20 @@ impl Interpreter<'_> {
         form_depth: usize,
     ) {
         let mut reader = content.reader();
+        // ISO 32000-2 §11.6.7 gives a shading pattern's definition "the graphics state that was in
+        // effect at the beginning of the content stream in which the shading pattern is set to be
+        // the current colour", so a *nested* stream is a new beginning and the parameters it
+        // starts with are the ones any pattern it selects inherits. Saved and restored around the
+        // run rather than assigned, because a content stream is a scope: what a pattern named
+        // after the `Do` inherits is what this stream's caller inherited. The companion of
+        // `Interpreter::base`, which the same four sites have swapped for the same sentence since
+        // the fifty-second session. See [`super::pattern::PatternInitial`].
+        let outer = std::mem::replace(
+            &mut self.pattern_initial,
+            super::pattern::PatternInitial::of(initial),
+        );
         self.run_reader(&mut reader, resources, initial, form_depth);
+        self.pattern_initial = outer;
         for issue in reader.take_issues() {
             self.note_nested(issue, content.detail());
         }

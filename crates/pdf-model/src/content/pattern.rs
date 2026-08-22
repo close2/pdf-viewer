@@ -16,11 +16,171 @@ use pdf_syntax::{Dictionary, Name, Object};
 
 use crate::colour::ColourSpace;
 
-use super::colour::{BlackPoint, convert};
+use super::colour::{BlackPoint, Intent, convert};
 use super::report::Unsupported;
 use super::run::narrow;
 use super::transparency::{Painted, any_command, command_blends};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERATIONS};
+
+/// The graphics state a shading pattern's *definition* is evaluated under (ISO 32000-2 §11.6.7).
+///
+/// A pattern is a colour (§8.7.2) and `scn` is where a colour is set, so the obvious moment to
+/// resolve a shading pattern's colours is the `scn` — and the obvious repair, when that turns out
+/// to be several graphics states before the mark, is to move it to the mark. **The clause names
+/// neither**, twice and in two places. §11.6.7:
+///
+/// > The definition shall not inherit the current values of the graphics state parameters at the
+/// > time it is evaluated; those parameters shall take effect only when the resulting pattern is
+/// > later used to paint an object.
+///
+/// > Any parameters that are not so specified shall be inherited from the graphics state that was
+/// > in effect at the beginning of the content stream in which the shading pattern is set to be
+/// > the current colour in the graphics state or in which the sh operator is used.
+///
+/// and Table 75's `/ExtGState` entry says the same of the same parameters — "inherited from the
+/// graphics state that was in effect at the beginning of the pattern's parent content stream, and
+/// as modified by clause 11.6.7".
+///
+/// This tree already obeyed that rule for **one** parameter and had never noticed: §8.7.2's
+/// pattern matrix maps to "the default coordinate system of the pattern's parent content stream",
+/// which is `Interpreter::base`, swapped at each of the four ways of becoming a parent. The
+/// transformation matrix is the first of the three §11.6.7 names; the other two are this struct.
+///
+/// # Which parameters, and why not the transfer function
+///
+/// §11.6.7's third bullet names them: "Only those parameters that affect the sh operator, such as
+/// the current transformation matrix, black point compensation and rendering intent, shall be
+/// used." §10.7.3's smoothness is a fourth by the same test — it is the tolerance a shading's
+/// colour function is sampled to, and nothing else reads it.
+///
+/// §10.5's transfer function is deliberately **not** here, and the reason is §11.7.5.3's NOTE
+/// about the intent it has just placed at the painting operation:
+///
+/// > This differs from the current halftone and transfer function, whose values are used only when
+/// > all colour compositing has been completed and rasterization is being performed.
+///
+/// So a transfer is not part of a pattern's evaluation at all; §11.7.5.2 puts it at the topmost
+/// painting object, which is the mark. That half is still resolved at the `scn` here and is
+/// reported by [`Interpreter::note_transfer`].
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PatternInitial {
+    /// Table 57's `/UseBlackPtComp` as the beginning of this content stream had it.
+    black_point: BlackPoint,
+    /// §8.6.5.8's rendering intent, which §8.6.5.9 lets override the entry above.
+    intent: Intent,
+    /// Table 57's `/SM`, §10.7.3's smoothness tolerance.
+    smoothness: Option<f32>,
+}
+
+impl PatternInitial {
+    /// The parameters as one graphics state has them.
+    ///
+    /// Read off the state a content stream *begins* with, which is what makes it the clause's
+    /// quantity — see [`Interpreter::run_reader`], the one place this is called.
+    pub(super) fn of(state: &GraphicsState) -> Self {
+        Self {
+            black_point: state.use_black_pt_comp,
+            intent: state.intent,
+            smoothness: state.smoothness,
+        }
+    }
+
+    /// The same parameters as Table 75's `/ExtGState` augments them, per §11.6.7's third bullet.
+    ///
+    /// > In the case of a shading pattern, the parameter values may be augmented by the contents
+    /// > of the ExtGState entry in the pattern dictionary (see 8.7.4, "Shading patterns"). Only
+    /// > those parameters that affect the sh operator, such as the current transformation matrix,
+    /// > black point compensation and rendering intent, shall be used. Parameters that affect
+    /// > path-painting operators shall not be used, since the execution of sh does not entail
+    /// > painting a path.
+    ///
+    /// Three entries are read because three are what a shading's colours depend on here.
+    /// Everything else Table 57 can carry is either a path-painting parameter the sentence
+    /// excludes outright, one §11.6.7's first bullet has already initialised (the blend mode, the
+    /// two alpha constants, the soft mask), or one this device does not perform at all —
+    /// §10.6's halftone, §8.6.7's overprint, §10.4's black generation and undercolour removal.
+    /// **A `/TR` or `/TR2` here is none of those and is deliberately not read**: §11.7.5.3's NOTE
+    /// takes the transfer function out of the group evaluation, so a pattern's `/ExtGState` cannot
+    /// state one for its own colours. `Interpreter::note_pattern_ext_gstate` reports the entries
+    /// that are skipped and could have marked.
+    fn augmented(self, document: &pdf_syntax::Document, dict: &Dictionary) -> Self {
+        let Some(state) = document.get_key(dict, "ExtGState").as_dict().cloned() else {
+            return self;
+        };
+        let mut augmented = self;
+        if let Object::Name(value) = document.get_key(&state, "UseBlackPtComp") {
+            augmented.black_point = match value.as_bytes() {
+                b"ON" => BlackPoint::On,
+                b"OFF" => BlackPoint::Off,
+                _ => BlackPoint::Default,
+            };
+        }
+        if let Object::Name(intent) = document.get_key(&state, "RI") {
+            augmented.intent = Intent::read(intent.as_bytes());
+        }
+        if let Some(tolerance) = document.get_key(&state, "SM").as_number() {
+            augmented.smoothness = Some(narrow(tolerance));
+        }
+        augmented
+    }
+
+    /// Whether §8.6.5.9's black point compensation applies to the colours built under this.
+    ///
+    /// The same combination [`GraphicsState::black_point`] makes, for the same reason: the clause
+    /// states the override over an object's intent rather than over the entry.
+    fn black_point(self) -> BlackPoint {
+        if self.intent == Intent::Absolute {
+            return BlackPoint::Off;
+        }
+        self.black_point
+    }
+}
+
+// Which of Table 57's entries §11.6.7 lets a shading pattern's `/ExtGState` state, and what
+// becomes of each here. The clause admits "those parameters that affect the sh operator" and
+// excludes those that "affect path-painting operators", and every entry falls into one of five
+// buckets. Written down because a reader of `PatternInitial::augmented` will otherwise ask why
+// three entries are read and twenty are not, and because the answer is the clause's for most of
+// them rather than this tree's:
+//
+// - **Read there**: `/UseBlackPtComp`, `/RI`, `/SM` — the three §11.6.7's own sentence names, less
+//   the transformation matrix, which Table 57 cannot state and which `Interpreter::base` already
+//   carries.
+// - **Excluded by §11.6.7's first bullet**, which initialises them: `/BM`, `/CA`, `/ca`,
+//   `/SMask`, `/AIS`. A pattern's `/ExtGState` may not put a blend mode or an alpha constant
+//   back, because "as always for transparency groups" they are the group's own, applied once
+//   where the pattern is used.
+// - **Excluded because they affect path painting** and `sh` "does not entail painting a path":
+//   `/LW`, `/LC`, `/LJ`, `/ML`, `/D`, `/SA`, `/FL`, and the whole of Table 102's text state.
+// - **Left to a standing decision recorded elsewhere**, because this device does not perform them
+//   at all: `/HT` (§10.6, inapplicable on the standard's own condition), `/OP`, `/op`, `/OPM`
+//   (§8.6.7's own permission), and `/BG`, `/BG2`, `/UCR`, `/UCR2` — which are §11.7.5.3's
+//   conversion parameters and are noted by `Interpreter::note_black_generation` below, since a
+//   pattern dictionary is a second route to a statement `gs` already makes.
+// - **`/TR` and `/TR2`**, which are none of those: §11.7.5.3's NOTE takes the transfer function
+//   out of the group evaluation entirely, so one stated here says nothing about the pattern's own
+//   colours. See `PatternInitial`.
+impl Interpreter<'_> {
+    /// Records Table 57's black generation and undercolour removal where a *pattern dictionary*
+    /// states them (ISO 32000-2 §11.6.7's third bullet, Table 75's `/ExtGState`).
+    ///
+    /// `Interpreter::apply_ext_gstate` records the same statement for the `gs` operator and says
+    /// what it costs; this is the second of the two routes §8.4.5's parameters have to the same
+    /// page, and reading one of them is the failure mode that reports nothing. The flag is
+    /// monotone for the page there and here for the same reason: the parameters apply wherever a
+    /// §10.4.2.4 conversion happens, not only where they were set.
+    fn note_black_generation(&mut self, dict: &Dictionary) {
+        let Some(state) = self.document.get_key(dict, "ExtGState").as_dict().cloned() else {
+            return;
+        };
+        if ["BG", "BG2", "UCR", "UCR2"]
+            .iter()
+            .any(|key| !matches!(self.document.get_key(&state, key), Object::Null))
+        {
+            self.black_generation_stated = true;
+        }
+    }
+}
 
 /// What a `/Pattern` colour space's `scn` selected.
 ///
@@ -987,13 +1147,26 @@ impl Interpreter<'_> {
             });
         }
 
-        // §10.5's transfer function is applied to every colour the shading produces, and it is the
-        // state's at the `scn` rather than at the paint — which is where this tree already resolves
-        // §8.6.5.9's black point and §11.4.7's compositing target for the same colours.
-        // `note_transfer` reports the case where the two states differ.
-        let conversion = self.conversion(state);
+        // §11.6.7 and Table 75 both say which graphics state a shading pattern's definition is
+        // evaluated under, and it is the one the *content stream began with*, augmented by the
+        // pattern's own `/ExtGState` — neither the `scn` that selects it nor the mark that paints
+        // it. §8.6.5.9's black point compensation and §10.7.3's smoothness come from there.
+        //
+        // The two quantities this does *not* move are the two the clause puts somewhere else, and
+        // both are reported rather than drawn in silence:
+        //
+        // - **The transfer function** of §10.5, which §11.7.5.2 assigns to the topmost object
+        //   *painting* the point. Still the state's at the `scn`; `note_transfer` reports a mark
+        //   whose state states a different one.
+        // - **The compositing target** of §11.4.7, which §11.6.7 makes a *non-isolated* group's
+        //   and §11.7.2 then inherits "from the nearest ancestor isolated parent group" — the
+        //   group the mark is in. Still this run's; `group_press` refuses to reinterpret one of
+        //   these as ink and the group keeps §11.6.6's standing report.
+        let initial = self.pattern_initial.augmented(self.document, &dict);
+        self.note_black_generation(&dict);
+        let conversion = self.conversion_under(initial.black_point());
         let colouring = crate::shading::Colouring::new(
-            state.smoothness,
+            initial.smoothness,
             &conversion,
             state.transfer.as_deref(),
         );

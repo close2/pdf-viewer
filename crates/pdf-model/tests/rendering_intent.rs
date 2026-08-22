@@ -334,3 +334,106 @@ fn a_shadings_ramp_honours_the_rendering_intent() {
     ));
     assert_uncompensated(absolute, "a shading under `ri /AbsoluteColorimetric`");
 }
+
+/// A shading **pattern** whose colours the same page's `ri` cannot reach (§11.6.7).
+///
+/// The test above is `sh`, which paints where it stands: §11.7.5.3 puts an elementary object's
+/// intent at "the time of the painting operation", so the `ri` before it is the answer. A pattern
+/// is not that. §11.6.7 makes its definition an implicitly enclosed group and says which state
+/// that group is evaluated under:
+///
+/// > The definition shall not inherit the current values of the graphics state parameters at the
+/// > time it is evaluated; those parameters shall take effect only when the resulting pattern is
+/// > later used to paint an object.
+///
+/// > Any parameters that are not so specified shall be inherited from the graphics state that was
+/// > in effect at the beginning of the content stream in which the shading pattern is set to be
+/// > the current colour in the graphics state or in which the sh operator is used.
+///
+/// So the `ri` below reaches the *fill* and not the pattern, and the ramp compensates although the
+/// intent in force at both the `scn` and the `f` says it shall not. **Both of the obvious answers
+/// are wrong here** — resolving at the `scn` and resolving at the mark give the same uncompensated
+/// grey, and the clause gives neither.
+#[test]
+fn a_shading_patterns_colours_are_resolved_where_its_content_stream_began() {
+    let pattern = "/Pattern << /P0 << /PatternType 2 /Shading \
+                   << /ShadingType 2 /ColorSpace [/ICCBased 5 0 R] /Coords [0 0 20 0] \
+                   /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [1] \
+                   /C1 [1] /N 1 >> >> >> >>";
+
+    let unreached = centre_colour(pdf_with(
+        &profile_object(5),
+        pattern,
+        "/AbsoluteColorimetric ri /Pattern cs /P0 scn 0 0 20 20 re f",
+    ));
+    assert_compensated(
+        unreached,
+        "a pattern selected after an `ri` its own definition never sees",
+    );
+
+    // The mutation, and the only way a content stream can move the parameter for a pattern: a
+    // *form* is a new content stream, so an `ri` before the `Do` is in effect at its beginning.
+    let form = format!(
+        "6 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] \
+         /Resources << {pattern} >> /Length 33 >>\nstream\n\
+         /Pattern cs /P0 scn 0 0 20 20 re f\nendstream\nendobj\n{}",
+        profile_object(5)
+    );
+    let inherited = centre_colour(pdf_with(
+        &form,
+        "/XObject << /Fm0 6 0 R >>",
+        "/AbsoluteColorimetric ri /Fm0 Do",
+    ));
+    assert_uncompensated(
+        inherited,
+        "a form whose content stream begins under an absolute intent",
+    );
+}
+
+/// Table 75's `/ExtGState`, which §11.6.7 lets augment the state a pattern is evaluated under.
+///
+/// > In the case of a shading pattern, the parameter values may be augmented by the contents of
+/// > the ExtGState entry in the pattern dictionary (see 8.7.4, "Shading patterns"). Only those
+/// > parameters that affect the sh operator, such as the current transformation matrix, black
+/// > point compensation and rendering intent, shall be used.
+///
+/// The entry was read by nothing in this tree until the six-hundred-and-fifty-fifth session, on a
+/// ledger claim — "no corpus document writes one" — that had been measured over `doc/pdf.js` and
+/// never over the crawl, where 42 documents do. Both of the two names the sentence gives are
+/// tested, because they reach the same parameter by §8.6.5.9's override and a fixture proving one
+/// proves nothing about the other.
+#[test]
+fn a_patterns_own_ext_gstate_augments_that_state() {
+    let pattern = |extra: &str| {
+        format!(
+            "/Pattern << /P0 << /PatternType 2 {extra} /Shading \
+             << /ShadingType 2 /ColorSpace [/ICCBased 5 0 R] /Coords [0 0 20 0] \
+             /Extend [true true] /Function << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [1] \
+             /N 1 >> >> >> >>"
+        )
+    };
+    let content = "/Pattern cs /P0 scn 0 0 20 20 re f";
+
+    let plain = centre_colour(pdf_with(&profile_object(5), &pattern(""), content));
+    assert_compensated(plain, "a pattern stating no /ExtGState at all");
+
+    let off = centre_colour(pdf_with(
+        &profile_object(5),
+        &pattern("/ExtGState << /UseBlackPtComp /OFF >>"),
+        content,
+    ));
+    assert_uncompensated(
+        off,
+        "a pattern whose /ExtGState states /UseBlackPtComp /OFF",
+    );
+
+    let absolute = centre_colour(pdf_with(
+        &profile_object(5),
+        &pattern("/ExtGState << /RI /AbsoluteColorimetric >>"),
+        content,
+    ));
+    assert_uncompensated(
+        absolute,
+        "a pattern whose /ExtGState states an absolute intent",
+    );
+}
