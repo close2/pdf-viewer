@@ -3798,10 +3798,18 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   2–3, §11.5.3 at 4, §11.3.4 at 5, then the cluster of nine at 6–14. **That round read ranks 1 and 4
   and then went where step 7 pointed**, as 663 did: §11.5.3's `partial` rests on two residues and the
   one it writes out is asked for by no document in either population, while the one it is silent
-  about is the crawl's majority case. **The rows left at the top are §7.6.4 and §7.6.4.4 at ranks 1–2
+  about is the crawl's majority case. ~~**The rows left at the top are §7.6.4 and §7.6.4.4 at ranks 1–2
   and §11.3.4 at 3**, then the cluster of nine — and the two aggregates are sweep 10's shape rather
   than 620's, so a round taking them is checking arithmetic over a family and not a claim about the
-  tree.
+  tree.~~ **Re-derived in the six-hundred-and-seventy-first over a base of 887 commits, where that
+  prediction came out exactly for the fourth band running** — still 242 `partial`-or-`reported` rows
+  with a blamed note, §7.6.4 and §7.6.4.4 at 1–2, §11.3.4 at 3, then the cluster of nine at 4–12
+  (§11.3.7, §11.4.1, §12.5, §7.6.6, §8.6.6, §8.9.6, §8.9.6.2, §9.8.3, §9.8.3.1, all one commit), then
+  §14.6, §14.6.1, §7.6 and §7.7 at 13–16. **That round read none of them and went where step 7
+  pointed**, as 663 and 667 did — the third round running to make that choice, which is itself a
+  statement about the two instruments: the blame list ranks a row by when it was last *written*, and
+  step 7 ranks a claim by whether the world moved under it, and only the second of those has a
+  population that grew by fifty-three times. The band is where it was.
 - **A negative measured before the crawl is a negative nobody has measured, and the crawl is on this
   disk.** `doc/habits.md` says a negative claim decays when the population grows; the
   six-hundred-and-sixty-third was the first round to act on it in the ledger and the first row it
@@ -3834,9 +3842,92 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   paid again). And **a zero owes a control** — `luminosity_mask_census` prints the blends it finds in
   any space beside the ones it finds in the space the row is about, and a planted fixture was run
   through both the census and `interpret` before the zero was written down.
+
+  **Ten more were re-derived in the six-hundred-and-seventy-first and five were false** (ADR 0496),
+  and what that round added is the *other* instrument's population: `absence_audit`, the structural
+  half of this sweep, had the same three roots hard-coded that `witness_census` did, so ADR 0493's
+  finding was half a repair. It has `--crawl` now and seven new blocks — §12.2's four Table 147
+  boundary entries, §12.11.1's `/Requirements`, §12.5.6.21 and §14.11.6.2's `/TrapNet`, §10.7.2's
+  `/FL`, §7.11.4.2's `/RF`, §12.6.3's `/PV` and `/PI`, §12.6.4.7's thread action — and its own
+  `/VP` block now names each viewport's `/Measure` subtype, which is what turned §12.9.2's negative
+  over. **Five false**: §12.2 (0 curated, 96 crawled), §10.7.2 (0, 88), §12.6.3 (0, 5), §12.7.5.5's
+  `/Lock` (0, 90) and §12.9.2's rectilinear measure (0, 127). **Five held**: §7.11.4.2, §12.11.1,
+  §12.5.6.21, §14.11.6.2 and §12.6.4.7, each now on a population fifty-three times the size.
+
+  Three things that round adds:
+
+  - **Plant a witness against a census you are about to believe, and plant it against the census
+    rather than against the reader.** A hand-built file stating all seven constructs, dropped into
+    `doc/corpora-own` for one run and deleted, scored **zero for the thread action** — because the
+    first draft asked only the top-level objects and the file wrote its action inline inside the
+    annotation's `/AA`, which is the six-hundred-and-forty-eighth session's finding exactly, in code
+    written by a round that had just read it. A resource dictionary's `/ExtGState` was invisible for
+    the same reason. `visit` recurses now. Two of the seven blocks would have reported a false zero.
+  - **A negative can be false and its *sharper* half survive, and that is a different row from
+    either.** §12.2's claim was two sentences in one — "none states any of the four boundary
+    entries", which is false, and "the half of the clause that can change a pixel has no corpus
+    witness", which is true, because all 96 witnesses state `/ViewArea` and `/ViewClip` as
+    Table 147's own `/CropBox` default and the one document naming another box names it on the
+    *print* pair. Writing only "false" would have thrown away the true half.
+  - **The two instruments disagree where the claim is about a structure, and the direction says
+    which is right.** §7.11.4.2's `/RF`: 55 710 crawled documents' raw bytes contain it, 32 192
+    documents' decoded streams do, **one** states it as a name, and **none** carries it on a file
+    specification. §12.11.1's `/Requirements`: 411 documents' streams, not one catalog. A byte
+    search would have called both clauses well witnessed.
+
   Quoted as ranks rather than as commit numbers, for the reason
   the section gives. Re-derive the order before believing this sentence: a parallel round merging
   ahead of yours can take a row off it, which is what happened three bands ago.
+
+  **Where the sweep stands, as a command and then as a reading.** The command above counts the
+  sentences; this one splits them into the rows that have been re-derived and the rows that have
+  not, on the only evidence a program has — whether the row names the crawl:
+
+  ```sh
+  python3 - <<'EOF'
+  import re
+  txt = open('doc/conformance/ledger.toml').read()
+  crawl = re.compile(r'CC-MAIN|crawl', re.I)
+  neg = re.compile(r"[^.]*(?:no corpus document|nothing in the corpus|no corpus |no witness|no document (?:in|states|carries))[^.]*\.")
+  for block in txt.split('[[clause]]'):
+      m = re.search(r'clause = "([^"]+)"', block)
+      if m and neg.search(block):
+          print(('done' if crawl.search(block) else 'OWED'), '§' + m.group(1))
+  EOF
+  ```
+
+  Of the 45 rows carrying such a sentence, 10 named the crawl before this round and 11 more do now,
+  leaving **24**. What is left is **not** twenty-four more runs of `witness_census`, and saying so is
+  the point of writing this down: the rows that remain are mostly the ones a *name* census cannot
+  settle, and each needs an instrument of its own. They sort into four groups, and the four add up.
+
+  - **Five need a content-stream census, which nothing in this tree has.** §8.5.2.1 (a path segment
+    with no current point), §9.4.2 (a `q` or `Q` inside a text object with a `Tm` between), §9.7.5.4
+    (`beginrearrangedfont` and `beginusematrix` in a CMap), §9.7.6.2 (a codespace range a byte-by-byte
+    match reads differently from a numeric one), §11.6.7 (a tiling pattern's paint). These are the
+    expensive ones and they share an instrument: interpret page one and count operator shapes. The
+    artifact census already owed below is the same program.
+  - **Ten need a structural block in `absence_audit`, which is what this round added eight of.**
+    §7.6.5 (a `/Filter` that is not `/Standard`), §7.9.2.2.2 (a U+001B language escape inside a text
+    string), §8.9.5.2 (a `/Decode` array that is neither Table 88's default nor its reversal), §8.10.3
+    (a `/Group` whose `/S` is not `/Transparency`), §11.6.5.2 (an `/SMask` behind an image codec),
+    §12.3.2.2 (a destination whose first element is an integer), §12.4.2 (a `/PageLabels` tree
+    exercising all three of its ranges), §12.5.1 (a rotated page carrying a widget), §12.8.2.2.1 (a
+    `/DocMDP` whose `/P` is not 2 — `witness_census --crawl` already says **144** crawled documents
+    name one against the corpus's one, so this is a false negative waiting for its `/P` values),
+    §14.8.2.5.3. **A round adding one adds a block, not a heuristic**, and the blocks are cheap: the
+    eight added here cost about a hundred and thirty lines and four minutes over the whole crawl.
+  - **Six are not a claim about a corpus at all**, and a round should stop rather than measure:
+    §7.5.6 (a multiply-updated file that lowered its own version), §8.9.3 and §11.6.2 (a construction
+    with no file behind it, argued from the clause), §10.7.4 (a ladder run with no document in the
+    way), and the rows §8.4.3.5 and §12.5.4 already answer with `long_mitre_census` and
+    `border_precedence_census` — those two owe a `--crawl` argument rather than a re-reading.
+  - **Three are this population's own noise shape and nothing is owed**: a *correction* quoting the
+    negative it retired, which is the same false positive the twelfth and seventeenth sweeps print and
+    is why the grep at the top of this bullet is a reading list rather than a verdict. §9.6 ("[t]his
+    row said `partial` … and both halves stopped being true"), §9.8.1 ("[t]he claim … is now false in
+    both halves") and §12.8.2.4 ("[t]his row read `reported` on the claim … and that claim was
+    false") each *are* the repair, quoted. A round meeting one has finished with it by reading it.
 - **Run the sweeps before your own edit as well as after it, and account for every number that
   moves.** The twelve already run on any round the ledger moves; what the six-hundred-and-fifty-seventh
   added is that the run *before* is not optional and the deltas are stated rather than reported.
@@ -3860,6 +3951,36 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   one. Neither repair is right — dropping the citation is the instrument choosing what the ledger may
   say (ADR 0490 §6), and teaching the extractor about paths is a guess, because a `/Key` and a path
   segment are the same characters. Know the shape and account for the one. ADR 0493.
+  **And the six-hundred-and-seventy-first found the same shape one sweep over, in `--bin unread`.**
+  Its confirmed count fell 46 → 44 and its quoted count rose 136 → 138, both on the single key
+  **`/FL`**, under §8.4.5's row and §10.7.2's — because the census this round wrote to *measure* how
+  many documents state `/FL` names the string `"FL"`, and that sweep asks whether any source quotes a
+  key the row calls unread. **So a round that measures an unread entry makes its own row look wrong**,
+  and the repair is neither to drop the census nor to teach the sweep about examples: the sweep's own
+  discriminator already handles it, because its read-first list is the keys named by *the row's own
+  `code` array*, and that number did not move (68 both times). Read the witness path, which is what
+  the sweep's closing sentence already says. **And `--bin tables`' absent list moved 99 → 100, on this
+  round's own prose**, which it noticed only because it ran the sweeps a third time on the *committed*
+  tree rather than on the ledger alone — an ADR, a history file and this file are `SOURCE_ROOTS` too.
+  §12.2's finding turns on a default, so the sentence carrying it names a page-boundary value beside
+  the number of the table whose entry takes it, and the sweep reads the pair as a key citation; it
+  prints the right answer itself (`stated by: Table 31, Table 396`) and marks the hit `[correction]`,
+  which demotes it. **That is the sweep's own second documented noise shape** ("a table's *value* is
+  named beside its entry"), charged to any round that writes down what a default resolves to. **And
+  it briefly read 102, because the two places describing the hit repeated the pairing that caused
+  it** — documenting this shape instantiates it, once per place, which is what a sweep over adjacent
+  words does. The finding's sentence is not rewritten to dodge it (ADR 0490 §6); its *description*
+  gives the example once, which is the ordinary reason to give an example once, and the level settles
+  at 100. Levels, on the committed tree,
+  after → the value each had before the round: `counts` 6877 ← 6835, `quotations` 1772 ← 1769 in the
+  ledger with all three new ones verbatim and 5335 ← 5316 over the documents, `tables` 5861 ← 5836
+  sentences and 2217 ← 2213 key citations, `pointers` 7153 ← 7115, `owed` 3553 ← 3530 terms with 181
+  over 114 rows unchanged, `entries` 285 ← 283 rows, `overtaken` 494 ← 493 decision records, and
+  `--bin overstated`'s corroborations 56 ← 55 with its 8 contradictions and 7 marks standing. **`owed` gained no phantom this round and the reason is worth knowing**: the citations
+  added are `examples/absence_audit` and `examples/witness_census`, whose leading segments are
+  `absence` and `witness` — ordinary English words that appear in those very files, so the extractor's
+  phantom key is *named by a source* and never reaches the unnamed list. ADR 0493's shape costs a
+  round one phantom only when the invented noun is invented.
 - **§12.8.2.4's transform, named rather than built.** `has_transform(document, dict, b"FieldMDP")`
   plus Table 259's `/Action` and `/Fields` beside `UsageRights` is the whole of the recognition
   half; the validation half is §12.8.2.2.2's and needs the signed revision reconstructed.
@@ -3884,11 +4005,17 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   What settled it was again another sweep's measurement rather than a new heuristic: the ninth's
   attribution rule for the population, the sixth's family arithmetic for the answer. **Only sweep 6
   itself is left as a description**, and it is two hits long and has never printed anything else.
-- **The sixteenth sweep's structural half names seven claims and there are more.**
+- **The sixteenth sweep's structural half names fifteen claims and there are more.**
   `absence_audit` hard-codes one block per claim, which is what makes each honest — the reader that
   would act on the entry is the one asked — and what makes it incomplete. The claims a name census
   cannot settle are the ones left: a flag's bit, a value's range, a group's colour space, a
-  producer's arithmetic. A round adding one adds a block, not a heuristic.
+  producer's arithmetic. A round adding one adds a block, not a heuristic. **It was seven blocks and
+  three hard-coded roots until the six-hundred-and-seventy-first**, which gave it `--crawl` and eight
+  more; the bullet above lists the nine claims a block would settle next. Two rules the blocks
+  themselves teach: **walk into each object's nested structure**, because a producer may write an
+  action, an annotation or a resource dictionary inline and a top-level-only walk reports a false
+  zero (session 648, paid again in this example's own first draft); and **plant a witness stating
+  every construct before believing any zero**, which is what caught that.
 - **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
   the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —
   every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —
