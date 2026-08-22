@@ -140,10 +140,11 @@ impl Clock {
 
     /// Whether `viewer_core::transition` shapes frames for this style at all.
     ///
-    /// Five of Table 164's twelve are named and reported rather than drawn, each because the table
-    /// describes it with a quantity it does not state — `viewer_core::transition` owns that list
-    /// and the core has already said which by the time an [`viewer_core::Event::Transition`]
-    /// arrives, so a host asks this instead of repeating it.
+    /// Five of Table 164's twelve are shaped by nothing: four are reported by name, each because
+    /// the table describes it with a quantity it does not state, and the fifth is `R`, which is
+    /// the cut the table defines and so has nothing to report — `viewer_core::transition` owns
+    /// that list and the core has already said which by the time an
+    /// [`viewer_core::Event::Transition`] arrives, so a host asks this instead of repeating it.
     #[must_use]
     pub fn shapes(transition: &Transition, viewport: Rect) -> bool {
         viewer_core::transition::frame(transition, viewport, 0.0).is_some()
@@ -367,8 +368,9 @@ mod tests {
         assert_eq!(clock.interval(), Clock::ANIMATING);
     }
 
-    /// Five of Table 164's twelve styles are reported by name rather than drawn, so a host asks
-    /// before it rasterises two pages for a transition nobody will see.
+    /// Five of Table 164's twelve styles are shaped by nothing — four reported by name and `R`,
+    /// which is the cut — so a host asks before it rasterises two pages for a transition nobody
+    /// will see.
     #[test]
     fn a_style_this_program_does_not_shape_is_refused_before_the_pages_are_taken() {
         assert!(Clock::shapes(&wipe(), viewport()));

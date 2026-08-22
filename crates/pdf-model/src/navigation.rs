@@ -45,7 +45,8 @@
 //! three-hundred-and-ninety-third and the four-hundred-and-eighty-first.** `viewer_core::viewer`
 //! advances a `/Dur` on `Command::Tick` (ADR 0135); `viewer_core::transition` shapes the frames of
 //! a `/Trans` at a fraction of the way through, which `viewer-ui` draws (ADR 0230) — seven of
-//! Table 164's twelve styles, with the other five reported by name; and
+//! Table 164's twelve styles, with four of the other five reported by name and the fifth, `R`,
+//! the cut that table defines; and
 //! `viewer_core::presentation` is §12.4.4.2's own state machine, the current navigation node that
 //! clause opens by requiring, moved by `Command::GoTo` while `Command::Present` says a
 //! presentation is running (ADR 0316).
@@ -188,9 +189,12 @@ pub struct Transition {
 
 /// The transition a presentation plays when it arrives at this page, if the page states one.
 ///
-/// `None` for a page with no `/Trans`, which is every page of every corpus document — measured
-/// by walking every object of all 964 openable ones, where neither a `/Trans` nor a `/Dur` entry
-/// occurs. This is the specification track and says so.
+/// `None` for a page with no `/Trans`, which is every page of every *curated* corpus document —
+/// 1133 of them, re-derived in the six-hundred-and-sixty-third session with
+/// `examples/presentation_census`. **The crawl says otherwise and this comment said "every page
+/// of every corpus document" until that round**: 276 of the 65 703 documents of
+/// `CC-MAIN-2021-31` that open state a `/Trans` on one of their first hundred pages. A negative
+/// carries its population inside it, and this one's grew.
 #[must_use]
 pub fn transition(document: &Document, page: &Dictionary) -> Option<Transition> {
     let dict = document.resolve(page.get("Trans")?);

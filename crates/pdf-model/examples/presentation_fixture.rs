@@ -1,12 +1,18 @@
-//! Writes the slide show no corpus document is: four pages, a `/Dur`, three `/Trans` and a
-//! `/PresSteps`.
+//! Writes the slide show no *curated* corpus document is: four pages, a `/Dur`, three `/Trans`
+//! and a `/PresSteps`.
 //!
 //! **This is a fixture, not a writer.** `CLAUDE.md` excludes authoring a document from nothing
 //! and nothing here claims otherwise: it is the same hand-built construction every test in this
 //! tree makes in a string literal, moved to a file because §12.4.4 is the one clause whose
 //! subject a *person watching the window* has to see. `presentation_census` is the reason it
 //! exists — over the 964 openable corpus documents and the 14 in `doc/`, not one page states a
-//! `/Trans`, a `/Dur` or a `/PresSteps`, so there is nothing to open and press `p` on.
+//! `/Trans`, a `/Dur` or a `/PresSteps`, so there is nothing to open and press `p` on. **That is
+//! still true of the curated corpora and false of the crawl**, re-derived in the
+//! six-hundred-and-sixty-third session: 276 documents of `CC-MAIN-2021-31` state a `/Trans`, 86 a
+//! `/Dur` and one — `7680405.pdf` — a `/PresSteps` with Table 165's nodes under it. The fixture
+//! keeps its job, because a fixture is a page whose *pixels* an assertion knows in advance and a
+//! crawled slide show is not; what the crawl adds is a file to press `p` on that somebody else
+//! wrote.
 //!
 //! Each page is one flat colour with a white square in its upper left, so that a frame captured
 //! mid-transition can be read as pixels rather than described with adjectives — and so that a

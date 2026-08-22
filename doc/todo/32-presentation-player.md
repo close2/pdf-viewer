@@ -1,9 +1,13 @@
 # A presentation player
 
-Status: seven of Table 164's twelve styles are drawn; five are reported by name. §12.4.4.2's states
-are walked, **there is a window since the six-hundred-and-thirty-eighth session** (ADR 0470), and
-**all three hosts drive the clock since the six-hundred-and-forty-second** (ADR 0473). What is left
-is the five styles.
+Status: seven of Table 164's twelve styles are drawn; **four** are reported by name, and the fifth
+of the unshaped is `R`, which the table defines as the cut and which therefore needs nothing.
+§12.4.4.2's states are walked, **there is a window since the six-hundred-and-thirty-eighth session**
+(ADR 0470), and **all three hosts drive the clock since the six-hundred-and-forty-second** (ADR
+0473). What is left is the four styles below. (This line said *five* until the
+six-hundred-and-sixty-third session, which is the wording §12.6.4.15's and §12.4's ledger rows
+retired in the five-hundred-and-fifty-third and which was still standing in eight other places, one
+of them a sentence a host shows a person and one of them this line — ADR 0490.)
 Priority: 32
 Clauses: §12.4.4, §12.2, Table 29
 Code: `crates/viewer-core/src/transition.rs`, `crates/viewer-core/src/presentation.rs`,
@@ -34,6 +38,43 @@ What is left, in the order the cost rises:
 
 Each is reported by name today rather than drawn as a cut, which is the rule that keeps this
 honest debt rather than a silence.
+
+**And the four are ranked by demand since the six-hundred-and-sixty-third session, which is a
+different order from the one above.** The curated corpora state no presentation at all — 0 of 1133
+documents, which is why this list has only ever been ordered by what it would cost — and the
+SafeDocs crawl states 276 of them. Over the 65 703 documents of `CC-MAIN-2021-31` that open
+(`examples/presentation_census`, chunked through `xargs -P 8`, under a minute):
+
+| style | pages | documents | drawn? |
+|---|---|---|---|
+| `R` | 4084 | 187 | the cut, by definition |
+| `Fade` | 596 | 33 | yes |
+| `Wipe` | 258 | 15 | yes |
+| **`Dissolve`** | **221** | **11** | no |
+| `Push` | 162 | 12 | yes |
+| `Box` | 66 | 7 | yes |
+| `Cover` / `Uncover` | 23 / 21 | 5 / 4 | yes |
+| **`Blinds`** | **16** | **4** | no |
+| `Split` | 2 | 1 | yes |
+| **`Glitter`**, **`Fly`** | **0** | **0** | no |
+| a name not in Table 164 | 106 | 3 | reported as the thirteenth case |
+
+So **`Dissolve` is the whole of the demand in practice**, and it is the one the display list's
+vocabulary does not express — the cheapest item on the list above is the one nobody asks for and the
+dearest but one is the one everybody does. `Glitter` and `Fly` are refusals no file has ever
+reached, which is a reason to leave them rather than to do them: a sentence nobody reads costs
+nothing and a choice this reader would have to invent is worse than a report. All three documents in
+the last row write `/Trans<</S/>>` — an **empty** name, which is a syntactically valid name object
+and not one of Table 164's values — and this reader keeps it as `Style::Unrecognised`, shows the
+page at once and says so. The page a conforming reader draws is the same one Table 164's default
+`R` would give; what differs is that a report is made, and that is the tree's own rule (trap 5's
+channel) rather than a clause, because the table states a default for an *absent* `/S` and nothing
+at all for a present one whose value it does not list.
+
+**And there are real files to press `p` on now**, which this entry could not say before:
+`corpus-cache/safedocs/cc-main-2021-31/7680/7680405.pdf` is a slide deck with `/PresSteps` on four
+of its 39 pages, Table 165's nodes over §12.6.4.13's `/SetOCGState`, and fourteen §12.6.4.15
+transition *actions*. It is the only crawled document that states any of those three.
 
 ~~One other thing this clause still owes: **full screen**~~ — **taken in the
 six-hundred-and-thirty-eighth** (ADR 0470), and this entry was wrong in the way a refusal usually
