@@ -514,6 +514,15 @@ item priced by an earlier round re-derives the price before believing it**, exac
 a count or a population — and the cheapest re-derivation is asking what the libraries and the layers
 *already contain*, because that is the part a pricing round tends not to enumerate.
 
+**And a *negative* claim decays when the population grows**, which is not the same decay as any of the
+others, because nothing in the tree changes. The six-hundred-and-fifty-fifth found the ledger saying
+"no corpus document writes one" of a shading pattern's `/ExtGState`: true when written, and measured
+over corpora with no crawl in them. `doc/pdf.js` holds 38 Type 2 patterns and **zero** state one; the
+crawl holds 1504 and **42** do. A sentence of the form *no document does X* carries its population
+inside it whether or not it says so, so **the round that adds a population owes a re-derivation of
+every negative measured over the old one** — and `doc/todo/03` now holds whole-population figures
+precisely so those are answerable rather than inherited.
+
 
 - **A negative answer from a tool is a claim about that tool, not about the world.** `which
   cargo-fuzz` reports nothing here because `~/.cargo/bin` is not on `PATH`, and two consecutive

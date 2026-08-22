@@ -18,6 +18,14 @@ can and cannot open a window on, and where the build lands.
   opaque for them where every neighbour explains itself. The argument survives in the ADR, but a
   reader of the log should not need to know that. Before pushing a pick, `git log -1 --format=%b`
   must print the body you expect.
+- **The scratchpad directory is shared between parallel rounds too, and it is not per-session.**
+  A round writing `gates.log` there has it overwritten by a neighbour writing the same name, mid-run
+  — which happened in the six-hundred-and-fifty-sixth and cost three gates a re-run under a
+  uniquely named file. The failure is quiet: the file exists, it is well-formed, and it is somebody
+  else's answer. **Name a scratch file after the round** (`gates-656.log`), or put it under the
+  worktree's own `tmp/`. Same reasoning as the stash below: anything the harness gives every round
+  by the same path is a thing two rounds will collide in.
+
 - **`git stash` is shared between worktrees, and a parallel round will take yours.** `refs/stash`
   lives in the *common* git directory rather than in the worktree, so every round running at the
   same time pushes onto one stack. A round that stashed its changes to measure a baseline, and
