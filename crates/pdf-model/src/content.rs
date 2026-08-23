@@ -492,6 +492,7 @@ impl<'a> Interpreter<'a> {
             list: DisplayList::new(size),
             unsupported: BTreeMap::new(),
             text_operations: 0,
+            segments_without_a_current_point: 0,
             glyph_coverage: BTreeMap::new(),
             glyphs: 0,
             codes_without_a_glyph: 0,
@@ -699,6 +700,14 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
             operations: interpreter.text_operations,
         });
     }
+    // ISO 32000-2 §8.5.2.1's "an error shall be generated", raised once per page with the number
+    // of segments it covers rather than once per operator: the condition repeats along a run, and
+    // what a reader can act on is that the page is short of geometry, not which `c` it was.
+    if interpreter.segments_without_a_current_point > 0 {
+        unsupported.push(Unsupported::UndefinedCurrentPoint {
+            segments: interpreter.segments_without_a_current_point,
+        });
+    }
     // ISO 32000-2 §8.3.4 NOTE 3's noninvertible matrix, asked of the finished list rather than
     // at each of the six places a mark is pushed: the condition is a property of the command
     // and one walk cannot miss a route. See [`Unsupported::NoninvertibleMatrix`] for why this
@@ -900,6 +909,10 @@ struct Interpreter<'a> {
     /// once rather than flooding the diagnostics.
     unsupported: BTreeMap<Unsupported, Unsupported>,
     text_operations: usize,
+    /// Segment operators refused for having no current point; see
+    /// [`Unsupported::UndefinedCurrentPoint`]. Counted rather than noted per occurrence for the
+    /// same reason `text_operations` is: `issue6342.pdf` states thirteen of them on one page.
+    segments_without_a_current_point: usize,
     /// Per font resource name, what its codes got out of its program. Drained into one report
     /// per font at the end of the page.
     ///

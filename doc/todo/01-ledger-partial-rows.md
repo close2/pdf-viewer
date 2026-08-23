@@ -3187,6 +3187,14 @@ whose samples spell `l` would be a witness the census invented; and it prints ho
 streams it does **not** reach, which for the crawl's first pages is 37 685 pattern cells, Type 3
 procedures and appearance streams.
 
+**What it counts is the clause's shape, which is not the same population as the program's
+behaviour** (ADR 0563, trap 13's second shape). A lexer sees a keyword; the interpreter also
+requires the operator's *operands* to parse as numbers, and on §8.5.2.1's one curated witness that
+second condition removes every hit. So a row is settled by this census when the question is
+*whether the standard's shape occurs*, and by an instrument that interprets when the question is
+*what it costs the page* — `cargo run --release -p pdf-model --example refused_segment_census` is
+that one for §8.5.2.1, counting the report the interpreter already raises.
+
 ### The three ways such a claim goes wrong, and the first run found all three
 
 - **A stale count.** §14.7.2's `/IDTree` was "no corpus document has one at all — the 89 tagged
@@ -4024,7 +4032,11 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     lexes a page's `/Contents` and every form `XObject` its resources reach, so an *order* of
     operators is countable now as a *token* already was. **§8.5.2.1 is false** — a segment operator
     with no current point occurs on one curated first page and five crawled ones, and the row went
-    from `implemented` to `partial` because of it — and **§9.4.2 is false in the half it states and
+    from `implemented` to `partial` because of it, and back to `implemented` in the
+    seven-hundred-and-second when the refusal and its report landed (ADR 0563) — **whose census
+    figures are keyword counts and an upper bound**: the interpreter also requires an operator's
+    operands to be numbers, and `examples/refused_segment_census` asks it directly and finds **0
+    pages** over 1230 curated first pages — and **§9.4.2 is false in the half it states and
     true in the half it means**, which is the rule below. What is left of this group is
     **§9.7.6.2** (a codespace range a byte-by-byte match reads differently from a numeric one) and
     **§11.6.7** (a tiling pattern's paint); neither is an operator shape, so neither is this

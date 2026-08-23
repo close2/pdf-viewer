@@ -83,6 +83,13 @@ fn one_path(content: &str) -> Vec<PathCommand> {
     all.remove(0)
 }
 
+/// What interpreting the content stream reported.
+fn reports(content: &str) -> Vec<pdf_model::Unsupported> {
+    let document = Document::open(fixture(content)).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    pdf_model::interpret(&document, &page).unsupported
+}
+
 fn at(x: f32, y: f32) -> Point {
     Point::new(x, y)
 }
@@ -260,6 +267,100 @@ fn a_segment_after_a_close_starts_where_the_close_returned_to() {
             PathCommand::LineTo(at(30.0, 30.0)),
         ]
     );
+}
+
+/// ISO 32000-2 §8.5.2.1: a segment operator with no current point states no geometry.
+///
+/// > The trailing endpoint of the segment most recently added to the current path is referred to
+/// > as the current point. If the current path is empty, the current point shall be undefined.
+/// > Most operators that add a segment to the current path start at the current point; if the
+/// > current point is undefined, an error shall be generated.
+///
+/// The clause gives such a segment no first endpoint and names no substitute, so it adds nothing
+/// — and because the current point is defined as "[t]he trailing endpoint of the segment most
+/// recently added", an operator that added none leaves it undefined and the next segment is
+/// refused for the same reason. Until ADR 0563 all four operators were appended anyway, and
+/// `tiny_skia::PathBuilder::inject_move_to_if_needed` began the subpath at the **origin of user
+/// space**, so the page got an edge running from the corner that no operator asked for.
+#[test]
+fn a_segment_with_no_current_point_states_no_geometry() {
+    for segment in [
+        "30 30 l",
+        "30 30 40 40 50 50 c",
+        "30 30 40 40 v",
+        "30 30 40 40 y",
+    ] {
+        assert_eq!(
+            paths(&format!("10 10 m 20 20 l f {segment} S")),
+            [vec![
+                PathCommand::MoveTo(at(10.0, 10.0)),
+                PathCommand::LineTo(at(20.0, 20.0)),
+            ]],
+            "{segment}: the second path states no geometry at all"
+        );
+    }
+}
+
+/// The refusal lasts until an `m` or an `re`, because nothing else defines a current point.
+///
+/// ISO 32000-2 §8.5.2.1: "the first one invoked shall be m or re to begin a new subpath". So a
+/// run of segments after the error vanishes whole rather than being anchored to a point the file
+/// never stated, and the subpath the file *does* state afterwards is drawn in full.
+#[test]
+fn a_refused_segment_defines_no_current_point_for_the_next_one() {
+    assert_eq!(
+        paths("10 10 m 20 20 l f 30 30 l 40 40 l 50 50 m 60 60 l S"),
+        [
+            vec![
+                PathCommand::MoveTo(at(10.0, 10.0)),
+                PathCommand::LineTo(at(20.0, 20.0)),
+            ],
+            vec![
+                PathCommand::MoveTo(at(50.0, 50.0)),
+                PathCommand::LineTo(at(60.0, 60.0)),
+            ],
+        ]
+    );
+}
+
+/// ISO 32000-2 §8.5.2.1's "an error shall be generated", raised where a mark is lost.
+///
+/// §7.8.2 gives a content stream's other error the same shape — "when a PDF reader encounters an
+/// operator in a content stream that it does not recognise, an error shall occur" — and this
+/// program raises that one as an [`pdf_model::Unsupported`] too. Trap 5: a segment the file wrote
+/// and the page does not carry may not pass in silence.
+#[test]
+fn a_segment_with_no_current_point_is_reported() {
+    assert_eq!(
+        reports("10 10 m 20 20 l f 30 30 l 40 40 l S"),
+        [pdf_model::Unsupported::UndefinedCurrentPoint { segments: 2 }],
+        "both refused segments are counted, and nothing else is reported"
+    );
+}
+
+/// The same sentence costs `h` nothing, so `h` neither draws nor reports.
+///
+/// Table 58 states `h` as "appending a straight line segment from the current point to the
+/// starting point of the subpath" — with the path empty there is no starting point either, so the
+/// operator adds no segment on this invocation and falls outside the antecedent of §8.5.2.1's
+/// sentence rather than inside its consequence. `content::path::close_subpath` already pushes
+/// nothing onto an empty path, which is the whole of what the clause costs here; reporting it
+/// would say a complete page is incomplete, and `Interpretation::is_complete` is what decides
+/// whether the oracle judges a page at all (trap 11).
+#[test]
+fn a_close_with_no_current_point_neither_draws_nor_reports() {
+    assert_eq!(
+        one_path("h 10 20 30 40 re f"),
+        [
+            PathCommand::MoveTo(at(10.0, 20.0)),
+            PathCommand::LineTo(at(40.0, 20.0)),
+            PathCommand::LineTo(at(40.0, 60.0)),
+            PathCommand::LineTo(at(10.0, 60.0)),
+            PathCommand::Close,
+        ],
+        "the close contributes nothing and the rectangle after it is untouched"
+    );
+    assert_eq!(reports("h 10 20 30 40 re f"), [], "and nothing is reported");
 }
 
 /// A clipping path the standard has just disregarded clips *everything* out.

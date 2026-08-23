@@ -629,6 +629,17 @@ struct Tally {
     /// two above — a page that already reports is not silent — but a much larger number, because
     /// a font that cannot name a code usually draws it perfectly well.
     codes_without_a_character: Vec<(String, usize)>,
+    /// Every document whose page one hands a backend a path that begins with a *segment*.
+    ///
+    /// ISO 32000-2 §8.5.2.1: "the first one invoked shall be m or re to begin a new subpath",
+    /// and a segment issued with no current point is the clause's own error case. Such a path
+    /// has no first endpoint, so what it draws is whichever library the display list reaches:
+    /// `tiny-skia` injects a move to the **origin of user space** and draws an edge from the
+    /// corner of the page, `kurbo` fires a `debug_assert!`, and no two backends need agree.
+    /// That is trap 2 — a decision either backend can make alone is a decision neither has made
+    /// — so the shape is refused where the path is built and this is the gate over real
+    /// documents that says so. ADR 0563.
+    open_subpaths: Vec<(String, usize)>,
     unopenable: Vec<String>,
     locked: Vec<String>,
     unreadable_encryption: Vec<String>,
@@ -655,6 +666,111 @@ fn silence(what: &str, caveat: &str, counted: &[(String, usize)]) {
     for (name, count) in worst.iter().take(10) {
         println!("    {count:6} {name}");
     }
+}
+
+/// How many paths in a display list — marks and clips alike — begin with something other than a
+/// move.
+///
+/// Groups are walked because a group's elements are commands of the same kind, and every clip
+/// chain a command references because ISO 32000-2 §8.5.4 builds a clip out of the very path
+/// §8.5.2 constructed.
+fn paths_beginning_with_a_segment(list: &pdf_render::DisplayList) -> usize {
+    fn headless(path: &pdf_render::Path) -> bool {
+        matches!(
+            path.commands().first(),
+            Some(pdf_render::PathCommand::LineTo(_) | pdf_render::PathCommand::CurveTo(..))
+        )
+    }
+    fn walk(
+        list: &pdf_render::DisplayList,
+        commands: &[pdf_render::Command],
+        seen: &mut std::collections::HashSet<usize>,
+        found: &mut usize,
+    ) {
+        for command in commands {
+            match command {
+                pdf_render::Command::Fill { path, .. }
+                | pdf_render::Command::Stroke { path, .. } => {
+                    *found = found.saturating_add(usize::from(headless(path)));
+                }
+                pdf_render::Command::Group { commands, .. } => walk(list, commands, seen, found),
+                _ => {}
+            }
+            // The chain rather than the command's own clip: a clip is a child of the one in
+            // force when `W` ran, and every link is a path the interpreter built.
+            let mut next = command.clip();
+            while let Some(id) = next {
+                if !seen.insert(id.index()) {
+                    break;
+                }
+                let Some(clip) = list.clip(id) else { break };
+                *found = found.saturating_add(usize::from(headless(&clip.path)));
+                next = clip.parent;
+            }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut found = 0;
+    walk(list, list.commands(), &mut seen, &mut found);
+    found
+}
+
+/// Calibrates [`paths_beginning_with_a_segment`] against the shape it is a sweep for.
+///
+/// Trap 13: a sweep run only over a population that turns out to be clean has measured nothing.
+/// The gate above prints no document today, and this is what makes that a fact about the corpus
+/// rather than about the helper — a list built by hand with the shape in it, in each of the three
+/// places a path reaches a backend from. `pdf-model/tests/path_construction.rs` is the other half:
+/// there the *interpreter* is asked to build one, and refuses.
+#[test]
+fn the_open_subpath_sweep_names_a_path_that_begins_with_a_segment() {
+    use pdf_render::{
+        BlendMode, Clip, Color, Command, DisplayList, FillRule, Paint, PathCommand, Point, Size,
+        Transform,
+    };
+
+    let headless = || {
+        let mut path = pdf_render::Path::new();
+        path.push(PathCommand::LineTo(Point::new(10.0, 10.0)));
+        path
+    };
+    let mut list = DisplayList::new(Size::new(100.0, 100.0));
+    assert_eq!(paths_beginning_with_a_segment(&list), 0, "an empty list");
+
+    let clip = list
+        .add_clip(Clip {
+            path: headless(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            parent: None,
+        })
+        .expect("the list holds one clip");
+    let fill = |clip| Command::Fill {
+        path: std::sync::Arc::new(headless()),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(Color::BLACK),
+        clip,
+        mask: None,
+        blend: BlendMode::Normal,
+    };
+    list.push(fill(Some(clip)));
+    list.push(Command::Group {
+        commands: vec![fill(None)],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: false,
+        alpha_is_shape: false,
+        blending: None,
+    });
+    assert_eq!(
+        paths_beginning_with_a_segment(&list),
+        3,
+        "a mark, a mark inside a group, and the clip the first one references"
+    );
 }
 
 /// Names a document on stderr when `PDFVIEWER_CORPUS_TRACE` is set.
@@ -763,6 +879,16 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         record(tally, |t| t.incomplete.push((name.clone(), reported)));
     }
 
+    // ISO 32000-2 §8.5.2.1's shape, asked of the finished list rather than of the operators:
+    // whatever route built a path — a content stream, a glyph outline, an annotation's
+    // appearance — none of them may hand a backend geometry with no first point. See
+    // `Tally::open_subpaths`.
+    let headless = paths_beginning_with_a_segment(&interpretation.display_list);
+    if headless > 0 {
+        let named = name.clone();
+        record(tally, |t| t.open_subpaths.push((named, headless)));
+    }
+
     // A page whose extent cannot be targeted — empty, or larger than the budget — is a
     // reported outcome rather than a defect, so it is not counted.
     if let Ok(target) = TargetSpec::for_page(&interpretation.display_list, 1.0, PIXEL_BUDGET) {
@@ -854,6 +980,9 @@ fn the_corpus_opens_interprets_and_rasterises() {
     for (name, reported) in &tally.incomplete {
         println!("  incomplete: {name}: {reported}");
     }
+    for (name, headless) in &tally.open_subpaths {
+        println!("  path with no first point: {name}: {headless}");
+    }
     for name in &tally.locked {
         println!("  locked: {name}");
     }
@@ -902,5 +1031,11 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.incomplete.len() <= MAX_INCOMPLETE,
         "{} documents draw incompletely, was {MAX_INCOMPLETE}",
         tally.incomplete.len()
+    );
+    assert!(
+        tally.open_subpaths.is_empty(),
+        "ISO 32000-2 §8.5.2.1: a path handed to a backend must begin with a move, or the \
+         library it reaches chooses where the first point is: {:?}",
+        tally.open_subpaths
     );
 }

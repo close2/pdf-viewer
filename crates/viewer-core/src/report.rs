@@ -93,5 +93,12 @@ pub(crate) fn describe(item: &Unsupported) -> String {
             "{commands} mark(s) are placed by a matrix with no inverse, which collapses them to \
              no area, so nothing was painted where they stand (§8.3.4)"
         ),
+        // The fourth about the file, and the sentence has to name what the alternative would
+        // have been: §8.5.2.1 gives such a segment no starting point, so drawing one means
+        // choosing a place the document never wrote — which is what every library here does.
+        Unsupported::UndefinedCurrentPoint { segments } => format!(
+            "{segments} path segment(s) were written with no point to start from, which §8.5.2.1 \
+             makes an error, so they were left off the page rather than drawn from a corner of it"
+        ),
     }
 }

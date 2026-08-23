@@ -141,7 +141,7 @@ Guards: `render-cpu/tests/shading_placement.rs` and `image_placement.rs` at thre
 `headless_gpu.rs`'s vertical-gradient and image scenes. All confirmed to fail when the defects are
 reintroduced.
 
-**Five instances now, and each teaches a different edge:**
+**Seven instances now, and each teaches a different edge:**
 
 - **A convention that agrees with the clause is worse than one that does not.** `tiny-skia` draws
   a zero-width stroke as one device pixel, which is exactly §8.4.3.2 — so the rule was never
@@ -176,6 +176,16 @@ reintroduced.
   hairline for a mark the other strokes. The tell is that the *tree* had a name for the quantity and
   the library had its own; where that is true, the crate both backends read owns the comparison.
   ADR 0535, `render_cpu::draw_stroked_outline`.
+- **Where the clause calls the input an *error*, there is no right answer for a library to agree
+  with — and that is when its answer hides best.** §8.5.2.1 makes a path segment issued with no
+  current point an error and states no recovery, so a reading of the clause cannot contradict what a
+  library does with one. `tiny_skia::PathBuilder` begins the subpath at the **origin of user space**
+  and draws an edge from the corner of the page; `kurbo::BezPath` fires `debug_assert!(…,
+  "uninitialized subpath (missing MoveTo)")`, so the same document is a **panic in a debug build**
+  of the graphics backend. **No picture comparison can see that second one at all** — the disagreement
+  is a crash in one configuration rather than a pixel in any — which is a shape the four bullets above
+  cannot warn about. The rule is `pdf-model`'s now, where the path is built. ADR 0563,
+  `content::path::extend_subpath`.
 
 ### 6. Colour: one conversion, and the specification often has no answer
 

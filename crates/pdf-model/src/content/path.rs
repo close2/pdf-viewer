@@ -185,6 +185,60 @@ impl Interpreter<'_> {
         *path = Path::new();
     }
 
+    /// Appends one of Table 58's segments, ISO 32000-2 §8.5.2.1, and says whether it was taken.
+    ///
+    /// > The trailing endpoint of the segment most recently added to the current path is referred
+    /// > to as the current point. If the current path is empty, the current point shall be
+    /// > undefined. Most operators that add a segment to the current path start at the current
+    /// > point; if the current point is undefined, an error shall be generated.
+    ///
+    /// `l`, `c`, `v` and `y` are the four operators that sentence covers; `m` and `re` are the two
+    /// it excludes with the word "[m]ost", because the paragraph above says "the first one invoked
+    /// shall be m or re to begin a new subpath".
+    ///
+    /// # What the clause decides, and what it leaves to this program
+    ///
+    /// It decides that an error is raised, and it names no substitute for the missing first point.
+    /// It states no recovery at all, so what is *drawn* is a documented choice (`CLAUDE.md`
+    /// principle 5), and the three candidates are not equally available:
+    ///
+    /// - **Begin a subpath at the operator's own coordinates**, so that `l x y` acts as `m x y`.
+    ///   The clause forbids it in as many words — only `m` and `re` begin a subpath — and it is not
+    ///   even well defined for `c`, whose first two operands are control points rather than a
+    ///   starting point.
+    /// - **Treat the stream as damaged from here on.** The clause says an error is generated and
+    ///   says nothing about ending the stream; §7.8.2's neighbouring error, an operator the reader
+    ///   does not recognise, does not end one here either. It would also throw away every mark the
+    ///   file states after the error, which is more than the clause costs.
+    /// - **Add nothing**, which is what this does. The segment has no first endpoint and the clause
+    ///   supplies none, so it describes no geometry; and because the current point is defined as
+    ///   "[t]he trailing endpoint of the segment most recently added", an operator that added none
+    ///   leaves it undefined and the next segment is refused for the same reason. A run of segments
+    ///   after the error therefore vanishes whole, until an `m` or an `re` states a point.
+    ///
+    /// # Why the decision is here rather than in a rasteriser (trap 2)
+    ///
+    /// Until ADR 0563 the segment was appended and the *library* chose where it started:
+    /// `tiny_skia::PathBuilder::inject_move_to_if_needed` begins the subpath at the origin of user
+    /// space, so the page got an edge from the corner that no operator asked for; `kurbo::BezPath`
+    /// fires a `debug_assert!` naming an uninitialised subpath with no move in front of it, so the
+    /// same document is a panic in a debug build of the graphics backend; and nothing made the
+    /// three agree. A
+    /// decision either backend can make alone is a decision neither has made, so it is made once,
+    /// where the path is built, and every backend receives a path that begins with a move.
+    ///
+    /// The error itself is [`Unsupported::UndefinedCurrentPoint`], counted there rather than noted
+    /// per occurrence.
+    pub(super) fn extend_subpath(&mut self, path: &mut Path, segment: PathCommand) -> bool {
+        if path.is_empty() {
+            self.segments_without_a_current_point =
+                self.segments_without_a_current_point.saturating_add(1);
+            return false;
+        }
+        path.push(segment);
+        true
+    }
+
     /// Registers a clip shaped like a rectangle, nested inside `parent`.
     ///
     /// `None` only when the display list is full of clips, which the caller reports.
