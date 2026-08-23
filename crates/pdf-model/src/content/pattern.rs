@@ -1094,12 +1094,15 @@ impl Interpreter<'_> {
                 .or(state.clip)
         });
         // §10.5's transfer function. An `sh` builds its shading at the mark, so the state here is
-        // the state the clause asks about and nothing can have moved between them.
+        // the state the clause asks about and nothing can have moved between them — and §11.6.4.4
+        // makes `sh` a non-stroking painting operation, which is which of Table 52's two alpha
+        // constants §11.7.5.2's first condition reads.
+        let transfer = self.transfer_for_mark(state, Painted::Shading { stroking: false });
         let conversion = self.conversion(state);
         let colouring = crate::shading::Colouring::new(
             state.smoothness,
             &conversion,
-            state.transfer.in_force(),
+            transfer.map(Arc::as_ref),
         );
         match self.shadings.build(
             self.document,
@@ -1125,8 +1128,6 @@ impl Interpreter<'_> {
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
 
-                // §11.6.4.4 makes `sh` a non-stroking painting operation.
-                self.note_transfer(state, Painted::Shading { stroking: false });
                 self.draw(Command::Fill {
                     path: Arc::new(path),
                     transform,
@@ -1463,21 +1464,33 @@ impl Interpreter<'_> {
     ///
     /// Called **once per mark**: a rebuild costs a build, so asking twice for one command would
     /// pay twice.
-    pub(super) fn fill_paint(&mut self, state: &GraphicsState) -> Paint {
+    ///
+    /// `transfer` is §11.7.5.2's answer for this mark, from
+    /// [`Interpreter::transfer_for_mark`], rather than the graphics state's own parameter — the
+    /// two differ wherever the mark is not fully opaque, and the caller has asked already.
+    pub(super) fn fill_paint(
+        &mut self,
+        state: &GraphicsState,
+        transfer: Option<&Arc<crate::content::Transfer>>,
+    ) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.fill_pattern else {
-            return state.solid_fill();
+            return state.solid_fill(transfer.map(Arc::as_ref));
         };
         let pattern = Rc::clone(pattern);
-        self.shading_paint(&pattern, state.transfer.shared(), state.fill_alpha)
+        self.shading_paint(&pattern, transfer, state.fill_alpha)
     }
 
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
-    pub(super) fn stroke_paint(&mut self, state: &GraphicsState) -> Paint {
+    pub(super) fn stroke_paint(
+        &mut self,
+        state: &GraphicsState,
+        transfer: Option<&Arc<crate::content::Transfer>>,
+    ) -> Paint {
         let Some(PatternPaint::Shading(pattern)) = &state.stroke_pattern else {
-            return state.solid_stroke();
+            return state.solid_stroke(transfer.map(Arc::as_ref));
         };
         let pattern = Rc::clone(pattern);
-        self.shading_paint(&pattern, state.transfer.shared(), state.stroke_alpha)
+        self.shading_paint(&pattern, transfer, state.stroke_alpha)
     }
 
     /// Reads a tiling pattern's cell and how it repeats.

@@ -208,11 +208,11 @@ pub enum Unsupported {
         /// What could not be decided.
         detail: String,
     },
-    /// A §10.5 transfer function reached a colour the clause does not put it on, or missed one.
+    /// A §10.5 transfer function is inside a composited colour §11.7.5.2 keeps it out of.
     ///
-    /// The function itself is implemented — read from Table 57's `/TR2` or `/TR` and applied to
-    /// each object's own colour on the way to the device — and two of the clauses around it ask
-    /// for something that construction cannot give.
+    /// The function itself is implemented — read from Table 57's `/TR2` or `/TR`, or from a
+    /// halftone dictionary's `TransferFunction`, and applied on the way to the device to every
+    /// component value a mark carries, a shading's samples and an image's included.
     ///
     /// **§11.7.5.2 makes the parameter a property of a *region* rather than of an object.**
     ///
@@ -225,19 +225,18 @@ pub enum Unsupported {
     /// > For portions of the page whose topmost object is not fully opaque or that are never
     /// > painted at all, the default halftone and transfer function for the page shall be used
     ///
-    /// So where the topmost object at a point is not fully opaque, the clause puts the page's
-    /// *default* function on the composited colour, and this tree has already put each
-    /// contributing object's own function on that object's colour. The two agree exactly where
-    /// the topmost object is fully opaque and nowhere else. See
-    /// [`Interpreter::note_transfer`] for the six conditions and how the ancestry is carried.
+    /// Half of that is a per-object rule wearing a per-region one's clothes, and is implemented:
+    /// an object the clause does not call fully opaque is never the one whose function is chosen
+    /// at any point, so it is handed the page's default instead —
+    /// [`Interpreter::transfer_for_mark`] carries the deduction, the six conditions and the
+    /// ancestry they rest on.
     ///
-    /// **§10.5 asks for every component value the device receives**, and a shading's are made in
-    /// `crate::shading` — a ramp's samples, a mesh's corners, a function-based shading's grid —
-    /// where the function reaches all of them since the six-hundred-and-fiftieth session. What is
-    /// left is *when*: §8.7.2 resolves a shading pattern's colour at the `scn` that selects it,
-    /// and the mark may be several graphics states later, so a file that states a different
-    /// transfer function in between is painted with the earlier one. Reported for that case
-    /// alone, which is one the `sh` operator cannot reach.
+    /// **What is left needs a point, and it is what this reports.** The clause composites raw
+    /// colours and maps the result once, per point, with the topmost object's function; this tree
+    /// maps each fully opaque contributor's colour before compositing. So where a mark the clause
+    /// does not call fully opaque covers an earlier one that *was* fully opaque and carried a
+    /// function, the composite this tree builds has that function already inside it and the clause
+    /// asks for a composite without it.
     TransferFunction {
         /// Which clause, which condition matched, and what it costs the page.
         detail: String,

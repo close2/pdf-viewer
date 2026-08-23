@@ -792,8 +792,8 @@ impl Interpreter<'_> {
             self.tile(outline, transform, FillRule::NonZero, &tiling, state);
             return;
         }
-        self.note_transfer(state, Painted::of(state, false));
-        let paint = self.fill_paint(state);
+        let transfer = self.transfer_for_mark(state, Painted::of(state, false));
+        let paint = self.fill_paint(state, transfer);
         self.draw(Command::Fill {
             // The font hands out shared outlines and the display list keeps them shared: a
             // page of text is the same few dozen glyphs over and over, so this is a refcount
@@ -850,8 +850,8 @@ impl Interpreter<'_> {
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
         let glyph_stroke_clip = self.paint_clip(state, false);
-        self.note_transfer(state, Painted::of(state, true));
-        let paint = self.stroke_paint(state);
+        let transfer = self.transfer_for_mark(state, Painted::of(state, true));
+        let paint = self.stroke_paint(state, transfer);
         self.draw(Command::Stroke {
             path: Arc::new(in_user_space),
             transform: state.transform,

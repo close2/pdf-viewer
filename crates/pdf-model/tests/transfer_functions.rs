@@ -13,9 +13,13 @@
 //!
 //! - **§11.7.5.2** makes the parameter a property of a *region*. The transfer function at a point
 //!   is the topmost object's "but only if the object is fully opaque", and the page's default
-//!   otherwise — so a page that states one and paints anything translucent over it is drawn with a
-//!   function the clause does not put there. This tree applies each object's own function to its
-//!   own colour before compositing, which agrees with the clause exactly on the fully opaque case.
+//!   otherwise. Half of that is a per-object rule in disguise and is implemented: an object the
+//!   clause does not call fully opaque is never the one whose function is chosen anywhere, so it
+//!   is handed the page's default — which is the identity on this device — and the tests below
+//!   pin that for a `ca`, for an ancestry and for a soft mask's group. What is left needs a
+//!   *point*: a fully opaque transferred mark seen through a later translucent one, where the
+//!   clause maps the whole composite and this tree has already mapped the colour underneath.
+//!   That one is reported rather than drawn, and `doc/todo/13` prices it.
 //! - **§10.5** applies the function to every component value on its way to the device, and a
 //!   shading's colours reach the backend as a ramp, a mesh or a sampled grid. Those are built in
 //!   `shading::kind_of`, so that is where the function is applied — *inside* the sampling rather
@@ -80,6 +84,33 @@ fn fixture(resources: &str, content: &str, extra: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Every solid fill colour the page paints, in the order the display list holds them.
+///
+/// Recursive, because a transparency group's marks are a [`Command::Group`]'s elements rather than
+/// commands of the page — and the clause under test is precisely about what a group does to the
+/// marks inside it.
+fn filled_colours(bytes: Vec<u8>) -> Vec<pdf_render::Color> {
+    fn walk(commands: &[Command], into: &mut Vec<pdf_render::Color>) {
+        for command in commands {
+            match command {
+                Command::Fill {
+                    paint: Paint::Solid(colour),
+                    ..
+                } => into.push(*colour),
+                Command::Group { commands, .. } => walk(commands, into),
+                _ => {}
+            }
+        }
+    }
+
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let mut colours = Vec::new();
+    walk(interpretation.display_list.commands(), &mut colours);
+    colours
+}
+
 /// Every [`pdf_model::Unsupported::TransferFunction`] this page raises, in the order they sort.
 fn transfer_reports(bytes: Vec<u8>) -> Vec<String> {
     let document = Document::open(bytes).expect("the fixture is a valid PDF");
@@ -95,7 +126,70 @@ fn transfer_reports(bytes: Vec<u8>) -> Vec<String> {
         .collect()
 }
 
-/// A page stating a transfer function and painting one translucent mark under it.
+/// A mark the clause does not call fully opaque is drawn with the page's **default** function.
+///
+/// ISO 32000-2 §11.7.5.2 says which object decides, and what happens when none does:
+///
+/// > The halftone and transfer function to be used at any given point on the page shall be those
+/// > in effect at the time of painting the last (topmost) elementary graphics object enclosing
+/// > that point, but only if the object is fully opaque.
+///
+/// > For portions of the page whose topmost object is not fully opaque or that are never painted
+/// > at all, the default halftone and transfer function for the page shall be used
+///
+/// Those two sentences decide this test between them and the deduction is three lines. At a point,
+/// the function is the topmost enclosing object's — and only where that object is fully opaque —
+/// or else the page's default. Take an object *O* that is not fully opaque and any point it
+/// encloses: either *O* is topmost there, and the first sentence withholds its function in favour
+/// of the second's default, or something else is topmost there, and that object's function or the
+/// default is chosen instead. Neither branch can choose *O*'s. **So a mark that is not fully
+/// opaque has its own transfer function used at no point on the page at all**, and the colour it
+/// contributes reaches the device unmapped.
+///
+/// The page's default is Table 52's "a PDF reader shall initialise this to a suitable device
+/// dependent value", and for this device it is the identity: §10.5's own subject is a function
+/// that "adjusts device gray or colour component levels to compensate for nonlinear response in a
+/// particular output device", and nothing this program puts between a `Command::Fill`'s colour and
+/// the raster is such a response. That is the documented choice `doc/todo/13` records, not a
+/// silence.
+///
+/// The mutation is the same page with the `ca` taken off, where the mark *is* fully opaque and the
+/// first sentence hands it its own function.
+#[test]
+fn a_translucent_marks_own_transfer_function_is_used_at_no_point() {
+    let resources =
+        format!("/ExtGState << /Solid << /TR {INVERT} >> /Half << /TR {INVERT} /ca 0.5 >> >>");
+
+    let translucent = filled_colours(fixture(
+        resources.as_str(),
+        "/Half gs 1 0 0 rg 0 0 50 50 re f",
+        "",
+    ));
+    let painted = *translucent.first().expect("the page paints one fill");
+    assert!(
+        (painted.r - 1.0).abs() < LEVEL && painted.g < LEVEL && painted.b < LEVEL,
+        "the clause puts the page's default — the identity — on a mark that is not fully \
+         opaque, so red stays red: {painted:?}"
+    );
+    assert!(
+        (painted.a - 0.5).abs() < LEVEL,
+        "§11.6.4.4's constant alpha is a different parameter and is untouched: {painted:?}"
+    );
+
+    let opaque = filled_colours(fixture(
+        resources.as_str(),
+        "/Solid gs 1 0 0 rg 0 0 50 50 re f",
+        "",
+    ));
+    let painted = *opaque.first().expect("the page paints one fill");
+    assert!(
+        painted.r < LEVEL && (painted.g - 1.0).abs() < LEVEL && (painted.b - 1.0).abs() < LEVEL,
+        "and a fully opaque mark is handed its own function, which inverts red to cyan: \
+         {painted:?}"
+    );
+}
+
+/// A page stating a transfer function and painting one translucent mark **over** an opaque one.
 ///
 /// ISO 32000-2 §11.7.5.2:
 ///
@@ -103,18 +197,24 @@ fn transfer_reports(bytes: Vec<u8>) -> Vec<String> {
 /// > at all, the default halftone and transfer function for the page shall be used
 ///
 /// One stated function and one `ca` below 1.0 is the whole of the condition — no second function
-/// competing with a first, which is what the ledger's row claimed for two hundred sessions. The
-/// second half of the test is the mutation: the same page painted opaque agrees with the clause
-/// exactly, because the six conditions "ensure that only the object itself shall contribute to the
-/// colour at the given point".
+/// competing with a first, which is what the ledger's row claimed for two hundred sessions.
+///
+/// **What is left to report is one shape, and it takes two marks.** The clause composites raw
+/// colours and maps the result once, per point, with the topmost object's function; this tree maps
+/// each fully opaque contributor's colour before compositing. Where the topmost object is fully
+/// opaque the two are the same picture, because the six conditions "ensure that only the object
+/// itself shall contribute to the colour at the given point". Where it is not, this tree's
+/// composite is right unless something *underneath* it was fully opaque and carried a function —
+/// which is the red rectangle below, seen through the blue one. The colours the two marks carry
+/// are asserted beside the report, because the report is only worth what the picture under it is.
+///
+/// The mutation is the same page painted opaque throughout, where the clause and this tree agree.
 #[test]
-fn a_translucent_mark_under_a_transfer_function_is_reported() {
+fn a_transferred_opaque_mark_seen_through_a_translucent_one_is_reported() {
     let resources = format!("/ExtGState << /Solid << /TR {INVERT} >> /Half << /ca 0.5 >> >>");
-    let translucent = transfer_reports(fixture(
-        &resources,
-        "/Solid gs 1 0 0 rg 0 0 50 50 re f /Half gs 0 0 1 rg 10 10 50 50 re f",
-        "",
-    ));
+    let content = "/Solid gs 1 0 0 rg 0 0 50 50 re f /Half gs 0 0 1 rg 10 10 50 50 re f";
+
+    let translucent = transfer_reports(fixture(&resources, content, ""));
     assert_eq!(
         translucent.len(),
         1,
@@ -124,6 +224,20 @@ fn a_translucent_mark_under_a_transfer_function_is_reported() {
     assert!(
         detail.contains("§11.7.5.2") && detail.contains("non-stroking alpha constant is below 1.0"),
         "the report names the clause and the condition that matched: {detail}"
+    );
+
+    let colours = filled_colours(fixture(&resources, content, ""));
+    let [under, over] = colours.as_slice() else {
+        panic!("the page paints two fills: {colours:?}");
+    };
+    assert!(
+        under.r < LEVEL && (under.g - 1.0).abs() < LEVEL && (under.b - 1.0).abs() < LEVEL,
+        "the opaque mark is topmost where the other misses it, so it keeps its own \
+         function: {under:?}"
+    );
+    assert!(
+        over.r < LEVEL && over.g < LEVEL && (over.b - 1.0).abs() < LEVEL,
+        "and the translucent mark over it is drawn with the page's default: {over:?}"
     );
 
     let opaque = transfer_reports(fixture(
@@ -146,10 +260,14 @@ fn a_translucent_mark_under_a_transfer_function_is_reported() {
 ///
 /// §11.6.6 resets the blend mode, both alpha constants and the soft mask before a transparency
 /// group's content runs, so the mark below is fully opaque by its own graphics state and is not
-/// fully opaque by the clause. A flag reading the mark alone would report nothing here, which is
-/// exactly the nested case §11.7.5.2 spends four of its six conditions on.
+/// fully opaque by the clause. A rule reading the mark alone would hand it its own function here,
+/// which is exactly the nested case §11.7.5.2 spends four of its six conditions on — and the mark
+/// is the only object on the page, so the clause's answer at every point it encloses is the page's
+/// default and there is nothing left to report.
+///
+/// The mutation is the same group invoked with no `ca`, where all six conditions hold.
 #[test]
-fn a_group_invoked_translucently_carries_its_opacity_to_the_marks_inside() {
+fn a_group_invoked_translucently_takes_the_transfer_function_off_the_marks_inside() {
     let resources = "/ExtGState << /Half << /ca 0.5 >> >> /XObject << /Fm 5 0 R >>";
     let inner = "/Inner gs 1 0 0 rg 0 0 50 50 re f";
     let form = format!(
@@ -160,22 +278,96 @@ fn a_group_invoked_translucently_carries_its_opacity_to_the_marks_inside() {
         inner.len() + 1
     );
 
-    let translucent = transfer_reports(fixture(resources, "/Half gs /Fm Do", &form));
-    assert_eq!(
-        translucent.len(),
-        1,
-        "the ancestry is what makes this one reportable: {translucent:?}"
-    );
-    let detail = translucent.first().expect("the report just counted");
+    let translucent = filled_colours(fixture(resources, "/Half gs /Fm Do", &form));
+    let painted = *translucent.first().expect("the group paints one fill");
     assert!(
-        detail.contains("§11.7.5.2") && detail.contains("enclosing group's Do"),
-        "the report names the condition the ancestry failed: {detail}"
+        (painted.r - 1.0).abs() < LEVEL && painted.g < LEVEL && painted.b < LEVEL,
+        "the ancestry is what makes this mark not fully opaque, so its own function is not \
+         the one the clause chooses: {painted:?}"
+    );
+    assert!(
+        transfer_reports(fixture(resources, "/Half gs /Fm Do", &form)).is_empty(),
+        "and with the page drawn as the clause asks there is nothing to report"
     );
 
-    let opaque = transfer_reports(fixture(resources, "/Fm Do", &form));
+    let opaque = filled_colours(fixture(resources, "/Fm Do", &form));
+    let painted = *opaque.first().expect("the group paints one fill");
     assert!(
-        opaque.is_empty(),
-        "the same group invoked opaquely satisfies every one of the six: {opaque:?}"
+        painted.r < LEVEL && (painted.g - 1.0).abs() < LEVEL && (painted.b - 1.0).abs() < LEVEL,
+        "the same group invoked opaquely satisfies every one of the six: {painted:?}"
+    );
+}
+
+/// A mark inside a **soft mask's** group is not painted at a point on the page at all.
+///
+/// ISO 32000-2 §11.7.5.2 is addressed throughout to "any given point on the page", and §11.5.3
+/// says what a mask's group becomes instead:
+///
+/// > The mask value at any given point shall then be defined to be the luminosity of the resulting
+/// > colour.
+///
+/// So no mark inside it is ever "the topmost elementary object in the entire page stack" at any
+/// point of the page, and by the same deduction as the translucent mark above, its own transfer
+/// function is chosen nowhere. Two more sentences say the same thing from other directions:
+/// §11.5.3 makes the luminosity of a device colour a conversion "with no compensation for gamma or
+/// other colour calibration", which is precisely what Table 52 calls a transfer function; and
+/// §11.7.5.3's NOTE puts the moment beyond reach as well as the place — it says of the current
+/// halftone and transfer function that they are the parameters "whose values are used only when
+/// all colour compositing has been completed and rasterization is being performed", where a mask's
+/// group is resolved before the page's compositing begins.
+///
+/// The mutation is the same group painted by a `Do` instead of named by an `/SMask`, where its
+/// mark *is* an object on the page and takes the function it states.
+#[test]
+fn a_mark_inside_a_soft_masks_group_is_not_transferred() {
+    let inner = "/Inner gs 1 0 0 rg 0 0 100 100 re f";
+    let form = format!(
+        "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS /DeviceRGB >> \
+         /Resources << /ExtGState << /Inner << /TR {INVERT} >> >> >> /Length {} >>\n\
+         stream\n{inner}\nendstream\nendobj\n",
+        inner.len() + 1
+    );
+
+    let document = Document::open(fixture(
+        "/ExtGState << /M << /SMask << /S /Luminosity /G 5 0 R >> >> >> /XObject << /Fm 5 0 R >>",
+        "/M gs 0 0 1 rg 0 0 100 100 re f",
+        &form,
+    ))
+    .expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    let list = &interpretation.display_list;
+    let mask = list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Fill { mask: Some(id), .. } => list.soft_mask(*id),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the page paints through a mask: {:?}", list.commands()));
+    let inside = mask
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            Command::Fill {
+                paint: Paint::Solid(colour),
+                ..
+            } => Some(*colour),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("the mask's group paints one fill: {:?}", mask.commands));
+    assert!(
+        (inside.r - 1.0).abs() < LEVEL && inside.g < LEVEL && inside.b < LEVEL,
+        "the mask's own luminosity is computed from the colours the group states, unmapped: \
+         {inside:?}"
+    );
+
+    let painted = filled_colours(fixture("/XObject << /Fm 5 0 R >>", "/Fm Do", &form));
+    let painted = *painted.first().expect("the group paints one fill");
+    assert!(
+        painted.r < LEVEL && (painted.g - 1.0).abs() < LEVEL && (painted.b - 1.0).abs() < LEVEL,
+        "the same group painted onto the page takes the function it states: {painted:?}"
     );
 }
 

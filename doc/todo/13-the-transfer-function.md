@@ -29,7 +29,12 @@ halftone conditional on the device, and §10.6.1 says a device needing no screen
 transfer function — so the seven §10.6.5 rows are `implemented` rather than
 `inapplicable` now: the one entry executed, and the screen ignored under the permission §10.6.5.1
 itself states.
-**So one thing is owed here now** — §11.7.5.2's per-region model, below — and the file stays for it.
+**The seven-hundred-and-sixth found that half of §11.7.5.2's per-region model needs no region**
+(ADR 0570): a mark the clause does not call fully opaque is never the object whose function it
+chooses, anywhere, so it is handed the page's default — which is a per-object rule, and the
+"rasteriser change" this file priced was a price for two things at once. That half is implemented
+and §11.7.5.2 is `partial`; **one thing is owed here now**, the overlap below, and the file stays
+for it.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
 doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, how
@@ -224,11 +229,11 @@ sessions before §10.4.2.5 turned out to answer it outright.
 - **Measured in the three-hundred-and-fifty-eighth session, by the census this bullet asked for**:
   `examples/transfer_function_census` over the corpus. Run it rather than reading a number here.
 
-## What is still owed: §11.7.5.2, the parameter that belongs to a *region*
+## What is still owed: §11.7.5.2's *last* shape, which really does need a point
 
 **Found in the six-hundred-and-thirty-second session, reading the ledger's unread rows.** §11.7.5.2
-was `inapplicable` on the argument quoted above and its own row said the same. The clause does not
-say it. Its rule is not about two functions competing; it is about *opacity*:
+was `inapplicable` on an argument the clause does not make. Its rule is not about two functions
+competing; it is about *opacity*:
 
 > The halftone and transfer function to be used at any given point on the page shall be those in
 > effect at the time of painting the last (topmost) elementary graphics object enclosing that
@@ -239,57 +244,86 @@ and then, at the end of the same paragraph's list of conditions:
 > For portions of the page whose topmost object is not fully opaque or that are never painted at
 > all, the default halftone and transfer function for the page shall be used
 
-So one stated function is enough to make the clause bite. Where the topmost object at a point is
-painted under a constant alpha below 1.0, a blend mode other than Normal, a soft mask, or is an
-image XObject with an `/SMask` — and the clause extends each condition to the groups the object is
-inside and to a tiling pattern's cell — the transfer function at that point is the page's
-**default**, and this tree applies the object's own. It applies it per object, before compositing;
-the clause applies the topmost object's, after. The two agree exactly on the fully opaque case,
-which is where every corpus witness is, and nowhere else.
+So one stated function is enough to make the clause bite, and the six conditions — an alpha
+constant below 1.0, a blend mode other than Normal, a soft mask, an image XObject with an
+`/SMask`, the same four at the enclosing `Do`s, and the same again for every object in a tiling
+pattern's cell — decide which marks the first sentence hands a function to.
 
-**The population, measured rather than assumed**, and it is why this is a `doc/todo` entry rather
-than a round's work: `cargo run --release -p pdf-model --example transfer_function_census --
-doc/pdf.js/test/pdfs/*.pdf` finds one document stating a transfer function that is not `/Identity`
-or `/Default`, and `mutool draw -F trace` on that document's page shows its one image drawn at
-`alpha="1"`, Normal, no soft mask and no `/SMask`. **Zero corpus pages are drawn wrong by this
-today.** A round that changes it therefore has no oracle witness and owes a fixture (trap 8).
+**Three pieces of work, in this order. The first two are done; the third is what this file owes.**
 
-Two pieces of work, in this order. **The first is done as of the six-hundred-and-thirty-seventh
-session; the second is what this file still owes.**
+1. **The report — built in the six-hundred-and-thirty-seventh.** `Unsupported::TransferFunction`,
+   on a condition derived from the clause rather than approximated from the code. The *ancestry*
+   was the trap and it is carried rather than read: §11.6.6 resets the blend mode, both alpha
+   constants and the soft mask before a group's content runs, and §11.6.7 starts a tiling cell from
+   the initial state, so a flag reading the mark's own alpha would have reported **nothing at all**
+   for the nested case. `Interpreter::opaque_ancestry` is narrowed in `group_commands` and in
+   `tile`.
 
-1. **The report — built.** `Interpreter::note_transfer` raises `Unsupported::TransferFunction`, and
-   the condition is derived from the clause rather than approximated from the code. At a point the
-   clause's answer is the topmost object's function where that object is fully opaque and the
-   page's default otherwise; this tree's is each contributor's own applied before compositing. So
-   the two differ **exactly where some object covering the point carried a function and the topmost
-   object covering it is not fully opaque** — one statement covering both the object that carries
-   the transfer and the translucent object painted over it, which two separate conditions would
-   have got wrong in the second case. Nothing here knows which objects overlap, so what fires is
-   the geometric over-approximation: a mark §11.7.5.2 does not call fully opaque, made while some
-   mark on the page has carried a function. It cannot under-report, since a point drawn wrong has
-   both halves on the page in that order.
+2. **Half the region model, which needed no region — built in the seven-hundred-and-sixth**
+   (ADR 0570). **This section used to say the whole thing was a rasteriser change and that was
+   wrong about half of it**, which is the correction worth more than the code. The clause chooses
+   the function at a point between exactly two candidates: the topmost enclosing object's, where
+   that object is fully opaque, and the page's default. Take an object *O* the clause does not call
+   fully opaque, and any point *O* encloses. Either *O* is topmost there, and the first sentence
+   withholds its function in favour of the second's default; or something else is topmost there,
+   and that object's function or the default is chosen instead. Neither branch can choose *O*'s.
+   **So a mark that is not fully opaque has its own transfer function used at no point on the
+   page** — which is a statement about one object, decided from one graphics state, needing nothing
+   per-point at all. `Interpreter::transfer_for_mark` is the one place that decides it, and it
+   hands such a mark the page's default instead.
 
-   The *ancestry* was the trap and it is carried rather than read: §11.6.6 resets the blend mode,
-   both alpha constants and the soft mask before a group's content runs, and §11.6.7 starts a
-   tiling cell from the initial state, so a flag reading the mark's own alpha would have reported
-   **nothing at all** for the nested case. `Interpreter::opaque_ancestry` is narrowed in
-   `group_commands` and in `tile`, and scoped away inside a soft mask's group, whose marks are
-   never painted at a point on the page. `tests/transfer_functions.rs` has the three fixtures,
-   each with its mutation.
-2. **The per-region model, which is a rasteriser change and is not small.** The clause's quantity
-   is a property of a *point*, decided by the topmost object covering it, and applied to the
-   composited colour rather than to each contributor's. Nothing in the display list carries a
-   per-point parameter today, and inventing one for a population of zero would be speculative
-   work of exactly the kind `CLAUDE.md` forbids. What it would take, so that the next round does
-   not have to re-derive it: a per-pixel *transfer identity* rasterised beside the colour — each
-   fully opaque mark writing its own function's index, each non-opaque one writing the page's
+   The page's default is Table 52's "a PDF reader shall initialise this to a suitable device
+   dependent value", and for this device it is the identity: the table's own subject is a function
+   that "adjusts device gray or colour component levels to compensate for nonlinear response in a
+   particular output device", and nothing between a `Command::Fill`'s colour and the raster is such
+   a response. **A documented choice, not a silence.**
+
+   The same deduction one step further takes the function off every mark inside a **soft mask's**
+   group. §11.7.5.2 is addressed throughout to "any given point on the page" and §11.5.3 makes such
+   a group's result "the luminosity of the resulting colour", so no mark inside one is ever the
+   topmost object anywhere on the page; §11.5.3 says it a second time from the other side, making
+   that luminosity a conversion "with no compensation for gamma or other colour calibration", which
+   is what Table 52 calls a transfer function.
+
+3. **The last shape, which is a rasteriser change and is not small.** What survives is one
+   overlap: a **fully opaque** mark carrying a function, seen through a *later* mark that is not
+   fully opaque. The clause composites raw colours and maps the result once, per point, with the
+   topmost object's function; this tree maps each fully opaque contributor's colour before
+   compositing — so where a translucent mark covers a transferred opaque one, the composite this
+   tree builds has the map already inside it and the clause asks for one without it. The report's
+   condition narrowed to exactly that in the same session and still cannot under-report.
+
+   **What it would take, re-derived rather than carried forward, so that the next round does not
+   have to:** a per-pixel *transfer identity* rasterised beside the colour — each fully opaque mark
+   writing its own function's index, each mark that is not fully opaque writing 0 for the page's
    default — and one pass over the finished raster mapping each pixel through the function its
    index names. That is a second channel in `pdf-render`'s target and a matching pass in all three
-   backends, which is why it is priced as a rasteriser change and not as a report. What makes it
-   worth writing down is that the *reason* to defer is now a measurement rather than a claim about
-   the clause, so a document that turns up stating a transfer function under a soft mask moves it
-   straight to the top — and since the six-hundred-and-thirty-seventh such a document says so out
-   loud instead of being drawn wrong in silence.
+   backends, which is why it is priced as a rasteriser change and not as a report. **Trap 2
+   binds**: the channel's *meaning* — which index a mark writes, and what the page's default is —
+   is `pdf-render`'s to state, or two backends will answer it apart.
+
+   **And it carries one design question that is the clause's rather than the code's**, which is
+   worth having before the work rather than during it. The clause defines the topmost object as the
+   one "that has a nonzero object shape value ( f j) at that point (that is, for which the point is
+   inside the object)" — *nonzero*, not *one*. A pixel an antialiased edge covers partially has a
+   nonzero shape there, so it is inside that object and takes that object's function, although its
+   colour is a blend of that object's with the backdrop's. Annex N.3 is where the standard shows it
+   has noticed the shape of that problem: "[d]etermining transparency and shape at the pixel
+   resolution at which the page is rendered avoids artefacts where a fringe using an unexpected
+   halftone might appear". That annex is *informative* and its own §N.1 makes both of its
+   approaches conditional on "an output device that requires halftoned output", so it licenses
+   nothing here — but the fringe it names is the artefact this construction has to get right.
+
+**The population, measured rather than assumed**, and it is why this is a `doc/todo` entry rather
+than a round's work: run `examples/transfer_function_census` over `doc/pdf.js` and over the SafeDocs
+crawl. One document of the first states a function that is not `/Identity` or `/Default`, and it
+draws its one image fully opaque; the corpus gate raises no `TransferFunction` report at all. **Zero
+corpus pages are drawn wrong by what is left.** A round that changes it therefore has no oracle
+witness and owes a fixture (trap 8) — `tests/transfer_functions.rs` is where the existing ones are,
+each with its mutation. What makes the deferral honest is that the *reason* is a measurement rather
+than a claim about the clause, so a document that turns up painting a translucent mark over a
+transferred opaque one moves this straight to the top — and since the six-hundred-and-thirty-seventh
+such a document says so out loud instead of being drawn wrong in silence.
 
 ## Closed in the six-hundred-and-sixtieth: the pattern whose colours were resolved before the mark
 

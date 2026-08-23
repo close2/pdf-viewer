@@ -288,7 +288,7 @@ impl Interpreter<'_> {
         // §11.7.5.2's fourth condition is about the image's own dictionary rather than about the
         // graphics state — "[i]f the object is an image XObject and there is not an SMask entry
         // in its image dictionary" — so it is answered here, where the dictionary is.
-        self.note_transfer(
+        let transfer = self.transfer_for_mark(
             state,
             Painted::Image {
                 soft_mask: !matches!(self.document.get_key(&stream.dict, "SMask"), Object::Null),
@@ -309,7 +309,7 @@ impl Interpreter<'_> {
                 // point every sample is. Done here rather than in `image::decode_parts` because a
                 // transfer belongs to the *graphics state* the image is drawn under and not to the
                 // image, and the same XObject drawn twice under two states is two pictures.
-                image: decoded.source(|image| transferred_image(image, state.transfer.in_force())),
+                image: decoded.source(|image| transferred_image(image, transfer.map(Arc::as_ref))),
                 transform: state.transform,
                 alpha: state.fill_alpha,
                 clip: state.clip,
@@ -451,8 +451,8 @@ impl Interpreter<'_> {
         // The pattern's own `/BBox` and a type 1 shading's domain are composed here, as they
         // are for any other fill through a shading pattern.
         let clip = self.paint_clip(state, true);
-        self.note_transfer(state, Painted::of(state, false));
-        let paint = self.fill_paint(state);
+        let transfer = self.transfer_for_mark(state, Painted::of(state, false));
+        let paint = self.fill_paint(state, transfer);
         self.draw(Command::Fill {
             path: Arc::new(path),
             transform: state.transform,

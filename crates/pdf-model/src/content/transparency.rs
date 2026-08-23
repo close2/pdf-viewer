@@ -17,7 +17,7 @@ use crate::page::Page;
 use super::colour::output_intent_space;
 use super::reader::NestedContent;
 use super::report::Unsupported;
-use super::{GraphicsState, Interpreter, MAX_SOFT_MASK_DEPTH};
+use super::{GraphicsState, Interpreter, MAX_SOFT_MASK_DEPTH, Transfer};
 
 /// What a form `XObject`'s `/Group` asks for (ISO 32000-2 §11.6.6 Table 145).
 ///
@@ -40,7 +40,7 @@ pub(super) struct TransparencyGroup {
 /// The clause's six conditions are not all about the graphics state: the fourth is about the
 /// image dictionary and the first depends on which of Table 52's two alpha constants the painting
 /// operation reads. Both are the caller's to know, so they arrive as this rather than as two
-/// booleans nobody could read at a call site. See [`Interpreter::note_transfer`].
+/// booleans nobody could read at a call site. See [`Interpreter::transfer_for_mark`].
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Painted {
     /// A non-stroking mark whose paint carries a colour: a fill, a glyph fill, a stencil mask.
@@ -1483,12 +1483,14 @@ impl Interpreter<'_> {
         // reason one construction over: a space declared inside a mask is answered by
         // §11.5.3's own derivation and says nothing about the group the `gs` sits in.
         let saved_departed = std::mem::replace(&mut self.nested_space_departed, false);
-        // And §11.7.5.2's record of a transfer function having reached a mark, for the reason
-        // the two above it are scoped: the clause is about "any given point on the page", and
-        // §11.5.3 turns this group's result into one luminosity rather than painting it at a
-        // point. So a function applied inside a mask is not a function applied to anything the
-        // page composites, and a mark inside a mask is not one the clause asks about.
-        let saved_transfer = std::mem::replace(&mut self.transfer_painted, false);
+        // §11.7.5.2's record of a transfer function having reached a mark is **not** scoped here,
+        // and no longer needs to be: `Interpreter::transfer_for_mark` reads `soft_mask_depth`
+        // itself and hands every mark inside a mask the page's default, so nothing in here can
+        // set the record or raise the report. The clause is about "any given point on the page",
+        // and §11.5.3 turns this group's result into one luminosity rather than painting it at a
+        // point. Saving the flag across the run said the same thing one indirection later, and
+        // said it only about the report.
+        //
         // And pattern space, which is the one this list did **not** save until the
         // six-hundred-and-twenty-first session. §8.7.2 states where a pattern's matrix lands:
         //
@@ -1509,7 +1511,6 @@ impl Interpreter<'_> {
         self.run(&content, &resources, &inner, 0);
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
-        self.transfer_painted = saved_transfer;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
         self.alpha_sources_mark = saved_ais_mark;
         self.transparent_initial_backdrop = saved_backdrop;
@@ -2081,27 +2082,16 @@ impl Interpreter<'_> {
         self.blending_beyond
     }
 
-    /// Says where §10.5's transfer function reached a colour §11.7.5.2 does not put it on.
+    /// Which transfer function §11.7.5.2 puts on the mark about to be painted, and what it costs.
     ///
-    /// Called once per elementary graphics object that marks the page, with the state it is
-    /// painted under. Two clauses are asked here and they are asked in this order because only
-    /// the first decides whether the object carries a transfer at all.
+    /// Called **once per elementary graphics object** that marks the page, with the state it is
+    /// painted under, and its answer is the only route by which §10.5's function reaches a colour.
+    /// Every caller passes what comes back to whatever builds its paint — `solid_fill`,
+    /// `transferred_image`, `shading::Colouring` — so no other reader of `state.transfer` decides
+    /// anything, which is the shape trap 2 asks for one layer up: a device decision either backend
+    /// could make alone is a decision neither has made, and this one is made here.
     ///
-    /// # §10.5, and the shading whose colours were resolved under an older state
-    ///
-    /// The clause's subject is a component value, not an object:
-    ///
-    /// > In the sequence of steps for processing colours, the PDF processor shall apply the
-    /// > transfer function after performing any needed conversions between colour spaces.
-    ///
-    /// [`GraphicsState::solid_fill`] applies it to a solid colour, `image::transferred_image` to
-    /// an image's samples, and `shading::kind_of` to every colour a shading produces — a ramp's
-    /// samples, a mesh's corners and a function-based shading's grid alike. A **shading pattern**
-    /// was the one route on which the answer could still be the wrong function, because §8.7.2
-    /// makes a pattern a colour and `scn` is where a colour is resolved; `Interpreter::fill_paint`
-    /// now builds those colours at the mark, so there is nothing left for this half to report.
-    ///
-    /// # §11.7.5.2, and the parameter that belongs to a region
+    /// # What §11.7.5.2 chooses between
     ///
     /// > The halftone and transfer function to be used at any given point on the page shall be
     /// > those in effect at the time of painting the last (topmost) elementary graphics object
@@ -2110,47 +2100,80 @@ impl Interpreter<'_> {
     /// > For portions of the page whose topmost object is not fully opaque or that are never
     /// > painted at all, the default halftone and transfer function for the page shall be used
     ///
-    /// **The condition follows from those two sentences and not from the code.** At a point, the
-    /// clause's answer is the topmost object's function where that object is fully opaque, and
-    /// the page's default otherwise; this tree's answer is each contributor's own function
-    /// applied to that contributor's colour before compositing. Where the topmost object is fully
-    /// opaque the two agree, because the six conditions below "ensure that only the object itself
-    /// shall contribute to the colour at the given point" — the composited colour *is* that
-    /// object's colour. Where it is not fully opaque they agree only if no contributor at that
-    /// point carried a function at all. So the page is drawn wrong exactly where **some object
-    /// covering the point carried a transfer function and the topmost object covering it is not
-    /// fully opaque** — which is one report rather than one per mark, and which needs no second
-    /// function competing with a first. One stated `/TR` under a `ca` of 0.5 is enough.
+    /// The parameter belongs to a *point*, decided by one object — the topmost — and by the page's
+    /// default where that object is not fully opaque. Table 52 says what the default is ("a PDF
+    /// reader shall initialise this to a suitable device dependent value"), and for this device it
+    /// is the identity: the table's own subject is a function that "adjusts device gray or colour
+    /// component levels to compensate for nonlinear response in a particular output device", and
+    /// nothing between a `Command::Fill`'s colour and the raster is such a response. That is a
+    /// documented choice rather than a silence, and `doc/todo/13` records it as one.
     ///
-    /// Nothing here knows which objects overlap, so the page-level statement is the geometric
-    /// over-approximation of that condition: a mark that is not fully opaque, painted while some
-    /// earlier or current mark carried a function. It cannot under-report — a point drawn wrong
-    /// has both halves on the page, in that order — and it over-reports only a page whose
-    /// non-opaque marks all miss the transferred ones. The population that can reach either is
-    /// measured rather than assumed: `examples/transfer_function_census` finds 13 of `doc/pdf.js`'s
-    /// 964 documents stating a Table 57 `/TR` or `/TR2` and one stating anything but `/Identity`
-    /// or `/Default`, and 1352 of the `SafeDocs` crawl's 65 703 stating one with 32 real. Not one
-    /// document of either corpus paints a shading while one is in force, which is why the report
-    /// above has no witness but a fixture.
-    pub(super) fn note_transfer(&mut self, state: &GraphicsState, painted: Painted) {
-        // Every mark's function is the one its own state states, shadings included since the
-        // rebuild landed — so this is the whole of "some mark on this page carried one".
-        if state.transfer.in_force().is_some() {
-            self.transfer_painted = true;
-        }
-        if !self.transfer_painted {
-            return;
+    /// # Why a mark that is not fully opaque is handed no function at all
+    ///
+    /// Take an object *O* that fails any of [`Interpreter::not_fully_opaque`]'s six conditions,
+    /// and any point *p* it encloses. Either *O* is the topmost object at *p*, and the first
+    /// sentence withholds its function in favour of the second's default; or something else is
+    /// topmost at *p*, and that object's function or the default is chosen instead. Neither branch
+    /// can choose *O*'s. **So a mark that is not fully opaque has its own function used at no
+    /// point on the page**, and the colour it contributes goes to the device unmapped — which is
+    /// exact rather than an approximation, and needs nothing per-point to implement.
+    ///
+    /// A mark inside a *soft mask's* group is the same deduction with a different first step: the
+    /// clause is addressed throughout to "any given point on the page", and §11.5.3 makes such a
+    /// group's result "the luminosity of the resulting colour" rather than ink at a point. So no
+    /// mark inside one is ever "the topmost elementary object in the entire page stack" anywhere,
+    /// and none of them is handed a function either. §11.5.3 says as much from the other side, of
+    /// the conversion itself: it is done "with no compensation for gamma or other colour
+    /// calibration", which is what Table 52 calls a transfer function.
+    ///
+    /// # What is left over, and is reported
+    ///
+    /// The clause composites raw colours and maps the result *once* at each point; this tree maps
+    /// each fully opaque contributor's colour *before* compositing. Where the topmost object at a
+    /// point is fully opaque the two are the same picture, because the six conditions "ensure that
+    /// only the object itself shall contribute to the colour at the given point" — the composited
+    /// colour **is** that object's colour. Where the topmost object is not fully opaque, the
+    /// clause wants the whole composite unmapped, and this tree's composite is unmapped too
+    /// **unless something underneath it was fully opaque and carried a function**. So one shape
+    /// survives, and it takes two objects: a fully opaque transferred mark, seen through a later
+    /// mark that is not fully opaque.
+    ///
+    /// Nothing here knows which objects overlap, so what fires is the geometric
+    /// over-approximation of that: a mark this clause does not call fully opaque, painted while
+    /// some *fully opaque* mark on the page has already carried a function. It cannot under-report
+    /// — a point drawn wrong has both halves on the page, in that order — and it over-reports only
+    /// a page whose translucent marks all miss its transferred ones.
+    ///
+    /// The population that can reach either is measured rather than assumed:
+    /// `examples/transfer_function_census` counts how many documents state a Table 57 `/TR` or
+    /// `/TR2` and how many state a real one; run it rather than reading a figure here. The report
+    /// has no corpus witness and is defended by `tests/transfer_functions.rs`'s fixtures (trap 8).
+    pub(super) fn transfer_for_mark<'state>(
+        &mut self,
+        state: &'state GraphicsState,
+        painted: Painted,
+    ) -> Option<&'state Arc<Transfer>> {
+        if self.soft_mask_depth > 0 {
+            return None;
         }
         let Some(because) = self.not_fully_opaque(state, painted) else {
-            return;
+            // Every mark's function is the one its own state states, shadings included since the
+            // rebuild landed — so this is the whole of "a fully opaque mark carried one".
+            let stated = state.transfer.shared();
+            self.transfer_painted_opaquely |= stated.is_some();
+            return stated;
         };
-        self.note(Unsupported::TransferFunction {
-            detail: format!(
-                "§11.7.5.2: a transfer function was in force at a mark on this page, and {because} \
-                 — so where such an object is topmost the clause puts the page's default function \
-                 on the composited colour, and this tree put each contributing object's own"
-            ),
-        });
+        if self.transfer_painted_opaquely {
+            self.note(Unsupported::TransferFunction {
+                detail: format!(
+                    "§11.7.5.2: a fully opaque mark on this page carried a transfer function, and \
+                     {because} — so where such an object covers one of those marks the clause \
+                     puts the page's default function on the whole composited colour, and this \
+                     tree has already put the opaque mark's own on the colour underneath"
+                ),
+            });
+        }
+        None
     }
 
     /// Which of §11.7.5.2's six conditions the object being painted fails, if any.
@@ -2181,7 +2204,8 @@ impl Interpreter<'_> {
     ///
     /// Returns the *first* condition that fails, worded for the report. Which one it is is
     /// diagnostic rather than normative — the clause needs all six — but a report that named
-    /// none of them could not be acted on.
+    /// none of them could not be acted on. `None` means fully opaque, which is the answer
+    /// [`Interpreter::transfer_for_mark`] needs and the one the clause's first sentence turns on.
     fn not_fully_opaque(&self, state: &GraphicsState, painted: Painted) -> Option<&'static str> {
         let stroking = matches!(
             painted,
