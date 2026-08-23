@@ -219,3 +219,23 @@ history file records is this machine's under this load, not theirs. What is esta
 independently of any machine is the branch: wgpu's fatal path requires a surface with no error
 sink, an error sink is installed only by a configure that succeeded, and after `ground` one always
 has.
+
+## What the owner then observed, and exactly how much it is worth
+
+The project owner has since run `tmp/pi.pdf` on that machine and reports it working, **with the
+caveat that they raise themselves**: the original abort happened only sometimes — it took two
+launches seconds apart to produce it, the second of which succeeded — so an absence of it is not a
+demonstration of its absence.
+
+That caveat is the right one and this ADR adopts it rather than rounding it up. **An intermittent
+fault that stops appearing is corroboration, not proof**, and the distinction is worth keeping in
+the file because the temptation runs one way: the fix is ours, the reasoning is ours, and a
+confirming observation from the person who reported the bug is precisely the evidence one is
+inclined to over-read.
+
+So the standing of the fix is unchanged by the observation, and that is the point. It rests where
+it rested — on the branch above, which is a statement about wgpu's code and not about any
+machine — and the owner's run adds that **nothing on their hardware contradicts it**, which is
+worth having and is not the same claim. Were the abort to recur, the thing to capture is the trace,
+because a second occurrence *after* `ground` would falsify the branch and would be a different
+defect wearing the same symptom.
