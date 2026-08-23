@@ -1377,40 +1377,56 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// since the five-hundred-and-forty-sixth session, and the admission is self-checking: a
 /// different picture would make that test report two images instead of one.
 ///
-/// # On four of the seven the verdict line is a statistic of *our* raster and of nothing else
+/// # On four of the seven the verdict line was a statistic of *our* raster and of nothing else
 ///
 /// The ink table above prices the mechanism in ink, which is not one of the four numbers the
-/// verdict is made of, and on four of these pages the conversion is not an approximation — it is
-/// an identity. Where both voting references return a page that is 255 in every channel,
+/// verdict is made of, and on four of these pages the conversion was not an approximation — it
+/// was an identity. Where both voting references return a page that is 255 in every channel,
 /// `raster_compare` is comparing our render with a constant, so every figure it produces is a
 /// property of our render alone. All seven of our rasters are byte-identical, and ours against a
 /// synthetic 399 × 400 white sheet is **mean 13.12, worst tile 144.56, differing 5.15%, ssim
-/// 0.8990** — which is, digit for digit, the line the gate prints for
+/// 0.8990** — which was, digit for digit, the line the gate printed for
 /// `bitmap-symbol-context-reuse.pdf`, `bitmap-symbol-texthuffrefinecustom.pdf`,
 /// `bitmap-symbol-texthuffrefinecustomposdims.pdf` and `issue20439.pdf`. The mean falls out of
 /// the ink table by hand: 17.495 × ¾, because three of the four channels differ and the fourth is
 /// opaque on both sides.
 ///
 /// **No renderer that draws this image could meet any of those bounds**, which is the sharpest
-/// form of what this note has been saying in words: there is nothing here to be contradicted by.
-/// It is also why the *worst tile* is the bound these pages fail hardest — a 32-pixel tile inside
-/// the drawing is 75.6% covered, and against white that is 144.56 of a bound of 5.00.
+/// form of what this note has been saying in words: there was nothing there to be contradicted
+/// by. It is also why the *worst tile* was the bound those pages failed hardest — a 32-pixel tile
+/// inside the drawing is 75.6% covered, and against white that is 144.56 of a bound of 5.00.
 ///
-/// On the other three `jbig2dec` returns ink rather than silence, and there the ink table stops
-/// being an identity and starts being a floor: the gate's mean exceeds ¾ of the ink *difference*
-/// by 1.4× on `bitmap-symbol-symhuffrefineone.pdf`, 1.7× on `bitmap-refine-page-subrect.pdf` and
-/// 4.9× on `bitmap-halftone-composite.pdf`, because on those the ink is displaced rather than
-/// added and an absolute difference counts a moved mark twice. **An ink table cannot account for
-/// a page where the disagreement is about placement**, and naming which three of the seven those
-/// are is the honest limit of this entry. ADR 0499.
-const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
+/// # Three of those four left this list in the six-hundred-and-eighty-first session
+///
+/// ADR 0499 recorded the identity and deliberately did not act on it; ADR 0513 is the rule that
+/// did. `pdfref::consensus_abstentions` takes a reference out of the consensus where its raster
+/// is one colour *and* a reference that drew marks disagrees with it — so on
+/// `bitmap-symbol-texthuffrefinecustom.pdf`, `bitmap-symbol-texthuffrefinecustomposdims.pdf` and
+/// `issue20439.pdf`, where `mupdf` and `ghostscript` both return white and `poppler` draws
+/// 17.589, the pair that used to contradict us abstains and one reading is left. All three are
+/// `NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR` now.
+///
+/// **`bitmap-symbol-context-reuse.pdf` stayed, and it is the rule's own limit rather than an
+/// oversight.** On that page *all three* references are one colour — `poppler` white after
+/// *Too many symbols in JBIG2 symbol dictionary*, `ghostscript` white, `mupdf` entirely black —
+/// so not one of them drew marks, nothing establishes that there was a picture to draw except
+/// our own render, and reading it would be the circularity the rule exists to avoid. Two
+/// failures agree here and the verdict still rests on them; what is available to say so is this
+/// paragraph, `tests/jbig2.rs`'s invariant and the three logs above, and not a raster.
+///
+/// On the remaining three of the original seven `jbig2dec` returns ink rather than silence, so
+/// no reference abstains and the comparison is a real one; there the ink table stops being an
+/// identity and starts being a floor. The gate's mean exceeds ¾ of the ink *difference* by 1.4×
+/// on `bitmap-symbol-symhuffrefineone.pdf`, 1.7× on `bitmap-refine-page-subrect.pdf` and 4.9× on
+/// `bitmap-halftone-composite.pdf`, because on those the ink is displaced rather than added and
+/// an absolute difference counts a moved mark twice. **An ink table cannot account for a page
+/// where the disagreement is about placement**, and naming which of them those are is the honest
+/// limit of this entry. ADR 0499.
+const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 4] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
     "bitmap-symbol-context-reuse.pdf page 1",
     "bitmap-symbol-symhuffrefineone.pdf page 1",
-    "bitmap-symbol-texthuffrefinecustom.pdf page 1",
-    "bitmap-symbol-texthuffrefinecustomposdims.pdf page 1",
-    "issue20439.pdf page 1",
 ];
 
 /// Contradicted, where a large image is drawn small.
@@ -1734,10 +1750,25 @@ const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.p
 /// that can see it is the one this note already argues for. `poppler`'s half of the second page is
 /// the exception that shows the difference: it is not blank — 0.982 of full white against
 /// `ghostscript`'s 1.000 — which is the "one blob glyph" above. ADR 0499.
-const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 2] = [
-    "issue11549_reduced.pdf page 1",
-    "issue11740_reduced.pdf page 1",
-];
+///
+/// # Empty since the six-hundred-and-eighty-first session, and kept for what it argued
+///
+/// ADR 0499 wrote the identity down and left the gate alone; ADR 0513 acted on it, and this
+/// group is the population that motivated the rule, so both of its pages left it by the route
+/// the paragraph above describes. `pdfref::consensus_abstentions` refuses a vote to a reference
+/// whose raster is one colour where a reference that drew marks disagrees with it, and:
+///
+/// - `issue11549_reduced.pdf` page 1 — `mupdf` and `ghostscript` both return white and
+///   `poppler` draws, so both abstain, one reading is left and the page is
+///   [`NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY`];
+/// - `issue11740_reduced.pdf` page 1 — only `ghostscript` returns white. It abstains, `poppler`
+///   and `mupdf` are left, and those two do not agree with each other, so the page is
+///   **ambiguous** and is [`AMBIGUOUS_REFERENCE_DREW_NOTHING`]'s seventh entry.
+///
+/// The group is kept empty rather than deleted because the sentence it was written to prove —
+/// that the failing mean *is* our own ink, to the digit, on a page nothing else drew — is the
+/// argument the rule rests on, and these two pages are where it was measured.
+const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 0] = [];
 
 /// Contradicted on a page this tree *reports*, which is where the ranking's head has been sitting
 /// with no group at all.
@@ -3429,13 +3460,151 @@ const NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE: [&str; 7] = [
 /// bucket: the timeout stays where it is, and the group says whose refusal it is.
 const NOT_COMPARABLE_TWO_REFERENCES_RAN_OUT_OF_TIME: [&str; 1] = ["bomb_giant.pdf page 1"];
 
-/// Every page fewer than two references produced an image of, in one list.
+// The four groups below arrived together in the six-hundred-and-eighty-first session, and
+// they are one rule rather than four findings: `pdfref::consensus_abstentions` refuses a vote
+// to a reference whose raster is **one colour** where a reference that **drew marks**
+// disagrees with it, so a page whose remaining readings number fewer than two lands here
+// instead of being judged by two flat sheets. ADR 0513 has the argument and the measurement;
+// what belongs beside the lists is what each page turned out to be.
+//
+// Read them with the bucket's own caution in mind: this verdict is the one where a page of
+// ours is least likely to be checked by anybody, and 29 pages arrived at once.
+
+/// The JBIG2 family where `jbig2dec` returns a flat sheet and `poppler`'s own decoder draws.
+///
+/// 21 pages, and 20 of their names contain `refine` — `issue20439.pdf` is the member of the
+/// family whose name does not say so, which [`CONTRADICTED_SHARED_JBIG2_DECODER`] records.
+/// `mupdf` and `ghostscript` are one implementation here because both link `jbig2dec`, and on a
+/// refinement region or a Huffman-coded symbol dictionary it gives up: on eighteen of these
+/// `mupdf` returns a page that is entirely **black** and `ghostscript` one that is entirely
+/// **white**, and on the other three both return white. Either way not one pixel of either
+/// raster is a mark, while `poppler` draws the picture at 17.589 of 255 against our 17.495.
+///
+/// **They came from two different verdicts, and that is the point of the move.** Eighteen were
+/// `ambiguous` — [`AMBIGUOUS_SHARED_JBIG2_DECODER`], where a black sheet and a white sheet
+/// disagreeing with each other read as the references failing to settle a question — and three
+/// were `contradicted`, where two white sheets agreed with each other and outvoted the renderer
+/// that drew. Neither verdict was false about the rasters and both were misleading about the
+/// page: there is one reading of these files here, `poppler`'s, and it is within a level of
+/// ours.
+///
+/// What says we are right is not `poppler` and is unchanged by any of this: `tests/jbig2.rs`
+/// decodes ninety-six documents that encode one image through every coding mode ISO/IEC 14492
+/// defines, and all ninety-six decode to byte-identical pixels here.
+const NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR: [&str; 21] = [
+    "bitmap-composite-and-xnor-refine.pdf page 1",
+    "bitmap-composite-or-xor-replace-refine.pdf page 1",
+    "bitmap-refine-customat-tpgron.pdf page 1",
+    "bitmap-refine-customat.pdf page 1",
+    "bitmap-refine-lossless.pdf page 1",
+    "bitmap-refine-refine.pdf page 1",
+    "bitmap-refine-template1-tpgron.pdf page 1",
+    "bitmap-refine-template1.pdf page 1",
+    "bitmap-refine-tpgron.pdf page 1",
+    "bitmap-refine.pdf page 1",
+    "bitmap-symbol-symhuffrefine-textrefine.pdf page 1",
+    "bitmap-symbol-symhuffrefineseveral.pdf page 1",
+    "bitmap-symbol-texthuffrefine.pdf page 1",
+    "bitmap-symbol-texthuffrefineB15.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustom.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustomdims.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustompos.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustomposdims.pdf page 1",
+    "bitmap-symbol-texthuffrefinecustomsize.pdf page 1",
+    "bitmap-trailing-7fff-stripped-harder-refine.pdf page 1",
+    "issue20439.pdf page 1",
+];
+
+/// The object two references threw away, and said so in their own logs.
+///
+/// `issue11549_reduced.pdf` page 1 is 200 × 50. `mupdf` prints *ignoring broken object
+/// (70 0 R)* after repairing the cross-reference table and `ghostscript` — without the `-q`
+/// this gate passes — *object lacks an endobj*, and both then return white paper; `poppler`
+/// draws at 0.9338 of full white against our 0.9501. It was [`CONTRADICTED_REFERENCES_DREW_NOTHING`]
+/// until the six-hundred-and-eighty-first session, where the contradiction was two blank sheets
+/// agreeing perfectly and the failing mean the gate then printed was our own ink of 12.718 with
+/// a factor of ¾ on it (ADR 0499).
+///
+/// The reading that is left is `poppler`'s, and the line the gate prints now is against it:
+/// **mean 1.37** of a bound of 5.00, the two of us drawing the same words. Nothing here is owed
+/// unless that changes.
+const NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY: [&str; 1] =
+    ["issue11549_reduced.pdf page 1"];
+
+/// Six pages where the flat sheets that used to carry the verdict were hiding a mark **we do
+/// not draw**, and this is the half of ADR 0513 that cost an agreement.
+///
+/// All six were `agrees` before the rule, and each agreed with two references that returned one
+/// colour while a third drew. That is the exact shape the rule is about, arriving with the sign
+/// reversed: where the JBIG2 family had the flat sheets outvoting a renderer that was right,
+/// here they outvote a renderer that may be, and our own raster is one of the flat ones. **Six
+/// agreements are the price of seeing them, and they are worth it**: the gate said "PASS —
+/// agrees" on every one of these while a fourth renderer drew something we did not.
+///
+/// - `issue17333.pdf` page 1, 100 × 100 — `mupdf` draws 0.346 of 255 and **`hayro` draws
+///   0.262**; `poppler`, `ghostscript` and this tree return white. `hayro` is not a vote and
+///   never is, but it is a separate interpreter and it siding with `mupdf` is what makes this
+///   worth a look rather than a shrug. Ours against `mupdf` fails structural similarity alone,
+///   0.9704 of 0.9900.
+/// - `issue18042.pdf` pages 1 to 4, 400 × 400 — `mupdf` alone draws, and it draws a great deal:
+///   15.9375 of 255 against white paper from `poppler`, `ghostscript`, `hayro` and us, which is
+///   mean 11.95 and a worst tile of 191.25. This is a page this tree **reports**, so what is
+///   owed is on `corpus.rs`'s list rather than here; what was wrong is that the oracle called
+///   it an agreement.
+/// - `text_field_own_canvas_calc.pdf` page 3, 612 × 792 — `ghostscript` draws 0.3136 and
+///   `hayro` 0.2352, `poppler` and `mupdf` return white, and so do we. A light grey mark
+///   (minimum channel 217 of 255) that two of five renderers place and three do not; ours
+///   against `ghostscript` fails the worst tile alone, 12.47 of 5.00.
+///
+/// None is diagnosed. What this group asserts is only that the verdict is honest now — one
+/// reading of the page is not a consensus — and each name here is a page for `doc/todo/00`'s
+/// method rather than a page anybody has read.
+const NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS: [&str; 6] = [
+    "issue17333.pdf page 1",
+    "issue18042.pdf page 1",
+    "issue18042.pdf page 2",
+    "issue18042.pdf page 3",
+    "issue18042.pdf page 4",
+    "text_field_own_canvas_calc.pdf page 3",
+];
+
+/// The page where a flat sheet **is** the right answer, which is the limit of ADR 0513's rule
+/// stated as a page rather than as a caveat.
+///
+/// `recursiveCompositGlyf.pdf` page 1 shows *hello world* in §9.3.6's text rendering mode 7 and
+/// then paints the page red, expecting to see it through the letters. Its font is a deliberately
+/// malformed TrueType whose composite glyph refers to itself, so no outline is produced and
+/// §9.3.6's "if the only glyphs shown have no outlines … no clipping shall occur" applies: the
+/// page comes out **solidly red**, which is what this tree, `poppler` and `hayro` all draw.
+/// `mupdf` refuses the font and returns white; `ghostscript`, with its own TrueType interpreter,
+/// recovers the glyphs and draws them. `corpus.rs` carries that reading and this tree reports the
+/// page.
+///
+/// So of the two rasters that abstain here, one is a failure (`mupdf`'s white) and **the other
+/// is the page** (`poppler`'s red) — and the rule cannot tell them apart, because the only
+/// renderer that drew *marks* is the one whose reading of §9.3.6 the clause does not support.
+/// The predicate was not loosened to rescue it, and the reason is that every candidate for doing
+/// so reads our own render: a flat sheet is excused where it agrees with us, and the three pages
+/// of [`NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS`] — where our render is the flat one — are
+/// exactly what such a rule would hide. **A limit that is one page and named is better than a
+/// circularity that is invisible.**
+///
+/// The page was `ambiguous` before the rule and is not judged now either, so nothing about what
+/// the gate can conclude has changed; what changed is which sentence it prints, and the sentence
+/// is why this group exists.
+const NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE: [&str; 1] = ["recursiveCompositGlyf.pdf page 1"];
+
+/// Every page fewer than two references produced a comparable picture of, in one list.
 fn not_comparable_expected() -> Vec<&'static str> {
     NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE
         .iter()
         .chain(&NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE)
         .chain(&NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE)
         .chain(&NOT_COMPARABLE_TWO_REFERENCES_RAN_OUT_OF_TIME)
+        .chain(&NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR)
+        .chain(&NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY)
+        .chain(&NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS)
+        .chain(&NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE)
         .copied()
         .collect()
 }
@@ -3474,27 +3643,24 @@ fn not_comparable_expected() -> Vec<&'static str> {
 ///
 /// They stay listed rather than excused: if `jbig2dec` learns refinement they will leave
 /// this group, and if our decode changes they will change with it.
-const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 19] = [
-    "bitmap-composite-and-xnor-refine.pdf page 1",
-    "bitmap-composite-or-xor-replace-refine.pdf page 1",
-    "bitmap-halftone-refine.pdf page 1",
-    "bitmap-refine-customat-tpgron.pdf page 1",
-    "bitmap-refine-customat.pdf page 1",
-    "bitmap-refine-lossless.pdf page 1",
-    "bitmap-refine-refine.pdf page 1",
-    "bitmap-refine-template1-tpgron.pdf page 1",
-    "bitmap-refine-template1.pdf page 1",
-    "bitmap-refine-tpgron.pdf page 1",
-    "bitmap-refine.pdf page 1",
-    "bitmap-symbol-symhuffrefine-textrefine.pdf page 1",
-    "bitmap-symbol-symhuffrefineseveral.pdf page 1",
-    "bitmap-symbol-texthuffrefine.pdf page 1",
-    "bitmap-symbol-texthuffrefineB15.pdf page 1",
-    "bitmap-symbol-texthuffrefinecustomdims.pdf page 1",
-    "bitmap-symbol-texthuffrefinecustompos.pdf page 1",
-    "bitmap-symbol-texthuffrefinecustomsize.pdf page 1",
-    "bitmap-trailing-7fff-stripped-harder-refine.pdf page 1",
-];
+///
+/// # Eighteen of the nineteen left in the six-hundred-and-eighty-first session, and the
+/// mechanism is unchanged
+///
+/// Everything above is still true of these pages; what changed is what the gate does with a
+/// raster of one colour. A page black in `mupdf` and white in `ghostscript` is two rasters
+/// neither of which has a mark on it, so under ADR 0513 both abstain — the abstention's
+/// precondition being that `poppler`, which drew, disagrees with each of them — one reading is
+/// left, and the verdict becomes `not comparable`. That is
+/// [`NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR`], and it is worth the move
+/// rather than being merely equivalent: trap 9's fifth shape is *shared code manufacturing the
+/// absence of a consensus*, and inside `ambiguous` — a bucket whose own definition is that the
+/// specification may be the reason — it was indistinguishable from a genuine disagreement.
+///
+/// **`bitmap-halftone-refine.pdf` is the one that stays**, for the reason the paragraph above
+/// already gives: `ghostscript` keeps what it decoded before the refinement segment, so its
+/// raster carries marks, nobody abstains, and the three references genuinely disagree.
+const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf page 1"];
 
 /// Ambiguous, and the specification settles what it can: it forbids what every renderer here
 /// does, including us.
@@ -7391,13 +7557,29 @@ const AMBIGUOUS_LOCA_OUT_OF_ORDER: [&str; 1] = ["issue11131_reduced.pdf page 1"]
 /// second that draws something else. Neither is a consensus, which is why the verdict is
 /// `ambiguous` rather than contradicted, and the pair that agrees to two thousandths of a level
 /// includes us.
-const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 6] = [
+/// # And a seventh, which arrived from the contradicted list rather than from a ranking
+///
+/// `issue11740_reduced.pdf` page 1 is 200 x 50 and shows *Оглавление*. It was
+/// [`CONTRADICTED_REFERENCES_DREW_NOTHING`] from the sixth session until the
+/// six-hundred-and-eighty-first, on a consensus of `poppler` and `ghostscript` — and
+/// `ghostscript` returned **white paper**, 1.000 of full white, having reported *error reading
+/// a stream* under a `-q` this gate passes and then loaded a substitute face it drew nothing
+/// with. Under ADR 0513 that raster abstains, and what is left is `poppler` at 0.982 — the "one
+/// blob glyph" the paragraph above names — against `mupdf` at 0.928. They do not agree with
+/// each other, so the page is ambiguous rather than contradicted, which is what a page with one
+/// failure and two different pictures on it always was.
+///
+/// We, `mupdf` and `hayro` draw the word; ADR 0049 is where that came from, and the group's own
+/// shape is the reason it is filed here: a reference that drew nothing, and a second that drew
+/// something else.
+const AMBIGUOUS_REFERENCE_DREW_NOTHING: [&str; 7] = [
     "issue6006.pdf page 1",
     "bug920426.pdf page 1",
     "colorspace_sin.pdf page 1",
     "colorspace_cos.pdf page 1",
     "colorspace_atan.pdf page 1",
     "issue2840.pdf page 1",
+    "issue11740_reduced.pdf page 1",
 ];
 
 /// Ambiguous, and the file declares a glyph bounding box that encloses nothing.
@@ -9283,6 +9465,13 @@ struct Examined {
     ///
     /// `None` where fewer than two references were compared with each other.
     consensus_missed_by: Option<f64>,
+    /// How many references produced a raster of one colour on a page another one drew, and
+    /// therefore took no part in the consensus — `pdfref::consensus_abstentions`.
+    ///
+    /// Counted for the census rather than for a ratchet: the pages it moves are held by name
+    /// in the `not comparable` groups below, and what this number answers is the question a
+    /// ratchet cannot, which is how large the population is that the rule can reach at all.
+    abstentions: usize,
     /// Processor time spent in our own pipeline, and in the three external renderers.
     ///
     /// Summed across the run and reported, because "where does this gate's time go" is
@@ -9303,6 +9492,7 @@ impl Examined {
             complete,
             distance: None,
             consensus_missed_by: None,
+            abstentions: 0,
             spent,
         }
     }
@@ -9632,6 +9822,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         complete,
         distance,
         consensus_missed_by,
+        abstentions: triangulation.abstained.len(),
         spent,
     }
 }
@@ -9802,6 +9993,30 @@ fn verdict_of(triangulation: &pdfref::Triangulation, outvoted: Option<&str>) -> 
         }
         Outcome::Ambiguous => {
             Verdict::Ambiguous(format!("{}{note}", measurements(triangulation, None)))
+        }
+        Outcome::NotEnoughReferences { available } if !triangulation.abstained.is_empty() => {
+            // The abstaining renderers ran and returned a raster of one colour, which a
+            // renderer that drew marks disagrees with. The line says exactly that rather than
+            // "drew nothing", because one of these pages is a full-page fill where the flat
+            // sheet is the right answer — see `NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE`. The
+            // measurement beside it is taken against whichever reference drew marks, which is
+            // the only reading of the page the gate has left.
+            let drew: Vec<Reference> = triangulation
+                .ours
+                .iter()
+                .map(|(reference, _)| *reference)
+                .filter(|reference| !triangulation.abstained.contains(reference))
+                .collect();
+            let blank: Vec<&str> = triangulation
+                .abstained
+                .iter()
+                .map(|reference| reference.name())
+                .collect();
+            Verdict::NotComparable(format!(
+                "{} returned one colour, leaving {available} reading: {}{note}",
+                blank.join(" and "),
+                measurements(triangulation, Some(&drew))
+            ))
         }
         Outcome::NotEnoughReferences { available } => {
             Verdict::NotComparable(format!("{available} reference(s)"))
@@ -10295,6 +10510,17 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
         matches!(e.verdict, Verdict::NotComparable(_))
     });
     summary("no render", &|e| matches!(e.verdict, Verdict::NoRender(_)));
+
+    // The population `pdfref::consensus_abstentions` can reach, printed rather than ratcheted.
+    // A ratchet on it would be a ratchet on how often three other programs fail, which is not
+    // this tree's to hold; what the number is for is that a rule refusing a vote must say how
+    // many votes it refused, and on how many pages that left nothing to compare.
+    println!(
+        "  a reference returned one colour and took no part in the consensus on {} pages, {} of \
+         which are left with fewer than two readings and are therefore not comparable",
+        count(&|e| e.abstentions > 0),
+        count(&|e| e.abstentions > 0 && matches!(e.verdict, Verdict::NotComparable(_)))
+    );
 
     rank_the_undiagnosed(results);
     rank_the_manufactured_ambiguity(results);

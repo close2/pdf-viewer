@@ -673,6 +673,66 @@ whose references could not be reconciled, on the reasoning that there was nothin
 so the one bucket that cannot be diagnosed from disk was the one bucket with no disk. It keeps
 whichever reference *did* draw, and our own raster beside it, since this session.
 
+### 3f. A flat sheet does not get a vote, and what that cost
+
+**Taken in the six-hundred-and-eighty-first session** (ADR 0513), on the item ADR 0499 recorded as
+owed: a voting reference whose raster is one colour contributes no information to a verdict, and
+the gate let it vote. `raster_compare` against a constant produces four statistics of *our* render
+and nothing else — the mean being exactly `255 × (1 − our own mean channel value)` — which ADR 0499
+measured on six pages, digit for digit on all four bounds at once.
+
+**"Constant" is not the predicate, and finding the one that works is the whole of the decision.** A
+raster of one colour is a *failure* on a page that has marks and a *reading* on a page that is a
+flat sheet, and our own render cannot separate those without circularity in both directions. The
+non-circular question is put to the other references, and it is not "did anybody draw" but "does
+anybody who drew **disagree**":
+
+> A reference whose raster is one colour takes no part in the consensus where a reference that drew
+> marks fails to agree with it — by the same `Tolerance::accepts` that decides every other
+> agreement here.
+
+A flat sheet inside the bound of a raster with marks on it *is* that raster as far as this
+instrument can measure; refusing it a vote buys nothing and costs an agreement, which is what nine
+corpus pages said the first time the rule was written without that clause. Uniformity is exact
+rather than within a noise floor: a renderer that drew anything antialiases its edges.
+
+**Three things it refuses to do, and each is a page rather than a caveat.** Where every reference
+is flat, none abstains and a render of ours that puts marks on the page stays contradicted — the
+defect class the rule must not suppress. Where two flat rasters disagree with each other and
+nothing drew, none abstains either: `bitmap-symbol-context-reuse.pdf` is `poppler` white,
+`ghostscript` white and `mupdf` entirely black, and it stays contradicted on two failures agreeing,
+because the only evidence that the page has marks is our own. And where a flat sheet **is** the
+page the rule gets it wrong and is named for it: `recursiveCompositGlyf.pdf` is solid red under
+§9.3.6, which this tree, `poppler` and `hayro` draw and `ghostscript` — recovering a malformed
+composite glyph — does not, so the only renderer with marks is the one the clause does not support.
+`NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE` holds it. Every refinement that would rescue that page
+reads our own render, and the pages where *ours* is the flat one are what such a refinement would
+hide.
+
+**The verdict is `not comparable` rather than `ambiguous`, and that is a choice.** Both sentences
+are true — the abstention's precondition *is* a disagreement — and §3a is the argument: `ambiguous`
+is the last population where a defect can live without a name, and trap 9's fifth shape, shared
+code manufacturing the *absence* of a consensus, was indistinguishable inside it from a corner of
+the specification. `not comparable` says what is useful: the gate has one reading of this page.
+
+**What it cost, in both directions, is the part to read.** `tools/state.sh oracle` prints today's
+counts; what belongs here is the shape of the move, measured over one run before and one after on
+a warm cache. Pages left `ambiguous` for `not comparable`, and `contradicted` for `not comparable`,
+and — the price — **six pages left `agrees`**, each of them a page where two flat sheets outvoted a
+renderer that drew and *our own raster was one of the flat ones*: `issue17333.pdf` page 1, where
+`mupdf` and `hayro` draw a mark three renderers including us do not; `issue18042.pdf` pages 1 to 4,
+where `mupdf` alone draws at 15.9 of 255 on a page this tree reports; and
+`text_field_own_canvas_calc.pdf` page 3, where `ghostscript` and `hayro` place a light grey mark and
+`poppler`, `mupdf` and we do not. **A gain in honesty and a loss in the agree count, and the loss is
+where the next defect is**: `doc/todo/00`'s method is owed on the three that are not
+`issue18042.pdf`. One page went the other way into `ambiguous` — `issue11740_reduced.pdf`, where
+only `ghostscript` was flat and the two that drew do not agree with each other.
+
+**No page moved toward a verdict that flatters us.** Nothing became `agrees`, nothing stopped being
+`contradicted` except by ceasing to be comparable at all, and on the further pages where a reference
+abstained while two readings survived not one verdict changed. The gate prints that census every
+run, because a rule that refuses a vote owes the count of votes it refused.
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a

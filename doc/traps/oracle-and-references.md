@@ -99,7 +99,13 @@ results is read — because a mechanism accounted for in the wrong units is not 
   instead of contradicting us they produce no consensus at all and the page becomes `ambiguous`,
   which nothing was watching. Shared code does not only manufacture agreement; it can also
   manufacture the *absence* of one, and the second is invisible where the first is at least
-  listed. `AMBIGUOUS_SHARED_JBIG2_DECODER`.
+  listed. `AMBIGUOUS_SHARED_JBIG2_DECODER` — **which holds one of those nineteen since the
+  six-hundred-and-eighty-first session and not because anything was fixed**: a black sheet and a
+  white sheet are two rasters with no mark on either, so under the rule in the last bullet below
+  both abstain and the pages are `not comparable`. That is the point of the move rather than
+  bookkeeping — "invisible where the first is at least listed" was true *inside* `ambiguous`, whose
+  own definition invites reading a manufactured absence as a corner of the specification, and the
+  bucket that says "the gate has one reading of this page" does not. ADR 0513.
 - **And a sixth, which is none of the five above: a shared external *standard*.** On
   `CONTRADICTED_DEVICE_CMYK_CONVERSION`'s five pages `hayro` sits with the `mupdf`/`ghostscript`
   pair — 4 and 5 levels of 255 from them, 48 from us — and it shares nothing with either.
@@ -177,8 +183,26 @@ results is read — because a mechanism accounted for in the wrong units is not 
   white sheet of the same size, and on `CONTRADICTED_REFERENCES_DREW_NOTHING`'s two the failing mean
   *is* our ink, 12.718 against a printed 12.72 and 13.672 against 13.67. **No renderer that drew the
   page could meet any of those bounds**, so the numbers are not a measurement of a disagreement and
-  cannot be read as one. The tell costs one command: `magick identify -format '%[fx:minima]
-  %[fx:maxima]'` on the reference panel. ADR 0499.
+  cannot be read as one. The tell costs one command: `magick identify -format '%k'` on the
+  reference panel — the count of distinct colours, which is right where `%[fx:minima]
+  %[fx:maxima]` is not: a solid *blue* sheet has a minimum of 0 and a maximum of 1 like any page
+  with ink on it, and one corpus reference panel is exactly that. ADR 0499.
+
+  **The gate acts on this since the six-hundred-and-eighty-first session, and the condition it
+  fires on is not "constant"** (ADR 0513). A raster of one colour is a *failure* on a page with
+  marks and a *reading* on a page that is a flat sheet, and our own render cannot tell those apart
+  without circularity in both directions — excusing a flat reference because we drew nothing
+  forgives every mark we lose, disqualifying one because we drew something dismisses every
+  disagreement. So `pdfref::consensus_abstentions` asks the *other references*, and not "did
+  anybody draw" but **"does anybody who drew disagree"**: a flat sheet inside `Tolerance` of a
+  raster with marks on it is that raster as far as this instrument can measure. Written without
+  that clause the rule cost nine corpus agreements; with it, six — and each of those six is a page
+  where two flat sheets outvoted a renderer that drew *and ours was one of the flat ones*, which is
+  the failure this trap is about arriving with its sign reversed. **The rule has a limit that is a
+  page rather than a caveat**: on `recursiveCompositGlyf.pdf` a flat sheet *is* the page and the
+  only renderer with marks is the one §9.3.6 does not support, so it abstains the wrong two — named
+  in `NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE`, because every refinement that would rescue it reads
+  our own render.
 
 - **And a note's figures and the gate's figures are usually in different units, which is a
   conversion rather than a difficulty.** `raster_compare` divides by **width × height × four
