@@ -1009,7 +1009,7 @@ the shapes are this file's own.
 | **§12.7.5.5** | 4 | "Table 235's `/Lock` and `/SV` are signing behaviour" | `/SV` is; `/Lock` is a `shall` on whoever *changes a value*, which this program does. Read now, as a fourth `Restriction` — **`implemented`** |
 | §7.6 | 2 | a revision 4 password outside ASCII needs "Annex D data this crate does not hold" | `pdf_syntax::text_string` has held Table D.3 both ways for hundreds of commits, and `crypt.rs`'s own comment says so |
 | §7.7 | 5 | "what it does not read is everything the catalog holds for a *viewer*" | its own child §7.7.2 lists eighteen of twenty-five as read |
-| §14.6 | 6 | "[w]hat is *not* read is any tag's meaning" | three sentences after saying optional content rides on `BDC`; four tags are read by name |
+| §14.6 | 6 | "[w]hat is *not* read is any tag's meaning" | three sentences after saying optional content rides on `BDC`; four tags are read by name — **and that repair was itself one short**, which the seven-hundred-and-first found: `/Tx` is a fifth and the same note names it (ADR 0560) |
 | §14.6.1 | 6 | the same sentence one row down | as above, plus §14.9's four entries and §14.7.5.2's `/MCID` |
 | §14.8.2.6.1 | 3 | the `Alt`/`ActualText` exception "is not read" | both are read; every requirement left in the clause addresses a *document* — **`implemented`** |
 
@@ -3873,6 +3873,41 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   would be; both rank a row against the standard or against the tree. This one ranks a row against
   **its siblings**, which is the comparison the fifth failure shape is defined by and which no
   ordering by age can produce.
+  **The six-hundred-and-ninety-seventh took §11.4 by that rule and the seven-hundred-and-first took
+  §14.6**, re-deriving the ordering each time rather than reading it here. On the base the second of
+  those measured, §7.6.4.4 is rank 1 — ADR 0538's family, which the round that read it did not
+  finish — §11.3.4 is 2, and §11.3.7, §12.5, §8.6.6, §8.9.6, §8.9.6.2, §9.8.3 and §9.8.3.1 share
+  3–9, with §14.6, §14.6.1 and §7.7 at 10–12. **§14.6 was taken because all three of its rows are
+  `partial` and two of them state the same list**, which tags this tree acts on by name: a claim
+  held in duplicate is a claim with somewhere to disagree with itself, and it did. The count said
+  four while the note's own previous sentence named the fifth — §12.7.4.3's `/Tx`, whose `shall`
+  makes `appearance::spliced` cut where the tag says. §14.6 also wrote §8.11.3.3 twice for the
+  clause §14.6.1 has had right all along, and gave as its reason for `partial` that §14.7's and
+  §14.8's semantics are unimplemented, which the ledger's own rows under both deny. §14.6.2 said twice
+  inside one sentence that an undefined `/Properties` name is reported, and no such report has ever
+  existed — correctly, because §8.11.3.2 makes such a section ordinary content. **§14.6.1 moved to
+  `implemented`**: its `partial` rested on a tag that is a structure type going unread, which
+  §14.7.5.2 makes a `should` on the producer while saying the tag "is not directly related to the
+  document's logical structure". ADR 0560. **The rows left at the top are §7.6.4.4 and §11.3.4**,
+  then the cluster of seven; §9.8.3 with §9.8.3.1 is the family shape one size down, two rows whose
+  notes argue with each other about Table 122.
+- **The self-contradicting note has no instrument, and the seven-hundred-and-first measured the
+  obvious one and declined it.** ADR 0551 closed on a shape all eighteen sweeps are blind to — two
+  paragraphs of one note contradicting each other — and the construction that would see part of it
+  is the eighteenth sweep with both sides inside one row: `overstated::parts`, `terms_in` and
+  `is_an_assertion` against `unread::is_a_claim`, every piece already public. Measured before being
+  built, which is ADR 0481's method: **794 rows with a note, 259 asserting a term, 930 assertions,
+  46 contradicted inside one note, 24 of them marked as a correction quoting its retired wording —
+  and every one of the 22 unmarked is noise.** Two of the three noise shapes are worse here than
+  across rows: a part naming two terms with one stance each pairs them for free inside one note,
+  where across rows the other row still has to deny the same term. **The third is the reason, and it
+  is structural**: ADR 0523 made it this project's rule that a correction states the retired claim in
+  words the sweep matching it can still find, so a note repaired for a self-contradiction *contains*
+  the contradiction on purpose — the population of an intra-row sweep is defined to be dominated by
+  the notes somebody already fixed. And it would not have printed either of that round's own two:
+  a cardinal against an enumeration two sentences away, and a `partial` reason against a clause's
+  modal verb, are neither of them an assertion and a denial over a `/Key` or a `Table NNN`. **An
+  intra-row contradiction is found by reading, and the reading list is the family.** ADR 0560 §5.
 - **A negative measured before the crawl is a negative nobody has measured, and the crawl is on this
   disk.** `doc/habits.md` says a negative claim decays when the population grows; the
   six-hundred-and-sixty-third was the first round to act on it in the ledger and the first row it

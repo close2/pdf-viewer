@@ -107,7 +107,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | §12.7.8.3.1 General | 576 | #173 | cites | "Although FDF file encryption is deprecated" — the disambiguation `forms_data.rs` already made in prose. |
 | §12.8.1 General | 582 | #685 | cites | Table 254's `/Page` loses "for annotations in FDF files", which restated the table's own title. |
 | §13.2.4.2, §13.2.7.2.2, §13.5, §13.6.4.1 | 638–672 | #414, #449, #481, #150 | untouched | ×4. Clause 13 is out of scope by `CLAUDE.md`'s closed list. |
-| §14.6.1 Marked content | 736 | #335 | cites | **"They may not occur within a graphics object" is struck**, and marked content may appear "within a text object". The interpreter's marked-content stack was never coupled to `BT`/`ET` — it was written from the *surviving* nesting paragraph, which already gives `BT BMC … EMC ET` as valid, and existing tests across `accessibility.rs`, `logical_order.rs` and `logical_structure_example.rs` use the now-explicitly-legal form. One stale comment about Figure 9 in `variable_text.rs` is owed below. |
+| §14.6.1 Marked content | 736 | #335 | cites | **"They may not occur within a graphics object" is struck**, and marked content may appear "within a text object". The interpreter's marked-content stack was never coupled to `BT`/`ET` — it was written from the *surviving* nesting paragraph, which already gives `BT BMC … EMC ET` as valid, and existing tests across `accessibility.rs`, `logical_order.rs` and `logical_structure_example.rs` use the now-explicitly-legal form. One stale comment about Figure 9 in `variable_text.rs` was owed and is settled below, in `PERMITTED`'s own doc comment, as a documented choice. |
 | §14.7.5.2, §14.7.5.4 | 746, 749 | #431 | quotes | ×2. `/Pg` becomes "Sometimes required" and "overrides" becomes "takes precedence over". `destination.rs` quoted the struck sentence — corrected. `doc/adr/0054` quotes it too and stays, being a record of a decision made at the time. |
 | §14.7.5.4 | 750 | #463 | untouched | "these two entries" becomes "StructParent or StructParents". Naming only. |
 | §14.7.6.1 General | 752 | #354 | quotes `[416]` | "conforming product that owns" → "owner of". |
@@ -922,3 +922,33 @@ entries whenever a form states one its page does not. `content/xobject.rs` resol
 absent, and `content/transparency.rs`'s `press_for_entry` and `named_press` take that dictionary —
 so this tree has read the group's own since the construction was built, on nobody's stated
 authority. It now has the clause's. Recorded in §11.6.6's row and in `named_press`'s own comment.
+
+## Two pairs the nesting rule gained under §14.6.1, found in the seven-hundred-and-first
+
+`emit` over all fourteen documents while reading §14.6's `partial` rows. Six errata land on the two
+pages §14.6.1 spans and four of them were already recorded here — #126's *rolemapped*, #303's
+deleted NOTE 1, #334's deleted NOTE 3, #335's marked content inside a text object. **The two that
+were recorded nowhere are #302 and #301**, and the first changes a requirement.
+
+**Issue #302, `Review/Completed`, adds two pairs of operators to the properly-nested rule.** The
+2020 sentence names three pairs — BMC…EMC, BDC…EMC and BT…ET — and the erratum's two carets insert,
+into the list of operators being combined, the compatibility operators BX and EX and the graphics
+state operators q and Q, and, into the parenthesis that enumerates the pairs, those same two. Its
+whole strikeout is the single word *or*, one word under `check`'s four-word floor, so that
+instrument is blind to it by construction: the seventh consecutive round in which a bare or nearly
+bare caret has been the finding, and the second in which the caret licenses something this tree was
+already doing.
+
+**It is a licence rather than a debt.** §12.7.4.3 requires a processor to replace an appearance
+stream's contents "from / Tx BMC to the matching EMC", which `appearance::spliced` does by counting
+depth over `BMC`, `BDC` and `EMC` and cutting at the balancing `EMC`. Under the 2020 text a
+conforming file could open a `q` before that `BMC` and close it inside the sequence, and the splice
+would have removed the `Q` and left the rest of the page in the saved state; under the amended text
+it cannot, because q…Q is now one of the pairs that shall be properly (separately) nested with a
+marked-content sequence. The algorithm is unchanged and its warrant is not. Recorded in §14.6.1's
+row, which is `implemented` on that reading and on the one requirement the clause puts on a reader.
+
+**Issue #301, `Review/Completed`, is capitalisation**: Table 352's `BMC` row states its operand as
+*Tag* where every other row of the table states *tag*. The tag is compared as bytes here — §7.3.5
+makes a name's comparison "an exact binary match" — and the table's own prose is what names the
+operand, so nothing moves.
