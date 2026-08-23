@@ -11,6 +11,82 @@
 # One page per line, exactly as the gate names it. Blank lines and lines beginning with `#`
 # are ignored.
 #
-# It is empty as of the three-hundred-and-seventy-ninth session, from 754 in the
-# hundred-and-seventy-sixth. Empty is a state this file can be in and not a state it stays
-# in: a page that stops agreeing arrives here, and the gate fails on the arrival.
+# It was empty from the three-hundred-and-seventy-ninth session, having held 754 names in
+# the hundred-and-seventy-sixth, and the six-hundred-and-ninety-second refilled it — not
+# because anything regressed but because the gate was given a second population to judge
+# (ADR 0541). Every name below is `doc/corpora/pdfbox`, whose 143 pages no raster gate had
+# ever held; the pdf.js corpus's own share of this file is still nothing.
+#
+# That is what the emptiness was a fact about, and it is the reason the round wrote these
+# names down rather than declining to measure: a bucket kept empty by choosing the
+# denominator is `CLAUDE.md`'s corpus-going-quiet failure with better bookkeeping.
+#
+# They are not undiagnosable, and the shape of the answer is visible from the census: 62 of
+# the 63 are text at document sizes failing the differing fraction and the structural
+# similarity while sitting well inside the mean and the worst tile, which is
+# AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE's and AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE's signature.
+# Saying so is a hypothesis; each of those groups is a measurement, and `doc/todo/00` is
+# where the work of turning the first into the second is written down.
+pdfbox/cweb.pdf page 10
+pdfbox/cweb.pdf page 11
+pdfbox/cweb.pdf page 12
+pdfbox/cweb.pdf page 16
+pdfbox/cweb.pdf page 18
+pdfbox/cweb.pdf page 19
+pdfbox/cweb.pdf page 2
+pdfbox/cweb.pdf page 20
+pdfbox/cweb.pdf page 21
+pdfbox/cweb.pdf page 22
+pdfbox/cweb.pdf page 23
+pdfbox/cweb.pdf page 24
+pdfbox/cweb.pdf page 26
+pdfbox/cweb.pdf page 27
+pdfbox/cweb.pdf page 28
+pdfbox/cweb.pdf page 3
+pdfbox/cweb.pdf page 4
+pdfbox/cweb.pdf page 5
+pdfbox/cweb.pdf page 6
+pdfbox/cweb.pdf page 7
+pdfbox/cweb.pdf page 8
+pdfbox/cweb.pdf page 9
+pdfbox/eu-001.pdf page 1
+pdfbox/eu-001.pdf page 2
+pdfbox/eu-001.pdf page 3
+pdfbox/PDFBOX-3042-003177-p2.pdf page 1
+pdfbox/PDFBOX-3044-010197-p5-ligatures.pdf page 1
+pdfbox/PDFBOX-3062-002207-p1.pdf page 1
+pdfbox/PDFBOX-3110-poems-beads-cropbox.pdf page 1
+pdfbox/PDFBOX-3110-poems-beads-cropbox.pdf page 2
+pdfbox/PDFBOX-3110-poems-beads.pdf page 1
+pdfbox/PDFBOX-3110-poems-beads.pdf page 2
+pdfbox/PDFBOX-4417-001031.pdf page 1
+pdfbox/PDFBOX-4417-001031.pdf page 2
+pdfbox/PDFBOX-4417-001031.pdf page 3
+pdfbox/PDFBOX-4417-054080.pdf page 1
+pdfbox/PDFBOX-5762-722238.pdf page 2
+pdfbox/PDFBOX-5762-722238.pdf page 3
+pdfbox/PDFBOX-5762-722238.pdf page 4
+pdfbox/PDFBOX-5762-722238.pdf page 5
+pdfbox/PDFBOX-5762-722238.pdf page 6
+pdfbox/PDFBOX-5792-240045.pdf page 1
+pdfbox/PDFBOX-5792-240045.pdf page 2
+pdfbox/PDFBOX-5792-240045.pdf page 3
+pdfbox/PDFBOX-5792-240045.pdf page 4
+pdfbox/PDFBOX-5792-240045.pdf page 5
+pdfbox/PDFBOX-5792-240045.pdf page 6
+pdfbox/PDFBOX-5809-509329.pdf page 1
+pdfbox/PDFBOX-5809-509329.pdf page 2
+pdfbox/PDFBOX-5811-362972.pdf page 1
+pdfbox/PDFBOX-5811-362972.pdf page 2
+pdfbox/PDFBOX-5811-362972.pdf page 3
+pdfbox/PDFBOX-5811-362972.pdf page 4
+pdfbox/PDFBOX-5840-410609.pdf page 1
+pdfbox/PDFBOX-5840-410609.pdf page 2
+pdfbox/PDFBOX-5840-410609.pdf page 3
+pdfbox/PDFBOX-5840-410609.pdf page 4
+pdfbox/PDFBOX-5840-410609.pdf page 5
+pdfbox/PDFBox.GlobalResourceMergeTest.Doc01.decoded.pdf page 1
+pdfbox/PDFBox.GlobalResourceMergeTest.Doc01.pdf page 1
+pdfbox/PDFBox.GlobalResourceMergeTest.Doc02.decoded.pdf page 1
+pdfbox/PDFBox.GlobalResourceMergeTest.Doc02.pdf page 1
+pdfbox/unencrypted.pdf page 1

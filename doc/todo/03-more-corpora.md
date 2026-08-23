@@ -344,8 +344,21 @@ Applied here it splits, and the split is the useful half:
 
 ### 4. Two instruments the new populations make possible — one built, one not
 
+> **The heading's "one not" is spent, and the bullet below is about one corpus of the four.**
+> The six-hundred-and-ninety-second session put the oracle in front of all four and gated two of
+> them — `pdf20examples` and `pdfbox` — on the rule that a vote is evidence only where there is a
+> clause the references are both reading (ADR 0541, `doc/oracle-and-corpus.md` §2e).
+> `format-corpus` joins `pdf-differences` outside the vote, and for a different reason: every file
+> in its three pinned directories is deliberately damaged, and `CLAUDE.md` says the standard
+> "describes *valid* files and says nothing about the rest". Both exclusions are censused rather
+> than assumed. **What that round found is that "ranked" and "voted" are different things** — §§8,
+> 12, 13 and 14 below each say a population was put in front of the three references, and each
+> means the ink ranking, which reaches no verdict and holds no page by name.
+
 - ~~**The oracle over the new corpora.**~~ **Decided in the five-hundred-and-fifty-eighth and the
-  answer is no** (ADR 0393). This bullet said `pdf-differences` "exists *because* readers diverge
+  answer is no** — **for `pdf-differences`**, which is the corpus this bullet is about; the other
+  three were decided in the six-hundred-and-ninety-second (ADR 0541), two of them yes. This bullet
+  said `pdf-differences` "exists *because* readers diverge
   on its files, so it is the population where a reference comparison should be most informative",
   and asked for a decision about the verdict vocabulary before anybody ran it. **Both halves were
   wrong, and reading the corpus is what showed it.** Sixteen of its eighteen test cases quote a

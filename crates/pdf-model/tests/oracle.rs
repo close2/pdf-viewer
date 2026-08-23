@@ -2608,7 +2608,43 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// `issue7580.pdf` clears its bound by **0.0125 of a percentage point**, stated at the precision
 /// it was measured. Five of these pages sit within a point of a bound in one direction or the
 /// other, which is what a 200 × 50 line of text does to a metric that counts channels.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 8] = [
+///
+/// # Four more from a second corpus, and the cap-height constant predicted them
+///
+/// `pdfbox/PDFBOX-2984-rotations.pdf` pages 1 to 4 are the first pages this group has taken from
+/// outside the pdf.js corpus (ADR 0541). The document is six pages of one line of 50 pt
+/// `/Helvetica` with `/Encoding /WinAnsiEncoding`, nothing embedded and nothing else on the
+/// sheet, drawn at each of `/Rotate` 90, 180 and 270 once through a text matrix and once through
+/// a `cm` — so it is the sans case with the page reduced to it.
+///
+/// **The instrument is the table above's and the number it predicts arrived.** The capital `A` at
+/// 8× on page 1, `render_at` against `pdftoppm -cropbox -r 576` and `mutool draw -r 576`:
+///
+/// | | box | cap rows | ratio to the references' |
+/// |---|---|---|---|
+/// | ours | 359 × **358** | 358 | 358 / 379 = **0.9446** |
+/// | `poppler` | 353 × **379** | 379 | — |
+/// | `mupdf` | 353 × **379** | 379 | — |
+///
+/// 0.6875 / 0.729167 is **0.942857**, so the prediction is 357.3 rows and the measurement is 358
+/// — within 0.7 of a row, on a page nobody had rendered when the constant was derived. Ink at the
+/// page's own scale runs 8.2% under, which is `issue9243.pdf`'s pure case again and for the same
+/// reason: at 50 pt this page is nearly all capitals.
+///
+/// **And the advances are not what differs**, which is worth stating because the four pages'
+/// *centroid* moves 5.5 device pixels and reads like a shifted line. The ink's bounding box at
+/// the page's own scale is **420 × 86 at (100, 64)** in ours and **420 × 87 at (101, 63)** in
+/// `poppler` — the same width to the pixel over a 420-column line, so §9.2.4's widths agree and
+/// what moves the centroid is where the missing weight sits along the line rather than where the
+/// glyphs are.
+///
+/// **Only four of the six pages are here, and the other two are the bound rather than the face.**
+/// Pages 5 and 6 carry the same deficit — 1 150 087 and 1 128 745 against `poppler`'s 1 256 804
+/// and 1 234 906, the same 8.5% — and the gate calls them `agrees`, because their consensus pair
+/// happens to sit further apart and the bound derived from it is wider. That is trap 12 read from
+/// the other end, and it is the reason this group's membership is a measurement and never a
+/// verdict.
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
     "issue11403_reduced.pdf page 1",
@@ -2617,6 +2653,10 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 8] = [
     "issue6108.pdf page 1",
     "issue7580.pdf page 1",
     "issue9243.pdf page 1",
+    "pdfbox/PDFBOX-2984-rotations.pdf page 1",
+    "pdfbox/PDFBOX-2984-rotations.pdf page 2",
+    "pdfbox/PDFBOX-2984-rotations.pdf page 3",
+    "pdfbox/PDFBOX-2984-rotations.pdf page 4",
 ];
 
 /// Pages that are almost entirely glyph edges, where our *ink* matches the consensus.
@@ -2837,7 +2877,37 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 8] = [
 /// at most 1.64 of 5.00, worst tile at most 5.05 of 40.00 and structural similarity at worst
 /// 0.9906 of 0.9000. The heatmaps are hollow letters and nothing else. That is this group's
 /// signature in all three of its instruments at once.
-const CONTRADICTED_GLYPH_EDGES: [&str; 26] = [
+/// # A twenty-seventh, from `pdfbox`, and the ladder is the whole of the argument
+///
+/// `pdfbox/unencrypted.pdf page 2` (ADR 0541). Both its fonts are **embedded** — a subset
+/// `ArialMT` and a subset `CourierNewPS-ItalicMT`, both `Identity-H` — so the group next door's
+/// membership rule cannot reach it and nothing about a substituted face is in play. The two
+/// ladders answer it, in levels of 255 over the red channel (`-alpha off -channel R`, for the
+/// reason the instrument note above gives):
+///
+/// ```text
+///            1x       8x
+/// ours     6.0086   6.2690
+/// poppler  6.2305   6.2613
+/// mupdf    6.0988   6.2542
+/// ```
+///
+/// **At eight times the resolution the three agree to 0.015 of 255 and ours is inside their
+/// span**, 0.008 above `poppler` and 0.015 above `mupdf`; at the page's own scale we are 0.22
+/// under `poppler` and 0.09 under `mupdf`. That is this group's diagnosis stated in its own
+/// instrument: the marks are the right marks and what the gate is measuring is glyph coverage at
+/// the page's own scale. `ghostscript` is at **10.93** on the same page and draws the italic
+/// Courier visibly bolder, which is why it is not in the consensus and why the pair's own spread
+/// tightens the bound (trap 12).
+///
+/// **The page carries a second mechanism and it is named rather than folded in.** Its heatmap is
+/// hollow letters *and* one-pixel edges around the yellow table cells, which is
+/// `CONTRADICTED_ANTIALIASED_EDGES`' subject — empty since ADR 0476 made a rectangle's coverage
+/// the exact closed form. What is established here is the ladder above; that the rectangle edges
+/// contribute nothing further is not, and trap 9's *a page can carry two of the eight* is the
+/// reason to write that down instead of assuming it.
+const CONTRADICTED_GLYPH_EDGES: [&str; 27] = [
+    "pdfbox/unencrypted.pdf page 2",
     "bad-PageLabels.pdf page 1",
     "franz_2.pdf page 1",
     "issue8088.pdf page 1",
@@ -9328,6 +9398,58 @@ const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 16] = [
     "standard_fonts.pdf page 9",
 ];
 
+/// A markup annotation with an appearance stream, and three renderers answering three
+/// questions.
+///
+/// One page, and it is the first this file has taken from `doc/corpora/pdf20examples` —
+/// the PDF Association's own seven-file demonstration of ISO 32000-2, which the oracle
+/// reached for the first time in the six-hundred-and-ninety-second session (ADR 0541).
+///
+/// `pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf` is a blank sheet carrying one
+/// `/Highlight` annotation. It has an `/AP` whose `/N` draws
+/// `1.0 1.0 0.0 rg 100 200 300 36 re h f` — a yellow rectangle, no border — and a
+/// `/QuadPoints [100 200 400 200 400 236 100 236]`.
+/// **The file explains itself in its own comments**, which is why it is in this corpus — a
+/// `%` comment in the document rather than anything the standard says, so it is set here as
+/// what it is:
+///
+/// ```text
+/// % The QuadPoints array here conforms to 32000-2 and therefore acts strange
+/// % in readers that do not conform to the standard.
+/// % Use the XXAcroOrderQuadPoints array for QuadPoints if you want
+/// % implementation compatibility rather than specification conformance.
+/// ```
+///
+/// Ink at the page's own scale, in levels of 255: ours **0.820296**, `mupdf` **0.820296**,
+/// `hayro` **0.820296**, `poppler` 4.81698, `ghostscript` 0. Three renderings to four
+/// significant figures identical and two others nowhere near, so no two of the three voting
+/// references agree and the verdict is `ambiguous` — which is the instrument saying it has
+/// nothing to hold us to, and is exactly right here. What the page is worth is the reason
+/// each of the other two differs, because each has one and they are different clauses:
+///
+/// - **`poppler` draws a bow-tie.** It synthesises the mark from `/QuadPoints` instead of
+///   drawing the `/AP`, and reads the four vertices in Acrobat's historical order rather
+///   than Table 182's, which specifies "the quadrilateral's four vertices in
+///   counterclockwise order". The file ships the other order commented out under the name
+///   `XXAcroOrderQuadPoints` and says what it is for. Under the conforming order read as
+///   Acrobat's, the polygon crosses itself — which is the shape on the raster.
+/// - **`ghostscript` draws nothing, and is answering a different question.** The annotation
+///   states no `/F`, so Table 167's Print flag is clear, and `gs` renders for a printer.
+///   Trap 3.
+///
+/// **We are on the side §6.3.2.2 names**, and it is the sentence `CLAUDE.md` quotes as one of
+/// a rendering processor's three obligations:
+///
+/// > A PDF processor shall also render the appropriate appearance stream for all annotations
+/// > (12.5.5, "Appearance streams") which have appearance streams designated for this purpose
+/// > as indicated by the annotation flags (see 12.5.3, "Annotation flags"), unless otherwise
+/// > instructed.
+///
+/// That is a statement about the clause and not about the vote: agreeing with `mupdf` here is
+/// evidence our reading is right, and it would remain the reading if `mupdf` changed its mind.
+const AMBIGUOUS_HIGHLIGHT_APPEARANCE_STREAM: [&str; 1] =
+    ["pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf page 1"];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -9380,6 +9502,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_JPEG_COMPONENT_IDS)
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
+        .chain(&AMBIGUOUS_HIGHLIGHT_APPEARANCE_STREAM)
         .chain(&AMBIGUOUS_TRANSPARENCY_GROUP)
         .chain(&AMBIGUOUS_MASKED_BLUR)
         .chain(&AMBIGUOUS_SUBTRACTIVE_MASK_GROUP)
@@ -9721,16 +9844,48 @@ struct Work {
     path: PathBuf,
     /// One-based, as the specification and all three reference renderers number pages.
     page: u32,
+    /// Which population it came from, or `None` for the pdf.js corpus and the
+    /// specification PDFs — see [`Work::name`] for why those two carry no label.
+    corpus: Option<&'static Corpus>,
 }
 
 impl Work {
     /// How this page is named in the report and in the ratchet lists.
+    ///
+    /// A page out of a submodule corpus carries its corpus's label; a page out of the pdf.js
+    /// corpus or out of `doc/`'s specification PDFs carries none. That asymmetry is
+    /// deliberate and is the reason this gate could take a second population at all: every
+    /// `CONTRADICTED_*` and `AMBIGUOUS_*` list in this file names its pages by this string,
+    /// and prefixing the ones already there would have been a thousand-line rename with no
+    /// argument behind it.
+    ///
+    /// The label is not decoration either. Three of the 275 documents under `doc/corpora/`
+    /// share a *file name* with one of the 974 — `attachment.pdf`, `rotation.pdf` and
+    /// `IndexedCS_negative_and_high.pdf` — and only two of those three share their bytes.
+    /// `pdfbox`'s `attachment.pdf` is a different document from pdf.js's, so an unlabelled
+    /// name would have put two different pages in one ratchet entry.
     fn name(&self) -> String {
         let file = self.path.file_name().map_or_else(
             || self.path.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
-        format!("{file} page {}", self.page)
+        match self.corpus {
+            Some(corpus) => format!("{}/{file} page {}", corpus.label, self.page),
+            None => format!("{file} page {}", self.page),
+        }
+    }
+
+    /// The directory this page's artefacts are written under, relative to the work root.
+    ///
+    /// Carries the label for the same reason [`Work::name`] does: two documents of one name
+    /// from two corpora would otherwise overwrite each other's evidence, which is the failure
+    /// the per-page directory already exists to prevent one level down.
+    fn artefact_directory(&self) -> PathBuf {
+        let stem = self.path.file_stem().unwrap_or_default().to_string_lossy();
+        match self.corpus {
+            Some(corpus) => PathBuf::from(corpus.label).join(stem.as_ref()),
+            None => PathBuf::from(stem.as_ref()),
+        }
     }
 }
 
@@ -9803,6 +9958,143 @@ impl Selection {
     }
 }
 
+/// Which pages of a document a population offers this gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sheets {
+    /// Page one only.
+    First,
+    /// Every page.
+    All,
+}
+
+/// One of the corpora pinned as a submodule under `doc/corpora/`.
+///
+/// # Why these are a table rather than a fifth line in [`work_items`]
+///
+/// Because the interesting field is [`Corpus::voted`], and it is a *decision per population*
+/// rather than a property of the harness. `CLAUDE.md`'s two questions say the corpus and the
+/// oracle answer robustness — "what share of the files that actually exist render correctly"
+/// — and the oracle answers it by voting three independent implementations. That vote is
+/// evidence only where the references are being asked a question the standard answers. Two of
+/// these four populations are not such a question, for two different reasons, and ADR 0541
+/// has the argument; the field is where the argument reaches the code.
+#[derive(Debug)]
+struct Corpus {
+    /// The prefix its pages carry in the report and in the ratchet lists.
+    label: &'static str,
+    /// Its directory, relative to the repository root.
+    directory: &'static str,
+    /// Which pages of each document are compared.
+    sheets: Sheets,
+    /// Whether the references' vote is evidence about this population, and so whether the
+    /// gate holds its pages or only the census reads them.
+    voted: bool,
+}
+
+/// The four corpora `doc/corpora/` pins, and which of them the oracle votes on.
+///
+/// Each is a submodule — a pin rather than a copy, so nothing here is redistributed by this
+/// tree and no licence question arises from naming one (`doc/third-party-data.md`,
+/// ADR 0305). All four are optional: [`corpus_items`] yields nothing for one that is not
+/// checked out, and the gate says so rather than failing.
+const SUBMODULE_CORPORA: &[Corpus] = &[
+    // Seven files the PDF Association publishes to demonstrate ISO 32000-2 itself, written
+    // by the people who wrote the clauses. They are valid by construction and small, which
+    // is exactly the population a vote is evidence about: three independent readers of a
+    // clause agreeing on a file *built to exercise that clause* is the strongest form the
+    // triangulation rule takes anywhere in this tree.
+    Corpus {
+        label: "pdf20examples",
+        directory: "doc/corpora/pdf20examples",
+        sheets: Sheets::All,
+        voted: true,
+    },
+    // Apache PDFBox's own regression inputs. Every file is there because it broke a PDF
+    // library once, which is the same reason the 974 are there — and, like them, they are
+    // overwhelmingly *valid* documents that a reader got wrong rather than malformed ones
+    // the standard says nothing about. `text_extraction.rs` has read this corpus since ADR
+    // 0259 and no raster gate has ever held it.
+    Corpus {
+        label: "pdfbox",
+        directory: "doc/corpora/pdfbox/pdfbox/src/test/resources/input",
+        sheets: Sheets::All,
+        voted: true,
+    },
+    // Three directories of `openpreserve/format-corpus`, and every file in all three is
+    // *deliberately damaged*: 89 hand-built files carrying one structural defect apiece, 24
+    // archival horrors, 54 crawled `.gov` documents that broke somebody else's software.
+    //
+    // `CLAUDE.md` is explicit that "[t]he standard describes *valid* files and says nothing
+    // about the rest", and that is what disqualifies the vote here rather than any property
+    // of the references: on a file whose cross-reference table is wrong there is no clause
+    // for three programs to agree *about*, so their agreement is a fact about three recovery
+    // heuristics and nothing else. `doc/oracle-and-corpus.md` §2b has the instrument this
+    // population does have — every one of the 89 draws the same *Hello PDF-world!*, so the
+    // corpus states its own expected value and needs no reference at all.
+    Corpus {
+        label: "format-corpus",
+        directory: "doc/corpora/format-corpus",
+        sheets: Sheets::First,
+        voted: false,
+    },
+    // The PDF Association's `pdf-differences`, and ADR 0393 decided this one before this
+    // gate could reach it: the files exist *because* implementations split on them, so the
+    // references are the subject under test and a vote reads the answer off the very
+    // programs the corpus was assembled to catch out. On six of its eighteen cases at least
+    // one reference is wrong against the clause and on one of them two of the three are.
+    Corpus {
+        label: "pdf-differences",
+        directory: "doc/corpora/pdf-differences",
+        sheets: Sheets::All,
+        voted: false,
+    },
+];
+
+/// Every page one submodule corpus offers, or nothing when it is not checked out.
+///
+/// Walks subdirectories, which none of the other populations needs: `pdfbox`'s inputs are in
+/// four directories and `format-corpus`'s in four more, and a flat read would have taken 40
+/// of 64 and none of 167 while looking like it had taken them all.
+fn corpus_items(corpus: &'static Corpus) -> Vec<Work> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = Vec::new();
+    let mut directories = vec![root.join(corpus.directory)];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for path in entries.flatten().map(|entry| entry.path()) {
+            if path.is_dir() {
+                directories.push(path);
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+            {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    let mut items: Vec<Work> = files
+        .par_iter()
+        .flat_map(|path| {
+            let last = match corpus.sheets {
+                Sheets::First => 1,
+                Sheets::All => page_count(path),
+            };
+            (1..=last)
+                .map(|page| Work {
+                    path: path.clone(),
+                    page,
+                    corpus: Some(corpus),
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    items.sort_by(|a, b| a.path.cmp(&b.path).then(a.page.cmp(&b.page)));
+    items
+}
+
 /// Every page to compare.
 ///
 /// **All pages of every corpus document, and page one of the specification PDFs in
@@ -9815,6 +10107,11 @@ impl Selection {
 /// heaviest fonts and the largest page trees in the tree.
 ///
 /// That is 1775 pages against 988, and it costs about twice the wall clock.
+///
+/// **And every page of the [`SUBMODULE_CORPORA`] the references are evidence about**, which
+/// is a second population and a second denominator: the 974 are one project's bug reports
+/// over fifteen years, and a gate over one population cannot say whether what it measures is
+/// a property of this reader or of that project's taste in bugs. ADR 0541.
 ///
 /// A document whose page count cannot be established still yields page one, so that "we
 /// cannot open it" is reported by the gate rather than silently absent from it.
@@ -9849,16 +10146,20 @@ fn work_items() -> Option<Vec<Work>> {
                 .map(|page| Work {
                     path: path.clone(),
                     page,
+                    corpus: None,
                 })
                 .collect::<Vec<_>>()
         })
         .collect();
-    items.extend(
-        specifications
-            .into_iter()
-            .map(|path| Work { path, page: 1 }),
-    );
+    items.extend(specifications.into_iter().map(|path| Work {
+        path,
+        page: 1,
+        corpus: None,
+    }));
     items.sort_by(|a, b| a.path.cmp(&b.path).then(a.page.cmp(&b.page)));
+    for corpus in SUBMODULE_CORPORA.iter().filter(|corpus| corpus.voted) {
+        items.extend(corpus_items(corpus));
+    }
     Some(items)
 }
 
@@ -9929,7 +10230,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     // evidence — every renderer writes to a fixed file name inside it.
     let case = format!("{stem}-p{}", work.page);
     let work_dir = work_root
-        .join(stem.as_ref())
+        .join(work.artefact_directory())
         .join(format!("p{}", work.page));
     let mut spent = Spent::default();
 
@@ -10991,6 +11292,145 @@ const MEASURES: [Measure; 4] = [
         scale: 1.0,
     },
 ];
+
+/// The environment variable that asks for the census below. Same mechanism, and the same
+/// reason, as [`SPREAD_IS_ASKED_FOR`].
+const CENSUS_IS_ASKED_FOR: &str = "PDFVIEWER_ORACLE_CENSUS";
+
+/// What the references say about every corpus under `doc/corpora/`, gated and ungated alike.
+///
+/// # What this is for, and why it is not the gate
+///
+/// [`SUBMODULE_CORPORA`] carries a decision per population — whether the references' vote is
+/// evidence about it — and two of the four say no. A decision recorded only as a `false` is a
+/// decision nobody can check, so this prints what the vote *would* have said over all four,
+/// per corpus, and thereby makes the two exclusions readable rather than merely asserted.
+///
+/// It is also the answer to `CLAUDE.md`'s rule that a fact which can be counted is not
+/// written down: the numbers for the ungated populations live here, in a command, and not in
+/// `doc/oracle-and-corpus.md`.
+///
+/// It asserts only that it had a population to print, for the reason ADR 0393 gives about the
+/// verdict vocabulary and `CLAUDE.md` gives about malformed files: on these two populations a
+/// contradicted page is a question rather than a defect, and a ratchet over questions
+/// converts them into targets to move toward, which principle 5 forbids outright.
+///
+/// # Why `#[ignore]` is not enough
+///
+/// The same reason [`the_fixed_bounds_against_the_references_own_spread`] gives at length:
+/// `-- --ignored` is a switch on the binary rather than a filter, so the gate's own command
+/// would otherwise run this beside it and pay for 219 more pages on every round. The guard is
+/// in the test because an invocation can be copied without its guard and a test cannot be run
+/// without itself.
+#[test]
+#[ignore = "renders every submodule corpus page four times; run explicitly, in release"]
+fn what_the_references_say_about_every_submodule_corpus() {
+    if std::env::var_os(CENSUS_IS_ASKED_FOR).is_none() {
+        println!(
+            "skipped: this is a census rather than a gate — set {CENSUS_IS_ASKED_FOR}=1 to \
+             run it. See the doc comment for why `--ignored` alone does not ask for it."
+        );
+        return;
+    }
+    require_the_sandbox();
+
+    let available: Vec<Reference> = Reference::voting()
+        .into_iter()
+        .filter(|reference| reference.is_available())
+        .collect();
+    assert!(
+        available.len() >= 2,
+        "at least two reference renderers are needed to triangulate; found {}",
+        available.len()
+    );
+    for reference in &available {
+        println!(
+            "{}: {}",
+            reference.name(),
+            reference.version().unwrap_or_default()
+        );
+    }
+
+    let work_root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("oracle");
+    let cache = reference_cache();
+    let mut populations = 0usize;
+
+    for corpus in SUBMODULE_CORPORA {
+        let items = corpus_items(corpus);
+        if items.is_empty() {
+            println!(
+                "\n{}: not checked out at {} — nothing to census",
+                corpus.label, corpus.directory
+            );
+            continue;
+        }
+        populations = populations.saturating_add(1);
+        let documents = {
+            let mut paths: Vec<&Path> = items.iter().map(|work| work.path.as_path()).collect();
+            paths.dedup();
+            paths.len()
+        };
+        let started = Instant::now();
+        let mut results: Vec<Examined> = items
+            .par_iter()
+            .map(|work| examine(work, &work_root, &available, &cache))
+            .collect();
+        results.sort_by(|a, b| a.name.cmp(&b.name));
+        let elapsed = started.elapsed();
+
+        let count = |label: &str| {
+            results
+                .iter()
+                .filter(|e| e.verdict.label() == label)
+                .count()
+        };
+        println!(
+            "\n{}: {documents} documents, {} pages in {:.1}s — {} agrees, {} contradicted, \
+             {} ambiguous, {} not comparable, {} no render, {} geometry — {}",
+            corpus.label,
+            results.len(),
+            elapsed.as_secs_f64(),
+            count("agrees"),
+            count("CONTRADICTED"),
+            count("ambiguous"),
+            count("not comparable"),
+            count("no render"),
+            count("GEOMETRY") + count("reference geometry"),
+            if corpus.voted {
+                "voted, and gated"
+            } else {
+                "not voted — census only"
+            },
+        );
+        // Every page that is not an agreement, named. A census whose output is six numbers
+        // tells a later round that something is there and not which file it is, which is the
+        // half a round actually needs to take a defect off it.
+        for examined in results
+            .iter()
+            .filter(|e| !matches!(e.verdict, Verdict::Agrees))
+        {
+            println!(
+                "  {:<20} {}{}: {}",
+                examined.verdict.label(),
+                examined.name,
+                if examined.complete {
+                    ""
+                } else {
+                    " [we report this page]"
+                },
+                examined.verdict.detail(),
+            );
+        }
+    }
+
+    assert!(
+        populations > 0,
+        "no corpus under doc/corpora/ is checked out, so this census measured nothing. \
+         `git submodule update --init doc/corpora/…`, or see doc/oracle-and-corpus.md §2 for \
+         the sparse-checkout recipes the two partial ones need."
+    );
+    println!("\nartefacts under {}", work_root.display());
+}
 
 /// The environment variable that asks for the derivation below. See its doc comment for why
 /// an attribute could not carry this.

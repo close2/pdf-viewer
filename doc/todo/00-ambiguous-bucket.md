@@ -1,8 +1,14 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **0 names left**, from 754.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **The queue is not empty**;
+`tools/state.sh` counts it, and the paragraphs below say where it came from.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: 786 ambiguous pages (**754** on documents we call complete); **all 786 diagnosed, 0 held by
+Corpus: **two populations since the six-hundred-and-ninety-second session** — `doc/pdf.js`'s, whose
+share of `ambiguous_undiagnosed.txt` is nothing, and `doc/corpora/pdfbox`'s 143 pages, which the
+oracle judged for the first time and which are the whole of the queue (ADR 0541).
+
+The figures below are the pdf.js population's and were the whole of this item until that round: 786
+ambiguous pages (**754** on documents we call complete); **all 786 diagnosed, 0 held by
 name** — and the 72 this line used to say was `wc -l` of a file with a twelve-line header, corrected
 in the three-hundred-and-seventeenth session by counting what the gate counts. **This parenthesis
 said 750 for 140 commits and the gate prints 754**, read off it in the four-hundred-and-forty-fifth.
@@ -35,8 +41,27 @@ unwatched buckets until the five-hundred-and-seventy-ninth session: `no render` 
 ratcheted in the five-hundred-and-seventy-fifth (ADR 0410), and `not comparable` and
 `reference geometry` in the five-hundred-and-seventy-ninth (ADR 0414) — the reading of all fifteen
 pages is `doc/oracle-and-corpus.md` §3e and the groups are `oracle.rs`'s `NOT_COMPARABLE_*` and
-`REFERENCE_GEOMETRY_*`. So what is left of this item is the two standing halves above and nothing
-else: the equality ratchet, and step 7's ink sweep after a round that moves pixels.
+`REFERENCE_GEOMETRY_*`. ~~So what is left of this item is the two standing halves above and nothing
+else: the equality ratchet, and step 7's ink sweep after a round that moves pixels.~~
+
+**That last sentence was true of one population, and the six-hundred-and-ninety-second session gave
+the gate a second** (ADR 0541). `doc/corpora/pdfbox`'s 143 pages had never been through any raster
+gate, and 63 of them are `ambiguous` with no diagnosis, so **this item has a queue again** — the
+first since the three-hundred-and-seventy-ninth session and not one page of it a regression. The
+distinction the emptiness was hiding is worth keeping: an empty bucket was a fact about
+`doc/pdf.js`, never about this reader, and the pdf.js corpus's own share of the file is still
+nothing. `tools/state.sh` counts; the census in `doc/oracle-and-corpus.md` §2e prints the list with
+each page's metrics beside it.
+
+The shape of the answer is visible without opening one: **62 of the 63 fail the differing fraction
+and the structural similarity while sitting well inside the mean and the worst tile**, which is
+`AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`'s and `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE`'s signature. That is
+a hypothesis and those groups are measurements, which is exactly the gap this item's method closes;
+`cweb.pdf`'s eighteen pages and `PDFBOX-5792-240045.pdf`'s six are the two largest single documents
+in it, so one measurement is worth many names here.
+
+So what is left of this item is three things: the equality ratchet, step 7's ink sweep after a
+round that moves pixels, and the queue above.
 
 ## Why this is work rather than a caveat
 
