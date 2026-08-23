@@ -114,9 +114,24 @@ if [ -z "$last" ]; then
     exit 1
 fi
 session=$((last + 1))
+from=doc/history/
+
+# **A parallel round's branch outranks `doc/history/`, and that is not a preference.** A worktree is
+# branched before its neighbours have written their files, so `ls doc/history/` there is a count of
+# the rounds that finished *before this batch started* — which told the six-hundred-and-eighty-seventh
+# and the six-hundred-and-ninety-first that they were session 685, and told both they owed a fifth
+# round's obligations they did not owe. The branch name is the assignment itself and cannot go stale.
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+case "$branch" in
+    round-[0-9]*)
+        session=${branch#round-}
+        last=$((session - 1))
+        from="the branch name"
+        ;;
+esac
 
 heading "the round"
-printf '  session %s, after %s (doc/history/ is the only bookkeeping there is)\n' "$session" "$last"
+printf '  session %s, after %s (from %s)\n' "$session" "$last" "$from"
 if [ $((session % 5)) -eq 0 ]; then
     printf '  **a fifth round**: doc/todo/02 §2 runs whole, and §5 rebuilds and installs the binaries\n'
 else
