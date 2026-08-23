@@ -44,14 +44,22 @@ open_one() {
         [ -e "$p" ] || continue
         ln -sf "$p" "$wt/doc/$(basename "$p")"
     done
-    # The corpora are submodules. Link the *contents* and leave the gitlink alone: replacing the
-    # directory itself is what turned six gitlinks into blobs under `git add -A`.
+    # The corpora are submodules, and a fresh worktree gets them empty. Linking them to the main
+    # checkout costs nothing and saves 424 MB a round — but a symlink where git expects a gitlink is
+    # a loaded gun: `git add doc` rewrites mode 160000 to 120000 and the gitlink is gone, which has
+    # now happened twice here (once under `git add -A`, once under a plain `git add doc`).
+    #
+    # `--skip-worktree` disarms it. Git then never compares that path against the working tree, so
+    # `add` leaves the gitlink alone; measured both ways before this line was written. The rule the
+    # two incidents actually teach is the one worth keeping: **a hazard a document warns about is a
+    # hazard every future round has to remember, and this is what it costs to not need to.**
     for p in "$root"/doc/corpora/*/; do
         [ -d "$p" ] || continue
         local name; name=$(basename "$p")
         if [ -z "$(ls -A "$wt/doc/corpora/$name" 2>/dev/null)" ]; then
             rmdir "$wt/doc/corpora/$name" 2>/dev/null || true
             ln -sfn "${p%/}" "$wt/doc/corpora/$name"
+            git -C "$wt" update-index --skip-worktree "doc/corpora/$name"
         fi
     done
 
