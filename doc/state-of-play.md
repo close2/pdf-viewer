@@ -48,7 +48,11 @@ what came back, which is the first thing in this tree that clicks, and it found 
 no selection anchor at all (ADR 0421). A
 locked document asks for its password (§7.6.4.1); the page zooms and scrolls; the cursor knows
 what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`; a drag **selects
-text**, whose shapes cross to the host as geometry so that it draws them in its own colour; `/`
+text**, whose shapes cross to the host as geometry so that it draws them in its own colour, **and
+that text can leave the program** — every one of the four consumers puts it on the platform's own
+clipboard, in §14.8.2.5's logical content order where the document's structure tree reaches every
+byte of the selection and in page content order otherwise, said out loud either way (ADR 0519);
+`/`
 **searches the whole document**, one page read per turn of the host's event loop because a
 thousand pages of interpretation is not something the launch path may block for, with the readback
 kept under a per-document bound so that searching the same document twice does not cost twice
@@ -151,10 +155,13 @@ pass.
   clauses 8 and 9 in a data structure and a frame comes back by copy into the caller's own buffer;
   and **a variant added later is named, described and counted** — `pdfv_abi_check` turns "fails to
   compile in every consumer" into "fails to start, once, naming the number that moved", which is
-  weaker and is the strongest thing C admits. **Its entry points are the whole vocabulary since ADR
-  0346**, and how that landed is the shape's own evidence: two thirds of the ABI arrived in one
-  round and `PDFV_EVENT_KIND_COUNT` did not move, because a `Command` is a symbol and only an
-  `Event` is a number. ADR 0247.
+  weaker and is the strongest thing C admits. **How ADR 0346 landed is the shape's own evidence**:
+  two thirds of the ABI arrived in one round and `PDFV_EVENT_KIND_COUNT` did not move, because a
+  `Command` is a symbol and only an `Event` is a number. **What that round could then claim — that
+  the entry points *are* the whole vocabulary — has decayed and is counted rather than repeated**:
+  `tools/state.sh hosts` says how much of `Command` and `Query` a C caller reaches and names what
+  it does not, which is the instrument ADR 0509 added when the claim was found stale. ADRs 0247,
+  0509.
 
 **The freeze's three amendments came first and one of them was a bug.** `Answer::Field`'s password
 value was supposed to be a sentence in a doc comment; reading Table 231 bit 14 for it found a

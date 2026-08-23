@@ -40,6 +40,12 @@
 //!   the three event loops that could supply one — `glib::timeout_add_local`, `QTimer`, winit's
 //!   `ControlFlow::WaitUntil` — agree about every question the clause asks and differ in every
 //!   letter of how it is asked.
+//! - [`copying`] — §14.8.2.5's two content orders, and which of them the text a person copies out
+//!   of the program is in. The *clipboard* is a platform surface and there are four of them here;
+//!   which order to hand it, and what to say about the one it did not get, is one decision.
+//! - [`fit`] — the magnification at which every §12.7 control fits the `/Rect` its document states
+//!   for it, from the rectangles `Query::Fields` answers with and the minimum sizes a toolkit
+//!   measures. ADR 0245's scale question, answered with the messages that already existed.
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
@@ -64,6 +70,7 @@
 
 pub mod arrangement;
 pub mod clock;
+pub mod copying;
 pub mod fit;
 pub mod form;
 pub mod panel;
@@ -74,6 +81,7 @@ pub mod trace;
 
 pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
+pub use copying::{ContentOrder, Copied, copied};
 pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};

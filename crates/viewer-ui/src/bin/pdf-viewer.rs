@@ -299,6 +299,9 @@ fn main() {
         collection: None,
         typing: None,
         clipboard: String::new(),
+        // Connects to nothing here, which is `CLAUDE.md`'s second principle: a clipboard is not
+        // needed to show page one, so the session is not asked for one until somebody copies.
+        platform_clipboard: viewer_ui::clipboard::Clipboard::new(),
         drawing: None,
         pages: Vec::new(),
         information: pdf_model::metadata::Information::default(),

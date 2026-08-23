@@ -58,9 +58,9 @@ use viewer_core::RenderRequest;
 use crate::events::Events;
 use crate::form::Form;
 use crate::kinds::{
-    ControlKind, DelegateKind, EventKind, FocusKind, LayoutKind, MarkupKind, PageTargetKind,
-    PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind,
-    TextKind, ZoomKind,
+    ControlKind, DelegateKind, EventKind, FocusKind, LayoutKind, MarkupKind, OrderKind,
+    PageTargetKind, PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind,
+    SelectKind, TextKind, ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -1267,6 +1267,53 @@ pub unsafe extern "C" fn pdfv_selection_text(
     };
     match viewer.selection_text() {
         Ok(text) => copy_out(&text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// The text a copy should carry, in the two-call idiom, with the order it came back in.
+///
+/// **What a caller needs in order to put a selection on its own clipboard** (ADR 0519). The three
+/// windowed hosts in this tree call `gdk::Clipboard`, `QClipboard` and `arboard`; a C caller's
+/// platform is its own business and this ABI has no business guessing it — so what crosses is the
+/// characters and the one thing a caller cannot work out for itself, which of ISO 32000-2
+/// §14.8.2.5's two content orders they are in.
+///
+/// `order` receives `PDFV_ORDER_LOGICAL` or `PDFV_ORDER_PAGE_CONTENT`, and may be null for a
+/// caller that does not care. It is written only on `PDFV_OK`.
+///
+/// [`pdfv_selection_text`] is still there and still answers in page content order: that is the
+/// order the quadrilaterals are in, so it is the right answer for anything being *drawn*.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null; `order` is writable
+/// for one `uint32_t`, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_selection_copy_text(
+    viewer: *const Session,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+    order: *mut u32,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.copy_text() {
+        Ok((text, content_order)) => {
+            let status = copy_out(&text, out, cap, needed);
+            // Written only where the text actually arrived: `copy_out` answers
+            // `PDFV_BUFFER_TOO_SMALL` on the sizing call of the two-call idiom, and a caller that
+            // read the order out of that call would be reading a value for a string it does not
+            // have yet.
+            if status == Status::Ok.code()
+                && let Some(order) = order.as_mut()
+            {
+                *order = OrderKind::of(content_order).code();
+            }
+            status
+        }
         Err(status) => status.code(),
     }
 }

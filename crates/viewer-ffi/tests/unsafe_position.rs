@@ -139,9 +139,13 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // named no page would be attributing one page's refusals to whichever page a reader is
     // looking at. Both existing report entry points also gained the entry index, so a caller
     // written against the old shape fails to compile rather than reading page one's sentences
-    // for four pages.
-    assert_eq!(no_mangle, 116, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 108, "106 `unsafe` entry points and two helpers");
+    // for four pages. **And one in the six-hundred-and-eighty-third**, which is the first
+    // `Query` a C caller could not reach at all rather than a shape that moved:
+    // `pdfv_selection_copy_text` answers with §14.8.2.5's logical content order where the
+    // document's structure tree gives one, which is what a caller needs in order to put a
+    // selection on a clipboard this ABI knows nothing about (ADR 0519).
+    assert_eq!(no_mangle, 117, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 109, "107 `unsafe` entry points and two helpers");
 }
 
 #[test]

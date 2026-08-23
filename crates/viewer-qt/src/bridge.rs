@@ -221,6 +221,15 @@ pub mod ffi {
         /// every other answer in this bridge already has: what changed is cheap to say on every
         /// keystroke and what it changed *to* is asked for only when it did (ADR 0470).
         window: bool,
+        /// §14.8.2.5's text is waiting to be put on the session's clipboard.
+        ///
+        /// **The clipboard is Qt's and this bridge does not reverse** (ADR 0519). Everything a
+        /// person does arrives as a call on `Host` and Rust never calls a Qt object, which is the
+        /// property this module's own documentation states and the reason it needs one
+        /// hand-written `unsafe` token rather than a table of them. So a copy is not Rust reaching
+        /// for `QClipboard`: it is this flag, and `take_clipboard` beside it, which is exactly the
+        /// shape `window` above has and for the same reason.
+        clipboard: bool,
     }
 
     /// Which pieces of this window's chrome may be shown — `viewer_host::Chrome`, and the window
@@ -293,6 +302,12 @@ pub mod ffi {
         fn take_update(self: &mut Host) -> QtUpdate;
         /// Which pieces of chrome this window may show, and whether it is full screen.
         fn chrome(self: &Host) -> QtChrome;
+        /// The text a copy is putting on the clipboard, which this also clears.
+        ///
+        /// Asked only where `QtUpdate::clipboard` said so, and in §14.8.2.5's logical content
+        /// order where the document's structure tree could give one — which is
+        /// `viewer_host::copied`'s decision and the same one the other two hosts take.
+        fn take_clipboard(self: &mut Host) -> String;
         /// Which of Table 29's six panels the document asks to be showing, as a tab index.
         ///
         /// `-1` for a page mode this host has no panel for — `UseNone`, `FullScreen`, and

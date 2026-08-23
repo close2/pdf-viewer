@@ -127,6 +127,34 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
     "wayland-dlopen",
 ] }
 
+# The platform's clipboard, for the one host that has no toolkit to ask (ADR 0519). `winit`
+# offers none deliberately — a clipboard is a *selection owner* that has to answer requests for
+# as long as the program lives, which is a service rather than a window property — so the tier-2
+# host is the only consumer in this tree that cannot reach the platform through something it
+# already links. `viewer-gtk` asks `gdk::Clipboard` and `viewer-qt` asks `QClipboard`; neither
+# names this crate, and `viewer-core` must never see it.
+#
+# **What it costs on this platform is one compiled package**, measured rather than assumed:
+# `cargo add` locks four (`arboard`, `clipboard-win`, `error-code`, `objc2-app-kit`) and three of
+# them are `cfg`-gated to Windows and macOS, while its Linux dependencies — `x11rb`,
+# `parking_lot`, `percent-encoding` and `log` — were already in this lockfile through `winit` and
+# `softbuffer`. `MIT OR Apache-2.0`, and `cargo deny` is what checks that rather than this line.
+#
+# **`image-data` is off**, which is the default feature and would bring the whole `image` crate to
+# put a raster on the clipboard: what leaves this program is §14.8.2.5's *text*, and a page copied
+# as a picture is a feature nobody asked for.
+#
+# **`wayland-data-control` is off, and that is a decision with a cost.** The feature adds six more
+# packages — `wl-clipboard-rs`, `tree_magic_mini`, `nom`, `petgraph`, `fixedbitset`, `os_pipe`, a
+# MIME sniffer and a graph library for the business of handing over a string — and it speaks
+# `zwlr_data_control`, which is a wlroots protocol rather than a Wayland one. Without it `arboard`
+# uses its X11 backend, which reaches a Wayland session through XWayland; where there is no
+# XWayland the copy is **refused out loud** rather than silently dropped (trap 5), which is what
+# `viewer_ui::clipboard` reports. Six packages for the compositors that offer the protocol is the
+# wrong price, and the entry is worth revisiting if this program is ever asked to run without
+# XWayland.
+arboard = { version = "3.6.1", default-features = false }
+
 # The first native host's toolkit (ADR 0244, `doc/todo/30`). `gtk4-rs` is the GNOME
 # project's own binding: safe Rust over the C library, generated from GIR, with no C++
 # bridge — which is why `doc/todo/30`'s order puts GTK4 first and Qt second.

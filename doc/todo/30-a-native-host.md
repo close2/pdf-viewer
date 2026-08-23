@@ -347,11 +347,31 @@ place somebody else's widgets, and `viewer-ffi` draws nothing and hands a caller
 the caret, the markup keys, a copy key) and behind on everything that changes one (no undo binding,
 no native controls, and a password prompt that reads `stdin` and exits when there is no terminal).
 
-1. **A selection that can leave the program.** All three windowed hosts draw a selection; none can
-   give it to another application. `viewer-ui` keeps an in-process `String` and its own comment says
-   the platform's clipboard "belongs to the platform" and that a native host "owns that end by
-   construction" — and neither native host took it. No message needed: `Query::Selection` has the
-   text and `Query::LogicalSelection` has §14.8.2.5's order.
+1. ~~**A selection that can leave the program.**~~ **Taken in the six-hundred-and-eighty-third**
+   (ADR 0519), and the claim it was ranked on held: **no new message**, checked rather than assumed.
+   `viewer_host::copying` is the §14.8.2.5 choice all four consumers now make once —
+   `Query::Selection`'s page content order, or `Query::LogicalSelection`'s where the structure tree
+   reaches every byte of the selection — and each host supplies only its platform:
+   `gdk::Clipboard`, `QClipboard`, `arboard` for the tier-2 host, and `pdfv_selection_copy_text`
+   for a C caller. Driven under `Xvfb` and read back with `xclip`: all four put **byte-identical**
+   text on the X11 `CLIPBOARD` selection for `PDF20_AN001-BPC.pdf`, in logical content order, and
+   the C caller reports `PDFV_ORDER_LOGICAL` for it.
+
+   **Two things this entry was wrong about, and one shape worth keeping.** *"The C ABI has
+   `pdfv_selection_text` already"* (ADR 0509 §3) was true and not sufficient: that entry point
+   answers in page content order and `Query::LogicalSelection` reached no symbol at all, so the
+   fourth consumer could copy and could not copy *right* — a fifth of item 5 came with item 1
+   because item 1 is not finished without it. And `viewer-qt` could not call `QClipboard` from Rust,
+   which is this tree's own shape rather than Qt's: `crate::bridge` states that C++ owns the `Host`
+   for the life of `QApplication::exec` and Rust never calls a Qt object, so the copy goes out as a
+   `QtUpdate` flag with a getter beside it — the same shape `window` has since ADR 0470, and chosen
+   over adding a second declaration to the one hand-written `unsafe extern "C++"` block.
+
+   **The remaining asymmetry is a platform's and is named here rather than left silent**: Ctrl + C
+   inside a §12.7 *field* is the toolkit's own binding in the two native hosts, because they place a
+   real `GtkEntry` and a real `QLineEdit`; `viewer-ui` draws its own field and now makes the same
+   call the page's copy makes. The C ABI has no field-level copy and needs none — a caller that
+   placed its own controls owns their keyboard, and `pdfv_field_text` answers with the value.
 2. **A statement of what a key means, in `viewer-host`.** Four key tables that already disagree —
    `f` is the find bar in GTK and a free-text drag in `viewer-ui`, the arrow keys scroll in one host
    and turn the page in two, Escape clears the selection in the native hosts and *quits*

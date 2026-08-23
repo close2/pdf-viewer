@@ -86,6 +86,21 @@ can and cannot open a window on, and where the build lands.
   six-hundred-and-fourteenth session is the round it caught. **Name the paths you mean**, or run
   the gate before believing a commit.
 
+  **`git add -u` springs it exactly as `-A` does, and this paragraph named only `-A` for
+  sixty-nine rounds.** The six-hundred-and-eighty-third session read the rule, added its *new*
+  files by name as it says to, and staged the rest with `-u` — a different flag with the same
+  consequence, because a gitlink whose working-tree entry is a symlink is a **modification to a
+  tracked path** and `-u` is precisely "stage every modification to a tracked path". `git commit`'s
+  own summary is where it shows: `mode change 160000 => 120000`. The repair is the loop above and
+  costs one `--amend`, but **do not run that recipe's `rm -f "$p"` in a parallel worktree** — those
+  symlinks are how the worktree reaches the submodules at all, and deleting them takes
+  `doc/pdf.js` away from every gate that walks it. `git rm --cached` followed by
+  `git update-index --add --cacheinfo 160000,<sha>,<path>` fixes the index and leaves the working
+  tree alone.
+
+  So the rule is about **any** blanket stage rather than about one flag: `git add <path> …`, and
+  read `git commit`'s own file list rather than trusting the command that produced it.
+
   So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
   `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
   *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped

@@ -961,6 +961,40 @@ impl Host {
         self.ui.status.set_text(what);
     }
 
+    /// Puts what is selected on the page onto the session's clipboard.
+    ///
+    /// **The platform end of `doc/todo/30`'s first item, and it is one call** (ADR 0519). This
+    /// host draws a selection in the platform's own colour and could not give it to another
+    /// application; `gdk::Clipboard` is what a GTK program has for that, reached from any widget
+    /// through the display it is on, so there is nothing to keep and nothing to bring up — which
+    /// is also why `CLAUDE.md`'s second principle's launch path is untouched by this.
+    ///
+    /// Which of §14.8.2.5's two orders the text is in is *not* this host's decision and is
+    /// [`viewer_host::copied`]: the same question in all three windowed hosts, and the third copy
+    /// of it is where two of them would stop agreeing. What is this host's is the two questions
+    /// and the toolkit.
+    fn copy_selection(&mut self) {
+        // Owned before the second question, because both answers borrow the viewer.
+        let page_order = match self.viewer.query(Query::Selection) {
+            Answer::Selected(selected) => selected.text.into_owned(),
+            _ => String::new(),
+        };
+        let logical = match self.viewer.query(Query::LogicalSelection) {
+            Answer::LogicalSelection(text) => Some(text),
+            _ => None,
+        };
+        let Some(copied) = viewer_host::copied(logical, &page_order) else {
+            self.say("nothing on the page is selected to copy");
+            return;
+        };
+        self.ui.chrome.clipboard().set_text(&copied.text);
+        self.say(&format!(
+            "copied {} characters in {}",
+            copied.text.chars().count(),
+            copied.order
+        ));
+    }
+
     /// A page turn: the title bar, and what the pages now on the screen could not draw.
     ///
     /// §12.4.2: "[p]age labels and page indices need not coincide". Both are shown, because a
@@ -1441,6 +1475,13 @@ impl Host {
                     self.dispatch(Command::Select(Selection::None));
                 }
             }
+            // §14.8.2.5 leaving the program, which needed no message at all (ADR 0519): the two
+            // questions that answer with the text have existed since the three-hundred-and-
+            // eighty-eighth session and this host asked neither. `viewer-ui` binds the same
+            // letter with and without Control, and so does this one — a `c` reaching here has
+            // already passed the find bar, and a `c` typed into a §12.7 control never reaches a
+            // window-level controller because the widget has the focus.
+            gtk4::gdk::Key::c => self.copy_selection(),
             gtk4::gdk::Key::s => self.dispatch(Command::Save),
             gtk4::gdk::Key::z => self.dispatch(Command::Undo),
             gtk4::gdk::Key::y => self.dispatch(Command::Redo),

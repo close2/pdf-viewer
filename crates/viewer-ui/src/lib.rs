@@ -17,4 +17,5 @@
 
 #![forbid(unsafe_code)]
 pub mod chrome;
+pub mod clipboard;
 pub mod software;

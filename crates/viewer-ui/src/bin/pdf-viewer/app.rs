@@ -265,14 +265,25 @@ pub(crate) struct App {
     /// What Ctrl + C and Ctrl + X took out of a field — or `c` took off the page — for Ctrl + V
     /// to put back.
     ///
-    /// **This program's own clipboard and not the system's.** Reaching the platform's is a
-    /// platform's business — X11's `CLIPBOARD` selection, Wayland's data device, `NSPasteboard`,
-    /// `OpenClipboard` — and a native host embedding `viewer-core` owns that end by construction,
-    /// exactly as it owns the colour a selection is drawn in. What this host demonstrates is the
-    /// part that is the *viewer's*: which characters those three keys mean, which is the range
-    /// `Query::FieldSelection` draws and `Edit::SetField` replaces. Nothing about it crosses the
-    /// boundary, and that is ADR 0225's finding rather than a shortcut.
+    /// **The program's own, beside the platform's rather than instead of it** (ADR 0519). What a
+    /// field's three keys mean is the *viewer's* question — which characters, which is the range
+    /// `Query::FieldSelection` draws and `Edit::SetField` replaces, and nothing about it crosses
+    /// the boundary, which is ADR 0225's finding. Where those characters *go* is the platform's,
+    /// and [`App::platform_clipboard`] is now that end: this string is what Ctrl + V pastes back,
+    /// and every copy that fills it also offers it to the session.
+    ///
+    /// Kept rather than read back from the platform, and deliberately: `arboard`'s X11 backend
+    /// reads a clipboard by asking whoever owns the selection and waiting for them, so a paste
+    /// that went to the platform would put another program's response time inside a keystroke.
     pub(crate) clipboard: String,
+    /// The session's clipboard, connected the first time somebody copies and never at startup.
+    ///
+    /// **Not a `String` and not this host's**: X11's `CLIPBOARD` selection, Wayland's data device,
+    /// `NSPasteboard` and `OpenClipboard` are four platforms' answers to one question, and
+    /// `viewer_ui::clipboard` is where the one this program builds against is named. `viewer-core`
+    /// has no command for it and needs none — `Query::Selection` and `Query::LogicalSelection`
+    /// already answer with the text, which is `doc/todo/30`'s claim tested for the seventh time.
+    pub(crate) platform_clipboard: viewer_ui::clipboard::Clipboard,
     /// §12.5.6.6's rectangle while a person is drawing one, in the page viewport's pixels.
     ///
     /// **`Some` only between `f` and the release that ends the drag**, which is a mode a highlight

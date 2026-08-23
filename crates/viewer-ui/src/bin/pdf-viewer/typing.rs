@@ -75,29 +75,6 @@ fn spliced(value: &str, from: usize, to: usize, insert: &str) -> String {
     out
 }
 
-/// Which of §14.8.2.5's two orders a copy takes, and the name to say it under.
-///
-/// `logical` is [`Query::LogicalSelection`]'s answer and `page_order` is [`Query::Selection`]'s
-/// text. Three cases and each is a decision rather than a fallback:
-///
-/// - **Nothing selected is nothing copied**, and the clipboard is left holding whatever a field
-///   put there. A copy that quietly emptied it would lose a person's paste.
-/// - **A logical order, where the core could give one**, which is the point of the query: the
-///   clause makes the two orders differ on 5 of the corpus's 77 tagged first pages.
-/// - **Page content order otherwise**, said out loud. The core answers nothing for a document
-///   with no structure tree *and* for a tree that does not reach every byte of the selection,
-///   and this host cannot tell those apart — what it can do is not claim the order it did not
-///   get.
-fn copied(logical: Option<String>, page_order: &str) -> Option<(String, &'static str)> {
-    if page_order.is_empty() {
-        return None;
-    }
-    Some(match logical {
-        Some(logical) => (logical, "§14.8.2.5's logical content order"),
-        None => (page_order.to_owned(), "page content order"),
-    })
-}
-
 /// Where the two ends of a selection go when an arrow key moves the caret.
 ///
 /// Three cases, and only the first is anybody's convention but this host's: **shift** holds the
@@ -241,8 +218,21 @@ impl App {
     /// A selection is taken in page content order, because that is the order the shapes are in;
     /// a *copy* off a page whose producer wrote its columns out of order wants the other one.
     /// The core answers [`Answer::None`] where the document states no structure tree or where
-    /// the tree does not reach every byte of the selection, and [`copied`] is what that means
-    /// here: the order it could give, named out loud, rather than a silent rearrangement.
+    /// the tree does not reach every byte of the selection, and [`viewer_host::copied`] is what
+    /// that means here: the order it could give, named out loud, rather than a silent
+    /// rearrangement.
+    ///
+    /// **The choice between the two orders left this file in the six-hundred-and-eighty-third
+    /// session** (ADR 0519). It is the same decision in all three windowed hosts and the third
+    /// copy is where two of them stop agreeing, so it is `viewer_host::copying` now — and what
+    /// stays here is the two questions and the platform, which is what a host actually owns.
+    ///
+    /// **And the text now leaves the program.** `viewer_ui::clipboard` is this host's end of the
+    /// session's clipboard, connected on this line and no earlier; the in-process string is kept
+    /// beside it because it is what Ctrl + V pastes into a field, and a paste that asked the
+    /// platform would put another program's response time inside a keystroke. A platform that
+    /// refuses is reported rather than swallowed, and the copy still happened *inside* the
+    /// program, which is the honest thing to say about it.
     pub(crate) fn copy_selection(&mut self) {
         // Owned before the second question, because both answers borrow the viewer.
         let page_order = match self.viewer.query(Query::Selection) {
@@ -253,16 +243,19 @@ impl App {
             Answer::LogicalSelection(text) => Some(text),
             _ => None,
         };
-        match copied(logical, &page_order) {
-            Some((text, order)) => {
-                println!(
-                    "note: copied {} characters in {order}",
-                    text.chars().count()
-                );
-                self.clipboard = text;
-            }
-            None => println!("note: nothing on the page is selected to copy"),
+        let Some(copied) = viewer_host::copied(logical, &page_order) else {
+            println!("note: nothing on the page is selected to copy");
+            return;
+        };
+        println!(
+            "note: copied {} characters in {}",
+            copied.text.chars().count(),
+            copied.order
+        );
+        if let Err(error) = self.platform_clipboard.put(&copied.text) {
+            println!("note: {error}, so the copy stayed inside this program");
         }
+        self.clipboard = copied.text;
     }
 
     /// Starts or stops typing, at a point of the page's own viewport.
@@ -564,6 +557,15 @@ impl App {
                     if text == "c" { "copied" } else { "cut" },
                     self.clipboard.len()
                 );
+                // **The same platform end a copy off the page takes** (ADR 0519): text a person
+                // took out of §12.7.4.3's value is text they meant to paste somewhere, and a
+                // viewer whose form fields copy only into themselves is the half-feature this
+                // round exists to close. Table 231 bit 14's password field never reaches here —
+                // `aim_at_field` refuses the keyboard to one — so nothing this puts on the
+                // session's clipboard is a value the document said to obscure.
+                if let Err(error) = self.platform_clipboard.put(&self.clipboard) {
+                    println!("note: {error}, so the copy stayed inside this program");
+                }
                 if text == "c" {
                     self.redraw();
                     return Some((None, low, high));
@@ -757,38 +759,7 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{after, before, caret_boundary, copied, spliced};
-
-    /// §14.8.2.5's two orders, and which one a copy takes.
-    ///
-    /// The clause gives a page a page content order and a logical content order and says they
-    /// "should" agree; `viewer_core::Query::LogicalSelection` answers with the second where the
-    /// structure tree reaches every byte of the selection and with nothing otherwise. What this
-    /// host owns is the choice between them and the sentence it prints, because a person who
-    /// copied a two-column page and got the columns interleaved has been told nothing at all.
-    #[test]
-    fn a_copy_takes_the_logical_order_where_the_core_could_give_one() {
-        assert_eq!(
-            copied(None, ""),
-            None,
-            "nothing selected leaves the clipboard alone"
-        );
-        assert_eq!(
-            copied(Some("a tree that reaches it".to_owned()), ""),
-            None,
-            "and does so even if the tree would have answered"
-        );
-        assert_eq!(
-            copied(Some("logical".to_owned()), "page"),
-            Some(("logical".to_owned(), "§14.8.2.5's logical content order")),
-            "a rearrangement the core could make is the one a copy wants"
-        );
-        assert_eq!(
-            copied(None, "page"),
-            Some(("page".to_owned(), "page content order")),
-            "and the order it did not get is not claimed"
-        );
-    }
+    use super::{after, before, caret_boundary, spliced};
 
     /// What a keystroke does to a value, on the one input that breaks a naive index.
     ///

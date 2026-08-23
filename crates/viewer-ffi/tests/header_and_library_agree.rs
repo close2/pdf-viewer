@@ -25,8 +25,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, PageTargetKind, PixelFormat,
-    PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, Status, TextKind,
+    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, OrderKind, PageTargetKind,
+    PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, Status,
+    TextKind,
 };
 
 /// The header, with every comment removed.
@@ -128,7 +129,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        116,
+        117,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -370,6 +371,15 @@ fn the_answered_enumerations(expected: &mut BTreeMap<String, i64>) {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
     expected.insert("PDFV_ROW_KIND_COUNT".to_owned(), i64::from(RowKind::COUNT));
+    // §14.8.2.5's two content orders, and there is deliberately no `_COUNT` beside them: the
+    // clause defines exactly two, so the guard the other answered enumerations carry against
+    // growing under a compiled caller has nothing here to guard (ADR 0519).
+    for (name, kind) in [
+        ("PDFV_ORDER_LOGICAL", OrderKind::Logical),
+        ("PDFV_ORDER_PAGE_CONTENT", OrderKind::PageContent),
+    ] {
+        expected.insert(name.to_owned(), i64::from(kind.code()));
+    }
     for (name, kind) in [
         ("PDFV_TEXT_QUALIFIED", TextKind::Qualified),
         ("PDFV_TEXT_SHOWN", TextKind::Shown),

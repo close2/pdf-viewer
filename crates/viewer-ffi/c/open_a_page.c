@@ -666,6 +666,26 @@ int main(int argc, char **argv)
         pdfv_quads_free(quads);
     }
 
+    /* And what a caller would actually put on its own clipboard, which is a different string from
+     * the one above whenever the document's structure tree can reorder it — §14.8.2.5 gives a page
+     * two content orders and only recommends that they coincide. The two-call idiom, then the
+     * order it came back in, which is the part a caller cannot work out for itself. */
+    size_t copy_needed = 0;
+    uint32_t order = 0;
+    int32_t sized = pdfv_selection_copy_text(viewer, NULL, 0, &copy_needed, &order);
+    if (sized == PDFV_BUFFER_TOO_SMALL && copy_needed > 0) {
+        char *copy = malloc(copy_needed);
+        if (copy != NULL
+            && pdfv_selection_copy_text(viewer, copy, copy_needed, &copy_needed, &order)
+                   == PDFV_OK) {
+            printf("copy: %zu byte(s) in %s content order\n", copy_needed - 1,
+                   order == PDFV_ORDER_LOGICAL ? "logical" : "page");
+        }
+        free(copy);
+    } else {
+        printf("copy: %s\n", pdfv_status_message(sized));
+    }
+
     /* The other two panels. A document stating neither answers an empty list rather than
      * PDFV_NO_ANSWER — the question was answered — and PDFV_NO_ANSWER is what comes back when no
      * document is focused at all. Both paths are printed, because a caller has to tell them
