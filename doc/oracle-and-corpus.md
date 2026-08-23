@@ -366,6 +366,57 @@ Three consequences, and the first is the one that binds this file:
   `Inline-Image-Abbreviations`' "the same image in all eight locations" and §8.4.3.5's
   `w/(2·sin(φ/2))` are three that are ready to be written.
 
+**And since the six-hundred-and-ninety-second session the decision is *checkable* rather than
+merely recorded** (ADR 0541). §2e's census renders this corpus too and prints what the vote would
+have said; on the run that built it, the pages it called contradicted were exactly the §9.5 NOTE 5
+substitutions ADR 0393 had already named. An exclusion that nothing can print is an exclusion
+nobody can audit, and that is the only form of confirmation this one can have.
+
+### 2e. The oracle over the submodule corpora, and which two of the four it votes on
+
+**Taken in the six-hundred-and-ninety-second session** (ADR 0541), and it is the answer to a
+question `doc/todo/03` had recorded as *ranked* four separate times. All four of these corpora had
+been put in front of `pdftoppm`, `mutool` and `gs` — by a per-round script that sorts page one by
+our ink minus the lightest live reference's. **A ranking finds the head of a distribution; it
+reaches no verdict and holds no page by name.** What none of them had ever been given is this
+file's own instrument: `Judgement::CORPUS`'s bound derived from the references' spread on that
+page, `pdfref::Outcome`'s four verdicts, and ratchets in both directions.
+
+`SUBMODULE_CORPORA` in `crates/pdf-model/tests/oracle.rs` is the table, and its interesting column
+is `voted`. **The rule is that a vote is evidence only where there is a clause the references are
+both reading**, which is ADR 0005's precondition rather than a new principle:
+
+| corpus | voted | why |
+|---|---|---|
+| `pdf20examples` | **yes** | the PDF Association's own demonstration of ISO 32000-2, valid by construction, each file built to exercise a named clause |
+| `pdfbox` | **yes** | another library's regression inputs — overwhelmingly *valid* documents a reader got wrong, which is what the 974 are |
+| `format-corpus` | no | every file in all three pinned directories is deliberately damaged, and `CLAUDE.md` says the standard "describes *valid* files and says nothing about the rest" — so three programs agreeing about a broken file agree about three recovery heuristics |
+| `pdf-differences` | no | ADR 0393, §2d above: the references are the subject under test |
+
+The two voted corpora are in `work_items` and gated exactly as the 974 are, **all pages rather
+than page one** — which paid inside one run, `unencrypted.pdf` being contradicted on page 2 and
+agreeing on page 1. The two excluded ones are read by
+`what_the_references_say_about_every_submodule_corpus`, which renders all four, prints the census
+per population and names every page that is not an agreement. It declines unless
+`PDFVIEWER_ORACLE_CENSUS` is set, for ADR 0282's reason: `-- --ignored` is a switch on the binary
+rather than a filter.
+
+```sh
+PDFVIEWER_ORACLE_CENSUS=1 cargo test --profile gates -p pdf-model --test oracle -- \
+    --ignored --nocapture what_the_references_say_about_every_submodule_corpus
+```
+
+**Three things this cost and one it did not.** Pages from a submodule corpus carry their corpus's
+label — `pdfbox/attachment.pdf page 1` — and the 974's do not, so no existing ratchet entry moved;
+the label is load-bearing rather than tidy, because three of the 275 share a *file name* with one
+of the 974 and only two of those three share their bytes. Artefacts carry it one directory down for
+the same reason. And **`ambiguous_undiagnosed.txt`, empty since the three-hundred-and-seventy-ninth
+session, is no longer empty**: 63 `pdfbox` pages are in it, none of them a regression and all of
+them a population nobody had judged. ADR 0541 §2 has the argument for writing them down rather than
+declining to measure, and it is the same argument `CLAUDE.md` makes about a corpus going quiet.
+
+What it did not cost is a pixel: the whole change is a gate's population and its diagnoses.
+
 ### 3. What the corpus still names
 
 **The oracle's 68 contradicted pages, 66 of them on documents we call complete**, grouped and

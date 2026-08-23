@@ -231,6 +231,27 @@ reading in this project goes through them:
   image must decode to exactly `width × height` bytes; 96 documents encode one image ninety-six
   ways). Ask **what does this file already say about itself?**
 - **Look at what a corpus file is *for* before filing it under a group.**
+- **"Ranked against the references" is not "the oracle has seen it", and this tree records both in
+  the same words.** `doc/todo/03` says of four separate populations that each was "put in front of
+  a reference", and §14 concludes "[e]very population on this disk is ranked" — all true, and all
+  about the **ink ranking**: page one at 72 dpi against three renderers, sorted by our ink minus
+  the lightest live reference's, by a script that lives for one round. It finds the head of a
+  distribution and that is its whole job. The **oracle** is a different instrument on the same
+  three programs: a bound derived from the references' own spread *on that page*, four verdicts,
+  and ratchets held to equality in both directions. A population can have had the first many times
+  and the second never, which is what the six-hundred-and-ninety-second session found of all 275
+  documents under `doc/corpora/` (ADR 0541). **The tell is whether the round left a list of pages
+  behind**, which is `doc/todo/03` §20's own rule — a chunk leaves a file rather than a memory —
+  and a ranking cannot leave one because it reaches no verdict to record.
+- **Before pointing the oracle at a new population, ask what clause its files are exercising.**
+  ADR 0005's rule is that two implementations sharing no code agreeing about a page is evidence
+  about the specification, and the inference needs a clause for them both to be reading. A corpus
+  of *deliberately damaged* files has none — the standard "describes valid files and says nothing
+  about the rest" — so three renderers agreeing there agree about three recovery heuristics, which
+  is trap 9's shared gap with the gap put in on purpose. A corpus assembled *because*
+  implementations disagree is worse still, and ADR 0393 has that one. Neither is a reason not to
+  look; both are reasons not to **ratchet**, because a ratchet turns a contradiction into a thing
+  to be made to go away.
 
 ### Tests, gates and reports
 
