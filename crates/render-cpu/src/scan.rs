@@ -688,13 +688,15 @@ pub(crate) fn intersect_group(band: &mut [u8], clip: Clip<'_>) -> bool {
 /// actually reaches: a miter join extends past the outline by the limit, and over-estimating
 /// here costs a path within a hair of the bound its anti-aliasing and nothing else.
 ///
-/// A [`Clip::Region`] still meets this mark by a *product*, which [`fill`] no longer does, and
-/// the reason is that a stroke's coverage is not a shape this side holds: `tiny-skia` converts a
-/// wide stroke to its outline and fills that, and draws a stroke under a device pixel wide as a
-/// hairline that is not that outline at all (ADR 0268). Rasterising the coverage here would mean
-/// choosing between duplicating the library's stroker and contradicting its hairline, and the
-/// substitutions §10.7.4 already asks for on a sub-pixel rule are *fills* and go through [`fill`].
-/// `doc/todo/11` item 4 carries what is left with the population it is worth.
+/// **A [`Clip::Region`] still meets this mark by a product, and what is left here is the residue
+/// rather than the case.** Since ADR 0535 a stroke above the coverage quantum is drawn as the fill
+/// of its own outline (`render_cpu::draw_stroked_outline`) and composes through [`fill`], and
+/// §10.7.4's substitutions on a sub-pixel rule were fills already. What still arrives here is a
+/// stroke at or under the quantum for which every one of those substitutions declined:
+/// `crate::carries_coverage_as_alpha` answering `false`, which is [`intersected`]'s own first
+/// decline as well and so loses no composition; a transform with no thinnest line; or a path the
+/// stroker or the dasher refused, which draws nothing here either. `doc/todo/11` item 4 carries
+/// what is left of the item.
 pub(crate) fn stroke(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
     path: &tiny_skia::Path,
