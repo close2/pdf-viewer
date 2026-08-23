@@ -3935,12 +3935,19 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   §12.8.2.2.1 and the four groups below are its list, not a level. They are the four rows the earlier
   reading missed, folded in:
 
-  - **Five need a content-stream census, which nothing in this tree has.** §8.5.2.1 (a path segment
-    with no current point), §9.4.2 (a `q` or `Q` inside a text object with a `Tm` between), §9.7.5.4
-    (`beginrearrangedfont` and `beginusematrix` in a CMap), §9.7.6.2 (a codespace range a byte-by-byte
-    match reads differently from a numeric one), §11.6.7 (a tiling pattern's paint). These are the
-    expensive ones and they share an instrument: interpret page one and count operator shapes. The
-    artifact census already owed below is the same program.
+  - ~~**Five need a content-stream census, which nothing in this tree has.**~~ **Four do, and the
+    fifth is a token rather than a shape** — corrected in the six-hundred-and-eighty-sixth (ADR
+    0523), which found the content-stream census already built: `witness_census`'s third column
+    searches every stream's *decoded* data, so anything whose witness is a **token** is in reach
+    without an interpreter. §9.7.5.4 (`beginrearrangedfont` and `beginusematrix` in a CMap) is one
+    of those, and its control run is taken — **0 of 1251 curated for either, with `usecmap` found in
+    one document's decoded stream as the positive control that the search reaches a CMap operator at
+    all** — leaving the crawl run owed, which is one invocation. The four that are genuinely shapes:
+    §8.5.2.1 (a path segment with no current point), §9.4.2 (a `q` or `Q` inside a text object with a
+    `Tm` between), §9.7.6.2 (a codespace range a byte-by-byte match reads differently from a numeric
+    one), §11.6.7 (a tiling pattern's paint). These are the expensive ones and they share an
+    instrument: interpret page one and count operator shapes. The artifact census already owed below
+    is the same program.
   - ~~**Nine need a structural block in `absence_audit`, which the six-hundred-and-seventy-first round
     added eight of and the six-hundred-and-seventy-sixth the ninth.**~~ **Eight of the nine were
     taken in the six-hundred-and-eighty-second** (ADR 0516) — §7.6.5, §7.9.2.2.2, §8.9.5.2, §8.10.3,
@@ -3953,10 +3960,19 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     minutes over the whole crawl, the ninth about forty and nothing extra, and this round's eight
     about three hundred and fifty lines and ninety seconds on top of a five-and-a-half-minute pass.
 
-    **§14.8.2.5.3 is the one left, and it was in the wrong group.** `/ReversedChars` is a
+    ~~**§14.8.2.5.3 is the one left, and it was in the wrong group.** `/ReversedChars` is a
     marked-content tag inside a content stream, so it belongs with the five above rather than here:
     no dictionary anywhere states it, and a structural block over the object graph would report a
-    false zero for exactly the reason this file keeps writing down.
+    false zero for exactly the reason this file keeps writing down.~~ **The group was right and the
+    instrument was already here** — taken in the six-hundred-and-eighty-sixth (ADR 0523). A
+    structural block would indeed have reported a false zero; what nobody had noticed is that
+    `witness_census`'s **third** column is a substring search of every stream's *decoded* data,
+    which is a content-stream census for anything whose witness is a **token**. It found the tag in
+    one curated document and three crawled ones, and printed its own discriminator on the fourth:
+    the one hit scored *as a name* rather than only in a stream is `/S /ReversedChars` in a
+    structure tree with a `/RoleMap` to `/Span`, which is not this clause at all. **And the sentence
+    had decayed twice** — it was measured over *first pages*, and the curated witness writes its tag
+    on page 6, so the population and the instrument's reach were both narrower than the words.
 
     **Three things this round adds to the recipe.** **A negative can be false and the code still owe
     nothing** — §7.6.5's one witness is a file declined by name, which is trap 5 working. **A
@@ -3972,11 +3988,17 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     §7.5.6 (a multiply-updated file that lowered its own version), §8.9.3 and §11.6.2 (a construction
     with no file behind it, argued from the clause), §10.7.4 (a ladder run with no document in the
     way), and the rows §8.4.3.5, §9.7.4.2 and §12.5.4 already answer with `long_mitre_census`,
-    `hollow_glyph_census` and `border_precedence_census` — those three owe a `--crawl` argument
-    rather than a re-reading. §9.7.4.2 is the one the four-group reading missed. **These seven, §14.8.2.5.3
-    and §12.7.5.4 are what the script prints as owed after the six-hundred-and-eighty-second**,
-    beside the six noise rows below — run it rather than adding that up, for the reason the bullet
-    above gives.
+    `hollow_glyph_census` and `border_precedence_census` — ~~those three owe a `--crawl` argument
+    rather than a re-reading~~ **and all three have one since the six-hundred-and-eighty-sixth**
+    (ADR 0523), which is the same `Scope` selector ADR 0493 gave `witness_census` and ADR 0496
+    `absence_audit`, plus `rayon`, plus the explicit file list two of them already took. **All
+    three negatives were false**, and two of them left a *sharper* claim standing that the wider
+    count would have thrown away — the rule ADR 0516 found at §11.6.5.2, met twice more. §9.7.4.2
+    is the one the four-group reading missed. **§12.7.5.4 is what is left of this group**, and its
+    instrument exists too: `variable_text_census` counts list-box and combo-box widgets against
+    their `/AP` and `/NeedAppearances`, over whatever files it is given, and owes the same scope
+    selector. Run the script rather than adding any of this up, for the reason the bullet above
+    gives.
   - **Six are this population's own noise shape and nothing is owed.** Three are a *correction*
     quoting the negative it retired, which is the same false positive the twelfth and seventeenth
     sweeps print and is why the grep at the top of this bullet is a reading list rather than a
@@ -4081,6 +4103,17 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   action, an annotation or a resource dictionary inline and a top-level-only walk reports a false
   zero (session 648, paid again in this example's own first draft); and **plant a witness stating
   every construct before believing any zero**, which is what caught that.
+- **`absence_audit` and `witness_census` are not the only two instruments with a population, and
+  the six-hundred-and-eighty-sixth gave three more the same selector** (ADR 0523): `long_mitre_census`,
+  `hollow_glyph_census` and `border_precedence_census` take `--pdfjs`, the curated corpora or
+  `--crawl`, and the first two gained `rayon` with them. **What that round adds to the recipe is a
+  control nobody had been running**: before believing what a census says about the crawl, run it
+  against the population the *old sentence* was measured over and check that it reprints the old
+  numbers. Two of the three did, to the digit — 33 781 constructed borders with one `U` and one `D`;
+  42 `/CIDToGIDMap` streams in 30 documents with 214 of 221 programs partly hollow. A census that had
+  drifted under its row would have printed something else, and there would have been nothing to say
+  about the crawl until that was explained. It is the planted-witness rule pointed backwards: a
+  *positive* the instrument is already claimed to produce.
 - **The fifth sweep's second population is still a by-hand run.** `--bin callers` reads functions;
   the four-hundred-and-thirteenth ran the sweep a second way over `viewer-core`'s own vocabulary —
   every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —

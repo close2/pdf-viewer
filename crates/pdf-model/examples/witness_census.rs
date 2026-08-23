@@ -41,6 +41,17 @@
 //!
 //! With `--names` and no terms it prints how many documents state each distinct name, which is
 //! what turns "is there a witness for this entry" into a lookup rather than a run.
+//!
+//! **The `streams` layer is a content-stream census, and the six-hundred-and-eighty-sixth session
+//! is where that was noticed** (ADR 0523). `doc/todo/01` had filed §14.8.2.5.3's `/ReversedChars`
+//! and §9.7.5.4's `beginrearrangedfont` under claims needing "a content-stream census, which
+//! nothing in this tree has" — correctly, in that a walk over the object graph reports a false
+//! zero for a marked-content tag or a `CMap` operator, and wrongly about the instrument, because
+//! `streams` searches every stream's *decoded* bytes and a tag and an operator are both **tokens**.
+//! What it cannot settle is a claim about a *shape* — a path segment with no current point, a `q`
+//! inside a text object — and those still want an interpreter. The three columns say which kind a
+//! hit is: `/ReversedChars` scored as a *name* rather than only in a stream turned out to be a
+//! structure element type in a `/RoleMap`, which is not the clause at all.
 
 #![expect(
     clippy::print_stdout,
