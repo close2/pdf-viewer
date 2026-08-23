@@ -543,6 +543,28 @@ const TEXT_BELOW_FLOOR: [&str; 22] = [
 /// and why a stripped-whitespace search still cannot be perfect.
 const PDFJS_FLOOR: f64 = 0.90;
 
+/// Fails the gate if this build cannot reach the sandboxed image decoder.
+///
+/// `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by a separate program, and Cargo
+/// does not build another package's binaries when it tests this one (trap 10). A build without
+/// it draws every other image and none of those three, so what follows would be a measurement of
+/// the build rather than of the tree — which is exactly what moved the accessibility census's
+/// ratchet by nine elements while four rounds read the difference as something else
+/// (ADR 0557, trap 16).
+#[expect(
+    clippy::panic,
+    reason = "a gate that cannot decode the images it is measuring must stop rather than \
+              print a number about a different program"
+)]
+fn require_the_sandbox() {
+    if let Err(error) = pdf_model::image::sandboxed_decoder() {
+        panic!(
+            "the sandboxed image decoder is not available, so the counts below would be \
+             wrong: {error}"
+        );
+    }
+}
+
 /// The text we draw agrees with an independent extractor, over the whole pdf.js corpus.
 ///
 /// 974 documents against the 14 the test above uses, which is the extension the handover has
@@ -557,6 +579,7 @@ const PDFJS_FLOOR: f64 = 0.90;
 #[test]
 #[ignore = "needs the pdf.js submodule and runs pdftotext per document"]
 fn the_text_we_draw_agrees_with_an_independent_extractor_across_the_pdfjs_corpus() {
+    require_the_sandbox();
     let corpus = pdfjs_corpus();
     if corpus.is_empty() {
         println!("doc/pdf.js is not checked out: skipped");
@@ -886,6 +909,7 @@ fn score_frozen(frozen: &Frozen) -> Option<Scored> {
 #[test]
 #[ignore = "needs the doc/corpora/pdfbox submodule"]
 fn the_text_we_draw_agrees_with_pdfboxs_frozen_extraction() {
+    require_the_sandbox();
     let corpus = pdfbox_corpus();
     if corpus.is_empty() {
         println!("doc/corpora/pdfbox is not checked out: skipped");

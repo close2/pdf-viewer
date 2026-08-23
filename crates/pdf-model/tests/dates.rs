@@ -12,6 +12,10 @@
 //! the named non-conforming strings are listed so that a parser quietly starting to *accept* one
 //! is visible in the diff.
 
+// no sandbox worker: this gate reads §7.9.4 date strings out of the object graph and
+// interprets no content stream, so no image reaches `pdf-sandbox` and no count here can
+// move with the worker's presence (`tools/conformance/tests/sandbox_gates.rs`).
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

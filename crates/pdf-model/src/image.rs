@@ -361,6 +361,38 @@ impl Parts {
     }
 }
 
+/// Confirms this *build* can reach the program that decodes §7.4.6, §7.4.7 and §7.4.9's images.
+///
+/// `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by [`pdf_sandbox`]'s separate
+/// worker program, and a build without it decodes none of the three. Every other route through
+/// this module is unaffected, which is what makes the shortfall hard to see: the page still
+/// draws, the document still opens, and only the images those three filters carry are missing.
+///
+/// **This exists because a measurement cannot tell that shortfall from a result.** The
+/// accessibility census reads nine of `issue5481.pdf`'s structure elements as having no place at
+/// all when the worker is absent — §14.8.3.3 derives an element's rectangle from what its marked
+/// content *drew*, and a `JPXDecode` image that was refused drew nothing — so the census's own
+/// ratchet moved with the build rather than with the tree, and passed or failed accordingly
+/// (ADR 0557, `doc/traps/instruments-and-reports.md` traps 10 and 16). A gate whose numbers
+/// depend on a decoded image calls this before it measures; a host may call it to say at startup
+/// what it would otherwise say one image at a time.
+///
+/// Nothing here is about *this* process's confinement, which is [`pdf_sandbox`]'s to report and
+/// is not a reason to refuse: an unconfined worker decodes the same images.
+///
+/// # Errors
+///
+/// [`ImageError::Sandboxed`], carrying the sandbox's own sentence — which names whether the
+/// worker was missing, was built from another tree, or would not start.
+pub fn sandboxed_decoder() -> Result<(), ImageError> {
+    pdf_sandbox::Sandbox::shared()
+        .confinement()
+        .map(|_confinement| ())
+        .map_err(|error| ImageError::Sandboxed {
+            detail: error.to_string(),
+        })
+}
+
 /// Decodes an image `XObject` to one raster on the grid the file states.
 ///
 /// `fill` is the current fill colour, used for a stencil mask, which paints the *current*

@@ -624,11 +624,34 @@ fn report(census: &Census, files: usize, seconds: f64) {
     print_witnesses("panicked", &census.panicked);
 }
 
+/// Fails the gate if this build cannot reach the sandboxed image decoder.
+///
+/// `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by a separate program, and Cargo
+/// does not build another package's binaries when it tests this one (trap 10). A build without
+/// it draws every other image and none of those three, so what follows would be a measurement of
+/// the build rather than of the tree — which is exactly what moved the accessibility census's
+/// ratchet by nine elements while four rounds read the difference as something else
+/// (ADR 0557, trap 16).
+#[expect(
+    clippy::panic,
+    reason = "a gate that cannot decode the images it is measuring must stop rather than \
+              print a number about a different program"
+)]
+fn require_the_sandbox() {
+    if let Err(error) = pdf_model::image::sandboxed_decoder() {
+        panic!(
+            "the sandboxed image decoder is not available, so the counts below would be \
+             wrong: {error}"
+        );
+    }
+}
+
 /// The instrument. Ignored: minutes over every document this project holds, every page of the
 /// tagged ones — run it deliberately, under the gates profile or in release.
 #[test]
 #[ignore = "corpus-scale; every page of every tagged document — run explicitly, in release"]
 fn what_a_screen_reader_is_told_about_every_document() {
+    require_the_sandbox();
     let Some(files) = population() else {
         println!("skipped: neither doc/pdf.js nor doc/'s specifications are on disk");
         return;

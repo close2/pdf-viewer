@@ -186,7 +186,10 @@ here:
   class growing, a panic, an untagged page given a structure it does not state, or a line whose
   characters disagree with its own text. **A tree without the `doc/pdf.js` submodule prints why it
   is not ratcheted instead of failing**, because a smaller population is the one reason a floor can
-  break that is not a regression.
+  break that is not a regression. **And a build with no `pdf-sandbox-worker` beside it now stops
+  the line instead of moving the ratchet by nine elements**, which it did, deterministically, while
+  four rounds diagnosed it as a build directory, as staleness and as Cargo feature unification
+  (trap 16, ADR 0557).
 - **The `text_extraction` line is three gates and gains no line**, which is the other side of the same
   mechanism and is correct: `the_text_we_draw_agrees_with_pdfboxs_frozen_extraction` is a gate. It
   compares documents against the `PDFTextStripper` output Apache PDFBox checked in beside them — a
@@ -203,6 +206,16 @@ here:
   line above the corpus gate; it **skips rows whose document is absent** and counts them, because
   `corpus-cache/` is machine-local, and it **fails rather than passing quietly** when none of them
   is there.
+
+- **Every line above that interprets a page refuses to run without the sandboxed decoder**, and the
+  `cargo test -p conformance` line at the end of the sequence is what keeps that true. §7.4.6's
+  `CCITTFaxDecode`, §7.4.7's `JBIG2Decode` and §7.4.9's `JPXDecode` are decoded by a *separate
+  program* that Cargo will not build for a test of another package (trap 10), so a gate line run on
+  its own measures a build that draws every other image and none of those three — silently, and by
+  enough to move a ratchet (trap 16, ADR 0557). Each such line calls `require_the_sandbox()`;
+  `dates` and `xmp` need no decoder and carry a `// no sandbox worker:` line saying why; and
+  `tools/conformance/tests/sandbox_gates.rs` reads **this section's own command block** and fails a
+  line that does neither. **So a gate added here owes one of the two**, and the check will say so.
 - **`pdfref-hayro` is the oracle's fourth reading and nothing built it.** It is a *program*, found
   beside the running test binary, and its absence costs no verdict — `Reference::Hayro` never
   votes — but it is what a person looks at on a page the three references cannot settle. It

@@ -36,8 +36,22 @@ which has already removed several. A bare `allow` hides that forever.
 Cargo never builds another package's binaries. So the tests run against whatever worker was last
 compiled. Not hypothetical: the seventh session inverted the black-and-white sense of every JBIG2
 sample and the test passed. `cargo test --workspace` or `cargo build -p pdf-sandbox --bins` builds
-it. Both gates fail loudly if the worker is *missing* — and a missing worker and a stale one look
-nothing alike.
+it. A missing worker and a stale one look nothing alike.
+
+**"Both gates fail loudly if the worker is missing" was this paragraph's last sentence, and it was
+true of *two* gates out of eight.** `pdf-model`'s `corpus` and `oracle` check; the accessibility
+census, the selection census, `text_extraction`, `fixed_documents`, `jpeg2000` and
+`render-quorra`'s `corpus` did not — and the census's ratchet moved by nine structure elements
+because of it, deterministically, for at least a dozen rounds while four rounds diagnosed it as
+something else. That is trap 16, and it is trap 10 wearing another trap's clothes. All eight now
+check, and `tools/conformance/tests/sandbox_gates.rs` fails a gate line in `doc/todo/02` §2 that
+neither checks nor says why it needs none (ADR 0557).
+
+**The other half of the lesson: `CCITTFaxDecode` travels this pipe too.** The paragraph above names
+JBIG2, and §7.4.6's fax decoder is the third program on the far end of it beside §7.4.7's and
+§7.4.9's. A round narrowing a test command to save time meets six CCITT tests that are red for no
+reason in the document, which cost session 660 twenty minutes and cost session 664 an hour deciding
+it was not real.
 
 **And there are now two of these, in a profile of their own.** Since the three-hundred-and-eighty-fifth
 the corpus gates run under `--profile gates`, so the worker they spawn is `target/gates/pdf-sandbox-worker`
@@ -99,49 +113,78 @@ Two rules:
   first; without `doc/md` three sweeps refuse outright, and without the rest `pointers` reports
   dozens of live paths as "not carried" and the comparison invents deltas the round did not cause.
 
-### 16. A *gate's* answer can depend on **how much of the workspace was built**
+### 16. A gate can measure a program **the build did not finish producing**
 
-> **The heading used to say "which build directory it was compiled in", and the
-> six-hundred-and-ninety-eighth session established that the directory is a symptom.** The variable
-> is **build scope**, and the correction is kept below the original account rather than replacing it,
-> because the original is what a round will recognise when it happens again.
+> **This heading has been wrong twice.** It said "which build directory it was compiled in", the
+> six-hundred-and-ninety-eighth session established that the directory was a symptom and made it
+> "how much of the workspace was built", and the seven-hundredth found that *that* was a symptom
+> too. Both earlier accounts are kept below the answer, because they are what a round will
+> recognise when this happens again — and because the sequence of three is the trap's real lesson.
 
 Trap 15 is a sweep binary that carries the wrong **tree**. This is the same family one step further
-in, and it is worse because the instrument is a **ratchet**: the same sources, built in two
-different `target-dir`s, gave two different numbers, and one of them passed the gate.
+in, and it is worse because the instrument is a **ratchet**: the same sources gave two different
+numbers, and one of them passed the gate.
 
-The six-hundred-and-ninety-fifth session found the accessibility census failing —
-`elements placed by their own marks: 93258, and it was 93267` — and checked whether the round had
-caused it, by adding a scratch `git worktree` at its own branch point (`main`'s HEAD, unmodified)
-and running the census there. **It printed 93267 and passed.** Which would have said the round's
-change had moved nine elements — except that the scratch worktree had no `target-dir` of its own and
-so had built into `/home/AI/cargo-target/pdf-viewer`, the *main* tree's. Re-run with
-`CARGO_TARGET_DIR` pointed at an empty directory, the same worktree at the same commit printed
-**93258 and failed**, which is what the round's own tree printed. Three runs each way, deterministic
-both ways.
+**The mechanism is trap 10.** `pdf-sandbox-worker` is a separate program; Cargo does not build
+another package's binaries when it tests this one; and a build without it decodes **no**
+`CCITTFaxDecode`, `JBIG2Decode` or `JPXDecode` image. Every other image draws, every document
+opens, every page renders — and a count comes out that is about the build rather than about the
+tree. Trap 10 has said the first half of that since the seventh session; what nobody had joined to
+it is that **six of the eight corpus gates never checked.**
 
-So: the ratchet had been broken on `main` for some time — at least back to the merge of round 686,
-which is as far as this session bisected — and the shared directory was answering with something
-that no from-scratch build of those sources produces. **What the mechanism is was not established**,
-and saying so is the point: `pdf-spec/build.rs` does emit `cargo:rerun-if-changed` for the Arlington
-TSVs, `main`'s working tree and its submodules were clean, and no `RUSTFLAGS` differed. It is
-recorded as an *observation with a command behind it* rather than as a diagnosis.
+Measured with the conditions named, which is this trap's own rule: one commit, one `target-dir`
+created empty for the purpose, built only by the census's own `cargo test … --no-run` line, **one
+test binary of one digest, run twice each way**:
 
-Two rules, and the first is the cheap one:
+| the one binary, in the one directory | `placed by their own marks` | `with no place` | ratchet |
+|---|---|---|---|
+| no `pdf-sandbox-worker` beside it | 93 258 | 1345 | **fails** |
+| the worker beside it | 93 267 | 1336 | passes |
+
+The nine are `issue5481.pdf`'s, and nothing else in the corpus moves: it carries a `JPXDecode`
+image, §14.8.3.3 derives a structure element's rectangle from what its marked content **drew**, and
+an image that was refused drew nothing. So the two numbers are **not two readings of the standard**
+— they are one reading by two programs, one of which is missing a component it ships with. No floor
+moved. ADR 0557.
+
+**The general rule, which is worth more than the instance:** two numbers out of one tree are not
+automatically two interpretations of a clause. Ask what the two *programs* were first.
+
+Three rules, and the first is the cheap one:
 
 - **A round that suspects its own change of moving a gate compares against a build of the branch
   point in a directory of its own.** `git worktree add <scratch> <base>` plus
-  `CARGO_TARGET_DIR=<empty dir>` — without the second half the comparison is worth nothing, and it
-  is exactly the half that is easy to forget because a worktree *usually* inherits a `target-dir`
-  from `.cargo/config.toml` and a scratch one has none.
+  `--target-dir <empty dir>` — without the second half the comparison is worth nothing.
 - **A gate that fails is not a gate to argue with from a document.** The census floors are not
-  written anywhere but in the test, which is why this was caught at all; had the number been
-  recorded in a note somewhere, "unchanged" was available for free (ADR 0281's whole argument).
+  written anywhere but in the test, which is why this was caught at all (ADR 0281's whole argument).
+- **Name the conditions of every measurement.** *A claim that a defect does not reproduce is a
+  claim about the conditions you reproduced it under.* Session 664 checked session 660's report in
+  a fully-built shared directory — the one scope where a worker is always present — and recorded
+  it as not reproducing.
 
-#### What the mechanism turned out to be — the six-hundred-and-ninety-eighth
+#### What is now checked, and what is not
 
-Four readings of one commit, deterministic twice each, the two test binaries carrying different
-digests:
+Every gate line in `doc/todo/02` §2 calls `require_the_sandbox()` or carries a line beginning
+`// no sandbox worker:` with its reason, and `tools/conformance/tests/sandbox_gates.rs` reads §2's
+own command block and fails on a gate that does neither. What it cannot see is a measurement that
+is **not** a line in that sequence — an example, a benchmark, a figure a round takes by hand.
+
+**Two of the six were already failing without the worker, in the wrong words**, which is worth
+knowing because it is what a round will meet: `jpeg2000` failed with a list of documents that had
+*stopped* differing from `OpenJPEG`, which reads as the decoder having improved.
+
+#### The two earlier accounts, kept
+
+**The six-hundred-and-ninety-fifth** found the census failing — `elements placed by their own
+marks: 93258, and it was 93267` — and checked whether its own change had caused it by adding a
+scratch `git worktree` at `main`'s unmodified HEAD. **It printed 93267 and passed** — because that
+worktree had no `target-dir` of its own and built into the *shared* one, where a worker had been
+built by some earlier round's §2 run. Re-run against an empty directory the same worktree at the
+same commit printed **93258 and failed**. Three runs each way, deterministic both ways. It recorded
+the observation without a diagnosis and **did not lower the floor**, which was right.
+
+**The six-hundred-and-ninety-eighth** took four readings of one commit, deterministic twice each,
+and found the two test binaries carried different digests:
 
 | | reads | verdict |
 |---|---|---|
@@ -150,28 +193,26 @@ digests:
 | a clean directory, after `cargo clean -p` on four crates | 1336 | passes |
 | a clean directory, **whole workspace** built | **1336** | passes |
 
-So it is not the directory and it is not staleness: **Cargo unifies features across whatever is in
-the build**, and a dependency built for `viewer-core`'s subset gets a different feature set than the
-same dependency built for the workspace — and the program then counts nine structure elements
-differently. Building the whole workspace in the *clean* directory reproduces the shared directory's
-answer exactly.
+It concluded that the variable was build *scope* and that Cargo's feature unification was the
+mechanism. The first half is right and the second is not — and the reason the table looks like
+feature unification is that **every scope that produces a worker as a side effect also resolves
+features differently**, so the two are confounded in all four rows. The digests differ for the
+feature reason and the *counts* differ for the worker reason, and nothing in that table separates
+them. What separates them is holding the binary fixed, which is the table at the top.
 
-**This makes the six-hundred-and-sixtieth session's report real, and this project's record of it
-wrong.** That round said `cargo nextest run -p pdf-model` *alone* fails six CCITT tests where
-`--workspace` passes, and blamed feature unification resolving `hayro-ccitt` differently under a
-scoped build. The six-hundred-and-sixty-fourth checked it on merged `main`, got 1099 passing, and
-recorded it as **not reproducing** — in a fully-built shared directory, which is exactly the scope
-where the defect hides. The rule is general and it is the trap's real lesson:
+**The features were enumerated anyway**, because "we did not find one" is not an answer. Diffing
+the resolved unit graphs three ways — the census's subset, the whole workspace, and
+`--release --bin pdf-viewer` — the subset resolves `num-traits`, `once_cell`, `rustix`,
+`linux-raw-sys`, `bytemuck`, `log`, `either`, `enumflags2`, `syn` and `proc-macro2` differently,
+**and every one of the ten was traced to its consumer and changes no value the program computes**;
+the shipped binary agrees with the whole-workspace build on all of them. `doc/verify.md` has the
+commands, because that is a claim that decays.
 
-> **A claim that a defect does not reproduce is a claim about the conditions you reproduced it
-> under.** Name the conditions, or the claim is worth what an unnamed population is worth.
-
-Three things follow and none is settled: `cargo build --release --bin pdf-viewer` is a **third**
-scope and nothing has established which feature set the shipped binary carries; **which of 1345 and
-1336 is right is unknown**, and the ratchet's floor was set under one of them without anybody asking
-which; and **a dependency feature that changes what the program computes should be stated by this
-workspace rather than inherited** from whichever crates happen to be in the build. That is a round's
-work, and `doc/HANDOVER.md` names it as one.
+**And session 660's report is real, with its attribution corrected.** It said
+`cargo nextest run -p pdf-model` alone fails six CCITT tests where `--workspace` passes, black and
+white exchanged, and blamed `hayro-ccitt` feature resolution. `hayro-ccitt` at the pinned revision
+**has no `[features]` section at all**; `CCITTFaxDecode` goes through the worker; and "black and
+white exchanged" is trap 10's own sentence from the seventh session.
 
 ### 10a. A cached reference render is a fourth thing that can be stale
 

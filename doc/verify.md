@@ -465,3 +465,38 @@ exception. Nothing to chase.
 clone — every test using it reports being skipped — but the ratchets mean nothing without it, so
 CI must have it. **The time budget reports; it cannot enforce**: a Rust thread cannot be
 cancelled, so a document that never returns hangs the suite rather than failing it.
+
+## Which features a scope resolves, and what the shipped binary carries
+
+Cargo unifies features across whatever is in the build, so **the resolved feature set is a property
+of the invocation** and not of the tree. Three scopes matter here and they are genuinely different
+invocations: the census's `-p viewer-core --test accessibility_census`, `--workspace`, and
+`--release --bin pdf-viewer`. The question a round asks is whether the gate is measuring the
+program a user gets.
+
+It is answerable exactly, in about a minute, and the answer decays — so what is written down is the
+command:
+
+```sh
+cargo +nightly test  --profile gates -p viewer-core --test accessibility_census \
+                     --unit-graph -Z unstable-options > subset.json
+cargo +nightly test  --workspace --profile gates  --unit-graph -Z unstable-options > workspace.json
+cargo +nightly build --release --bin pdf-viewer   --unit-graph -Z unstable-options > shipped.json
+```
+
+Each unit in that JSON carries `pkg_id`, `mode`, `target.kind` and `features`. Take the transitive
+closure of the root you care about — the unit whose `target.name` is `accessibility_census` and
+`kind` is `["test"]`, or `pdf-viewer`/`["bin"]` — and compare `(package, mode, kind) → features`
+between two files. Comparing the *whole* file instead is noise: the workspace graph contains
+hundreds of crates the subset never builds, and `resolver = "3"` keeps a build-dependency's
+features separate from a normal one's, so the same package legitimately appears twice.
+
+**What it said in the seven-hundredth session** (ADR 0557 §3): the shipped binary differs from the
+whole-workspace build in `either` and `serde` alone, both additive; the census's subset differs in
+ten crates, every one of which was traced to its consumer and changes no value the program
+computes. **That is a claim about today's dependency set** — a crate gaining a behaviour-changing
+feature would falsify it, which is why the commands are here and the conclusion is in the ADR.
+
+`--unit-graph` is nightly-only, which is why this is a method rather than a gate. The gate that
+does exist for the neighbouring failure — a gate measuring a build whose *binaries* are incomplete
+— is `tools/conformance/tests/sandbox_gates.rs`, and it is trap 16's.

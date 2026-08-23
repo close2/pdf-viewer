@@ -689,10 +689,33 @@ fn report(census: &Census, files: usize, seconds: f64) {
     print_witnesses("panicked", &census.panicked);
 }
 
+/// Fails the gate if this build cannot reach the sandboxed image decoder.
+///
+/// `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by a separate program, and Cargo
+/// does not build another package's binaries when it tests this one (trap 10). A build without
+/// it draws every other image and none of those three, so what follows would be a measurement of
+/// the build rather than of the tree — which is exactly what moved the accessibility census's
+/// ratchet by nine elements while four rounds read the difference as something else
+/// (ADR 0557, trap 16).
+#[expect(
+    clippy::panic,
+    reason = "a gate that cannot decode the images it is measuring must stop rather than \
+              print a number about a different program"
+)]
+fn require_the_sandbox() {
+    if let Err(error) = pdf_model::image::sandboxed_decoder() {
+        panic!(
+            "the sandboxed image decoder is not available, so the counts below would be \
+             wrong: {error}"
+        );
+    }
+}
+
 /// The instrument. Ignored: it walks the corpus and asks poppler about every document.
 #[test]
 #[ignore = "corpus-scale; needs the pdf.js submodule and pdftotext — run explicitly, in release"]
 fn what_a_drag_selects_agrees_with_poppler_and_with_the_page() {
+    require_the_sandbox();
     let files = population();
     if files.is_empty() {
         println!("skipped: the doc/pdf.js submodule is not checked out");

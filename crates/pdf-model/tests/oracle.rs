@@ -10917,14 +10917,16 @@ fn verdict_of(triangulation: &pdfref::Triangulation, outvoted: Option<&str>) -> 
     }
 }
 
-/// Fails the gate if the sandboxed decoder is not available.
+/// Fails the gate if this build cannot reach the sandboxed image decoder.
 ///
-/// JBIG2 and JPEG 2000 are decoded by a separate program, and Cargo does not build another
-/// package's binaries when it tests this one. Without that check a missing worker would not
-/// fail anything — it would quietly turn 152 documents' images into reports and move the
-/// ratchets, which is the kind of silent number change this whole file exists to prevent.
+/// `CCITTFaxDecode`, `JBIG2Decode` and `JPXDecode` are decoded by a separate program, and Cargo
+/// does not build another package's binaries when it tests this one (trap 10). A build without
+/// it draws every other image and none of those three, so what follows would be a measurement of
+/// the build rather than of the tree — which is exactly what moved the accessibility census's
+/// ratchet by nine elements while four rounds read the difference as something else
+/// (ADR 0557, trap 16).
 fn require_the_sandbox() {
-    if let Err(error) = pdf_sandbox::Sandbox::shared().confinement() {
+    if let Err(error) = pdf_model::image::sandboxed_decoder() {
         panic!(
             "the sandboxed image decoder is not available, so the counts below would be \
              wrong: {error}"

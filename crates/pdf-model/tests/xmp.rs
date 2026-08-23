@@ -10,6 +10,10 @@
 //! `dc:title` is its title. What it checks is that the packets this corpus contains are read, and
 //! that the number read only rises.
 
+// no sandbox worker: this gate reads §14.3.2's metadata packets out of the object graph and
+// interprets no content stream, so no image reaches `pdf-sandbox` and no count here can
+// move with the worker's presence (`tools/conformance/tests/sandbox_gates.rs`).
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
