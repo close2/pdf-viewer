@@ -150,8 +150,17 @@ pub enum Unsupported {
         /// words: `Font` reports "no /Font resource named /F1", `Shading` reports "/Sh0 is not
         /// in /Shading", `ColorSpace` reports the space by name, `ProcSet` is deprecated in
         /// PDF 2.0 and names nothing that can be drawn, and a `Properties` list that is missing
-        /// costs no mark at all — it leaves a marked-content section with no `/ActualText`,
-        /// `/Alt` or optional-content group, and the section's own operators still draw.
+        /// costs no mark at all — ISO 32000-2 §8.11.3.2 makes a section optional content "only if
+        /// the tag is OC and the dictionary operand is a valid optional content group", so a name
+        /// nobody defined leaves ordinary content, and the section's own operators still draw.
+        ///
+        /// What it does leave behind is silent and is not a mark: §14.9's `/ActualText`, `/Alt`,
+        /// `/E` and `/Lang`, §14.7.5.2's `/MCID`, Table 363's artifact entries and §14.13.5's
+        /// associated files all arrive through [`Interpreter::property_list`], and a `BDC` naming
+        /// a list the resource dictionary does not define loses every one of them. §14.6.2's
+        /// ledger row carries that as half of what it owes; this comment named only the two
+        /// accessibility entries and the group for as long as the readers for the rest existed,
+        /// which is what a list of what is read does when nobody maintains it.
         category: &'static str,
         /// The name, as the content stream wrote it, and what the lookup found instead.
         detail: String,

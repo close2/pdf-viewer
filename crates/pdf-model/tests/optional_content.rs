@@ -53,6 +53,35 @@ fn pdf(properties: &str, resources: &str, content: &str, page_extra: &str, extra
         content.len().saturating_add(1)
     );
 
+    assemble(&body)
+}
+
+/// The same page with Table 31's *array* form of `/Contents`, in two parts.
+///
+/// Object numbering keeps `pdf`'s so that [`GROUP`] and the configurations above are reusable:
+/// 1 catalog, 2 pages, 3 page, 4 the first part, 5 onwards whatever `extra` defines, and the
+/// second part last — its number is one past `extra`'s, which every caller here knows because
+/// `extra` is [`GROUP`] alone.
+fn pdf_of_two_parts(properties: &str, resources: &str, parts: [&str; 2], extra: &str) -> Vec<u8> {
+    let second = 6;
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R {properties} >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << {resources} >> /Contents [4 0 R {second} 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n{extra}\
+         {second} 0 obj\n<< /Length {} >>\nstream\n{}\nendstream\nendobj\n",
+        parts[0].len().saturating_add(1),
+        parts[0],
+        parts[1].len().saturating_add(1),
+        parts[1],
+    );
+
+    assemble(&body)
+}
+
+/// Wraps a body of objects in a header, a cross-reference table and a trailer.
+fn assemble(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets = Vec::new();
     for object in body.split_inclusive("endobj\n") {
@@ -143,6 +172,53 @@ fn a_marked_section_belonging_to_a_group_that_is_off_is_not_drawn() {
         GROUP,
     ));
     assert!(!drew(&hidden), "the group is off, so nothing is drawn");
+}
+
+/// A section may open in one part of `/Contents` and close in the next.
+///
+/// ISO 32000-2 §14.6.1 states the one requirement that clause puts on a *reader* — every other
+/// `shall` in it is addressed to whoever writes the file:
+///
+/// > The Contents entry of a page object (see 7.7.3.3, "Page objects"), whether a single stream
+/// > or an array of streams, is considered a single stream with respect to marked-content
+/// > sequences.
+///
+/// The fixture is built so that a reader treating each part as a stream of its own fails it
+/// rather than merely reporting differently: the `BDC` is the whole of part one, so a
+/// per-part reader would discard the open section at the end of it and paint the square that
+/// part two draws before the `EMC`. The rectangle *after* the `EMC` is the control — it says
+/// the section ended where the second part closed it, rather than running to the end of the
+/// page.
+#[test]
+fn a_marked_content_section_may_span_two_parts_of_the_contents_array() {
+    let parts = ["/OC /oc BDC", "20 20 60 60 re f EMC 0 0 10 10 re f"];
+
+    let visible = render(pdf_of_two_parts(
+        ONE_GROUP_ON,
+        "/Properties << /oc 5 0 R >>",
+        parts,
+        GROUP,
+    ));
+    assert!(drew(&visible), "the group is on, so the square is drawn");
+    assert!(
+        pixel(&visible, 5, 5)[3] > 0,
+        "and so is the rectangle after the EMC"
+    );
+
+    let hidden = render(pdf_of_two_parts(
+        ONE_GROUP_OFF,
+        "/Properties << /oc 5 0 R >>",
+        parts,
+        GROUP,
+    ));
+    assert!(
+        !drew(&hidden),
+        "the section opened in the first part governs the square in the second"
+    );
+    assert!(
+        pixel(&hidden, 5, 5)[3] > 0,
+        "and the EMC in the second part ends it, so what follows is drawn"
+    );
 }
 
 /// Hiding stops the marking and nothing else.
