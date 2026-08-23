@@ -183,6 +183,15 @@ as user `AI` via `sudo -u AI`, reaching `/home/cl/projects/pdf-viewer` through t
   believing a step count measured this way. Found in the two-hundred-and-fourteenth session,
   checking Ctrl + wheel in the window.
 
+  **A key pressed twice in a row is sometimes one key here.** `xdotool type --delay 80 zzz` puts
+  **two** characters into a text field, and `xdotool key --delay 300 z z z` puts three: X's own
+  auto-repeat detection folds identical keycodes that arrive close together, so a repeated
+  character is lost. It is the same shape as the wheel note above and the same rule follows —
+  **a repeated key needs a delay of a few hundred milliseconds before the count means anything**.
+  Found in the six-hundred-and-ninety-fifth session, typing a password into §7.6.4.1's prompt and
+  counting the bullets, which is the one interface in this tree that shows a character count and
+  no characters.
+
   **And the pointer has to be inside the window**, which is 800×1000 on a 900×1100 screen: a
   `mousemove` to 850 produces no wheel event at all and looks exactly like a binding that does
   not work. `xdotool getwindowgeometry` first.

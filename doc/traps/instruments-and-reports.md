@@ -99,6 +99,40 @@ Two rules:
   first; without `doc/md` three sweeps refuse outright, and without the rest `pointers` reports
   dozens of live paths as "not carried" and the comparison invents deltas the round did not cause.
 
+### 16. A *gate's* answer can depend on which build directory it was compiled in
+
+Trap 15 is a sweep binary that carries the wrong **tree**. This is the same family one step further
+in, and it is worse because the instrument is a **ratchet**: the same sources, built in two
+different `target-dir`s, gave two different numbers, and one of them passed the gate.
+
+The six-hundred-and-ninety-fifth session found the accessibility census failing —
+`elements placed by their own marks: 93258, and it was 93267` — and checked whether the round had
+caused it, by adding a scratch `git worktree` at its own branch point (`main`'s HEAD, unmodified)
+and running the census there. **It printed 93267 and passed.** Which would have said the round's
+change had moved nine elements — except that the scratch worktree had no `target-dir` of its own and
+so had built into `/home/AI/cargo-target/pdf-viewer`, the *main* tree's. Re-run with
+`CARGO_TARGET_DIR` pointed at an empty directory, the same worktree at the same commit printed
+**93258 and failed**, which is what the round's own tree printed. Three runs each way, deterministic
+both ways.
+
+So: the ratchet had been broken on `main` for some time — at least back to the merge of round 686,
+which is as far as this session bisected — and the shared directory was answering with something
+that no from-scratch build of those sources produces. **What the mechanism is was not established**,
+and saying so is the point: `pdf-spec/build.rs` does emit `cargo:rerun-if-changed` for the Arlington
+TSVs, `main`'s working tree and its submodules were clean, and no `RUSTFLAGS` differed. It is
+recorded as an *observation with a command behind it* rather than as a diagnosis.
+
+Two rules, and the first is the cheap one:
+
+- **A round that suspects its own change of moving a gate compares against a build of the branch
+  point in a directory of its own.** `git worktree add <scratch> <base>` plus
+  `CARGO_TARGET_DIR=<empty dir>` — without the second half the comparison is worth nothing, and it
+  is exactly the half that is easy to forget because a worktree *usually* inherits a `target-dir`
+  from `.cargo/config.toml` and a scratch one has none.
+- **A gate that fails is not a gate to argue with from a document.** The census floors are not
+  written anywhere but in the test, which is why this was caught at all; had the number been
+  recorded in a note somewhere, "unchanged" was available for free (ADR 0281's whole argument).
+
 ### 10a. A cached reference render is a fourth thing that can be stale
 
 The key is built from the invocation itself plus the renderer's version and the document's

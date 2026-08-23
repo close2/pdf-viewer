@@ -387,7 +387,7 @@ fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
         .handle(Command::Open {
             id: DOCUMENT,
             bytes,
-            password: Some("abc".to_owned()),
+            password: Some("abc".to_owned().into()),
             fragment: None,
         })
         .collect();

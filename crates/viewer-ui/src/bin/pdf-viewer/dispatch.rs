@@ -6,19 +6,11 @@
 //! the work itself in the module the arm names.
 
 use std::collections::VecDeque;
-use std::io::Write as _;
 
 use viewer_core::{Command, Event};
 
 use crate::app::App;
 use crate::trace::{Topic, describe_command, describe_event};
-
-/// How many passwords a person is asked for before the program gives up.
-///
-/// §7.6.4.1 states no limit — it says a processor tries the empty password and then prompts —
-/// so this is a choice about a terminal rather than about the clause, and an empty line cancels
-/// before it is reached.
-const PASSWORD_ATTEMPTS: usize = 3;
 
 impl App {
     /// Hands a command to the core and deals with everything that comes back.
@@ -109,7 +101,7 @@ impl App {
                     eprintln!("the document has no pages");
                     std::process::exit(1);
                 }
-                self.attempts = 0;
+                self.asking.opened();
                 self.gather();
             }
             Event::OpenFailed { reason, .. } => {
@@ -226,18 +218,89 @@ impl App {
 impl App {
     /// §7.6.4.1: a processor tries the default user password and then prompts.
     ///
-    /// This is the prompt, and it is the whole of what this program owed the clause. Split out of
-    /// [`Self::react`] rather than written there because the *file* it re-opens has two
-    /// provenances since Annex O's `ef` opened one.
-    fn ask_again(&mut self, document: viewer_core::DocumentId, queue: &mut VecDeque<Command>) {
-        self.attempts = self.attempts.saturating_add(1);
-        if self.attempts > PASSWORD_ATTEMPTS {
-            eprintln!("{}: too many attempts", self.title);
-            std::process::exit(1);
+    /// **This used to write to `stderr`, read `stdin` and call `std::process::exit(1)` when there
+    /// was no terminal**, which is the one place in this program that answered a document on a
+    /// file descriptor and the only one that left the process for want of one. §7.6.4.1's NOTE 2
+    /// describes the processor that genuinely cannot ask — "non-interactive PDF readers that do
+    /// not have a person running them such as printing off-line or on a server" — and a window on
+    /// a screen is not one of them whatever it was launched from, so a desktop launcher could not
+    /// open an encrypted document at all. What replaces it is a modal card this host draws for
+    /// itself, `viewer_ui::chrome::PasswordCard`, which is the tier-2 counterpart of
+    /// `viewer-gtk`'s `gtk4::PasswordEntry` and `viewer-qt`'s `QLineEdit`.
+    ///
+    /// The *policy* is [`viewer_host::password`]'s and is shared with those two: how many attempts,
+    /// what to say when they are used up, and that an empty entry is a decline.
+    fn ask_again(&mut self, document: viewer_core::DocumentId, _queue: &mut VecDeque<Command>) {
+        self.locked = Some(document);
+        // Exhaustive over `Ask` on purpose: a case added to `viewer-host` fails to compile in all
+        // three hosts, which is what holds the level-hosts decision up (ADR 0526's shape).
+        match self.asking.required() {
+            viewer_host::Ask::Prompt { attempt, of } => {
+                self.password
+                    .ask(viewer_host::password::prompt(&self.title, attempt, of));
+                self.redraw();
+            }
+            viewer_host::Ask::Exhausted => {
+                println!("note: {}", viewer_host::password::EXHAUSTED);
+                self.redraw();
+            }
         }
-        let Some(password) = ask_password(&self.title) else {
-            eprintln!("{}: needs a password", self.title);
-            std::process::exit(1);
+    }
+
+    /// A key press while §7.6.4.1's card has the keyboard.
+    ///
+    /// Every key is taken, which is what *modal* means here and is stronger than the find bar's
+    /// version of the same rule: the document behind this card is **not open**, so a key that
+    /// turned a page would be turning a page that does not exist. Escape and an empty Enter are
+    /// the same fact about the person, and [`viewer_host::password::supplied`] is where that is
+    /// decided rather than here.
+    pub(crate) fn password_key(&mut self, key: &winit::keyboard::Key<&str>) {
+        use winit::keyboard::{Key, NamedKey};
+        match key {
+            Key::Named(NamedKey::Escape) => {
+                // Discards what was typed and then answers, so that Escape and an empty Enter
+                // reach `viewer_host::password::supplied` by the same route and one place decides
+                // what a decline means. The same answer a `QDialog` dismissed with Escape gives in
+                // `viewer-qt`.
+                self.password.clear();
+                self.password_answered();
+            }
+            Key::Named(NamedKey::Enter) => self.password_answered(),
+            Key::Named(NamedKey::Backspace) => {
+                self.password.backspace();
+                self.redraw();
+            }
+            Key::Named(NamedKey::Space) => {
+                self.password.typed(" ");
+                self.redraw();
+            }
+            Key::Character(text) if !text.is_empty() => {
+                self.password.typed(text);
+                self.redraw();
+            }
+            // A key with no character and no meaning here. Taken anyway, for the reason above.
+            _ => {}
+        }
+    }
+
+    /// The card was answered: open again with what was typed, or say why nothing opened.
+    ///
+    /// Called from the window, which is where the keyboard is. The [`viewer_core::Secret`] moves
+    /// from the card into [`Command::Open`] and is dropped with the command — no copy of it exists
+    /// in this host at any point, and none of it reaches a trace.
+    pub(crate) fn password_answered(&mut self) {
+        let typed = self.password.take();
+        let Some(document) = self.locked else {
+            return;
+        };
+        self.redraw();
+        // Exhaustive over `Supplied` on purpose, for `ask_again`'s reason.
+        let secret = match viewer_host::password::supplied(typed) {
+            viewer_host::Supplied::Open(secret) => secret,
+            viewer_host::Supplied::Cancelled => {
+                println!("note: {}", viewer_host::password::CANCELLED);
+                return;
+            }
         };
         // The file again — off the disk, or out of the document it was embedded in, which is where
         // Annex O's `ef` left it: §7.11.4 puts an embedded file inside another document, so there
@@ -245,27 +308,22 @@ impl App {
         let bytes = if let Some(bytes) = self.embedded.clone() {
             bytes
         } else {
-            let Ok(bytes) = std::fs::read(&self.path) else {
-                eprintln!("cannot re-read {}", self.title);
-                std::process::exit(1);
-            };
-            bytes
+            // Trap 5, and the second `exit` this method used to carry: a file that has gone away
+            // between the first open and the second is a fact about this machine, and a window that
+            // vanished rather than saying so would be answering nothing.
+            match std::fs::read(&self.path) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    println!("note: cannot re-read {}: {error}", self.title);
+                    return;
+                }
+            }
         };
-        queue.push_back(Command::Open {
+        self.dispatch(Command::Open {
             id: document,
             bytes,
-            password: Some(password),
+            password: Some(secret),
             fragment: self.fragment.clone(),
         });
     }
-}
-
-/// Reads a password from the terminal, or `None` if the person cancelled with an empty line.
-fn ask_password(name: &str) -> Option<String> {
-    eprint!("{name} needs a password (empty line to give up): ");
-    std::io::stderr().flush().ok()?;
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line).ok()?;
-    let password = line.trim_end_matches(['\r', '\n']).to_owned();
-    (!password.is_empty()).then_some(password)
 }

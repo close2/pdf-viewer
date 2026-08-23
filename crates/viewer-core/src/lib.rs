@@ -100,6 +100,7 @@ mod search;
 mod select;
 mod viewer;
 
+pub mod secret;
 pub mod transition;
 
 pub use accessibility::{AccessibilityNode, Character, TextLine};
@@ -120,4 +121,5 @@ pub use query::{
     PageStructure, PopupWindow, Query, Selected,
 };
 pub use readback::ReadbackCache;
+pub use secret::Secret;
 pub use viewer::{DocumentId, RenderToken, Viewer};

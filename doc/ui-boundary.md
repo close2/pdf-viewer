@@ -188,7 +188,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `pdf-viewer --trace=search` is what prints it. The rule this establishes for the next such
   number: **if a host would draw it, it is a `Query`; if a person would read it, it is a method**
   (ADR 0256).
-- `Command`: `Open { id, bytes, password, fragment }`, `Close`, `Focus`, `Resize { width, height, scale }`,
+- `Command`: `Open { id, bytes, password, fragment }` — the password a `viewer_core::Secret` since
+  the six-hundred-and-ninety-fifth session, because this enum derives `Debug` and two hosts trace a
+  command by printing one (ADR 0545) — `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
   `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
   §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —

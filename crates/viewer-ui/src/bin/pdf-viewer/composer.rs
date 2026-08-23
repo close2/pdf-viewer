@@ -340,6 +340,29 @@ impl Composer {
         Ok(true)
     }
 
+    /// Puts the chrome on a window that has no page under it at all.
+    ///
+    /// **The window before any document is open**, which since the six-hundred-and-ninety-fifth
+    /// session is a window with something to say: §7.6.4.1's card is drawn over a document that
+    /// has not authenticated, and there is no held frame to compose it onto — [`Self::put_up`]
+    /// answers `Ok(false)` for exactly that state, which was right while nothing was ever drawn
+    /// there and is not right now.
+    ///
+    /// Nothing is retained and nothing is marked as presented: these pixels are not a picture of
+    /// any page, so no later view change may carry them or stand in with them.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the software surface or the rasteriser refused.
+    pub(crate) fn put_up_without_a_page(
+        &mut self,
+        extent: (u32, u32),
+        overlays: &[&DisplayList],
+    ) -> Result<(), SoftwareError> {
+        let ground = viewer_ui::software::surround(extent.0, extent.1)?;
+        self.surface.present(&ground, overlays)
+    }
+
     /// Draws the layers a stand-in is made of into one window raster and puts that on the window.
     ///
     /// `base` is [`crate::stale::Stale::reproject`]'s answer and `None` where the sharp layer was

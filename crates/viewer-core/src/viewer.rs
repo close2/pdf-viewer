@@ -361,7 +361,7 @@ impl Viewer {
                 bytes,
                 password,
                 fragment,
-            } => self.open(id, bytes, password.as_deref(), fragment.as_deref(), events),
+            } => self.open(id, bytes, password.as_ref(), fragment.as_deref(), events),
             Command::Close(id) => {
                 if self.documents.remove(&id).is_some() {
                     events.push(Event::Closed(id));
@@ -466,7 +466,7 @@ impl Viewer {
         &mut self,
         id: DocumentId,
         bytes: Vec<u8>,
-        password: Option<&str>,
+        password: Option<&crate::Secret>,
         fragment: Option<&str>,
         events: &mut Vec<Event>,
     ) {

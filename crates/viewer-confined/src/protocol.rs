@@ -752,7 +752,7 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
                 .u8(k::OPEN)
                 .document(*id)
                 .bytes(bytes)
-                .option_str(password.as_deref())
+                .option_str(password.as_ref().map(viewer_core::Secret::reveal))
                 .option_str(fragment.as_deref());
         }
         Command::Tick { millis } => {
@@ -922,7 +922,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
         k::OPEN => Command::Open {
             id: reader.document(what)?,
             bytes: reader.bytes("a document's bytes")?.to_vec(),
-            password: reader.option_string("a password")?,
+            password: reader.option_string("a password")?.map(Into::into),
             fragment: reader.option_string("a fragment identifier")?,
         },
         k::TICK => Command::Tick {
@@ -2589,7 +2589,7 @@ mod tests {
             Command::Open {
                 id: DocumentId(7),
                 bytes: b"%PDF-2.0".to_vec(),
-                password: Some("secret".to_owned()),
+                password: Some("secret".to_owned().into()),
                 fragment: Some("page=3".to_owned()),
             },
             Command::Tick { millis: 16 },
@@ -2720,6 +2720,32 @@ mod tests {
                 "a command changed on the way through"
             );
         }
+    }
+
+    /// §7.6.4.1's password crosses whole, which the comparison above can no longer see.
+    ///
+    /// `Command`'s `Debug` compares every field of every variant, and since the
+    /// six-hundred-and-ninety-fifth session a `viewer_core::Secret` prints how many characters it
+    /// holds and not which — the property that keeps it out of a launch log. That is exactly the
+    /// property that would let a transport corrupt a password into another of the same length with
+    /// the test above still green, so the one field the general check went blind to gets its own.
+    #[test]
+    fn a_password_crosses_the_transport_unchanged() {
+        let command = Command::Open {
+            id: DocumentId(7),
+            bytes: b"%PDF-2.0".to_vec(),
+            password: Some("m\u{fc}hsam gew\u{e4}hlt".to_owned().into()),
+            fragment: None,
+        };
+        let read = decode_command(&encode_command(&command).unwrap()).unwrap();
+        let Command::Open { password, .. } = read else {
+            panic!("an Open decoded as something else");
+        };
+        assert_eq!(
+            password.as_ref().map(viewer_core::Secret::reveal),
+            Some("m\u{fc}hsam gew\u{e4}hlt"),
+            "the password changed on the way through"
+        );
     }
 
     /// Every event that crosses, encoded and read back.
@@ -3951,7 +3977,7 @@ mod tests {
             encode_command(&Command::Open {
                 id: DocumentId(3),
                 bytes: b"%PDF-2.0\n1 0 obj".to_vec(),
-                password: Some("p".to_owned()),
+                password: Some("p".to_owned().into()),
                 fragment: None,
             })
             .unwrap(),

@@ -43,13 +43,6 @@ use crate::page;
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
 
-/// §7.6.4.1: how many times a password is asked for before the host gives up.
-///
-/// The clause states no number — it says a processor shall ask — so this is a host's choice, and
-/// it is deliberately the same three `viewer-gtk` makes so that the two hosts differ in their
-/// toolkit and in nothing else.
-const PASSWORD_ATTEMPTS: u32 = 3;
-
 /// The window this host asks Qt for, in logical pixels.
 ///
 /// The same 1000×1100 `viewer-gtk` asks for, for the same reason: two hosts whose windows are the
@@ -132,8 +125,10 @@ pub struct Host {
     /// clause allows one and the person asked for one, so leaving full screen puts back what the
     /// reader had. `o` is the key, in all three hosts since ADR 0526.
     panel_shown: bool,
-    /// How many times §7.6.4.1's password has been asked for.
-    attempts: u32,
+    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
+    asking: viewer_host::Asking,
+    /// What to put above the entry, worded when the prompt is asked for and read once by C++.
+    prompt: String,
     /// Whether the document has been opened yet, which waits for the first resize.
     opened: bool,
     /// Whether anything is unsaved.
@@ -257,7 +252,8 @@ impl Host {
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
-            attempts: 0,
+            asking: viewer_host::Asking::new(),
+            prompt: String::new(),
             opened: false,
             dirty: false,
             caption: String::new(),
@@ -864,9 +860,19 @@ impl Host {
         self.dispatch(Command::Activate(annotation));
     }
 
-    /// §7.6.4.1: a person typed a password.
+    /// §7.6.4.1: a person typed a password, or closed the prompt with nothing in it.
+    ///
+    /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
     pub(crate) fn supply_password(&mut self, password: &str) {
-        self.open_document(Some(password.to_owned()));
+        match viewer_host::password::supplied(password.to_owned().into()) {
+            viewer_host::Supplied::Open(secret) => self.open_document(Some(secret)),
+            viewer_host::Supplied::Cancelled => self.say(viewer_host::password::CANCELLED),
+        }
+    }
+
+    /// §7.6.4.1: what the prompt says, worded by [`viewer_host::password`] for all three hosts.
+    pub(crate) fn password_prompt(&self) -> String {
+        self.prompt.clone()
     }
 
     /// A toolbar button.
@@ -1364,7 +1370,7 @@ impl Host {
     // ---------------------------------------------------------------------------------------
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
-    fn open_document(&mut self, password: Option<String>) {
+    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
         let bytes = self.bytes.clone();
         let fragment = self.fragment.clone();
         // §6.3.2.2's instruction goes first, so that page one is interpreted once. It is a
@@ -1414,23 +1420,29 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                self.asking.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
                 self.say(&format!("cannot open {}: {reason}", self.path.display()));
             }
-            // §7.6.4.1: "the interactive PDF processor shall … prompt the user for a password".
-            // The prompt is a window, and a window is a host's — which is the whole reason this
-            // event exists rather than a refusal.
-            Event::PasswordRequired { .. } => {
-                self.attempts = self.attempts.saturating_add(1);
-                if self.attempts > PASSWORD_ATTEMPTS {
-                    self.say("too many password attempts");
-                    return;
+            // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
+            // is a window, and a window is a host's — which is the whole reason this event exists
+            // rather than a refusal. How many times to ask is `viewer_host::password`'s, because
+            // the clause states no number and three hosts held three copies of the same three.
+            //
+            // Exhaustive over `Ask` on purpose: a case added there fails to compile here.
+            Event::PasswordRequired { .. } => match self.asking.required() {
+                viewer_host::Ask::Prompt { attempt, of } => {
+                    let words = viewer_host::password::prompt(&named(&self.path), attempt, of);
+                    // One `QLabel` for both, which is this toolkit's arrangement of the same two
+                    // sentences `viewer-gtk` puts in two labels and the card draws in two colours.
+                    self.prompt = format!("{}\n{}", words.question, words.counted);
+                    self.update.password = true;
                 }
-                self.update.password = true;
-            }
+                viewer_host::Ask::Exhausted => self.say(viewer_host::password::EXHAUSTED),
+            },
             // Two events with nothing to do here, for two different reasons. A close drops
             // everything derived from the document and this host opens one document and never
             // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the

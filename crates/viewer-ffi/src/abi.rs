@@ -256,6 +256,7 @@ pub unsafe extern "C" fn pdfv_open(
         return Status::NotUtf8.code();
     };
     let file = core::slice::from_raw_parts(bytes, len).to_vec();
+    let password = password.map(viewer_core::Secret::from);
     *events = Box::into_raw(Box::new(viewer.open(document, file, password, fragment)));
     Status::Ok.code()
 }

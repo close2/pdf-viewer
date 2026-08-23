@@ -49,6 +49,17 @@ impl App {
         Some(self.about.draw(chrome, crate::NOTICE, width, height, scale))
     }
 
+    /// §7.6.4.1's card, where the document has asked for a password.
+    ///
+    /// Beside the notices card rather than in a module of its own for the reason the notices card
+    /// is here: both are modal chrome this host draws over the page, and both are one call into
+    /// `viewer_ui::chrome`.
+    pub(crate) fn password_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.password.draw(chrome, width, height, scale)
+    }
+
     /// §8.11.4.3's `/Order`, asked for fresh.
     ///
     /// Unlike the outline and the attachments this is *not* cached: a click on a layer's switch

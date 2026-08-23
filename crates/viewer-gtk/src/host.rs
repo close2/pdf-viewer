@@ -43,13 +43,6 @@ use crate::{controls, page, tree};
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
 
-/// §7.6.4.1: how many times a password is asked for before the host gives up.
-///
-/// The clause states no number — it says a processor shall ask — so this is a host's choice and
-/// it is the one every login prompt makes. A host that asked forever would be a host a person
-/// cannot leave.
-const PASSWORD_ATTEMPTS: u32 = 3;
-
 /// Why the host could not start.
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
@@ -173,8 +166,8 @@ pub struct Host {
     me: Weak<RefCell<Self>>,
     /// Device pixels per logical pixel, from the display GTK put the window on.
     scale: i32,
-    /// How many times §7.6.4.1's password has been asked for.
-    attempts: u32,
+    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
+    asking: viewer_host::Asking,
     /// Whether the document has been opened yet, which waits for the first allocation.
     opened: bool,
     /// Whether anything is unsaved.
@@ -340,7 +333,7 @@ impl Host {
                 suppress: Rc::new(Cell::new(false)),
                 me: me.clone(),
                 scale: 1,
-                attempts: 0,
+                asking: viewer_host::Asking::new(),
                 opened: false,
                 dirty: false,
                 caption: String::new(),
@@ -407,7 +400,7 @@ impl Host {
     }
 
     /// §7.6.4.1: opens the document, with a password where one has been supplied.
-    fn open_document(&mut self, password: Option<String>) {
+    fn open_document(&mut self, password: Option<viewer_core::Secret>) {
         let bytes = self.bytes.clone();
         let fragment = self.fragment.clone();
         // §6.3.2.2's instruction goes first, so that page one is interpreted once. It is a
@@ -459,23 +452,23 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                self.asking.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
                 self.say(&format!("cannot open {}: {reason}", self.path.display()));
             }
-            // §7.6.4.1: "the interactive PDF processor shall … prompt the user for a password".
-            // The prompt is a window, and a window is a host's — which is the whole reason this
-            // event exists rather than a refusal.
-            Event::PasswordRequired { .. } => {
-                self.attempts = self.attempts.saturating_add(1);
-                if self.attempts > PASSWORD_ATTEMPTS {
-                    self.say("too many password attempts");
-                    return;
-                }
-                self.ask_for_a_password();
-            }
+            // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
+            // is a window, and a window is a host's — which is the whole reason this event exists
+            // rather than a refusal. How many times to ask is `viewer_host::password`'s, because
+            // the clause states no number and three hosts held three copies of the same three.
+            //
+            // Exhaustive over `Ask` on purpose: a case added there fails to compile here.
+            Event::PasswordRequired { .. } => match self.asking.required() {
+                viewer_host::Ask::Prompt { attempt, of } => self.ask_for_a_password(attempt, of),
+                viewer_host::Ask::Exhausted => self.say(viewer_host::password::EXHAUSTED),
+            },
             // Two events with nothing to do here, for two different reasons. A close drops
             // everything derived from the document and this host opens one document and never
             // closes it; damage is what a tier-1 host repaints from `Query::Frame`, and the
@@ -882,7 +875,11 @@ impl Host {
     }
 
     /// §7.6.4.1's prompt, in a window of the platform's own.
-    fn ask_for_a_password(&mut self) {
+    ///
+    /// The words are [`viewer_host::password`]'s so that three hosts ask the same question; the
+    /// `gtk4::PasswordEntry` is this toolkit's answer to *what a password entry is* and is the
+    /// whole of what this method adds.
+    fn ask_for_a_password(&mut self, attempt: u32, of: u32) {
         let dialog = gtk4::Window::new();
         dialog.set_title(Some("Password"));
         dialog.set_modal(true);
@@ -893,37 +890,88 @@ impl Host {
         column.set_margin_bottom(12);
         column.set_margin_start(12);
         column.set_margin_end(12);
-        let label = gtk4::Label::new(Some(&format!(
-            "{} is encrypted (§7.6.4.1).",
-            named(&self.path)
-        )));
+        let words = viewer_host::password::prompt(&named(&self.path), attempt, of);
+        let label = gtk4::Label::new(Some(&words.question));
         label.set_xalign(0.0);
+        label.set_wrap(true);
         column.append(&label);
         let entry = gtk4::PasswordEntry::new();
         entry.set_show_peek_icon(true);
         entry.set_activates_default(true);
         column.append(&entry);
+        let count = gtk4::Label::new(Some(&words.counted));
+        count.set_xalign(0.0);
+        count.add_css_class("dim-label");
+        column.append(&count);
         let open = gtk4::Button::with_label("Open");
         open.add_css_class("suggested-action");
         column.append(&open);
         dialog.set_child(Some(&column));
 
+        // **Whether the prompt was answered lives beside the dialogue rather than on the host**,
+        // and that is not a style choice: `GtkWindow::close` fires `close-request`
+        // *synchronously*, so a flag set inside the handler that runs after it is still false when
+        // the close handler reads it — which is what happened here first time, and every password
+        // supplied was reported as a decline.
+        let answered = Rc::new(Cell::new(false));
+
         let me = self.me.clone();
         let dialogue = dialog.clone();
         let typed = entry.clone();
+        let done = Rc::clone(&answered);
         open.connect_clicked(move |_| {
-            let password = typed.text().to_string();
+            let password = taken_from(&typed);
+            done.set(true);
             dialogue.close();
-            with(&me, |host| host.open_document(Some(password)));
+            with(&me, |host| host.supply_password(password));
         });
         let me = self.me.clone();
         let dialogue = dialog.clone();
+        let done = Rc::clone(&answered);
         entry.connect_activate(move |typed| {
-            let password = typed.text().to_string();
+            let password = taken_from(typed);
+            done.set(true);
             dialogue.close();
-            with(&me, |host| host.open_document(Some(password)));
+            with(&me, |host| host.supply_password(password));
         });
+        // Escape is the platform's own way out of a modal window, and closing it without typing has
+        // to be a *decline* rather than silence — trap 5, in a window a person walked away from.
+        // `close-request` fires for the button and for the key alike, so it answers only where
+        // nothing was supplied through the two handlers above.
+        let me = self.me.clone();
+        dialog.connect_close_request(move |_| {
+            if !answered.get() {
+                with(&me, |host| host.say(viewer_host::password::CANCELLED));
+            }
+            glib::Propagation::Proceed
+        });
+        // **Escape closes it, and this is the toolkit's own gap rather than an extra.** A
+        // `GtkDialog` binds that key and is deprecated in the release this crate targets; a plain
+        // `GtkWindow` binds nothing, so without this controller the only way out of the prompt is
+        // the window manager's close button — and a reader with a keyboard could not decline at
+        // all. Driven under `Xvfb`, where there is no window manager to have hidden it: the other
+        // two hosts declined on Escape and this one did nothing.
+        let dialogue = dialog.clone();
+        let keys = gtk4::EventControllerKey::new();
+        keys.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk4::gdk::Key::Escape {
+                dialogue.close();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        dialog.add_controller(keys);
         dialog.present();
+    }
+
+    /// §7.6.4.1: a person typed a password, or dismissed the prompt with nothing in it.
+    ///
+    /// Exhaustive over `Supplied` on purpose, which is what holds three hosts level.
+    fn supply_password(&mut self, password: viewer_core::Secret) {
+        match viewer_host::password::supplied(password) {
+            viewer_host::Supplied::Open(secret) => self.open_document(Some(secret)),
+            viewer_host::Supplied::Cancelled => self.say(viewer_host::password::CANCELLED),
+        }
     }
 
     /// §7.5.6's update, written beside the document rather than over it.
@@ -1704,6 +1752,18 @@ fn named(path: &Path) -> String {
         || path.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     )
+}
+
+/// §7.6.4.1's password out of the entry it was typed into, and out of the entry.
+///
+/// The widget is emptied on the way past. GTK's own buffer is not this program's to clear — a
+/// `GtkPasswordEntry` holds a `GtkEntryBuffer` whose storage is glib's — so what this buys is that
+/// the *live* widget stops holding it, which is the part a host can reach; the rest is
+/// [`viewer_core::Secret`]'s and is documented there as best effort.
+fn taken_from(entry: &gtk4::PasswordEntry) -> viewer_core::Secret {
+    let password = viewer_core::Secret::from(entry.text().to_string());
+    entry.set_text("");
+    password
 }
 
 /// Runs `what` against the host, or says why it could not.

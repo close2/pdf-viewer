@@ -344,8 +344,8 @@ one thing for all of them: `viewer-ui` is tier 2 and draws its own chrome, the t
 place somebody else's widgets, and `viewer-ffi` draws nothing and hands a caller data. Today
 "level" is false in *both* directions — `viewer-ui` is ahead on everything that reads a document
 (six sidebar tabs against three, thumbnails, articles, properties, the collection, popup windows,
-the caret) and behind on everything that changes one (no native controls, and a password prompt that
-reads `stdin` and exits when there is no terminal). **The markup keys, the copy key and the undo
+the caret) and behind on everything that changes one (no native controls; **the password prompt came off that
+list in the six-hundred-and-ninety-fifth**, ADR 0545). **The markup keys, the copy key and the undo
 binding came off that list in the six-hundred-and-eighty-seventh** (ADR 0526): they are rows of one
 key table now, so being ahead or behind on a *binding* is no longer a thing a host can be.
 
@@ -429,8 +429,37 @@ key table now, so being ahead or behind on a *binding* is no longer a thing a ho
    real `GtkEntry` or `QLineEdit` has the focus, so the toolkit's own traversal takes Tab before any
    window controller sees it — what is walked there is the toolkit's order rather than Table 31's
    `/Tabs`, which is a platform's behaviour and not something this tree can take back.
-3. **`viewer-ui`'s password prompt**, which is the one place this program answers a document on
-   `stderr` and `stdin` and the only one that exits the process when nobody is listening.
+3. ~~**`viewer-ui`'s password prompt**~~ — **taken in the six-hundred-and-ninety-fifth**
+   (ADR 0545), and **it needed no message**, which is the ninth time since the
+   six-hundred-and-seventh. `viewer_ui::chrome::PasswordCard` is the tier-2 counterpart of
+   `gtk4::PasswordEntry` and a `QLineEdit` at `QLineEdit::Password`, and `viewer_host::password` is
+   the *policy* all three now share: the attempts, the two sentences, and one format string for the
+   question each of them used to build for itself.
+
+   **Three things this entry did not predict, and each is worth more than the item was.**
+
+   The clause's modal verb is `should` and both native hosts quoted it as `shall`, in quotation
+   marks, with four words added — *"the interactive PDF processor shall … prompt the user for a
+   password"*, a sentence ISO 32000-2 does not contain. The quotation gate could not see it because
+   it reads rustdoc blockquotes and these were `//` comments, which is a limit of the instrument
+   worth knowing. And §7.6.4.1's NOTE 2 is what makes `exit(1)` the *wrong reading* rather than
+   merely awkward: it describes the processor that genuinely cannot ask as "non-interactive PDF
+   readers that do not have a person running them such as printing off-line or on a server", and a
+   window on a screen is not one whatever it was launched from.
+
+   **The password was one struct field's declaration order away from a launch log.** `Command`
+   derives `Debug`, `viewer-gtk` and `viewer-qt` trace a command with `format!("{command:?}")`
+   truncated to 120 characters, and `bytes` happens to be declared before `password` — so a
+   `Vec<u8>`'s five-characters-a-byte `Debug` cut the line before the secret. `viewer_core::Secret`
+   is the type now: it prints how many characters it holds and not which, has no `Display`, zeroes
+   its buffer on drop, and reserves §7.6.4.1's own 127-byte truncation point so that a password the
+   standard reads whole never reallocates. Five consumers failed to compile, which is the fifth use
+   of that mechanism.
+
+   **And a piece of chrome had a third way not to reach the screen**, one round after 687 found the
+   first two. `App::present` began `let first = pages.first()?;`, so a window with **no page** drew
+   no frame at all — and a document that has not authenticated is exactly that window.
+   `Surface::without_a_page` draws the chrome over `pdf_render::SURROUND` on both surfaces.
 4. **§12.3.4's thumbnails, §12.4.3's articles and §14.3.3's properties in the two native hosts.**
    All three queries exist and answer; both hosts state the gap in a comment.
 5. **The C ABI's other half** — `tools/state.sh hosts` says how many `Query` variants a C caller

@@ -184,8 +184,23 @@ pub(crate) struct App {
     pub(crate) pinch: f32,
     /// Whether anything a person did is unsaved.
     pub(crate) dirty: bool,
-    /// How many passwords have been asked for.
-    pub(crate) attempts: usize,
+    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
+    pub(crate) asking: viewer_host::Asking,
+    /// §7.6.4.1's prompt, over the page — this host's own, because it has no toolkit to ask.
+    pub(crate) password: viewer_ui::chrome::PasswordCard,
+    /// Whether this window has ever put chrome up over no page at all.
+    ///
+    /// What it decides is what an *empty* overlay list means on a window with no page:
+    /// before the first such frame it means the launch path — present nothing, so that no blank
+    /// frame goes up in front of page one — and after it, take the chrome away. See
+    /// [`App::without_a_page`](crate::surface).
+    pub(crate) drawn_without_a_page: bool,
+    /// Which document the prompt is about, from [`viewer_core::Event::PasswordRequired`].
+    ///
+    /// Kept because the card is answered on a later turn of the event loop than the one that put
+    /// it up: the identity is the *host's* by construction (`Command::Open` names it), so it is
+    /// carried rather than re-derived.
+    pub(crate) locked: Option<viewer_core::DocumentId>,
     /// The fonts this program draws its own text with, or why it cannot.
     ///
     /// An `Option` because a build whose compiled-in faces will not parse must still show the
