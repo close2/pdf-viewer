@@ -2104,7 +2104,7 @@ impl Interpreter<'_> {
     pub(super) fn note_transfer(&mut self, state: &GraphicsState, painted: Painted) {
         // Every mark's function is the one its own state states, shadings included since the
         // rebuild landed — so this is the whole of "some mark on this page carried one".
-        if state.transfer.is_some() {
+        if state.transfer.in_force().is_some() {
             self.transfer_painted = true;
         }
         if !self.transfer_painted {

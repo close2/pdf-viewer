@@ -463,3 +463,197 @@ fn a_pattern_is_painted_under_the_transfer_function_the_mark_states() {
         "the departure is closed rather than named: {reports:?}"
     );
 }
+
+/// The colour of the one solid fill a page paints, or a panic if it paints anything else.
+fn filled_colour(bytes: Vec<u8>) -> pdf_render::Color {
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    interpretation
+        .display_list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Fill {
+                paint: Paint::Solid(colour),
+                ..
+            } => Some(*colour),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "the page paints no solid fill: {:?}",
+                interpretation.unsupported
+            )
+        })
+}
+
+/// A §7.10.3 exponential that halves its input: `/C0 [0] /C1 [0.5] /N 1`.
+///
+/// Distinguishable from [`INVERT`] at every input, which is what makes an override legible: 1.0
+/// through this is 0.5, and through [`INVERT`] it is 0.0.
+const HALVE: &str = "<< /FunctionType 2 /Domain [0 1] /C0 [0] /C1 [0.5] /N 1 >>";
+
+/// ISO 32000-2 §10.5's **second** bullet: a halftone dictionary's `TransferFunction` wins.
+///
+/// > The current halftone parameter in the graphics state may specify transfer functions as
+/// > optional entries in halftone dictionaries (see 10.6.5, "Halftone dictionaries"). … A transfer
+/// > function specified in a halftone dictionary shall override the corresponding one specified by
+/// > the current transfer function parameter in the graphics state.
+///
+/// **This is a screen's business even though §10.6's screens are not**, and the standard separates
+/// them itself. §10.1 lists the rendering steps with only one of the two conditional on the device
+/// — "[i]f the raster output device supports PDF-defined halftoning, apply halftoning according to
+/// 10.6" against an unqualified "[f]or any object for which transfer functions are in effect, apply
+/// those transfer functions" — and §10.6.1 says what a device needing no screen still owes:
+/// "[h]alftoning is not required for such devices; after gamma correction by the transfer
+/// functions, the colour components shall be transmitted directly to the device."
+///
+/// The expected values are the functions' own arithmetic. §7.10.3 makes an exponential
+/// `C0 + x^N × (C1 − C0)`, so white through `HALVE` is 0.5 and white through `INVERT` is 0.0; the
+/// page states both, one in `/TR` and one in the halftone, and 0.5 is the only answer that says the
+/// halftone's won. The mutation is the same page with the halftone's entry removed, which leaves
+/// `/TR` alone and gives 0.0.
+#[test]
+fn a_halftone_dictionarys_transfer_function_overrides_the_graphics_states() {
+    let halftone = format!(
+        "/HT << /Type /Halftone /HalftoneType 1 /Frequency 60 /Angle 45 \
+         /SpotFunction /Round /TransferFunction {HALVE} >>"
+    );
+    let overridden = filled_colour(fixture(
+        &format!("/ExtGState << /G << /TR {INVERT} {halftone} >> >>"),
+        "/G gs 1 1 1 rg 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        (overridden.r - 0.5).abs() < LEVEL
+            && (overridden.g - 0.5).abs() < LEVEL
+            && (overridden.b - 0.5).abs() < LEVEL,
+        "the halftone's function decides every component: {overridden:?}"
+    );
+
+    let alone = filled_colour(fixture(
+        &format!("/ExtGState << /G << /TR {INVERT} >> >>"),
+        "/G gs 1 1 1 rg 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        alone.r < LEVEL,
+        "with no halftone the graphics state's function stands: {alone:?}"
+    );
+}
+
+/// `TransferFunction /Identity` is an override, not a silence — and it is what the crawl states.
+///
+/// Table 128: "( Optional ) A transfer function, which overrides the current transfer function in
+/// the graphics state for the same component. … The name Identity may be used to specify the
+/// identity function." So a halftone naming `Identity` **replaces** the `/TR` in force with the
+/// identity, which leaves the colour alone; a halftone with no `TransferFunction` at all leaves the
+/// `/TR` running. The two are one keyword apart in the file and a level apart on the page.
+///
+/// `examples/transfer_function_census` over the `SafeDocs` crawl finds three documents carrying a
+/// `TransferFunction` and every one of them names `Identity`, so this is the shape that exists
+/// rather than the one that is convenient — none of the three also states a `/TR`, which is why the
+/// fixture has to state both (trap 8).
+#[test]
+fn a_halftone_naming_identity_turns_the_graphics_states_function_off() {
+    let content = "/On gs /Half gs 1 1 1 rg 0 0 100 100 re f";
+    let off = filled_colour(fixture(
+        &format!(
+            "/ExtGState << /On << /TR {INVERT} >> \
+             /Half << /HT << /HalftoneType 1 /TransferFunction /Identity >> >> >>"
+        ),
+        content,
+        "",
+    ));
+    assert!(
+        (off.r - 1.0).abs() < LEVEL,
+        "an identity override leaves white white: {off:?}"
+    );
+
+    // The mutation: the same halftone with no `TransferFunction`, which says nothing about any
+    // component and leaves the `/TR` in force.
+    let silent = filled_colour(fixture(
+        &format!(
+            "/ExtGState << /On << /TR {INVERT} >> \
+             /Half << /HT << /HalftoneType 1 /Frequency 60 >> >> >>"
+        ),
+        content,
+        "",
+    ));
+    assert!(
+        silent.r < LEVEL,
+        "a halftone that says nothing does not override: {silent:?}"
+    );
+}
+
+/// A Type 5 halftone names its colourants, and each one governs its own component.
+///
+/// §10.6.5.6 lists the primaries of each native space — "Red , Green , and Blue for `DeviceRGB` " —
+/// and Table 132 makes `Default` "[a] halftone that shall be used for any colourant or colour
+/// component that does not have an entry of its own". So a dictionary naming `/Red` and `/Default`
+/// governs red by the first and green and blue by the second, and §10.5's "[e]ach colour component
+/// shall have its own separate transfer function; there shall not be interaction between
+/// components" is what makes reading the three separately correct rather than merely possible.
+///
+/// White in: red through `HALVE` is 0.5, green and blue through `INVERT` are 0.0.
+#[test]
+fn a_type_5_halftone_gives_each_colourant_its_own_function() {
+    let painted = filled_colour(fixture(
+        &format!(
+            "/ExtGState << /G << /HT << /Type /Halftone /HalftoneType 5 \
+             /Red << /HalftoneType 1 /TransferFunction {HALVE} >> \
+             /Default << /HalftoneType 1 /TransferFunction {INVERT} >> >> >> >>"
+        ),
+        "/G gs 1 1 1 rg 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        (painted.r - 0.5).abs() < LEVEL,
+        "/Red governs the red component: {painted:?}"
+    );
+    assert!(
+        painted.g < LEVEL && painted.b < LEVEL,
+        "/Default governs the two with no entry of their own: {painted:?}"
+    );
+}
+
+/// `/HT /Default` restores the device's halftone, and with it the graphics state's own function.
+///
+/// Table 57 defines the name: "the halftone that was in effect at the start of the page". Table 52
+/// says what that is — "a PDF reader shall initialise this to a suitable device dependent value" —
+/// and a halftone belonging to the device is not one of the "halftone dictionaries" §10.5's second
+/// bullet reads a `TransferFunction` out of. So the override comes off and the first bullet's `/TR`,
+/// which no `gs` here has touched, is in force again: white through `INVERT` is black.
+///
+/// The two parameters are independent, which is the whole reason this reader keeps them apart —
+/// `/HT /Default` must not clear a `/TR`, and `/TR /Identity` must not clear an `/HT`.
+#[test]
+fn a_default_halftone_takes_its_override_off_and_leaves_the_transfer_function() {
+    let resources = format!(
+        "/ExtGState << /On << /TR {INVERT} >> \
+         /Half << /HT << /HalftoneType 1 /TransferFunction {HALVE} >> >> \
+         /Device << /HT /Default >> \
+         /Off << /TR /Identity >> >>"
+    );
+    let restored = filled_colour(fixture(
+        &resources,
+        "/On gs /Half gs /Device gs 1 1 1 rg 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        restored.r < LEVEL,
+        "the halftone's override is gone and /TR is not: {restored:?}"
+    );
+
+    // And the other independence: `/TR /Identity` clears the first bullet and leaves the second.
+    let halftone_only = filled_colour(fixture(
+        &resources,
+        "/On gs /Half gs /Off gs 1 1 1 rg 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        (halftone_only.r - 0.5).abs() < LEVEL,
+        "the halftone's function survives /TR /Identity: {halftone_only:?}"
+    );
+}

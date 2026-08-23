@@ -309,7 +309,7 @@ impl Interpreter<'_> {
                 // point every sample is. Done here rather than in `image::decode_parts` because a
                 // transfer belongs to the *graphics state* the image is drawn under and not to the
                 // image, and the same XObject drawn twice under two states is two pictures.
-                image: decoded.source(|image| transferred_image(image, state.transfer.as_deref())),
+                image: decoded.source(|image| transferred_image(image, state.transfer.in_force())),
                 transform: state.transform,
                 alpha: state.fill_alpha,
                 clip: state.clip,

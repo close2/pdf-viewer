@@ -1,7 +1,8 @@
 //! `gs` and Table 57: the graphics state parameter dictionary, entry by entry.
 //!
-//! §10.5's transfer function lives here too, because Table 57's `/TR` and `/TR2` are the
-//! only way a file states one.
+//! §10.5's transfer function lives here too, because Table 57's `/TR`, `/TR2` and `/HT` are the
+//! three ways a file states one — the clause's own two bullets, the second of which reaches into a
+//! halftone dictionary and is why this module reads §10.6.5 for one entry and nothing else.
 
 use std::sync::Arc;
 
@@ -13,7 +14,11 @@ use super::report::Unsupported;
 use super::run::{name_at, narrow};
 use super::{GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_limit};
 
-/// ISO 32000-2 §10.5's transfer function, as Table 57's `/TR` and `/TR2` state it.
+/// ISO 32000-2 §10.5's transfer function: one map per component, ready to apply.
+///
+/// [`TransferState`] is what an `/ExtGState` sets — Table 57's `/TR` and `/TR2` for the clause's
+/// first bullet, `/HT` for its second — and this is the composition of the two that a colour goes
+/// through.
 ///
 /// > In the sequence of steps for processing colours, the PDF processor shall apply the transfer
 /// > function after performing any needed conversions between colour spaces.
@@ -41,10 +46,15 @@ use super::{GraphicsState, Interpreter, apply_dash, line_cap, line_join, miter_l
 /// clause is stated once and applied in every place a colour is made. Nothing outside this crate
 /// can construct one — [`Transfer::read`] is private and an `/ExtGState` is the only source the
 /// clause gives — so the public surface is what a caller needs to pass one on and no more.
+///
+/// **A channel is optional because the clause has two sources and they meet per component.** The
+/// second bullet lets a halftone dictionary carry a `TransferFunction` for one component and say
+/// nothing about the others, and [`TransferState`] composes the two; a channel that neither source
+/// names passes its component through untouched.
 #[derive(Debug, Clone)]
 pub struct Transfer {
     /// Red, green and blue. One stated function fills all three (`Arc` so it is not cloned).
-    channels: [Arc<crate::function::Function>; 3],
+    channels: [Option<Arc<crate::function::Function>>; 3],
 }
 
 impl Transfer {
@@ -91,9 +101,11 @@ impl Transfer {
                     out.push(function);
                 }
                 match (out.first(), out.get(1), out.get(2)) {
-                    (Some(first), Some(second), Some(third)) => {
-                        [first.clone(), second.clone(), third.clone()]
-                    }
+                    (Some(first), Some(second), Some(third)) => [
+                        Some(first.clone()),
+                        Some(second.clone()),
+                        Some(third.clone()),
+                    ],
                     _ => return Stated::Unsaid,
                 }
             }
@@ -104,7 +116,7 @@ impl Transfer {
                 let Some(one) = read(&entry) else {
                     return Stated::Unsaid;
                 };
-                [one.clone(), one.clone(), one]
+                [Some(one.clone()), Some(one.clone()), Some(one)]
             }
         };
         Stated::Set(Self { channels })
@@ -117,7 +129,10 @@ impl Transfer {
     /// different clause.
     #[must_use]
     pub fn apply(&self, colour: Color) -> Color {
-        let map = |function: &crate::function::Function, value: f32| {
+        let map = |channel: &Option<Arc<crate::function::Function>>, value: f32| {
+            let Some(function) = channel.as_ref() else {
+                return value;
+            };
             function
                 .eval(&[value.clamp(0.0, 1.0)])
                 .first()
@@ -147,6 +162,197 @@ enum Stated {
     None,
     /// A function, or four of them.
     Set(Transfer),
+}
+
+/// What a halftone dictionary said about **one** component's transfer function.
+///
+/// Three answers for the same reason [`Stated`] has three, one component down: §10.6.5's tables
+/// make `TransferFunction` optional and let its value be the name `Identity`, and those are
+/// different instructions. A halftone that says nothing leaves the graphics state's `/TR` in force
+/// for that component; one that names `Identity` **overrides it with the identity function**, which
+/// turns it off. Folding the two together would let a `/TR` survive an `/HT` written to stop it.
+#[derive(Debug, Clone, Default)]
+enum Component {
+    /// The halftone dictionary has no `TransferFunction` for this component.
+    #[default]
+    Unsaid,
+    /// It names `Identity`: "[t]he name Identity may be used to specify the identity function."
+    Identity,
+    /// It carries a function.
+    Function(Arc<crate::function::Function>),
+}
+
+/// ISO 32000-2 §10.5's transfer function: its two sources, and what the device is handed.
+///
+/// The clause states two, and states which wins:
+///
+/// > - The current transfer function parameter in the graphics state shall consist of either a
+/// >   single transfer function or an array of four separate transfer functions …
+/// > - The current halftone parameter in the graphics state may specify transfer functions as
+/// >   optional entries in halftone dictionaries (see 10.6.5, "Halftone dictionaries"). … A
+/// >   transfer function specified in a halftone dictionary shall override the corresponding one
+/// >   specified by the current transfer function parameter in the graphics state.
+///
+/// **Why a screen owes the second bullet, when §10.6 is `inapplicable` here.** A halftone
+/// dictionary holds two unrelated things: a *screen* — a frequency, an angle, a spot function, a
+/// threshold array — and a `TransferFunction`. §10.1's list of rendering steps makes only the first
+/// conditional on the device: "[i]f the raster output device supports PDF-defined halftoning, apply
+/// halftoning according to 10.6", against an unconditional "[f]or any object for which transfer
+/// functions are in effect, apply those transfer functions". §10.6.1 then says outright what a
+/// device needing no screen still owes: "[h]alftoning is not required for such devices; **after
+/// gamma correction by the transfer functions**, the colour components shall be transmitted
+/// directly to the device." So the screen is inapplicable and the entry beside it is not — the
+/// dictionary is the *carrier*, and this module reads that one entry out of it and nothing else.
+///
+/// **Both are graphics state parameters** (Table 52's `halftone` and `transfer`), so both are saved
+/// and restored by `q`/`Q`, and either can be set without the other. They are therefore kept apart
+/// and composed, rather than folded at the `gs`: a later `/TR /Identity` must clear the first bullet
+/// without touching the second, and a later `/HT /Default` the reverse.
+#[derive(Debug, Clone, Default)]
+pub(super) struct TransferState {
+    /// Table 57's `/TR` or `/TR2`.
+    stated: Option<Arc<Transfer>>,
+    /// The current halftone's `TransferFunction`, per component, red then green then blue.
+    halftone: [Component; 3],
+    /// The two composed, which is what every mark on the page is coloured through.
+    ///
+    /// Derived, never assigned: [`TransferState::compose`] is the only writer, and it runs
+    /// whenever either source moves. Kept rather than computed at each mark because a page has one
+    /// `gs` per state and many marks under it.
+    effective: Option<Arc<Transfer>>,
+}
+
+impl TransferState {
+    /// The function in force, for a caller that applies it now.
+    pub(super) fn in_force(&self) -> Option<&Transfer> {
+        self.effective.as_deref()
+    }
+
+    /// The same, for a caller that keeps it — a pattern's [`super::pattern::MarkColouring`].
+    pub(super) fn shared(&self) -> Option<&Arc<Transfer>> {
+        self.effective.as_ref()
+    }
+
+    /// Composes the two sources, the halftone's overriding "the corresponding one" per component.
+    ///
+    /// A state in which no component is mapped is `None` rather than three identities, which keeps
+    /// every "is a transfer function in force" question — the shading cache's, §11.7.5.2's report's
+    /// — asking what it means to ask.
+    fn compose(&mut self) {
+        let channels: [Option<Arc<crate::function::Function>>; 3] =
+            std::array::from_fn(|index| match &self.halftone[index] {
+                Component::Unsaid => self
+                    .stated
+                    .as_ref()
+                    .and_then(|stated| stated.channels[index].clone()),
+                Component::Identity => None,
+                Component::Function(function) => Some(Arc::clone(function)),
+            });
+        self.effective = channels
+            .iter()
+            .any(Option::is_some)
+            .then(|| Arc::new(Transfer { channels }));
+    }
+}
+
+/// Table 57's `/HT`, read for §10.5's second bullet and for nothing else.
+///
+/// `None` where the entry says nothing this reader can act on, which leaves the halftone in force.
+///
+/// The entry is "dictionary, stream, or name", and the three shapes are three different answers:
+///
+/// - **the name `/Default`**, which Table 57 defines as "the halftone that was in effect at the
+///   start of the page". Table 52 says what that is — "a PDF reader shall initialise this to a
+///   suitable device dependent value" — so it is *this device's* halftone, and a device halftone is
+///   not a halftone dictionary in the file and specifies no `TransferFunction`. `/HT /Default`
+///   therefore takes an earlier `/HT`'s override off and reveals whatever `/TR` states, which is
+///   [`Component::Unsaid`] in all three components rather than `None` here.
+/// - **a Type 5 dictionary**, whose keys are colourant names: each component takes its own entry's
+///   `TransferFunction`, and a component with no entry of its own takes `/Default`'s, which Table
+///   132 requires. This device's native colour space is `DeviceRGB`, and §10.6.5.6 names its
+///   primaries — "Red , Green , and Blue for `DeviceRGB`".
+/// - **any other dictionary or stream**, whose single `TransferFunction` applies to every
+///   component. §10.6.5.6 used to say so in a sentence contrasting the two uses of a component
+///   dictionary, and **erratum #311 strikes that whole paragraph**, so the reason is the one that
+///   survives it: Table 52's parameter is "[a] halftone screen for gray and colour rendering", one
+///   per graphics state, and §10.6.5.6 opens by saying Type 5 is what exists for the other case —
+///   "[s]ome devices, particularly colour printers, require separate halftones for each individual
+///   colourant". A halftone that is not Type 5 governs the rendering rather than a colourant, so
+///   "the same component" in Tables 128 to 131 is every one of them.
+///
+/// `HalftoneName` needs no case of its own and the reason is the clause's: "[i]f there is no
+/// `HalftoneName` entry, **or if the requested halftone name does not exist on the device**, the
+/// halftone's parameters may be defined by the other entries in the dictionary". This device has no
+/// halftones of its own to name, so the second branch is always the one taken.
+fn halftone_transfer(document: &Document, state: &Dictionary) -> Option<[Component; 3]> {
+    let entry = document.get_key(state, "HT");
+    if entry.is_null() {
+        return None;
+    }
+    if let Some(name) = entry.as_name() {
+        // Table 57 gives this entry exactly one name. Any other is a halftone nobody defined, and
+        // leaving the parameter alone is what an unreadable state means everywhere else here.
+        return (name.as_bytes() == b"Default").then(Component::default_all);
+    }
+    let halftone = match &entry {
+        Object::Dictionary(dict) => dict.clone(),
+        Object::Stream(stream) => stream.dict.clone(),
+        _ => return None,
+    };
+    if document.get_key(&halftone, "HalftoneType").as_integer() == Some(5) {
+        // "Its keys shall be name objects representing the names of individual colourants or
+        // colour components", and "Default" is "[a] halftone that shall be used for any colourant
+        // or colour component that does not have an entry of its own".
+        let default = document.get_key(&halftone, "Default");
+        return Some(std::array::from_fn(|index| {
+            let colourant = ["Red", "Green", "Blue"][index];
+            let component = match document.get_key(&halftone, colourant) {
+                Object::Null => document.resolve(&default),
+                named => named,
+            };
+            component_transfer(document, &component)
+        }));
+    }
+    let one = component_transfer(document, &entry);
+    Some([one.clone(), one.clone(), one])
+}
+
+/// One halftone dictionary's `TransferFunction`, for the component or components it governs.
+///
+/// ISO 32000-2 §10.6.5.2, Table 128, and Tables 129 to 131 say the same in the same words:
+///
+/// > ( Optional ) A transfer function, which overrides the current transfer function in the
+/// > graphics state for the same component.
+///
+/// > The name Identity may be used to specify the identity function.
+fn component_transfer(document: &Document, halftone: &Object) -> Component {
+    let dict = match halftone {
+        Object::Dictionary(dict) => dict,
+        Object::Stream(stream) => &stream.dict,
+        _ => return Component::Unsaid,
+    };
+    let entry = document.get_key(dict, "TransferFunction");
+    if let Some(name) = entry.as_name() {
+        // `Identity` is the only name Table 128 gives this entry; another names a function this
+        // file did not supply, which is the `/TR` case one clause up and takes the same answer.
+        return if name.as_bytes() == b"Identity" {
+            Component::Identity
+        } else {
+            Component::Unsaid
+        };
+    }
+    crate::function::Function::parse(document, &entry)
+        .ok()
+        .map_or(Component::Unsaid, |function| {
+            Component::Function(Arc::new(function))
+        })
+}
+
+impl Component {
+    /// Three components none of which the halftone speaks for.
+    fn default_all() -> [Self; 3] {
+        [Self::Unsaid, Self::Unsaid, Self::Unsaid]
+    }
 }
 
 /// Applies an `/ExtGState` resource.
@@ -272,11 +478,31 @@ impl Interpreter<'_> {
         // `UseBlackPtComp`. A transfer function is a colour mapping and such a figure's colour is
         // "specified separately each time [it is] used", so honouring one here would let the cell
         // decide a colour the caller supplies.
+        //
+        // Table 57's `/HT` is read here too, and for one entry of it: §10.5's second bullet makes
+        // a halftone dictionary the other place a transfer function is stated, and says that one
+        // "shall override the corresponding one specified by the current transfer function
+        // parameter in the graphics state". The screen it is written beside is §10.6's and this
+        // device performs none of it; see [`TransferState`] for why the two part company.
         if !self.uncoloured {
+            let mut moved = false;
             match Transfer::read(self.document, dict) {
                 Stated::Unsaid => {}
-                Stated::None => state.transfer = None,
-                Stated::Set(transfer) => state.transfer = Some(Arc::new(transfer)),
+                Stated::None => {
+                    state.transfer.stated = None;
+                    moved = true;
+                }
+                Stated::Set(transfer) => {
+                    state.transfer.stated = Some(Arc::new(transfer));
+                    moved = true;
+                }
+            }
+            if let Some(halftone) = halftone_transfer(self.document, dict) {
+                state.transfer.halftone = halftone;
+                moved = true;
+            }
+            if moved {
+                state.transfer.compose();
             }
         }
         // Table 57's `/SM`: §10.7.3's smoothness tolerance, "the maximum error tolerance for
@@ -303,11 +529,12 @@ impl Interpreter<'_> {
         // Default, and a rendering intent of AbsColorimetric forces it off regardless.
         //
         // Both are skipped inside an uncoloured figure. §8.6.8 lists the `/ExtGState` entries
-        // such a stream may not set, and this tree reads three of them: `/UseBlackPtComp` by
+        // such a stream may not set, and this tree reads four of them: `/UseBlackPtComp` by
         // name, `/RI` because the `ri` operator that sets the same parameter is on the operator
-        // half of the same list, and — since the three-hundred-and-fifty-eighth session — `/TR`
-        // and `/TR2` above. `/BG`, `/BG2`, `/UCR`, `/UCR2` and `/HT` are §10.4's and §10.6's,
-        // which a screen does not perform, and are read nowhere. **This comment said the two
+        // half of the same list, `/TR` and `/TR2` above — since the three-hundred-and-fifty-eighth
+        // session — and `/HT` beside them, since the six-hundred-and-seventy-seventh. `/BG`,
+        // `/BG2`, `/UCR` and `/UCR2` are §10.4's, which this device does not perform, and are
+        // read for a flag and never evaluated. **This comment said the two
         // here were "the only ones on that list this tree reads at all", and listed `/TR` and
         // `/TR2` among the unread, until the three-hundred-and-seventy-fifth session** — thirty
         // lines below the `Transfer::read` that had read both for seventeen sessions, and the

@@ -98,11 +98,16 @@ impl PatternInitial {
     /// Everything else Table 57 can carry is either a path-painting parameter the sentence
     /// excludes outright, one §11.6.7's first bullet has already initialised (the blend mode, the
     /// two alpha constants, the soft mask), or one this device does not perform at all —
-    /// §10.6's halftone, §8.6.7's overprint, §10.4's black generation and undercolour removal.
-    /// **A `/TR` or `/TR2` here is none of those and is deliberately not read**: §11.7.5.3's NOTE
-    /// takes the transfer function out of the group evaluation, so a pattern's `/ExtGState` cannot
-    /// state one for its own colours. `Interpreter::note_pattern_ext_gstate` reports the entries
-    /// that are skipped and could have marked.
+    /// §10.6's halftone screen, §8.6.7's overprint, §10.4's black generation and undercolour
+    /// removal.
+    /// **A `/TR`, a `/TR2` or an `/HT` here is none of those and is deliberately not read**:
+    /// §11.7.5.3's NOTE takes the transfer function out of the group evaluation, so a pattern's
+    /// `/ExtGState` cannot state one for its own colours by either of §10.5's two routes. All three
+    /// are silent for the same reason and none of them is reported;
+    /// `Interpreter::note_black_generation` is what reports the entries that are skipped and
+    /// could have marked, which is `/BG` and `/UCR`. **This sentence named a
+    /// `note_pattern_ext_gstate` that is in no crate of this tree** until the
+    /// six-hundred-and-seventy-seventh session found it while adding `/HT` to the list above.
     fn augmented(self, document: &pdf_syntax::Document, dict: &Dictionary) -> Self {
         let Some(state) = document.get_key(dict, "ExtGState").as_dict().cloned() else {
             return self;
@@ -153,13 +158,18 @@ impl PatternInitial {
 // - **Excluded because they affect path painting** and `sh` "does not entail painting a path":
 //   `/LW`, `/LC`, `/LJ`, `/ML`, `/D`, `/SA`, `/FL`, and the whole of Table 102's text state.
 // - **Left to a standing decision recorded elsewhere**, because this device does not perform them
-//   at all: `/HT` (§10.6, inapplicable on the standard's own condition), `/OP`, `/op`, `/OPM`
-//   (§8.6.7's own permission), and `/BG`, `/BG2`, `/UCR`, `/UCR2` — which are §11.7.5.3's
-//   conversion parameters and are noted by `Interpreter::note_black_generation` below, since a
-//   pattern dictionary is a second route to a statement `gs` already makes.
-// - **`/TR` and `/TR2`**, which are none of those: §11.7.5.3's NOTE takes the transfer function
-//   out of the group evaluation entirely, so one stated here says nothing about the pattern's own
-//   colours. See `PatternInitial`.
+//   at all: `/OP`, `/op`, `/OPM` (§8.6.7's own permission), and `/BG`, `/BG2`, `/UCR`, `/UCR2` —
+//   which are §11.7.5.3's conversion parameters and are noted by
+//   `Interpreter::note_black_generation` below, since a pattern dictionary is a second route to a
+//   statement `gs` already makes.
+// - **`/TR`, `/TR2` and `/HT`**, which are none of those: §11.7.5.3's NOTE takes the transfer
+//   function out of the group evaluation entirely, so one stated here says nothing about the
+//   pattern's own colours. **This list put `/HT` in the bullet above until the
+//   six-hundred-and-seventy-seventh session**, under "§10.6, inapplicable on the standard's own
+//   condition" — and the condition covers a halftone *screen*, not the `TransferFunction` §10.5's
+//   second bullet reads out of a halftone dictionary (ADR 0505). It is skipped here for the
+//   transfer function's reason rather than the screen's, and skipping it is still right.
+//   See `PatternInitial`.
 impl Interpreter<'_> {
     /// Records Table 57's black generation and undercolour removal where a *pattern dictionary*
     /// states them (ISO 32000-2 §11.6.7's third bullet, Table 75's `/ExtGState`).
@@ -1068,7 +1078,7 @@ impl Interpreter<'_> {
         let colouring = crate::shading::Colouring::new(
             state.smoothness,
             &conversion,
-            state.transfer.as_deref(),
+            state.transfer.in_force(),
         );
         match self.shadings.build(
             self.document,
@@ -1257,7 +1267,7 @@ impl Interpreter<'_> {
             initial: self.pattern_initial.augmented(self.document, &dict),
         };
         self.note_black_generation(&dict);
-        let built = self.mark_colouring(&definition, state.transfer.as_ref());
+        let built = self.mark_colouring(&definition, state.transfer.shared());
         match self.build_shading(&definition, &built) {
             Ok(shading) => Some(PatternPaint::Shading(Rc::new(ShadingPattern {
                 shading: Arc::new(shading),
@@ -1404,7 +1414,7 @@ impl Interpreter<'_> {
             return state.solid_fill();
         };
         let pattern = Rc::clone(pattern);
-        self.shading_paint(&pattern, state.transfer.as_ref(), state.fill_alpha)
+        self.shading_paint(&pattern, state.transfer.shared(), state.fill_alpha)
     }
 
     /// As [`Interpreter::fill_paint`], for a stroking mark and §11.6.4.4's stroking constant.
@@ -1413,7 +1423,7 @@ impl Interpreter<'_> {
             return state.solid_stroke();
         };
         let pattern = Rc::clone(pattern);
-        self.shading_paint(&pattern, state.transfer.as_ref(), state.stroke_alpha)
+        self.shading_paint(&pattern, state.transfer.shared(), state.stroke_alpha)
     }
 
     /// Reads a tiling pattern's cell and how it repeats.

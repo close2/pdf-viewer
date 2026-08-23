@@ -30,6 +30,7 @@ use crate::page::Page;
 
 use colour::{BlackPoint, Intent, output_intent_space};
 pub use ext_gstate::Transfer;
+use ext_gstate::TransferState;
 use font::{Font, FontKey};
 use pattern::{PatternInitial, PatternPaint};
 use run::narrow;
@@ -187,12 +188,14 @@ struct GraphicsState {
     fill_space: ColourSpace,
     /// As above, for stroking.
     stroke_space: ColourSpace,
-    /// §10.5's transfer function, where an `/ExtGState` sets one.
+    /// §10.5's transfer function, where an `/ExtGState` sets one — by either of the clause's
+    /// two routes, which is what [`TransferState`] holds apart and composes.
     ///
-    /// `None` is the initial value and what `/Identity` or `/TR2`'s `/Default` restores. Saved and
-    /// restored by `q`/`Q` like every other parameter here, and inherited by a form `XObject` and by
-    /// a tiling pattern's replay, which is what §8.4's "graphics state" means.
-    transfer: Option<Arc<Transfer>>,
+    /// Empty is the initial value and what `/Identity`, `/TR2`'s `/Default` and `/HT`'s `/Default`
+    /// restore between them. Saved and restored by `q`/`Q` like every other parameter here, and
+    /// inherited by a form `XObject` and by a tiling pattern's replay, which is what §8.4's
+    /// "graphics state" means.
+    transfer: TransferState,
     /// Table 57's `/SM`, §10.7.3's smoothness tolerance, if the file states one.
     ///
     /// `None` is the initial value in the sense that matters: no document has asked for
@@ -270,7 +273,7 @@ impl GraphicsState {
             transform: base,
             clip: None,
             soft_mask: None,
-            transfer: None,
+            transfer: TransferState::default(),
             smoothness: None,
             alpha_is_shape: false,
             fill: Color::BLACK,
@@ -379,7 +382,7 @@ impl GraphicsState {
     /// One colour through §10.5's transfer function, or unchanged where none is in effect.
     fn transferred(&self, colour: Color) -> Color {
         self.transfer
-            .as_ref()
+            .in_force()
             .map_or(colour, |transfer| transfer.apply(colour))
     }
 }

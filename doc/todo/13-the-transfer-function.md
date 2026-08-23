@@ -20,13 +20,27 @@ what the last section then owed. Its price was smaller than this file used to sa
 different, which is the whole of that session's contribution here.
 **The six-hundred-and-sixtieth built it** (ADR 0487): a shading pattern's colours are rebuilt at the
 mark and §11.6.7's three parameters are kept off the live state by a signature that cannot reach it.
+**The six-hundred-and-seventy-seventh closed the clause's *second bullet*** (ADR 0505), which that
+round's own ledger row had named as the last thing keeping it `partial`: a halftone dictionary's
+`TransferFunction` overrides the graphics state's, Table 57's `/HT` is read for that one entry, and
+§10.5 is `implemented`. The thing that had to be got right there is that **§10.6 being inapplicable
+does not make a halftone *dictionary* inapplicable** — §10.1 lists the two steps with only the
+halftone conditional on the device, and §10.6.1 says a device needing no screen still applies the
+transfer function — so the seven §10.6.5 rows are `implemented` rather than
+`inapplicable` now: the one entry executed, and the screen ignored under the permission §10.6.5.1
+itself states.
 **So one thing is owed here now** — §11.7.5.2's per-region model, below — and the file stays for it.
 Priority: 13 — a defect: a wrong picture with nothing said about it
 Corpus: `cargo run --release -p pdf-model --example transfer_function_census --
-doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, and
-how many paint a shading on a page that states one. It takes the SafeDocs crawl too — `find
+doc/pdf.js/test/pdfs/*.pdf` counts how many state a `/TR` or `/TR2`, how many state a real one, how
+many paint a shading on a page that states one, and — since the six-hundred-and-seventy-seventh —
+how many state an `/HT` and how many carry a halftone dictionary with a `TransferFunction`. **That
+last pair is counted by two instruments and they disagree**: a resource walk sees an `/ExtGState` a
+page or a form reaches, and a scan over every object the cross-reference table names sees the ones a
+pattern or an annotation appearance reaches. Where they differ the walk is wrong, which is the false
+zero this tree has produced twice. It takes the SafeDocs crawl too — `find
 corpus-cache/safedocs -name '*.pdf' -print0 | xargs -0 -n 2000 <the binary>` — in under a minute
-Clauses: §10.5, §8.4.5 (Table 57's `/TR` and `/TR2`), §11.7.5.2
+Clauses: §10.5, §8.4.5 (Table 57's `/TR`, `/TR2` and `/HT`), §10.6.5, §11.7.5.2
 Code: `crates/pdf-model/src/content.rs` (where `/ExtGState` is read),
 `crates/pdf-model/src/function.rs` (the functions already parse and evaluate)
 
@@ -185,10 +199,13 @@ sessions before §10.4.2.5 turned out to answer it outright.
   are additive, which is stated, so an RGB device needs the first three of the four.
 - **Images**: the same map per sample, which is where the cost is — `Conversion`'s per-image memo
   is the place it belongs, since a transfer is a pure function of a colour.
-- **What it does not need**: a halftone or a marking device. **This bullet also said it did not
-  need "§11.7.5.2's per-region tracking, which stays inapplicable until a *second* transfer
+- **What it does not need**: a halftone screen or a marking device. **This bullet also said it did
+  not need "§11.7.5.2's per-region tracking, which stays inapplicable until a *second* transfer
   function competes with a first inside a transparency group", and that is wrong about the
-  clause** — see the section below, which is the debt this file now carries.
+  clause** — see the section below, which is the debt this file now carries. **And it said "a
+  halftone", which was wrong about the other clause**: §10.5's second bullet reads a
+  `TransferFunction` out of a halftone *dictionary*, and a dictionary is not a screen. ADR 0505 has
+  that reading; what it needs is Table 57's `/HT`, and it is one entry of one dictionary.
 - **What it turned out to miss, found in the six-hundred-and-thirty-seventh session and
   implemented in the six-hundred-and-fiftieth**: a **shading**. §10.5's subject is the component
   value — "[t]he output shall be the transformed component value to be transmitted to the device"
