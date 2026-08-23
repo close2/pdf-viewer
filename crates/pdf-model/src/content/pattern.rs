@@ -271,6 +271,19 @@ pub(super) struct ShadingDefinition {
     transform: Transform,
     /// §11.6.7's black point compensation, rendering intent and smoothness.
     initial: PatternInitial,
+    /// Whether marks under this definition paint Table 77's `/Background`.
+    ///
+    /// True for a *non-stroking* selection and false for a stroking one, which is a statement
+    /// about this tree rather than about the clause: Table 77's "the area to be painted" is the
+    /// area of any painting operation, and all three backends draw the wash through the
+    /// device-resolution raster lane a **fill** takes ([`pdf_render::ShadingRaster`]). A stroke
+    /// therefore paints its shading and not its wash, which is a shortfall and is named
+    /// ([`Unsupported::ShadingBackground`]) rather than left silent.
+    ///
+    /// It lives on the definition because a shading pattern's colours are rebuilt at the mark
+    /// (§11.6.7, [`Interpreter::shading_paint`]), so a flag the rebuild could not see would be
+    /// a rule somebody has to remember instead of one the type carries.
+    paints_background: bool,
 }
 
 /// The half of a shading pattern's colours that belongs to the mark painting it.
@@ -388,6 +401,14 @@ impl Interpreter<'_> {
                 .or(state.clip),
             None => state.clip,
         };
+        // §8.7.4.5.2's domain is where a type 1 shading marks *and nothing else* only where
+        // the shading has no `/Background`. Where it has one, the same sentence says what
+        // happens outside instead — those points "shall be painted with the shading's
+        // background colour" — and `pdf_render::ShadingRaster` answers it per pixel, so a clip
+        // here would cut away the very wash the entry asks for.
+        if pattern.shading.background.is_some() {
+            return clip;
+        }
         self.domain_clip(&shading, clip)
     }
 
@@ -1088,6 +1109,18 @@ impl Interpreter<'_> {
             colouring,
         ) {
             Ok(shading) => {
+                // Table 77's `/Background` "shall be applied only when the shading is used as
+                // part of a shading pattern, not when painted directly with the sh operator";
+                // §8.7.4.2 says the same of this operator — "[t]he Background entry, if
+                // present, is ignored" — and §11.6.4.2 a third time, of the shape a `sh`
+                // contributes: "1.0 inside and 0.0 outside the bounds of the shading's painti
+                // ng geometry, disregarding the Background entry". `shading::Cache` is keyed
+                // by the object and one object can be both a pattern's shading and an `sh`'s,
+                // so the entry is resolved once where the colour space is and dropped here.
+                let shading = Shading {
+                    background: None,
+                    ..shading
+                };
                 // §8.7.4.5.2's domain, which for a type 1 shading is where it marks at all.
                 let clip = self.domain_clip(&shading, clip);
                 let (path, transform) = self.shading_surface(&shading);
@@ -1233,21 +1266,6 @@ impl Interpreter<'_> {
         // painted a thousand times states the same one every time.
         let shading_object = dict.get("Shading").cloned().unwrap_or(Object::Null);
 
-        // Table 77's `/Background` "shall be applied only when the shading is used as part of
-        // a shading pattern, not when painted directly with the sh operator", so this is the
-        // one place in the interpreter where the entry means anything — and nothing paints it.
-        // Reported here rather than dropped, because the area outside the shading's bounds is
-        // a mark the file asked for: `issue13372.pdf` states `/Background [0 1 1]` on an axial
-        // shading that extends at neither end, so every part of the stencil it fills beyond the
-        // axis is cyan in the document and unpainted here. `doc/todo/17` prices the drawing.
-        if let Some(components) =
-            crate::shading::background_components(self.document, &shading_object)
-        {
-            self.note(Unsupported::ShadingBackground {
-                detail: format!("/{label} states a /Background of {components} component(s)"),
-            });
-        }
-
         // §11.6.7 and Table 75 both say which graphics state a shading pattern's definition is
         // evaluated under, and it is the one the *content stream began with*, augmented by the
         // pattern's own `/ExtGState` — neither the `scn` that selects it nor the mark that paints
@@ -1265,26 +1283,55 @@ impl Interpreter<'_> {
             resources: resources.clone(),
             transform: matrix.then(self.base),
             initial: self.pattern_initial.augmented(self.document, &dict),
+            // Table 77's `/Background` "shall be applied only when the shading is used as part
+            // of a shading pattern, not when painted directly with the sh operator", so this is
+            // the one place in the interpreter where the entry means anything at all.
+            paints_background: fill,
         };
         self.note_black_generation(&dict);
         let built = self.mark_colouring(&definition, state.transfer.shared());
         match self.build_shading(&definition, &built) {
-            Ok(shading) => Some(PatternPaint::Shading(Rc::new(ShadingPattern {
-                shading: Arc::new(shading),
-                // Stated "in the shading's target coordinate space", which for a pattern is
-                // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
-                // inside `build` and comes *after* this.
-                bbox: crate::shading::bbox_of(self.document, &definition.object)
-                    .map(|corners| (corners, definition.transform)),
-                definition,
-                built,
-            }))),
+            Ok(shading) => {
+                self.note_unpainted_background(&label, &definition.object, shading.background);
+                Some(PatternPaint::Shading(Rc::new(ShadingPattern {
+                    shading: Arc::new(shading),
+                    // Stated "in the shading's target coordinate space", which for a pattern is
+                    // the pattern space — the shading's own `/Matrix` (type 1 only) is applied
+                    // inside `build` and comes *after* this.
+                    bbox: crate::shading::bbox_of(self.document, &definition.object)
+                        .map(|corners| (corners, definition.transform)),
+                    definition,
+                    built,
+                })))
+            }
             Err(error) => {
                 self.note(Unsupported::Shading {
                     name: format!("/{label}: {error}"),
                 });
                 None
             }
+        }
+    }
+
+    /// Names a `/Background` this mark will not paint, and stays quiet about one it will.
+    ///
+    /// Two cases reach here, and the report's condition is exactly those two (trap 11):
+    ///
+    /// - a **stroking** selection, whose wash [`ShadingDefinition::paints_background`] has
+    ///   already dropped, so `resolved` is `None` while the dictionary states an array;
+    /// - an array Table 77's own sentence cannot use — "an array of colour components
+    ///   appropriate to the colour space" is a *count*, and one of any other length states no
+    ///   colour that could be painted.
+    ///
+    /// A fill of a usable array is drawn ([`pdf_render::ShadingRaster`]) and owes nothing.
+    fn note_unpainted_background(&mut self, label: &str, object: &Object, resolved: Option<Color>) {
+        if resolved.is_some() {
+            return;
+        }
+        if let Some(components) = crate::shading::background_components(self.document, object) {
+            self.note(Unsupported::ShadingBackground {
+                detail: format!("/{label} states a /Background of {components} component(s)"),
+            });
         }
     }
 
@@ -1332,7 +1379,7 @@ impl Interpreter<'_> {
         definition: &ShadingDefinition,
         colouring: &MarkColouring,
     ) -> Result<Shading, crate::shading::ShadingError> {
-        self.shadings.build(
+        let shading = self.shadings.build(
             self.document,
             &definition.object,
             &definition.resources,
@@ -1342,7 +1389,14 @@ impl Interpreter<'_> {
                 &colouring.conversion,
                 colouring.transfer.as_deref(),
             ),
-        )
+        )?;
+        if definition.paints_background {
+            return Ok(shading);
+        }
+        Ok(Shading {
+            background: None,
+            ..shading
+        })
     }
 
     /// The paint a shading pattern makes at the mark that is painting it.

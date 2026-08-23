@@ -667,6 +667,36 @@ impl<'a> Encoder<'a> {
         // draw `pdf_render::RadialRaster`'s bytes — identical bytes, which is the point.
         // Only a *fill* takes this door, exactly as in the sibling backends: a stroke's
         // outline is not the shape quorra is handed, and no corpus document strokes a cone.
+        // ISO 32000-2 §8.7.4.3 Table 77's `/Background`: a colour the shading answers outside
+        // its own bounds, which no quorra shading kind expresses. §11.6.7 makes the wash and
+        // the shading one painting operation — the pattern's implicit group is "filled with the
+        // specified background colour before the sh operator is invoked" — so both are
+        // evaluated into one device-resolution raster by `pdf_render::ShadingRaster` and drawn
+        // through quorra's mesh paint, which is precisely "an RGBA raster already at device
+        // resolution, placed at (left, top)". Identical bytes to the sibling backends, and the
+        // door is asked before the cone's because it holds for every shading kind.
+        if let Paint::Shading(shading) = paint
+            && shading.background.is_some()
+        {
+            let within = self.device_pixels(shape, transform);
+            let Some(id) = self.background_raster(shading, within)? else {
+                // A shape covering no device pixel. Answered all the same: falling through
+                // would ask `shading_paint` for a paint that cannot carry the wash.
+                return Ok(());
+            };
+            return builder
+                .fill(
+                    outline,
+                    self.placed(transform),
+                    fill_rule(rule),
+                    quorra_scene::Paint::Mesh(id),
+                    clip,
+                    blend_mode(blend),
+                    quorra_scene::Compose::SrcOver,
+                    mask,
+                )
+                .map_err(Into::into);
+        }
         if let Paint::Shading(shading) = paint
             && let Some(cone) = self.radial_cone(shading, self.device_pixels(shape, transform))?
         {
@@ -722,6 +752,15 @@ impl<'a> Encoder<'a> {
         &mut self,
         shading: &Shading,
     ) -> Result<ShadedPaint, QuorraRasterError> {
+        // A fill carrying Table 77's `/Background` took [`Encoder::background_raster`]'s door
+        // before reaching here, so what is left is a *stroke* — whose outline is not the shape
+        // this encoder is handed. Refused rather than drawn without its wash, which keeps the
+        // shortfall the report `pdf_model` already raises instead of a quiet difference.
+        if shading.background.is_some() {
+            return Err(QuorraRasterError::Unsupported(
+                "a stroking shading pattern's /Background (§8.7.4.3)".to_owned(),
+            ));
+        }
         let kind = match shading.kind.as_ref() {
             ShadingKind::Axial {
                 start, end, extend, ..
@@ -858,14 +897,14 @@ impl<'a> Encoder<'a> {
             domain: region,
             matrix,
             range,
-            // §8.7.4.5.2's `Background` "shall be applied only when the shading is used as
-            // part of a shading pattern, not when painted directly with the `sh` operator",
-            // and **no display list in this tree carries one** — `pdf_model` reads the entry
-            // only to report it (`Unsupported::ShadingBackground`, §8.7.4.3's row) and
-            // `pdf_render::Shading` has no field for it — so points outside the domain
-            // rectangle are left unpainted, which is what that entry's absence means and what
-            // `sampled_fill` also draws. This field is the one place any backend here could
-            // already take one, which is why `doc/todo/17` starts its pricing at this line.
+            // §8.7.4.3 Table 77's `/Background`, which reaches this device as `None` by
+            // construction rather than by omission: a shading carrying one took
+            // [`Encoder::background_raster`]'s door in `emit_fill` and never arrives here, so
+            // what this paint draws is always the entry's *absence* — points outside the domain
+            // rectangle "left unpainted", §8.7.4.5.2's own other branch, which is what
+            // `sampled_fill` draws too. Sending the colour down here instead would put the wash
+            // on the device for one shading kind and in `pdf_render` for the other three,
+            // which is the split trap 2 is about.
             background: None,
         };
         // The budgets the scene boundary states over a rectangle and a transform are quorra's
@@ -1128,6 +1167,35 @@ impl<'a> Encoder<'a> {
             },
             shading.transform.then(self.target.transform),
             within,
+        ) else {
+            return Ok(None);
+        };
+        let mesh = quorra_scene::MeshSpec {
+            left: raster.left,
+            top: raster.top,
+            image: spec(&raster.image),
+        };
+        let id = self.handing_over(|device| device.upload_mesh(&mesh))?;
+        self.transient.push(id.into());
+        Ok(Some(id))
+    }
+
+    /// A shading washed with ISO 32000-2 §8.7.4.3 Table 77's `/Background`, through the shared
+    /// rasteriser all three backends use (`ShadingRaster::build` — one implementation,
+    /// identical bytes), uploaded for this frame as a mesh.
+    ///
+    /// `Ok(None)` is a shape covering no device pixel, and the caller draws nothing — the same
+    /// answer [`Encoder::mesh`] gives an empty mesh, and not a refusal.
+    fn background_raster(
+        &mut self,
+        shading: &Shading,
+        within: (u32, u32, u32, u32),
+    ) -> Result<Option<quorra_scene::MeshId>, QuorraRasterError> {
+        let Some(raster) = pdf_render::ShadingRaster::build(
+            shading,
+            self.target.transform,
+            within,
+            (self.target.width, self.target.height),
         ) else {
             return Ok(None);
         };

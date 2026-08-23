@@ -94,6 +94,7 @@ fn mark(
         transform,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(Shading {
+            background: None,
             kind: Arc::new(ShadingKind::Axial {
                 start: Point::new(0.0, MARK.1),
                 end: Point::new(0.0, MARK.3),
@@ -130,6 +131,7 @@ fn ramp_mask(list: &mut DisplayList) -> SoftMaskId {
             transform: Transform::IDENTITY,
             fill_rule: FillRule::NonZero,
             paint: Paint::Shading(Arc::new(Shading {
+                background: None,
                 kind: Arc::new(ShadingKind::Axial {
                     start: Point::new(0.0, MASK_GROUP.1),
                     end: Point::new(0.0, MASK_GROUP.3),

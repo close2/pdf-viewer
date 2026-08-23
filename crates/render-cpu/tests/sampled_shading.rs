@@ -151,6 +151,7 @@ fn zooming_resolves_the_shading_again_without_rebuilding_the_list() {
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(Shading {
+            background: None,
             kind: Arc::new(ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: DeferredColours::new(Arc::clone(&source) as Arc<dyn ColoursAtDeviceScale>),

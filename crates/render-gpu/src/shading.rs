@@ -42,6 +42,14 @@ pub(crate) fn brush(
     shading: &Shading,
     page_to_path: Transform,
 ) -> Option<(peniko::Brush, Option<vello::kurbo::Affine>)> {
+    // Table 77's `/Background` is a colour the shading answers outside its own bounds, which
+    // `peniko::Extend` cannot say: it pads, repeats or reflects. [`fill_with_background`] is
+    // the answer and it is a *fill*'s door, so a shading arriving here with one is a stroke —
+    // and refusing it loudly keeps the shortfall a report rather than a silently missing wash,
+    // exactly as `render_cpu::shading::shader` does.
+    if shading.background.is_some() {
+        return None;
+    }
     let gradient = match shading.kind.as_ref() {
         ShadingKind::Axial {
             start,
@@ -148,6 +156,47 @@ pub(crate) fn fill_mesh(
     // `Low` is nearest-neighbour. The raster is at device resolution and placed at whole
     // pixels, so no sample can be interpolated — and a filter would blur the mesh's edge
     // against the transparent pixels outside it.
+    let brush = peniko::ImageBrush::new(data).with_quality(peniko::ImageQuality::Low);
+    scene.draw_image(
+        &brush,
+        vello::kurbo::Affine::translate((f64::from(raster.left), f64::from(raster.top))),
+    );
+}
+
+/// Draws a shading washed with ISO 32000-2 §8.7.4.3 Table 77's `/Background` into the current
+/// layer.
+///
+/// The third member of [`fill_mesh`]'s and [`fill_radial`]'s family and the general one, and it
+/// mirrors `render-cpu` for the same reason those two do: [`pdf_render::ShadingRaster`]
+/// evaluates the clause once, so the backends draw the *same bytes*. §11.6.7 puts the wash
+/// inside the pattern's implicit transparency group — "filled with the specified background
+/// colour before the sh operator is invoked" — so the two are one painting operation, and the
+/// caller has already pushed a layer clipped to the shape that composites it.
+pub(crate) fn fill_with_background(
+    scene: &mut vello::Scene,
+    shading: &Shading,
+    page_to_device: Transform,
+    within: (u32, u32, u32, u32),
+    target: TargetSpec,
+) {
+    let Some(raster) = pdf_render::ShadingRaster::build(
+        shading,
+        page_to_device,
+        within,
+        (target.width, target.height),
+    ) else {
+        return;
+    };
+    let data = peniko::ImageData {
+        data: peniko::Blob::new(std::sync::Arc::new(raster.image.data.to_vec())),
+        format: peniko::ImageFormat::Rgba8,
+        // Straight alpha, matching `pdf_render::Image`'s documented format.
+        alpha_type: peniko::ImageAlphaType::Alpha,
+        width: raster.image.width,
+        height: raster.image.height,
+    };
+    // `Low` is nearest-neighbour, for [`fill_mesh`]'s reason: the raster is at device
+    // resolution and placed at whole pixels, so no sample can be interpolated.
     let brush = peniko::ImageBrush::new(data).with_quality(peniko::ImageQuality::Low);
     scene.draw_image(
         &brush,

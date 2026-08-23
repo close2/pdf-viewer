@@ -46,6 +46,39 @@ pub struct Shading {
     /// shading used as a pattern is positioned by the *pattern* matrix relative to the
     /// page, not by the transform in force when the path was filled.
     pub transform: Transform,
+    /// ISO 32000-2 §8.7.4.3 Table 77's `/Background`, resolved through the shading's own
+    /// colour space — the colour this shading answers where its geometry answers nothing.
+    ///
+    /// > ( Optional ) An array of colour components appropriate to the colour space,
+    /// > specifying a single background colour value. If present, this colour shall be used,
+    /// > before any painting operation involving the shading, to fill those portions of the
+    /// > area to be painted that lie outside the bounds of the shading object.
+    ///
+    /// # Why it is a colour on the paint rather than a second fill under it
+    ///
+    /// Table 77's NOTE 1 describes the two-operation construction — "the effect is as if the
+    /// painting operation were performed twice" — and says which model it holds in: *the
+    /// opaque imaging model*. §11.6.7 states the construction for the transparent one, and
+    /// this field is that sentence:
+    ///
+    /// > If the shading dictionary has a Background entry, the pattern's imp licit
+    /// > transparency group shall be filled with the specified background colour before the
+    /// > sh operator is invoked.
+    ///
+    /// The wash goes *inside* the pattern's implicit group, so the object's shape, its
+    /// §11.6.4.4 constant alpha and its blend mode apply once to the two of them together.
+    /// Filling the path twice on this device would instead put the background into every
+    /// boundary pixel's anti-aliased coverage a second time — `(1 − c)²` where the clause
+    /// leaves `1 − c` — and apply `ca` twice inside the bounds.
+    ///
+    /// # Why only a pattern carries one
+    ///
+    /// Table 77 confines it: "applied only when the shading is used as part of a shading
+    /// pattern, not when painted directly with the sh operator". §8.7.4.2 says the same of the
+    /// operator, and §11.6.4.2 a third time of the shape a `sh` contributes. So the
+    /// interpreter sets this where a `/PatternType 2` pattern is resolved and nowhere else,
+    /// and [`Shading::painting_bounds`] is unaffected by it.
+    pub background: Option<Color>,
 }
 
 impl Shading {
@@ -56,10 +89,15 @@ impl Shading {
     /// alpha lives in its colours rather than in a single field a caller can read.
     ///
     /// A shading that does not extend leaves part of its region unpainted, which is a shape
-    /// of zero rather than an opacity, so it is not what this answers.
+    /// of zero rather than an opacity, so it is not what this answers. A `/Background` is the
+    /// one thing that turns such a region into a colour, so it is one of the colours asked
+    /// about here.
     #[must_use]
     pub fn is_opaque(&self) -> bool {
         let opaque = |colour: &Color| colour.a >= 1.0;
+        if self.background.is_some_and(|colour| !opaque(&colour)) {
+            return false;
+        }
         match self.kind.as_ref() {
             ShadingKind::Axial { ramp, .. } | ShadingKind::Radial { ramp, .. } => {
                 ramp.stops.iter().all(|stop| opaque(&stop.colour))
@@ -217,6 +255,10 @@ impl Shading {
         Self {
             kind: Arc::new(kind),
             transform: self.transform,
+            // §11.6.4.4's constant applies to the painting operation, and §11.6.7 puts the
+            // wash inside the group that operation paints — so it is scaled with everything
+            // else the shading answers rather than exempted from it.
+            background: self.background.as_ref().map(scale),
         }
     }
 
@@ -1239,6 +1281,271 @@ impl RadialRaster {
                 interpolate: false,
             },
         })
+    }
+}
+
+/// A shading of any kind rasterised into device pixels, with ISO 32000-2 §8.7.4.3 Table 77's
+/// `/Background` wherever its own geometry paints nothing.
+///
+/// # Why the wash is a raster rather than each backend's own gradient
+///
+/// §11.6.7 states the construction: the pattern's implicit transparency group "shall be filled
+/// with the specified background colour before the sh operator is invoked", and the group's
+/// colour, shape and opacity are then the object's source colour and shape. So the two are one
+/// painting operation — one coverage at the path's edge, one §11.6.4.4 constant alpha, one
+/// blend — and what the backends need is a single answer per device pixel: the shading's colour
+/// inside its bounds and the background outside them.
+///
+/// All three backends already draw exactly that shape for a mesh and for §8.7.4.5.4's cone: a
+/// straight-alpha raster at device resolution, placed at whole pixels and confined to the path
+/// being filled ([`MeshRaster`], [`RadialRaster`], and `quorra_scene::Paint::Mesh`). Sending a
+/// background-carrying shading of *any* kind down that same lane costs no new lane in any
+/// backend, needs nothing of a gradient library that no gradient library has, and puts the
+/// colour in one place — which is what trap 2 asks for and what the alternative, a stop or a
+/// spread mode per rasteriser, would have spread across three.
+///
+/// The pricing this replaced went the other way round — a background-carrying stop for the two
+/// gradient kinds, a clear colour for the two raster kinds, and an upstream ask for quorra's
+/// gradient lane. Three of those four rows were wrong, and ADR 0529 has the derivation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShadingRaster {
+    /// Device x of the raster's first column.
+    pub left: i32,
+    /// Device y of the raster's first row.
+    pub top: i32,
+    /// Straight-alpha RGBA8 samples, one per device pixel.
+    pub image: crate::Image,
+}
+
+impl ShadingRaster {
+    /// Rasterises `shading` over the device pixels of `within`, washed with its `/Background`.
+    ///
+    /// `page_to_device` maps page space onto the target and `target` is that target's extent;
+    /// `within` is the region worth evaluating, in device pixels as
+    /// `(left, top, right, bottom)` — the caller's shape bounds intersected with the target,
+    /// because Table 77's wash covers "the area to be painted" and that area is the path.
+    ///
+    /// Returns `None` where the shading states no background — a `sh`, or any shading not used
+    /// as a pattern — where the region is empty, or where the placement cannot be inverted.
+    #[must_use]
+    pub fn build(
+        shading: &Shading,
+        page_to_device: Transform,
+        within: (u32, u32, u32, u32),
+        target: (u32, u32),
+    ) -> Option<Self> {
+        let background = shading.background?;
+        let (left, top, right, bottom) = within;
+        let (span, rows) = (right.checked_sub(left)?, bottom.checked_sub(top)?);
+        if span == 0 || rows == 0 {
+            return None;
+        }
+        let to_device = shading.transform.then(page_to_device);
+        let to_shading = to_device.invert()?;
+
+        // §11.6.7's first act: the group is filled with the background, and the shading is
+        // painted into it afterwards.
+        let mut data = vec![
+            0u8;
+            (span as usize)
+                .saturating_mul(rows as usize)
+                .saturating_mul(4)
+        ];
+        for pixel in data.chunks_exact_mut(4) {
+            write_colour(pixel, background);
+        }
+
+        match shading.kind.as_ref() {
+            ShadingKind::Axial {
+                start,
+                end,
+                ramp,
+                extend,
+            } => {
+                // §8.7.4.5.3 reads the colour from the point's projection onto the axis, and
+                // an axis of zero length has no projection to take — so nothing is inside the
+                // shading's bounds and the whole region stays the background.
+                let (dx, dy) = (end.x - start.x, end.y - start.y);
+                let length = dx.mul_add(dx, dy * dy);
+                if length > 0.0 {
+                    paint_pixels(&mut data, (left, top, span), to_shading, |point| {
+                        let along = (point.x - start.x).mul_add(dx, (point.y - start.y) * dy);
+                        admitted(along / length, *extend).map(|t| ramp.colour_at(t))
+                    });
+                }
+            }
+            ShadingKind::Radial {
+                start,
+                start_radius,
+                end,
+                end_radius,
+                ramp,
+                extend,
+            } => {
+                paint_pixels(&mut data, (left, top, span), to_shading, |point| {
+                    // §8.7.4.5.4's greatest admissible blend circle, or no circle at all —
+                    // which is precisely a point outside the shading's bounds.
+                    blend_parameter(point, *start, *start_radius, *end, *end_radius, *extend)
+                        .map(|s| ramp.colour_at(s.clamp(0.0, 1.0)))
+                });
+            }
+            ShadingKind::Sampled { domain, .. } => {
+                let grid = shading.sampled_at(page_to_device, target)?;
+                let to_grid = grid.onto_shading().invert()?;
+                // Table 78's order is [x min x max y min y max] and a file may write either
+                // bound first, so the rectangle is taken by extent rather than by position.
+                let [x0, x1, y0, y1] = *domain;
+                let (xs, ys) = ((x0.min(x1), x0.max(x1)), (y0.min(y1), y0.max(y1)));
+                paint_pixels(&mut data, (left, top, span), to_shading, |point| {
+                    // §8.7.4.5.2: points that "fall outside this transformed domain rectangle
+                    // shall be painted with the shading's background colour".
+                    if point.x < xs.0 || point.x > xs.1 || point.y < ys.0 || point.y > ys.1 {
+                        return None;
+                    }
+                    let cell = to_grid.apply(point);
+                    Some(sample_grid(&grid, cell.x, cell.y))
+                });
+            }
+            ShadingKind::Mesh { triangles, ramp } => {
+                // The mesh's own rasterisation, over this region rather than over the mesh's
+                // bounding box: every pixel no triangle covers keeps the background it was
+                // filled with, which is the whole difference the entry makes.
+                if ramp.is_none()
+                    && triangles
+                        .iter()
+                        .any(|triangle| matches!(triangle.corners, Corners::Parameters(_)))
+                {
+                    return None;
+                }
+                for triangle in triangles.iter() {
+                    Triangle {
+                        points: triangle.points.map(|point| to_device.apply(point)),
+                        corners: triangle.corners,
+                    }
+                    .paint(&mut data, ramp.as_ref(), left, top, span, rows);
+                }
+            }
+        }
+
+        Some(Self {
+            left: i32::try_from(left).ok()?,
+            top: i32::try_from(top).ok()?,
+            image: crate::Image {
+                width: span,
+                height: rows,
+                data: data.into(),
+                // Nearest sampling, for [`MeshRaster`]'s reason: the raster is already at
+                // device resolution and drawn at 1:1, so no filter can be reached.
+                interpolate: false,
+            },
+        })
+    }
+}
+
+/// Writes one straight-alpha RGBA8 pixel.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "each channel is clamped to [0, 1] before it is scaled, so the product is in \
+              [0, 255] and cannot be negative"
+)]
+fn write_colour(pixel: &mut [u8], colour: Color) {
+    for (slot, value) in pixel
+        .iter_mut()
+        .zip([colour.r, colour.g, colour.b, colour.a])
+    {
+        *slot = (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    }
+}
+
+/// Whether a shading's parameter is one `/Extend` admits, clamped into `0.0..=1.0` where it is.
+///
+/// ISO 32000-2 §8.7.4.5.3 states both halves: outside `[0, 1]` the shading is extended only
+/// where the corresponding element of `/Extend` is true, and where it is, the boundary colour
+/// continues. `None` is a point outside the shading's bounds — the points Table 77's
+/// `/Background` is about.
+fn admitted(t: f32, extend: (bool, bool)) -> Option<f32> {
+    if !t.is_finite() || (t < 0.0 && !extend.0) || (t > 1.0 && !extend.1) {
+        return None;
+    }
+    Some(t.clamp(0.0, 1.0))
+}
+
+/// A [`ColourGrid`] read at a position in its own unit square, bilinearly.
+///
+/// The same filter the backends apply to a sampled shading's grid when they draw it as a
+/// pattern, written here so that a background-carrying type 1 shading is the same picture
+/// inside its domain as one without — and the same picture on all three backends, since this is
+/// now the only place any of them samples one.
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "grid extents are bounded by MAX_FUNCTION_CELLS, well inside f32's exact integer \
+              range, and each index is clamped into the grid before it is narrowed"
+)]
+fn sample_grid(grid: &ColourGrid, u: f32, v: f32) -> Color {
+    let at = |cells: u32, position: f32| -> (usize, usize, f32) {
+        let last = cells.saturating_sub(1);
+        // A cell's colour is the function at the cell's *centre*, so the sample position in
+        // cell coordinates is half a cell behind the fraction of the domain.
+        let scaled = position.mul_add(cells as f32, -0.5);
+        let low = scaled.floor().clamp(0.0, f32::from(u16::MAX));
+        let fraction = (scaled - low).clamp(0.0, 1.0);
+        let low = (low as u32).min(last);
+        let high = low.saturating_add(1).min(last);
+        (low as usize, high as usize, fraction)
+    };
+    let (x0, x1, fx) = at(grid.width, u);
+    let (y0, y1, fy) = at(grid.height, v);
+    let cell = |x: usize, y: usize| -> Color {
+        grid.pixels
+            .get(y.saturating_mul(grid.width as usize).saturating_add(x))
+            .copied()
+            .unwrap_or(Color::BLACK)
+    };
+    let mix = |a: Color, b: Color, f: f32| Color {
+        r: a.r + (b.r - a.r) * f,
+        g: a.g + (b.g - a.g) * f,
+        b: a.b + (b.b - a.b) * f,
+        a: a.a + (b.a - a.a) * f,
+    };
+    let top = mix(cell(x0, y0), cell(x1, y0), fx);
+    let bottom = mix(cell(x0, y1), cell(x1, y1), fx);
+    mix(top, bottom, fy)
+}
+
+/// Writes `colour_at`'s answer into every pixel of a buffer it has one for.
+///
+/// The buffer's first pixel is device `(left, top)` and `to_shading` carries a device point
+/// into the shading's own coordinates. A pixel's colour is the shading's value at the pixel's
+/// *centre*, which is [`MeshRaster`]'s and [`RadialRaster`]'s sampling and the one §10.7.4
+/// describes; a `None` leaves the background the caller filled the buffer with.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a device pixel index, bounded by the target's extent, which MAX_EXTENT keeps \
+              under 2^24"
+)]
+fn paint_pixels(
+    data: &mut [u8],
+    (left, top, span): (u32, u32, u32),
+    to_shading: Transform,
+    colour_at: impl Fn(Point) -> Option<Color>,
+) {
+    for (row, line) in data
+        .chunks_exact_mut((span as usize).saturating_mul(4))
+        .enumerate()
+    {
+        let y = top.saturating_add(u32::try_from(row).unwrap_or(u32::MAX)) as f32 + 0.5;
+        for (column, pixel) in line.chunks_exact_mut(4).enumerate() {
+            let device = Point {
+                x: left.saturating_add(u32::try_from(column).unwrap_or(u32::MAX)) as f32 + 0.5,
+                y,
+            };
+            if let Some(colour) = colour_at(to_shading.apply(device)) {
+                write_colour(pixel, colour);
+            }
+        }
     }
 }
 

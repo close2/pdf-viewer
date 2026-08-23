@@ -3299,7 +3299,7 @@ So the bands were bands rather than a floor: each round took the *top* of a list
 it stayed where they were, and a sentence written about the band was read afterwards as a sentence
 about the file. **The four this round read came off exactly that population** — §8.7.4.3, §8.7.4.1,
 §8.9.6.4 and §8.6.6.5, commits 100, 100, 87 and 91 — and two of the four were wrong: §8.7.4.3's
-`/Background` was a `shall` nothing painted and nothing reported (ADR 0452, `doc/todo/17`), and
+`/Background` was a `shall` nothing painted and nothing reported (ADR 0452; painted since ADR 0529), and
 §8.9.6.4's "both corpus instances" was three, over a population it never named. **That is one defect
 per two rows on a list this file had declared empty**, which is the rate the four-hundred-and-forty-second
 found at the top of it.

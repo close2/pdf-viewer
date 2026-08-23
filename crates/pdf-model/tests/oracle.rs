@@ -1262,9 +1262,32 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// disagree over. **So trap 9's sixth bullet is right about the region it was measured in and not
 /// about this one**: our evaluator on *either* press predicts all three renderers to eight levels
 /// on the sampled ramp, and on this one deep ink one of the two is eleven levels out. ADR 0510.
-const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
+///
+/// # `function_based_shading_cmyk.pdf` page 2 left in the six-hundred-and-eighty-eighth session,
+/// and the mechanism is untouched
+///
+/// It left because **the consensus dissolved**, not because we moved. That round drew §8.7.4.3
+/// Table 77's `/Background` (ADR 0529), and a page moving on the round that touched shadings is
+/// exactly the coincidence worth measuring rather than assuming: our raster for this page is
+/// **byte-identical** across the change — rendered both ways in one sitting, `cmp` on the two PNGs
+/// — and the file states no `/Background` at all. What the gate now prints is `ambiguous` with
+/// **29.06 between the closest two references** against a page bound of 1.00, so no pair of them
+/// agrees and there is nothing left to contradict us. Page 1 of the same file is still here, on
+/// the same two references and the same mechanism, which is what says this is a reference's
+/// movement on one page rather than anything about the group.
+///
+/// The page is in [`AMBIGUOUS_DEVICE_CMYK_CONVERSION`] now, which is the same mechanism one
+/// verdict over — and this list is held to equality in both directions, so a page that stops being
+/// contradicted has to leave it whatever the reason.
+const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 4] = [
     "function_based_shading_cmyk.pdf page 1",
-    "function_based_shading_cmyk.pdf page 2",
+    // Page 2 left in the six-hundred-and-eighty-eighth session and it was not us. See the
+    // paragraph above: our raster for it is byte-identical across that round's change, and what
+    // moved is the consensus — the closest two references now miss each other by 29.06 where the
+    // page's bound is 1.00, so there is nobody left to be outside of and the verdict is
+    // `ambiguous`. Removed because this list is held to equality in both directions and a page
+    // that stops being contradicted has to leave it; it is *not* removed because anything about
+    // the mechanism this group names changed, and page 1 is still here on exactly that mechanism.
     "postscript_type4_many_outputs.pdf page 1",
     "transparent.pdf page 1",
     "type4psfunc.pdf page 1",
@@ -3848,15 +3871,29 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf p
 /// against a *best* reference pair of 0.0319. The page drew nothing at all until that session
 /// (ADR 0151), which is why it is here rather than in the undiagnosed list.
 ///
-/// **It left the group in the six-hundred-and-sixteenth session by leaving the comparison**, which
-/// is the same trade §9.3.8, §11.6.2 and the four `knockout_*.pdf` made — this file's own
-/// precedent, one group up. Its shading states §8.7.4.3 Table 77's `/Background [0 1 1]` and
-/// extends at neither end, so the stencil it fills is cyan outside the band between its `/Coords`
-/// and unpainted here; that had been true and silent for the whole of the project, and it is
-/// [`pdf_model::Unsupported::ShadingBackground`] now (ADR 0452, `doc/todo/17`). The diagnosis
-/// above is unchanged and is kept here rather than deleted with the name, because the halftone
-/// reduction is still what those four moirés are: **the page will come back to this group the
-/// round the wash is painted**, and it is `corpus.rs`'s to count until then.
+/// **It left the group in the six-hundred-and-sixteenth session by leaving the comparison** — the
+/// same trade §9.3.8, §11.6.2 and the four `knockout_*.pdf` made — because its shading states
+/// §8.7.4.3 Table 77's `/Background [0 1 1]` and that was reported rather than painted (ADR 0452).
+/// **It is back, in the six-hundred-and-eighty-eighth session, and the wash it came back for marks
+/// nothing at all** (ADR 0529). That is worth the sentences, because this page was the entry's
+/// headline witness in three documents at once and all three said the same wrong thing — that the
+/// page's corners project outside `[0, 1]` on that axis, so every marked cell of the stencil beyond
+/// the band is cyan in the document and unpainted here.
+///
+/// **The area to be painted is not the page.** Table 77 fills "those portions of *the area to be
+/// painted*" outside the shading's bounds, and this page's area to be painted is one stencil, placed
+/// by `0.24 0 0 0.24 0 0 cm` then `1800 0 0 -2400 375 2850 cm` — which is the rectangle
+/// (90, 108) to (522, 684), and `/Coords [90 108 522 684]` is that rectangle's own **diagonal**. The
+/// axial parameter over it is `t = (432(x − 90) + 576(y − 108)) / 518400`, which is 0 at one corner,
+/// 1 at the opposite one and 0.36 and 0.64 at the other two: every point of the stencil is inside
+/// the band, so `/Extend` withholds nothing and the wash has zero area. Painting it moves **0 pixels
+/// by more than 8 levels** on this page, against 26 690 that move by exactly one — and those are the
+/// axial leaving `tiny-skia`'s gradient for `pdf_render::ShadingRaster`'s own evaluation at each
+/// pixel centre, which is what a background-carrying shading now takes on all three backends.
+///
+/// So the page is back on the halftone diagnosis above and on nothing else, and the lesson is trap
+/// 1's inverted: **a claim about what a document draws is a measurement, and "the page's corners"
+/// is not the clause's phrase.**
 ///
 /// **`freeculture.pdf` page 1 is the third instance and the cheapest diagnosis in the bucket**,
 /// added in the hundred-and-ninety-second session. It is the head of the 320-page book that is
@@ -4174,7 +4211,7 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf p
 /// form answers "how much" and is silent on "where"; this is the page where only the pixel count
 /// speaks. The pairwise distances say the same and say the outlier is not us: ours is 0.143 of 255
 /// from `hayro` and 0.152 from `mupdf`, while every pair involving `poppler` exceeds 1.26.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 16] = [
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
     "issue4379.pdf page 1",
     "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
@@ -4195,6 +4232,9 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 16] = [
     // 1.235 at 576 — and at the page's own scale ours is 1.236, `hayro` 1.274, `poppler` 1.218,
     // `mupdf` 1.205, `ghostscript` 1.091. Ours is 0.009 from the limit and nearest of the five.
     "issue13561_reduced.pdf page 1",
+    // Back in the six-hundred-and-eighty-eighth session, on the halftone reduction it always had:
+    // the `/Background` it left over is painted now and marks nothing, for the reason above.
+    "issue13372.pdf page 1",
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",
@@ -4292,8 +4332,18 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 16] = [
 /// on the geometry to the byte while a third is uniformly darker is a colour result wearing an
 /// ink measurement's clothes.
 ///
-const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] =
-    ["cmykjpeg.pdf page 1", "issue269_1.pdf page 1"];
+const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 3] = [
+    "cmykjpeg.pdf page 1",
+    "issue269_1.pdf page 1",
+    // Arrived from [`CONTRADICTED_DEVICE_CMYK_CONVERSION`] in the six-hundred-and-eighty-eighth
+    // session (ADR 0529), on a reference's movement rather than on ours — that group's last section has the
+    // measurement, including the byte-identity of our own raster across the round it arrived in.
+    // Six copies of one 600 x 600 §8.7.4.5.2 shading whose sampled function is bilinear in CMYK,
+    // so it is this group's subject in its purest form: the closest two references now miss each
+    // other by 29.06 where the page's bound is 1.00, which is a page four programs answer four
+    // ways because §10.4.2.5 is four presses.
+    "function_based_shading_cmyk.pdf page 2",
+];
 
 /// Ambiguous, and settled outright by §10.7.5's last sentence.
 ///

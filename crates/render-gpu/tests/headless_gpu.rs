@@ -660,6 +660,7 @@ fn shaded_page(kind: pdf_render::ShadingKind) -> pdf_render::DisplayList {
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(std::sync::Arc::new(Shading {
+            background: None,
             kind: std::sync::Arc::new(kind),
             transform: Transform::IDENTITY,
         })),
@@ -846,6 +847,46 @@ fn cpu_and_gpu_agree_on_a_radial_cone() {
     assert!(
         pixel[0].abs_diff(133) <= 2 && pixel[1] == 0 && pixel[2].abs_diff(122) <= 2,
         "§8.7.4.5.4's colour at s = 0.478 is 133, 0, 122; the raster says {pixel:?}"
+    );
+}
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background`, on all four shading kinds at once.
+///
+/// `test_scenes::shading_background` has the geometry. §11.6.7 puts the wash inside the
+/// pattern's implicit transparency group, so it and the shading are one painting operation —
+/// and the only way three backends agree about that is by drawing one
+/// `pdf_render::ShadingRaster`. The nested-circle quadrant is the one that would catch a
+/// backend keeping its own gradient, because that is the radial geometry a gradient *can*
+/// express.
+///
+/// It also widens what this backend draws: a sampled shading has no Vello brush and is refused
+/// by name (`the_gpu_refuses_a_sampled_shading_by_name`), but one carrying a background needs
+/// no brush at all, so the fourth quadrant draws here.
+#[test]
+fn cpu_and_gpu_agree_on_a_shadings_background() {
+    let list = test_scenes::shading_background();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+
+    let cpu = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu().rasterize(&list, target).expect("supported");
+    assert_within_tolerance(
+        "shading background",
+        raster_compare::compare(&cpu, &gpu).expect("same size"),
+    );
+
+    // Agreement about a page with no wash on it would be agreement about nothing, so the CPU
+    // raster is checked against the clause where the wash is the only thing that can be. Page
+    // (15, 15) is inside the top-left quadrant's fill and left of the axial band's start, which
+    // Table 77 makes the background and `/Extend [false false]` leaves unpainted without it.
+    let at = (15 * cpu.width as usize + 15) * 4;
+    let pixel = &cpu.data[at..at + 4];
+    // `WASH` is rgb(0, 0.6, 0.6): a red of nothing, a green and blue of 153 to a level.
+    assert_eq!(
+        (pixel[0], pixel[1].abs_diff(153) <= 1, pixel[3]),
+        (0, true, 255),
+        "outside the band the wash paints: {pixel:?}"
     );
 }
 

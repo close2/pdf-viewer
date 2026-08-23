@@ -16,7 +16,9 @@ a *claim* rests on which population it is (ADR 0405), never as bookkeeping.
 
 A PDF **viewer**, and every sentence below is a capability rather than a plan.
 
-It **draws** what a page says: geometry, colour, images, shadings, patterns, embedded text,
+It **draws** what a page says: geometry, colour, images, shadings — including §8.7.4.3 Table 77's
+`/Background`, the wash a shading *pattern* asks for outside its own bounds, which §11.6.7 makes
+one painting operation with the shading rather than two — patterns, embedded text,
 transparency groups, soft masks, and annotations both from stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and

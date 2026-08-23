@@ -552,6 +552,34 @@ fn cpu_and_quorra_agree_on_a_sampled_shading() {
     );
 }
 
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background`, on all four shading kinds at once.
+///
+/// `test_scenes::shading_background` has the geometry and why the four are in one scene. What
+/// makes it worth a cross-backend gate rather than a `render-cpu` fixture is §11.6.7: the wash
+/// goes *inside* the pattern's implicit transparency group, so it and the shading are one
+/// painting operation with one coverage and one alpha — which means the only way all three
+/// backends can agree about it is by drawing one `pdf_render::ShadingRaster`. A backend that
+/// kept its own gradient and added the wash some other way would part here, and the radial
+/// quadrant is nested circles precisely so that keeping the gradient is a *possible* mistake.
+///
+/// At two scales, because the raster is the device's: the shading is evaluated at each device
+/// pixel's centre, so a backend resolving it anywhere else draws the same picture at 1× and a
+/// different one at 4×.
+#[test]
+fn cpu_and_quorra_agree_on_a_shadings_background() {
+    let list = test_scenes::shading_background();
+    assert_within(
+        "shading background",
+        compare("shading background", &list),
+        0.06,
+    );
+    assert_within(
+        "shading background at 4x",
+        compare_at("shading background at 4x", &list, 4.0),
+        0.06,
+    );
+}
+
 #[test]
 fn cpu_and_quorra_agree_on_curves() {
     // As with strokes: curves are boundary-dominated fixtures.

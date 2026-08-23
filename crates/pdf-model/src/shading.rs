@@ -119,9 +119,9 @@ impl<'a> Colouring<'a> {
 /// array or a stream states the space in the object itself and is cached.
 #[derive(Debug, Default)]
 pub struct Cache {
-    /// The kind and the shading's own matrix, which is `/Matrix` for a type 1 and the
-    /// identity for every other type.
-    built: BTreeMap<(ObjectId, usize, Conversion), (Arc<ShadingKind>, Transform)>,
+    /// Everything about a shading that depends on the object alone, keyed by that object,
+    /// §10.7.3's sample count and the [`Conversion`] its colours were made under.
+    built: BTreeMap<(ObjectId, usize, Conversion), Built>,
     /// A `/ColorSpace` stated as an **indirect object**, parsed once.
     ///
     /// [`Self::built`] cannot help a page of *distinct* shadings, and one exists:
@@ -136,6 +136,24 @@ pub struct Cache {
     /// does not reach here at all — that applies to a space stated as a **name**, which has no
     /// object identity and is not put in this table.
     spaces: BTreeMap<ObjectId, ColourSpace>,
+}
+
+/// The half of a shading [`Cache`] can remember: everything but the caller's transform.
+///
+/// A struct rather than the tuple this used to be, because the third member arrived and three
+/// anonymous fields in a map value is a type nobody can read at the call site.
+#[derive(Debug, Clone)]
+struct Built {
+    /// The geometry and the colours.
+    kind: Arc<ShadingKind>,
+    /// The shading's own matrix: `/Matrix` for a type 1 and the identity for every other type.
+    own: Transform,
+    /// Table 77's `/Background`, resolved through the shading's own colour space.
+    ///
+    /// Remembered beside the colours because it is made the same way — a colour in the
+    /// shading's own space, so §10.7.3's resolution and the [`Conversion`] this table is keyed
+    /// by decide it exactly as they decide the ramp's.
+    background: Option<Color>,
 }
 
 impl Cache {
@@ -185,25 +203,29 @@ impl Cache {
             // shading under a stated transfer.
             .filter(|_| colouring.transfer.is_none());
         if let Some(id) = key
-            && let Some((kind, own)) = self.built.get(&(id, resolution, colouring.into.clone()))
+            && let Some(built) = self.built.get(&(id, resolution, colouring.into.clone()))
         {
             return Ok(Shading {
-                kind: Arc::clone(kind),
-                transform: own.then(transform),
+                kind: Arc::clone(&built.kind),
+                transform: built.own.then(transform),
+                background: built.background,
             });
         }
         let space = self.space_of(document, object, resources);
-        let (kind, own) = kind_of(document, object, resources, space, colouring)?;
-        let kind = Arc::new(kind);
+        let (kind, own, background) = kind_of(document, object, resources, space, colouring)?;
+        let built = Built {
+            kind: Arc::new(kind),
+            own,
+            background,
+        };
         if let Some(id) = key {
-            self.built.insert(
-                (id, resolution, colouring.into.clone()),
-                (Arc::clone(&kind), own),
-            );
+            self.built
+                .insert((id, resolution, colouring.into.clone()), built.clone());
         }
         Ok(Shading {
-            kind,
-            transform: own.then(transform),
+            kind: built.kind,
+            transform: built.own.then(transform),
+            background: built.background,
         })
     }
 
@@ -256,7 +278,7 @@ pub fn build(
     resources: &Dictionary,
     transform: Transform,
 ) -> Result<Shading, ShadingError> {
-    let (kind, own) = kind_of(
+    let (kind, own, background) = kind_of(
         document,
         object,
         resources,
@@ -266,6 +288,7 @@ pub fn build(
     Ok(Shading {
         kind: Arc::new(kind),
         transform: own.then(transform),
+        background,
     })
 }
 
@@ -300,7 +323,7 @@ fn kind_of(
     resources: &Dictionary,
     space: Option<ColourSpace>,
     colouring: Colouring<'_>,
-) -> Result<(ShadingKind, Transform), ShadingError> {
+) -> Result<(ShadingKind, Transform, Option<Color>), ShadingError> {
     let resolved = document.resolve(object);
     let dict = match &resolved {
         Object::Dictionary(dict) => dict.clone(),
@@ -351,7 +374,7 @@ fn kind_of(
         other => return Err(ShadingError::UnsupportedType { kind: other }),
     };
 
-    Ok((kind, own))
+    Ok((kind, own, background_of(document, &dict, &space, colouring)))
 }
 
 /// ISO 32000-2 §8.7.4.3 Table 77's `/BBox`, if the shading dictionary states one.
@@ -391,27 +414,49 @@ pub fn bbox_of(document: &Document, object: &Object) -> Option<[f32; 4]> {
 /// > operation involving the shading, to fill those portions of the area to be painted that
 /// > lie outside the bounds of the shading object.
 ///
-/// **Nothing here paints it**, and this exists so that the interpreter can say so rather than
-/// drop the entry in silence. The construction the clause asks for is not the one its own NOTE
-/// describes — "the effect is as if the painting operation were performed twice" is an
-/// equivalence in the *opaque* imaging model, and painting the area twice on this device puts
-/// the background colour into every boundary pixel's anti-aliased coverage a second time. The
-/// exact form is a paint whose out-of-bounds colour is the background rather than nothing,
-/// which is a change in three backends and one external library; `doc/todo/17` prices it.
-///
-/// The count is returned rather than a boolean because the array's length is what says whether
-/// the entry is usable at all: Table 77 requires "an array of colour components appropriate to
-/// the colour space", so a caller that knows the space knows whether this file's entry is one.
+/// **The count rather than the colour**, because the count is what says whether the entry is
+/// usable at all: Table 77 requires "an array of colour components appropriate to the colour
+/// space", and [`background_of`] answers `None` both for a shading that states no background
+/// and for one whose array the space cannot read. The interpreter tells those two apart with
+/// this, and reports the second (trap 5) rather than guessing at a colour the file did not give.
 #[must_use]
 pub fn background_components(document: &Document, object: &Object) -> Option<usize> {
-    let resolved = document.resolve(object);
-    let dict = match &resolved {
-        Object::Dictionary(dict) => dict.clone(),
-        Object::Stream(stream) => stream.dict.clone(),
-        _ => return None,
-    };
+    let dict = dictionary_of(document, object)?;
     let array = document.get_key(&dict, "Background");
     array.as_array().map(<[Object]>::len)
+}
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background`, resolved through the shading's colour space.
+///
+/// > An array of colour components appropriate to the colour space, specifying a single
+/// > background colour value.
+///
+/// *Appropriate to the colour space* is a count, so an array of any other length states no
+/// colour and this answers `None` — the same answer as an absent entry, which is why
+/// [`background_components`] exists beside it for the caller that has to report the difference.
+///
+/// It goes through the same [`Conversion`] and the same §10.5 transfer function as every colour
+/// the shading's ramp carries, for the reason [`kind_of`] gives: the wash is painted by the same
+/// operation, into the same group, as the shading it surrounds.
+fn background_of(
+    document: &Document,
+    dict: &Dictionary,
+    space: &ColourSpace,
+    colouring: Colouring<'_>,
+) -> Option<Color> {
+    let array = document.get_key(dict, "Background");
+    let components: Vec<f32> = array
+        .as_array()?
+        .iter()
+        .filter_map(|item| document.resolve(item).as_number().map(narrow))
+        .collect();
+    if components.len() != space.components() {
+        return None;
+    }
+    Some(transferred(
+        colouring.into.paint(space, &components),
+        colouring.transfer,
+    ))
 }
 
 /// Reads `/Coords` as a fixed number of values.
