@@ -353,8 +353,15 @@ pub enum Command {
         ///
         /// A backend may treat it as `false` at any time — it enables an exact composition
         /// rather than licensing anything — and `pdf-model` answers `false` wherever it cannot
-        /// prove the equality, including for a knockout group and for any element whose own
-        /// shape it declines to state.
+        /// prove the equality, which is any element whose own shape it declines to state.
+        /// **§11.4.6's knockout is not one of those and was until ADR 0554**: that clause
+        /// applies its recurrence to shape and to alpha alike, so the equality survives a
+        /// knockout stage exactly as it survives §11.3.7.3's union.
+        ///
+        /// It says nothing about [`Self::isolated`], deliberately. A non-isolated group's
+        /// buffer starts as a copy of its backdrop, so the alpha in it is not the group's own
+        /// shape whatever this flag says — a fact about the *buffer* rather than about the
+        /// commands, and one every backend that reads this flag tests for itself.
         alpha_is_shape: bool,
         /// The four-component blending colour space this group's elements composite in,
         /// or `None` for a group composited in the space its parent already composites in

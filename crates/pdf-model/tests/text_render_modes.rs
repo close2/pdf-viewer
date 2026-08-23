@@ -231,8 +231,11 @@ fn a_translucent_mode_2_glyph_is_one_knockout_group() {
             blend,
             isolated,
             knockout,
-            // §11.4.6's accumulation is not §11.4.4's union, so `pdf-model` declines the
-            // equality for every knockout group — `group_alpha_is_shape` says why.
+            // `/Half gs` is §11.6.4.4's constant read as *opacity*, so this group's two
+            // elements carry a half-alpha paint and §11.3.7.1's `α = f × q` parts — which
+            // is why the flag is unset here and not because the group is §11.4.6's. That
+            // reason was the guard ADR 0554 removed, and this arm reads the same either
+            // way, so it is the paint that is being pinned.
             alpha_is_shape: false,
             blending: None,
         },

@@ -705,6 +705,72 @@ fn alpha_is_shape_makes_the_drawn_alpha_the_knockout_shape() {
     assert_eq!(pixel(&shape, 20, 80), [255, 0, 0, 255]);
 }
 
+/// §11.4.6's knockout keeps §11.3.7.1's equality, so a knockout group carries Table 139's shape.
+///
+/// # What is pinned, and why the flag rather than a pixel
+///
+/// `Command::Group::alpha_is_shape` says that the group's accumulated alpha *is* its shape, which
+/// is what lets §8.5.4's clip at the blit be taken as §10.7.4's intersection of sets. `pdf-model`
+/// refused it to every knockout group until ADR 0554, on a reason — an element arriving as a
+/// `Command::Shaped` pair — that `element_alpha_is_shape` already enforces element by element.
+///
+/// §11.4.6 states a *replacement* recurrence where §11.3.7.3 states a union, and applies each to
+/// shape and to alpha alike; §11.6.4.2 gives both the same base case, "[a]ll elementary objects
+/// shall have an intrinsic opacity q j of 1.0 everywhere". So with every opacity input inside the
+/// group equal to 1.0, `α = f` through a knockout stage exactly as through a union.
+///
+/// The flag is asserted rather than a pixel because the flag is what changed: what it *buys* at
+/// the pixel is `render-cpu`'s `group_clip_intersection.rs`, on a group with a clip. The
+/// translucent case beside it is the control — `/GS` is `ca 0.5` read as opacity, so the paints
+/// are not opaque and the equality genuinely fails.
+#[test]
+fn a_knockout_group_of_opaque_marks_carries_its_shape() {
+    let knockout = "/Group << /S /Transparency /I true /K true >>";
+    let opaque = "1 0 0 rg 10 10 50 50 re f 0 0 1 rg 30 30 50 50 re f";
+    let drawn = interpret(fixture(knockout, "[0 0 100 100]", opaque, "/Fm Do"));
+    let [
+        Command::Group {
+            alpha_is_shape,
+            knockout: is_knockout,
+            isolated,
+            ..
+        },
+    ] = drawn.display_list.commands()
+    else {
+        panic!(
+            "expected one group, got {:?}",
+            drawn.display_list.commands()
+        );
+    };
+    assert!(
+        *is_knockout && *isolated,
+        "the fixture states /K true and /I true"
+    );
+    assert!(
+        *alpha_is_shape,
+        "every opacity input inside is 1.0, so the group's alpha is its shape (ADR 0554)"
+    );
+
+    // The control: §11.6.4.4's constant read as opacity puts `q < 1` on both marks, and the
+    // equality fails for the reason the clause gives rather than for the group's kind.
+    let translucent = interpret(fixture(
+        knockout,
+        "[0 0 100 100]",
+        "/GS gs 1 0 0 rg 10 10 50 50 re f 0 0 1 rg 30 30 50 50 re f",
+        "/Fm Do",
+    ));
+    let [Command::Group { alpha_is_shape, .. }] = translucent.display_list.commands() else {
+        panic!(
+            "expected one group, got {:?}",
+            translucent.display_list.commands()
+        );
+    };
+    assert!(
+        !*alpha_is_shape,
+        "a half-opaque paint is §11.6.4.4's constant as opacity, and `α = f × q` parts"
+    );
+}
+
 /// The reading is a graphics state parameter, so what a group's *content* painted under
 /// decides it — and where that is both readings, no single one describes the group.
 ///

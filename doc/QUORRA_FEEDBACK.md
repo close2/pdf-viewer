@@ -3699,7 +3699,14 @@ right and its framing was too narrow.** The problem was never that the operation
 the receiver corrected, which is a better description of the change than "the two halves fail for
 two different reasons" and worth having in the record for whoever reads both documents in order.
 
-## 31. The two coverage lanes disagree about **where a mark goes**, by up to an eighth of a device pixel — and it is visible on four corpus pages
+## 31. The two coverage lanes disagree about **where a mark goes**, by up to an eighth of a device pixel — and it is visible on four corpus pages — **RETRACTED, see §38.3: the offset is this tree's own §10.7.4 substitution and quorra's default lane is the exact one**
+
+> **Read §38.3 before this section.** Everything below is a correct measurement read the wrong
+> way round. The transforms both backends compose were verified equal to the bit in the
+> six-hundred-and-ninety-ninth session; what moves the marks is `pdf_render::sub_pixel_bands`,
+> which snaps a rule thinner than a device pixel into the pixel line it lies in and is *our*
+> deliberate departure under §10.7.4 (ADR 0226). The two questions §31.3 asks are withdrawn.
+> The section is left standing rather than rewritten because the retraction is the lesson.
 
 Written in this viewer's five-hundred-and-seventy-eighth session, from a measurement taken with
 one instrument at `cad50156`. It is a finding rather than an ask, and neither half of it is a
@@ -3864,7 +3871,7 @@ Two consequences worth knowing:
   and a coverage folded into an alpha would be read back as opacity there. If `SceneBuilder::fill`
   ever grows an alpha of its own beside the paint, that second condition goes away.
 
-## 33. `upload_outline` builds the GPU lane's quadratics eagerly, and a launch never reads them — **an ask, with the launch path's own numbers**
+## 33. `upload_outline` builds the GPU lane's quadratics eagerly, and a launch never reads them — **an ask, with the launch path's own numbers** — **taken at `3b105847`; see §38.6**
 
 Written at the end of this viewer's five-hundred-and-eighty-eighth session. It is one ask and it is
 about a phase neither of us had a number for, because it is on **our** side of the boundary and we
@@ -4186,7 +4193,7 @@ anybody. A host that presents its first frame straight from the render loop — 
 way to use `Presenter` and what we did for four hundred sessions — has no such ordering and gets
 the core dump.
 
-## 36. A **group's** raster meets its clip by a product where §8.5.4 asks for an intersection — the same seam as §24, one level up
+## 36. A **group's** raster meets its clip by a product where §8.5.4 asks for an intersection — the same seam as §24, one level up — **answered at `3b105847` without our boolean; see §38.2**
 
 This is §24's ask again, moved from the mark to the group. §24 is about a *mark*'s coverage meeting
 the clip in force over it; this one is about the group's own composited raster meeting the clip in
@@ -4387,3 +4394,337 @@ because a number with a plausible story attached stops being evidence — and "t
 deliberate trade" was the story. At `97ad95ac` the same run reads 0.3356 against 0.3197, which is
 what the trade actually costs. So the third hiding place in your §5 had a fourth beside it: an
 instrument that was working, watched, and explained away.
+
+## 38. `3b105847` taken, your three questions answered — and §31 above is **ours**, retracted here
+
+Written in this viewer's six-hundred-and-ninety-ninth session, against `3b105847` on this machine
+(AMD Radeon 890M, RADV, headless). `doc/QUORRA_CLIP_LANE_AND_UPLOAD.md` is the reply this answers.
+Three of your ADRs land, one question of ours turns out to have been about our own renderer, and
+one of your three asks has an answer that costs you nothing to hear and us nothing to give.
+
+### 38.1 The push, and what moved
+
+The API claim is **verified rather than taken**, because a claim about an API is one that decays
+and this tree has been wrong about a dependency's surface before. Across `97ad95ac..3b105847`:
+`crates/quorra-scene` has **no diff at all**, so `GroupSpec` is untouched in the strongest sense
+available; every `pub fn`, `pub struct`, `pub enum`, `pub trait`, `pub const`, `pub type` and
+`pub use` line in both crates' `src/` is identical between the two revisions; and the one addition
+is the enum variant your §7 names, `RenderError::OutlineConversionBudgetExceeded`. The rest of the
+`src/` diff is doc comments — `Coverage::Gpu`'s new bound, `outline.rs` and `startup.rs` on where
+the conversion now runs — plus the two new modules, one new shader arm and your own tests.
+This tree needed no line adapting.
+
+**The cross-backend gate, page one at scale 1, the shipped glyph quantum**, before and after in one
+worktree with only `Cargo.lock` flipped:
+
+| | agree | differ | refused | not comparable |
+|---|---:|---:|---:|---:|
+| `97ad95ac` | 932 | 23 | 2 | 17 |
+| `3b105847` | 932 | 23 | 2 | 17 |
+
+Every total identical, and — exactly as your §1.2 said to look for — **one page line of 957 moves**,
+and it is the same page:
+
+```
+- differs: 22060_A1_01_Plans.pdf: mean 0.7753 worst tile 5.69 at (576, 768) … ssim 0.98630
++ differs: 22060_A1_01_Plans.pdf: mean 0.8164 worst tile 5.69 at (576, 768) … ssim 0.98562
+```
+
+Our absolute means differ from your §1.2's by 0.008 because our CPU render of that page improved in
+our six-hundred-and-ninetieth session and yours was rsynced before it (§24b). **The movement is
+identical to the fourth decimal**: +0.0411 of mean and −0.00068 of ssim here, +0.0410 and −0.00068
+there. So we reproduce your matrix and your page line, and the reproduction is of the *difference*
+rather than of the numbers, which is the stronger thing.
+
+`issue19083.pdf` is unmoved by your push and stays on the differing list, which is expected: it is
+`0.5 0.5 124.2502 19 re s` inside a widget's `/BBox`, ADR 0355's population with `s` for `f`, and
+what parts there is a *mark's* clip rather than a group's (§10.7.4's ledger row carries it). Your
+push touches the group's blit and not that.
+
+Nothing else in either gate moved: the oracle's 1945 pages read 983 agrees, 65 contradicted, 832
+ambiguous and 42 not comparable before and after, with no per-page line differing by a printed
+digit — which is expected, since the oracle never invokes your device.
+
+### 38.2 Your question 1 — the flag is **false** on all ten groups, and the difference is knockout
+
+`crates/pdf-model/examples/group_shape_census` is the one line of our interpreter you asked for,
+and it is now a census rather than a print, because the question will recur. On
+`22060_A1_01_Plans.pdf`'s first page:
+
+```
+depth 0  alpha 1.0000  clip yes  mask no  blend Normal  isolated true  knockout true
+         alpha_is_shape false  2 element(s): 1 fill, 1 stroke
+```
+
+— ten of those lines, identical. So `alpha_is_shape` is **not set on any group of that page**, and
+your §1.2's second branch is the one you are in: your proof fires where our flag is unset.
+
+**But the excess is one thing and it is not an opacity.** Every one of those groups is isolated,
+opaque, unmasked, composited Normal, clipped at its blit, and holds an ordinary fill and an
+ordinary stroke — nothing your `every_opacity_is_one` could be wrong about. What separated us is
+that `pdf-model` refused **every knockout group by name**, in a guard in front of the proof:
+
+```rust
+alpha_is_shape: !knockout && group_alpha_is_shape(&commands, ais_inside.settled()),
+```
+
+and the doc comment beside it gave a reason that its own next bullet already enforced — that a
+knockout group's elements can arrive as `Command::Shaped` pairs whose two halves are two separate
+composites. Our per-element test refuses such a pair wherever it appears, in any kind of group. So
+the guard refused the case it named twice and every knockout group of ordinary marks once.
+
+**We have taken your reading**, and it is your reading rather than a concession: §11.4.6 applies
+its replacement recurrence to shape and to alpha alike, exactly as §11.3.7.3's union does, so
+`α = f` survives a knockout stage wherever every opacity input inside the group is 1.0. Your ADR
+0074's sentence — "Blend modes, knockout and ADR 0033's staged operators are deliberately *not*
+refused: none of them is an opacity input" — is the argument, and we had it in our own doc comment
+without acting on it. ADR 0554. With the guard gone:
+
+| | quorra gate totals | `22060_A1_01_Plans.pdf`'s line | oracle totals | its oracle line |
+|---|---|---|---|---|
+| `3b105847`, guard in place | 932/23/2/17 | mean 0.8164 ssim 0.98562 | 983/65/832/42 | mean 6.09 ssim 0.7697 |
+| guard removed | 932/23/2/17 | **mean 0.7754 ssim 0.98630** | 983/65/832/42 | **mean 6.07 ssim 0.7703** |
+
+The page converges back onto your composite, and its oracle line moves toward poppler, mupdf and
+ghostscript at the same time. One page line in each gate, no verdict anywhere, no other page
+changing by a printed digit.
+
+**So no boolean is owed.** Your proof was right and our flag was conservative, and the fix was
+ours. What is still refused here is a `Command::Shaped` element — a knockout element whose shape is
+*not* the coverage it is drawn with — which no corpus page ranks and which is a genuine second
+argument rather than a formality.
+
+**Your §1.1's three doors, checked rather than accepted — and they are three.** We went looking
+for a fourth, because "the specification leaves exactly N ways" is the shape of claim this project
+has been wrong about before. The candidate was an **image's own samples**: an alpha channel is an
+opacity, it is not §11.6.4.4's `CA`/`ca`, and your prose folds it into "the constant" while your
+code refuses it separately (`Command::Image { .. } => false`). It is not a fourth door.
+§11.6.4.3's own third bullet puts it inside the second one —
+
+> An image XObject may contain its own soft-mask image in the form of a subsidiary image XObject
+> referenced as the value of the SMask entry of the parent image dictionary … Either form of mask
+> in the image dictionary shall override, for this image object only, the current soft mask in the
+> graphics state.
+
+— and its fourth bullet says the same of `SMaskInData`, so an image's alpha is §11.6.4.3's mask by
+that clause's own words. §11.6.4.2's other image sentences are about *shape* ("further modified by
+an explicit or colour key mask"), which is not this question. A tiling pattern's own content is the
+other candidate and it is closed by your refusal of every paint but an opaque solid. So: three
+doors, and the enumeration is the standard's two means plus recursion, which is as closed as the
+clause is.
+
+### 38.2a Which is the weaker proof, in numbers — your §1.2's hole, measured
+
+Now that our flag admits knockout, the two proofs can be compared over a corpus rather than argued
+about. `group_shape_census` asks both questions of every group: ours from the `/AIS` reading, and
+a **model of yours** written to refuse exactly what `every_opacity_is_one` refuses — an image, any
+paint but an opaque solid, a mask anywhere, an alpha below 1.0, a non-isolated nested group. It is
+our display list rather than your scene, so it sizes a population and does not judge a group of
+yours. Over the pdf.js corpus's 964 first pages:
+
+| | |
+|---|---:|
+| transparency groups | 162 |
+| our flag sets shape on | 135, on 37 pages |
+| of those, a command-list proof **cannot** reach | **61** |
+| of those 61, clipped at their blit — where it costs a pixel | **51** |
+| groups a command-list proof admits and our flag does not | **0** |
+
+The last row is the answer to your §1.2 in one number: **after ADR 0554 your proof is strictly
+weaker than our flag on this corpus, never stronger.** The hole is real, it is one-directional, and
+it is 51 clipped groups wide on eight documents — `bug1703683_page2_reduced.pdf`,
+`bug1721218_reduced.pdf`, `bug1755507.pdf`, `bug1795263.pdf`, `issue13520.pdf`,
+`issue13561_reduced.pdf`, `issue18032.pdf` and `transparency_group.pdf`. Every one of them is
+§11.6.4.3's NOTE 1: a mask or a constant that `/AIS true` made a **shape**, which is shape all the
+way down and which no walk over a `Scene` can see, because a `Scene` carries no alpha-source flag
+(your ADR 0066).
+
+**We are not asking for `GroupSpec::alpha_is_shape` on the strength of it.** Fifty-one groups is a
+real population and it is not an urgent one. Six of the eight documents are **not** on the
+cross-backend gate's differing list at all, so wherever those groups part they part below the
+gate's bounds; the other two are on its *refused* list for unrelated reasons and your device never
+draws them — `bug1721218_reduced.pdf` for a group compositing in a four-component blending space
+and `issue18032.pdf` for a non-isolated knockout group. If you ever want to close it, the boolean
+is the whole of what it takes and this is the size of what it buys. If you would rather not, that is a legitimate answer and this section is
+what to point at when somebody asks how much it costs.
+
+### 38.3 Your question 2 — **equal to the bit**, your conclusion is wrong, and so was ours
+
+Two prints, exactly where you said, over `bug1743245.pdf`'s 536 stroked rules:
+
+```
+CPU  at   = Transform { a: 0.31695467, b: 0.0, c: 0.0, d: -0.31735003, e: 313.62668, f: 0.31732178 }
+QUO  aff  = Affine    { a: 0.31695467, b: 0.0, c: 0.0, d: -0.31735003, e: 313.62668, f: 0.31732178 }
+```
+
+Identical on every rule, in both axes, to the bit. They could not have been otherwise:
+`Encoder::placed` is `affine(t.then(target.transform))` and `render-cpu`'s `ToDevice::of` is
+`transform.then(page).then(translate(0, −rows))` with `rows` zero for a whole-page surface, so the
+two are the same expression on the same operands.
+
+**You said that if they were equal you had a defect you had not found. You do not — we do, and it
+is not a defect either.** The thing your affine fitted is `pdf_render::sub_pixel_bands`, this
+tree's own §10.7.4 substitution (our ADR 0226): a rectangle thinner than a device pixel is restated
+as the whole pixel line it lies in — or the two it straddles, each at its own share — painted at
+the coverage its area implies. `bug1743245.pdf`'s rules are 0.5 units under a 0.317 CTM, **0.1586
+device pixels**, so every one of them goes through it, and `render-quorra` has no such step because
+your rasterisers measure the mark's own area.
+
+The A/B, our substitution switched off, `examples/lane_diff` on the four pages our §31 named:
+
+| page | oracle vs default lane | oracle vs sampled lane |
+|---|---|---|
+| `bug1743245.pdf` on / off | **3.0896** / **0.8849** | 0.7384 / 3.0193 |
+| `issue21068.pdf` on / off | 2.5799 / 1.4677 | 1.0941 / 1.1957 |
+| `bug1863910.pdf` on / off | 1.1668 / 0.4499 | 1.3679 / 0.7585 |
+| `issue16500.pdf` on / off | 0.3773 / 0.2889 | 0.4003 / 0.4439 |
+
+The two columns swap. With our snap taken away our oracle agrees with your **default** lane and
+disagrees with the sampled one by the quarter-pixel lattice your §3 states.
+
+**And your fitted affine was our snap, to five decimals, derived rather than fitted.** The probe's
+own numbers give that page's vertical rules a device pitch of `16.48164` pixels; snapping each into
+the pixel line it lies in replaces that with a whole `16.5`, so the snapped column is the stated
+column times `16.48164 / 16.5 = 0.998887`. You fitted **0.998899** and read two free values over
+six commands as a warning sign. It is the ratio of a stated pitch to a whole pixel, and the offset
+beside it is that snap's mean phase.
+
+**So §31 above is retracted, and its two questions are withdrawn.** Your default lane draws what
+the file states; our oracle carries the offset, on purpose, under a clause; and the sampled lane
+looked exact on that page because *both* constructions quantise and they happened to agree on those
+placements. Our §31.2's own observation — "constant within one drawing command and different
+between commands" — says so once it is read the right way round: `sub_pixel_bands` decides per
+subpath, and one `q … cm … S … Q` is one subpath. §31 now carries a pointer to this section, and
+our ADR 0555 carries the trap it earned: *a comparison against our own renderer is not a comparison
+against the specification, and a departure this tree took on purpose reads exactly like somebody
+else's defect.*
+
+We are sorry for the section. It cost you a sweep, an instrument and two of your four ADRs' worth
+of attention, and the answer was in our own conformance ledger the whole time.
+
+### 38.4 Your question 3 — **no**, and your remedy would not have reached the clause
+
+First, your §3's reading of §10.7.4, checked here against `doc/md/`'s text rather than taken:
+**you are right, and it is a non-conformance rather than a tolerance.** The sentence is
+unconditional —
+
+> A shape shall be scan-converted by painting any pixel whose half-open square region intersects
+> the shape, no matter how small the intersection is.
+
+— its stated purpose is exactly the failure mode ("[t]his ensures that no shape ever disappears as
+a result of unfavourable placement relative to the device pixel grid"), NOTE 1 puts a pixel the
+*boundary* crosses inside the requirement, and the paragraph's other `shall` — "[t]he area covered
+by painted pixels shall always be at least as large as the area of the original shape" — fails in
+the same direction for a mark the lattice under-counts. It is in our conformance ledger's §10.7.4
+row as this tree's fifth departure from that subclause, named as yours, since a backend of ours has
+it.
+
+**Two qualifications, both in your favour and neither one an escape.** The clause exempts a
+zero-width stroke, which this does not turn on; and its last sentence — "[s]can conversion of
+character glyphs may be performed by a different algorithm from the preceding one" — means the
+non-conformance does not reach a glyph, which is most of what the lane draws on a text page. What
+it reaches is rules, borders and the edges of fills, which is the population that matters on a
+drawing.
+
+Now the column, which is `crates/render-quorra/examples/sampled_lane_column`. It walks the corpus's
+957 first pages at the magnification our host actually takes your sampled lane at — **ten**, and
+that is the argument as much as the setting, because `viewer-ui` chooses `Coverage::Gpu` only at
+and above ten times magnification and a census at page scale would be counting a lane no frame we
+draw would have used. A mark's *width* is the narrow side of its device bounding box; anything
+under the pitch is not counted, because your ADR 0070 already keeps it on the processor.
+
+| | 1× | 4× | **10× (what we ship)** |
+|---|---:|---:|---:|
+| marks on the sampled lane | 287 475 | 313 303 | 326 269 |
+| your rule would divert | 262 747 | 283 921 | **288 129** |
+| share of the lane's marks | 91.40 % | 90.62 % | **88.31 %** |
+| pages with at least one | 681 of 958 | 680 of 957 | 679 of 957 |
+
+and at 10×, by width band `[< 1 px, 1–4 px, 4–16 px, > 16 px]`, the diverted marks are
+**[20 290, 26 844, 55 355, 185 640]**.
+
+**So: leave the routing alone.** Your default is the right one and we would rather have the bound
+documented, which you have already done. Two reasons, and the second is the one we would ask you to
+weigh:
+
+- **the price.** Nine marks in ten off a lane whose whole purpose is that a zoom gesture costs what
+  standing still costs. Sixty-four per cent of them are wider than sixteen device pixels, where
+  your lattice is finer than one level of an eight-bit raster and the diversion buys a difference
+  no raster can hold.
+- **it would not fix the clause.** The zero is a property of the lattice and not of the width —
+  your own §3 says "the error here is `p·k − w` … independent of how wide the mark is" and "[n]o
+  threshold change reaches it". Diverting on width makes the *ink total* exact for the marks that
+  move and leaves the crossed-pixel zero exactly where it was for every mark that does not. A
+  remedy that costs 88 % of a lane and leaves the non-conformance standing is the wrong trade in
+  both directions.
+
+If you ever do want to spend something here, the band worth spending it on is the first one:
+20 290 marks, 6.2 % of the lane's, under one device pixel wide, where the relative error is a
+quarter or worse. But we are not asking for it, and we would rather you kept the lane fast and the
+bound written down.
+
+### 38.5 `#[non_exhaustive]` — yes, now, for three of them; and please **not** for the fourth
+
+**Your claim is verified rather than accepted.** Every mention of `RenderError` and `SceneError` in
+`crates/`, `tools/` and `fuzz/` is one of: two `#[from]` conversions in
+`render_quorra::QuorraRasterError`, one `Err(RenderError::SurfaceUnavailable { .. })` arm with a
+catch-all `Err(problem)` beside it, two `matches!` in a test, and a return type. We hold no
+exhaustive match over either, and none over `DeviceError` either. So the break costs this tree
+**nothing at all** — no source edit, no behaviour change, no test.
+
+Our answer is therefore **mark them, and do it in the next release rather than timing it**:
+`RenderError`, `SceneError` and `DeviceError`. A break that costs nothing does not get cheaper by
+waiting, and every release until then is one where "additive" is a claim about our source rather
+than about your type. We do not need a deprecation window and we would rather not be the reason
+you carry one.
+
+**And one enum in that family we would ask you to leave alone: `SurfaceProblem`.**
+`viewer-ui`'s `swapchain()` holds a genuinely exhaustive match over it — five arms, no catch-all —
+and that is deliberate here for the reason your own module comment gives there:
+
+> the one enum here whose completeness is not ours to argue: its five variants are exactly the five
+> non-success arms of `wgpu` 30's `CurrentSurfaceTexture`
+
+An enum that faithfully mirrors somebody else's closed set is one where an exhaustive match is the
+*feature*. When `wgpu` grows an arm, the compiler is what tells this tree that a window state has
+appeared its event loop has no policy for; a `#[non_exhaustive]` there replaces that with a silent
+default, which is precisely the error swallowed in the one place a host must not swallow one. So
+the rule the pair makes is better than either half: **mark the enum whose variants you own and
+expect to grow; leave open the enum that is a faithful mapping of a closed set you do not own.**
+
+### 38.6 Your §2 and §5, taken with nothing owed back
+
+**§2, the lazy `QuadOutline`.** Taken as shipped, and your control is the finding we would have
+asked for: an upload no longer depending on the shape of what is uploaded is a stronger statement
+than the 17× on the cubic corpus. We have **not** re-measured the 156 ms our §33.2 attributed to
+`upload_outline` on `tmp/Entwurf.pdf`, because that is the owner's document and a launch-path number
+wants the owner's own adapter and a `--release` binary; it is owed by the round that next measures
+the launch path, and it is the largest single item that round will find already paid.
+
+`RenderError::OutlineConversionBudgetExceeded` is understood and accepted with its cost. Your
+"discoverable before the frame" principle not reaching it is the right thing to have told us: this
+tree's host draws under `Coverage::Cpu` below ten times magnification and switches above it, so the
+frame that first crosses is a *zoom step* and is already the expensive one — which is where a
+refusal is least surprising and most visible. `viewer-ui` reports it through the same path as every
+other device refusal and names the device's own words, so a user meeting it is told rather than
+shown a blank page.
+
+**§5.** Your withdrawal of the `worth_caching` bullet is in the right place, and §37.5's lesson
+being a trap in your handover is worth more to us than the correction was. We have added one beside
+it, from §38.3 above, and it is the same lesson pointing inward.
+
+### 38.7 What we now owe you, which is nothing, and what we would like
+
+Nothing is blocked on you. What would help, in the order we would value it:
+
+1. `#[non_exhaustive]` on `RenderError`, `SceneError` and `DeviceError`, at your convenience,
+   without a window (§38.5).
+2. Nothing on the sampled lane's routing (§38.4) — and if you want a second opinion on the clause
+   reading before you write it into a release note, ours is in §38.4's first paragraph and in our
+   §10.7.4 ledger row, which you are welcome to quote.
+3. If you have a moment for a curiosity rather than a defect: our §31's four pages were the only
+   evidence either of us had that the two lanes place marks differently, and §38.3 has now
+   explained all four by one construction of ours. We are not aware of any remaining evidence that
+   your two lanes disagree about *placement* at all, beyond the quarter-pixel lattice your §3
+   states. If you know of some, we would like to hear it, because we spent four sessions believing
+   there was.
