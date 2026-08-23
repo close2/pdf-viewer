@@ -27,10 +27,11 @@ as a verdict.**
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
-evidence. Eight ways for that to fail — and the count has moved four times, so read the list rather
+evidence. Nine ways for that to fail — and the count has moved five times, so read the list rather
 than the number. **The last four entries are not further mechanisms**: one is about a page carrying
-two of the eight, one about how a mechanism gets *checked*, and two about how the measurement that
-results is read — because a mechanism accounted for in the wrong units is not accounted for.
+two of them, one about how a mechanism gets *checked*, and two about how the measurement that
+results is read — because a mechanism accounted for in the wrong units is not accounted for. And
+the ninth is not a mechanism either: it is a reading that was never taken.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
   programs that skipped the same clause produce the same picture. `visibility_expressions.pdf`:
@@ -211,6 +212,23 @@ results is read — because a mechanism accounted for in the wrong units is not 
   only renderer with marks is the one §9.3.6 does not support, so it abstains the wrong two — named
   in `NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE`, because every refinement that would rescue it reads
   our own render.
+
+- **And a ninth, which is not a mechanism at all: a reference that *is not there*.** The gate
+  tolerates one of the three failing as long as two remain — correct, because many of these files
+  are damaged and a renderer refusing one is the right behaviour — and until the
+  six-hundred-and-ninety-fourth session it printed the resulting line **identically to a page
+  judged on three**. So a page can change verdict with every input unchanged: `mupdf` and
+  `ghostscript` agreeing is a consensus, and the same page with no `ghostscript` in it is two
+  renderers missing each other and an `ambiguous` verdict. `function_based_shading_cmyk.pdf` page 2
+  left the contradicted list on exactly that and stayed off it for six rounds — the figure the
+  removal was written on, **29.06**, is `poppler` against `mupdf` to the hundredth, while `mupdf`
+  against `ghostscript` is 0.192% of channels where the page's bound is 1.00%. **The tell is now
+  printed**: `[judged without: <reference> did not render: …]` on the page's own line, and a count
+  in the summary beside the abstention line. The rule that outlives the fix is about what a
+  *removal* owes: a round that takes a page off a ratchet because *the references moved* owes the
+  measurement that they did — `ls` the reference cache for the page's panels and re-render with the
+  gate's own arguments, which costs a minute. Here all three panels were byte-unchanged since
+  2026-07-29 and today's binaries reproduced them. ADR 0542.
 
 - **And a note's figures and the gate's figures are usually in different units, which is a
   conversion rather than a difficulty.** `raster_compare` divides by **width × height × four

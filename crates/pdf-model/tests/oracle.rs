@@ -1266,6 +1266,11 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// # `function_based_shading_cmyk.pdf` page 2 left in the six-hundred-and-eighty-eighth session,
 /// and the mechanism is untouched
 ///
+/// **The section after this one supersedes this one's *cause* and keeps its evidence.** Both
+/// halves of what that round measured are still true — our raster is byte-identical across its
+/// change, and the mechanism this group names was untouched — and the third sentence, that the
+/// consensus dissolved, was a reading of a run rather than of the page.
+///
 /// It left because **the consensus dissolved**, not because we moved. That round drew §8.7.4.3
 /// Table 77's `/Background` (ADR 0529), and a page moving on the round that touched shadings is
 /// exactly the coincidence worth measuring rather than assuming: our raster for this page is
@@ -1276,18 +1281,45 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// the same two references and the same mechanism, which is what says this is a reference's
 /// movement on one page rather than anything about the group.
 ///
-/// The page is in [`AMBIGUOUS_DEVICE_CMYK_CONVERSION`] now, which is the same mechanism one
-/// verdict over — and this list is held to equality in both directions, so a page that stops being
-/// contradicted has to leave it whatever the reason.
-const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 4] = [
+/// The page was in [`AMBIGUOUS_DEVICE_CMYK_CONVERSION`] for five rounds and is back here, and
+/// **the consensus never moved — a reading was missing from the run that said it had.**
+///
+/// # What the six-hundred-and-ninety-fourth session found, and how
+///
+/// The figure recorded above, *29.06 between the closest two references*, is `poppler` against
+/// `mupdf` on this page to the hundredth. Over the artefacts the gate writes, at 72 dpi, the
+/// three differing fractions among the references are:
+///
+/// ```text
+///   poppler   vs mupdf         29.063%      the number the removal was written on
+///   poppler   vs ghostscript   29.435%
+///   mupdf     vs ghostscript    0.192%      inside the page's 1.00% bound, so a consensus
+/// ```
+///
+/// `mupdf` and `ghostscript` are 0.192% and 0.214 of 255 apart — a consensus by any bound this
+/// gate holds — so **a run that reported no consensus on this page was a run with no
+/// `ghostscript` reading in it**, and the only pair left was the one at 29.06. Nothing in the
+/// gate's output said so, which is the instrument defect ADR 0542 fixes: `render_references`
+/// tolerated a missing reference silently as long as two remained.
+///
+/// Everything else about the page is unchanged and was checked rather than assumed:
+///
+/// - **The references have not moved.** All three cached panels for this page carry an mtime of
+///   2026-07-29 in the shared reference cache, and re-running today's `pdftoppm`, `mutool` and
+///   `gs` with the gate's own arguments reproduces each of them — ink 80.6357, 77.9291 and
+///   77.7736 of 255, to the fourth decimal.
+/// - **Our raster has not moved.** The gate prints 5.15 / 19.47 / 29.19% / .9956 for it, which is
+///   this note's own table above, measured in the six-hundred-and-eightieth session.
+/// - **The camps are the group's subject.** Ours against `poppler` is 0.170 of 255 and 0.130% of
+///   channels — the two that assume standard process inks — against `mupdf` and `ghostscript`
+///   reading Artifex's SWOP profile. That is trap 9's second shape, and it is why page 1 and
+///   page 2 belong to one mechanism.
+const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
     "function_based_shading_cmyk.pdf page 1",
-    // Page 2 left in the six-hundred-and-eighty-eighth session and it was not us. See the
-    // paragraph above: our raster for it is byte-identical across that round's change, and what
-    // moved is the consensus — the closest two references now miss each other by 29.06 where the
-    // page's bound is 1.00, so there is nobody left to be outside of and the verdict is
-    // `ambiguous`. Removed because this list is held to equality in both directions and a page
-    // that stops being contradicted has to leave it; it is *not* removed because anything about
-    // the mechanism this group names changed, and page 1 is still here on exactly that mechanism.
+    // Back from [`AMBIGUOUS_DEVICE_CMYK_CONVERSION`] in the six-hundred-and-ninety-fourth
+    // session, on the reading above: it never stopped being contradicted, and the run that said
+    // otherwise was judging it on two references instead of three.
+    "function_based_shading_cmyk.pdf page 2",
     "postscript_type4_many_outputs.pdf page 1",
     "transparent.pdf page 1",
     "type4psfunc.pdf page 1",
@@ -4459,17 +4491,14 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
 /// on the geometry to the byte while a third is uniformly darker is a colour result wearing an
 /// ink measurement's clothes.
 ///
-const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 3] = [
+const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] = [
     "cmykjpeg.pdf page 1",
     "issue269_1.pdf page 1",
-    // Arrived from [`CONTRADICTED_DEVICE_CMYK_CONVERSION`] in the six-hundred-and-eighty-eighth
-    // session (ADR 0529), on a reference's movement rather than on ours — that group's last section has the
-    // measurement, including the byte-identity of our own raster across the round it arrived in.
-    // Six copies of one 600 x 600 §8.7.4.5.2 shading whose sampled function is bilinear in CMYK,
-    // so it is this group's subject in its purest form: the closest two references now miss each
-    // other by 29.06 where the page's bound is 1.00, which is a page four programs answer four
-    // ways because §10.4.2.5 is four presses.
-    "function_based_shading_cmyk.pdf page 2",
+    // `function_based_shading_cmyk.pdf` page 2 was here from the six-hundred-and-eighty-eighth
+    // session to the six-hundred-and-ninety-fourth and is back in
+    // [`CONTRADICTED_DEVICE_CMYK_CONVERSION`], which is where it had always belonged: the
+    // consensus it was said to have lost is `mupdf` and `ghostscript` 0.192% of channels apart,
+    // and the run that could not see it had rendered no `ghostscript` for this page. ADR 0542.
 ];
 
 /// Ambiguous, and settled outright by §10.7.5's last sentence.
@@ -9500,6 +9529,270 @@ const AMBIGUOUS_STANDARD_FOURTEEN_FACE: [&str; 16] = [
 const AMBIGUOUS_HIGHLIGHT_APPEARANCE_STREAM: [&str; 1] =
     ["pdf20examples/PDF 2.0 UTF-8 string and annotation.pdf page 1"];
 
+/// Ambiguous, and the bound every one of them fails is one no pair of the references meets here
+/// either.
+///
+/// **The whole of `doc/corpora/pdfbox`'s undiagnosed queue but four pages**, opened in the
+/// six-hundred-and-ninety-fourth session (ADR 0543). The six-hundred-and-ninety-second put this
+/// corpus through the oracle for the first time and 63 pages came back `ambiguous` with nothing
+/// said about them — the first entries in `tests/ambiguous_undiagnosed.txt` since the
+/// three-hundred-and-seventy-ninth session, and not one of them a regression.
+///
+/// Nineteen documents: `pdfbox/cweb.pdf` (22 pages, pdfTeX, embedded Computer Modern Type 1
+/// subsets),
+/// PDFBox's `input/merge/` inputs (26 pages of Acrobat Distiller Word output at US letter),
+/// `eu-001.pdf`, `unencrypted.pdf` page 1, three single pages and the four
+/// `PDFBox.GlobalResourceMergeTest` names below. Every one is judged by
+/// [`Tolerance::TEXT_HEAVY`] — mean 5.00, worst tile 40.00, differing 5.00%, similarity 0.9000.
+///
+/// # Four names, one page, and the check that says so
+///
+/// `doc/todo/00`'s rule is to ask what else in the list is the same file before taking a name off
+/// it. `PDFBox.GlobalResourceMergeTest.Doc01.pdf`, `…Doc02.pdf` and the `.decoded` variant of each
+/// print **the same four metrics to the digit**, and they are one page: our own render is
+/// `md5 e0a91939…` on all four and `poppler`'s is `3d197096…` on all four. `Doc01` and `Doc02` are
+/// both 9 511 bytes and both `.decoded` files 14 336, so the pairs differ in stream filters and the
+/// two documents in nothing this gate can see. Their `pdftotext` readback is one digest and is not
+/// empty — *Lorem ipsum dolor sit amet* — so the match is evidence rather than
+/// `doc/todo/00`'s false positive of two pages with no text. **One measurement, four names.**
+///
+/// # Which bound fails, because the hypothesis it was filed under was wrong about two of the four
+///
+/// The queue was written down with a shape attached: *62 of the 63 fail the differing fraction and
+/// the structural similarity while sitting well inside the mean and the worst tile.* Counted off
+/// the gate's own lines, the first half holds and the second does not:
+///
+/// ```text
+///   differing fraction   63 of 63 fail
+///   structural similarity 47 of 63
+///   mean                  47 of 63   — the hypothesis said none
+///   worst tile             4 of 63   — the four in [`AMBIGUOUS_PAGE_PLACED_A_ROW_APART`]
+/// ```
+///
+/// The differing fraction is also the *worst* ratio on all 59 of these, at 2.3 to 3.2 times its
+/// bound where the mean never reaches 2.6 and the worst tile never reaches 0.8. So the page that
+/// has to be accounted for is the differing fraction, and the rest follows it.
+///
+/// # And that bound is one the references miss against each other on every page here
+///
+/// Measured over the artefacts the gate has already written, with `raster_compare`'s own
+/// definition — channels differing by more than four levels, over width × height × four:
+///
+/// ```text
+///   the smallest of the three reference-to-reference differing fractions
+///     exceeds the 5.00% bound on   63 of 63 pages      range 5.11% to 14.27%
+///   our worst differing fraction is at or below the largest of them on 51 of 63
+///   median: ours 11.22%   reference-to-reference 11.48%
+/// ```
+///
+/// **No two of the three voting references agree to this bound anywhere in this population**, so a
+/// page failing it is not an accusation. That is `doc/oracle-and-corpus.md` §3c's result — the
+/// six-hundred-and-seventh session re-derived all eight fixed bounds and found this one rejecting
+/// **29.4%** of reference pairs on text pages, alone among the four — reproduced on a corpus
+/// written by different producers and never used to set it. `doc/todo/12` owns the bound; ADR 0243
+/// has the argument for leaving it where it is, and this group is not a request to move it.
+///
+/// The mean converts the same way: **on 61 of 63 our worst mean is at or below the largest
+/// reference-to-reference mean**, median ours 6.37 against 7.90. The two that are not are
+/// `PDFBOX-5840-410609.pdf` pages 1 and 2 (4.64 against 4.42, 6.63 against 5.81), which is the
+/// document whose four faces are §9.6.2.2's standard fourteen with no program embedded — the
+/// subject of [`AMBIGUOUS_STANDARD_FOURTEEN_FACE`], arriving inside this band rather than beside
+/// it.
+///
+/// # Two camps, measured over this population instead of assumed from the other one
+///
+/// All ten renderer pairs, over all 63 pages, in levels of 255:
+///
+/// ```text
+///   the closest of the ten pairs is ours + hayro on                63 of 63
+///   median ours-to-hayro                                            1.538
+///   median closest *voting* pair                                    4.226
+///   we sit nearer a voting reference than the closest two vote-
+///     ing references sit to each other on                          62 of 63
+/// ```
+///
+/// That is trap 9's third shape and `doc/todo/00`'s table — on the pdf.js bucket the same two
+/// medians are 1.94 and 5.39 — holding to within a tenth on a population it was not measured on.
+/// **It is not evidence that we are right**, and `Reference::independence` says why: `hayro`
+/// shares `skrifa` with this tree and may not vote. What it establishes is what the verdict is
+/// made of, which is a voting camp 2.75 times wider than the gap between us and the renderer that
+/// abstains.
+///
+/// # Whose line the gate prints, and the placement underneath it
+///
+/// On an ambiguous page the printed comparison is against the reference we look *least* like — the
+/// largest worst tile — and here that is **`poppler` on 53 of the 63 and `ghostscript` on 10**.
+/// Never `mupdf`, and the reason is one measurement: the best whole-pixel offset between our
+/// raster and `mupdf`'s is **(0, 0) on all 63 pages**, while the best offset between ours and
+/// `poppler`'s is **one device row down on 50 of them**. `poppler` places this text a row from
+/// where we and `mupdf` place it; taking that row out drops ours against `poppler` from 9.23 to
+/// 7.56 on `cweb.pdf` page 4 and from 14.28 to 3.95 on the pages in the group below.
+///
+/// # The closed form, on two documents and with two ladders each
+///
+/// `doc/todo/00` step 6, with the gate's own arguments to each renderer — `-dTextAlphaBits=4` is
+/// not optional, and without it `ghostscript`'s 72 dpi ink on `poems-beads` reads 16.57 instead of
+/// the 18.25 the gate compares against, which is trap 3 inside a ladder.
+///
+/// ```text
+///   cweb.pdf page 4                72 dpi / 1x     576 dpi / 8x
+///     ours                          14.1503         14.2305
+///     poppler                       14.1894         14.2245
+///     mupdf                         14.1936         14.2461
+///     ghostscript                   14.9504         14.2615
+/// ```
+///
+/// **Two independent limits 0.022 of 255 apart, and ours at 8× lies between them.** What is
+/// 0.73 out at the page's own scale is `ghostscript`, against its own high-resolution value —
+/// scan conversion of nine-point Computer Modern, not a disagreement about the marks.
+///
+/// ```text
+///   PDFBOX-5840-410609.pdf page 3  72 dpi / 1x     576 dpi / 8x
+///     ours                          22.9489         22.8568
+///     poppler                       22.6507         22.7155
+///     mupdf                         22.7579         22.7390
+/// ```
+///
+/// Here the two references' limits agree to 0.024 and **ours is 0.13 above them at every scale**,
+/// which is a difference in outlines rather than in pixels: §9.6.2.2's *these fonts, or their font
+/// metrics and suitable substitution fonts* names Times and states no artwork, this tree draws
+/// PDFium's Foxit faces compiled in (ADR 0133) and the three C references read URW's off this
+/// machine. Five renderers, four sets of outlines, one clause that requires none of them.
+///
+/// # What the specification determines
+///
+/// `doc/todo/00`'s second and third shapes, on two halves of the population. **Where the fonts are
+/// embedded** — `cweb.pdf`'s Computer Modern subsets, `PDFBOX-3110`'s Helvetica subsets,
+/// `PDFBOX-5811-362972`'s Century, `unencrypted.pdf`'s CID TrueType — §10.7.4 determines the marks
+/// and every renderer here is departing from it in its own direction at 72 dpi, ours least at the
+/// limit and between the two references that converge. **Where they are not** — the `merge/`
+/// documents' `TimesNewRomanPSMT` and `ArialMT`, `PDFBOX-5840-410609`'s standard fourteen — §9.5
+/// NOTE 5 puts the answer beyond the standard in as many words:
+///
+/// > some details of font naming, font substitution, and glyph selection are
+/// > implementation-dependent and can vary among different PDF processors and operating system
+/// > environments
+///
+/// so there is no artwork to be right about, and the ladders say what the choice costs rather than
+/// who is wrong. Neither half is a defect and neither is a licence: what holds these pages is this
+/// list, and a page that stops being ambiguous fails the build.
+const AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE: [&str; 59] = [
+    "pdfbox/cweb.pdf page 10",
+    "pdfbox/cweb.pdf page 11",
+    "pdfbox/cweb.pdf page 12",
+    "pdfbox/cweb.pdf page 16",
+    "pdfbox/cweb.pdf page 18",
+    "pdfbox/cweb.pdf page 19",
+    "pdfbox/cweb.pdf page 2",
+    "pdfbox/cweb.pdf page 20",
+    "pdfbox/cweb.pdf page 21",
+    "pdfbox/cweb.pdf page 22",
+    "pdfbox/cweb.pdf page 23",
+    "pdfbox/cweb.pdf page 24",
+    "pdfbox/cweb.pdf page 26",
+    "pdfbox/cweb.pdf page 27",
+    "pdfbox/cweb.pdf page 28",
+    "pdfbox/cweb.pdf page 3",
+    "pdfbox/cweb.pdf page 4",
+    "pdfbox/cweb.pdf page 5",
+    "pdfbox/cweb.pdf page 6",
+    "pdfbox/cweb.pdf page 7",
+    "pdfbox/cweb.pdf page 8",
+    "pdfbox/cweb.pdf page 9",
+    "pdfbox/eu-001.pdf page 1",
+    "pdfbox/eu-001.pdf page 2",
+    "pdfbox/eu-001.pdf page 3",
+    "pdfbox/PDFBOX-3042-003177-p2.pdf page 1",
+    "pdfbox/PDFBOX-3044-010197-p5-ligatures.pdf page 1",
+    "pdfbox/PDFBOX-3062-002207-p1.pdf page 1",
+    "pdfbox/PDFBOX-4417-001031.pdf page 1",
+    "pdfbox/PDFBOX-4417-001031.pdf page 2",
+    "pdfbox/PDFBOX-4417-001031.pdf page 3",
+    "pdfbox/PDFBOX-4417-054080.pdf page 1",
+    "pdfbox/PDFBOX-5762-722238.pdf page 2",
+    "pdfbox/PDFBOX-5762-722238.pdf page 3",
+    "pdfbox/PDFBOX-5762-722238.pdf page 4",
+    "pdfbox/PDFBOX-5762-722238.pdf page 5",
+    "pdfbox/PDFBOX-5762-722238.pdf page 6",
+    "pdfbox/PDFBOX-5792-240045.pdf page 1",
+    "pdfbox/PDFBOX-5792-240045.pdf page 2",
+    "pdfbox/PDFBOX-5792-240045.pdf page 3",
+    "pdfbox/PDFBOX-5792-240045.pdf page 4",
+    "pdfbox/PDFBOX-5792-240045.pdf page 5",
+    "pdfbox/PDFBOX-5792-240045.pdf page 6",
+    "pdfbox/PDFBOX-5809-509329.pdf page 1",
+    "pdfbox/PDFBOX-5809-509329.pdf page 2",
+    "pdfbox/PDFBOX-5811-362972.pdf page 1",
+    "pdfbox/PDFBOX-5811-362972.pdf page 2",
+    "pdfbox/PDFBOX-5811-362972.pdf page 3",
+    "pdfbox/PDFBOX-5811-362972.pdf page 4",
+    "pdfbox/PDFBOX-5840-410609.pdf page 1",
+    "pdfbox/PDFBOX-5840-410609.pdf page 2",
+    "pdfbox/PDFBOX-5840-410609.pdf page 3",
+    "pdfbox/PDFBOX-5840-410609.pdf page 4",
+    "pdfbox/PDFBOX-5840-410609.pdf page 5",
+    "pdfbox/PDFBox.GlobalResourceMergeTest.Doc01.decoded.pdf page 1",
+    "pdfbox/PDFBox.GlobalResourceMergeTest.Doc01.pdf page 1",
+    "pdfbox/PDFBox.GlobalResourceMergeTest.Doc02.decoded.pdf page 1",
+    "pdfbox/PDFBox.GlobalResourceMergeTest.Doc02.pdf page 1",
+    "pdfbox/unencrypted.pdf page 1",
+];
+
+/// Ambiguous, and the only four pages in `doc/corpora/pdfbox` that fail the *worst tile* —
+/// because one reference draws the page a device row from where the other two draw it.
+///
+/// `pdfbox/PDFBOX-3110-poems-beads.pdf` and `…-cropbox.pdf` are the same two pages of Quartz output
+/// twice, the second with a `/CropBox` inset ten points on each side. Their fonts are **embedded**
+/// TrueType subsets of Helvetica and Helvetica-Oblique, so nobody here is substituting anything.
+/// They sit apart from [`AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE`] because they are the four of that
+/// round's 63 whose worst tile fails — 48.33, 49.97, 40.90 and 42.39 against a bound of 40.00 —
+/// and because the reason is legible and is not a bound's design.
+///
+/// # The offset, and it is a whole row
+///
+/// Best whole-pixel offset between our raster and each reference's, by mean absolute difference
+/// over the common area, at the page's own scale (`poems-beads` page 1):
+///
+/// ```text
+///   ours vs mupdf         2.87  best offset (0, 0)          no improvement available
+///   ours vs hayro         2.04  best offset (0, 0)
+///   ours vs poppler      13.33  best offset (0, +1) → 3.77  a 72% reduction
+///   poppler vs mupdf     13.80  best offset (0, −1) → 2.78
+/// ```
+///
+/// The ink bounding boxes say it a second way: `poppler` 62..714, ours 63..714, `ghostscript`
+/// 63..714, `mupdf` 63..715 — one row up, on a page whose `/MediaBox` height is **841.89** and
+/// where every renderer rasterises 842 rows. Where the 0.11 of a row left over goes is the
+/// question `CLAUDE.md` names as one the standard answers nowhere: *how a fractional page becomes
+/// a whole number of pixels*. On a sheet of nine-point type in 5-pixel glyph bodies, one row is
+/// every baseline, which is why the worst tile fails here and on no other page of this corpus.
+///
+/// # And the fourth renderer is not the offset, it is its own scale
+///
+/// The gate's printed line for all four of these is against `ghostscript`, whose worst tile is
+/// larger still. With the gate's own arguments, two ladders and ours:
+///
+/// ```text
+///   poems-beads page 1     72 dpi / 1x   288 / 4x   576 dpi / 8x
+///     ours                   16.1173     16.1288     16.1555
+///     poppler                16.0831     16.1666     16.1853
+///     mupdf                  16.0772     16.1657     16.1820
+///     ghostscript            18.2534     16.3101     16.7208
+/// ```
+///
+/// **`poppler` and `mupdf` converge to within 0.0033 of 255 of each other, so this page has a
+/// limit**, and ours at 8× is 0.028 under it. `ghostscript` at the page's own scale is **2.07
+/// above its own 8× value** — 12.8% of the page's ink — which is `-dTextAlphaBits=4` on small
+/// type and not a claim about the marks. So of the four failing numbers the gate prints, the
+/// mean and the worst tile are `ghostscript`'s scale-dependent excess and the offset above; §10.7.4
+/// determines the marks and the two ladders that converge say what they are.
+const AMBIGUOUS_PAGE_PLACED_A_ROW_APART: [&str; 4] = [
+    "pdfbox/PDFBOX-3110-poems-beads-cropbox.pdf page 1",
+    "pdfbox/PDFBOX-3110-poems-beads-cropbox.pdf page 2",
+    "pdfbox/PDFBOX-3110-poems-beads.pdf page 1",
+    "pdfbox/PDFBOX-3110-poems-beads.pdf page 2",
+];
+
 /// The ambiguous pages that carry a written diagnosis, as one list.
 ///
 /// Held exactly like the contradicted groups, and for the same reason: which group a page
@@ -9553,6 +9846,8 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_RECOVERED_PAGE_TREE)
         .chain(&AMBIGUOUS_STANDARD_FOURTEEN_FACE)
         .chain(&AMBIGUOUS_HIGHLIGHT_APPEARANCE_STREAM)
+        .chain(&AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE)
+        .chain(&AMBIGUOUS_PAGE_PLACED_A_ROW_APART)
         .chain(&AMBIGUOUS_TRANSPARENCY_GROUP)
         .chain(&AMBIGUOUS_MASKED_BLUR)
         .chain(&AMBIGUOUS_SUBTRACTIVE_MASK_GROUP)
@@ -9848,6 +10143,15 @@ struct Examined {
     /// in the `not comparable` groups below, and what this number answers is the question a
     /// ratchet cannot, which is how large the population is that the rule can reach at all.
     abstentions: usize,
+    /// Which available references produced no raster at all on this page, with their reasons.
+    ///
+    /// Empty on all but a handful of pages, and different from [`Self::abstentions`] in kind:
+    /// an abstention is a reference that *drew* and was refused a vote, this is a reference
+    /// that never drew. A page still judged on the two that remain is a comparison against a
+    /// smaller population than the page beside it, and until ADR 0542 the gate printed the two
+    /// identically — which is how a page can change verdict with every input unchanged and
+    /// nothing in the output to say why.
+    absent: Vec<String>,
     /// Processor time spent in our own pipeline, and in the three external renderers.
     ///
     /// Summed across the run and reported, because "where does this gate's time go" is
@@ -9869,6 +10173,7 @@ impl Examined {
             distance: None,
             consensus_missed_by: None,
             abstentions: 0,
+            absent: Vec::new(),
             spent,
         }
     }
@@ -10300,7 +10605,10 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         }
     };
 
-    let mut references = {
+    let Rendered {
+        rendered: mut references,
+        absent,
+    } = {
         let started = Instant::now();
         let rendered = render_references(work, &work_dir, available, cache);
         spent.references = started.elapsed();
@@ -10377,6 +10685,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         distance,
         consensus_missed_by,
         abstentions: triangulation.abstained.len(),
+        absent,
         spent,
     }
 }
@@ -10403,6 +10712,17 @@ fn consensus_missed_by(triangulation: &pdfref::Triangulation) -> Option<f64> {
 /// absence is tolerated as long as two remain. Fewer than two is reported with every
 /// failure's own message, because "not comparable" without a reason is not actionable.
 ///
+/// **And two remaining is reported too, which it was not until the
+/// six-hundred-and-ninety-fourth session.** The `Ok` arm used to drop the failures on the
+/// floor, so a page judged on two readings printed a line indistinguishable from the same
+/// page judged on three — and a verdict computed from a *pair* rather than a trio is a
+/// different measurement, because the third reading is what turns two renderers that miss
+/// each other into a consensus. `function_based_shading_cmyk.pdf` page 2 left the
+/// contradicted list on exactly that: the figure recorded for it, 29.06, is `poppler`
+/// against `mupdf` to the hundredth, while `mupdf` against `ghostscript` is inside the page's
+/// bound — so the run that removed it had no `ghostscript` in it, and nothing said so.
+/// ADR 0542.
+///
 /// # Why the three run in parallel
 ///
 /// Because a page's cost is now its slowest reference rather than the sum of three, and one
@@ -10418,7 +10738,7 @@ fn render_references(
     work_dir: &Path,
     available: &[Reference],
     cache: &Cache,
-) -> Result<Vec<(Reference, Raster)>, String> {
+) -> Result<Rendered, String> {
     // Order is preserved by `collect` over an indexed parallel iterator, which matters:
     // `reconcile` reports who disagreed about a page's size by name.
     let attempts: Vec<(Reference, Result<Raster, String>)> = available
@@ -10436,13 +10756,29 @@ fn render_references(
     for (reference, attempt) in attempts {
         match attempt {
             Ok(raster) => rendered.push((reference, raster)),
-            Err(detail) => failures.push(detail),
+            Err(detail) => failures.push(format!("{reference} did not render: {detail}")),
         }
     }
     if rendered.len() < 2 {
         return Err(failures.join("; "));
     }
-    Ok(rendered)
+    Ok(Rendered {
+        rendered,
+        absent: failures,
+    })
+}
+
+/// What the reference renderers produced for one page, and what they did not.
+///
+/// A named pair rather than a tuple, and the second field is the whole reason it exists: it was
+/// discarded for six hundred sessions, and ADR 0542 is what that cost — a page whose verdict rests
+/// on two readings printing a line indistinguishable from one that rests on three.
+struct Rendered {
+    /// Every reference that produced a raster, in `available`'s order — [`reconcile`] reports a
+    /// size disagreement by name and depends on that order.
+    rendered: Vec<(Reference, Raster)>,
+    /// Every reference that produced none, each with its own message.
+    absent: Vec<String>,
 }
 
 /// Brings every raster to one size, or says whose geometry disagrees.
@@ -10970,9 +11306,9 @@ fn check_the_buckets_reached_without_a_consensus(results: &[Examined]) {
 /// only the second is gated and conflating them flatters the result.
 fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     for examined in results {
-        if !matches!(examined.verdict, Verdict::Agrees) {
+        if !matches!(examined.verdict, Verdict::Agrees) || !examined.absent.is_empty() {
             println!(
-                "  {}: {}{} — {}",
+                "  {}: {}{} — {}{}",
                 examined.name,
                 examined.verdict.label(),
                 if examined.complete {
@@ -10980,7 +11316,12 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
                 } else {
                     " (incomplete)"
                 },
-                examined.verdict.detail()
+                examined.verdict.detail(),
+                if examined.absent.is_empty() {
+                    String::new()
+                } else {
+                    format!("  [judged without: {}]", examined.absent.join("; "))
+                }
             );
         }
     }
@@ -11074,6 +11415,17 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
          which are left with fewer than two readings and are therefore not comparable",
         count(&|e| e.abstentions > 0),
         count(&|e| e.abstentions > 0 && matches!(e.verdict, Verdict::NotComparable(_)))
+    );
+
+    // The other way a reading can be missing, and the one that had no line at all until ADR
+    // 0542: a reference that produced nothing, on a page still judged by the two that did.
+    // Printed for the same reason as the line above — a verdict reached on a smaller
+    // population than the page beside it has to say so, or a page can move with every input
+    // unchanged and the output identical.
+    println!(
+        "  a reference produced no raster at all, leaving the verdict to the other two, on {} \
+         pages",
+        count(&|e| !e.absent.is_empty())
     );
 
     rank_the_undiagnosed(results);
@@ -11634,7 +11986,13 @@ fn spreads_of(
         cleanup();
         return Vec::new();
     };
-    let Ok(mut references) = render_references(work, &work_dir, voting, cache) else {
+    // `absent` is the gate's to report; this is the spread derivation, whose population is pairs
+    // of references and which says nothing about any page.
+    let Ok(Rendered {
+        rendered: mut references,
+        ..
+    }) = render_references(work, &work_dir, voting, cache)
+    else {
         cleanup();
         return Vec::new();
     };

@@ -1,11 +1,13 @@
 # Empty the oracle's ambiguous bucket
 
-Status: **standing task**, since the hundred-and-seventy-sixth session. **The queue is not empty**;
-`tools/state.sh` counts it, and the paragraphs below say where it came from.
+Status: **standing task**, since the hundred-and-seventy-sixth session. **The queue is empty
+again**, since the six-hundred-and-ninety-fourth (ADR 0543); `tools/state.sh` counts it, and the
+paragraphs below say where it came from and what emptiness is and is not a fact about.
 Priority: 00 — the last large population where a defect can live without a name
-Corpus: **two populations since the six-hundred-and-ninety-second session** — `doc/pdf.js`'s, whose
-share of `ambiguous_undiagnosed.txt` is nothing, and `doc/corpora/pdfbox`'s 143 pages, which the
-oracle judged for the first time and which are the whole of the queue (ADR 0541).
+Corpus: **two populations since the six-hundred-and-ninety-second session** — `doc/pdf.js`'s and
+`doc/corpora/pdfbox`'s 143 pages, which the oracle judged for the first time (ADR 0541) and whose
+63 ambiguous ones are diagnosed in `AMBIGUOUS_TEXT_AT_DOCUMENT_SIZE` and
+`AMBIGUOUS_PAGE_PLACED_A_ROW_APART`.
 
 The figures below are the pdf.js population's and were the whole of this item until that round: 786
 ambiguous pages (**754** on documents we call complete); **all 786 diagnosed, 0 held by
@@ -46,22 +48,25 @@ else: the equality ratchet, and step 7's ink sweep after a round that moves pixe
 
 **That last sentence was true of one population, and the six-hundred-and-ninety-second session gave
 the gate a second** (ADR 0541). `doc/corpora/pdfbox`'s 143 pages had never been through any raster
-gate, and 63 of them are `ambiguous` with no diagnosis, so **this item has a queue again** — the
+gate, and 63 of them were `ambiguous` with no diagnosis, so this item had a queue again — the
 first since the three-hundred-and-seventy-ninth session and not one page of it a regression. The
 distinction the emptiness was hiding is worth keeping: an empty bucket was a fact about
-`doc/pdf.js`, never about this reader, and the pdf.js corpus's own share of the file is still
-nothing. `tools/state.sh` counts; the census in `doc/oracle-and-corpus.md` §2e prints the list with
-each page's metrics beside it.
+`doc/pdf.js`, never about this reader. **The six-hundred-and-ninety-fourth took the whole 63**
+(ADR 0543), so it is now a fact about two populations rather than one, and a corpus added tomorrow
+is expected to fill it again. `tools/state.sh` counts; the census in `doc/oracle-and-corpus.md` §2e
+prints the list with each page's metrics beside it.
 
-The shape of the answer is visible without opening one: **62 of the 63 fail the differing fraction
-and the structural similarity while sitting well inside the mean and the worst tile**, which is
-`AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`'s and `AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE`'s signature. That is
-a hypothesis and those groups are measurements, which is exactly the gap this item's method closes;
-`cweb.pdf`'s eighteen pages and `PDFBOX-5792-240045.pdf`'s six are the two largest single documents
-in it, so one measurement is worth many names here.
+**The shape it was filed under was a hypothesis and two thirds of it was wrong, which is this
+item's method arriving as a lesson about itself.** The queue's own description said *62 of the 63
+fail the differing fraction and the structural similarity while sitting well inside the mean and
+the worst tile*. Counted off the gate's lines: the differing fraction fails on all 63 and is the
+worst ratio on 59 of them, the similarity on 47, **the mean on 47 and the worst tile on 4** — the
+last two where the sentence said none. Nothing acted on it and the correction cost nothing; what it
+is worth is that a shape read off a listing is a hypothesis in exactly the way the sentence below
+says, and the round that writes one owes the count.
 
-So what is left of this item is three things: the equality ratchet, step 7's ink sweep after a
-round that moves pixels, and the queue above.
+So what is left of this item is two things: the equality ratchet, and step 7's ink sweep after a
+round that moves pixels.
 
 ## Why this is work rather than a caveat
 

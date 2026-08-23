@@ -411,9 +411,18 @@ label — `pdfbox/attachment.pdf page 1` — and the 974's do not, so no existin
 the label is load-bearing rather than tidy, because three of the 275 share a *file name* with one
 of the 974 and only two of those three share their bytes. Artefacts carry it one directory down for
 the same reason. And **`ambiguous_undiagnosed.txt`, empty since the three-hundred-and-seventy-ninth
-session, is no longer empty**: 63 `pdfbox` pages are in it, none of them a regression and all of
+session, stopped being empty**: 63 `pdfbox` pages went into it, none of them a regression and all of
 them a population nobody had judged. ADR 0541 §2 has the argument for writing them down rather than
 declining to measure, and it is the same argument `CLAUDE.md` makes about a corpus going quiet.
+**The six-hundred-and-ninety-fourth session took all 63** and the file is empty again (ADR 0543):
+59 of them fail a differing-fraction bound that the *closest two references* also fail on every one
+of the 63, which is §3c's result reproduced on a corpus that had no part in setting it, and 4 fail
+the worst tile because `poppler` places their text a device row from where we and `mupdf` place it.
+
+What emptiness means is worth stating once here, because it was misread for three hundred sessions:
+**it is a fact about the populations the gate currently judges and never about this reader.** A
+corpus added tomorrow is expected to fill the file again, and declining to add one so that it stays
+empty is the failure `CLAUDE.md` names.
 
 What it did not cost is a pixel: the whole change is a gate's population and its diagnoses.
 
