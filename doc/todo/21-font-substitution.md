@@ -83,6 +83,20 @@ loses, and `codes_reaching_a_blank_glyph` now holds the first.
 | no glyph, or `.notdef` — a mark lost, before the fix | **22 435** | 277 | 5 over 2 |
 | ADR 0269's total | 51 272 | 635 | 62 over 10 |
 
+**The second row's *definition* changed in the six-hundred-and-eighty-fifth session and the
+figures above are the old one** (ADR 0520). It had a third exclusion its own doc comment did not
+name: a code §9.10.2 could not **name** was left out as well, which is a question about the reader
+and not about whether the program answered. Counting it — the corpus's second row goes from
+**5 over 2 documents to 129 over 7** and the first row does not move at all — the split's second
+row is what `tools/state.sh` prints today rather than what is written here, and the web columns
+predate the correction and would have to be re-crawled to be comparable. The one *report* it added
+is `issue17333.pdf`, whose font drew nothing at all: 68 documents drawing incompletely to 69. The
+four documents it added to the silent measurement without reporting are the population this
+section is about, and they are worth naming because none of them is a substitution —
+`issue20489.pdf` shows code 10, `issue18059.pdf` and `standard_fonts.pdf` code 0,
+`issue6721_reduced.pdf` code 224 reaching `.notdef`, and `issue11403_reduced.pdf` a UTF-8 no-break
+space written byte by byte into a simple font.
+
 `pr12564.pdf`'s 26 — the corpus's largest contributor, diagnosed by hand in the
 two-hundred-and-forty-fifth session — are the first row, and so is the web's largest:
 `0300276.pdf` shows one `Identity-H` code 118 times whose `/ToUnicode` maps it to U+0007 and whose

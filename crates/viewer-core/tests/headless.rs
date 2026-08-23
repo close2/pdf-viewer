@@ -482,14 +482,22 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
 /// That one is a *refusal* — something this program could not do — and it goes into
 /// `Query::Reports` where a host puts it in a status bar. This one is the clause's own answer:
 /// "there is no way to determine what the character code represents", said of a page that
-/// interprets whole and draws every glyph. It may not become a report, because a page that
-/// reports leaves the oracle's judged set (ADR 0152) and nothing here failed — so it crosses as a
-/// count instead, which is what `Query::Readback` is. ADR 0422.
+/// interprets whole. It may not become a report, because a page that reports leaves the oracle's
+/// judged set (ADR 0152) and the font drew what it could — so it crosses as a count instead,
+/// which is what `Query::Readback` is. ADR 0422.
 ///
 /// The fixture is `french_diacritics.pdf` reduced to two codes: a `/Differences` naming `/a192`
 /// and `/a224`, pdfTeX's private labels for `À` and `à`, which neither list the clause names
 /// holds. `A` and `a` beside them are the control — a page where *nothing* could be named would
-/// pass with a viewer that counted every code.
+/// pass with a viewer that counted every code, and they are also what keeps this off
+/// `Query::Reports`: the report fires on a font that drew **none** of its codes, and this one
+/// draws two of four.
+///
+/// **This test said the substitute "drew all four" and it never did** (ADR 0520). A name no
+/// encoding defines addresses nothing in the substitute face either, so the same two codes are a
+/// mark lost as well as a character lost — and the count could not contradict the sentence,
+/// because until that ADR it excluded any code §9.10.2 could not name. The decision the test is
+/// *about* is unchanged: this crosses as a count and not as a report.
 #[test]
 fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report() {
     let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
@@ -537,8 +545,8 @@ fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report()
     assert_eq!(shortfall.unnamed.total(), 2);
     assert_eq!(shortfall.unnamed.unlisted_name, 2, "{shortfall:?}");
     assert_eq!(
-        shortfall.without_a_glyph, 0,
-        "a substitute drew all four: the gap is in the reading and not in the picture"
+        shortfall.without_a_glyph, 2,
+        "the substitute drew the two codes it could name and neither of the two it could not"
     );
     assert!(!shortfall.is_whole());
 }

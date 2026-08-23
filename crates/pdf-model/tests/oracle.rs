@@ -3687,24 +3687,81 @@ const NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY: [&str; 1] =
 /// agreements are the price of seeing them, and they are worth it**: the gate said "PASS —
 /// agrees" on every one of these while a fourth renderer drew something we did not.
 ///
-/// - `issue17333.pdf` page 1, 100 × 100 — `mupdf` draws 0.346 of 255 and **`hayro` draws
-///   0.262**; `poppler`, `ghostscript` and this tree return white. `hayro` is not a vote and
-///   never is, but it is a separate interpreter and it siding with `mupdf` is what makes this
-///   worth a look rather than a shrug. Ours against `mupdf` fails structural similarity alone,
-///   0.9704 of 0.9900.
-/// - `issue18042.pdf` pages 1 to 4, 400 × 400 — `mupdf` alone draws, and it draws a great deal:
-///   15.9375 of 255 against white paper from `poppler`, `ghostscript`, `hayro` and us, which is
-///   mean 11.95 and a worst tile of 191.25. This is a page this tree **reports**, so what is
-///   owed is on `corpus.rs`'s list rather than here; what was wrong is that the oracle called
-///   it an agreement.
-/// - `text_field_own_canvas_calc.pdf` page 3, 612 × 792 — `ghostscript` draws 0.3136 and
-///   `hayro` 0.2352, `poppler` and `mupdf` return white, and so do we. A light grey mark
-///   (minimum channel 217 of 255) that two of five renderers place and three do not; ours
-///   against `ghostscript` fails the worst tile alone, 12.47 of 5.00.
+/// **All three documents are read now** (ADR 0520), and on each one the clause that decides it
+/// is a different clause. The panel figures below are taken with `-alpha off`, which is
+/// `doc/todo/00` step 5's rule and is why `hayro`'s two differ from the ones ADR 0513 recorded
+/// by exactly the factor of ¾ an averaged alpha channel costs.
 ///
-/// None is diagnosed. What this group asserts is only that the verdict is honest now — one
-/// reading of the page is not a consensus — and each name here is a page for `doc/todo/00`'s
-/// method rather than a page anybody has read.
+/// # `issue17333.pdf` page 1 — §9.6.5.4 runs out, and its last sentence says so
+///
+/// 100 × 100, one `Tj`, one **character code 0** through `/TT3`: an embedded `SymbolMT` subset
+/// of **two** glyphs, `/Encoding /MacRomanEncoding`, and a descriptor whose `/Flags 32` sets
+/// Table 121's Nonsymbolic bit. So §9.6.5.4's named-encoding branch applies and the clause's
+/// own algorithm is walked to its end: MacRomanEncoding assigns code 0 no glyph name and
+/// neither does the `StandardEncoding` fill, so the (3, 1) and (1, 0) rules — both of which
+/// begin "A character code shall be first mapped to a glyph name using the table described
+/// above" — have nothing to carry, and the `post` fallback has no name to look up. The font's
+/// only `cmap` subtable is a (1, 0) format 6 covering **one** code, 165, which is `bullet` and
+/// which draws. What is left is the subclause's closing sentence:
+///
+/// > If a character cannot be mapped in any of the ways described previously, a PDF processor
+/// > may supply a mapping of its choosing.
+///
+/// **A permission, not a requirement**, and this is `doc/todo/00`'s third shape: the clause puts
+/// the answer beyond itself and says which sentence does it. `mupdf` and `hayro` supply
+/// `.notdef` — glyph 0, whose 100 bytes of `glyf` are the two contours of the classic hollow box
+/// — and they agree to **0.004 of 255**, 0.346 against 0.3498. `poppler`, `ghostscript` and this
+/// tree supply nothing. `truetype_code_table` states the two mappings this tree does supply and
+/// why each is narrower than the code it replaced (ADR 0015); neither reaches code 0 here,
+/// because the font *has* a readable `cmap` and that `cmap` does not cover it.
+///
+/// **What was wrong on this page is that we were silent about it**, and that was a defect of
+/// this tree rather than a departure. The page drew zero commands and reported nothing:
+/// `Interpretation::codes_without_a_glyph` excluded a code §9.10.2 could not *name*, which is a
+/// question about the reader and not about whether the program answered, so the one condition
+/// that would have fired — a font that drew nothing of what it was asked to show — could not.
+/// The document is on `corpus.rs`'s incomplete list since ADR 0520 and says so by name.
+///
+/// # `issue18042.pdf` pages 1 to 4 — a `DCTDecode` stream that is four bytes of ASCII
+///
+/// 1247 bytes, four pages sharing one content stream — `100 0 0 100 146 152 cm /Im1 Do` — and
+/// one image XObject declaring `/Width 7300 /Height 7600 /BitsPerComponent 8 /ColorSpace
+/// /DeviceRGB /Filter /DCTDecode` over a stream of `1234`. §7.4.1 says "[a] PDF reader shall
+/// invoke the corresponding decoding filter or filters to convert the information back to its
+/// original form" and §7.4.8 requires that form to be "encoded in the JPEG baseline format in
+/// accordance with ISO/IEC 10918 (all parts)"; four bytes of digits are not, there is no
+/// original form to convert back to, and **no clause of ISO 32000-2 states any artwork to put
+/// in an undecodable image's place**. This tree reports the filter's own refusal by name and
+/// draws nothing.
+///
+/// `mupdf` paints the image's rectangle solid black, which the closed form confirms exactly
+/// rather than approximately: the `cm` puts the unit square of §8.9.5.1 on 100 × 100 of a
+/// 400 × 400 page, so a black fill is `255 ÷ 16` = **15.9375 of 255**, and 15.9375 is what the
+/// panel measures. `poppler`, `ghostscript`, `hayro` and this tree return white.
+///
+/// # `text_field_own_canvas_calc.pdf` page 3 — §12.7.4.3's regeneration is a splice
+///
+/// 612 × 792, one read-only `/Tx` widget named *Mirror* with **no `/V`**, under an `/AcroForm`
+/// stating `/NeedAppearances true`. Table 224 makes that flag "[a] flag specifying whether to
+/// construct appearance streams and appearance dictionaries for all widget annotations in the
+/// document (see 12.7.4.3, "Variable text")", and §12.7.4.3's closing paragraph says what
+/// constructing one over an existing stream *is*:
+///
+/// > The interactive PDF processor shall then replace the existing contents of the appearance
+/// > stream from / Tx BMC to the matching EMC with the corresponding new contents
+///
+/// The whole of this widget's stored appearance is `/Tx BMC q 0.85 0.85 0.85 rg 0 0 200 20 re f
+/// Q EMC` — every mark of it *inside* the pair — so the splice replaces the lot with what a
+/// field holding no value shows, which is nothing. ADR 0032 is where that reading was made and
+/// `tests/variable_text.rs` pins both sides of it, including the same clause's opposite answer
+/// for a stream whose marks sit outside the pair.
+///
+/// **The closed form says the other two draw the pre-regeneration artwork and nothing else.**
+/// `0.85` at eight bits is 217, the rectangle is 200 × 20 of 612 × 792, and
+/// `(255 − 217) × 4000 ÷ 484 704` is **0.313591 of 255**; `ghostscript` and `hayro` both measure
+/// **0.313593** with a minimum channel of exactly 217. `poppler`, `mupdf` and this tree return
+/// white. So the disagreement is about whether the regeneration runs, and the clause states that
+/// it does — a documented departure rather than a page anybody is owed.
 const NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS: [&str; 6] = [
     "issue17333.pdf page 1",
     "issue18042.pdf page 1",

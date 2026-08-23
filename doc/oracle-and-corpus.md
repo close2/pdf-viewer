@@ -730,9 +730,22 @@ renderer that drew and *our own raster was one of the flat ones*: `issue17333.pd
 where `mupdf` alone draws at 15.9 of 255 on a page this tree reports; and
 `text_field_own_canvas_calc.pdf` page 3, where `ghostscript` and `hayro` place a light grey mark and
 `poppler`, `mupdf` and we do not. **A gain in honesty and a loss in the agree count, and the loss is
-where the next defect is**: `doc/todo/00`'s method is owed on the three that are not
-`issue18042.pdf`. One page went the other way into `ambiguous` — `issue11740_reduced.pdf`, where
-only `ghostscript` was flat and the two that drew do not agree with each other.
+where the next defect is.** One page went the other way into `ambiguous` — `issue11740_reduced.pdf`,
+where only `ghostscript` was flat and the two that drew do not agree with each other.
+
+**All three documents have been read since, and the loss paid for itself once** (ADR 0520). Each
+turns on a different clause and none of the three is a page where this tree draws the wrong thing:
+§9.6.5.4's closing sentence hands `issue17333.pdf`'s unmappable code to the processor in as many
+words, so `mupdf` and `hayro` supplying `.notdef` and three renderers supplying nothing are both
+conforming; §7.4.1 and §7.4.8 state no artwork for an image whose `DCTDecode` stream is four bytes
+of ASCII, and the closed form `255 ÷ 16` = 15.9375 is `mupdf`'s black rectangle exactly; and
+§12.7.4.3's regeneration is a splice, so the 0.313593 of 255 `ghostscript` and `hayro` draw on
+`text_field_own_canvas_calc.pdf` is `(255 − 217) × 4000 ÷ 484 704`, the file's own
+pre-regeneration artwork to five decimals. **What the six did produce is one defect of this tree,
+and it is the kind only a page like this finds**: `issue17333.pdf` drew a wholly blank sheet and
+reported nothing, because the count of codes reaching no glyph was gated on §9.10.2 being able to
+*name* the code — a question about the reader — so the report that fires on a font which drew
+nothing had no operand. The document is on `corpus.rs`'s incomplete list now.
 
 **No page moved toward a verdict that flatters us.** Nothing became `agrees`, nothing stopped being
 `contradicted` except by ceasing to be comparable at all, and on the further pages where a reference

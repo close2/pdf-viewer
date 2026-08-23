@@ -374,8 +374,18 @@ pub struct Interpretation {
     /// one number until the four-hundred-and-thirty-fourth session: a code that reached a glyph
     /// the program *contains* and that program describes as empty is in
     /// [`Self::codes_reaching_a_blank_glyph`] instead. ADR 0270 has the split.
+    ///
+    /// **And a third exclusion sat in the code and not in this sentence for two hundred
+    /// sessions**: a code §9.10.2 could not *name* was excluded as well, so a route that ended
+    /// at no glyph at all went uncounted whenever the readback happened to be empty. That is
+    /// the wrong question — whether the program answered is decided by the glyph, and needs no
+    /// character — and `issue17333.pdf` is the page it cost: one `Tj`, one code, an embedded
+    /// subset, §9.6.5.4's algorithm terminating with nothing, a wholly blank sheet, and every
+    /// counter that measures the picture reading zero. Corrected in the
+    /// six-hundred-and-eighty-fifth session; ADR 0520.
     pub codes_without_a_glyph: usize,
-    /// Codes this page showed that reached a glyph the font program describes as empty.
+    /// Codes this page showed that reached a glyph the font program describes as empty, and
+    /// that §9.10.2 gave a character.
     ///
     /// The other half of the branch [`Self::codes_without_a_glyph`] counts, separated because
     /// only one of the two is a mark the reader loses. §9.6.5.4's and §9.7.4.2's routes ended
@@ -388,6 +398,13 @@ pub struct Interpretation {
     /// else — `pr12564.pdf`'s 26 codes read back as `#`, and the web's largest single
     /// contributor reads its space back as U+0007 — so this is where such a code lands, and
     /// leaving it uncounted would have made the correction unmeasurable.
+    ///
+    /// **The named-character condition is this half's and not the other's**, which is the shape
+    /// the six-hundred-and-eighty-fifth session separated (ADR 0520). Here the program has
+    /// answered — it contains the glyph and describes it as empty — so the only thing left to
+    /// lose is the *reading*, and §9.10.2's silence about a code is not evidence that one was
+    /// lost. [`Self::codes_without_a_glyph`] asks the opposite question and therefore does not
+    /// wait for a character.
     pub codes_reaching_a_blank_glyph: usize,
     /// Codes this page showed that §9.10.2 could not name, whether or not a glyph was drawn.
     ///

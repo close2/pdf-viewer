@@ -657,6 +657,13 @@ fn interpret_into(
     // or the program — embedded or not — answers every code with no outline. Reported per font
     // and only where the count of glyphs drawn through it is zero, which is what keeps a space
     // and a deliberate `.notdef` from being news; see `Interpreter::glyph_coverage`.
+    //
+    // **The second of those two was narrower than this sentence until the
+    // six-hundred-and-eighty-fifth session** (ADR 0520), and a report is only as wide as the
+    // count it fires on (trap 11): `Coverage::empty` was raised only for a code §9.10.2 could
+    // also *name*, which is a question about the reader, so a font whose codes reached no glyph
+    // *and* no character drew a blank page with nothing to report it. `text.rs` divides that
+    // branch on the glyph now.
     for (name, coverage) in std::mem::take(&mut interpreter.glyph_coverage) {
         if coverage.drawn > 0 || coverage.empty == 0 {
             continue;

@@ -215,6 +215,13 @@ impl Readback {
     /// name says nothing about what the page owed — the clause's own words are "there is no way
     /// to determine what the character code represents", which is not evidence in either
     /// direction and must not be read as either.
+    ///
+    /// **It is a question about the reader and not about the picture**, which is the
+    /// distinction the caller lost until the six-hundred-and-eighty-fifth session (ADR 0520).
+    /// Whether the *program* answered a code is decided by the glyph the code reached, and
+    /// needs no character: a route that ends at no glyph at all ended without an answer
+    /// whatever §9.10.2 could or could not say about the code. So this decides which readback
+    /// lost something and never whether a mark did.
     fn names_a_mark(self) -> bool {
         self == Self::Characters
     }
@@ -450,43 +457,70 @@ impl Interpreter<'_> {
                             // Tallied rather than reported here: see `glyph_coverage`.
                             coverage.empty = coverage.empty.saturating_add(1);
                             coverage.uncovered = coverage.uncovered.saturating_add(1);
-                        } else if read.is_some_and(Readback::names_a_mark) {
-                            // The program answered with no outline for a code §9.10.2 *did*
-                            // name, so a character the document states did not reach the page.
-                            // One of these is not news — a producer's deliberate `.notdef` is
-                            // one — but a font every one of whose codes comes back empty has
-                            // drawn nothing the document asked for, which is the condition the
-                            // report below applies. So the tally is the same either way, and
-                            // what the two arms separate is the *measurement*: whether a mark
-                            // was missed at all.
-                            coverage.empty = coverage.empty.saturating_add(1);
-                            // §9.6.5.4 and §9.7.4.2 state the routes from a code to a glyph,
-                            // and this asks which of two things happened at the end of one.
-                            // A code that reached a glyph the program contains has been
-                            // answered: what that glyph draws is the program's own statement,
-                            // and a glyph with no contours states a mark of nothing — which is
-                            // how every sfnt in existence stores a space. A code that reached
-                            // no glyph, or reached `.notdef`, was not answered: §9.6.5.2 makes
-                            // `.notdef` what is shown when "an encoding maps to a character
-                            // name that does not exist in the Type 1 font program", and
-                            // §9.7.6.3 makes CID 0 what is substituted when "no glyph exists
-                            // for that CID", so glyph 0 is the program saying it has none.
+                        } else if read.is_some_and(|read| read != Readback::Whitespace) {
+                            // The program made no mark, and the code did not read back as a
+                            // **space** — which is the one readback that answers this by
+                            // itself, because a space is *meant* to have no outline. Measured
+                            // rather than assumed: counting one took the corpus's incomplete
+                            // documents from 79 to 109, and twenty-two of the thirty new
+                            // reports named a single code (trap 11 — print what a condition
+                            // matched before trusting it).
+                            //
+                            // Everything else divides on the *glyph* rather than on the
+                            // reading, and that is the six-hundred-and-eighty-fifth session's
+                            // correction (ADR 0520). §9.6.5.4 and §9.7.4.2 state the routes
+                            // from a code to a glyph, and this asks which of two things
+                            // happened at the end of one. A code that reached a glyph the
+                            // program contains has been answered: what that glyph draws is the
+                            // program's own statement, and a glyph with no contours states a
+                            // mark of nothing — which is how every sfnt in existence stores a
+                            // space. A code that reached no glyph, or reached `.notdef`, was
+                            // not answered: §9.6.5.2 makes `.notdef` what is shown when "an
+                            // encoding maps to a character name that does not exist in the
+                            // Type 1 font program", and §9.7.6.3 makes CID 0 what is
+                            // substituted when "no glyph exists for that CID", so glyph 0 is
+                            // the program saying it has none.
                             let blank = program
                                 .glyph_index(code)
                                 .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH);
                             if blank {
-                                self.codes_reaching_a_blank_glyph =
-                                    self.codes_reaching_a_blank_glyph.saturating_add(1);
+                                // A glyph the program contains and describes as empty is the
+                                // program answering, so nothing was missed here. What a
+                                // *reader* lost is the readback's question, and §9.10.2's own
+                                // answer for a code it cannot name is "there is no way to
+                                // determine what the character code represents" — not evidence
+                                // in either direction. So this half stays gated on a named
+                                // character; the rest is in `codes_without_a_character`.
+                                if read.is_some_and(Readback::names_a_mark) {
+                                    coverage.empty = coverage.empty.saturating_add(1);
+                                    self.codes_reaching_a_blank_glyph =
+                                        self.codes_reaching_a_blank_glyph.saturating_add(1);
+                                }
                             } else {
+                                // The route ended without an answer, which is a fact about the
+                                // *program* and needs no character to establish. Gating it on
+                                // the readback made `issue17333.pdf` — one `Tj`, one code, an
+                                // embedded subset, and §9.6.5.4's algorithm terminating with
+                                // nothing — draw an entirely blank page while every counter
+                                // that measures the picture read zero and the report below
+                                // could not fire, because its `coverage.empty` was never
+                                // raised. One of these is still not news on its own — a
+                                // producer's deliberate `.notdef` is one — but a font every
+                                // one of whose codes comes back empty has drawn nothing the
+                                // document asked for, which is exactly what that report says.
+                                coverage.empty = coverage.empty.saturating_add(1);
                                 self.codes_without_a_glyph =
                                     self.codes_without_a_glyph.saturating_add(1);
                             }
                             // `PDFVIEWER_TRACE_MISSING_GLYPH=1` names each one on stderr, the
                             // same idiom `tests/corpus.rs` uses for a document that never
-                            // returns. The readback is there because the count alone cannot
-                            // tell a mark that is missing from a *space* whose font reads it
-                            // back as something else, and the glyph index because that is what
-                            // the two arms above are decided by.
+                            // returns. It fires for the whole arm rather than for what was
+                            // counted, because the codes the two branches divide are what a
+                            // person reading it is trying to tell apart. The readback is there
+                            // because the count alone cannot tell a mark that is missing from
+                            // a *space* whose font reads it back as something else, and the
+                            // glyph index because that is what the two arms above are decided
+                            // by.
                             if std::env::var_os("PDFVIEWER_TRACE_MISSING_GLYPH").is_some() {
                                 eprintln!(
                                     "MISSING {} font=/{} code={} glyph={:?} read={:?}",
@@ -503,25 +537,16 @@ impl Interpreter<'_> {
                             // four-hundred-and-seventy-sixth session.
                             //
                             // A code that reads back as a **space** is *meant* to have no
-                            // outline. Measured rather than assumed: counting one took the
-                            // corpus's incomplete documents from 79 to 109, and twenty-two of
-                            // the thirty new reports named a single code (trap 11 — print what
-                            // a condition matched before trusting it).
-                            //
-                            // A code §9.10.2 could **not name** is a different thing wearing
-                            // the same clothes: the clause's own answer is "there is no way to
-                            // determine what the character code represents", so nothing here
-                            // knows whether a mark was owed, and reporting a font on that
-                            // evidence would be a guess that costs the oracle a judged page.
-                            // It is counted where it belongs instead — `codes_without_a_character`
-                            // above. The test used to be `self.text[start..]` all whitespace,
-                            // which an empty slice satisfies vacuously, so the two were one
-                            // branch *and were blind inside §14.8.2.5.3's reversal*, where a
-                            // code's readback never lands in that slice at all.
+                            // outline, and the arm above says what that cost when it was
+                            // measured.
                             //
                             // `None` — a code inside a Type 3 glyph description — is here for a
-                            // third reason: what such a code is, and whether it drew, are
-                            // §9.6.4's questions about the glyph rather than this page's.
+                            // second reason: what such a code is, and whether it drew, are
+                            // §9.6.4's questions about the glyph rather than this page's. The
+                            // test used to be `self.text[start..]` all whitespace, which an
+                            // empty slice satisfies vacuously, so a code with no readback at
+                            // all sat here too *and was blind inside §14.8.2.5.3's reversal*,
+                            // where a code's readback never lands in that slice at all.
                         }
                     }
                     Font::Type3(type3) => {

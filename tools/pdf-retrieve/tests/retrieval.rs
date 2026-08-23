@@ -369,6 +369,14 @@ fn a_clause_of_the_standard_is_addressed_by_its_number() {
 /// `/a192` and `/a224` are pdfTeX's own labels for `À` and `à` — the code in decimal — which this
 /// tree refuses to follow because Annex D gives code 192 three different meanings and pdfTeX's is
 /// none of them (ADR 0311). The refusal is the subject; the count is what says it happened.
+///
+/// **This test asserted that the two codes still *drew*, and they never did** — the assertion was
+/// `without_a_glyph == 0` under a sentence reading "the substitute draws something for both: this
+/// is a reading gap, not a drawing one". It is not: a name no encoding defines addresses nothing
+/// in the substitute face either, so the page states `AÀaà` and marks `Aa`. The count could not
+/// contradict the sentence because it excluded any code §9.10.2 could not name — the same
+/// exclusion that let `issue17333.pdf` draw a blank sheet in silence — so the fixture's own
+/// prose survived being false for as long as the count agreed with it. ADR 0520.
 #[test]
 fn a_page_whose_codes_no_method_can_name_says_so_beside_its_text() {
     let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
@@ -395,7 +403,8 @@ fn a_page_whose_codes_no_method_can_name_says_so_beside_its_text() {
     assert_eq!(read.shortfall.unnamed.total(), 2);
     assert_eq!(read.shortfall.unnamed.unlisted_name, 2);
     assert_eq!(
-        read.shortfall.without_a_glyph, 0,
-        "the substitute draws something for both: this is a reading gap, not a drawing one"
+        read.shortfall.without_a_glyph, 2,
+        "and the same two codes reach no glyph either: a name no encoding defines addresses \
+         nothing in the substitute face, so this page loses two marks as well as two characters"
     );
 }

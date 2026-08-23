@@ -13,6 +13,12 @@
 //! back as whitespace is not counted at all: a space is *meant* to be blank, and counting one
 //! took the corpus's incomplete documents from 79 to 109.
 //!
+//! **That was the only exemption the condition was meant to have, and for two hundred sessions
+//! it had a second one nobody had written down**: a code §9.10.2 could not *name* was excluded
+//! as well, so a font whose codes reached no glyph *and* no character drew a blank page in
+//! silence — which is the failure this file exists for, wearing the exemption written to
+//! prevent a different one. `issue17333.pdf` is that page and ADR 0520 is the correction.
+//!
 //! The tests are against real documents, which is trap 4's rule: a hand-built font program with
 //! no outlines would be built by the same reading of the format the code under test uses.
 
@@ -160,6 +166,43 @@ fn a_code_that_reaches_notdef_is_still_a_mark_missed() {
         (3, 5),
         "three codes reach .notdef and five reach an empty glyph"
     );
+}
+
+/// And a code §9.10.2 cannot *name* is still a mark missed, which cost this page its report.
+///
+/// `issue17333.pdf` is 100 × 100 and shows **character code 0** through an embedded two-glyph
+/// `SymbolMT` subset: `/Encoding /MacRomanEncoding` over a descriptor whose `/Flags 32` sets
+/// Table 121's Nonsymbolic bit, so §9.6.5.4's named-encoding branch applies and every route it
+/// states ends at nothing — `MacRomanEncoding` gives code 0 no glyph name, the `StandardEncoding`
+/// fill gives it none either, and the font's one `cmap` subtable is a (1, 0) format 6 covering
+/// code 165 alone. That is the subclause's closing permission rather than a defect, and it is
+/// diagnosed in `oracle.rs`'s `NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS`.
+///
+/// **What was a defect is the silence.** The count above excluded a code whose readback is
+/// empty, on the argument that §9.10.2 "could not name" it and so nothing knows what the page
+/// owed — but whether the *program* answered is decided by the glyph the code reached, not by
+/// the character, and this code reached none. So the page drew **zero commands**, reported
+/// `unsupported: []`, and every counter that measures the picture read zero. ADR 0520.
+#[test]
+fn a_code_with_no_character_and_no_glyph_is_a_mark_missed_and_is_reported() {
+    let Some(interpretation) = page_one("issue17333.pdf") else {
+        return;
+    };
+    assert_eq!(
+        (
+            interpretation.codes_without_a_glyph,
+            interpretation.codes_reaching_a_blank_glyph,
+            interpretation.codes_without_a_character.total()
+        ),
+        (1, 0, 1),
+        "the one code the page shows reaches no glyph and §9.10.2 cannot name it"
+    );
+    let said = reports(&interpretation);
+    assert!(
+        said.contains("no outline for any of the 1 code(s)") && said.contains("/TT3"),
+        "and the font that drew nothing is named: {said}"
+    );
+    assert!(!interpretation.is_complete(), "so the page is not complete");
 }
 
 /// A page that draws its text and can name none of it says how much it lost.

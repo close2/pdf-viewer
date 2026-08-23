@@ -125,6 +125,19 @@ A condition worked out for a report is worth keeping when the feature lands. And
 is real: **a report can hide another report** — `knockout_smask.pdf`'s knockout gap was covered by
 its soft-mask report for four sessions.
 
+**And the trap has a fifth instance with its sign reversed, which the four above cannot warn
+about: a condition narrowed by an exemption written for something else.** The report that names a
+font drawing nothing of what it was asked to show is gated on a count of codes that reached no
+glyph, and that count excluded a code §9.10.2 could not *name* — an exemption whose argument is
+sound and is about the **reader**, applied to a question about whether the **program** answered. So
+`issue17333.pdf`, whose one code an embedded font's `cmap` does not cover, drew a wholly blank
+sheet with `unsupported: []`, and every instrument that measures the picture read zero
+(ADR 0520). Two rules come out of it and neither is about deriving the condition from the clause,
+because this one was: **an exemption is part of the condition and needs the same evidence** — write
+down which question it answers, because a second question arriving later will inherit it silently;
+and **a report built out of a count inherits every one of that count's exclusions**, so a count's
+doc comment naming two of its three is a defect in the report and not only in the prose.
+
 ### 13. A sweep for a defect must be run against the defect before it is believed
 
 A round told to look for a class of defect writes a grep, gets a handful of hits, reads them and
