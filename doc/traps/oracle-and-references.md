@@ -28,8 +28,9 @@ as a verdict.**
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
 evidence. Eight ways for that to fail — and the count has moved four times, so read the list rather
-than the number. The last two entries are not a ninth and a tenth mechanism: one is about a page
-carrying two of the eight, the other about how a mechanism gets *checked*.
+than the number. **The last four entries are not further mechanisms**: one is about a page carrying
+two of the eight, one about how a mechanism gets *checked*, and two about how the measurement that
+results is read — because a mechanism accounted for in the wrong units is not accounted for.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
   programs that skipped the same clause produce the same picture. `visibility_expressions.pdf`:
@@ -167,6 +168,29 @@ carrying two of the eight, the other about how a mechanism gets *checked*.
   behaviour had not changed and the evidence for it had. Where a source citation can be replaced
   by an experiment on the installed binary, replace it: a raster is a measurement of the program
   that ran.
+- **And where a voting reference's raster is *constant*, the comparison has no second operand.** A
+  renderer that decoded nothing returns a sheet that is 255 in every channel, and against a constant
+  every one of the gate's four numbers is a statistic of *our* render alone: the mean is exactly
+  `255 × (1 − our own mean channel value)`, and the rest follow. On four of
+  `CONTRADICTED_SHARED_JBIG2_DECODER`'s pages the whole verdict line — mean 13.12, worst tile 144.56,
+  differing 5.15%, ssim 0.8990 — is reproduced to the digit by comparing our render with a synthetic
+  white sheet of the same size, and on `CONTRADICTED_REFERENCES_DREW_NOTHING`'s two the failing mean
+  *is* our ink, 12.718 against a printed 12.72 and 13.672 against 13.67. **No renderer that drew the
+  page could meet any of those bounds**, so the numbers are not a measurement of a disagreement and
+  cannot be read as one. The tell costs one command: `magick identify -format '%[fx:minima]
+  %[fx:maxima]'` on the reference panel. ADR 0499.
+
+- **And a note's figures and the gate's figures are usually in different units, which is a
+  conversion rather than a difficulty.** `raster_compare` divides by **width × height × four
+  channels** and sums the absolute difference over all four, so: a mark ours paints and a reference
+  does not costs `Δink × 255 × 3 ÷ (w × h × 4)` in the mean, because three channels differ and both
+  rasters are opaque; a coloured stroke costs `perimeter × 510 ÷ (w × h × 4)` where the colour
+  differs from white in two channels; and a *differing fraction* counts channels rather than pixels,
+  so one row of 180 columns is 1.35 percentage points and not 1.80. Four of six group notes measured
+  in the sixth criterion's own population were answerable that way and none had been asked. **And
+  `rank_the_contradicted` prints bounds, not levels of 255** — `Distance::of` takes the largest of
+  three ratios against the bounds the page was held to — which two notes had wrong, one of them
+  quoting a page's worst tile over its bound as though it were a distance in levels. ADR 0499.
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
