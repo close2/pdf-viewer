@@ -774,3 +774,46 @@ recommendation this tree follows rather than a requirement it meets. The distinc
 anybody arguing later about a window that would rather fit the other dimension. §12.3.2.2's row is
 not rewritten for it, because the row quotes the null-parameter rule and the crop-box `shall`, and
 this erratum touches neither.
+
+## Two carets under §7.6.6, found in the six-hundred-and-ninety-first
+
+`emit` over all fourteen documents while reading §7.6's `partial` rows, and both findings are the
+same shape as the three above: a **`Caret` with no `StrikeOut`**, which `check` cannot see because
+it has no struck text to compare a quotation against — the shape #293, #34 and #536 already are
+above. It is worth stating as a rule rather than as a run of coincidences: **an erratum that only
+*adds* is invisible to `check` by construction, and `emit` is the only instrument that reads it.**
+The population is a command rather than a tally here, because this file records what a round read
+rather than what the collection holds: `cargo run --release -p spec-errata -- emit doc/*.pdf`, and
+a `Caret` printed with no `StrikeOut` above it under the same issue number is one of them.
+
+**Issue #74, `Review/Completed`, licenses what this reader does at `/V` 5.** Its whole content is
+
+> or 5
+
+with `/Rect [215.245 388.253 224.21 395.557]` on page 105, which `mutool draw -F stext` puts
+immediately after the `4` in §7.6.6's first bullet — "the value of the V entry shall be 4 to use
+crypt filters". So the amended sentence is "shall be 4 or 5", and the reason it matters here is
+that the 2020 text makes an AES-256 file's crypt filters non-conforming: Table 25 gives `AESV3` no
+home other than a `/CF` entry, `/V` 5 is what Table 20 requires for it, and eleven of `doc/pdf.js`'s
+twenty-five encrypted documents are exactly that. `crypt::crypt_filters` has read `/CF` at `/V` 4
+**or greater** since it was written, on nobody's stated authority; it now has the clause's. Recorded
+in §7.6.6's row and in the function's own comment.
+
+**Issue #184, `Review/Completed`, settles a `/Length` this tree had disambiguated by arithmetic.**
+Two carets on page 107, `/Rect [447.662 627.997 …]` and `[411.662 616.215 …]`, landing at the ends
+of Table 25's last two sentences:
+
+> for public-key security handlers, and 16 for the standard security handler
+
+> for public-key security handlers, and 32 for the standard security handler
+
+which amend "When CFM is AESV2 , the Length key shall have the value of 128" and the `AESV3`
+sentence beside it. The table already said, higher up, that "The standard security handler
+expresses the Length entry in bytes (e.g., 32 means a length of 256 bits) and public-key security
+handlers express it as is", and those two closing sentences were unit-less and read as
+contradicting it. `crypt::key_length` resolved that by Table 25's *range* — below 40 can only be
+bytes, 40 or more can only be bits — and its comment called the entry "famously ambiguous". The
+arithmetic is unchanged and still right; what was corrected is the comment, because the standard
+now states the byte reading in the same two sentences that had seemed to deny it. The corpus's
+witness is `doc/corpora/format-corpus/pdfCabinetOfHorrors/encryption_openpassword.pdf`, which
+writes `/CFM /AESV2 /Length 16`.

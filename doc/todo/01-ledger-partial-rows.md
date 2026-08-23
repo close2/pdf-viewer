@@ -3834,6 +3834,35 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   statement about the two instruments: the blame list ranks a row by when it was last *written*, and
   step 7 ranks a claim by whether the world moved under it, and only the second of those has a
   population that grew by fifty-three times. The band is where it was.
+  **The six-hundred-and-ninety-first took it, over a base of 916 commits where the prediction came
+  out exactly for the fifth band running** — 242 `partial`-or-`reported` rows with a blamed note,
+  §7.6.4 and §7.6.4.4 at ranks 1–2, §11.3.4 at 3, the cluster of nine at 4–12 and §14.6, §14.6.1,
+  §7.6 and §7.7 at 13–16 — **and read it by *family* rather than by rank**, which is what the band's
+  own shape was asking for and what none of the eight bands before it had done: four of the top
+  sixteen are §7.6's, and three of the round's four findings are a disagreement between two rows of
+  that one family, which a band taking one row from each of sixteen families cannot see by
+  construction. §7.6's corpus arithmetic accounted for every encrypted document as opening while
+  §7.6.4.2's own row and `corpus.rs`'s `MAX_UNREADABLE_ENCRYPTION` both record two refused;
+  §7.6.4.2's own four figures were 26/19/4/6 against 25/23/3/6; §7.6.4 was `partial` on a reason
+  §7.6.4.2 records as *not* a debt; and §7.6.4.4.2 said "the one whose known password is the
+  owner's" where three of the eight are, one of them asserted by a test in the tree. Two errata went
+  with them, both bare `Caret`s under §7.6.6 — Issue #74's "or 5", which licenses reading a crypt
+  filter at `/V` 5 and therefore every AES-256 file in the corpus, and Issue #184, which retires the
+  `/Length` ambiguity a `crypt.rs` comment still asserted. **No status moved and no code was wrong**,
+  which is worth recording rather than passing over: eight bands running had moved something, and a
+  round whose findings are all prose has still made the family's next reading cheaper. ADR 0538.
+  **The rows left at the top are §11.3.4 at rank 1**, then the cluster of eight the round's four
+  leave behind — §11.3.7, §11.4.1, §12.5, §8.6.6, §8.9.6, §8.9.6.2, §9.8.3, §9.8.3.1 — then §14.6,
+  §14.6.1 and §7.7; and **§9.8.3 with §9.8.3.1, and §14.6 with §14.6.1, are the same family shape
+  one size down**, two rows apiece whose notes already argue with each other about Table 122 and
+  about which tags are read. Re-derive the order before believing this sentence, for the reason two
+  paragraphs up.
+  **And the rule the round adds is about *choosing within* a band rather than about the band**:
+  where the top of the blame list holds several rows of one clause family, read the family. ADR
+  0455 ranks by the kind of claim a reason makes and ADR 0460 by where in the clause the answer
+  would be; both rank a row against the standard or against the tree. This one ranks a row against
+  **its siblings**, which is the comparison the fifth failure shape is defined by and which no
+  ordering by age can produce.
 - **A negative measured before the crawl is a negative nobody has measured, and the crawl is on this
   disk.** `doc/habits.md` says a negative claim decays when the population grows; the
   six-hundred-and-sixty-third was the first round to act on it in the ledger and the first row it
