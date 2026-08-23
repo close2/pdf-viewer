@@ -99,7 +99,12 @@ Two rules:
   first; without `doc/md` three sweeps refuse outright, and without the rest `pointers` reports
   dozens of live paths as "not carried" and the comparison invents deltas the round did not cause.
 
-### 16. A *gate's* answer can depend on which build directory it was compiled in
+### 16. A *gate's* answer can depend on **how much of the workspace was built**
+
+> **The heading used to say "which build directory it was compiled in", and the
+> six-hundred-and-ninety-eighth session established that the directory is a symptom.** The variable
+> is **build scope**, and the correction is kept below the original account rather than replacing it,
+> because the original is what a round will recognise when it happens again.
 
 Trap 15 is a sweep binary that carries the wrong **tree**. This is the same family one step further
 in, and it is worse because the instrument is a **ratchet**: the same sources, built in two
@@ -132,6 +137,41 @@ Two rules, and the first is the cheap one:
 - **A gate that fails is not a gate to argue with from a document.** The census floors are not
   written anywhere but in the test, which is why this was caught at all; had the number been
   recorded in a note somewhere, "unchanged" was available for free (ADR 0281's whole argument).
+
+#### What the mechanism turned out to be — the six-hundred-and-ninety-eighth
+
+Four readings of one commit, deterministic twice each, the two test binaries carrying different
+digests:
+
+| | reads | verdict |
+|---|---|---|
+| the shared build directory | **1336** | passes |
+| a clean directory, **subset** built | **1345** | **fails** |
+| a clean directory, after `cargo clean -p` on four crates | 1336 | passes |
+| a clean directory, **whole workspace** built | **1336** | passes |
+
+So it is not the directory and it is not staleness: **Cargo unifies features across whatever is in
+the build**, and a dependency built for `viewer-core`'s subset gets a different feature set than the
+same dependency built for the workspace — and the program then counts nine structure elements
+differently. Building the whole workspace in the *clean* directory reproduces the shared directory's
+answer exactly.
+
+**This makes the six-hundred-and-sixtieth session's report real, and this project's record of it
+wrong.** That round said `cargo nextest run -p pdf-model` *alone* fails six CCITT tests where
+`--workspace` passes, and blamed feature unification resolving `hayro-ccitt` differently under a
+scoped build. The six-hundred-and-sixty-fourth checked it on merged `main`, got 1099 passing, and
+recorded it as **not reproducing** — in a fully-built shared directory, which is exactly the scope
+where the defect hides. The rule is general and it is the trap's real lesson:
+
+> **A claim that a defect does not reproduce is a claim about the conditions you reproduced it
+> under.** Name the conditions, or the claim is worth what an unnamed population is worth.
+
+Three things follow and none is settled: `cargo build --release --bin pdf-viewer` is a **third**
+scope and nothing has established which feature set the shipped binary carries; **which of 1345 and
+1336 is right is unknown**, and the ratchet's floor was set under one of them without anybody asking
+which; and **a dependency feature that changes what the program computes should be stated by this
+workspace rather than inherited** from whichever crates happen to be in the build. That is a round's
+work, and `doc/HANDOVER.md` names it as one.
 
 ### 10a. A cached reference render is a fourth thing that can be stale
 
