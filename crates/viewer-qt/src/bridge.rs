@@ -230,6 +230,17 @@ pub mod ffi {
         /// for `QClipboard`: it is this flag, and `take_clipboard` beside it, which is exactly the
         /// shape `window` above has and for the same reason.
         clipboard: bool,
+        /// The find bar should be shown and given the keyboard.
+        ///
+        /// `f` and `/` mean this in all three hosts since ADR 0526, and it is a flag for
+        /// `clipboard`'s reason: the bar is a `QToolBar` and Rust does not call one.
+        find_bar: bool,
+        /// The third-party notices should be put on the screen.
+        ///
+        /// `?`, and the same shape again. The *text* is `viewer_host::NOTICE`, shared with the
+        /// other two hosts, because a notice that differs between two binaries of one program is
+        /// two claims about one obligation.
+        notices: bool,
     }
 
     /// Which pieces of this window's chrome may be shown — `viewer_host::Chrome`, and the window
@@ -259,8 +270,12 @@ pub mod ffi {
 
         /// The viewport changed size, in device pixels, at `scale` device pixels per logical one.
         fn resized(self: &mut Host, width: u32, height: u32, scale: f32);
-        /// A key was pressed, as `Qt::Key`.
-        fn key(self: &mut Host, code: u32);
+        /// A key was pressed, as `Qt::Key`, with Shift's state beside it.
+        ///
+        /// The modifier crosses because §12.5.1's tab key needs a direction and no other row of
+        /// `viewer_host::keys` looks at one. Qt also reports Shift and Tab together as
+        /// `Qt::Key_Backtab`, which this side folds back in.
+        fn key(self: &mut Host, code: u32, shift: bool);
         /// The pointer moved or a button changed: 0 moved, 1 pressed, 2 dragged, 3 released.
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
         /// The wheel turned, in device pixels of the viewport.
@@ -308,6 +323,11 @@ pub mod ffi {
         /// order where the document's structure tree could give one — which is
         /// `viewer_host::copied`'s decision and the same one the other two hosts take.
         fn take_clipboard(self: &mut Host) -> String;
+        /// The third-party notices this binary is obliged to carry, for the window `?` opens.
+        ///
+        /// A function rather than a constant in the header because the text is
+        /// `viewer_host::NOTICE` and only Rust has it; asked once, when the flag says so.
+        fn notices(self: &Host) -> String;
         /// Which of Table 29's six panels the document asks to be showing, as a tab index.
         ///
         /// `-1` for a page mode this host has no panel for — `UseNone`, `FullScreen`, and

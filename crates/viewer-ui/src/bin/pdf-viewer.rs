@@ -138,7 +138,12 @@ use crate::timing::{FrameLog, Launch};
 ///
 /// `--licenses` is accepted too. The project spells it the other way and a person typing the
 /// other spelling wants the same thing.
-const NOTICE: &str = include_str!("../../../../NOTICE");
+///
+/// **The text moved to [`viewer_host::NOTICE`] in the six-hundred-and-eighty-seventh session** and
+/// this is the same constant under this binary's own name. The obligation is every host's — the
+/// two native ones ship the same font programs — and it now has a key in all three
+/// ([`viewer_host::WindowAct::Notices`], ADR 0526).
+const NOTICE: &str = viewer_host::NOTICE;
 
 /// The one document this program opens.
 ///

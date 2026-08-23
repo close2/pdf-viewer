@@ -344,8 +344,10 @@ one thing for all of them: `viewer-ui` is tier 2 and draws its own chrome, the t
 place somebody else's widgets, and `viewer-ffi` draws nothing and hands a caller data. Today
 "level" is false in *both* directions — `viewer-ui` is ahead on everything that reads a document
 (six sidebar tabs against three, thumbnails, articles, properties, the collection, popup windows,
-the caret, the markup keys, a copy key) and behind on everything that changes one (no undo binding,
-no native controls, and a password prompt that reads `stdin` and exits when there is no terminal).
+the caret) and behind on everything that changes one (no native controls, and a password prompt that
+reads `stdin` and exits when there is no terminal). **The markup keys, the copy key and the undo
+binding came off that list in the six-hundred-and-eighty-seventh** (ADR 0526): they are rows of one
+key table now, so being ahead or behind on a *binding* is no longer a thing a host can be.
 
 1. ~~**A selection that can leave the program.**~~ **Taken in the six-hundred-and-eighty-third**
    (ADR 0519), and the claim it was ranked on held: **no new message**, checked rather than assumed.
@@ -372,11 +374,61 @@ no native controls, and a password prompt that reads `stdin` and exits when ther
    real `GtkEntry` and a real `QLineEdit`; `viewer-ui` draws its own field and now makes the same
    call the page's copy makes. The C ABI has no field-level copy and needs none — a caller that
    placed its own controls owns their keyboard, and `pdfv_field_text` answers with the value.
-2. **A statement of what a key means, in `viewer-host`.** Four key tables that already disagree —
-   `f` is the find bar in GTK and a free-text drag in `viewer-ui`, the arrow keys scroll in one host
-   and turn the page in two, Escape clears the selection in the native hosts and *quits*
-   `viewer-ui`. Same argument as `Presenting` and `Clock` (ADRs 0470, 0473), and the first
-   application of it that a test could check.
+2. ~~**A statement of what a key means, in `viewer-host`.**~~ **Taken in the
+   six-hundred-and-eighty-seventh** (ADR 0526), and the three disagreements it named were all real:
+   `f` was the find bar in GTK and a free-text drag in `viewer-ui`, the arrow keys scrolled in one
+   host and turned the page in two, and Escape cleared the selection in the native hosts and *quit*
+   `viewer-ui`. `viewer_host::keys` is the one table now — a closed `Key`, a `Meaning` that is
+   either a `Command` or a `WindowAct`, and a `Mode` on the lookup because two rows depend on
+   whether §12.4.4's presentation is running. **It needed no message**, which is the eighth time
+   since the six-hundred-and-seventh.
+
+   **This entry said "[f]our key tables" and there were three.** `viewer-ffi` has no keyboard and
+   never had one — `include/pdf_viewer.h` says so where it mentions the only key the standard names,
+   *"§12.5.1's tab key. The order is the document's (Table 31's `/Tabs`); the key is yours"* —
+   because a C caller places its own toolkit and owns its own keyboard entirely. The fourth consumer
+   is a different kind of thing here rather than a host that is behind, which is ADR 0509 §2's own
+   finding turned on its own list.
+
+   **What the standard decides is two rows and it decided the sharpest disagreement.** §12.4.4.2
+   gives "[p]ressing an arrow key" as its EXAMPLE of a navigation request and asks for one "such as
+   an arrow key press" — *inside the presentation subclause*, which is why all four arrows navigate
+   while a presentation is running and Up and Down move the view while one is not. It also fixed a
+   gap in the other direction: `viewer-ui`'s arrows scrolled *during* a presentation, so two of the
+   four keys the clause names made no navigation request at all on the tier-2 host. §12.5.1's tab
+   key is the other row, bound in one host of three before and in all three now. And §7.7.2's
+   Table 29 takes a binding *away*: while a presentation is running the four keys that ask for
+   chrome — `f`, `/`, `o`, `?` — mean nothing, which is "no … other window visible" applied to the
+   keyboard rather than to the widgets.
+
+   **The instrument is what ADR 0509's third criterion asked for.** Each host carries
+   `every_key_the_table_states_has_one_in_this_toolkit`, which walks `Key::ALL` through a match that
+   is exhaustive over the enumeration — so a binding added to `viewer-host` fails to compile in all
+   three hosts — and then asserts that the host's runtime translation agrees, so a key named in the
+   test and forgotten in the translation fails rather than drifting.
+
+   **And it found a licence obligation nobody had noticed.** `?` had to mean something in all three,
+   and what it means in `viewer-ui` is the card of third-party notices that exists because both
+   licences covering the compiled-in standard 14 font programs (§9.6.2.2) require a *binary*
+   distribution to reproduce their notices. `pdf-viewer-gtk` and `pdf-viewer-qt` ship the same font
+   programs and reproduced them nowhere at all — no card, no dialog, not even a `--licences` flag.
+   `viewer_host::NOTICE` is the one text and all three hosts now put it on the screen.
+
+   **And asking what `?` should do found a defect that was not a key's.** In `viewer-ui` the key set
+   the flag, the card's display list was built for the frame, and the window kept the pixels it
+   already had — because `surface.rs`'s "a rendering of exactly these lists at exactly these targets
+   needs no successor" compared the *pages* and not the chrome drawn over them. Every overlay that
+   host draws was unreachable on the graphics device's path: the find bar, the panel, §12.5.1's
+   ring, the selection and the notices card. Fixed here, measured A/B in one sitting: **zero frames
+   after ten seconds idle on both builds**, and 14 frames against 28 for six chrome-changing key
+   presses, which is one render and one present per change.
+
+   **Two asymmetries remain and both are named rather than left silent.** §12.5.6.6's free-text drag
+   is `t` in the table and is **refused by name** in the two native hosts, because authoring that
+   annotation is a drag mode plus an editor and both are `doc/todo/33`'s. And on a *delegated* form a
+   real `GtkEntry` or `QLineEdit` has the focus, so the toolkit's own traversal takes Tab before any
+   window controller sees it — what is walked there is the toolkit's order rather than Table 31's
+   `/Tabs`, which is a platform's behaviour and not something this tree can take back.
 3. **`viewer-ui`'s password prompt**, which is the one place this program answers a document on
    `stderr` and `stdin` and the only one that exits the process when nobody is listening.
 4. **§12.3.4's thumbnails, §12.4.3's articles and §14.3.3's properties in the two native hosts.**
@@ -386,7 +438,20 @@ no native controls, and a password prompt that reads `stdin` and exits when ther
    document-wide search and cannot draw a match. Worth adding with the entry points: the mechanism
    that would have caught the drift, a test enumerating `Query` against the symbols, which is what
    `PDFV_EVENT_KIND_COUNT` already is for events.
-6. **Undo and redo in `viewer-ui`**, which both native hosts and the ABI have.
+
+   **And one addition item 2 declined to make here, written down so it is decided rather than
+   rediscovered**: `viewer_host::keys` is a *table*, and a C host that wants the keys this program
+   binds has to re-derive all thirty of them. `pdfv_key_meaning(key, shift, presenting)` with a
+   `PDFV_KEY_*` enumeration would hand it over, and the same test shape applies — a count beside the
+   enumeration, because a C caller cannot fail to compile. It was not taken in the
+   six-hundred-and-eighty-seventh because it is an addition to the ABI's *surface* and this is where
+   surface is decided; nothing in item 2 is blocked on it, since a C caller owns its keyboard by
+   construction and so has no table to be out of step with.
+6. ~~**Undo and redo in `viewer-ui`**~~ — **taken with item 2 in the six-hundred-and-eighty-seventh**,
+   which is what ADR 0509 §3 predicted of it ("it is a keyboard binding once item 2 exists") and the
+   whole reason for stating an order. `z` and `y` are rows of `viewer_host::keys`, so the tier-2 host
+   got them by adopting the table rather than by a round of its own; it gained `w` the same way, and
+   lost Escape-quits.
 7. **Table 233 bit 19's editable combo box in `viewer-gtk`** — the one item here that is a genuine
    toolkit floor: `GtkDropDown` is not editable and `GtkComboBoxText` is deprecated in the release
    this crate binds. Written down so the next round does not rediscover it, **and with ADR 0508's

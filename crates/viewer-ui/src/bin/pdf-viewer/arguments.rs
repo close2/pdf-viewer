@@ -347,10 +347,14 @@ fn usage() {
     eprintln!("usage: pdf-viewer [--no-sandbox] <document.pdf>");
     eprintln!("       pdf-viewer --licences");
     eprintln!();
-    eprintln!("Arrows, Page Up/Down or Space turn pages; Home and End jump; + and - zoom;");
-    eprintln!("o shows the sidebar — the outline, the layers and the embedded files;");
-    eprintln!("? shows the third-party notices; drag to select text, a selects the page,");
-    eprintln!("s saves, Escape quits.");
+    // The bindings are `viewer_host::keys`', shared with the two native hosts since ADR 0526,
+    // and this is the one place they are worded for a person.
+    eprintln!("Left/Right, Page Up/Down or Space turn pages; Up and Down scroll; Home and End");
+    eprintln!("jump; + and - zoom, 0 fits; Tab walks the annotations; o shows the sidebar,");
+    eprintln!("f or / the find bar, ? the third-party notices, p presents full screen and l");
+    eprintln!("moves to the next page arrangement; drag to select text, a selects the page,");
+    eprintln!("c copies it, h highlights and k strikes out, z and y undo and redo, t draws a");
+    eprintln!("free text annotation, s saves, and Escape clears the selection.");
     eprintln!();
     eprintln!("  --no-sandbox  decode JBIG2 and JPEG 2000 images in this process rather than");
     eprintln!("                in a confined worker. Faster by a process spawn and a pipe");

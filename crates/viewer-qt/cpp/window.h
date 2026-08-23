@@ -183,6 +183,14 @@ private:
     void rebuildPanels();
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
+    /// The third-party notices this binary is obliged to carry, in a window of their own.
+    ///
+    /// A licence obligation with a surface: `pdf-font` compiles the standard 14 font programs
+    /// (ISO 32000-2 §9.6.2.2) into every binary in this tree and both of their licences require a
+    /// *binary* distribution to reproduce their notices. `?` is the key, in all three hosts since
+    /// ADR 0526; the text is `viewer_host::NOTICE`, so that two binaries of one program do not
+    /// make two claims about one obligation.
+    void showNotices();
     /// Builds the find bar: a real `QLineEdit` and two buttons in a `QToolBar`.
     void buildFindBar();
     /// Posts one step of the search on a zero-delay timer, for as long as pages remain.

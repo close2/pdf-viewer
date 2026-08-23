@@ -94,7 +94,12 @@ than to the page the first bead sits on, because activating one composes §12.6.
 action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread —
 and this sentence said "not one corpus document" for as long as the panel has existed**, while four
 documents under `doc/corpora/` state one with 115 beads between them, two of them named for the
-fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier. **The
+fact. Which population a claim is about is part of the claim; ADR 0405. `?` puts `/NOTICE` over the page in Courier, **and it does so in all three windows since the
+six-hundred-and-eighty-seventh session** — the two native hosts ship the same compiled-in standard 14
+font programs and had no surface for their licences at all (ADR 0526). **What a key means is one
+value, `viewer_host::keys`, that all three hosts translate their toolkit's key into**: three tables
+that disagreed about the arrow keys, about `f` and about Escape are one, and each host has a test
+that fails when it stops translating the whole of it. **The
 document chooses what opens**: Table 29's `/PageMode` names a panel and §12.2's
 `/DisplayDocTitle` puts the document's own title in the title bar. §12.6.3's trigger events are
 raised by the pointer. Four clauses closed on the sidebar without anybody picking them off a list,

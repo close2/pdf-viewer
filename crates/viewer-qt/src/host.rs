@@ -103,6 +103,10 @@ struct Placement {
 }
 
 /// One document, one viewer, and the loop between them.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about one window, each read in one place and none a state"
+)]
 pub struct Host {
     /// The state machine every host on this boundary drives.
     viewer: Viewer,
@@ -122,6 +126,12 @@ pub struct Host {
     widget_appearances: WidgetAppearances,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
+    /// Whether the reader wants the panel of three trees on the screen.
+    ///
+    /// **A wish, beside Table 29's *permission***. [`Host::chrome`] shows the panel only where the
+    /// clause allows one and the person asked for one, so leaving full screen puts back what the
+    /// reader had. `o` is the key, in all three hosts since ADR 0526.
+    panel_shown: bool,
     /// How many times §7.6.4.1's password has been asked for.
     attempts: u32,
     /// Whether the document has been opened yet, which waits for the first resize.
@@ -245,6 +255,8 @@ impl Host {
             trace,
             widget_appearances,
             scale: 1.0,
+            // The panel is what this window opens with, and `o` is what takes it away.
+            panel_shown: true,
             attempts: 0,
             opened: false,
             dirty: false,
@@ -300,14 +312,91 @@ impl Host {
         }
     }
 
-    /// A key was pressed, as `Qt::Key`.
-    pub(crate) fn key(&mut self, code: u32) {
-        // The one key whose meaning is not in `keys::command`'s table, and the reason is that it
-        // is not a fact about the key: what `w` sends depends on what this page's controls
-        // measured, so the command cannot be built without the host. `viewer-gtk` binds the same
-        // letter to the same thing.
-        if code == keys::FIT_CONTROLS {
-            match self.fit_magnification {
+    /// A key was pressed, as `Qt::Key`, with Qt's own modifier state beside it.
+    ///
+    /// **What it means is [`viewer_host::keys`]'s answer and not this host's** (ADR 0526). This
+    /// method used to hold five special cases and a table, and the table disagreed with the other
+    /// two hosts about the arrow keys, about `f` and about Escape; what is left is
+    /// [`keys::stated`] turning a number into a [`viewer_host::Key`] and [`Host::window_act`]
+    /// doing the half of the answer that is a widget's rather than a message.
+    pub(crate) fn key(&mut self, code: u32, shift: bool) {
+        let Some(stated) = keys::stated(code) else {
+            return;
+        };
+        let mode = if self.presenting.full_screen() {
+            viewer_host::Mode::Presenting
+        } else {
+            viewer_host::Mode::Reading
+        };
+        let Some(meaning) =
+            viewer_host::meaning(stated, shift || keys::shifted_by_name(code), mode)
+        else {
+            return;
+        };
+        match meaning {
+            viewer_host::Meaning::Send(command) => {
+                // §12.5.6.10's markups are defined over selected text, so a press with nothing
+                // selected asks for an annotation over nothing. The core answers by doing nothing,
+                // which is right and silent — and trap 5 is that a person who pressed a key and
+                // saw no change has been told nothing at all.
+                if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
+                    self.say("select some text first — §12.5.6.10's markups mark up text");
+                    return;
+                }
+                self.dispatch(command);
+            }
+            viewer_host::Meaning::Window(act) => self.window_act(act),
+        }
+    }
+
+    /// The half of the key table that is a widget's rather than a message.
+    ///
+    /// Matched exhaustively and with no catch-all arm, which is `doc/ui-boundary.md`'s rule applied
+    /// one layer out: a binding added to [`viewer_host::keys`] fails to compile in all three hosts.
+    ///
+    /// **Four of these arms are a flag rather than a call**, and the reason is this crate's shape
+    /// rather than Qt's: [`crate::bridge`] states that C++ owns the `Host` for the life of
+    /// `QApplication::exec` and that Rust never calls a Qt object, which is what keeps the crate to
+    /// one hand-written `unsafe` token. So showing a find bar, a panel or a card of notices is a
+    /// [`QtUpdate`](crate::bridge::ffi::QtUpdate) field the window reads back — the shape `window`
+    /// has had since ADR 0470 and `clipboard` since ADR 0519.
+    fn window_act(&mut self, act: viewer_host::WindowAct) {
+        match act {
+            // Qt places widgets in logical pixels and `Command::Scroll` speaks device ones, which
+            // is why the table states a distance rather than building the message itself.
+            viewer_host::WindowAct::ScrollBy(by) => self.dispatch(Command::Scroll {
+                dx: 0.0,
+                dy: by * self.scale,
+            }),
+            // The only binding whose answer leaves the program: §14.8.2.5's text on the session's
+            // clipboard. Not a command, because what a copy *is* belongs to the platform (ADR
+            // 0519).
+            viewer_host::WindowAct::Copy => self.copy_selection(),
+            viewer_host::WindowAct::Find => self.update.find_bar = true,
+            // Table 29's "any other window visible" is a *permission* and this is the reader's
+            // wish beside it; `Host::chrome` composes the two, so leaving full screen puts back
+            // what the reader had rather than what the document last permitted.
+            viewer_host::WindowAct::Panel => {
+                self.panel_shown = !self.panel_shown;
+                self.update.window = true;
+            }
+            viewer_host::WindowAct::Notices => self.update.notices = true,
+            viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
+                self.present_or_stop();
+            }
+            // Table 29's six arrangements are cycled, so what to send depends on which one is in
+            // force — a fact about this host's state rather than about the key.
+            viewer_host::WindowAct::NextLayout => {
+                self.layout = next_layout(self.layout);
+                self.dispatch(Command::Layout(self.layout));
+                self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
+                // A new arrangement is a new set of pages on the screen, and therefore a new set
+                // of things they could not draw.
+                self.restate();
+            }
+            // What `w` sends depends on what this page's controls measured, so the command cannot
+            // be built from the key alone. `viewer-gtk` answers the same way.
+            viewer_host::WindowAct::FitControls => match self.fit_magnification {
                 Some(wanted) => {
                     self.say(&format!("fitting §12.7's controls at {wanted:.3}"));
                     self.dispatch(Command::Zoom {
@@ -316,39 +405,15 @@ impl Host {
                     });
                 }
                 None => self.say("every control on this page already fits its /Rect"),
-            }
-            return;
-        }
-        // The second key whose meaning is this host's state rather than the key's: Table 29's
-        // six arrangements are cycled, so what to send depends on which one is in force.
-        if code == keys::NEXT_LAYOUT {
-            self.layout = next_layout(self.layout);
-            self.dispatch(Command::Layout(self.layout));
-            self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
-            // A new arrangement is a new set of pages on the screen, and therefore a new set of
-            // things they could not draw.
-            self.restate();
-            return;
-        }
-        // §12.4.4's presentation, which for this program is the full-screen window (ADR 0470), and
-        // the third key whose meaning is this host's state: `p` toggles and Escape only leaves.
-        if code == keys::PRESENT {
-            self.present_or_stop();
-            return;
-        }
-        if code == keys::ESCAPE && self.presenting.full_screen() {
-            self.present_or_stop();
-            return;
-        }
-        // The fifth, and the only one whose answer leaves the program: §14.8.2.5's text on the
-        // session's clipboard. Not a command, because what a copy *is* belongs to the platform —
-        // see `keys::COPY` and ADR 0519.
-        if code == keys::COPY {
-            self.copy_selection();
-            return;
-        }
-        if let Some(command) = keys::command(code) {
-            self.dispatch(command);
+            },
+            // **Refused by name rather than ignored**, which is trap 5 and the honest answer here:
+            // §12.5.6.6's annotation is authored by dragging a rectangle and then typing into it,
+            // and this host has neither the drag mode nor the editor. `doc/todo/30` carries it as
+            // the remaining asymmetry rather than leaving it silent.
+            viewer_host::WindowAct::FreeText => self.say(
+                "this host cannot draw a §12.5.6.6 free text annotation yet — the drag mode and \
+                 its editor are viewer-ui's alone (doc/todo/30)",
+            ),
         }
     }
 
@@ -630,7 +695,10 @@ impl Host {
             menu_bar: chrome.menu_bar,
             tool_bar: chrome.tool_bar,
             window_ui: chrome.window_ui,
-            other_windows: chrome.other_windows,
+            // **Two conditions rather than one since ADR 0526**: Table 29's permission, and the
+            // reader's own wish, which `o` moves. Composed here so that leaving full screen puts
+            // back what the reader had rather than what the document last permitted.
+            other_windows: chrome.other_windows && self.panel_shown,
         }
     }
 
@@ -932,6 +1000,32 @@ impl Host {
     /// afterwards would be this host holding a second clipboard nobody reads.
     pub(crate) fn take_clipboard(&mut self) -> String {
         std::mem::take(&mut self.clipboard)
+    }
+
+    /// Whether anything on the page is selected.
+    ///
+    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
+    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
+    /// has been told nothing at all.
+    fn has_selection(&self) -> bool {
+        matches!(self.viewer.query(Query::Selection),
+            Answer::Selected(selection) if !selection.quads.is_empty())
+    }
+
+    /// The third-party notices this binary is obliged to carry, for the window `?` opens.
+    ///
+    /// **A licence obligation with a surface, and this host had neither half of it until ADR
+    /// 0526**: `pdf-font` compiles the standard 14 font programs (§9.6.2.2) into every binary in
+    /// this tree, both of their licences require a binary distribution to reproduce their notices,
+    /// and `pdf-viewer-qt` reproduced them nowhere at all. The text is `viewer_host::NOTICE`,
+    /// shared with the other two hosts.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so a constant answer is \
+                  still a method — an associated function would need a second declaration"
+    )]
+    pub(crate) fn notices(&self) -> String {
+        viewer_host::NOTICE.to_owned()
     }
 
     /// How many pages Table 29's arrangement is showing pixels for.
@@ -1793,6 +1887,8 @@ fn nothing_changed() -> QtUpdate {
         password: false,
         window: false,
         clipboard: false,
+        find_bar: false,
+        notices: false,
     }
 }
 
