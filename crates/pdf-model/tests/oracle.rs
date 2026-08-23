@@ -802,6 +802,30 @@ const CONTRADICTED_CALRGB_TO_SCREEN: [&str; 5] = [
 /// the references' own line is the fact that decides it, and both took ten minutes with the
 /// rasters and the display list. **Measure an entry before believing its label** — including
 /// one this project wrote.
+///
+/// # Column positions are not a bound either, and restating the width settles it
+///
+/// The measurement above is in ink columns, and the page fails on **mean, differing fraction and
+/// structural similarity**, similarity by the widest margin at three times its bound. The
+/// conversion is not arithmetic here — a glyph moved four pixels is not an ink figure — so it is
+/// done by taking the mechanism out. A §7.5.6 incremental update replaces object 7's
+/// `/W [32 [719] 0 180 719 181 [878] 182 65534 719]` with `/DW 719`, which is the width that
+/// array assigns to every CID this line uses; §9.7.4.3's default then says the same thing the
+/// array said, in the one form nobody can misread. Ours at 72 dpi:
+///
+/// | | as the file ships | `/DW 719` |
+/// |---|---|---|
+/// | `poppler` | 13.64 / 31.29 / 8.79% / 0.7020 | 0.7669 / 2.17 / 3.3450% / 0.99677 |
+/// | `mupdf` | 13.64 / 31.04 / 8.77% / 0.7032 | 0.6233 / 1.80 / 3.1950% / 0.99772 |
+/// | `ghostscript` | **1.7271 / 5.59 / 3.2925% / 0.98274** | **1.7271 / 5.59 / 3.2925% / 0.98274** |
+///
+/// **The two references that outvote us move onto us; the one that already agreed does not move
+/// at all** — `ghostscript`'s four figures are byte for byte what they were, which is the control
+/// this experiment needs and gets. A restatement that agrees with a renderer's reading cannot
+/// change that renderer's picture, and it changes the other two completely. So the mechanism owns
+/// every bound the page fails, and it owns it for the reason the clause gives rather than by
+/// coincidence: `poppler` and `mupdf` are not reading a *different* width, they are failing to
+/// find this one. ADR 0499.
 const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf page 1"];
 
 /// Contradicted, where the document asks for a line width the clause forbids — **and we are
@@ -914,9 +938,60 @@ const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf p
 /// the two renderers that agree. The page stays listed because nothing about our rendering
 /// should change and the gate should keep watching it.
 ///
-/// **The group's *name* survived the measurement, which is the first time in this file.** The
-/// page is about the negative line width and nothing else; what was a hypothesis was every
-/// clause reading and every reference attribution underneath the name.
+/// # The ink ladder converts into the gate's arithmetic, and it lands on the bounds this page
+/// *passes*
+///
+/// The table above is a real measurement of a real mechanism and it is priced in ink ÷ length,
+/// which is not one of the four numbers the verdict is made of. It converts, exactly. The raster
+/// is 252 × 161 and `raster_compare` divides by width × height × **four** channels, so a mark
+/// ours paints and a reference does not costs `Δink × 255 × 3 ÷ (252 × 161 × 4)`. Against
+/// `mupdf`, `Δink` is 172.54 − 37.49 = 135.05 whole pixels, and that arithmetic is 0.6366 — which
+/// is the mean the gate prints for this page, to every digit it prints. Carried into the failing
+/// tile: the rule crosses a 32-pixel tile over 32 ÷ cos 22.56° = 34.7 points of its length at
+/// 1.006 − 0.219 = 0.787 of a pixel of width apiece, which is `34.7 × 0.787 × 765 ÷ 4096` = 5.10
+/// against a printed worst tile of 5.09.
+///
+/// **And the mean is a bound this page meets.** What it fails is the worst tile — the gate prints
+/// 5.09 against a bound of 5.00 — and structural similarity, which is the binding one at 2.3 times
+/// its bound where the tile is at 1.02. So the ladder prices the mechanism correctly and prices it
+/// into the wrong column.
+///
+/// # Taking the sign out of the file moves `poppler` and does not move `mupdf` at all
+///
+/// §8.4.1's clip of −0.1 into `[0, ∞)` is 0, so a conforming reader renders `-0.1 w` exactly as
+/// it renders `0 w`. Two §7.5.6 incremental updates restate object 36's stream as `0 w` and as
+/// `0.1 w`, and the difference between the first and the original is *the whole of what the sign
+/// is worth to each renderer*. Ours at 72 dpi, the four numbers in the gate's order:
+///
+/// | against | `-0.1 w`, as the file ships | `0 w` | `0.1 w` |
+/// |---|---|---|---|
+/// | `poppler` | 0.6133 / 4.90 / 0.6341% / 0.97959 | 0.4538 / 3.59 / 0.6267% / 0.99145 | 0.1468 / 1.20 / 0.3623% / 0.98449 |
+/// | `mupdf` | 0.6366 / 5.09 / 0.6341% / 0.97700 | **0.6366 / 5.09 / 0.6341% / 0.97700** | 0.1221 / 0.99 / 0.4141% / 0.98812 |
+/// | `ghostscript` | 0.3570 / 2.87 / 0.6322% / 0.99469 | **0.3570 / 2.87 / 0.6322% / 0.99469** | 0.3939 / 3.15 / 0.4880% / 0.97214 |
+///
+/// The gate's "ours at worst" on this page is `mupdf`'s column, and **restating the width as the
+/// number the `shall` produces leaves that column byte for byte where it was**. The ladder above
+/// says why before the experiment does: `mupdf` answers 0.2040 for a width of zero and 0.2040 for
+/// a negative one at this angle, and `ghostscript` answers 0.2721 for both. `poppler` is the only
+/// renderer the sign is worth anything against, and it is worth a third of the disagreement
+/// there.
+///
+/// (`hayro` is absent from that table and from this page's artefact directory for a reason that
+/// is not a refusal: it rasterises this crop box **251 × 161** where the other four produce
+/// 252 × 161, so `raster_compare` reports a dimension mismatch and no diff panel is written. The
+/// ink figure above is a mean over its own raster and is unaffected by that.)
+///
+/// **So the mechanism this group is named for owns none of the failing measurement.** What owns
+/// it is the other half of the same derivation — §8.4.3.2's "1 device pixel wide", which ours
+/// obeys and `mupdf` does not, painting 0.2 of one. The page is still ours-right and still
+/// contradicted for a clause; it is a different sentence of a different subclause than the name
+/// says, and the third column is the check: give every renderer a width it will draw and the
+/// whole disagreement collapses to about a fifth.
+///
+/// **The group's *name* survived the measurement and its *verdict* did not.** ADR 0499. The page
+/// is about the negative line width, and what the gate is failing us on is the width that clip
+/// produces. Sixth criterion, and the second group in a row where the deciding clause was not the
+/// one the group cites.
 const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
@@ -1177,6 +1252,29 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// 25.000 to 25.480 crosses two of them, so 0.48 is quantised to 0.50. ADR 0226 removed that
 /// quantum for an axis-aligned *rectangle* — `pdf_render::sub_pixel_bands` — and an image does
 /// not take that path. 4.6% on one row of one corpus page, recorded rather than chased.
+///
+/// # One row of coverage, converted into the one bound this page fails
+///
+/// The table above is a coverage, which is not one of the four numbers the verdict is made of;
+/// the page fails on the **differing fraction** alone, and by 1.16 points. The conversion is
+/// arithmetic. `raster_compare` counts channels rather than pixels and divides by
+/// width × height × 4, so 180 columns of one row, differing in three of four channels because
+/// both rasters are opaque, is `180 × 3 ÷ (200 × 50 × 4)` = **1.35 percentage points** — which is
+/// three quarters of the 1.80 the pixel count alone would suggest and is what decides whether the
+/// page clears its bound.
+///
+/// Measured rather than asserted, by the instrument [`CONTRADICTED_VISIBILITY_EXPRESSION`] uses:
+/// a §7.5.6 incremental update restates object 5 without the `BI … EI`, and nothing else about
+/// the file changes. Against `poppler`, the differing fraction falls from the 8.49% the gate
+/// prints to 7.13%, so the mask owns **1.3575** of it — the closed form to the digit. The bound is
+/// twice the consensus pair's own figure and the pair barely moves, so it stays at 7.32: **take the
+/// image out and this page agrees.** The control is the references against each other, where
+/// `mupdf` against `ghostscript` is byte for byte what it was.
+///
+/// So this note *does* account for the number the gate fails us on, once its own row of coverage
+/// is put in the gate's units — it belongs with [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]
+/// and not with the entries that price a mechanism in a statistic the verdict never reads.
+/// ADR 0499.
 const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 
 /// Contradicted, where the two references that agree are the same decoder.
@@ -1250,8 +1348,12 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// change too.
 ///
 /// **Re-checked in the five-hundred-and-fourteenth session, on the page that heads the ranking**
-/// — `bitmap-symbol-context-reuse.pdf` sits 28.91 of 255 from its *nearest* reference and 178.13
-/// from its furthest, which is the whole contradicted list's head by either number. Asked again,
+/// — `bitmap-symbol-context-reuse.pdf` sits 28.91 from its *nearest* reference and 178.13
+/// from its furthest, which is the whole contradicted list's head by either number. (Those are
+/// **bounds**, not levels of 255, and this sentence said levels until ADR 0499: `Distance::of`
+/// reduces each comparison to the largest of its three ratios *against the bounds this page was
+/// held to*, which is what makes the figures comparable across pages at all. 28.91 is this page's
+/// worst tile of 144.56 over its bound of 5.00.) Asked again,
 /// the three references say what this note says, in words rather than in pixels:
 ///
 /// ```text
@@ -1274,6 +1376,33 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// `/JBIG2Decode` image XObject on a `[0 0 399 400]` page. `tests/jbig2.rs` admits it by name
 /// since the five-hundred-and-forty-sixth session, and the admission is self-checking: a
 /// different picture would make that test report two images instead of one.
+///
+/// # On four of the seven the verdict line is a statistic of *our* raster and of nothing else
+///
+/// The ink table above prices the mechanism in ink, which is not one of the four numbers the
+/// verdict is made of, and on four of these pages the conversion is not an approximation — it is
+/// an identity. Where both voting references return a page that is 255 in every channel,
+/// `raster_compare` is comparing our render with a constant, so every figure it produces is a
+/// property of our render alone. All seven of our rasters are byte-identical, and ours against a
+/// synthetic 399 × 400 white sheet is **mean 13.12, worst tile 144.56, differing 5.15%, ssim
+/// 0.8990** — which is, digit for digit, the line the gate prints for
+/// `bitmap-symbol-context-reuse.pdf`, `bitmap-symbol-texthuffrefinecustom.pdf`,
+/// `bitmap-symbol-texthuffrefinecustomposdims.pdf` and `issue20439.pdf`. The mean falls out of
+/// the ink table by hand: 17.495 × ¾, because three of the four channels differ and the fourth is
+/// opaque on both sides.
+///
+/// **No renderer that draws this image could meet any of those bounds**, which is the sharpest
+/// form of what this note has been saying in words: there is nothing here to be contradicted by.
+/// It is also why the *worst tile* is the bound these pages fail hardest — a 32-pixel tile inside
+/// the drawing is 75.6% covered, and against white that is 144.56 of a bound of 5.00.
+///
+/// On the other three `jbig2dec` returns ink rather than silence, and there the ink table stops
+/// being an identity and starts being a floor: the gate's mean exceeds ¾ of the ink *difference*
+/// by 1.4× on `bitmap-symbol-symhuffrefineone.pdf`, 1.7× on `bitmap-refine-page-subrect.pdf` and
+/// 4.9× on `bitmap-halftone-composite.pdf`, because on those the ink is displaced rather than
+/// added and an absolute difference counts a moved mark twice. **An ink table cannot account for
+/// a page where the disagreement is about placement**, and naming which three of the seven those
+/// are is the honest limit of this entry. ADR 0499.
 const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 7] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
@@ -1584,6 +1713,27 @@ const CONTRADICTED_VISIBILITY_EXPRESSION: [&str; 1] = ["visibility_expressions.p
 /// and drawing nothing with it; and `mupdf` still prints `ignoring broken object (70 0 R)` on
 /// the first, which is the sentence this note was written from. **A reference's silence is a
 /// fact about the invocation before it is a fact about the renderer** — trap 3 one level down.
+///
+/// # The log is the diagnosis; the arithmetic is one line, and this note never wrote it
+///
+/// "Two blank pages agree perfectly" explains the *verdict*. What it leaves unsaid is that the
+/// comparison against a blank reference has no second operand: where a reference's raster is
+/// constant, `raster_compare`'s mean is `255 × (1 − our own mean channel value)` exactly, and the
+/// other three numbers are likewise statistics of our render alone. Checked with `magick
+/// identify` on the gate's own artefacts, both files at 72 dpi:
+///
+/// | | the blank reference | our ink of 255 | the mean the gate prints |
+/// |---|---|---|---|
+/// | `issue11549_reduced.pdf` | `mupdf` and `ghostscript`, both min = max = 1 | 12.718 | 12.72 |
+/// | `issue11740_reduced.pdf` | `ghostscript`, min = max = 1 | 13.672 | 13.67 |
+///
+/// So the failing mean **is** our ink, to the digit, on both pages, and the same holds of the
+/// bound each is held to: nothing about either figure is a measurement of a disagreement. That is
+/// worth more than the two pages, because it is the general shape — a voting reference that drew
+/// nothing turns all four of the gate's numbers into a description of us, and the only instrument
+/// that can see it is the one this note already argues for. `poppler`'s half of the second page is
+/// the exception that shows the difference: it is not blank — 0.982 of full white against
+/// `ghostscript`'s 1.000 — which is the "one blob glyph" above. ADR 0499.
 const CONTRADICTED_REFERENCES_DREW_NOTHING: [&str; 2] = [
     "issue11549_reduced.pdf page 1",
     "issue11740_reduced.pdf page 1",
@@ -1727,14 +1877,22 @@ const CONTRADICTED_ON_A_PAGE_WE_REPORT: [&str; 1] = ["xobject-image.pdf page 1"]
 /// # And the ranking says this group is the *other* shape, which is worth naming
 ///
 /// `rank_the_contradicted` prints our distance from the nearest reference beside our distance
-/// from the furthest. In levels of 255 these three sit at **5.39, 5.81 and 5.91 from the
-/// nearest**, with the four references spread over **8.46, 9.55 and 9.60 among themselves** —
-/// the references disagreeing by more than we differ from any of them. That is exactly what a
-/// page looks like where the consensus is two renderers *declining* to draw a mark, and it is
-/// the opposite of the shape that accuses us. It is also the size the mark predicts:
-/// `file_url_link.pdf`'s border is a 175 × 30 rectangle on a 200 × 50 page, whose perimeter at
-/// one unit is 410 of 10 000 pixels going from white to `/C [0 1 0]`, which is 6.97 of 255 —
-/// against a measured 5.81 to 9.92.
+/// from the furthest, **in bounds rather than in levels** — `Distance::of` reduces each
+/// comparison to the largest of its three ratios against the bounds the page was held to. This
+/// paragraph said "in levels of 255" and quoted **5.39, 5.81 and 5.91**, with "the four
+/// references spread over 8.46, 9.55 and 9.60 among themselves"; the unit was wrong and the
+/// figures are not what the gate prints (ADR 0499). What survives, and is the paragraph's point,
+/// is the *shape*: these pages sit nearer their nearest reference than their references sit to
+/// each other, which is what a page looks like where the consensus is two renderers *declining*
+/// to draw a mark, and is the opposite of the shape that accuses us.
+///
+/// It is also the size the mark predicts, and that arithmetic was wrong too. `file_url_link.pdf`'s
+/// border is a 175 × 30 rectangle on a 200 × 50 page, whose perimeter at one unit is about 410
+/// pixels going from white to `/C [0 1 0]`. This note divided by 10 000 pixels and averaged 255,
+/// 0 and 255 over *three* channels to get 6.97. `raster_compare` divides by width × height × **4**
+/// and sums the absolute difference over all four, so the closed form is `410 × 510 ÷ 40 000` =
+/// **5.23** — and `poppler`, which draws the border where we draw it, is 5.2275 away from its own
+/// borderless render, which is 410 pixels exactly. Ours is 5.1765, which is 406.
 ///
 /// # Three things the five-hundred-and-forty-sixth session added by opening the pictures again
 ///
@@ -1755,6 +1913,35 @@ const CONTRADICTED_ON_A_PAGE_WE_REPORT: [&str; 1] = ["xobject-image.pdf page 1"]
 ///   and the raster is all there is; that is the opposite of
 ///   [`CONTRADICTED_REFERENCES_DREW_NOTHING`], where the log is the evidence. **A group where
 ///   the references are silent needs the clause, and this one has it.**
+///
+/// # And the mark owns every bound the gate fails these pages on, which took taking it out
+///
+/// A perimeter is not one of the four numbers the verdict is made of, and all three of these
+/// pages fail on **mean and structural similarity** — the second by the wider margin, three times
+/// its bound where the mean is one and a half. Table 166 states the ablation for us: "if the
+/// border width is 0, no border is drawn", so a §7.5.6 incremental update restating each
+/// annotation's `/Border [0 0 1]` as `/Border [0 0 0]` takes the mechanism out of the file and
+/// changes nothing else. Ours at 72 dpi against `ghostscript`, which is the reference the gate's
+/// "ours at worst" is taken from on all three:
+///
+/// | | as the file ships | `/Border [0 0 0]` | our own border's cost |
+/// |---|---|---|---|
+/// | `file_url_link.pdf` | 7.4518 / 0.69785 | 2.2753 / 0.97056 | 5.1765 / 0.72630 |
+/// | `issue14802.pdf` | 7.0675 / 0.57766 | 1.7125 / 0.97619 | 5.3550 / 0.60121 |
+/// | `issue7115.pdf` | 6.2751 / 0.71924 | 1.3536 / 0.98586 | 4.9215 / 0.73319 |
+///
+/// Mean and similarity, in that order; the third column is our shipped render against our own
+/// borderless one, which is the mark measured with no renderer in it at all. **Every page clears
+/// both bounds with the border gone** — 5.00 and 0.9000 — so the mechanism owns the whole verdict
+/// and not merely the part of it a perimeter can price. And the closed form holds on the second
+/// page as well as the first: `issue14802.pdf`'s `/Rect [5 10 250 40]` on a 260 × 50 sheet is a
+/// perimeter of about 550 going from white to `/C [0 0 1]`, or `550 × 510 ÷ 52 000` = 5.39,
+/// against `poppler`'s measured 5.3942.
+///
+/// The control is what makes the table a measurement rather than a rerun: `mupdf` against
+/// `ghostscript`, `mupdf` against `hayro` and `ghostscript` against `hayro` are **byte for byte
+/// identical** between the two variants on all three documents, because none of those three draws
+/// a link border and an entry they ignore cannot move them. ADR 0499.
 const CONTRADICTED_LINK_BORDER: [&str; 3] = [
     "file_url_link.pdf page 1",
     "issue14802.pdf page 1",
