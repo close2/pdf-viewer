@@ -3920,10 +3920,20 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   EOF
   ```
 
-  Of the 45 rows carrying such a sentence, 10 named the crawl before this round and 11 more do now,
-  leaving **24**. What is left is **not** twenty-four more runs of `witness_census`, and saying so is
-  the point of writing this down: the rows that remain are mostly the ones a *name* census cannot
-  settle, and each needs an instrument of its own. They sort into four groups, and the four add up.
+  ~~Of the 45 rows carrying such a sentence, 10 named the crawl before this round and 11 more do
+  now, leaving **24**.~~ **Those three numbers are wrong and the script above is what says so**: run
+  against the six-hundred-and-seventy-first session's own commit it prints **7 done and 38 owed**
+  before that round and **17 and 28** after it, so the round that wrote the sentence moved 10 rows
+  rather than 11 and left **28** rather than 24. The population, 45, is right. The lesson is the one
+  this whole section is about, one turn further in: **a round that states a count beside the command
+  that produces it has to run the command**, and the four groups below are what a reading produces
+  when the count it starts from was carried over rather than measured — they named 24 rows where the
+  instrument named 28 (ADR 0502). What is left is still **not** that many more runs of
+  `witness_census`, which is the point of writing this down: the rows that remain are mostly the ones
+  a *name* census cannot settle, and each needs an instrument of its own. **Run the script rather
+  than reading a number off this bullet** — the six-hundred-and-seventy-sixth session retired
+  §12.8.2.2.1 and the four groups below are its list, not a level. They are the four rows the earlier
+  reading missed, folded in:
 
   - **Five need a content-stream census, which nothing in this tree has.** §8.5.2.1 (a path segment
     with no current point), §9.4.2 (a `q` or `Q` inside a text object with a `Tm` between), §9.7.5.4
@@ -3931,27 +3941,36 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     match reads differently from a numeric one), §11.6.7 (a tiling pattern's paint). These are the
     expensive ones and they share an instrument: interpret page one and count operator shapes. The
     artifact census already owed below is the same program.
-  - **Ten need a structural block in `absence_audit`, which is what this round added eight of.**
-    §7.6.5 (a `/Filter` that is not `/Standard`), §7.9.2.2.2 (a U+001B language escape inside a text
-    string), §8.9.5.2 (a `/Decode` array that is neither Table 88's default nor its reversal), §8.10.3
-    (a `/Group` whose `/S` is not `/Transparency`), §11.6.5.2 (an `/SMask` behind an image codec),
-    §12.3.2.2 (a destination whose first element is an integer), §12.4.2 (a `/PageLabels` tree
-    exercising all three of its ranges), §12.5.1 (a rotated page carrying a widget), §12.8.2.2.1 (a
-    `/DocMDP` whose `/P` is not 2 — `witness_census --crawl` already says **144** crawled documents
-    name one against the corpus's one, so this is a false negative waiting for its `/P` values),
-    §14.8.2.5.3. **A round adding one adds a block, not a heuristic**, and the blocks are cheap: the
-    eight added here cost about a hundred and thirty lines and four minutes over the whole crawl.
-  - **Six are not a claim about a corpus at all**, and a round should stop rather than measure:
+  - **Nine need a structural block in `absence_audit`, which the six-hundred-and-seventy-first round
+    added eight of and the six-hundred-and-seventy-sixth the ninth.** §7.6.5 (a `/Filter` that is not
+    `/Standard`), §7.9.2.2.2 (a U+001B language escape inside a text string), §8.9.5.2 (a `/Decode`
+    array that is neither Table 88's default nor its reversal), §8.10.3 (a `/Group` whose `/S` is not
+    `/Transparency`), §11.6.5.2 (an `/SMask` behind an image codec), §12.3.2.2 (a destination whose
+    first element is an integer), §12.4.2 (a `/PageLabels` tree exercising all three of its ranges),
+    §12.5.1 (a rotated page carrying a widget), §14.8.2.5.3. ~~§12.8.2.2.1 (a `/DocMDP` whose `/P` is
+    not 2 — `witness_census --crawl` already says **144** crawled documents name one against the
+    corpus's one, so this is a false negative waiting for its `/P` values)~~ — **done, and the
+    prediction was right**: 143 of the 65 944, of which 122 state `/P` 1 (ADR 0502). **A round adding
+    one adds a block, not a heuristic**, and the blocks are cheap: the eight cost about a hundred and
+    thirty lines and four minutes over the whole crawl, the ninth about forty and nothing extra.
+  - **Seven are not a claim about a corpus at all**, and a round should stop rather than measure:
     §7.5.6 (a multiply-updated file that lowered its own version), §8.9.3 and §11.6.2 (a construction
     with no file behind it, argued from the clause), §10.7.4 (a ladder run with no document in the
-    way), and the rows §8.4.3.5 and §12.5.4 already answer with `long_mitre_census` and
-    `border_precedence_census` — those two owe a `--crawl` argument rather than a re-reading.
-  - **Three are this population's own noise shape and nothing is owed**: a *correction* quoting the
-    negative it retired, which is the same false positive the twelfth and seventeenth sweeps print and
-    is why the grep at the top of this bullet is a reading list rather than a verdict. §9.6 ("[t]his
-    row said `partial` … and both halves stopped being true"), §9.8.1 ("[t]he claim … is now false in
-    both halves") and §12.8.2.4 ("[t]his row read `reported` on the claim … and that claim was
-    false") each *are* the repair, quoted. A round meeting one has finished with it by reading it.
+    way), and the rows §8.4.3.5, §9.7.4.2 and §12.5.4 already answer with `long_mitre_census`,
+    `hollow_glyph_census` and `border_precedence_census` — those three owe a `--crawl` argument
+    rather than a re-reading. §9.7.4.2 is the one the four-group reading missed.
+  - **Six are this population's own noise shape and nothing is owed.** Three are a *correction*
+    quoting the negative it retired, which is the same false positive the twelfth and seventeenth
+    sweeps print and is why the grep at the top of this bullet is a reading list rather than a
+    verdict: §9.6 ("[t]his row said `partial` … and both halves stopped being true"), §9.8.1 ("[t]he
+    claim … is now false in both halves") and §12.8.2.4 ("[t]his row read `reported` on the claim …
+    and that claim was false") each *are* the repair, quoted. **Three more are the grep's own
+    sentence boundary rather than the ledger's**, and they are the rows the four-group reading left
+    out: the regex ends a sentence at any full stop, so a clause number or a file name inside one
+    splits it — §8.11.4 matches "no corpus document" out of a fragment beginning at "§8.11.**4**'s
+    usage application dictionaries", §9.10.2 out of one beginning at "§9.10.**3**'s row", and
+    §8.6.5.6 out of a correction cut short at `bug886717.**pdf**`. Read the hit and it is finished
+    with; a round meeting any of these six has done its work by reading it.
 - **Run the sweeps before your own edit as well as after it, and account for every number that
   moves.** The twelve already run on any round the ledger moves; what the six-hundred-and-fifty-seventh
   added is that the run *before* is not optional and the deltas are stated rather than reported.

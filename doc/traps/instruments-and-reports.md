@@ -68,6 +68,37 @@ comparison, and before any measurement taken from a release binary in the same s
 edit. The tell is a `Finished` with no `Compiling` line after an edit you know you made; `-v` prints
 `Fresh <crate>` for the crate you just changed, which is the sentence to disbelieve.
 
+### 15. A sweep binary carries its tree with it, so one from a neighbour's build directory measures the neighbour
+
+Traps 10, 10a and 10b are all about an instrument being *stale*. This one is not stale at all: it is
+current, it runs, it prints a plausible number, and the number is about **another worktree**.
+
+`tools/conformance`'s `root()` is `Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")`, which is
+baked in at compile time and does not move with the working directory. So every sweep — `counts`,
+`owed`, `pointers`, `quotations`, `tables`, all of them — reads the ledger and the `SOURCE_ROOTS` of
+the tree it was *built from*, whatever directory it is invoked in. The same holds for
+`examples/absence_audit`'s `corpus`, which resolves its populations the same way.
+
+That is harmless in a single tree and is a trap the moment rounds run in parallel, because each
+worktree has its own `target-dir` in `.cargo/config.toml` and the *main* tree's is the one whose
+path a round remembers. The six-hundred-and-seventy-sixth session ran its whole before-sweep from
+`/home/AI/cargo-target/pdf-viewer/release`, got thirteen summary lines that looked exactly right,
+and had measured `/home/cl/projects/pdf-viewer` — a tree it had not edited. The tell is that
+*nothing moves* when you re-run after an edit, which reads as "my change touched no sweep" and is
+the most comfortable possible wrong answer.
+
+Two rules:
+
+- **Take the path from the toolchain, not from memory**: `cargo run --release -p conformance --bin
+  <name>` is what `doc/todo/01` states, and it cannot pick the wrong tree. If you invoke a binary
+  directly, get its directory from `cargo metadata --format-version 1 --no-deps`.
+- **A before/after comparison needs a before that was compiled from the "before" tree.** `git stash`
+  is forbidden here (the stack is shared), so export it — `git archive HEAD | tar -x -C <dir>` — and
+  build the sweeps *inside* the export with its own `target-dir`. The export carries only tracked
+  files, so symlink `doc/md`, the specification PDFs, the submodules and `corpus-cache` back in
+  first; without `doc/md` three sweeps refuse outright, and without the rest `pointers` reports
+  dozens of live paths as "not carried" and the comparison invents deltas the round did not cause.
+
 ### 10a. A cached reference render is a fourth thing that can be stale
 
 The key is built from the invocation itself plus the renderer's version and the document's
