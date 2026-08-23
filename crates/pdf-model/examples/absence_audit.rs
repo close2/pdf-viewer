@@ -145,6 +145,26 @@ struct Answers {
     /// dictionary the permissions dictionary refers to — turns that into something a reader has
     /// to prevent. A count of certification signatures is therefore not a count of restrictions.
     certification: Option<String>,
+    /// §7.6.5's public-key security handler — a `/Filter` that is not `/Standard`.
+    public_key: Option<String>,
+    /// §7.9.2.2.2's U+001B language escape inside a Unicode text string.
+    language_escape: Option<String>,
+    /// §8.9.5.2's `/Decode` array, where it is neither Table 88's default nor its reversal.
+    decode_array: Option<String>,
+    /// §8.10.3's group `XObject` whose `/S` is not `/Transparency`.
+    group_subtype: Option<String>,
+    /// §11.6.5.2's soft-mask image behind one of §7.4's image codecs.
+    codec_mask: Option<String>,
+    /// The half of that claim the residue is actually about: a codec-carrying mask on a pair
+    /// `image.rs::worth_combining` sends to the device-scale route, which is the only place the
+    /// codec is asked about at all.
+    codec_mask_deferred: Option<String>,
+    /// §12.3.2.2's destination whose first element is an integer rather than a page reference.
+    numbered_destination: Option<String>,
+    /// §12.4.2's page label ranges, for a document stating as many as the clause's example.
+    label_ranges: Option<String>,
+    /// §12.5.1's rotated page carrying a widget annotation.
+    rotated_widget: Option<String>,
 }
 
 fn main() {
@@ -178,6 +198,11 @@ fn main() {
 /// Separate from [`main`] only because the list grows by one entry per round that re-derives a
 /// negative, and a claim is a line here rather than a branch anywhere: the ordering carries no
 /// meaning and nothing reads the sections back.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one call per written claim, which is this example's design: the length is the \
+              number of claims re-derived and splitting it would put half the list somewhere else"
+)]
 fn report_every_claim(results: &[(String, Answers)]) {
     report(
         "§14.7.2's /IDTree — the claim was \"none at all\" and is FALSE (ADR 0405)",
@@ -264,6 +289,52 @@ fn report_every_claim(results: &[(String, Answers)]) {
         results,
         |a| a.certification.as_deref(),
     );
+    report(
+        "§7.6.5's public-key handler — the claim was \"no corpus document uses one\"",
+        results,
+        |a| a.public_key.as_deref(),
+    );
+    report(
+        "§7.9.2.2.2's language escape — the claim was \"no corpus document writes\" the construct",
+        results,
+        |a| a.language_escape.as_deref(),
+    );
+    report(
+        "§8.9.5.2's /Decode — the claim was \"all 974 write Table 88's default or its reversal\"",
+        results,
+        |a| a.decode_array.as_deref(),
+    );
+    report(
+        "§8.10.3's /Group /S — the claim was \"no corpus document writes another subtype\"",
+        results,
+        |a| a.group_subtype.as_deref(),
+    );
+    report(
+        "§11.6.5.2's codec-carrying /SMask — the claim was \"no corpus document states\" one",
+        results,
+        |a| a.codec_mask.as_deref(),
+    );
+    report(
+        "§11.6.5.2's codec-carrying /SMask on a pair the device-scale route would have taken",
+        results,
+        |a| a.codec_mask_deferred.as_deref(),
+    );
+    report(
+        "§12.3.2.2's integer first element — the claim was \"no corpus link uses it\"",
+        results,
+        |a| a.numbered_destination.as_deref(),
+    );
+    report(
+        "§12.4.2's ranges — the claim was \"no corpus document exercises all three\" of the \
+         example's",
+        results,
+        |a| a.label_ranges.as_deref(),
+    );
+    report(
+        "§12.5.1's rotated page with a widget — the claim was \"no corpus document states\" one",
+        results,
+        |a| a.rotated_widget.as_deref(),
+    );
 }
 
 /// How deep an object's own structure is walked before [`visit`] gives up.
@@ -289,12 +360,30 @@ struct Sightings {
     threads: usize,
     /// §12.7.5.5: Table 236's `/P`, as each signature field lock dictionary states it.
     lock_permissions: Vec<String>,
+    /// §7.9.2.2.2: how many U+001B escapes were stated, and how many formed a sequence.
+    escapes: (usize, usize),
+    /// §8.9.5.2: how each `/Decode` array that is neither default nor reversal was shaped.
+    decodes: Vec<String>,
+    /// §8.10.3: what each group `XObject`'s `/S` says, where it does not say `/Transparency`.
+    groups: Vec<String>,
+    /// §11.6.5.2: which of §7.4's codecs each soft-mask image is behind.
+    codec_masks: Vec<String>,
+    /// §11.6.5.2: the same, for a pair `worth_combining` refuses.
+    deferred_codec_masks: Vec<String>,
+    /// §12.3.2.2: where each integer-first destination was stated.
+    numbered_destinations: Vec<String>,
 }
 
 /// Asks one object, and everything nested inside it, the six object-scoped claims.
 ///
 /// References are not followed — an indirect object is asked when the loop reaches it — so this
 /// terminates on a document whose graph is a cycle, which is a shape a hostile file states.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one block per object-scoped claim, each cited to its clause; a helper per claim \
+              would separate a claim from the reader that settles it, which is what `measure`'s \
+              own expectation says of the same design"
+)]
 fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sightings) {
     if depth > MAX_DEPTH {
         return;
@@ -306,6 +395,15 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
             for item in items {
                 visit(document, item, depth + 1, into);
             }
+            return;
+        }
+        // §7.9.2.2.2's language escape sequence, which lives inside a *string* rather than in
+        // any dictionary — so this arm exists for it, and it is the only claim here whose
+        // subject is an object with no keys.
+        Object::String(bytes) => {
+            let (stated, formed) = language_escapes(bytes);
+            into.escapes.0 += stated;
+            into.escapes.1 += formed;
             return;
         }
         _ => return,
@@ -404,9 +502,324 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
             .push(format!("/P {level} on {action}"));
     }
 
+    // §8.9.5.2's `/Decode` and §11.6.5.2's soft mask, both of them questions about an image
+    // XObject and asked together because Table 87 is where both entries live.
+    if named(document, dict, "Subtype", b"Image") {
+        if let Some(departure) = decode_departure(document, dict) {
+            into.decodes.push(departure);
+        }
+        // §11.6.5.2's third residue, refused by name in `image.rs`: "a mask behind an image
+        // codec, whose samples have no position until the whole codestream is decoded". The
+        // mask is a stream, so the question is its own `/Filter` chain rather than the parent's.
+        //
+        // **The codec alone is not the condition, which is trap 11's whole subject.** A
+        // codec-carrying mask is refused nothing: `soft_mask_entry` consults
+        // `eligible_for_the_device_scale` only where `worth_combining` has already said the
+        // refinement of the two grids is too large to build, so a mask on a grid the eager route
+        // will allocate is combined and drawn however it is filtered. The pair that *reaches* the
+        // sentence is the one this splits out, and it is the population a report can fire on.
+        let mask = document.get_key(dict, "SMask");
+        if let Some(mask) = dict_of(&mask) {
+            let codecs: Vec<String> = filter_names(document, mask)
+                .into_iter()
+                .filter(|filter| is_image_codec(filter))
+                .collect();
+            if !codecs.is_empty() {
+                if !worth_combining(document, dict, mask) {
+                    into.deferred_codec_masks.push(codecs.join(" "));
+                }
+                into.codec_masks.push(codecs.join(" "));
+            }
+        }
+    }
+
+    // §8.10.3's group XObject. Table 94 makes `/S` required and §11.6.6 says a group with any
+    // other subtype "shall not be subject to any grouping behaviour", so an absent `/S` and a
+    // stated one that is not `/Transparency` are two different witnesses and are named apart.
+    let group = document.get_key(dict, "Group");
+    if let Some(group) = group.as_dict() {
+        let subtype = document.get_key(group, "S");
+        match subtype.as_name() {
+            Some(name) if name.as_bytes() == b"Transparency" => {}
+            Some(other) => into
+                .groups
+                .push(format!("/S /{}", String::from_utf8_lossy(other.as_bytes()))),
+            None => into.groups.push("a /Group with no /S".to_owned()),
+        }
+    }
+
+    // §12.3.2.2's integer first element, asked of the two keys that hold a destination in a
+    // dictionary: Table 176's `/Dest` on a link, Table 151's on an outline item, and Table 202's
+    // `/D` on a go-to action. Only the explicit array and §12.3.2.4's dictionary form are asked here — a
+    // *named* destination is asked once per document at its definition, in `measure`, because
+    // resolving one costs a name-tree walk and a document states each name once and links to it
+    // many times.
+    //
+    // `/D` is a key several unrelated tables use — Table 168's down appearance is the loudest —
+    // and nothing filters them, because `Destination::read` is the filter: it yields `Some` only
+    // for an array whose second element is one of Table 149's eight form names, and
+    // `Target::Number` only where the first is an integer.
+    for key in ["Dest", "D"] {
+        let entry = document.get_key(dict, key);
+        if matches!(entry, Object::Null) {
+            continue;
+        }
+        if !matches!(
+            document.resolve(&entry),
+            Object::Array(_) | Object::Dictionary(_)
+        ) {
+            continue;
+        }
+        if let Some(destination) = pdf_model::destination::Destination::read(document, &entry)
+            && matches!(
+                destination.target,
+                pdf_model::destination::Target::Number(_)
+            )
+        {
+            // The NOTE makes the integer form belong to a destination in *another* document:
+            // "No page object can be specified for a destination associated with a remote go-to
+            // action". So a `/GoToR` or `/GoToE` stating one is the clause's own case, and
+            // anything else is the shape §12.3.2.2's "shall" excludes — a distinction the count
+            // alone would lose.
+            let remote =
+                named(document, dict, "S", b"GoToR") || named(document, dict, "S", b"GoToE");
+            into.numbered_destinations.push(if remote {
+                "on a /GoToR or /GoToE, which §12.3.2.2's NOTE describes".to_owned()
+            } else {
+                "on a destination naming no other file".to_owned()
+            });
+        }
+    }
+
     for (_, value) in dict.iter() {
         visit(document, value, depth + 1, into);
     }
+}
+
+/// The dictionary of an object that is one, or of a stream that carries one.
+fn dict_of(object: &Object) -> Option<&Dictionary> {
+    match object {
+        Object::Dictionary(dict) => Some(dict),
+        Object::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+/// `image.rs::worth_combining`, asked of an image dictionary and its mask's.
+///
+/// The two constants are that function's own — `PREFER_DEVICE_SCALE_ABOVE` is 2^24 and the
+/// comparison is against the base image's own sample count, so a mask on the image's grid is
+/// never "not worth combining". Restated here rather than exported, because exporting a private
+/// threshold so that a census can agree with it is how the two stop being independent: this
+/// copy is wrong the moment the original moves, and a census that silently tracked it would
+/// report a condition nobody had checked.
+fn worth_combining(document: &Document, dict: &Dictionary, mask: &Dictionary) -> bool {
+    let dimension = |dict: &Dictionary, key| {
+        document
+            .get_key(dict, key)
+            .as_integer()
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    let (width, height) = (dimension(dict, "Width"), dimension(dict, "Height"));
+    let (mask_width, mask_height) = (dimension(mask, "Width"), dimension(mask, "Height"));
+    let grid = width
+        .max(mask_width)
+        .saturating_mul(height.max(mask_height));
+    let image = width.saturating_mul(height);
+    grid <= (1u64 << 24).max(image)
+}
+
+/// Every name in a stream dictionary's `/Filter`, which §7.4 allows to be a name or an array.
+fn filter_names(document: &Document, dict: &Dictionary) -> Vec<String> {
+    let entry = document.get_key(dict, "Filter");
+    let mut names = Vec::new();
+    let mut push = |object: &Object| {
+        if let Some(name) = object.as_name() {
+            names.push(String::from_utf8_lossy(name.as_bytes()).into_owned());
+        }
+    };
+    match &entry {
+        Object::Array(items) => {
+            for item in items {
+                push(&document.resolve(item));
+            }
+        }
+        other => push(other),
+    }
+    names
+}
+
+/// Whether a filter name is one of the four §7.4 image codecs, including Table 6's abbreviations.
+///
+/// The distinction §11.6.5.2 draws is between a filter that unpacks samples in place and one
+/// whose output has "no position until the whole codestream is decoded"; these four are the
+/// second kind.
+fn is_image_codec(filter: &str) -> bool {
+    matches!(
+        filter,
+        "DCTDecode" | "DCT" | "JPXDecode" | "JBIG2Decode" | "CCITTFaxDecode" | "CCF"
+    )
+}
+
+/// §8.9.5.2: how an image's `/Decode` array departs from Table 88, or `None` where it does not.
+///
+/// The claim this settles is that every corpus image "write[s] Table 88's default or its exact
+/// reversal", so the four defaults the table states have to be told from a general array. Three
+/// of them are arithmetic on the image dictionary alone — every device space's components run
+/// from 0.0 to 1.0, an `/ImageMask`'s single component likewise, and NOTE 2's `Indexed` default
+/// is `[0 2^n − 1]` from `/BitsPerComponent`. The fourth, `Lab`, takes its two chromatic bounds
+/// from the space's own `/Range`, which is read here from the space array for the same reason
+/// `ColourSpace::parse` reads it there.
+///
+/// **The space is not resolved through a resource dictionary**, because an object walk has none
+/// — a `/ColorSpace /CS0` names an entry of the page's resources. That costs nothing for the
+/// three defaults above, which do not depend on the space, and it means a `Lab` image naming its
+/// space by a resource key is reported as a departure. The answer names what `/ColorSpace` says,
+/// so such a hit is legible as one.
+fn decode_departure(document: &Document, dict: &Dictionary) -> Option<String> {
+    let entry = document.get_key(dict, "Decode");
+    let items = entry.as_array()?;
+    let stated: Vec<f64> = items
+        .iter()
+        .filter_map(|item| document.resolve(item).as_number())
+        .collect();
+    if stated.len() != items.len() || stated.is_empty() || !stated.len().is_multiple_of(2) {
+        return Some(format!(
+            "{} element(s), not a whole set of numeric pairs",
+            items.len()
+        ));
+    }
+    let pairs: Vec<(f64, f64)> = stated
+        .chunks_exact(2)
+        .map(|pair| (pair[0], pair[1]))
+        .collect();
+
+    // NOTE 2: an `Indexed` space's default passes the index through unchanged, so its pair is
+    // `[0 2^n − 1]` at the image's own bit depth.
+    let bits = if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true)) {
+        1
+    } else {
+        document
+            .get_key(dict, "BitsPerComponent")
+            .as_integer()
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(8)
+    };
+    let top = f64::from((1u32 << bits.min(16)).saturating_sub(1));
+
+    // Table 88's three shapes an image dictionary can be measured against without its resources:
+    // every component's full range, which is 0.0 to 1.0 for every device space, for `CalRGB`,
+    // `CalGray`, `ICCBased`, a separation or `DeviceN`, and for `/ImageMask true`; NOTE 2's
+    // `Indexed` pair; and the `Lab` row, read from the space array.
+    let mut defaults: Vec<Vec<(f64, f64)>> = vec![
+        std::iter::repeat_n((0.0, 1.0), pairs.len()).collect(),
+        vec![(0.0, top)],
+    ];
+    defaults.extend(lab_default(document, dict));
+
+    // **And each default's exact reversal**, which the claim names beside the default itself and
+    // which is *not* `[1 0]` per component in general: `issue10339_reduced.pdf` states
+    // `/Decode [255.0 0.0]` on an eight-bit `Indexed` image, which is `[0 255]` reversed. A first
+    // draft of this block scored it a departure and would have retired a claim that holds.
+    if defaults.iter().any(|default| {
+        *default == pairs
+            || default
+                .iter()
+                .map(|(low, high)| (*high, *low))
+                .eq(pairs.iter().copied())
+    }) {
+        return None;
+    }
+
+    Some(format!(
+        "{} pair(s) on {}",
+        pairs.len(),
+        colour_space_label(document, dict)
+    ))
+}
+
+/// Table 88's `Lab` row: `[0 100 amin amax bmin bmax]`, from the space's own `/Range`.
+fn lab_default(document: &Document, dict: &Dictionary) -> Option<Vec<(f64, f64)>> {
+    let space = document.get_key(dict, "ColorSpace");
+    let space = document.resolve(&space);
+    let items = space.as_array()?;
+    if items.first()?.as_name()?.as_bytes() != b"Lab" {
+        return None;
+    }
+    let parameters = document.resolve(items.get(1)?);
+    let parameters = parameters.as_dict()?;
+    // §8.6.5.4 Table 65: "Default value: [−100 100 −100 100]".
+    let range = document.get_key(parameters, "Range");
+    let range: Vec<f64> = range
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| document.resolve(item).as_number())
+                .collect()
+        })
+        .filter(|values: &Vec<f64>| values.len() == 4)
+        .unwrap_or_else(|| vec![-100.0, 100.0, -100.0, 100.0]);
+    Some(vec![
+        (0.0, 100.0),
+        (range[0], range[1]),
+        (range[2], range[3]),
+    ])
+}
+
+/// What an image dictionary says its colour space is, as a phrase for a tally.
+fn colour_space_label(document: &Document, dict: &Dictionary) -> String {
+    if matches!(document.get_key(dict, "ImageMask"), Object::Boolean(true)) {
+        return "an /ImageMask".to_owned();
+    }
+    let space = document.get_key(dict, "ColorSpace");
+    let space = document.resolve(&space);
+    match &space {
+        Object::Name(name) => format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+        Object::Array(items) => items.first().and_then(Object::as_name).map_or_else(
+            || "an array naming no family".to_owned(),
+            |name| format!("[/{} …]", String::from_utf8_lossy(name.as_bytes())),
+        ),
+        _ => "no /ColorSpace".to_owned(),
+    }
+}
+
+/// §7.9.2.2.2: how many U+001B escapes a string states, and how many of them form a sequence.
+///
+/// The escape belongs to the two Unicode forms and to no other: §7.9.2.2.2 states its byte
+/// sequences for UTF-16BE and UTF-8 and not for `PDFDocEncoding`, which is what `text_string`
+/// implements. So a string with neither prefix is not this construct however many `0x1B` bytes it
+/// holds, and answering otherwise would count every binary string in the file. Which prefix marks
+/// which form is §7.9.2.2.1's:
+///
+/// > For text strings encoded in UTF-16BE, the first two bytes shall be 254 followed by 255.
+///
+/// > For text strings encoded in UTF-8, the first three bytes shall be 239 followed by 187,
+/// > followed by 191.
+///
+/// The second figure is the reader's own: `text_string` removes a *well-formed* sequence and
+/// leaves a lone escape where it stands, so an escape that survives the decode is one the clause
+/// does not define and the difference is the count of sequences the reader acted on.
+fn language_escapes(bytes: &[u8]) -> (usize, usize) {
+    const ESCAPE: char = '\u{1b}';
+    let stated = if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        rest.chunks_exact(2)
+            .filter(|unit| *unit == [0x00, 0x1B])
+            .count()
+    } else if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        rest.split(|byte| *byte == 0x1B).count().saturating_sub(1)
+    } else {
+        0
+    };
+    if stated == 0 {
+        return (0, 0);
+    }
+    let surviving = pdf_syntax::text_string(bytes)
+        .chars()
+        .filter(|character| *character == ESCAPE)
+        .count();
+    (stated, stated.saturating_sub(surviving))
 }
 
 /// Whether one key of a dictionary is a name with this spelling.
@@ -474,8 +887,23 @@ fn measure(path: &Path) -> Answers {
     let Ok(bytes) = std::fs::read(path) else {
         return answers;
     };
-    let Ok(document) = Document::open(bytes) else {
-        return answers;
+    // §7.6.5's public-key security handlers, asked of the reader that would act on one. The row's
+    // own sentence is that "a /Filter that is not /Standard produces `SyntaxError::
+    // UnsupportedEncryption` quoting the name", so the refusal *is* the measurement and there is
+    // nothing further to open — a document this arm answers for has no object graph here at all.
+    //
+    // The other details that error carries are §7.6.4's and §7.6.6's — a revision, a crypt filter
+    // method, a key length — and they are a different clause, so only the handler sentence is
+    // taken. `crypt.rs` writes it in one place.
+    let document = match Document::open(bytes) {
+        Ok(document) => document,
+        Err(pdf_syntax::SyntaxError::UnsupportedEncryption { detail }) => {
+            if detail.contains("is not the standard security handler") {
+                answers.public_key = Some(detail);
+            }
+            return answers;
+        }
+        Err(_) => return answers,
     };
 
     // §14.7.2's Table 354 `/IDTree`, resolved as §7.9.6's name tree rather than counted as a key:
@@ -521,10 +949,30 @@ fn measure(path: &Path) -> Answers {
     let pages = pdf_model::Pages::new(&document);
     let mut viewports = 0usize;
     let mut measures: Vec<&'static str> = Vec::new();
+    let mut rotations: Vec<u16> = Vec::new();
     for index in 0..pages.len() {
         let Some(page) = pages.get(index) else {
             continue;
         };
+
+        // §12.5.1's "no corpus document states a rotated page with a widget", which is the reason
+        // ADR 0211's fix to `Query::Focus` could not be checked against a page. `Page::rotate` is
+        // §7.7.3.3's inherited value already reduced to a multiple of 90, which is what the ring's
+        // transform is built from — so this asks the same number the defect was in.
+        if page.rotate != 0 {
+            let annotations = document.get_key(&page.dict, "Annots");
+            let widgets = annotations.as_array().is_some_and(|items| {
+                items.iter().any(|item| {
+                    document.resolve(item).as_dict().is_some_and(|annotation| {
+                        named(&document, annotation, "Subtype", b"Widget")
+                    })
+                })
+            });
+            if widgets {
+                rotations.push(page.rotate);
+            }
+        }
+
         for viewport in pdf_model::measurement::Viewports::read(&document, &page.dict).viewports {
             viewports += 1;
             match viewport.measure {
@@ -542,6 +990,18 @@ fn measure(path: &Path) -> Answers {
             answers.rectilinear = Some("a rectilinear measure".to_owned());
         }
         answers.viewports = Some(format!("{viewports} viewport(s), {}", measures.join(", ")));
+    }
+    if !rotations.is_empty() {
+        rotations.sort_unstable();
+        rotations.dedup();
+        // The answer is the *set* of rotations rather than a count of pages, so that the tally
+        // this example prints past twelve witnesses is a distribution over §7.7.3.3's four
+        // values rather than one line per document.
+        let named: Vec<String> = rotations
+            .iter()
+            .map(|rotate| format!("/Rotate {rotate}"))
+            .collect();
+        answers.rotated_widget = Some(named.join(", "));
     }
 
     // §14.10.2's `/SpiderInfo`, which Table 28 puts on the catalog and Table 358 on a structure
@@ -598,6 +1058,117 @@ fn measure(path: &Path) -> Answers {
         sightings.lock_permissions.sort();
         sightings.lock_permissions.dedup();
         answers.lock_permission = Some(sightings.lock_permissions.join(", "));
+    }
+    let (stated_escapes, formed_escapes) = sightings.escapes;
+    if stated_escapes > 0 {
+        answers.language_escape = Some(if formed_escapes > 0 {
+            "at least one well-formed sequence".to_owned()
+        } else {
+            "a lone U+001B, which the clause's two shapes do not cover".to_owned()
+        });
+    }
+    if !sightings.decodes.is_empty() {
+        sightings.decodes.sort();
+        sightings.decodes.dedup();
+        answers.decode_array = Some(sightings.decodes.join(", "));
+    }
+    if !sightings.groups.is_empty() {
+        sightings.groups.sort();
+        sightings.groups.dedup();
+        answers.group_subtype = Some(sightings.groups.join(", "));
+    }
+    if !sightings.codec_masks.is_empty() {
+        sightings.codec_masks.sort();
+        sightings.codec_masks.dedup();
+        answers.codec_mask = Some(sightings.codec_masks.join(", "));
+    }
+    if !sightings.deferred_codec_masks.is_empty() {
+        sightings.deferred_codec_masks.sort();
+        sightings.deferred_codec_masks.dedup();
+        answers.codec_mask_deferred = Some(sightings.deferred_codec_masks.join(", "));
+    }
+
+    // §12.3.2.2's named destinations, asked once each at their definition rather than at every
+    // link that names one: §12.3.2.4 puts them in the catalog's `/Dests` dictionary and in the
+    // name dictionary's `/Dests` tree, and `Destination::read` walks the second per lookup.
+    let mut destinations = sightings.numbered_destinations;
+    if let Ok(catalog) = document.catalog() {
+        let mut defined: Vec<Object> = Vec::new();
+        let dests = document.get_key(&catalog, "Dests");
+        if let Some(table) = dests.as_dict() {
+            defined.extend(table.iter().map(|(_, value)| value.clone()));
+        }
+        let names = document.get_key(&catalog, "Names");
+        if let Some(names) = names.as_dict() {
+            let tree = document.get_key(names, "Dests");
+            if let Some(tree) = tree.as_dict() {
+                let pairs = pdf_syntax::tree::name_pairs(tree, &|object| document.resolve(object));
+                defined.extend(pairs.into_iter().map(|(_, value)| value));
+            }
+        }
+        for entry in &defined {
+            if let Some(destination) = pdf_model::destination::Destination::read(&document, entry)
+                && matches!(
+                    destination.target,
+                    pdf_model::destination::Target::Number(_)
+                )
+            {
+                destinations.push("in a §12.3.2.4 destination table".to_owned());
+            }
+        }
+    }
+    if !destinations.is_empty() {
+        destinations.sort();
+        destinations.dedup();
+        answers.numbered_destination = Some(destinations.join(", "));
+    }
+
+    // §12.4.2's ranges. The claim is about the clause's worked example, which states three:
+    // lowercase Roman, decimal, and decimal again with a `/P` prefix and an `/St`. So the
+    // population is a document stating at least that many ranges, and the answer says whether
+    // the three shapes are all present — a count of ranges alone would not settle it.
+    if let Ok(catalog) = document.catalog() {
+        let entry = document.get_key(&catalog, "PageLabels");
+        if let Some(root) = entry.as_dict() {
+            let ranges = pdf_syntax::tree::number_pairs(root, &|object| document.resolve(object));
+            if ranges.len() >= 3 {
+                let mut styles: Vec<String> = Vec::new();
+                let mut roman = false;
+                let mut decimal = false;
+                let mut prefixed_with_start = false;
+                for (_, value) in &ranges {
+                    let Some(range) = value.as_dict() else {
+                        continue;
+                    };
+                    let style = document.get_key(range, "S");
+                    let style = style
+                        .as_name()
+                        .map(|name| String::from_utf8_lossy(name.as_bytes()).into_owned());
+                    match style.as_deref() {
+                        Some("r" | "R") => roman = true,
+                        Some("D") => decimal = true,
+                        _ => {}
+                    }
+                    if document.get_key(range, "P").as_string().is_some()
+                        && document.get_key(range, "St").as_integer().is_some()
+                    {
+                        prefixed_with_start = true;
+                    }
+                    styles.push(
+                        style.map_or_else(|| "(no /S)".to_owned(), |name| format!("/{name}")),
+                    );
+                }
+                styles.sort();
+                styles.dedup();
+                let all_three = roman && decimal && prefixed_with_start;
+                answers.label_ranges = Some(format!(
+                    "{} range(s), {} — the example's three shapes: {}",
+                    ranges.len(),
+                    styles.join(" "),
+                    if all_three { "all present" } else { "not all" }
+                ));
+            }
+        }
     }
 
     // §12.2's four deprecated page-boundary entries, read as *statements*: `ViewerPreferences`

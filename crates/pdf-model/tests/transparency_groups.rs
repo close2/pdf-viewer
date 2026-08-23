@@ -413,7 +413,12 @@ fn a_group_resets_the_alpha_constants_and_the_blend_mode_for_its_elements() {
 /// > transparency purposes.
 ///
 /// The second half is the one an implementation drops, because `/S` is the only entry that
-/// distinguishes the two and no corpus document writes another subtype.
+/// distinguishes the two and no corpus document writes another subtype — **re-derived in the
+/// six-hundred-and-eighty-second session and it held**, zero over the curated 1251 and zero over
+/// the `SafeDocs` crawl's 65 944 (`examples/absence_audit --crawl`), with a hand-built
+/// `/Group << /S /Softness >>` put through the same block first so that the zero was a
+/// measurement. A negative on a population sixty-eight times the size is why this test is the
+/// only witness the requirement has.
 #[test]
 fn a_form_becomes_a_group_only_for_the_transparency_subtype() {
     let groups = |group: &str| {

@@ -3941,24 +3941,42 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     match reads differently from a numeric one), §11.6.7 (a tiling pattern's paint). These are the
     expensive ones and they share an instrument: interpret page one and count operator shapes. The
     artifact census already owed below is the same program.
-  - **Nine need a structural block in `absence_audit`, which the six-hundred-and-seventy-first round
-    added eight of and the six-hundred-and-seventy-sixth the ninth.** §7.6.5 (a `/Filter` that is not
-    `/Standard`), §7.9.2.2.2 (a U+001B language escape inside a text string), §8.9.5.2 (a `/Decode`
-    array that is neither Table 88's default nor its reversal), §8.10.3 (a `/Group` whose `/S` is not
-    `/Transparency`), §11.6.5.2 (an `/SMask` behind an image codec), §12.3.2.2 (a destination whose
-    first element is an integer), §12.4.2 (a `/PageLabels` tree exercising all three of its ranges),
-    §12.5.1 (a rotated page carrying a widget), §14.8.2.5.3. ~~§12.8.2.2.1 (a `/DocMDP` whose `/P` is
-    not 2 — `witness_census --crawl` already says **144** crawled documents name one against the
-    corpus's one, so this is a false negative waiting for its `/P` values)~~ — **done, and the
-    prediction was right**: 143 of the 65 944, of which 122 state `/P` 1 (ADR 0502). **A round adding
-    one adds a block, not a heuristic**, and the blocks are cheap: the eight cost about a hundred and
-    thirty lines and four minutes over the whole crawl, the ninth about forty and nothing extra.
+  - ~~**Nine need a structural block in `absence_audit`, which the six-hundred-and-seventy-first round
+    added eight of and the six-hundred-and-seventy-sixth the ninth.**~~ **Eight of the nine were
+    taken in the six-hundred-and-eighty-second** (ADR 0516) — §7.6.5, §7.9.2.2.2, §8.9.5.2, §8.10.3,
+    §11.6.5.2, §12.3.2.2, §12.4.2 and §12.5.1 — and **seven of the eight negatives were false**.
+    ~~§12.8.2.2.1 (a `/DocMDP` whose `/P` is not 2 — `witness_census --crawl` already says **144**
+    crawled documents name one against the corpus's one, so this is a false negative waiting for its
+    `/P` values)~~ — **done, and the prediction was right**: 143 of the 65 944, of which 122 state
+    `/P` 1 (ADR 0502). **A round adding one adds a block, not a heuristic**, and the blocks are
+    cheap: the six-hundred-and-seventy-first's eight cost about a hundred and thirty lines and four
+    minutes over the whole crawl, the ninth about forty and nothing extra, and this round's eight
+    about three hundred and fifty lines and ninety seconds on top of a five-and-a-half-minute pass.
+
+    **§14.8.2.5.3 is the one left, and it was in the wrong group.** `/ReversedChars` is a
+    marked-content tag inside a content stream, so it belongs with the five above rather than here:
+    no dictionary anywhere states it, and a structural block over the object graph would report a
+    false zero for exactly the reason this file keeps writing down.
+
+    **Three things this round adds to the recipe.** **A negative can be false and the code still owe
+    nothing** — §7.6.5's one witness is a file declined by name, which is trap 5 working. **A
+    negative can be false and the *residue* it justifies survive one condition narrower**: §11.6.5.2
+    is false by 2882 crawled documents while the refusal it names is reached by six of them, because
+    `soft_mask_entry` asks about the codec only where `worth_combining` has already refused the finer
+    grid — count the population the sentence is about, not the population that shares its noun.
+    **And probe a positive as well as a zero**: the first draft of the `/Decode` block scored
+    `issue10339_reduced.pdf`'s `/Decode [255.0 0.0]` a departure, because on an eight-bit `Indexed`
+    image Table 88's default is `[0 255]` and its "exact reversal" is that and not `[1 0]` — a
+    census that compares against one family's default retires a claim that holds.
   - **Seven are not a claim about a corpus at all**, and a round should stop rather than measure:
     §7.5.6 (a multiply-updated file that lowered its own version), §8.9.3 and §11.6.2 (a construction
     with no file behind it, argued from the clause), §10.7.4 (a ladder run with no document in the
     way), and the rows §8.4.3.5, §9.7.4.2 and §12.5.4 already answer with `long_mitre_census`,
     `hollow_glyph_census` and `border_precedence_census` — those three owe a `--crawl` argument
-    rather than a re-reading. §9.7.4.2 is the one the four-group reading missed.
+    rather than a re-reading. §9.7.4.2 is the one the four-group reading missed. **These seven, §14.8.2.5.3
+    and §12.7.5.4 are what the script prints as owed after the six-hundred-and-eighty-second**,
+    beside the six noise rows below — run it rather than adding that up, for the reason the bullet
+    above gives.
   - **Six are this population's own noise shape and nothing is owed.** Three are a *correction*
     quoting the negative it retired, which is the same false positive the twelfth and seventeenth
     sweeps print and is why the grep at the top of this bullet is a reading list rather than a
@@ -4054,7 +4072,11 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
   cannot settle are the ones left: a flag's bit, a value's range, a group's colour space, a
   producer's arithmetic. A round adding one adds a block, not a heuristic. **It was seven blocks and
   three hard-coded roots until the six-hundred-and-seventy-first**, which gave it `--crawl` and eight
-  more; the bullet above lists the nine claims a block would settle next. Two rules the blocks
+  more, and the six-hundred-and-eighty-second added eight claims in nine blocks. **The ninth block is
+  the narrower half of §11.6.5.2's claim, and that is the rule the round adds**: a claim whose
+  falsification is a count and whose residue is a *condition* wants two blocks rather than one,
+  because the two populations differed by three orders of magnitude and one report line cannot say
+  both. Two rules the blocks
   themselves teach: **walk into each object's nested structure**, because a producer may write an
   action, an annotation or a resource dictionary inline and a top-level-only walk reports a false
   zero (session 648, paid again in this example's own first draft); and **plant a witness stating

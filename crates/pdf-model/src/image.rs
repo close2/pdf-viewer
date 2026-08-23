@@ -3383,7 +3383,15 @@ fn stated_grid(document: &Document, dict: &Dictionary) -> (u32, u32) {
 ///   budget does decode at one of its own reduced levels now (§7.4.9 NOTE 3, `decode_jpx`),
 ///   but that reduction answers a memory budget once, not a device's grid per draw — a
 ///   codec-carrying mask on this route would decode per raster request, which is the cost the
-///   packed-bytes design refuses. No corpus document states one.
+///   packed-bytes design refuses. **This sentence read "No corpus document states one" and was
+///   false in both populations, measured in the six-hundred-and-eighty-second session**
+///   (`examples/absence_audit --crawl`): 6 of the curated 1251 documents state a codec-carrying
+///   `/SMask` and 2882 of the `SafeDocs` crawl's 65 944 do. What survives is the sentence one
+///   condition narrower, and the narrowing is the point — this arm is reached only where
+///   [`worth_combining`] has already refused the finer grid, so a codec-carrying mask is
+///   *ordinarily* combined and drawn and only a large enough pair arrives here. That population
+///   is **6 documents of the 65 944 and none of the 1251**, and what they get is the eager
+///   combination rather than a refusal.
 /// - **The colour space is `DeviceGray`.** Table 143 requires it — "Required; shall be
 ///   `DeviceGray`" — and it is what makes a sample's opacity a lookup rather than a colour
 ///   conversion. `soft_mask_entry` tolerates any one-component space for the ordinary route,

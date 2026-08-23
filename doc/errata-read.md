@@ -749,3 +749,27 @@ inscribed rectangle, `crate::icon`'s whole artwork — is a place where `CLAUDE.
 to make a documented choice because the standard states nothing. This sentence says so in the
 standard's own words, for the whole population at once, which turns an inference from silence into
 a citation. It is recorded on §12.5.3's ledger row, and §12.5.6.4's rests on it.
+
+## Table 149's imperative becomes a `should`, found in the six-hundred-and-eighty-second
+
+`emit` over all fourteen documents while re-deriving §12.3.2.2's negative — the same rule as the
+section above, and the same shape of finding. §12.3.2.2 carries exactly one annotation, **Issue
+#536, `Review/Accepted`**, and it had never been recorded here:
+
+> interactive processors should
+
+A **Caret with no `StrikeOut`**, so `check` is blind to it by construction, which is now the third
+instance of that shape in this file after #293 and #34. Its `/Rect` is `[480.56 266.68 489.64
+274.08]` on page 457, which `mutool draw -F stext` puts immediately before the word `use` in
+Table 149's `/FitR` row — "If the required horizontal and vertical magnification factors are
+different, use the smaller of the two". So the table's bare imperative becomes "…are different,
+interactive processors should use the smaller of the two".
+
+**Nothing here changes and the reading is still worth having.** `viewer_core::Open::apply_view`
+takes the smaller of the two factors for `/Fit`, `/FitR` and `/FitB` already, so the amended
+sentence is met; what moves is its *strength* — Table 149 stated the rule as an instruction with no
+modal verb, and it now states it as a `should` addressed to an interactive processor, which is a
+recommendation this tree follows rather than a requirement it meets. The distinction matters for
+anybody arguing later about a window that would rather fit the other dimension. §12.3.2.2's row is
+not rewritten for it, because the row quotes the null-parameter rule and the crop-box `shall`, and
+this erratum touches neither.
