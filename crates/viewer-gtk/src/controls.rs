@@ -103,17 +103,12 @@ pub(crate) fn build(
         ControlKind::Combo {
             options, selected, ..
         } => combo(field, options, *selected, suppress, change),
-        // Table 234's `/TI` is deliberately not taken here, and it is a debt rather than a
-        // decision: `GtkListView` gained `scroll_to` in GTK 4.12 and this crate binds `v4_10`
-        // (`Cargo.toml`), so obeying the entry means either raising the floor or driving
-        // `GtkListBase`'s `list.scroll-to-item` action on a view that is not yet in a window.
-        // `viewer-qt` obeys it; `doc/todo/30` carries what this host still owes.
         ControlKind::List {
             options,
             selected,
             multi,
-            ..
-        } => list(field, options, selected, *multi, suppress, change),
+            top,
+        } => list(field, options, selected, *multi, *top, suppress, change),
         // §12.7.5.5's signature has no control to build and Table 226's absent `/FT` names none,
         // so this host places nothing and the page's own appearance stands. Inventing a control
         // for either would be a statement about the document that the document did not make.
@@ -360,11 +355,19 @@ fn combo(
 /// selected simultaneously; if clear, at most one item shall be selected" — decides which of GTK's
 /// two selection models this is, and the model is the whole difference: `viewer_core::Edit` carries
 /// a set of indices now, so a `GtkMultiSelection`'s answer has somewhere to go. ADR 0248.
+///
+/// **And since the six-hundred-and-seventy-eighth it obeys Table 234's `/TI`**, which is the last
+/// thing this host owed §12.7.5.4 and which was owed to a *binding* rather than to a decision:
+/// `GtkListView::scroll_to` is GTK 4.12 and this workspace bound `v4_10`. ADR 0508 raised the
+/// floor. The entry is "the index in the Opt array of the first option visible in the list" — where
+/// a scrollable list *starts*, which the clause makes a different question from which item is
+/// selected, and which the page's own appearance has obeyed since ADR 0407.
 fn list(
     field: &FormField,
     options: &[String],
     selected: &[usize],
     multi: bool,
+    top: usize,
     suppress: &Rc<Cell<bool>>,
     change: &Rc<dyn Fn(FieldChange)>,
 ) -> gtk4::Widget {
@@ -419,5 +422,80 @@ fn list(
     });
     let scroller = gtk4::ScrolledWindow::new();
     scroller.set_child(Some(&view));
+    scroll_to_top_index(&scroller, top, options.len());
     scroller.upcast()
+}
+
+/// Table 234's `/TI`, as a position for the list's own scrollbar (ISO 32000-2 §12.7.5.4).
+///
+/// > (Optional) For scrollable list boxes, the top index (the index in the Opt array of the first
+/// > option visible in the list).
+///
+/// **The first *visible* option, which is not the selected one.** The clause makes them two
+/// entries, and a control that read either for the other agrees with itself on every list where
+/// they happen to be the same row — which is why the fixture states them differently. The page's
+/// own appearance has obeyed the entry since ADR 0407, so a control placed over that picture
+/// starting somewhere else is the same disagreement a stray mark would be.
+///
+/// **`GtkListView::scroll_to` is not this**, and that is the finding rather than the code (ADR
+/// 0508). `doc/todo/30` recorded this host's debt as a *binding floor* — the method is GTK 4.12
+/// and this workspace bound `v4_10` — but the method GTK gained does not say what Table 234 says:
+/// its `GtkScrollInfo` argument is documented as "%NULL to scroll into view", `GtkScrollInfo`
+/// carries only two booleans about which axes may move, and *into view* leaves an option that is
+/// already visible exactly where it is. Qt's `QAbstractItemView::PositionAtTop` states the
+/// position outright and GTK has no equivalent. Raised to `v4_12` and measured on the corpus's own
+/// witness, the call moved nothing at `/TI 1` and nothing at `/TI 5`.
+///
+/// So the entry is applied where a scrollbar's position is stated in GTK, which is the
+/// [`gtk4::Adjustment`] the [`gtk4::ScrolledWindow`] already owns:
+///
+/// - **the first `changed` with something to scroll is when the geometry exists.** `upper` and
+///   `page-size` are nothing until the view is allocated, and the handler stands down for good
+///   once it has acted, so a person who scrolls the list afterwards is not fought with. It also
+///   stands down where `upper <= page-size`, which is the clause's own condition — the entry is
+///   stated "[f]or scrollable list boxes", and a list showing all of its options is not one;
+/// - **the row height is `upper / options`**, and that is exact rather than an estimate *here*:
+///   every row of this control is built by one factory into one [`gtk4::Label`], so the rows are
+///   uniform by construction. A list whose rows differed would need the position of the row
+///   itself, which GTK exposes to nobody outside the widget;
+/// - **`/TI` is a number the document states and nothing clamps.** An index the array does not
+///   have is declined outright, because the page's own appearance clamps such an entry to the last
+///   option (ADR 0111's rule, and
+///   `variable_text.rs::the_top_index_says_which_option_the_list_starts_at`) and a control that
+///   scrolled to its own end would be saying the same thing twice. The `min` is the other end of
+///   the same arithmetic and is not that case: an index near the end of a long list asks for a
+///   position past the furthest a viewport can scroll to, which is a valid entry and a clamp GTK
+///   would apply anyway;
+/// - **and the value is set on an idle rather than in the handler**, which is the one line here
+///   that a reader would otherwise delete. `GtkListView` is a `GtkListBase`, and a `GtkListBase`
+///   holds an *anchor item* and recomputes the adjustment from it every time it is allocated — so
+///   a value written while the geometry is still being computed is overwritten by the anchor,
+///   which is item 0 until somebody scrolls. Setting it from an idle puts it after GTK's layout
+///   phase, where the adjustment moving is what *updates* the anchor. Measured both ways on the
+///   corpus's witness: written in the handler the list still starts at option 0 with the trace
+///   showing the value set correctly, and written from the idle it starts where `/TI` says.
+fn scroll_to_top_index(scroller: &gtk4::ScrolledWindow, top: usize, options: usize) {
+    if top == 0 || top >= options {
+        return;
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "an index into one field's /Opt array, far below 2^53"
+    )]
+    let fraction = top as f64 / options as f64;
+    let applied = Cell::new(false);
+    scroller.vadjustment().connect_changed(move |adjustment| {
+        if applied.get() {
+            return;
+        }
+        let (upper, page) = (adjustment.upper(), adjustment.page_size());
+        if page <= 0.0 || upper <= page {
+            return;
+        }
+        applied.set(true);
+        let adjustment = adjustment.clone();
+        gtk4::glib::idle_add_local_once(move || {
+            adjustment.set_value((upper * fraction).min(upper - page));
+        });
+    });
 }

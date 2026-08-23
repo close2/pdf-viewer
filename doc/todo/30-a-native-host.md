@@ -5,9 +5,11 @@ ADR 0244); Qt in the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246), and 
 `crates/viewer-host`; **the C ABI in the four-hundred-and-eleventh** (`crates/viewer-ffi`,
 ADR 0247), with its three amendments taken first. **This file absorbed `doc/todo/37` in the
 four-hundred-and-ninth**, whose one open decision was taken (ADR 0245). **And its remaining surface
-was taken in the five-hundred-and-eleventh** (ADR 0346): the ABI's entry points are the whole
-vocabulary now, Table 229 bit 26 is obeyed, and ADR 0245's scale question is answered with the
-messages that already existed.
+was taken in the five-hundred-and-eleventh** (ADR 0346): the ABI's entry points were the whole
+vocabulary *then*, Table 229 bit 26 is obeyed, and ADR 0245's scale question is answered with the
+messages that already existed. **"The whole vocabulary" has since decayed and is now counted rather
+than claimed** — `tools/state.sh hosts` prints how much of `Command` and `Query` a C caller can
+reach and names what it cannot (ADR 0509).
 Priority: 30 — what is left is *surface* rather than architecture, and the file says which
 Code: `crates/viewer-gtk`, `crates/viewer-qt`, `crates/viewer-host`, `crates/viewer-ffi`
 
@@ -65,18 +67,35 @@ the six-hundred-and-first** (ADR 0436), and reading §12.7.5.4 against the mappi
 their controls from left one item in its place, below. Plus the standing note about where the
 `unsafe` is.
 
-- **`viewer-gtk` does not obey Table 234's `/TI`.** The entry is "the index in the Opt array of the
-  first option visible in the list"; `pdf-model` has read it since the
-  three-hundred-and-ninety-eighth session, the page's own appearance obeys it since ADR 0407, and
-  `viewer_host::form::ControlKind::List` dropped it until the six-hundred-and-first — so every
-  native host's list box started at row 0 over a picture that started somewhere else
-  (`doc/habits.md`'s fifth sweep: *the model implements this, who calls it?*). `viewer-qt` obeys it
-  now with `scrollToItem(..., PositionAtTop)`. GTK's half is a *floor* rather than a decision:
-  `GtkListView::scroll_to` is GTK 4.12 and this crate binds `v4_10` (`Cargo.toml`), so it means
-  raising the feature or driving `GtkListBase`'s `list.scroll-to-item` action on a view that is not
-  yet in a window — and the second wants a witness, because a document whose `/TI` is not 0 is what
-  says the action fired. No corpus document is known to state one; `examples/variable_text_census`
-  counts 10 list-box widgets and is where to look first.
+- ~~**`viewer-gtk` does not obey Table 234's `/TI`.**~~ **Closed in the
+  six-hundred-and-seventy-eighth** (ADR 0508), and **this entry was wrong about both of the things
+  it asserted.** The clause half was right — the entry is "the index in the Opt array of the first
+  option visible in the list", `pdf-model` has read it since the three-hundred-and-ninety-eighth
+  session, the page's own appearance obeys it since ADR 0407, `viewer_host::form::ControlKind::List`
+  dropped it until the six-hundred-and-first, and `viewer-qt` scrolls to it with
+  `scrollToItem(..., PositionAtTop)`. What was wrong is what followed.
+
+  **The floor was not the blocker.** It was raised — `gtk4` 0.11.4 offers `v4_12` and this machine
+  runs GTK 4.22 — and `GtkListView::scroll_to` then moved nothing at `/TI 1` and nothing at `/TI 5`,
+  because what GTK's method does is put an item *into view*: its `GtkScrollInfo` argument is
+  documented as "%NULL to scroll into view" and carries two booleans about which axes may move and
+  no alignment at all. Qt states a position and GTK has no counterpart. The floor went back to
+  `v4_10`, because what a feature floor costs is a *runtime* requirement and it is not worth raising
+  for an API that does not answer the question; `Cargo.toml`'s comment carries the experiment.
+  `controls.rs::scroll_to_top_index` uses the `GtkScrolledWindow`'s own adjustment, and the one
+  non-obvious line is measured rather than reasoned: a `GtkListBase` recomputes the adjustment from
+  its *anchor item* at every allocation, so the value has to be written from an idle, after GTK's
+  layout, where the adjustment moving is what updates the anchor.
+
+  **And the corpus witness exists.** This entry said "[n]o corpus document is known to state one",
+  on the evidence of a census that counts list boxes and does not count `/TI` — a statement about an
+  instrument wearing the clothes of a statement about the corpus.
+  `doc/pdf.js/test/pdfs/annotation-choice-widget.pdf` object 62 is a multiple-selection list box
+  with eight options, `/TI 1`, and a `/V` naming four *different* ones, on a page that also carries
+  two list boxes with no `/TI` — so one screenshot shows the entry obeyed beside two controls with
+  nothing to obey. Driven under `Xvfb`; both native hosts now show *Ipsum* first on that file, and
+  `viewer-ui` is level by a third route because it is the host that does not delegate, so its list
+  is the page's own appearance.
 
 - ~~**The ABI is 43 entry points and not the whole vocabulary.**~~ **Closed in the
   five-hundred-and-eleventh** (ADR 0346): 43 → **111**, and the list this entry carried is all of
@@ -155,8 +174,9 @@ Adding `egui` buys a widget set for a large dependency and no architectural proo
 
 `doc/todo/30` used to say `viewer-ffi` would be "the **only** crate in the tree permitted `unsafe`".
 Two crates lift `deny(unsafe_code)` and no more: `viewer-qt`, for `#[cxx::bridge]`'s expansion, with
-**one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, 111
-`#[unsafe(no_mangle)]` attributes and 103 signatures, and **no `unsafe` block at all**. Each has a
+**one** hand-written token; and `viewer-ffi`, whose `src/abi.rs` holds one lint lift, an
+`#[unsafe(no_mangle)]` attribute per entry point (`tools/state.sh hosts` counts them) and **no
+`unsafe` block at all**. Each has a
 test that reads its own sources back, and `viewer-ffi`'s additionally asserts that `pdf-syntax`,
 `pdf-model`, `pdf-font`, `pdf-render`, `render-cpu`, `viewer-core` and `viewer-host` still hold
 `#![forbid(unsafe_code)]` — the compiler-enforced rule this file promised would survive, checked
@@ -309,3 +329,54 @@ change to both rasterisers.
   least as large as the area of the original shape". A fractional boundary pixel moved 37 of 957
   corpus first pages and §10.7.4's intersection moved 11; the clause's own set rule moves none.
   Trap 14 is what the whole item turned out to be an instance of.
+
+## The order UI work is taken in, and the criterion — 678, the first round on the owner's sentence
+
+**ADR 0509 is the argument; this is the list.** It replaces "pick something from the gaps above"
+with a ranking, because a list is taken in whatever order somebody wrote it down — which is how the
+`/TI` entry above sat behind a diagnosis nobody re-checked for seventy-seven sessions. The
+criterion, in order: what a *reader* can do with a document and cannot do here; then what costs no
+new message; then what makes the level-hosts decision checkable. A toolkit floor does not rank an
+item last, but it does oblige a round to say what it actually tried.
+
+**Four consumers, and they are not four of a kind**, which is why the decision above cannot mean
+one thing for all of them: `viewer-ui` is tier 2 and draws its own chrome, the two native hosts
+place somebody else's widgets, and `viewer-ffi` draws nothing and hands a caller data. Today
+"level" is false in *both* directions — `viewer-ui` is ahead on everything that reads a document
+(six sidebar tabs against three, thumbnails, articles, properties, the collection, popup windows,
+the caret, the markup keys, a copy key) and behind on everything that changes one (no undo binding,
+no native controls, and a password prompt that reads `stdin` and exits when there is no terminal).
+
+1. **A selection that can leave the program.** All three windowed hosts draw a selection; none can
+   give it to another application. `viewer-ui` keeps an in-process `String` and its own comment says
+   the platform's clipboard "belongs to the platform" and that a native host "owns that end by
+   construction" — and neither native host took it. No message needed: `Query::Selection` has the
+   text and `Query::LogicalSelection` has §14.8.2.5's order.
+2. **A statement of what a key means, in `viewer-host`.** Four key tables that already disagree —
+   `f` is the find bar in GTK and a free-text drag in `viewer-ui`, the arrow keys scroll in one host
+   and turn the page in two, Escape clears the selection in the native hosts and *quits*
+   `viewer-ui`. Same argument as `Presenting` and `Clock` (ADRs 0470, 0473), and the first
+   application of it that a test could check.
+3. **`viewer-ui`'s password prompt**, which is the one place this program answers a document on
+   `stderr` and `stdin` and the only one that exits the process when nobody is listening.
+4. **§12.3.4's thumbnails, §12.4.3's articles and §14.3.3's properties in the two native hosts.**
+   All three queries exist and answer; both hosts state the gap in a comment.
+5. **The C ABI's other half** — `tools/state.sh hosts` says how many `Query` variants a C caller
+   cannot ask for and names them. `Query::Find` is the sharpest: a C caller can run Annex O's
+   document-wide search and cannot draw a match. Worth adding with the entry points: the mechanism
+   that would have caught the drift, a test enumerating `Query` against the symbols, which is what
+   `PDFV_EVENT_KIND_COUNT` already is for events.
+6. **Undo and redo in `viewer-ui`**, which both native hosts and the ABI have.
+7. **Table 233 bit 19's editable combo box in `viewer-gtk`** — the one item here that is a genuine
+   toolkit floor: `GtkDropDown` is not editable and `GtkComboBoxText` is deprecated in the release
+   this crate binds. Written down so the next round does not rediscover it, **and with ADR 0508's
+   rule attached: call the API before writing that something is blocked on it.**
+
+**Two places the API forces a host into an awkward shape**, neither an argument for changing the
+vocabulary today. The per-page answers are two shapes — `Reports`, `Readback`, `Accessibility` and
+`Frame` name a page apiece, while `Fields`, `Popups` and a selection's quadrilaterals are flat
+lists — and the enum does not say which rule it follows, which is how `Query::Fields`' own
+documentation came to say "the page being shown" for rounds after the code walked the whole
+arrangement (corrected in 678). And `Command::Delegate` is a policy about a *document* while
+`Query::Fields` answers about a *screen*: the pair is safe only while both follow the arrangement,
+and if they ever disagree the result is a form with holes and no report anywhere.
