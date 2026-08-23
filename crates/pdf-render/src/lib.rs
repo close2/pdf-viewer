@@ -66,7 +66,7 @@ pub use program::{ProgramOperator, ProgramRange, ProgramStep, ShadingProgram};
 pub use repeat::{Cell, Mark, Repeats, Tiles, repeated_subpaths, without_subpaths};
 pub use shading::{
     ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Patch, Radial,
-    RadialRaster, Ramp, Shading, ShadingKind, Stop, Triangle, blend_parameter,
+    RadialRaster, Ramp, Shading, ShadingKind, ShadingRaster, Stop, Triangle, blend_parameter,
 };
 pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{

@@ -85,6 +85,9 @@ const MASK_GROUP: (f32, f32, f32, f32) = (10.0, 50.0, 190.0, 85.0);
 /// The red-to-blue gradient every mark here is painted with, running *up* the page.
 fn gradient() -> Paint {
     Paint::Shading(Arc::new(Shading {
+        // §8.7.4.3's wash is not what these scenes are about: they state the clip's arithmetic,
+        // and a background would put a second colour under every assertion here.
+        background: None,
         kind: Arc::new(ShadingKind::Axial {
             start: Point::new(0.0, MARK.1),
             end: Point::new(0.0, MARK.3),
@@ -178,6 +181,7 @@ fn ramp_mask(list: &mut DisplayList) -> SoftMaskId {
             transform: Transform::IDENTITY,
             fill_rule: FillRule::NonZero,
             paint: Paint::Shading(Arc::new(Shading {
+                background: None,
                 kind: Arc::new(ShadingKind::Axial {
                     start: Point::new(0.0, MASK_GROUP.1),
                     end: Point::new(0.0, MASK_GROUP.3),

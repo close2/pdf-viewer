@@ -565,49 +565,290 @@ fn a_shadings_bbox_clips_what_it_paints() {
     );
 }
 
-/// §8.7.4.3 Table 77's `/Background` is not painted, and the clause's own condition decides
-/// where that is worth saying.
+/// Cyan, which every `/Background [0 1 1]` fixture below washes its outside with.
+const CYAN: (u8, u8, u8, u8) = (0, 255, 255, 255);
+
+/// Fills the whole 100 × 100 page through the fixture's `/PatternType 2` pattern `/P0`.
+const FILL_THE_PAGE: &str = "/Pattern cs /P0 scn 0 0 100 100 re f";
+
+/// Renders a shading twice — as written, and with its `/Background` entry removed.
 ///
-/// > If present, this colour shall be used, before any painting operation involving the
-/// > shading, to fill those portions of the area to be painted that lie outside the bounds of
-/// > the shading object.
+/// The pair is what makes every assertion below the clause's own two branches rather than one
+/// picture: §8.7.4.5.2 states them together — points outside the shading's bounds "shall be
+/// painted with the shading's background colour ( Background ); if the shading dictionary has
+/// no Background entry, such points shall be left unpainted" — so the same point must be the
+/// background in one render and untouched in the other.
+fn with_and_without_background(
+    shading: &str,
+    extra: &str,
+) -> (pdf_render::Raster, pdf_render::Raster) {
+    let (open, close) = shading
+        .split_once("/Background")
+        .expect("the fixture states a /Background");
+    let (_, rest) = close.split_once(']').expect("the entry is an array");
+    let bare = format!("{open}{rest}");
+    (
+        render(pdf_with_extra(shading, FILL_THE_PAGE, extra)),
+        render(pdf_with_extra(&bare, FILL_THE_PAGE, extra)),
+    )
+}
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background`, on the axial shading a corpus document states.
 ///
-/// and, in the same cell:
+/// > ( Optional ) An array of colour components appropriate to the colour space, specifying a
+/// > single background colour value. If present, this colour shall be used, before any painting
+/// > operation involving the shading, to fill those portions of the area to be painted that lie
+/// > outside the bounds of the shading object.
+///
+/// The *bounds* of an axial shading are §8.7.4.5.3's: the colour at a point is read from its
+/// projection `x′` onto the axis, and where `/Extend` is false at an end the shading stops there
+/// rather than continuing the boundary colour. `/Coords [40 0 60 0]` with no `/Extend` — the
+/// default is `[false false]` — therefore bounds the shading to the band 40 ≤ x ≤ 60, and the
+/// area to be painted is the whole 100 × 100 rectangle the pattern fills. So x = 10 and x = 90
+/// are outside the bounds and inside the area: Table 77 makes them the background, and its
+/// absence leaves them unpainted.
+///
+/// This is `issue13372.pdf`'s geometry in miniature: `/Background [0 1 1]` on an axial shading
+/// with no `/Extend`, painted through a `/PatternType 2` pattern.
+#[test]
+fn an_axial_shadings_background_washes_the_area_beyond_its_ends() {
+    let axial = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
+                 /Background [0 1 1] \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
+                 /C1 [0 0 1] /N 1 >> >>";
+    let (washed, bare) = with_and_without_background(axial, "");
+
+    for x in [10, 90] {
+        assert_eq!(
+            pixel(&washed, x, 50),
+            CYAN,
+            "x = {x} is outside the band and inside the fill, so Table 77 paints it"
+        );
+        assert_eq!(
+            pixel(&bare, x, 50).3,
+            0,
+            "and with no /Background the same point is left unpainted"
+        );
+    }
+
+    // Inside the bounds the shading itself paints, and the entry changes nothing there: the
+    // ramp runs red to blue, so green is zero and both other channels are lit.
+    let inside = pixel(&washed, 50, 50);
+    assert_eq!(
+        inside,
+        pixel(&bare, 50, 50),
+        "inside the shading's own bounds the background must not show at all"
+    );
+    assert!(
+        inside.3 == 255 && inside.1 == 0 && inside.0 > 0 && inside.2 > 0,
+        "and what paints there is the red-to-blue ramp: {inside:?}"
+    );
+}
+
+/// The same entry on §8.7.4.5.4's two shapes — nested circles, and a cone.
+///
+/// A radial shading's bounds are the points some blend circle passes through, and `/Extend`
+/// decides whether the family exists outside `s` in `[0, 1]` at all. With neither end extended,
+/// `/Coords [50 50 0 50 50 30]` bounds the shading to the disc of radius 30 about (50, 50) —
+/// so a point at (10, 50) is 40 units out, outside the bounds and inside the fill.
+///
+/// The second half is the *cone*, where `|c1 − c0|² − (r1 − r0)²` is positive and the clause's
+/// "greatest value of s" has work to do: two circles of radius 5 forty units apart. A point
+/// above them lies on no blend circle at all, so it too is outside the bounds. Both shapes are
+/// asserted because they take different branches of the arithmetic (`blend_parameter`) and one
+/// answer for both is what a single scene would have proved.
+#[test]
+fn a_radial_shadings_background_washes_the_area_no_blend_circle_reaches() {
+    let ramp = "/Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >>";
+    let nested = format!(
+        "<< /ShadingType 3 /ColorSpace /DeviceRGB /Coords [50 50 0 50 50 30] \
+         /Background [0 1 1] {ramp} >>"
+    );
+    let (washed, bare) = with_and_without_background(&nested, "");
+    assert_eq!(
+        pixel(&washed, 10, 50),
+        CYAN,
+        "40 units from the centre is outside a disc of radius 30"
+    );
+    assert_eq!(pixel(&bare, 10, 50).3, 0, "and unpainted without the entry");
+    assert_eq!(
+        pixel(&washed, 50, 50).3,
+        255,
+        "the centre is inside every blend circle"
+    );
+
+    let cone = format!(
+        "<< /ShadingType 3 /ColorSpace /DeviceRGB /Coords [30 50 5 70 50 5] \
+         /Background [0 1 1] {ramp} >>"
+    );
+    let (washed, bare) = with_and_without_background(&cone, "");
+    assert_eq!(
+        pixel(&washed, 50, 90),
+        CYAN,
+        "forty units above the axis of two radius-5 circles, no blend circle passes"
+    );
+    assert_eq!(pixel(&bare, 50, 90).3, 0, "and unpainted without the entry");
+    assert_eq!(
+        pixel(&washed, 50, 50).3,
+        255,
+        "between the two circles the cone paints"
+    );
+}
+
+/// The same entry on a mesh, which is `issue18816.pdf`'s case.
+///
+/// A mesh shading's bounds are the triangles the file states and nothing else — §8.7.4.5.5
+/// gives it no `/Extend` and no geometry beyond its vertices. The fixture's two triangles cover
+/// the left half of the page, so the right half is inside the area to be painted and outside
+/// the shading.
+#[test]
+fn a_mesh_shadings_background_washes_the_area_its_triangles_do_not_cover() {
+    // Two triangles over x in [0, 50], y in [0, 100], every corner red. Eight bits each for
+    // the flag, both coordinates and all three components, as in the mesh tests above.
+    let data = "00 00 00 FF0000 00 7F 00 FF0000 00 7F FF FF0000 \
+                00 00 00 FF0000 00 7F FF FF0000 00 00 FF FF0000 >";
+    let mesh = format!(
+        "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 /BitsPerComponent 8 \
+         /BitsPerFlag 8 /Decode [0 100 0 100 0 1 0 1 0 1] /Background [0 1 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let (washed, bare) = with_and_without_background(&mesh, "");
+
+    assert_eq!(
+        pixel(&washed, 80, 50),
+        CYAN,
+        "the right half is inside the fill and outside every triangle"
+    );
+    assert_eq!(pixel(&bare, 80, 50).3, 0, "and unpainted without the entry");
+    let inside = pixel(&washed, 20, 50);
+    assert!(
+        inside.3 == 255 && inside.0 > 200 && inside.1 < 60,
+        "the mesh's own half stays the red its corners state: {inside:?}"
+    );
+}
+
+/// §8.7.4.5.2 states this entry a second time, and in the form that names the geometry outright.
+///
+/// > The transformation matrix ( Matrix ) then maps the domain rectangle into a corresponding
+/// > rectangle or parallelogram in the target coordinate space. Points wi thin the shading's
+/// > bounding box ( BBox ) that fall outside this transformed domain rectangle shall be painted
+/// > with the shading's background colour ( Background ); if the shading dictionary has no
+/// > Background entry, such points shall be left unpainted.
+///
+/// `/Matrix [50 0 0 50 25 25]` carries the unit domain onto the square 25 ≤ x, y ≤ 75, so
+/// (10, 50) is outside the transformed domain and inside the area the pattern fills. No
+/// document in either population here states a background on a type 1 shading — this is the
+/// clause's own sentence rather than a corpus witness, which is why it is a fixture.
+#[test]
+fn a_function_based_shadings_background_fills_its_bounding_box_outside_the_domain() {
+    // A 2-in function has to be a stream: `{ pop }` leaves the first input, which `DeviceGray`
+    // reads as a level.
+    let function = "7 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1] /Length 7 >>\n\
+                    stream\n{ pop }\nendstream\nendobj\n";
+    let sampled = "<< /ShadingType 1 /ColorSpace /DeviceGray /Domain [0 1 0 1] \
+                   /Matrix [50 0 0 50 25 25] /Background [0] /Function 7 0 R >>";
+    let (washed, bare) = with_and_without_background(sampled, function);
+
+    // `/Background [0]` is one component in `DeviceGray`, which §8.6.4.2 makes black.
+    assert_eq!(
+        pixel(&washed, 10, 50),
+        (0, 0, 0, 255),
+        "outside the transformed domain and inside the fill, the background paints"
+    );
+    assert_eq!(pixel(&bare, 10, 50).3, 0, "and unpainted without the entry");
+    assert_eq!(
+        pixel(&washed, 50, 50).3,
+        255,
+        "the middle of the domain is the function's own colour"
+    );
+}
+
+/// §8.7.4.3 Table 77's condition on the entry, which decides where it is painted at all.
 ///
 /// > The background colour shall be applied only when the shading is used as part of a shading
 /// > pattern, not when painted directly with the sh operator.
 ///
-/// So a `sh` that states one owes nothing and reports nothing, and a *pattern* that states one
-/// is a mark this tree does not make. Both halves are asserted here, because a report raised on
-/// the wrong one of the two would be noise on every page that paints a shading directly.
-/// `doc/todo/17` prices the drawing; the ledger's §8.7.4.3 row carries the population.
+/// §8.7.4.2 says the same of the operator — "[t]he `Background` entry, if present, is ignored" —
+/// and §11.6.4.2 a third time, of the shape a `sh` contributes: "1.0 inside and 0.0 outside the
+/// bounds of the shading's painti ng geometry, disregarding the `Background` entry". So a `sh`
+/// paints no wash and reports nothing, however large the area its clip admits.
 #[test]
-fn a_shading_patterns_background_is_reported_and_sh_owes_nothing() {
-    let with_background = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
-                           /Background [0 1 1] \
-                           /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
-                           /C1 [0 0 1] /N 1 >> >>";
+fn the_sh_operator_ignores_a_background_and_owes_no_report() {
+    let axial = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
+                 /Background [0 1 1] \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
+                 /C1 [0 0 1] /N 1 >> >>";
+    let bytes = pdf_with(axial, "/Sh0 sh");
+    let document = Document::open(bytes.clone()).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let reported = format!("{:?}", pdf_model::interpret(&document, &page).unsupported);
+    assert!(
+        !reported.contains("ShadingBackground"),
+        "`sh` is the case the clause exempts, so it must owe nothing: {reported}"
+    );
 
+    let raster = render(bytes);
+    assert_eq!(
+        pixel(&raster, 10, 50).3,
+        0,
+        "and it must paint nothing beyond the band, background or no background"
+    );
+}
+
+/// What is still owed after the wash is drawn, and it is a *stroke*.
+///
+/// Table 77's "the area to be painted" is the area of any painting operation, a stroke
+/// included — but the three backends draw a background through the raster lane a *fill*
+/// takes, so a shading pattern selected with `SCN` paints its shading and not its wash. That
+/// is a shortfall, so it is named rather than left silent (trap 5), and the report's condition
+/// is exactly the case that is not drawn.
+#[test]
+fn a_stroking_patterns_background_is_the_case_still_reported() {
+    let axial = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
+                 /Background [0 1 1] \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
+                 /C1 [0 0 1] /N 1 >> >>";
     let reported = |content: &str| {
-        let bytes = pdf_with(with_background, content);
+        let bytes = pdf_with(axial, content);
         let document = Document::open(bytes).expect("the fixture is a valid PDF");
         let page = pdf_model::Pages::new(&document).get(0).expect("page one");
         format!("{:?}", pdf_model::interpret(&document, &page).unsupported)
     };
 
-    let through_a_pattern = reported("/Pattern cs /P0 scn 0 0 100 100 re f");
+    let stroked = reported("/Pattern CS /P0 SCN 4 w 20 20 m 80 80 l S");
     assert!(
-        through_a_pattern.contains("ShadingBackground")
-            && through_a_pattern.contains("/P0")
-            && through_a_pattern.contains("3 component(s)"),
-        "a pattern's unpainted /Background must be named with its pattern and its length: \
-         {through_a_pattern}"
+        stroked.contains("ShadingBackground") && stroked.contains("/P0"),
+        "a stroke's unpainted /Background must be named with its pattern: {stroked}"
     );
 
-    let directly = reported("/Sh0 sh");
+    let filled = reported(FILL_THE_PAGE);
     assert!(
-        !directly.contains("ShadingBackground"),
-        "`sh` is the case the clause exempts, so it must owe nothing: {directly}"
+        !filled.contains("ShadingBackground"),
+        "a fill's background is drawn, so nothing is owed: {filled}"
+    );
+}
+
+/// An array §8.7.4.3 Table 77's own sentence cannot use is reported rather than guessed at.
+///
+/// > An array of colour components appropriate to the colour space
+///
+/// *Appropriate to the colour space* is a count: three components in `DeviceRGB`. A file
+/// stating two has written something this reader cannot turn into a colour, and inventing one
+/// would put a wash on the page the document did not ask for.
+#[test]
+fn a_background_of_the_wrong_length_is_reported_and_not_guessed() {
+    let axial = "<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [40 0 60 0] \
+                 /Background [0 1] \
+                 /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] \
+                 /C1 [0 0 1] /N 1 >> >>";
+    let bytes = pdf_with(axial, FILL_THE_PAGE);
+    let document = Document::open(bytes).expect("the fixture is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let reported = format!("{:?}", pdf_model::interpret(&document, &page).unsupported);
+    assert!(
+        reported.contains("ShadingBackground") && reported.contains("2 component(s)"),
+        "an unusable /Background must be named with its length: {reported}"
     );
 }
 

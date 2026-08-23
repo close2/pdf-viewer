@@ -1348,7 +1348,14 @@ impl CpuRasterizer {
 
     /// Draws `path` with a paint no shader can express, and says whether it did.
     ///
-    /// Two of them, and each is a *paint* that becomes pixels rather than a gradient:
+    /// Three of them, and each is a *paint* that becomes pixels rather than a gradient:
+    ///
+    /// - **A shading stating ISO 32000-2 §8.7.4.3 Table 77's `/Background`** answers a colour
+    ///   outside its own bounds, which no spread mode expresses. §11.6.7 makes the wash and the
+    ///   shading one painting operation — the pattern's implicit group is "filled with the
+    ///   specified background colour before the sh operator is invoked" — so
+    ///   [`pdf_render::ShadingRaster`] answers both per device pixel and the shape's own edge
+    ///   does the compositing once. It is asked first because it holds for every kind.
     ///
     /// - **A mesh** carries a colour — or §8.7.4.5.5's parametric value — per triangle corner,
     ///   so it is rasterised by [`pdf_render::MeshRaster`] and drawn inside the shape rather
@@ -1374,6 +1381,23 @@ impl CpuRasterizer {
             return false;
         };
         let at = convert::transform(to_device.of(transform));
+        if shading.background.is_some() {
+            shading::fill_with_background(
+                pixmap,
+                path,
+                shading,
+                to_device.of(Transform::IDENTITY),
+                convert::fill_rule(fill_rule),
+                at,
+                clip,
+                blend,
+                self.anti_alias,
+            );
+            // Answered whether or not a raster came back: an empty one is a shape covering no
+            // device pixel, and falling through to a shader that has refused this paint (see
+            // `shading::shader`) would turn that into an error on the page.
+            return true;
+        }
         match shading.kind.as_ref() {
             pdf_render::ShadingKind::Mesh { triangles, ramp } => {
                 shading::fill_mesh(

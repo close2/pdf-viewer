@@ -1117,6 +1117,7 @@ pub fn radial_cone() -> DisplayList {
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: None,
             kind: Arc::new(pdf_render::ShadingKind::Radial {
                 start: Point::new(150.0, 100.0),
                 start_radius: 25.0,
@@ -1265,6 +1266,7 @@ pub fn sampled_shading() -> DisplayList {
         transform: Transform::IDENTITY,
         fill_rule: FillRule::NonZero,
         paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: None,
             kind: Arc::new(pdf_render::ShadingKind::Sampled {
                 domain: [0.0, 1.0, 0.0, 1.0],
                 source: pdf_render::DeferredColours::new(Arc::new(SampledWaves)),
@@ -1277,6 +1279,152 @@ pub fn sampled_shading() -> DisplayList {
             }),
             // The unit domain onto (10, 10)–(410, 410) of the page.
             transform: Transform::new(400.0, 0.0, 0.0, 400.0, 10.0, 10.0),
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    list
+}
+
+/// The colour [`shading_background`] washes every one of its four quadrants with.
+pub const WASH: Color = Color {
+    r: 0.0,
+    g: 0.6,
+    b: 0.6,
+    a: 1.0,
+};
+
+/// ISO 32000-2 §8.7.4.3 Table 77's `/Background`, on all four shading kinds at once.
+///
+/// > If present, this colour shall be used, before any painting operation involving the
+/// > shading, to fill those portions of the area to be painted that lie outside the bounds of
+/// > the shading object.
+///
+/// Every quadrant fills a square larger than the shading inside it, so every quadrant has a
+/// wash and a shading in it — and the four kinds are here together because *where a shading
+/// ends* is four different questions and a scene of one would have answered one of them
+/// (ADR 0046, and trap 12b's "a suite of small scenes tests small scenes"):
+///
+/// - **axial**, bounded by `/Extend` at both ends: the band between two perpendiculars;
+/// - **radial**, two nested circles with neither end extended: the outer disc;
+/// - **mesh**, bounded by the triangles the file states and nothing else;
+/// - **sampled**, bounded by §8.7.4.5.2's transformed domain rectangle.
+///
+/// It is a cross-backend scene rather than a `render-cpu` fixture because §11.6.7 makes the
+/// wash and the shading **one** painting operation — "the pattern's imp licit transparency
+/// group shall be filled with the specified background colour before the sh operator is
+/// invoked" — so all three backends draw one [`pdf_render::ShadingRaster`], and the thing worth
+/// gating is that none of them decided the geometry or the colour for itself (trap 2). The
+/// quadrant boundaries are at whole units and the shadings' own boundaries are not, so the
+/// comparison covers both a hard edge and the fractional coverage where a construction can part.
+#[must_use]
+pub fn shading_background() -> DisplayList {
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+    let ramp = || pdf_render::Ramp::sample(|t| Color::rgb(1.0 - t, 0.0, t));
+
+    // Top left: an axial band 32.5 units wide inside an 85-unit square, extended at neither
+    // end, so the wash is everything to the left of x = 33.5 and right of x = 66.
+    list.push(Command::Fill {
+        path: Arc::new(rect(10.0, 10.0, 95.0, 95.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: Some(WASH),
+            kind: Arc::new(pdf_render::ShadingKind::Axial {
+                start: Point::new(33.5, 10.0),
+                end: Point::new(66.0, 10.0),
+                ramp: ramp(),
+                extend: (false, false),
+            }),
+            transform: Transform::IDENTITY,
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    // Top right: two nested circles, neither end extended, so the wash is the square minus
+    // the outer disc. Nested rather than a cone on purpose — this is the geometry a gradient
+    // library *can* express, and it is therefore the quadrant that would catch a backend
+    // keeping its own gradient and losing the wash.
+    list.push(Command::Fill {
+        path: Arc::new(rect(105.0, 10.0, 190.0, 95.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: Some(WASH),
+            kind: Arc::new(pdf_render::ShadingKind::Radial {
+                start: Point::new(147.5, 52.5),
+                start_radius: 0.0,
+                end: Point::new(147.5, 52.5),
+                end_radius: 30.5,
+                ramp: ramp(),
+                extend: (false, false),
+            }),
+            transform: Transform::IDENTITY,
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    // Bottom left: two triangles covering the left half of the square, so the wash is its
+    // right half plus the sliver above and below the mesh's own extent.
+    let corner = |x: f32, y: f32| Point::new(x, y);
+    let red = Color::rgb(1.0, 0.0, 0.0);
+    let blue = Color::rgb(0.0, 0.0, 1.0);
+    list.push(Command::Fill {
+        path: Arc::new(rect(10.0, 105.0, 95.0, 190.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: Some(WASH),
+            kind: Arc::new(pdf_render::ShadingKind::Mesh {
+                triangles: Arc::from(vec![
+                    pdf_render::Triangle {
+                        points: [
+                            corner(20.5, 115.5),
+                            corner(52.5, 115.5),
+                            corner(52.5, 179.5),
+                        ],
+                        corners: pdf_render::Corners::Colours([red, blue, red]),
+                    },
+                    pdf_render::Triangle {
+                        points: [
+                            corner(20.5, 115.5),
+                            corner(52.5, 179.5),
+                            corner(20.5, 179.5),
+                        ],
+                        corners: pdf_render::Corners::Colours([red, red, blue]),
+                    },
+                ]),
+                ramp: None,
+            }),
+            transform: Transform::IDENTITY,
+        })),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    // Bottom right: the unit domain carried onto a 55-unit square inside an 85-unit one, so
+    // the wash is the border around it. §8.7.4.5.2 is the clause that states this quadrant
+    // outright — points inside the box and outside the transformed domain "shall be painted
+    // with the shading's background colour".
+    list.push(Command::Fill {
+        path: Arc::new(rect(105.0, 105.0, 190.0, 190.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Shading(Arc::new(pdf_render::Shading {
+            background: Some(WASH),
+            kind: Arc::new(pdf_render::ShadingKind::Sampled {
+                domain: [0.0, 1.0, 0.0, 1.0],
+                source: pdf_render::DeferredColours::new(Arc::new(SampledWaves)),
+                program: None,
+            }),
+            transform: Transform::new(55.0, 0.0, 0.0, 55.0, 120.5, 120.5),
         })),
         clip: None,
         mask: None,

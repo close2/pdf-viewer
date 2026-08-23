@@ -541,6 +541,30 @@ fn encode_fill(
         knock_out(scene, at, rule, shape);
     }
 
+    // ISO 32000-2 §8.7.4.3 Table 77's `/Background`: a colour the shading answers outside its
+    // own bounds, which no `peniko::Extend` expresses. §11.6.7 makes the wash and the shading
+    // one painting operation, so both are evaluated into one raster and drawn inside a layer
+    // clipped to the shape. Asked before the two kind-specific doors because it holds for every
+    // kind.
+    if let Paint::Shading(shading) = paint
+        && shading.background.is_some()
+    {
+        let mode = layer.unwrap_or(peniko::BlendMode::new(
+            peniko::Mix::Normal,
+            peniko::Compose::SrcOver,
+        ));
+        scene.push_layer(rule, mode, 1.0, at, shape);
+        crate::shading::fill_with_background(
+            scene,
+            shading,
+            spaces.to_device,
+            device_bounds(shape, at, target),
+            target,
+        );
+        scene.pop_layer();
+        return Ok(());
+    }
+
     // A mesh carries a colour — or §8.7.4.5.5's parametric value — per triangle corner,
     // which no brush can express, so it is rasterised and drawn inside a layer clipped to
     // the shape.

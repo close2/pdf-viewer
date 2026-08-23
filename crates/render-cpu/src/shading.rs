@@ -66,6 +66,15 @@ pub(crate) fn shader<'a>(
 ) -> Option<tiny_skia::Shader<'a>> {
     let transform = crate::convert::transform(shading.transform.then(page_to_path));
 
+    // Table 77's `/Background` is a colour this shading answers outside its own bounds, and no
+    // `tiny-skia` shader can say so: a gradient's spread modes pad, repeat or reflect, and a
+    // pattern's pad the grid's own edge. [`fill_with_background`] is the answer, and it is a
+    // *fill*'s door — so a shading arriving here with one is a stroke, and refusing it loudly
+    // is what keeps the shortfall a report rather than a picture missing its wash (trap 5).
+    if shading.background.is_some() {
+        return None;
+    }
+
     match shading.kind.as_ref() {
         ShadingKind::Axial {
             start,
@@ -237,6 +246,82 @@ pub(crate) fn fill_mesh(
     );
 }
 
+/// Draws a shading washed with ISO 32000-2 §8.7.4.3 Table 77's `/Background`, clipped to a path.
+///
+/// The third member of [`fill_mesh`]'s and [`fill_radial`]'s family and the general one:
+/// [`pdf_render::ShadingRaster`] evaluates the shading at each device pixel's centre and answers
+/// the background where the shading's own geometry answers nothing, so the wash and the gradient
+/// are one raster, drawn through the shape's antialiased edge as a single painting operation.
+/// That is §11.6.7's construction — the pattern's implicit group filled with the background
+/// before the `sh` — rather than Table 77's NOTE 1, which states the two-operation equivalence
+/// for the *opaque* imaging model only.
+///
+/// The region is the shape's own device bounds rather than the target's, for [`fill_radial`]'s
+/// reason: the wash covers "the area to be painted", which is the path, and a page-sized raster
+/// per shading is a cost the shape already rules out.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "these are the parameters `fill_path` itself takes, threaded through one \
+              level; bundling them into a struct would only move the list"
+)]
+pub(crate) fn fill_with_background(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    shape: &tiny_skia::Path,
+    shading: &Shading,
+    page_to_device: Transform,
+    fill_rule: tiny_skia::FillRule,
+    shape_transform: tiny_skia::Transform,
+    clip: crate::scan::Clip<'_>,
+    blend: tiny_skia::BlendMode,
+    anti_alias: bool,
+) {
+    let target = (pixmap.width(), pixmap.height());
+    let Some(within) = device_bounds(shape, shape_transform, target) else {
+        return;
+    };
+    let Some(raster) = pdf_render::ShadingRaster::build(shading, page_to_device, within, target)
+    else {
+        return;
+    };
+    fill_with_raster(
+        pixmap,
+        shape,
+        &raster.image,
+        (raster.left, raster.top),
+        fill_rule,
+        shape_transform,
+        clip,
+        blend,
+        anti_alias,
+    );
+}
+
+/// The device pixels a shape covers, clamped to the target.
+///
+/// Half a pixel of margin on each side, because a pixel is sampled at its centre and a shape
+/// ending at x = 10.0 still covers the sample at 9.5 — `MeshRaster::build`'s own margin, and the
+/// same bound the sibling backends compute.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    reason = "each cast is between a device pixel index and its coordinate, both bounded \
+              by the target's extent"
+)]
+fn device_bounds(
+    shape: &tiny_skia::Path,
+    shape_transform: tiny_skia::Transform,
+    (width, height): (u32, u32),
+) -> Option<(u32, u32, u32, u32)> {
+    let bounds = shape.clone().transform(shape_transform)?.bounds();
+    Some((
+        (bounds.left() - 0.5).floor().max(0.0) as u32,
+        (bounds.top() - 0.5).floor().max(0.0) as u32,
+        (bounds.right() + 0.5).ceil().max(0.0).min(width as f32) as u32,
+        (bounds.bottom() + 0.5).ceil().max(0.0).min(height as f32) as u32,
+    ))
+}
+
 /// Whether a radial shading's geometry is one §8.7.4.5.4 decides and a gradient cannot.
 ///
 /// The quadratic whose roots are the blend circles through a point has leading coefficient
@@ -290,31 +375,10 @@ pub(crate) fn fill_radial(
     blend: tiny_skia::BlendMode,
     anti_alias: bool,
 ) -> bool {
-    let Some(device_shape) = shape.clone().transform(shape_transform) else {
+    let Some(within) = device_bounds(shape, shape_transform, (pixmap.width(), pixmap.height()))
+    else {
         return false;
     };
-    let bounds = device_shape.bounds();
-    // Half a pixel of margin, because a pixel is sampled at its centre and a shape ending at
-    // x = 10.0 still covers the sample at 9.5 — `MeshRaster::build`'s own margin.
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        clippy::cast_precision_loss,
-        reason = "each cast is between a device pixel index and its coordinate, both bounded \
-                  by the target's extent"
-    )]
-    let within = (
-        (bounds.left() - 0.5).floor().max(0.0) as u32,
-        (bounds.top() - 0.5).floor().max(0.0) as u32,
-        (bounds.right() + 0.5)
-            .ceil()
-            .max(0.0)
-            .min(pixmap.width() as f32) as u32,
-        (bounds.bottom() + 0.5)
-            .ceil()
-            .max(0.0)
-            .min(pixmap.height() as f32) as u32,
-    );
     let Some(raster) = pdf_render::RadialRaster::build(radial, to_device, within) else {
         return false;
     };

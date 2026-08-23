@@ -108,6 +108,7 @@ fn square() -> Arc<Path> {
 /// A gradient across the unit square, so that the positioned branch has a paint to refuse.
 fn gradient() -> Paint {
     Paint::Shading(Arc::new(Shading {
+        background: None,
         kind: Arc::new(ShadingKind::Axial {
             start: Point::new(0.0, 0.0),
             end: Point::new(1.0, 0.0),
