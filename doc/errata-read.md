@@ -817,3 +817,64 @@ arithmetic is unchanged and still right; what was corrected is the comment, beca
 now states the byte reading in the same two sentences that had seemed to deny it. The corpus's
 witness is `doc/corpora/format-corpus/pdfCabinetOfHorrors/encryption_openpassword.pdf`, which
 writes `/CFM /AESV2 /Length 16`.
+
+## Two carets under §11.6.6 and two mis-filed above it, found in the six-hundred-and-ninety-seventh
+
+`emit` over all fourteen documents while reading §11.4's and §11.6's `partial` rows. Three
+annotations land on the two pages §11.6.6 opens across, and all three are the shape the section
+above states as a rule — a **`Caret` with no `StrikeOut`**, which `check` cannot see because it has
+no struck text for a quotation to match. Two of the three are not §11.6.6's at all, and that is a
+property of the instrument worth writing down before the finding.
+
+### `emit` files an annotation by the *page* its outline puts in a clause, not by the clause
+
+`Landing::section` is "the section §12.3.3's outline puts that page in", so every annotation on a
+page is filed under the last bookmark whose destination is at or before it. §11.6.6's heading sits
+at the **bottom** of page 436, and the top of that page is the tail of "Table 143 — Restrictions on
+the entries in a soft-mask image dictionary", which is §11.6.5.2's. So the two **Issue #619**
+carets on page 436 print under `## 11.6.6` and belong one subclause earlier. ADR 0492 read this
+family's errata in the six-hundred-and-sixty-sixth session and recorded them as marking "entries of
+§11.6.6"; they mark entries of Table 143. The check is arithmetic and takes a minute: a `/Rect` is
+in PDF coordinates from the bottom, `mutool draw -F stext` reports from the top, and the page is
+841.92 tall.
+
+**Issue #619, `Review/Accepted`, adds a deprecation notice to Table 143's `/ID` and `/OPI` rows.**
+The whole content of each caret is the four words `Deprecated in PDF 2.0.` — written as data rather
+than as a quotation because `check` compares a quoted span against what an erratum *struck*, and
+Issue #173 struck a sentence on p. 576 that opens with those same words, so quoting them here puts
+a false positive in that instrument for nothing. Both carets say the same; their rects are
+`[278.143127 687.482361 287.219238 694.877686]` and
+`[278.143127 663.482361 287.219238 670.877686]`, which are 147.0 and 171.0 from the
+top, and `stext` puts the `/ID` line at 144 and the `/OPI` line at 168 with `Ignored.` ending at
+x 280 — so each caret sits at the end of its row's `Ignored.` **Nothing this tree does moves**: both
+entries are ignored in a soft-mask image dictionary under either printing, and §8.9.5.1's row
+already records them unread. What the erratum repairs is an inconsistency between two tables —
+Table 87's `/OPI` row already carries the same notice and its `/ID` row does not, while §14.10.1
+opens by saying that the features of Web capture — the feature `/ID` belongs to — are deprecated
+with PDF 2.0. Table 143 states it for both entries now and Table 87 still states it for one.
+
+### The finding: Issue #134 names which resource dictionary remaps a group's device space
+
+**Issue #134, `Review/Completed`, states the authority for what this reader already did.** Its whole
+content is
+
+> of the transparency group XObject
+
+with `/Rect [179.297 428.36 187.25 434.84]` on page 437 — 407.1 to 413.6 from the top, where `stext`
+puts the line `dictionary (see 8.6.5.6, "Default colour spaces").` at 404.1 with `dictionary` ending
+at x 181 and `(see` starting at x 184. The caret is between them, so Table 145's `/CS` sentence
+
+> Device colour spaces shall be subject to remapping according to the DefaultGray , DefaultRGB ,
+> and DefaultCMYK entries in the ColorSpace subdictionary of the current resource dictionary
+
+becomes "…of the current resource dictionary **of the transparency group XObject** (see 8.6.5.6,
+"Default colour spaces")".
+
+That matters because *current* is the ambiguous word. A group's `/CS` is read at the `Do`, where the
+resource dictionary in force is the **parent's** — the group's content stream has not started — so
+the published sentence can be read either way, and the two readings pick different `/DefaultCMYK`
+entries whenever a form states one its page does not. `content/xobject.rs` resolves a form's
+`/Resources` and passes it as `form_resources`, falling back to the parent's only where the entry is
+absent, and `content/transparency.rs`'s `press_for_entry` and `named_press` take that dictionary —
+so this tree has read the group's own since the construction was built, on nobody's stated
+authority. It now has the clause's. Recorded in §11.6.6's row and in `named_press`'s own comment.

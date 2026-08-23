@@ -1092,6 +1092,16 @@ fn press_for_entry(
 /// while §8.6.5.7 NOTE 3 says an output intent "can suggest" a calibration — the nearer and
 /// stronger statement wins, which is the ranking ADR 0009 recorded for a colour on its way to a
 /// pixel and this is the same ranking one clause up.
+///
+/// **`resources` is the group `XObject`'s own, and the standard says which only under an
+/// erratum.** Table 145 subjects a group's device colour space to remapping through the
+/// `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` entries of *the current* resource
+/// dictionary's `/ColorSpace` subdictionary (§11.6.6, §8.6.5.6), and at a `Do` the dictionary
+/// current in the ordinary sense is the **parent's** — the group's content stream has not
+/// begun. Errata Collection 3's Issue #134 settles it by naming the transparency group
+/// `XObject`'s own, which is what `xobject.rs` has always passed here as `form_resources`. It
+/// is a `Caret` with no `StrikeOut`, so `spec-errata check` cannot see it by construction and
+/// `emit` is what found it; `doc/errata-read.md` has the reading and ADR 0551 the argument.
 fn named_press(document: &Document, resources: &Dictionary, presses: &Presses) -> PagePress {
     // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
     // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
@@ -1227,7 +1237,8 @@ impl Interpreter<'_> {
     ///   (§11.7.2). Table 145 subjects a device space here to remapping through the
     ///   `DefaultCMYK` entry of the *current* resource dictionary's `ColorSpace`
     ///   subdictionary, which is why the group's resources are consulted rather than the
-    ///   page's.
+    ///   page's — and Errata Collection 3's Issue #134 is what makes that reading of
+    ///   *current* the clause's rather than this tree's (see [`named_press`]).
     /// - **No figure is supplying this content's colour from outside it** (§8.6.8's
     ///   `uncoloured`): the marks inside carry a colour resolved for the *parent's*
     ///   compositing, and reinterpreting them in ink would convert a colour that was never
