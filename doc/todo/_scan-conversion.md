@@ -44,7 +44,10 @@ the first three all in one direction:
    rungs. **What still carries the quantum is every shape that is not a single axis-aligned
    rectangle**, where it is a sixteenth rather than a quarter and averages along the edge; a glyph,
    a curve, a diagonal and a path stating several rectangles are all in it, and `doc/todo/11`
-   item 7 says why the last of those is deliberate.
+   item 7 says why the last of those is deliberate. **A stroke's outline joined the exception in
+   the six-hundred-and-ninetieth** (ADR 0535), where the outline is one rectangle: a butt-capped
+   straight rule along a device axis is drawn as the fill of that rectangle and measured by the
+   same closed form.
 2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
    four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
    states one region as *many* opaque fills, every internal boundary falls inside some device
@@ -140,12 +143,31 @@ the smaller of it and the region per pixel, and blits the paint through the resu
 device pixels the mark reaches — `Mask::fill_path` and `PixmapMut::fill_rect`, both the library's
 own. It declines where the substitution would say something else: a clip already 0 or 255 under the
 mark, a mark that is not anti-aliased, and `BlendMode::Source`. `issue21346.pdf`'s edge went
-0.163 → **0.306** of the mark. **What still multiplies** is a stroke's coverage, an image's edge, a
-group's raster, and both other backends — which is why the departure is narrowed rather than closed
-a second time. **One corner of the stroke came with something else**: since ADR 0398 a stroke whose
-stated mitre limit admits a join `tiny-skia` refuses is drawn as the fill of its own outline with
-§8.4.3.5's mitres appended, so on such a path a stroke's coverage does meet its clip by `min`. Two
-of 1441 first pages state one, so it narrows the sentence rather than the departure.
+0.163 → **0.306** of the mark. **What still multiplies** is an image's edge, part of a group's
+raster, and both other backends — which is why the departure is narrowed rather than closed
+a second time.
+
+**And since the six-hundred-and-ninetieth, where a clip meets a *stroked* mark** — the same
+sentence one operator over, since neither §10.7.4's clipping paragraph nor §8.5.4 names an operator
+and §8.4.3 gives a stroke a shape (ADR 0535). Every stroke went to
+`tiny_skia::PixmapMut::stroke_path`, which hands the finished mask to its own `fill_path`. **The
+price this file and `doc/todo/11` both quoted was wrong in ADR 0476's direction**: it read
+"duplicating the library's stroker and contradicting its hairline", and `tiny_skia::Path::stroke`
+and `tiny_skia::Path::dash` are public and are the same stroker and dasher that method calls — its
+non-hairline branch is exactly those two followed by a non-zero `fill_path`.
+`render_cpu::draw_stroked_outline` performs them one call earlier so that `scan::fill` composes the
+result, which is what `draw_long_mitres` has done for §8.4.3.5's paths since ADR 0398 and what
+`sub_pixel_bands` and `substitute_width` have done for §10.7.4's sub-pixel rules since ADR 0226 —
+so three of this backend's four stroke constructions were fills already and the fourth is now one.
+The hairline half is answered by **moving the boundary rather than crossing it**: `tiny-skia`
+chooses its hairline from an approximate length of the width along the transform's two basis
+vectors, `pdf_render::thinnest_line` is the larger singular value, and the two agree for every
+similarity transform and part by up to √2 under a shear — so the boundary is the shared crate's
+now, which is trap 2 rather than a preference. Because a stroke's mark is a fill's mark from here
+on, ADR 0476's exact rectangle coverage reaches a butt-capped straight rule along a device axis,
+which it did not before: `coincident_edge_probe`'s stroke table read 0.4980 alone and 0.2510 under
+each of three restatements where the fill table read 0.5059 four times, and all eight rungs read
+0.5059 now.
 
 **And since the five-hundred-and-twenty-eighth, a clip standing *beside* a soft mask** — the case
 ADR 0355 declined because the two were already one buffer (ADR 0363). The standard states them in

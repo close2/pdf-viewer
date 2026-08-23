@@ -570,7 +570,8 @@ impl CpuRasterizer {
                 at,
                 &brush,
                 clip,
-            ) {
+            ) && !draw_stroked_outline(pixmap, &converted, &style, at, &brush, clip)
+            {
                 scan::stroke(
                     pixmap,
                     &converted,
@@ -2145,6 +2146,122 @@ fn draw_rule_at_one_pixel(
     true
 }
 
+/// The verbs an axis-aligned rectangle's outline can take, above which [`draw_stroked_outline`]
+/// stops asking whether it is one.
+///
+/// A **cost guard and not a condition**: `pdf_render::device_rectangle` decides whether a shape is
+/// a rectangle, and this only decides whether asking is worth a path conversion. `tiny-skia`'s
+/// stroker closes a butt-capped straight rule with a move, three lines and a close — five verbs —
+/// and `the_outline_of_a_straight_rule_is_a_rectangle` pins that count, so the margin here is for a
+/// stroker that spells the same rectangle a verb or two differently rather than for a shape with
+/// more corners.
+const RECTANGULAR_OUTLINE_VERBS: usize = 8;
+
+/// ISO 32000-2 §8.4.3's stroked outline, filled — which is the shape §10.7.4's clipping paragraph
+/// can meet as a *set* where a hairline and a library-internal fill cannot.
+///
+/// Returns `false` for a stroke at or under the coverage quantum, which is
+/// [`draw_sub_pixel_rule`]'s, and for a path the stroker or the dasher refuses.
+///
+/// # Why a stroke needs this
+///
+/// §10.7.4 states the clip as a set of pixels intersected with "the set of pixels for the region
+/// to be painted", and §8.5.4 as the intersection of the clipping path with "the object's
+/// intrinsic shape". Neither sentence knows which operator painted the region. This backend did:
+/// a *fill* has met its clip by `min` since ADR 0355, and a stroke went through
+/// `tiny_skia::PixmapMut::stroke_path`, which hands the finished mask to its own `fill_path` and
+/// multiplies. A boundary pixel covered `c` by the mark and `c` by a coincident clip was painted
+/// `c²` — `crates/pdf-model/examples/coincident_edge_probe` is the ladder and
+/// `render-cpu/tests/clip_intersection.rs` is the identity.
+///
+/// # Why it is not a second stroker
+///
+/// `scan::stroke`'s comment priced this as "choosing between duplicating the library's stroker and
+/// contradicting its hairline", and the first half was wrong in ADR 0476's direction: **the
+/// library already contains the pieces**. `tiny_skia::Path::stroke` is the same
+/// `PathStroker` `stroke_path` calls, `tiny_skia::Path::dash` the same dasher, and `stroke_path`'s
+/// own non-hairline branch is exactly the two of them followed by a `fill_path` under the non-zero
+/// rule. So the mark drawn here is the mark the library drew, reached one call earlier so that
+/// `scan::fill` can compose it — the same move `draw_long_mitres` already makes for the paths
+/// §8.4.3.5 takes out of the stroker's hands.
+///
+/// # The second half: the hairline boundary was the *library's*
+///
+/// The remaining half of that sentence — contradicting the hairline — is answered by moving the
+/// boundary rather than by crossing it. `tiny-skia` decides between a hairline and an outline with
+/// `treat_as_hairline`, which maps the width along each of the transform's two basis vectors and
+/// compares an approximate length against 1; `pdf_render::thinnest_line` is a singular value and is
+/// exact, and the two agree for every similarity transform and part by up to a factor of `√2`
+/// under a shear. A boundary either backend can be given by its own library is a boundary neither
+/// backend chose (trap 2), so it is `pdf-render`'s here: at or under one device pixel §10.7.4's
+/// substitutions own the mark, and above it the stroke's own outline does. The library's hairline
+/// is then reached only where [`carries_coverage_as_alpha`] has already withdrawn every
+/// substitution this module makes.
+///
+/// # And what falls out of it, because a stroke's mark is now a fill's
+///
+/// A butt-capped straight rule along a device axis has an outline that is *one axis-aligned
+/// rectangle*, so ADR 0476's exact coverage — the product of a pixel's two overlaps, from
+/// §10.7.4's own definition of a pixel — applies to it and did not before. That is the same rule
+/// the clip region beside it is already measured by, which is what the subclause asks for in so
+/// many words: the region "consists of the set of pixels that would be included by a fill
+/// operation". `a_stroke_and_the_fill_of_its_outline_are_one_mark` is the scene, and it read three
+/// levels apart before this.
+fn draw_stroked_outline(
+    pixmap: &mut tiny_skia::PixmapMut<'_>,
+    path: &tiny_skia::Path,
+    style: &tiny_skia::Stroke,
+    at: Transform,
+    brush: &tiny_skia::Paint<'_>,
+    clip: scan::Clip<'_>,
+) -> bool {
+    let Some(one_pixel) = pdf_render::thinnest_line(at) else {
+        return false;
+    };
+    if at_or_under_the_quantum(style.width, one_pixel) {
+        return false;
+    }
+    let scale = tiny_skia::PathStroker::compute_resolution_scale(&convert::transform(at));
+    // §8.4.3.6's pattern is measured along the path and the stroker knows nothing about it, which
+    // is the order `stroke_path` dispenses them in too.
+    let dashed;
+    let path = match style.dash.as_ref() {
+        None => path,
+        Some(dash) => {
+            let Some(cut) = path.dash(dash, scale) else {
+                return false;
+            };
+            dashed = cut;
+            &dashed
+        }
+    };
+    let mut solid = style.clone();
+    solid.dash = None;
+    let Some(outline) = path.stroke(&solid, scale) else {
+        return false;
+    };
+    let at_device = convert::transform(at);
+    if outline.len() <= RECTANGULAR_OUTLINE_VERBS
+        && let Some(rect) = pdf_render::device_rectangle(&convert::from_skia_path(&outline), at)
+        && let Some(rect) = convert::to_skia_rect(rect)
+    {
+        scan::fill_rectangle(pixmap, (&outline, rect), brush, at_device, clip);
+        return true;
+    }
+    // The non-zero rule, because a stroked outline's inner contours are wound against its outer
+    // ones and the even-odd rule would hollow a self-overlapping stroke out. It is what
+    // `stroke_path` fills the same outline with.
+    scan::fill(
+        pixmap,
+        &outline,
+        brush,
+        tiny_skia::FillRule::Winding,
+        at_device,
+        clip,
+    );
+    true
+}
+
 /// The mitre-length ratio above which this library's stroker draws a bevel whatever `M` says.
 ///
 /// `tiny-skia`'s stroker classifies a join before it consults the limit: `dot_to_angle_type` calls
@@ -3539,7 +3656,42 @@ mod tests {
         TargetSpec, Transform,
     };
 
-    use super::{Band, MASK_BUDGET, MaskCache, Surface};
+    use super::{Band, MASK_BUDGET, MaskCache, RECTANGULAR_OUTLINE_VERBS, Surface};
+
+    /// What [`RECTANGULAR_OUTLINE_VERBS`] is a margin above, read off the library rather than
+    /// assumed — and that the shape it spells really is the rectangle §10.7.4's closed form is
+    /// about.
+    ///
+    /// A stroker that started spelling this outline with more verbs than the constant admits
+    /// would take every axis-aligned rule back to the supersampled converter's quarter with no
+    /// gate failing anywhere else, because the mark would still be the right shape.
+    #[test]
+    fn the_outline_of_a_straight_rule_is_a_rectangle() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(10.0, 20.0);
+        builder.line_to(30.0, 20.0);
+        let rule = builder.finish().expect("a two-point path");
+        let stroke = tiny_skia::Stroke {
+            width: 4.0,
+            line_cap: tiny_skia::LineCap::Butt,
+            ..tiny_skia::Stroke::default()
+        };
+        let outline = rule.stroke(&stroke, 1.0).expect("a stroked rule");
+        assert!(
+            outline.len() <= RECTANGULAR_OUTLINE_VERBS,
+            "the outline takes {} verbs, above the constant's {RECTANGULAR_OUTLINE_VERBS}",
+            outline.len()
+        );
+        let rect = pdf_render::device_rectangle(
+            &super::convert::from_skia_path(&outline),
+            Transform::IDENTITY,
+        )
+        .expect("a butt-capped axis-aligned rule outlines to one rectangle");
+        assert_eq!(
+            (rect.min.x, rect.min.y, rect.max.x, rect.max.y),
+            (10.0, 18.0, 30.0, 22.0)
+        );
+    }
 
     /// A page carrying `count` clips, each a thin horizontal bar at its own height.
     ///

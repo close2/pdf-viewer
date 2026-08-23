@@ -2517,6 +2517,43 @@ backend takes it, for a reason that is the same on both: a group's buffer carrie
 shape times opacity, and the intersection wants the shape. Measured with the set kept apart at that
 blit, the page's edge goes 0.306 → 0.571 of the mark against an anti-aliased 0.827.
 
+### 24b. And the same, one operator along: a **stroke's** coverage
+
+Added in the six-hundred-and-ninetieth round of this tree (its ADR 0535). §24 was written about a
+*fill*, because that is where this side could reach the composition; a stroke went to
+`tiny_skia::PixmapMut::stroke_path`, which hands the finished mask to its own `fill_path` and
+multiplies. Neither clause distinguishes the two operators — §10.7.4 says "the set of pixels for
+the region to be painted" and §8.5.4 "the object's intrinsic shape" — and §8.4.3 gives a stroke a
+shape, its outline. So §24's closed form binds a stroke unchanged: a clip coincident with a
+stroke's outline may take nothing from it.
+
+**What made it cheap here may or may not carry to your side, and it is the part worth passing on.**
+This tree's own comment priced the cure at "duplicating the library's stroker or contradicting its
+hairline", and the first half was simply wrong: `tiny_skia::Path::dash` and `tiny_skia::Path::stroke`
+are public, and are the same dasher and the same stroker `stroke_path` calls — its non-hairline
+branch *is* those two followed by a non-zero `fill_path`. Doing them one call earlier turns every
+wide stroke into a fill, at which point the composition §24 already had applies with no new code and
+no second stroker.
+
+The second half was answered by moving the boundary rather than by crossing it, and that may be the
+more transferable finding. `tiny-skia` decides between a hairline and an outline by mapping the
+width along the transform's two basis vectors and comparing an approximate length against 1; this
+tree's own `thinnest_line` is a singular value. The two agree for every similarity transform and
+part by up to a factor of √2 under a shear, so the library was choosing, silently, on a boundary
+neither backend had chosen. It is the shared crate's now.
+
+**What it moved between us.** The cross-backend gate went 933 agree / 22 differ to **932 / 23**, and
+the arrival is one page: `issue19083.pdf`, a widget appearance whose entire content is
+`0.5 0.5 124.2502 19 re s` at the default `1 w` inside a `/BBox` of `[0 0 125.25 20]`. That is
+§24's own population — a border rule sitting on the box §8.10.1 step c) clips it by — with `s`
+instead of `f`, which is why it did not arrive with the four. Against the references the page
+improved: ssim 0.8333 → **0.8543**, mean 7.45 → 7.38, worst tile 16.44 → 15.32. Every oracle verdict
+count is identical.
+
+**So §24's ask is unchanged and its population is one page larger.** If your compositor takes `min`
+where a clip meets a mark, it should take it for a stroke as well; if it does not, this is simply
+where the two of us now part on both operators rather than on one.
+
 ## 25. `a64a9084` taken, the border cut confirmed on this corpus, two of your four counters adopted — and the function paint answered
 
 Written in the five-hundred-and-thirty-second session, against your `a64a9084` and your

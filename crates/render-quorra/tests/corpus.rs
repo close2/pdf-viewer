@@ -612,7 +612,19 @@ const DIFFERS_AT_THE_EDGES: [&str; 6] = [
 /// fraction of a pixel" — is what the general rule now answers for every such page.
 /// `issue16038.pdf` moved the other way, mean 1.3235 → 1.2808, because a tiling cell's clip is
 /// also coincident with the rule it admits.
-const DIFFERS_IN_SHAPE: [&str; 16] = [
+///
+/// **A fifth of that population arrived in the six-hundred-and-ninetieth, when the same
+/// composition reached a *stroke* (ADR 0535).** `issue19083.pdf` is one widget appearance whose
+/// `/BBox` is `[0 0 125.25 20]` and whose whole content is `0.5 0.5 124.2502 19 re s` at the
+/// default `1 w` — a border rule whose outer edge is the `/BBox` §8.10.1 step c) clips it by, on
+/// three sides exactly. It was the four above with `f` instead of `s`, and it stayed out of this
+/// list only because a stroke went through `tiny_skia::PixmapMut::stroke_path`, which multiplies
+/// the mask into the mark. `render-cpu` now draws such a stroke as the fill of its own outline and
+/// composes it by `min`; quorra multiplies at the mark inside the graphics library, on both
+/// operators. Against the *references* the page improved — mean 7.45 → 7.38, worst tile 16.44 →
+/// 15.32, ssim 0.8333 → 0.8543 — which is the same direction and the same reason the four took,
+/// and `doc/QUORRA_FEEDBACK.md` section 24 is still the ask.
+const DIFFERS_IN_SHAPE: [&str; 17] = [
     "22060_A1_01_Plans.pdf",
     "bug1844576.pdf",
     "bug1844583.pdf",
@@ -624,6 +636,7 @@ const DIFFERS_IN_SHAPE: [&str; 16] = [
     "issue16316.pdf",
     "issue16473.pdf",
     "issue18030.pdf",
+    "issue19083.pdf",
     "issue20232.pdf",
     "issue21068.pdf",
     "issue269_2.pdf",

@@ -165,6 +165,17 @@ reintroduced.
   scene was in the right axis and **passed with the GPU's filter removed altogether**. Deleting the
   code a scene guards is one command, and it is the only thing that establishes the scene guards
   it.
+- **A boundary a library picks is a decision neither backend made, and it hides better than a
+  convention does.** The first bullet above is about a library's answer *agreeing* with the clause;
+  this is about a library's answer *approximating* one the shared crate already states exactly.
+  `tiny-skia` chooses between a hairline and a stroked outline by mapping the width along the
+  transform's two basis vectors and comparing `fast_len` — `max + min/2` — against 1;
+  `pdf_render::thinnest_line` is the linear part's larger singular value. The two agree for every
+  **similarity** transform, which is what a page transform is, so no ordinary page can tell them
+  apart — and under a shear they part by up to a factor of √2, at which point one backend draws a
+  hairline for a mark the other strokes. The tell is that the *tree* had a name for the quantity and
+  the library had its own; where that is true, the crate both backends read owns the comparison.
+  ADR 0535, `render_cpu::draw_stroked_outline`.
 
 ### 6. Colour: one conversion, and the specification often has no answer
 

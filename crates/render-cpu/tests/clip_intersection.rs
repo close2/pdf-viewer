@@ -48,9 +48,9 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Clip, ClipId, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand,
-    Point, Ramp, Raster, Rasterizer, Shading, ShadingKind, Size, SoftMask, SoftMaskId,
-    SoftMaskKind, TargetSpec, Transform,
+    BlendMode, Clip, ClipId, Color, Command, DisplayList, FillRule, LineCap, LineJoin, Paint, Path,
+    PathCommand, Point, Ramp, Raster, Rasterizer, Shading, ShadingKind, Size, SoftMask, SoftMaskId,
+    SoftMaskKind, Stroke, TargetSpec, Transform,
 };
 use render_cpu::CpuRasterizer;
 
@@ -82,30 +82,78 @@ fn rect((x0, y0, x1, y1): (f32, f32, f32, f32)) -> Path {
 /// falls where the mask varies rather than where it is the constant outside the group.
 const MASK_GROUP: (f32, f32, f32, f32) = (10.0, 50.0, 190.0, 85.0);
 
-/// The mark: [`MARK`] filled with a red-to-blue gradient running *up* the page.
-fn mark(
-    list: &mut DisplayList,
-    transform: Transform,
-    clip: Option<ClipId>,
-    mask: Option<SoftMaskId>,
-) {
-    list.push(Command::Fill {
-        path: Arc::new(rect(MARK)),
-        transform,
-        fill_rule: FillRule::NonZero,
-        paint: Paint::Shading(Arc::new(Shading {
-            kind: Arc::new(ShadingKind::Axial {
-                start: Point::new(0.0, MARK.1),
-                end: Point::new(0.0, MARK.3),
-                ramp: Ramp::sample(|t| Color::rgb(1.0 - t, 0.0, t)),
-                extend: (true, true),
+/// The red-to-blue gradient every mark here is painted with, running *up* the page.
+fn gradient() -> Paint {
+    Paint::Shading(Arc::new(Shading {
+        kind: Arc::new(ShadingKind::Axial {
+            start: Point::new(0.0, MARK.1),
+            end: Point::new(0.0, MARK.3),
+            ramp: Ramp::sample(|t| Color::rgb(1.0 - t, 0.0, t)),
+            extend: (true, true),
+        }),
+        transform: Transform::IDENTITY,
+    }))
+}
+
+/// Which operator states [`MARK`], since this backend reaches the composition by two paths.
+#[derive(Clone, Copy)]
+enum Mark {
+    /// `f`: the rectangle filled.
+    Filled,
+    /// `S`: a butt-capped rule along the rectangle's own mid-line, as wide as it is tall, so
+    /// §8.4.3's stroked outline is the same four edges the fill and the clip state.
+    ///
+    /// The geometry is deliberately one mark expressed two ways rather than two marks: the
+    /// clause that governs is §10.7.4's clipping paragraph, which is about the *region to be
+    /// painted* and says nothing about which operator painted it, so a stroke whose outline
+    /// coincides with a clip must be composed exactly as the fill of that outline is.
+    Stroked,
+}
+
+impl Mark {
+    /// Pushes the mark onto `list`.
+    fn push(
+        self,
+        list: &mut DisplayList,
+        transform: Transform,
+        clip: Option<ClipId>,
+        mask: Option<SoftMaskId>,
+    ) {
+        match self {
+            Self::Filled => list.push(Command::Fill {
+                path: Arc::new(rect(MARK)),
+                transform,
+                fill_rule: FillRule::NonZero,
+                paint: gradient(),
+                clip,
+                mask,
+                blend: BlendMode::Normal,
             }),
-            transform: Transform::IDENTITY,
-        })),
-        clip,
-        mask,
-        blend: BlendMode::Normal,
-    });
+            Self::Stroked => {
+                let middle = f32::midpoint(MARK.1, MARK.3);
+                let mut path = Path::new();
+                path.push(PathCommand::MoveTo(Point::new(MARK.0, middle)));
+                path.push(PathCommand::LineTo(Point::new(MARK.2, middle)));
+                list.push(Command::Stroke {
+                    path: Arc::new(path),
+                    transform,
+                    stroke: Stroke {
+                        width: MARK.3 - MARK.1,
+                        adjust: false,
+                        cap: LineCap::Butt,
+                        join: LineJoin::Miter,
+                        miter_limit: 10.0,
+                        dash_array: Vec::new(),
+                        dash_phase: 0.0,
+                    },
+                    paint: gradient(),
+                    clip,
+                    mask,
+                    blend: BlendMode::Normal,
+                });
+            }
+        }
+    }
 }
 
 /// A soft mask whose value varies down the page, over a group smaller than the clip.
@@ -150,7 +198,7 @@ fn ramp_mask(list: &mut DisplayList) -> SoftMaskId {
     .expect("the first soft mask")
 }
 
-/// Renders the mark under `rungs` statements of a clip that is the mark's own rectangle.
+/// Renders the filled mark under `rungs` statements of a clip that is the mark's own rectangle.
 ///
 /// Zero rungs is the unclipped render the others are judged against.
 fn render(rungs: usize, transform: Transform, scale: f32) -> Raster {
@@ -159,6 +207,11 @@ fn render(rungs: usize, transform: Transform, scale: f32) -> Raster {
 
 /// As [`render`], and under [`ramp_mask`] where `masked`.
 fn render_masked(rungs: usize, transform: Transform, scale: f32, masked: bool) -> Raster {
+    render_mark(Mark::Filled, rungs, transform, scale, masked)
+}
+
+/// As [`render_masked`], with the operator that states [`MARK`] named.
+fn render_mark(what: Mark, rungs: usize, transform: Transform, scale: f32, masked: bool) -> Raster {
     let mut list = DisplayList::new(Size::new(PAGE, PAGE));
     let mask = masked.then(|| ramp_mask(&mut list));
     let mut parent = None;
@@ -173,7 +226,7 @@ fn render_masked(rungs: usize, transform: Transform, scale: f32, masked: bool) -
             .expect("a clip"),
         );
     }
-    mark(&mut list, transform, parent, mask);
+    what.push(&mut list, transform, parent, mask);
     let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("a valid target");
     CpuRasterizer::new()
         .rasterize(&list, target)
@@ -341,6 +394,84 @@ fn a_clip_coincident_with_the_mark_takes_nothing_from_it_under_a_soft_mask() {
         assert_agrees_within(
             &format!("a coincident clip under a soft mask at scale {scale}"),
             &clipped,
+            &unclipped,
+            1,
+        );
+    }
+}
+
+/// The identity for a mark stated with `S` rather than with `f`.
+///
+/// **The clause does not distinguish the two operators and this backend did.** §10.7.4's
+/// clipping paragraph is about "the set of pixels for the region to be painted", and §8.5.4
+/// about "the object's intrinsic shape"; a stroke has a shape — §8.4.3's stroked outline — and
+/// a clip coincident with it may take nothing from it, exactly as for the fill of that outline.
+/// [`Mark::Stroked`] states the same four edges [`MARK`] does, so the two scenes are one
+/// geometry through two of this backend's paths and the assertion is the same identity.
+///
+/// Before ADR 0535 this failed at the named pixel by tens of levels: `tiny-skia`'s
+/// `stroke_path` handed the finished mask to `fill_path`, which multiplies it into the mark's
+/// own coverage, so a boundary pixel covered `c` by both was painted `c²`.
+#[test]
+fn a_clip_coincident_with_a_stroke_takes_nothing_from_it() {
+    for scale in [1.0_f32, 2.0, 4.0] {
+        let unclipped = render_mark(Mark::Stroked, 0, Transform::IDENTITY, scale, false);
+        assert_it_discriminates(&format!("stroked, scale {scale}"), &unclipped, scale);
+        let clipped = render_mark(Mark::Stroked, 1, Transform::IDENTITY, scale, false);
+        let left = (MARK.0 * scale) as u32;
+        let middle = ((PAGE - f32::midpoint(MARK.1, MARK.3)) * scale) as u32;
+        assert_agrees_within(
+            &format!("the stroked boundary pixel at scale {scale}"),
+            &one_pixel(&clipped, left, middle),
+            &one_pixel(&unclipped, left, middle),
+            1,
+        );
+        assert_agrees_within(
+            &format!("a coincident clip on a stroke at scale {scale}"),
+            &clipped,
+            &unclipped,
+            1,
+        );
+    }
+}
+
+/// A stroke's outline is one shape however it was stated, so the two operators must agree.
+///
+/// **This is the scene that says the substitution is the library's own stroker rather than a
+/// second one.** `Mark::Stroked`'s rule is butt-capped and as wide as [`MARK`] is tall, so
+/// §8.4.3's outline of it *is* [`MARK`]; a construction that offset the path differently, or
+/// that drew a hairline where the width asks for a body, would part from the fill here and
+/// nowhere else in this file. Unclipped, so that it measures the geometry rather than the
+/// composition — and one level, for the two rasterisations' own rounding.
+#[test]
+fn a_stroke_and_the_fill_of_its_outline_are_one_mark() {
+    for scale in [1.0_f32, 2.0, 4.0] {
+        assert_agrees_within(
+            &format!("stroke against fill at scale {scale}"),
+            &render_mark(Mark::Stroked, 0, Transform::IDENTITY, scale, false),
+            &render_mark(Mark::Filled, 0, Transform::IDENTITY, scale, false),
+            1,
+        );
+    }
+}
+
+/// The stroked identity with §11.6.5's value standing beside §10.7.4's set.
+///
+/// [`a_clip_coincident_with_the_mark_takes_nothing_from_it_under_a_soft_mask`] is this scene for
+/// a fill and carries the reading; what it adds is that a stroke reaches
+/// `scan::intersected`'s three-input composition rather than only its two-input one.
+#[test]
+fn a_clip_coincident_with_a_stroke_takes_nothing_from_it_under_a_soft_mask() {
+    for scale in [1.0_f32, 2.0, 4.0] {
+        let unclipped = render_mark(Mark::Stroked, 0, Transform::IDENTITY, scale, true);
+        assert_it_discriminates(
+            &format!("stroked and masked, scale {scale}"),
+            &unclipped,
+            scale,
+        );
+        assert_agrees_within(
+            &format!("a coincident clip on a soft-masked stroke at scale {scale}"),
+            &render_mark(Mark::Stroked, 1, Transform::IDENTITY, scale, true),
             &unclipped,
             1,
         );

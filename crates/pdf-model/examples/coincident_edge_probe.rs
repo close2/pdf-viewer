@@ -29,6 +29,15 @@
 //! multiplies when there is a mask beside it. That is why the residual had no small witness for
 //! nineteen sessions and why `issue7891_bc1.pdf` page 1 is one now.
 //!
+//! # The second table, and why the operator is an axis of its own
+//!
+//! §10.7.4's clipping paragraph is about "the set of pixels for the region to be painted" and
+//! §8.5.4 about "the object's intrinsic shape"; neither sentence names an operator, so a stroke
+//! whose outline is the same rectangle must read the same ladder. The second table states it with
+//! `S` instead of `f` — a butt-capped rule along the rectangle's own mid-line, as wide as the
+//! rectangle is tall, so §8.4.3's stroked outline is the four edges the `re` states — and before
+//! ADR 0535 its clipped rungs read the square where the fill's read the coverage.
+//!
 //! `cargo run -p pdf-model --example coincident_edge_probe`
 
 #![expect(
@@ -46,6 +55,12 @@ const PAGE: f32 = 40.0;
 /// The rectangle every rung states, in PDF units. Its lower edge falls inside a device row.
 const RECT: &str = "10 10 20 20.504 re";
 
+/// The same rectangle as a stroke: [`RECT`]'s own mid-line, butt-capped, as wide as it is tall.
+///
+/// `20.504 w` with `0 J` puts §8.4.3's stroked outline exactly on `[10 10 30 30.504]`, so the two
+/// marks are one geometry and any difference between the two tables is this backend's.
+const RULE: &str = "20.504 w\n0 J\n10 20.252 m\n30 20.252 l";
+
 /// The device row holding the rectangle's lower edge, and the column read out of it.
 ///
 /// The `re` above spans PDF y `[10, 30.504]`, so the upper edge is at device y `40 − 30.504`
@@ -55,6 +70,33 @@ const ROW: usize = 9;
 const COLUMN: usize = 20;
 /// What the shape covers of [`ROW`], from the file's own numbers.
 const COVERAGE: f64 = 0.504;
+
+/// Which operator paints the rectangle.
+#[derive(Clone, Copy)]
+enum Mark {
+    /// `f`, the rectangle filled.
+    Filled,
+    /// `S`, [`RULE`] stroked, whose outline is that same rectangle.
+    Stroked,
+}
+
+impl Mark {
+    /// The content stream that paints it black.
+    fn operators(self) -> String {
+        match self {
+            Self::Filled => format!("0 0 0 rg\n{RECT}\nf\n"),
+            Self::Stroked => format!("0 0 0 RG\n{RULE}\nS\n"),
+        }
+    }
+
+    /// The heading printed above its table.
+    fn heading(self) -> &'static str {
+        match self {
+            Self::Filled => "the mark is a fill",
+            Self::Stroked => "the mark is a stroke of the same outline",
+        }
+    }
+}
 
 /// How the rectangle is stated a second time.
 #[derive(Clone, Copy)]
@@ -73,7 +115,7 @@ impl Restatement {
     /// The name printed in the ladder's first column.
     fn label(self) -> &'static str {
         match self {
-            Self::Alone => "fill alone",
+            Self::Alone => "the mark alone",
             Self::Clip => "W n clip",
             Self::FormBox => "form /BBox",
             Self::GroupBox => "group /BBox",
@@ -83,20 +125,23 @@ impl Restatement {
 
 fn main() {
     println!("one rectangle whose lower edge covers {COVERAGE:.3} of device row {ROW}");
-    println!("stated twice each way, read at column {COLUMN}\n");
-    println!(
-        "  {:<14}{:>14}{:>14}",
-        "restated as", "no soft mask", "soft mask"
-    );
-    for restatement in [
-        Restatement::Alone,
-        Restatement::Clip,
-        Restatement::FormBox,
-        Restatement::GroupBox,
-    ] {
-        let bare = coverage(&document(restatement, false));
-        let masked = coverage(&document(restatement, true));
-        println!("  {:<14}{bare:>14.4}{masked:>14.4}", restatement.label());
+    println!("stated twice each way, read at column {COLUMN}");
+    for mark in [Mark::Filled, Mark::Stroked] {
+        println!("\n{}\n", mark.heading());
+        println!(
+            "  {:<16}{:>14}{:>14}",
+            "restated as", "no soft mask", "soft mask"
+        );
+        for restatement in [
+            Restatement::Alone,
+            Restatement::Clip,
+            Restatement::FormBox,
+            Restatement::GroupBox,
+        ] {
+            let bare = coverage(&document(mark, restatement, false));
+            let masked = coverage(&document(mark, restatement, true));
+            println!("  {:<16}{bare:>14.4}{masked:>14.4}", restatement.label());
+        }
     }
     println!(
         "\n  the shape's own coverage {COVERAGE:.4}, its square {:.4}",
@@ -132,8 +177,8 @@ fn coverage(bytes: &[u8]) -> f64 {
 /// what is being measured: the rectangle's coordinates appear in the content stream, in the clip
 /// and in the `/BBox`, and a helper that shared them between the three would hide the very
 /// coincidence the ladder is about.
-fn document(restatement: Restatement, soft_mask: bool) -> Vec<u8> {
-    let fill = format!("0 0 0 rg\n{RECT}\nf\n");
+fn document(mark: Mark, restatement: Restatement, soft_mask: bool) -> Vec<u8> {
+    let fill = mark.operators();
     let gs = if soft_mask { "/GS gs\n" } else { "" };
     let (content, resources, form) = match restatement {
         Restatement::Alone => (format!("{gs}{fill}"), String::new(), None),

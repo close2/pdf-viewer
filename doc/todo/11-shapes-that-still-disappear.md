@@ -6,11 +6,14 @@ does not draw closed with ADR 0290 along with §8.5.3.2's dot, which nobody had 
 — §8.4.3.5's mitre drawn as a bevel — closed with ADR 0398, where the prediction that it would take
 three strokers was wrong on measurement and one was; item 2 is
 fixed as far as any corpus document exercises it (ADR 0213) and its general case is unwitnessed;
-item 4, the same subclause's clipping paragraph, is **paid for a fill** — the clip chain composes as
+item 4, the same subclause's clipping paragraph, is **paid for a fill and for a stroke** — the clip
+chain composes as
 a set intersection on **both** backends since ADR 0280 and quorra's own ADR 0030, and since ADR 0355
 a *clipping region* meets a filled mark's own coverage by `min` on this backend rather than by a
-product, and since ADR 0363 a clip standing *beside* a soft mask does too.** What is left of it is a
-stroke, an image, **half of a group's raster — the half where §11.4.4's Table 139 shape and alpha
+product, since ADR 0363 a clip standing *beside* a soft mask does too, and since ADR 0535 a
+**stroke's** does, by drawing it as the fill of its own outline with the library's own stroker.**
+What is left of it is an image, **half of a group's raster — the half where §11.4.4's Table 139
+shape and alpha
 are one number, which is a group whose opacity is 1.0 everywhere, is paid on this backend since
 ADR 0492 and the other half is not** — and the two
 backends that still multiply; and what is left of the file is two marks abutting — which item 2
@@ -40,8 +43,9 @@ Clauses: §10.7.4, §8.4.3.3 and §8.5.3.2 for the marks that are `O(w²)`, §8.
 §11.3.7.3 for item 5 and §8.3.4 for item 8 — see `_scan-conversion.md`
 Code: `crates/pdf-render/src/paint.rs`'s `paint_space` (item 8's condition, for all three
 backends), `crates/pdf-render/src/sub_pixel.rs`, `crates/pdf-render/src/mitre.rs`,
-`crates/render-cpu/src/lib.rs`,
-`crates/render-cpu/src/scan.rs` (item 4's composition) and
+`crates/render-cpu/src/lib.rs` (item 4's `draw_stroked_outline`),
+`crates/render-cpu/src/scan.rs` (item 4's composition),
+`crates/render-cpu/tests/clip_intersection.rs` (item 4's identity, for a fill and for a stroke) and
 `crates/pdf-model/examples/coincident_edge_probe.rs` (item 4's instrument: one rectangle stated
 twice, eight ways, so that a composition still taking a product is a printed row) and
 `crates/render-cpu/tests/group_clip_intersection.rs` (item 4's gate for the group blit, which also
@@ -378,15 +382,46 @@ the mark is whole where the clip is not.
 
 ### What is left of item 4, each with what it needs
 
-- **A stroke's coverage.** `tiny-skia` fills a wide stroke's outline but draws one under a device
-  pixel wide as a hairline that is *not* that outline (ADR 0268), so composing here means choosing
-  between duplicating the library's stroker and contradicting its hairline. The substitutions
-  §10.7.4 already asks for on a sub-pixel rule are *fills* and are composed today — **and so is
-  §8.4.3.5's long mitre since ADR 0398**, which reaches the same composition from the other end: a
-  path whose stated limit admits a mitre the stroker refuses is drawn as the fill of its own outline
-  with the mitres appended, so on that path a stroke's coverage meets its clip by `min` rather than
-  by a product. Two of 1441 first pages, so it is a corner of this item rather than a step through
-  it.
+- ~~**A stroke's coverage.**~~ **Paid (ADR 0535), and the price this bullet quoted was wrong in
+  ADR 0476's direction.** It said composing here meant "choosing between duplicating the library's
+  stroker and contradicting its hairline". The first half does not exist: `tiny_skia::Path::stroke`
+  and `tiny_skia::Path::dash` are public, are the same `PathStroker` and the same dasher
+  `stroke_path` calls, and that method's own non-hairline branch is exactly the two of them followed
+  by a non-zero `fill_path`. `render_cpu::draw_stroked_outline` performs them one call earlier so
+  that `scan::fill` composes the result — the move `draw_long_mitres` had already made for
+  §8.4.3.5's paths since ADR 0398, and `draw_rule_as_bands` and `draw_rule_at_one_pixel` for
+  §10.7.4's sub-pixel substitutions before that. So three of the four constructions this backend
+  draws a stroke with were already fills, and the fourth is now the same.
+
+  The second half was answered by **moving the boundary rather than crossing it**, which is trap 2
+  and is the finding worth keeping: `tiny-skia` chooses its hairline in `treat_as_hairline`, by
+  mapping the width along the transform's two basis vectors and comparing `fast_len` against 1,
+  where `pdf_render::thinnest_line` is the linear part's larger singular value. The two agree for
+  every similarity transform — which is what a page transform is — and part by up to a factor of √2
+  under a shear, so **a boundary the library was choosing for one backend is a boundary neither
+  backend had chosen**. At or under `thinnest_line` §10.7.4's substitutions own the mark; above it
+  the stroke's own outline does; the library's hairline is reached only where
+  `carries_coverage_as_alpha` has already withdrawn every substitution, which is `scan::intersected`'s
+  own first decline as well.
+
+  **And a second thing fell out, because a stroke's mark is now a fill's mark**: a butt-capped
+  straight rule along a device axis outlines to one axis-aligned rectangle, so ADR 0476's exact
+  coverage applies to it and did not before. That is item 7's debt paid for the shape item 7's own
+  closed form covers, reached from the other end. `a_stroke_and_the_fill_of_its_outline_are_one_mark`
+  in `clip_intersection.rs` is what says the two operators state one mark; it read **three levels
+  apart** before this and is the scene that would catch a stroker spelling the rectangle
+  differently.
+
+  What it cost, `callgrind_rasterise` under `RAYON_NUM_THREADS=1` over five rasterisations:
+  −0.002% on the specification's page 101, −0.008% on its page 6, −0.000% on `colors.pdf` page 1,
+  −0.001% on `22060_A1_01_Plans.pdf`, **+0.044%** on `issue12295.pdf` — whose 65 859 sub-pixel
+  strokes all *decline* the new branch, so that column is the predicate on its own. It is a
+  call-for-call substitution of the library's own two steps, which is why there is nothing to pay.
+
+  **It has no dependency on item 5**, which was the first question asked of it, and the reason is
+  worth stating: `Path::stroke` produces **one** path filled **once** under the non-zero rule, which
+  is what `stroke_path` does with it anyway, so no mark is split into several and no seam is created.
+  Item 7's remainder is the one with that dependency, and only for a path stating several rectangles.
 - **An image's edge**, which is `draw_pixmap`'s and is the library's own path.
 - **A group's raster, which ADR 0355 recorded as *not owed* and which is owed.** That ADR argued
   "what a group's buffer carries at a pixel is §11.4.5's group alpha rather than one mark's
@@ -744,12 +779,17 @@ question was which converter, not how many calls.
 
 - **Every shape that is not a single axis-aligned rectangle keeps the quantum**, where it is a
   sixteenth rather than a quarter and averages along the edge: a glyph, a curve, a diagonal, a
-  stroke's outline, and a path stating *several* rectangles. The last is deliberate and is item 5's
+  stroke's outline that is not one rectangle, and a path stating *several* rectangles. **A
+  butt-capped straight rule along a device axis left that list in the six-hundred-and-ninetieth
+  session** (ADR 0535) and it left sideways: item 4's stroke half draws such a mark as the fill of
+  its own outline, and that outline *is* one axis-aligned rectangle, so `device_rectangle` answers
+  for it exactly as it does for an `re f`. The last of the list is deliberate and is item 5's
   subject — two rectangles drawn as two marks composite by §11.3.7.3's union where one scan
   conversion accumulates them, so taking them one at a time would trade this defect for a worse one
   along every seam. A round that wants it needs the seam answered first.
-- **A rectangle is measured exactly and then still *multiplied* into its clip**, which is item 4 and
-  is unchanged: what moved is what each surviving factor is worth. `issue21346.pdf`'s edge went
+- **A rectangle is measured exactly and then still *multiplied* into its clip** for an image's edge
+  and for part of a group's raster, which is item 4: what moved is what each surviving factor is
+  worth, and a fill's, a stroke's and an opaque group's are no longer among them. `issue21346.pdf`'s edge went
   0.306 → 0.469 of the mark, and the two stand in the ratio `(0.75/0.827)^4.4`, so four to five of
   that page's seven statements of one rectangle are still products.
 - **`colors.pdf` is still contradicted and that is the predicted outcome**, not a residue: 643
