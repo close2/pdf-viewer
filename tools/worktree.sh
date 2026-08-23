@@ -82,6 +82,21 @@ case "${1:-}" in
     list)
         git -C "$root" worktree list
         echo
+        # The guard is invisible when it works, so print whether it is on. A round that has just
+        # been bitten by a staged gitlink should be able to tell "the guard is off here" from
+        # "the guard is on and something else happened" without reasoning about it.
+        for wt in "$root"/.claude/worktrees/r*/; do
+            [ -d "$wt" ] || continue
+            n=$(basename "${wt%/}")
+            flags=$(git -C "$wt" ls-files -v doc/corpora 2>/dev/null | grep -c '^S ' || true)
+            total=$(git -C "$wt" ls-files doc/corpora 2>/dev/null | wc -l)
+            if [ "$flags" -gt 0 ] && [ "$flags" -eq "$total" ]; then
+                printf '  %-8s gitlink guard on  (%s/%s skip-worktree)\n' "$n" "$flags" "$total"
+            else
+                printf '  %-8s GITLINK GUARD OFF (%s/%s) — a blanket `git add` here can stage a symlink over a submodule\n' "$n" "$flags" "$total"
+            fi
+        done
+        echo
         for d in "$builds"/pdfv-r*; do
             [ -e "$d" ] || continue
             n=$(basename "$d"); n=${n#pdfv-r}

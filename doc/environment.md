@@ -101,6 +101,21 @@ can and cannot open a window on, and where the build lands.
   So the rule is about **any** blanket stage rather than about one flag: `git add <path> …`, and
   read `git commit`'s own file list rather than trusting the command that produced it.
 
+  **`tools/worktree.sh` sets `--skip-worktree` on each linked corpus, and that is a second line
+  rather than a replacement for the rule.** In isolation the flag holds against every shape the
+  six-hundred-and-eighty-fourth session could construct — `add -A`, `add -u`, `add -u doc`, the
+  submodule path named directly — and `tools/worktree.sh list` prints, per worktree, whether it is
+  on. What it does **not** do is explain the six-hundred-and-eighty-third session, which was bitten
+  **with the flag set on all four paths**, and whose worktree still showed `4/4` afterwards. That
+  round's branch was clean and nothing reached a commit, so no harm was done and no diagnosis was
+  possible after the fact.
+
+  The honest state of it: **the rule above is what protects you, the flag is a belt whose
+  sufficiency is disproved by one observation nobody can now reconstruct, and `list` exists so the
+  next round to be bitten can tell "the guard is off here" from "the guard is on and something else
+  happened" without spending an hour on it.** Whichever it is, `cargo test -p conformance` catches
+  the result, which is the only line of the three that has never failed.
+
   So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
   `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
   *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped
