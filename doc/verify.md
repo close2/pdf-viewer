@@ -151,6 +151,21 @@ cargo run --release -p pdf-model --example cell_header_census -- doc/pdf.js/test
   # says the algorithm is the feature and the entry is the exception (ADR 0312). It also prints the
   # two counts that decided what was *not* taken: 0 of 6197 TH state /Short, and no document's
   # tables outgrow the grid `TableStack` keeps
+cargo run --release -p pdf-model --example group_shape_census -- doc/pdf.js/test/pdfs/*.pdf
+  # every `Command::Group` a first page holds, with `alpha_is_shape` beside it — §11.6.4.2's shape
+  # question, which decides whether §8.5.4's clip at the group's blit is §10.7.4's intersection or a
+  # product. It asks the same question a *second* way, from the command list alone, which is how a
+  # backend that never sees `/AIS` has to ask it (quorra's ADR 0074), and prints where the two part.
+  # Written to answer one line of a dependency's question and kept because it is how the two proofs
+  # are compared: 162 groups over the 964 first pages, 135 carrying shape, 61 of them beyond a
+  # command-list proof and none the other way (ADR 0554)
+cargo run --release -p render-quorra --example sampled_lane_column -- [--scale N] doc/pdf.js/test/pdfs/*.pdf
+  # the population quorra's sampled coverage lane would give back to the processor if it diverted
+  # every mark whose width is not a multiple of its sample pitch. Defaults to ten times
+  # magnification, because that is where `viewer-ui` takes that lane and a census at page scale
+  # measures a lane no frame draws. It answers a cost question with a measurement instead of a
+  # guess, which is what it was built for: 88.31 % of the lane's marks, and the clause it was
+  # offered for would still not be met (ADR 0556)
 tools/state.sh selection
   # ADR 0323's instrument 1, composed half, and the one thing in this tree that **clicks**: every
   # corpus document opened at the boundary, poppler's word boxes mapped into device pixels through

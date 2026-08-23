@@ -139,7 +139,10 @@ impl Interpreter<'_> {
                         blend: BlendMode::Normal,
                         isolated: true,
                         knockout: true,
-                        // A knockout group, which `group_alpha_is_shape` declines by name.
+                        // Stated rather than asked: this group carries no clip of its own,
+                        // and §8.5.4's intersection at the blit is the only thing the flag
+                        // decides. A round that gives it one owes the question — which
+                        // §11.4.6's knockout no longer answers by itself (ADR 0554).
                         alpha_is_shape: false,
                         blending: None,
                     });

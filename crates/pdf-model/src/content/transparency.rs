@@ -475,15 +475,34 @@ fn knockout_shape_is_coverage(commands: &[Command], alpha: AlphaSource) -> bool 
 /// which a group's raster is that shape and the composition is exact rather than a product.
 /// ADR 0492.
 ///
-/// # The three it declines, none of them because the equality fails
+/// # The two it declines, neither of them because the equality fails
 ///
-/// - **A knockout group.** Its accumulation is §11.4.6's `(1 − f) × P + f × E` rather than
-///   §11.4.4's union, and the equality holds there too for an opaque element — but its
-///   elements reach a backend as [`Command::Shaped`] pairs whose two halves are drawn by two
-///   separate composites, and proving the alpha those leave is the shape is a separate
-///   argument from this one. Declining costs the exact composition and never correctness.
-/// - **A [`Command::Shaped`] element**, for the same reason one level down.
+/// - **A [`Command::Shaped`] element.** Its two halves are drawn by two separate composites,
+///   and proving the alpha those leave is the shape is a separate argument from this one.
+///   Declining costs the exact composition and never correctness.
 /// - **A command whose kind is unknown**, because [`Command`] is non-exhaustive.
+///
+/// # A knockout group is not one of them, and used to be
+///
+/// §11.4.6's accumulation is `(1 − f) × P + f × E` rather than §11.4.4's union, and the
+/// clause applies that recurrence to shape and to alpha alike — differing, as §11.3.7.3's
+/// union does, only in the opacity inputs it carries. So where every element's opacity is
+/// 1.0 the equality `α = f` holds through a knockout stage exactly as it holds through a
+/// union, and §11.6.4.2 is the same base case for both.
+///
+/// The caller declined every knockout group outright until ADR 0554, on the reason stated in
+/// the first bullet above — and that reason is enforced by the first bullet, element by
+/// element, since a [`Command::Shaped`] element is refused wherever it appears. A blanket
+/// guard on the group therefore refused the case it named twice and every other case once,
+/// which is `doc/todo/02` §1's *capability that arrived and announced nothing*:
+/// [`Command::Shaped`] arrived, and the guard in front of it stayed. Ten clipped knockout
+/// groups on one corpus drawing were being composited by a product where the clause asks for
+/// a set, and quorra's own proof of the same condition had already stopped declining them.
+///
+/// Isolation is *not* asked here and is not this function's to ask: a non-isolated group's
+/// buffer starts as a copy of its backdrop, so the alpha in it is not the group's shape at
+/// all — which every backend that reads this flag already tests for itself, because it is a
+/// fact about the buffer rather than about the commands.
 pub(super) fn group_alpha_is_shape(commands: &[Command], alpha: Option<AlphaSource>) -> bool {
     let Some(alpha) = alpha else {
         // §11.6.4.3's flag decides which of the two arguments above applies, so content that
@@ -1805,9 +1824,10 @@ impl Interpreter<'_> {
         // operation and §11.6.4.4 gives `CA` to those alone.
         self.draw(Command::Group {
             // What §8.5.4's clip at this `Do` has to intersect with — see
-            // `group_alpha_is_shape`. Written before the elements because it reads them and
-            // the next field moves them.
-            alpha_is_shape: !knockout && group_alpha_is_shape(&commands, ais_inside.settled()),
+            // `group_alpha_is_shape`, which asks §11.4.6's knockout groups the same question
+            // as §11.4.4's since ADR 0554. Written before the elements because it reads them
+            // and the next field moves them.
+            alpha_is_shape: group_alpha_is_shape(&commands, ais_inside.settled()),
             commands,
             alpha: outer.fill_alpha,
             clip: inner.clip,
