@@ -83,6 +83,17 @@ can and cannot open a window on, and where the build lands.
   `stash@{0}` with the stack order restored, and `git stash pop stash@{1}` recovers yours.
   Found in the five-hundred-and-twenty-fourth session.
 
+- **The one entry now on the stack is dead, and is recorded here so that no round spends an hour
+  deciding that again.** `stash@{0}` is a WIP on a worktree branch at `ada5411`, 341 lines across
+  `pdf-font`'s `loading.rs` and `metrics.rs` — the round that a server-side overload killed in the
+  six-hundred-and-forties. **It is fully superseded by `b5c1f180`**, which is that same round
+  resumed: all 109 of its substantive added lines are present in `main`'s working tree, checked
+  line by line rather than by reading the two commit messages. It does not apply to `main` any
+  more and there is nothing in it to recover. `tools/round.sh` will keep reporting the stack as
+  non-empty until somebody with the permission runs `git stash drop`, which is the right outcome —
+  **a warning that names a known-dead entry costs a round one glance at this paragraph, and a
+  silent stack costs the next round whatever the entry turns out to be.**
+
 ## The machine, the account and the display
 
 **Arch Linux. GPU: AMD Strix (Radeon 880M/890M, RDNA 3.5) — RADV. Session: X11.** The agent runs
