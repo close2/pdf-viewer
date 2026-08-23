@@ -41,13 +41,24 @@ can and cannot open a window on, and where the build lands.
   five batches before anybody looked, while the number being repeated in reports was a stale one
   taken from a single directory months of rounds earlier.
 
-  So **remove the two together**, and treat the pair as one command:
+  So **remove the two together**, and `tools/worktree.sh` is that command — `open NNN …` prepares a
+  round's checkout and `close NNN …` takes the checkout and its build directory away as one act.
+  `list` names any build directory whose worktree is already gone. By hand it is:
 
   ```sh
   git worktree remove --force .claude/worktrees/rNNN
   git branch -D round-NNN
   rm -rf /home/AI/cargo-target/pdfv-rNNN      # the half `worktree remove` does not touch
   ```
+
+- **A commit message here quotes code, and `git commit -m "…"` in a double-quoted shell string runs
+  every backtick pair in it.** A message saying *``the hazard `git add doc` springs``* executed
+  `git add doc` and stored the sentence with a hole in it. Nothing was damaged — the substitution ran
+  with no pathspec and git refused — but the next one may not be so lucky, and a mangled message is
+  the project's own memory losing a word.
+
+  **Write the message to a file and use `-F`.** It costs one line, it survives backticks, `$`, `!`
+  and newlines alike, and `--amend -F` repairs one that already landed.
 
   And the sweep §5a asks for is worth doing by *profile* rather than wholesale: `debug` was **131 GB
   of 158** in the shared directory and is the one Cargo on stable cannot garbage-collect, while
