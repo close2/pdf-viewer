@@ -32,8 +32,8 @@
 //! the file, and showing one beside the words "verifies" is how a viewer says *valid* without
 //! using the word.
 
-use crate::der::{DerError, INTEGER, OCTET_STRING, Reader, SEQUENCE, Value};
-use crate::{dsa, pkcs1};
+use crate::der::{DerError, INTEGER, OBJECT_IDENTIFIER, OCTET_STRING, Reader, SEQUENCE, Value};
+use crate::{dsa, ecdsa, eddsa, pkcs1};
 
 /// RFC 8017's `rsaEncryption`, `1.2.840.113549.1.1.1`.
 ///
@@ -41,6 +41,14 @@ use crate::{dsa, pkcs1};
 /// [`crate::dsa::ID_DSA`]. Everything else is carried to the report as the object identifier the
 /// file states — see [`PublicKey::Unverifiable`] and [`dotted`].
 pub const RSA_ENCRYPTION: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
+
+/// RFC 5480 section 2.1.1's `id-ecPublicKey`, `1.2.840.10045.2.1`.
+///
+/// Table 260 names this family by pointing at that RFC — "ECDSA Algorithm Support ( defined by
+/// Internet RFC 5480 )" — and the identifier itself is `const_oid`'s reading of the registry
+/// rather than digits typed here. Which curve, and whether this program computes on it, is
+/// [`crate::ecdsa::Curve`]'s question.
+const ID_EC_PUBLIC_KEY: const_oid::ObjectIdentifier = const_oid::db::rfc5912::ID_EC_PUBLIC_KEY;
 
 /// RFC 5280's `id-ce-subjectKeyIdentifier`, `2.5.29.14`.
 const SUBJECT_KEY_IDENTIFIER: &[u8] = &[0x55, 0x1D, 0x0E];
@@ -76,6 +84,20 @@ pub enum X509Error {
     /// The key is `id-dsa` but its `Dss-Parms` or its `DSAPublicKey` is not shaped like one.
     #[error("the certificate's DSA public key is malformed")]
     MalformedDsaKey,
+    /// The key is `id-ecPublicKey` but its `subjectPublicKey` is not there to read.
+    ///
+    /// The octets are not checked for being a point here — that is arithmetic and belongs to
+    /// [`crate::ecdsa::verify`], which refuses one by name. This is the encoding failing first: a
+    /// `BIT STRING` with unused bits, which a SEC1 point never has.
+    #[error("the certificate's elliptic-curve public key is malformed")]
+    MalformedEcKey,
+    /// The key is `id-Ed25519` or `id-Ed448` and its `subjectPublicKey` is not there to read.
+    ///
+    /// RFC 8410 section 4 puts the key in the `BIT STRING` raw, so this is the same failure as
+    /// above and for the same reason: whether the octets are a point is [`crate::eddsa::verify`]'s
+    /// question.
+    #[error("the certificate's Edwards-curve public key is malformed")]
+    MalformedEdKey,
     /// The key is `id-dsa` and states no domain parameters, so there is nothing to verify with.
     ///
     /// RFC 3279 section 2.3.2 permits their absence and says where they come from instead — the
@@ -96,13 +118,29 @@ pub enum PublicKey<'a> {
     Rsa(pkcs1::PublicKey<'a>),
     /// RFC 3279's `id-dsa`, with the four integers [`crate::dsa::verify`] needs.
     Dsa(dsa::PublicKey<'a>),
+    /// RFC 5480's `id-ecPublicKey` on one of ISO/TS 32002 Table 3's first three curves.
+    Ec(ecdsa::PublicKey<'a>),
+    /// RFC 8410's `id-Ed25519`, the first of ISO/TS 32002 Table 4's two.
+    Ed25519(eddsa::PublicKey<'a>),
+    /// `id-ecPublicKey` on a curve this program does not compute on, or on none it can name.
+    ///
+    /// Two cases, and the difference between them is whose fault it is. `Some` is one of Table 3's
+    /// Brainpool curves — a curve the standard admits and this program lacks, so a gap here.
+    /// `None` is `ECParameters` that are not a `namedCurve` at all, which ISO/TS 32002 section
+    /// 5.1.3 forbids outright: "The implicitCurve and specifiedCurve options shall not be used."
+    /// A curve identifier outside both lists arrives as `Some` too, because the file's own digits
+    /// are what a reader can check either way.
+    EcCurveNotVerifiable {
+        /// The `namedCurve` object identifier, as encoded, where the certificate states one.
+        curve: Option<&'a [u8]>,
+    },
     /// Any other algorithm, carried as the object identifier the certificate states.
     ///
     /// **Named by its number and not by a word**, which is `CLAUDE.md` principle 5 applied to a
-    /// document this tree does not hold: Table 260 says a PDF signature may be ECDSA and says
-    /// nothing about which identifier spells one, so printing the file's own digits is the only
-    /// claim that can be checked. [`dotted`] is what turns the encoding into them. This is where a
-    /// certificate's `id-ecPublicKey` arrives, and ADR 0314 is why it stops there.
+    /// document this tree does not hold: neither ISO 32000-2 nor either Technical Specification
+    /// prints a digit of an object identifier, so the file's own digits are the only claim that
+    /// can be checked. [`dotted`] is what turns the encoding into them. `id-Ed448` arrives here —
+    /// ISO/TS 32002 Table 4 names the curve and [`crate::eddsa`] says why it is not computed.
     Unverifiable {
         /// The `AlgorithmIdentifier`'s object identifier, as encoded.
         algorithm: &'a [u8],
@@ -311,7 +349,48 @@ fn read_public_key(spki: Value<'_>) -> Result<PublicKey<'_>, X509Error> {
         let _identifier = members.next_value()?;
         return read_dsa_key(members.next_value()?, bits);
     }
+    if oid == ID_EC_PUBLIC_KEY.as_bytes() {
+        // The same shape as `id-dsa`'s: RFC 5480 section 2.1.1 puts `ECParameters` in the
+        // `AlgorithmIdentifier`'s `parameters`, so the curve is read out of the *algorithm* value.
+        let mut members = algorithm.children()?;
+        let _identifier = members.next_value()?;
+        return read_ec_key(members.next_value()?, bits);
+    }
+    if oid == eddsa::ID_ED25519.as_bytes() {
+        // RFC 8410 section 3: "the parameters field MUST be absent", and section 4 puts the key in
+        // the `BIT STRING` with no structure around it at all.
+        let key = key_octets(&bits).ok_or(X509Error::MalformedEdKey)?;
+        return Ok(PublicKey::Ed25519(eddsa::PublicKey { key }));
+    }
     Ok(PublicKey::Unverifiable { algorithm: oid })
+}
+
+/// RFC 5480 section 2.1.1's `ECParameters ::= CHOICE { namedCurve OBJECT IDENTIFIER }` and the
+/// SEC1 point the `BIT STRING` carries.
+///
+/// That clause is what ISO/TS 32002 section 5.1.3 requires be used — "Certificates for ECDSA keys
+/// used in PDF signatures shall specify curve parameters (`ECParameters`) for the subject's public
+/// key using the namedCurve option" — so anything that is not an `OBJECT IDENTIFIER` here is a
+/// file departing from the Technical Specification and is reported as stating no curve rather than
+/// guessed at.
+fn read_ec_key<'a>(
+    parameters: Option<Value<'a>>,
+    bits: Value<'a>,
+) -> Result<PublicKey<'a>, X509Error> {
+    let curve = parameters
+        .filter(|parameters| parameters.identifier == OBJECT_IDENTIFIER)
+        .and_then(|parameters| parameters.object_identifier());
+    let Some(curve) = curve else {
+        return Ok(PublicKey::EcCurveNotVerifiable { curve: None });
+    };
+    let Some(supported) = ecdsa::Curve::of(curve) else {
+        return Ok(PublicKey::EcCurveNotVerifiable { curve: Some(curve) });
+    };
+    let point = key_octets(&bits).ok_or(X509Error::MalformedEcKey)?;
+    Ok(PublicKey::Ec(ecdsa::PublicKey {
+        curve: supported,
+        point,
+    }))
 }
 
 /// The contents of a `BIT STRING` that carries a whole number of octets.
@@ -467,10 +546,12 @@ pub(crate) mod fixtures {
         0573cd49e8d892d706e10a8d1ff54dec1f258d676c4363d028839b8f6b5040bd\
         5168122013babed7b4b558679467ed2e7ca42a41e3deda7d01";
 
-    /// A self-signed P-256 certificate, for the one thing this program says about such a key.
+    /// A self-signed P-256 certificate, for the one `/SubFilter` that may not carry such a key.
     ///
-    /// RFC 5480's `id-ecPublicKey`, which Table 260 names beside RSA — "ECDSA Algorithm Support (
-    /// defined by Internet RFC 5480 )" — and which this program reports rather than verifies.
+    /// RFC 5480's `id-ecPublicKey`. This program verifies that family through CMS since the
+    /// six-hundred-and-eighty-ninth session ([`crate::ecdsa`]), and Table 260's `adbe.x509.rsa_sha1`
+    /// column still says **No** to it — so this fixture is what carries that "No" into a test.
+    /// [`crate::ecdsa::fixtures`] holds the certificates that are meant to verify.
     pub(crate) const EC_CERTIFICATE: &str = "\
         3082019030820135a003020102021402b9a053ffb599e1d104c767b0ac9516e1\
         6a2827300a06082a8648ce3d040302301d311b301906035504030c127064662d\

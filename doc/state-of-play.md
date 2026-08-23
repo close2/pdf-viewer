@@ -184,15 +184,19 @@ recomputes the digest over §12.8.1's `/ByteRange` — with the algorithms Table
 name — and compares it with what `pdf_model::cms` reads out of §12.8.3.3's `SignedData`, over a
 bounded in-tree X.690 reader that allocates nothing (ADR 0215). `Signature::authenticity` then
 finds the certificate the `SignerInfo` names among the ones the signature itself carries, reads its
-key with `pdf_model::x509` and verifies with `pdf_model::pkcs1`, `pdf_model::pss` or
-`pdf_model::dsa` — RFC 8017's RSASSA-PKCS1-v1_5 and RSASSA-PSS, the latter over the
-`RSASSA-PSS-params` the signature's own algorithm identifier carries, and FIPS 186-4's DSA: two of
-Table 260's three algorithm families, the RSA one under both of its paddings. The constructions,
-budgets and refusal names are this tree's; the modular arithmetic under them is RustCrypto's
-`crypto-bigint`, by owner decision (ADRs 0229, 0314, 0322, 0331). The third is elliptic-curve, and it is **refused with an
-argument rather than half-written**: ISO/TS 32002 makes it eight curves across two group laws whose
-domain parameters are in no document this tree holds, and every one of them is named at runtime by
-the identifier the file states. The sentences the program uses keep every
+key with `pdf_model::x509` and verifies with `pdf_model::pkcs1`, `pdf_model::pss`,
+`pdf_model::dsa`, `pdf_model::ecdsa` or `pdf_model::eddsa` — RFC 8017's RSASSA-PKCS1-v1_5 and
+RSASSA-PSS, the latter over the `RSASSA-PSS-params` the signature's own algorithm identifier
+carries; FIPS 186-4's DSA; ANSI X9.62's ECDSA over RFC 5753's `ECDSA-Sig-Value`; and RFC 8032's
+Ed25519, which signs the message rather than a digest of it. **That is all three of Table 260's
+algorithm families and the fourth row ISO/TS 32002 section 5.1.2 adds beside them** (ADRs 0229,
+0314, 0322, 0532). The constructions, budgets, encodings and refusal names are this tree's; the
+modular arithmetic and the group law under them are RustCrypto's `crypto-bigint` and curve
+packages, by owner decision (ADR 0331). **What is still refused is a *curve* rather than a family,
+and each is named at runtime by the identifier the certificate states**: of ISO/TS 32002 Table 3's
+six, the three Brainpool ones, because their packages are release-candidate-only on this tree's
+`digest` line and brainpoolP512r1 has no package at all; and of its Table 4's two, Ed448, whose
+stable package carries the field arithmetic without the signature scheme. The sentences the program uses keep every
 asymmetry: a mismatch is decisive, a match is the absence of one kind of evidence, and a
 certificate that arrived in the same file as the signature it verifies proves the two are
 consistent with each other and nothing about who made either. **Nothing here says a signature is

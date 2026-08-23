@@ -44,11 +44,16 @@
 //! `0 < s' < q` — which is why it is the first thing [`verify`] does and why the test below feeds
 //! it `r = 0`, `s = 0`, `r = q` and `s = q` one at a time.
 //!
-//! # Why the parameters need no table and ECDSA's do
+//! # Why the parameters need no table and a curve's do
 //!
 //! Every number this module computes with is in the file: `p`, `q` and `g` are the certificate's
-//! own `Dss-Parms`. That is the whole difference between this and the elliptic-curve family, whose
-//! domain parameters are in no document this tree holds, and it is ADR 0314's argument.
+//! own `Dss-Parms`. An elliptic-curve verification instead needs the domain parameters of a curve
+//! the certificate only *names*, and those are in no document this tree holds — which was ADR
+//! 0314's argument for stopping there. **It stopped deciding anything when the owner accepted
+//! reviewed arithmetic as a dependency** (ADR 0331): reviewed constants in a curve package stand
+//! on the same footing, and [`crate::ecdsa`] is that family since the six-hundred-and-eighty-ninth
+//! session (ADR 0532). The contrast is still worth stating, because it is why *this* module needs
+//! no dependency at all.
 
 use crate::bigint::{Integer, MAX_BITS, Modulus, modpow, significant_bits};
 use crate::der::{INTEGER, Reader, SEQUENCE};

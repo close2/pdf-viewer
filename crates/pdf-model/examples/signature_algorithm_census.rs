@@ -174,6 +174,9 @@ fn verdict(answer: &Authenticity) -> String {
             format!("KeyDoesNotMatchAlgorithm {algorithm} over {key}")
         }
         Authenticity::RefusedDsa(_) => "RefusedDsa".into(),
+        Authenticity::RefusedEcdsa(_) => "RefusedEcdsa".into(),
+        Authenticity::RefusedEdDsa(_) => "RefusedEdDsa".into(),
+        Authenticity::CurveNotVerifiable { curve } => format!("CurveNotVerifiable {curve}"),
         Authenticity::NoSignatureValue => "NoSignatureValue".into(),
         Authenticity::RangeNotInThisFile => "RangeNotInThisFile".into(),
         Authenticity::Unreadable(_) => "Unreadable".into(),
@@ -202,6 +205,23 @@ fn every_signature(document: &Document) -> Vec<Signature> {
     found
 }
 
+/// The `SignerInfo`'s `signatureAlgorithm`, named as this census counts it.
+///
+/// The identifier always, because it is what a reader can check, and the family beside it only
+/// where this program acts on one — a word this tree invented would be the thing principle 5
+/// forbids.
+fn signature_algorithm(cms: &cms::SignedData<'_>) -> String {
+    let number = identifier(cms.signature_algorithm);
+    match cms.algorithm() {
+        SignatureAlgorithm::RsaPkcs1V15 => format!("{number} (RSASSA-PKCS1-v1_5)"),
+        SignatureAlgorithm::RsaPss => format!("{number} (RSASSA-PSS)"),
+        SignatureAlgorithm::Dsa => format!("{number} (DSA)"),
+        SignatureAlgorithm::Ecdsa => format!("{number} (ECDSA)"),
+        SignatureAlgorithm::EdDsa => format!("{number} (EdDSA)"),
+        SignatureAlgorithm::Unrecognised(oid) => identifier(oid),
+    }
+}
+
 /// The signer's own key, named as this census counts it.
 ///
 /// The signer's certificate, not every certificate the value carries: a chain holds its issuers'
@@ -227,6 +247,14 @@ fn signer_key(cms: &cms::SignedData<'_>) -> String {
                 key.bits(),
                 key.subgroup_bits()
             ),
+            PublicKey::Ec(key) => {
+                format!("1.2.840.10045.2.1 (id-ecPublicKey, {})", key.curve.name())
+            }
+            PublicKey::EcCurveNotVerifiable { curve } => format!(
+                "1.2.840.10045.2.1 (id-ecPublicKey, curve {})",
+                curve.map_or_else(|| "(not a namedCurve)".to_owned(), identifier)
+            ),
+            PublicKey::Ed25519(_) => "1.3.101.112 (id-Ed25519)".to_owned(),
             PublicKey::Unverifiable { algorithm } => identifier(algorithm),
         },
         None => "(the signer's certificate was not found)".to_owned(),
@@ -283,6 +311,7 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                 | Authenticity::AlgorithmNotVerifiable { .. }
                 | Authenticity::KeyDoesNotMatchAlgorithm { .. }
                 | Authenticity::PssParametersNotVerifiable { .. }
+                | Authenticity::CurveNotVerifiable { .. }
         );
         let slot = counts.authenticity.entry(verdict(&answer)).or_default();
         *slot = slot.saturating_add(1);
@@ -295,22 +324,10 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
                         .witnesses
                         .push(format!("{path}: §12.8.3.3.2 adbe-revocationInfoArchival"));
                 }
-                let named = match cms.algorithm() {
-                    SignatureAlgorithm::RsaPkcs1V15 => {
-                        format!(
-                            "{} (RSASSA-PKCS1-v1_5)",
-                            identifier(cms.signature_algorithm)
-                        )
-                    }
-                    SignatureAlgorithm::RsaPss => {
-                        format!("{} (RSASSA-PSS)", identifier(cms.signature_algorithm))
-                    }
-                    SignatureAlgorithm::Dsa => {
-                        format!("{} (DSA)", identifier(cms.signature_algorithm))
-                    }
-                    SignatureAlgorithm::Unrecognised(oid) => identifier(oid),
-                };
-                let slot = counts.signature_algorithms.entry(named).or_default();
+                let slot = counts
+                    .signature_algorithms
+                    .entry(signature_algorithm(&cms))
+                    .or_default();
                 *slot = slot.saturating_add(1);
                 let digest = match cms.digest {
                     Some(digest) => format!(

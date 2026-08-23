@@ -1,22 +1,28 @@
-# ECDSA and EdDSA, the third question, public-key handlers, `/R` 5
+# The four curves left, question 3, public-key handlers, `/R` 5
 
-Status: **two of Table 260's three algorithm families are verified, the RSA one under both of RFC
-8017's paddings, and every digest either table names is computed**; what is left of question 2 is
-the elliptic-curve family — and question 3 is still a project.
+Status: **question 2 is answered for every algorithm family the standard names.** Table 260's
+three — RSA under both of RFC 8017's paddings, DSA, and ECDSA — and the EdDSA row ISO/TS 32002
+section 5.1.2 adds beside them, all verify; every digest either table names is computed. What is
+left inside question 2 is **four curves out of ISO/TS 32002's eight**, each refused by package
+availability and each named at runtime by its own identifier. Question 3 is still a project.
 Priority: 51
 Corpus: 1 document (`/R` 5). For the signature populations, **run the census rather than reading a
 number here**:
 
 ```sh
-find corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths
+find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths
 cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
 ```
+
+**`find -L`, and the `-L` is not decoration.** In a parallel worktree `corpus-cache` is a *symlink*
+into the main checkout, and `find` without it descends nothing and reports zero paths — a false
+zero of exactly the shape this file warns about, met by the six-hundred-and-eighty-ninth session.
 
 Clauses: §12.8.3, §7.6.5, §7.6.4.3, Table 21, Table 256, Table 260; ISO/TS 32001 §5.1, ISO/TS 32002 §5.1
 Code: `crates/pdf-model/src/signature.rs`, `crates/pdf-model/src/cms.rs`,
 `crates/pdf-model/src/der.rs`, `crates/pdf-model/src/x509.rs`, `crates/pdf-model/src/pkcs1.rs`,
-`crates/pdf-model/src/pss.rs`, `crates/pdf-model/src/dsa.rs`, `crates/pdf-model/src/bigint.rs`,
-`crates/pdf-syntax/src/crypt.rs`
+`crates/pdf-model/src/pss.rs`, `crates/pdf-model/src/dsa.rs`, `crates/pdf-model/src/ecdsa.rs`,
+`crates/pdf-model/src/eddsa.rs`, `crates/pdf-model/src/bigint.rs`, `crates/pdf-syntax/src/crypt.rs`
 
 ## Signature validation (§12.8.3) — 5 ledger rows, and it used to be 17
 
@@ -24,90 +30,87 @@ Code: `crates/pdf-model/src/signature.rs`, `crates/pdf-model/src/cms.rs`,
 of the three questions a signature asks and false of the other two**; the three-hundred-and-seventy-seventh
 session separated them and answered the first (ADR 0215), the three-hundred-and-ninety-second
 answered the second for RSA (ADR 0229), the four-hundred-and-seventy-ninth answered it for DSA
-and refused the elliptic-curve family with an argument (ADR 0314), and the
-four-hundred-and-eighty-seventh answered it for the RSA family's other padding, RSASSA-PSS
-(ADR 0322).
+(ADR 0314), the four-hundred-and-eighty-seventh for the RSA family's other padding, RSASSA-PSS
+(ADR 0322), and the six-hundred-and-eighty-ninth for the two elliptic-curve families (ADR 0532).
 
 | | asks | needs | state |
 |---|---|---|---|
 | **1. Integrity** | has the document changed since it was signed? | the file and a hash function | **answered** |
-| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA or ECDSA | **answered for RSA — both paddings — and DSA**; the rest below |
+| **2. Authenticity** | does the signature verify under the signer's public key? | an X.509 certificate parser and RSA, DSA, ECDSA or EdDSA | **answered for every family**; four curves below |
 | **3. Trust** | is the signer anyone to believe, and was the certificate revoked? | a trust store, a certification path, a network | open, and it is a project |
 
 Question 1 is `Signature::integrity`, question 2 is `Signature::authenticity`.
 
-### What is left of question 2, in the order the population ranks it
-
-**And the order binds: no further zero-witness algorithm family before a witnessed one.** DSA went
-in with zero corpus signatures using it while PSS — then the commonest thing this program declined,
-at twice ECDSA's share — sat behind it in this file. The work was sound (ADR 0314) and the ordering
-was not: on `CLAUDE.md`'s two tracks, a second consecutive spec-side item in one family while the
-demand side of the same family has real witnesses is the balance this file exists to keep. The
-four-hundred-and-eighty-seventh session paid that debt: `pdf_model::pss` verifies `id-RSASSA-PSS`
-and the census's six witnesses all answer `Verified` (ADR 0322).
+### What is left of question 2: four curves, and each is a package rather than a clause
 
 **Everything here is *reported* at runtime by the object identifier the file states**, never
-skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable` and
-`Authenticity::UnknownDigest` each carry the number, printed as dotted decimal by `x509::dotted`
-rather than as a word, because this tree holds ISO 32000-2 and not the documents that assign those
-numbers.
+skipped: `Authenticity::AlgorithmNotVerifiable`, `Authenticity::KeyNotVerifiable`,
+`Authenticity::CurveNotVerifiable` and `Authenticity::UnknownDigest` each carry the number, printed
+as dotted decimal by `x509::dotted` rather than as a word, because this tree holds ISO 32000-2 and
+not the documents that assign those numbers.
 
-**1. ECDSA and EdDSA — refused-for-now, re-grounded in the four-hundred-and-ninety-sixth session
-(ADR 0331) after the owner's arithmetic decision killed the refusal's heaviest premise.**
-(RSASSA-PSS stood here until the four-hundred-and-eighty-seventh session closed it: `crates/pdf-model/src/pss.rs`
-is RFC 8017 sections 8.1.2 and 9.1.2 with Appendix B.2.1's MGF1 over `crate::bigint`, reading the
-`RSASSA-PSS-params` from the `AlgorithmIdentifier`, kept separate from PKCS #1 v1.5 as this file
-insisted — ADR 0322. And `crate::bigint` itself is a seam over RustCrypto's `crypto-bigint` since
-the four-hundred-and-ninety-sixth, by owner decision — ADR 0331.) The short form on the
-elliptic-curve family, on 2026-08-14's measurements:
+ISO/TS 32002 section 5.1.3's Table 3 names six ECDSA curves and its Table 4 two EdDSA ones.
+`pdf_model::ecdsa` computes P-256, P-384 and P-521; `pdf_model::eddsa` computes Ed25519. The other
+four are refused, and **the refusal is a fact about crates.io rather than about the standard**
+(measured 2026-08-23, ADR 0532 — re-derive it before believing it):
 
-- The standard family names **eight curves**, not five: ISO/TS 32002 Table 3 gives P-256, P-384,
-  P-521, brainpoolP256r1, brainpoolP384r1 and brainpoolP512r1 for ECDSA, and its Table 4 adds
-  Ed25519 (SHA512) and Ed448 (SHAKE256) for EdDSA, which is a second and unrelated group law.
-- **"Their domain parameters are in no document this tree holds" no longer decides anything.**
-  It was ADR 0314's first premise; once the owner accepted reviewed *arithmetic* as a dependency
-  (ADR 0331), reviewed *constants* in a curve crate stand on the same footing. Do not cite that
-  sentence as the blocker again — the blockers below are the live ones.
-- **Stable-line coverage refuses.** `p256`/`p384`/`p521` 0.14.0 are now stable on this tree's
-  `digest` 0.11 line (measured in ADR 0331's scratch crate — the pre-release objection has
-  expired for the NIST curves, at about twenty new packages for the first one). But the Brainpool
-  pair is release-candidate-only on that line (`bp256` 0.14.0-rc; its stable 0.6 is the old hash
-  line), brainpoolP512r1 has no crate at all, and Ed448 none either. TS 32002 section 5.1.3
-  requires `namedCurve` and permits a processor to "ignore or handle in an implementation-dependent
-  manner" a document signed with a curve outside those tables, which caps the set without making
-  it small.
-- **The witnesses are now identified by curve** (ADR 0331 extracted the three signers'
-  certificates): the one DER-encoded `ecdsa-with-SHA256` signature is **P-256**; the two BSI
-  TR-03111 *plain* signatures (`0.4.0.127.0.7.1.1.4.1.3`, `r ‖ s` as fixed-width octets rather
-  than RFC 3279's DER `Dss-Sig-Value`) are one **brainpoolP256r1** and one **P-256**. The plain
-  encoding is defined in BSI TR-03111, a document this tree does not hold — a principle-5 blocker
-  independent of any crate. So the stable packages would close **one signature of 811**.
+| curve | why not | what would change it |
+|---|---|---|
+| brainpoolP256r1 | `bp256` is 0.14.0-**rc.15**; its stable 0.6 is the old `digest` line | a 0.14.0 release |
+| brainpoolP384r1 | `bp384`, the same | a 0.14.0 release |
+| brainpoolP512r1 | **no crate on crates.io at all** | somebody publishing one |
+| Ed448 | `ed448-goldilocks` stable 0.9.0 has the field arithmetic and no signature scheme, on `rand_core` 0.6; 0.14 is `-pre.15` | a 0.14.0 release |
 
-What would change it: a stable Brainpool pair on the current line **plus** the BSI TR-03111 text
-in `doc/` (which would close all three witnesses at once), or a population that makes the family
-more than a rounding error. Take the curves TS 32002 Table 3 lists, not the ones a crate happens
-to publish — and EdDSA's zero witnesses queue it behind the witnessed three, by this file's own
-ordering rule above.
+A round taking any of these should take the *curve* rather than the crate that exists: the set is
+ISO/TS 32002 Table 3's and Table 4's, and `ecdsa::UnsupportedCurve` already names all three
+Brainpool ones by the identifier `const_oid` reads out of RFC 5639.
 
-**2. ISO/TS 32001's four digests — done in the five-hundred-and-fifty-fifth session** (ADR 0390).
+**Two blockers this file used to carry are retired, and both were retired by reading rather than by
+a release.**
+
+- **BSI TR-03111's plain encoding is not a principle-5 blocker and never had to be.** Two corpus
+  signatures state `0.4.0.127.0.7.1.1.4.1.3` with the value as fixed-width `r ‖ s`. This file
+  recorded that as needing a document the tree does not hold. **ISO/TS 32002 section 5.1.3's NOTE 2
+  settles it the other way**: "[t]his restriction implies that ECDSA signature values are required
+  to be represented using the DER-encoded ECDSA-Sig-Value type in IETF RFC 5753:2010, section 7.2."
+  Those two files are outside what the Technical Specification admits, and reporting them by their
+  own algorithm identifier **is** the correct behaviour rather than a gap. Do not re-open this as a
+  debt.
+- **"The domain parameters are in no document this tree holds"** died in the
+  four-hundred-and-ninety-sixth session (ADR 0331) and is fully spent now: the identifiers come from
+  `const-oid`'s database — a second party's reading of the registries, at zero new packages, since
+  it is already here through `digest` — and the curve constants from the curve packages.
+
+### The one thing a round *could* still get from this family
+
+`ecdsa::is_ecdsa` recognises RFC 9688's `id-ecdsa-with-sha3-256`, `-384` and `-512`, which ISO/TS
+32002 Table 3 pairs with every curve, and `cms::Digest` computes all three SHA-3 digests — so a
+SHA-3 ECDSA signature is verified today by the same path. **No document in the population states
+one**, so nothing here is exercised by a real file, and that is a fact about documents rather than
+about the code.
+
+### ISO/TS 32001's four digests — done in the five-hundred-and-fifty-fifth session (ADR 0390)
+
 `cms::Digest` computes SHA3-256, SHA3-384, SHA3-512 and SHAKE256 beside the base standard's six, on
-`sha3` 0.12 and `shake` 0.1 — two packages rather than the one `doc/stack.md` predicted, because
-upstream moved SHAKE out of `sha3` between the prediction and the spending. Four things it left
-behind that a later round should not have to rediscover:
+`sha3` 0.12 and `shake` 0.1. Four things it left behind that a later round should not have to
+rediscover:
 
 - **Read ISO/TS 32001's errata before writing anything about it**, with `spec-errata emit` and not
   `doc/md/`. Two annotations amend it and neither is in the conversion: issue #236 **deletes clause
   5.1.3 entirely**, so Table 256's `/DigestMethod` is *not* extended with the SHA-3 family (this
   file said it was, for three sessions), and issue #404 strikes the sentence pinning `id-shake256`
-  and defers to RFC 8702 and RFC 8419 instead.
+  and defers to RFC 8702 and RFC 8419 instead. **The same errata run on ISO/TS 32002 finds #404
+  again**, striking the matching footnotes in its section 5.1.2 and nothing that touches Table 3,
+  Table 4 or NOTE 2.
 - **`Digest::ALL` is ten and `Digest::TRIED_WHEN_UNSTATED` is six**, and the split is §5.1.4's own:
   it adds its four "to the Message Digest value entry for adbe.pkcs7.detached, ETSI.CAdES.detached
   or ETSI.RFC3161", and §12.8.3.2's `adbe.x509.rsa_sha1` — the sub-filter whose digest has to be
   found by trying each in turn — is not one of the three.
-- **The object identifiers are transcribed from a registry no document here holds, and SHAKE256's
-  512-bit output is now a choice rather than a requirement.** Both are documented decisions with
-  their costs priced, on `Digest::oid` and `Digest::Shake256`. Three of the four identifiers carry
-  a second party's reading as corroboration; `id-shake256` carries none.
+- **The object identifiers were transcribed from a registry no document here holds, and nine of
+  the ten now carry a second reading anyway** — `const_oid`'s database, which arrived for the
+  elliptic-curve family and turned out to hold these too (ADR 0532). RIPEMD-160 is the exception
+  and stays one: nothing in this graph publishes TeleTrusT's arc. SHAKE256's 512-bit output is
+  still a documented choice rather than a requirement.
 - **Table 256's `/DigestMethod` is read by nothing**, which this item found on its way past. It
   costs no mark — the digest it names belongs to §12.8.2.2.2's comparison, which is not done — and
   §12.8.1's ledger row now says so. What is missing there is a reader for a *name*, over the base
@@ -131,6 +134,9 @@ revisit rather than an oversight: reading a `notAfter` while saying nothing abou
 certificate would put an air of validation over a certificate the file's author could have written
 five minutes ago.
 
+**And question 3 is now the *only* thing between this clause and `implemented`,** which it was not
+before: every `partial` in the §12.8.3 family names either trust or one of the four curves above.
+
 ## Public-key handlers (§7.6.5) — 0 corpus documents
 
 CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a
@@ -145,6 +151,10 @@ rather than a verification, which is a private-key operation and therefore the o
 subject where constant time matters and ADR 0229's "there is no secret" argument reverses; and a way
 to reach the reader's own private key, which is where the threat model starts and where nothing has
 been decided.
+
+**That reversal is sharper now than when it was written**, and a round taking §7.6.5 should notice
+it: every dependency §12.8.3 runs on was chosen with the `_vartime` spelling on purpose, because a
+verifier has no secret. A decryption does, and none of those choices carries over.
 
 ## `/R` 5 — 1 document
 

@@ -579,6 +579,15 @@ fn changed(integrity: pdf_model::signature::Integrity) -> String {
     }
 }
 
+/// One sentence for every family's "the arithmetic never ran", whatever the family.
+///
+/// Four variants say this and each carries its own error type — the budgets and encodings are
+/// per-module and their *names* are the product (ADR 0331) — but what a reader needs is the same
+/// sentence with that name in it.
+fn not_checked(error: &dyn std::fmt::Display) -> String {
+    format!("and that signature was not checked against the signer's key: {error}")
+}
+
 /// §12.8.1's second question in words, worded against the first one's answer.
 ///
 /// `None` where the sentence would repeat what [`changed`] has already said in the same words —
@@ -651,12 +660,18 @@ fn verifies(
         ),
         Authenticity::KeyNotVerifiable { algorithm } => format!(
             "and the signer's certificate holds a public key of algorithm {algorithm}, which this \
-             program does not verify: it verifies two of Table 260's three families, RSA (both \
-             PKCS #1 v1.5 and RSASSA-PSS) and DSA, and not the ECDSA the table names beside them"
+             program does not verify: it verifies Table 260's three families — RSA under both of \
+             RFC 8017's paddings, DSA and ECDSA — and the Ed25519 half of the EdDSA row ISO/TS \
+             32002 adds to that table"
+        ),
+        Authenticity::CurveNotVerifiable { curve } => format!(
+            "and the signer's certificate holds an elliptic-curve key on curve {curve}, which \
+             this program does not compute on: of the six curves ISO/TS 32002 Table 3 names it \
+             computes on P-256, P-384 and P-521"
         ),
         Authenticity::AlgorithmNotVerifiable { algorithm } => format!(
             "and that signature states signature algorithm {algorithm}, which this program does \
-             not verify: it verifies RSASSA-PKCS1-v1_5, RSASSA-PSS and DSA"
+             not verify: it verifies RSASSA-PKCS1-v1_5, RSASSA-PSS, DSA, ECDSA and Ed25519"
         ),
         Authenticity::PssParametersNotVerifiable { statement } => format!(
             "and that signature states id-RSASSA-PSS with parameters this program cannot verify \
@@ -667,12 +682,10 @@ fn verifies(
              certificate holds a key of algorithm {key} — two statements by the same producer \
              that contradict each other, so there is nothing to check the signature against"
         ),
-        Authenticity::Refused(error) => {
-            format!("and that signature was not checked against the signer's key: {error}")
-        }
-        Authenticity::RefusedDsa(error) => {
-            format!("and that signature was not checked against the signer's key: {error}")
-        }
+        Authenticity::Refused(error) => not_checked(error),
+        Authenticity::RefusedDsa(error) => not_checked(error),
+        Authenticity::RefusedEcdsa(error) => not_checked(error),
+        Authenticity::RefusedEdDsa(error) => not_checked(error),
         Authenticity::UnknownDigest { algorithm } => format!(
             "and it names digest algorithm {algorithm}, which this program does not compute, so \
              it was not checked against the signer's key either"

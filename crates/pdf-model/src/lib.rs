@@ -44,6 +44,8 @@ pub mod der;
 pub mod destination;
 pub mod document_part;
 pub mod dsa;
+pub mod ecdsa;
+pub mod eddsa;
 pub mod file_spec;
 pub mod form;
 pub mod forms_data;

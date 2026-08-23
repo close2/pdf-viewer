@@ -170,9 +170,12 @@ tools/state.sh accessibility
   # count has a floor and every defect class a ceiling; `crates/viewer-core/tests/accessibility_census.rs`
   # is the instrument and its two un-ignored tests keep the classification from rotting between runs
 cargo run --release -p pdf-model --example signature_algorithm_census -- @/tmp/paths
-  # Table 260's three algorithm families as documents actually state them, over as large a
-  # population as this machine can reach — `find corpus-cache doc/corpora doc/pdf.js/test/pdfs
-  # -name '*.pdf' > /tmp/paths` is 67 460 files and about a minute, and the `@` form exists because
+  # Table 260's three algorithm families and the fourth ISO/TS 32002 adds, as documents actually
+  # state them, over as large a population as this machine can reach — `find -L corpus-cache
+  # doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths` is 67 460 files and about a
+  # minute. **`-L` is not decoration**: in a parallel worktree `corpus-cache` is a symlink into the
+  # main checkout and `find` without it reports zero paths, which is a false zero rather than an
+  # empty crawl (session 689). The `@` form exists because
   # a command line holds a fortieth of them. Three identifiers per signature, because a producer can
   # get them out of step: the `SignerInfo`'s `signatureAlgorithm`, its `digestAlgorithm`, and the
   # algorithm of the key in the certificate that `SignerInfo` names. It is what ranked ADR 0314's
@@ -394,14 +397,19 @@ cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's 
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
   # the verifications that run on the key inside it: `pdf_model::x509` walks RFC 5280's
   # structure and `pdf_model::pkcs1`, `pdf_model::pss` and `pdf_model::dsa` run the tree's only
-  # loops whose trip counts come out of numbers in the file. The property that matters is the last one — the target
+  # loops whose trip counts come out of numbers in the file. Since the six-hundred-and-eighty-ninth
+  # it also reaches `pdf_model::ecdsa` and `pdf_model::eddsa`, whose arms assert the same thing on
+  # every signature shape a certificate's curve admits, including BSI TR-03111's plain `r ‖ s`. The property that matters is the last one — the target
   # verifies against a digest *it* chose, so `Ok(true)` would be a defect in the comparison rather
   # than a lucky input.
   # **Seed its corpus** with the 22 certificates the corpus's signatures carry:
   #   python3 fuzz/seed_x509.py fuzz/corpus/x509 doc/pdf.js/test/pdfs/*.pdf
   # plus any certificate at all — the vectors are an RSA, a P-256 and (since the
   # four-hundred-and-seventy-ninth session) a DSA one from `openssl req -new -x509`, and the DSA
-  # one is what reaches `dsa::verify` at all. Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
+  # one is what reaches `dsa::verify` at all. **A P-384, a P-521, a brainpoolP256r1 and an Ed25519
+  # certificate are what reach the arms added in the six-hundred-and-eighty-ninth**;
+  # `crates/pdf-model/src/{ecdsa,eddsa}.rs`'s `fixtures` modules hold all four in hexadecimal and
+  # the module documentation has the `openssl` invocations that made them. Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
 ```
 
 **Two measurements that are not gates, and each says why in its own header.**

@@ -373,6 +373,71 @@ shake = "0.1.0"
 # code that only ever verifies public numbers.
 crypto-bigint = { version = "0.7.5", default-features = false, features = ["alloc"] }
 
+# Table 260's third algorithm family, as ISO/TS 32002 section 5.1.3's Table 3 enumerates it:
+# "P-256 … P-384 … P-521 … brainpoolP256r1 … brainpoolP384r1 … brainpoolP512r1". These are the
+# first three, and the *arithmetic* is what ADR 0331's owner decision says to take rather than
+# write — a curve crate's prime, base point and order are reviewed constants on exactly the
+# footing `crypto-bigint`'s carry chains are (ADR 0532).
+#
+# **`default-features = false, features = ["ecdsa"]` is four defaults dropped and one kept.** The
+# kept one pulls `arithmetic`, `ecdsa-core/algorithm` and the curve's own `sha2` hash binding —
+# the whole of what `PrehashVerifier::verify_prehash` needs. Dropped: `pem` and `std`, which a
+# verifier reading DER out of a PDF never reaches; and `precomputed-tables`, which trades binary
+# size for scalar-multiplication speed and is the wrong side of that trade here — a signature is
+# verified at most a handful of times per document, on the document's own thread, never on the
+# launch path, while every byte of a table is in the image a launch pages in.
+#
+# **Brainpool is not here and it is not an oversight.** `bp256` and `bp384`'s current line is
+# 0.14.0-rc.15 — this tree takes no pre-release — their stable 0.6 is the old `digest` line, and
+# **brainpoolP512r1 has no crate on crates.io at all**. All three reach a reader as the curve
+# identifier the certificate states rather than as a silence; `ecdsa.rs` names them by the
+# constants `const-oid` carries. Re-measured 2026-08-23; ADR 0331 measured the same on 08-14.
+#
+# **`ecdsa` is named directly and costs nothing**: it is the same package the three curve crates
+# already lock, and naming it is what lets `ecdsa.rs` write *one* generic verification over the
+# three curves instead of three copies of a security-critical path.
+ecdsa = { version = "0.17.0", default-features = false, features = ["algorithm"] }
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+p384 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+p521 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+
+# ISO/TS 32002 section 5.1.2 adds an EdDSA row to Table 260 — "IETF RFC 8032, Edwards-curve
+# Digital Signature Algorithm (EdDSA) (PDF 2.x) using the Ed25519 or Ed448 elliptic curves" — and
+# its Table 4 pairs Ed25519 with SHA512. This is that curve, and it is a different group law from
+# the three above rather than a fourth curve of the same shape, which is why it is a separate
+# package rather than a fourth line there.
+#
+# **`BSD-3-Clause`, which `deny.toml` already allows** — no exception was added and none was
+# needed. It and `curve25519-dalek` are the only two crates in this graph under it.
+#
+# **Its default features are both dropped and both for a reason.** `zeroize` wipes secret key
+# material, and this program holds no secret: every number it touches came out of a file a
+# stranger wrote. `fast` is `curve25519-dalek/precomputed-tables`, declined on the same
+# size-against-speed reasoning as the three curves above.
+#
+# **What it costs that the others do not: `curve25519-dalek`'s SIMD backend carries `unsafe`.**
+# On x86_64 its build script selects `simd` by default and that backend's field arithmetic is
+# `#[unsafe_target_feature]` intrinsics. This is the same shape as what `sha2`, `cmov`,
+# `block-buffer` and `hybrid-array` — all already on `pdf-model`'s path — do for the same reason,
+# and `#![forbid(unsafe_code)]` remains what it always was: compiler-enforced over *this
+# project's* source. `ed25519-dalek` itself carries `#![forbid(unsafe_code)]`. ADR 0532.
+ed25519-dalek = { version = "3.0.0", default-features = false }
+
+# **Zero new packages, and that is the whole reason this line exists.** `const-oid` is already in
+# this graph as `digest` 0.11's dependency; naming it directly turns on its `db` feature, which is
+# a compiled-in table of object identifiers grouped by the RFC that assigns each one.
+#
+# What it buys is principle 5's problem in `cms::Digest::oid`, solved for a whole family at once:
+# the elliptic-curve identifiers — `id-ecPublicKey`, the three `namedCurve`s, the three Brainpool
+# ones this tree refuses by name, `ecdsa-with-SHA*`, `id-ecdsa-with-sha3-*`, `id-Ed25519` and
+# `id-Ed448` — are numbers no document under `doc/` prints, and this is a second party's reading
+# of the registries that do. Nothing here is transcribed from memory.
+#
+# The table is `static` data, so it costs no parse time at launch (`CLAUDE.md`'s startup rule),
+# and the linker keeps only the constants that are named: the `DB` name index is referenced by
+# nothing in this tree and does not survive into the binary.
+const-oid = { version = "0.10.2", default-features = false, features = ["db"] }
+
 # §7.6.4.1 requires a password to be processed with the SASLprep profile (Internet RFC
 # 4013) of stringprep (Internet RFC 3454) before it is used. That is Unicode normalisation,
 # a character-class mapping and a BiDi check — data rather than algorithm, and exactly the

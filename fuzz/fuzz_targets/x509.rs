@@ -38,6 +38,7 @@ use pdf_model::cms::Digest;
 use pdf_model::dsa::{self, MAX_SUBGROUP_BITS};
 use pdf_model::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
 use pdf_model::pss;
+use pdf_model::{ecdsa, eddsa};
 use pdf_model::x509::{self, PublicKey};
 
 fuzz_target!(|data: &[u8]| {
@@ -96,6 +97,52 @@ fuzz_target!(|data: &[u8]| {
                         }
                     }
                 }
+            }
+            return;
+        }
+        PublicKey::Ec(key) => {
+            inside(key.point);
+            // Every shape a signature value can arrive in, over a digest nobody signed. The
+            // third is a well-formed `ECDSA-Sig-Value` with r = s = 1, so the range check is
+            // reached rather than the encoding refusal, and the fourth is BSI TR-03111's plain
+            // `r ‖ s`, which two corpus signatures use and which is not this encoding.
+            for signature in [
+                data,
+                &[][..],
+                &[0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01],
+                &vec![0x11; 2 * key.curve.field_octets()],
+            ] {
+                match ecdsa::verify(key, signature, &digest) {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        panic!("an ECDSA signature verified against a digest that was never signed")
+                    }
+                    // Every refusal is a named `EcdsaError`, which is the property this arm is
+                    // for: an encoding or a range this module will not act on, said out loud.
+                    Err(_) => {}
+                }
+            }
+            return;
+        }
+        PublicKey::Ed25519(key) => {
+            inside(key.key);
+            for signature in [data, &[][..], &[0u8; 64][..]] {
+                match eddsa::verify(key, signature, &[b"a message nobody signed"]) {
+                    Ok(false) => {}
+                    Ok(true) => {
+                        panic!("an Ed25519 signature verified over a message nobody signed")
+                    }
+                    Err(_) => {}
+                }
+            }
+            return;
+        }
+        PublicKey::EcCurveNotVerifiable { curve } => {
+            if let Some(curve) = curve {
+                inside(curve);
+                // A curve this program does not compute on is reported by *its* number, so
+                // decoding one has to be total for the same reason the arm below needs it.
+                let _ = x509::dotted(curve);
             }
             return;
         }
