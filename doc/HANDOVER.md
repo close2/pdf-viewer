@@ -109,7 +109,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 13 | A sweep for a defect must be run against the defect before it is believed | instruments |
 | 14 | A target that *is* the region a clause names cannot tell you whether you applied it | pixels |
 | 15 | A sweep binary carries its tree with it, so one from a neighbour's build directory measures the neighbour | instruments |
-| 16 | A *gate's* answer can depend on which build directory it was compiled in | instruments |
+| 16 | A *gate's* answer can depend on **how much of the workspace was built** — feature unification, and a round owes the diagnosis | instruments |
 
 ---
 
