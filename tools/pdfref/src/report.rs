@@ -209,10 +209,23 @@ pub fn summarise(case: &str, triangulation: &Triangulation) -> String {
             "DIVERGENT — the references disagree among themselves; not a failure".to_owned()
         }
         Outcome::NotEnoughReferences { available } => {
-            format!("FAIL — only {available} reference(s) available; cannot triangulate")
+            format!("FAIL — only {available} reference(s) drew a picture; cannot triangulate")
         }
     };
     let _ = writeln!(out, "{case}: {verdict}");
+
+    // Named on its own line rather than folded into the verdict: an abstention is a
+    // statement about a *reference*, and the numbers below are still printed for it, so a
+    // reader who does not know which of them counted would read the wrong ones.
+    if !triangulation.abstained.is_empty() {
+        let names: Vec<&str> = triangulation.abstained.iter().map(|r| r.name()).collect();
+        let _ = writeln!(
+            out,
+            "  returned one colour, which a reference that drew marks disagrees with, so took \
+             no part in the consensus: {}",
+            names.join(", ")
+        );
+    }
 
     // The bounds are part of the verdict, not context for it: under a judgement relative
     // to the references they are derived from this page and differ from every other page's.

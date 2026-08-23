@@ -22,6 +22,17 @@
 //! That distinction is the whole design. A comparison suite that cries wolf gets
 //! switched off, and a switched-off suite catches nothing.
 //!
+//! # The one picture that carries no evidence
+//!
+//! The rule above rests on two unrelated implementations arriving at the same answer being
+//! improbable unless the answer is right. That improbability is absent for exactly one
+//! picture: the empty one. Every way of failing produces the page background, so two
+//! renderers that each decoded nothing agree exactly, and their agreement says nothing about
+//! the file. [`consensus_abstentions`] takes such a reference out of the vote — but only where
+//! a reference that drew marks *disagrees* with it, because a page whose correct rendering is
+//! a flat sheet is not the same thing, and a rule that could not tell those apart would
+//! forgive a reader that painted marks on an empty page.
+//!
 //! # What "agree" means
 //!
 //! Tolerantly, via [`raster_compare`]. Exact equality is unachievable between correct
@@ -322,9 +333,14 @@ pub enum Outcome {
     },
     /// The references disagree among themselves, so there is no answer to hold us to.
     Ambiguous,
-    /// Fewer than two references were available, so nothing can be triangulated.
+    /// Fewer than two references produced a picture, so nothing can be triangulated.
+    ///
+    /// A renderer that was not installed, that refused the file, or that returned a raster of
+    /// one colour on a page another renderer drew all land here, and the last of the three is
+    /// [`consensus_abstentions`]'s: what a program emits when it decoded nothing is not a
+    /// reading of the page, and the harness has no second operand to compare against it.
     NotEnoughReferences {
-        /// How many were found.
+        /// How many produced a picture of the page.
         available: usize,
     },
 }
@@ -344,11 +360,124 @@ impl Outcome {
     }
 }
 
+/// Whether every pixel of a raster is one colour.
+///
+/// A page is a picture of something. A raster of one colour is a picture of nothing, and
+/// [`consensus_abstentions`] is what this exists for; the argument is there rather than here,
+/// because on its own this function asks a question about pixels and answers it exactly.
+///
+/// Exactly rather than within a noise floor, deliberately. A renderer that drew anything at
+/// all antialiases its edges, so the population this separates is not near-uniform rasters
+/// but rasters that carry a single value — which is what a program that decoded nothing
+/// emits, and which no threshold has to be invented to recognise.
+#[must_use]
+pub fn is_uniform(raster: &Raster) -> bool {
+    let mut pixels = raster.data.chunks_exact(4);
+    let Some(first) = pixels.next() else {
+        // No pixels at all is not a picture either, and the callers below treat it as one
+        // colour rather than as a special case.
+        return true;
+    };
+    pixels.all(|pixel| pixel == first)
+}
+
+/// Which references took no part in the consensus, because their raster is one colour and a
+/// reference that drew marks does not agree with it.
+///
+/// # Why a uniform raster is usually not a vote
+///
+/// The whole instrument rests on ADR 0005: two implementations sharing no code arriving at the
+/// same picture is evidence that the picture is right, because two *wrong* implementations
+/// arriving at the same wrong picture is improbable. That improbability is the inference, and
+/// it fails completely for one picture — the empty one. A renderer that refused an image, gave
+/// up on a filter, lost a font or threw an exception emits the page background, and so does
+/// every other renderer that failed for a wholly different reason. Two failures agree with each
+/// other exactly, at a spread of zero, which under [`Tolerance::widened_to`] is also the
+/// *tightest* bound the harness can hold anything to.
+///
+/// Worse, the comparison then has no second operand: against a constant raster every measure
+/// [`raster_compare`] produces is a statistic of our own render, the mean being exactly
+/// `255 × (1 − our own mean channel value)`. ADR 0499 measured that identity on six corpus
+/// pages, digit for digit on all four bounds at once.
+///
+/// # Two things a uniform raster can be, and only one of them is a failure
+///
+/// A raster of one colour is uninformative only about a page that has marks on it, and two
+/// quite different pages produce one:
+///
+/// - a page whose correct rendering is a flat sheet — an empty page, or one covered by a
+///   single fill. There the flat sheet is the right answer and a renderer that produced it
+///   *read* the file;
+/// - a page with marks on it, which this renderer did not draw.
+///
+/// Our own render cannot tell those apart without circularity: a reader that painted nothing
+/// would otherwise excuse every reference that painted nothing, and a reader that painted
+/// something would disqualify every reference that disagreed with it.
+///
+/// The non-circular answer is the **other references**, and the question to ask them is not
+/// "did anybody draw" but "does anybody who drew *disagree*". A reference whose marks are
+/// inside [`Tolerance`] of a flat sheet has drawn a page that is, at this bound, a flat sheet;
+/// the two rasters are the same picture as far as this instrument can measure, and nothing is
+/// gained by refusing one of them a vote. It is the reference that drew marks *and* falls
+/// outside the bound which establishes that there was a picture to draw — and against that,
+/// one flat colour is a renderer that did not draw it.
+///
+/// So: **a uniform raster abstains exactly where a reference that drew marks fails to agree
+/// with it**, judged by the same [`Tolerance::accepts`] that decides every other agreement
+/// here. Three consequences worth stating, because each is a population:
+///
+/// - where every reference is uniform, none abstains. Every independent reading of the file
+///   says the page is a flat sheet, which is a reading; a render of ours that puts marks on
+///   such a page stays contradicted, and that is the defect this rule must not suppress;
+/// - where a reference draws marks a flat sheet is inside the bound of, none abstains either,
+///   and the page keeps whatever verdict it had;
+/// - where two references disagree and both are uniform — one white, one black, which is what
+///   `jbig2dec` produces on one corpus page — neither abstains, because neither is a reference
+///   that drew. That page is outside what this rule can reach, and it is left visible rather
+///   than reached for by loosening the predicate.
+#[must_use]
+pub fn consensus_abstentions(
+    references: &[(Reference, Raster)],
+    between: &[(Reference, Reference, Comparison)],
+    tolerance: &Tolerance,
+) -> Vec<Reference> {
+    let uniform = |name: Reference| {
+        references
+            .iter()
+            .find(|(reference, _)| *reference == name)
+            .is_some_and(|(_, raster)| is_uniform(raster))
+    };
+
+    references
+        .iter()
+        .filter(|(reference, raster)| {
+            is_uniform(raster)
+                && between.iter().any(|(left, right, comparison)| {
+                    let other = match (*left == *reference, *right == *reference) {
+                        (true, false) => *right,
+                        (false, true) => *left,
+                        // A pair that is not this reference's says nothing about it, and a
+                        // pair of a reference with itself does not exist.
+                        _ => return false,
+                    };
+                    !uniform(other) && !tolerance.accepts(comparison)
+                })
+        })
+        .map(|(reference, _)| *reference)
+        .collect()
+}
+
 /// The full result of a comparison, including every measurement taken.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Triangulation {
     /// The conclusion.
     pub outcome: Outcome,
+    /// References whose raster was one colour on a page another reference drew, and which
+    /// therefore took no part in the consensus — [`consensus_abstentions`].
+    ///
+    /// They are still measured and still reported: what they produced is a fact about the
+    /// page worth reading, and it is the evidence for the abstention itself.
+    pub abstained: Vec<Reference>,
     /// The bounds our own render was actually held to.
     ///
     /// Equal to the tolerance passed in under [`Judgement::Absolute`], and widened by the
@@ -426,8 +555,10 @@ pub fn triangulate_with(
         ours_vs.push((*reference, comparison));
     }
 
+    let abstained = consensus_abstentions(references, &between_references, tolerance);
     let (outcome, judged_by) = decide(
         references,
+        &abstained,
         &between_references,
         &ours_vs,
         tolerance,
@@ -436,6 +567,7 @@ pub fn triangulate_with(
 
     Ok(Triangulation {
         outcome,
+        abstained,
         judged_by,
         ours: ours_vs,
         between_references,
@@ -443,6 +575,12 @@ pub fn triangulate_with(
 }
 
 /// Finds the largest mutually-agreeing group of references and judges us against it.
+///
+/// `abstained` names the references that produced no picture of the page — see
+/// [`consensus_abstentions`], which has the argument. They are excluded from the consensus
+/// search and from the widening, and a page left with fewer than two references that did draw
+/// is [`Outcome::NotEnoughReferences`]: not because a renderer was missing, but because what
+/// it returned cannot be compared with anything.
 ///
 /// Returns the bounds we were actually held to alongside the conclusion, since under
 /// [`Judgement::RelativeToReferences`] they are derived from the page and a reader cannot
@@ -453,26 +591,31 @@ pub fn triangulate_with(
 )]
 fn decide(
     references: &[(Reference, Raster)],
+    abstained: &[Reference],
     between: &[(Reference, Reference, Comparison)],
     ours: &[(Reference, Comparison)],
     tolerance: &Tolerance,
     judgement: Judgement,
 ) -> (Outcome, Tolerance) {
-    if references.len() < 2 {
-        return (
-            Outcome::NotEnoughReferences {
-                available: references.len(),
-            },
-            *tolerance,
-        );
-    }
-
     // The largest set of references that all agree with one another. With three
     // references this is small enough to check exhaustively, and doing so avoids the
     // subtle bug in "count pairwise agreements": A agreeing with B and B with C does
     // not make A agree with C, and treating it as if it did would let a chain of
     // near-misses masquerade as consensus.
-    let names: Vec<Reference> = references.iter().map(|(r, _)| *r).collect();
+    let names: Vec<Reference> = references
+        .iter()
+        .map(|(r, _)| *r)
+        .filter(|r| !abstained.contains(r))
+        .collect();
+
+    if names.len() < 2 {
+        return (
+            Outcome::NotEnoughReferences {
+                available: names.len(),
+            },
+            *tolerance,
+        );
+    }
     let agrees = |a: Reference, b: Reference| {
         between
             .iter()
@@ -769,9 +912,12 @@ mod tests {
     /// alone; the arithmetic that widens it is pinned by the two tests above.
     #[test]
     fn a_deviation_within_twice_the_references_own_spread_is_not_a_regression() {
-        let poppler = solid(WHITE);
-        let mupdf = banded(1, GREY);
-        let ours = banded(2, GREY);
+        // Every panel carries a mark. A reference of one flat colour would abstain under
+        // `consensus_abstentions` and leave nothing to widen by, which is a different test
+        // and is the one below.
+        let poppler = banded(1, GREY);
+        let mupdf = banded(2, GREY);
+        let ours = banded(3, GREY);
 
         // Bounds a fifth wider than the references' measured disagreement: they agree
         // with each other, and we sit at roughly twice their spread, so we do not.
@@ -837,6 +983,164 @@ mod tests {
             "only pairs within the consensus may widen the bounds"
         );
         assert!(matches!(result.outcome, Outcome::Regression { .. }));
+    }
+
+    /// Two renderers that each decoded nothing agree exactly, and that agreement is
+    /// manufactured by the shape of failure rather than by a reading of the file.
+    #[test]
+    fn two_references_that_drew_nothing_do_not_form_a_consensus() {
+        let refs = vec![
+            (Reference::Poppler, banded(8, BLACK)),
+            (Reference::MuPdf, solid(WHITE)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result =
+            triangulate(&banded(8, BLACK), &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert_eq!(
+            result.outcome,
+            Outcome::NotEnoughReferences { available: 1 },
+            "with the two blank rasters abstaining, one reading is left and one cannot triangulate"
+        );
+        assert_eq!(
+            result.abstained,
+            vec![Reference::MuPdf, Reference::Ghostscript]
+        );
+        assert_eq!(
+            result.ours.len(),
+            3,
+            "an abstaining reference is still measured and still reported"
+        );
+    }
+
+    /// The over-reach this rule must not commit: where *no* reference drew, a blank page is
+    /// what every independent reading of the file says, and a reader that painted marks on it
+    /// is contradicted exactly as before.
+    #[test]
+    fn a_page_no_reference_draws_still_contradicts_a_reader_that_draws() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(WHITE)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result =
+            triangulate(&banded(8, BLACK), &refs, &Tolerance::DEFAULT).expect("comparable");
+        match result.outcome {
+            Outcome::Regression { ref agreeing } => assert_eq!(agreeing.len(), 3),
+            other => panic!("expected a regression, got {other:?}"),
+        }
+        assert!(
+            result.abstained.is_empty(),
+            "nobody abstains where nobody drew"
+        );
+    }
+
+    /// And the same page drawn blank by us agrees, which is the population the rule above
+    /// would suppress if it fired on uniformity alone.
+    #[test]
+    fn a_blank_page_every_renderer_agrees_about_is_still_an_agreement() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(WHITE)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result = triangulate(&solid(WHITE), &refs, &Tolerance::DEFAULT).expect("comparable");
+        match result.outcome {
+            Outcome::Agrees { ref with } => assert_eq!(with.len(), 3),
+            other => panic!("expected agreement, got {other:?}"),
+        }
+    }
+
+    /// A renderer that emitted a flat sheet of the wrong colour is failing just as plainly as
+    /// one that emitted white, and `mupdf` does exactly this on nineteen corpus pages.
+    #[test]
+    fn a_uniform_raster_abstains_whatever_its_colour() {
+        let refs = vec![
+            (Reference::Poppler, banded(8, GREY)),
+            (Reference::MuPdf, solid(BLACK)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result = triangulate(&banded(8, GREY), &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert_eq!(
+            result.abstained,
+            vec![Reference::MuPdf, Reference::Ghostscript]
+        );
+        assert_eq!(
+            result.outcome,
+            Outcome::NotEnoughReferences { available: 1 }
+        );
+    }
+
+    /// The refinement that keeps this rule off pages that are *legitimately* flat: a mark
+    /// small enough to sit inside the bound means the page is a flat sheet at this bound, so
+    /// the flat renders are reading it rather than failing at it.
+    ///
+    /// Nine corpus pages turn on this distinction, and without it every one of them lost an
+    /// agreement it had earned.
+    #[test]
+    fn a_uniform_raster_that_no_drawn_page_disagrees_with_keeps_its_vote() {
+        // One column of a colour a single channel apart from white: `raster_compare` counts
+        // it, and every bound admits it.
+        let faint = banded(1, [255, 254, 255, 255]);
+        let refs = vec![
+            (Reference::Poppler, faint.clone()),
+            (Reference::MuPdf, solid(WHITE)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result = triangulate(&faint, &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert!(
+            result.abstained.is_empty(),
+            "a flat sheet inside the bound of the drawn page is a reading of it: {:?}",
+            result.abstained
+        );
+        match result.outcome {
+            Outcome::Agrees { ref with } => assert_eq!(with.len(), 3),
+            other => panic!("expected agreement, got {other:?}"),
+        }
+    }
+
+    /// Two uniform rasters of different colours are two failures, and neither is a reference
+    /// that drew — so neither abstains and the page keeps its verdict. `jbig2dec` produces
+    /// exactly this on `bitmap-symbol-context-reuse.pdf`, and it is the honest limit of the
+    /// rule rather than a case to reach by loosening the predicate.
+    #[test]
+    fn two_uniform_rasters_disagreeing_with_each_other_reach_no_abstention() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(BLACK)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result = triangulate(&banded(8, GREY), &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert!(result.abstained.is_empty());
+        match result.outcome {
+            Outcome::Regression { ref agreeing } => assert_eq!(agreeing.len(), 2),
+            other => panic!("expected a regression, got {other:?}"),
+        }
+    }
+
+    /// One abstention out of three still leaves a consensus, and it is the two that drew.
+    #[test]
+    fn one_abstention_leaves_the_two_that_drew_to_decide() {
+        let refs = vec![
+            (Reference::Poppler, banded(8, GREY)),
+            (Reference::MuPdf, banded(8, GREY)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result = triangulate(&solid(WHITE), &refs, &Tolerance::DEFAULT).expect("comparable");
+        match result.outcome {
+            Outcome::Regression { ref agreeing } => assert_eq!(
+                agreeing,
+                &[Reference::Poppler, Reference::MuPdf],
+                "the abstaining reference must not join the consensus it agrees with"
+            ),
+            other => panic!("expected a regression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn uniformity_is_exact_rather_than_within_a_noise_floor() {
+        assert!(super::is_uniform(&solid(WHITE)));
+        assert!(super::is_uniform(&solid(BLACK)));
+        assert!(!super::is_uniform(&banded(1, [254, 255, 255, 255])));
     }
 
     #[test]
