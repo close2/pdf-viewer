@@ -817,3 +817,48 @@ arithmetic is unchanged and still right; what was corrected is the comment, beca
 now states the byte reading in the same two sentences that had seemed to deny it. The corpus's
 witness is `doc/corpora/format-corpus/pdfCabinetOfHorrors/encryption_openpassword.pdf`, which
 writes `/CFM /AESV2 /Length 16`.
+
+## A one-word substitution under §9.4.2, found in the six-hundred-and-ninety-sixth
+
+`emit` over ISO 32000-2 while re-deriving §9.4.2's negative, which is the same rule as the four
+sections above and a different blind spot in the same sweep. **Issue #373, `Review/Completed`**, is
+a `StrikeOut` **with** a `Caret` — so the shape `check` was built for — and `check` still cannot see
+it, because what it strikes is one word:
+
+> TD
+
+replaced by
+
+> Td
+
+Its `/QuadPoints` are `[238.85 267.809 252.232 267.809 238.85 257.849 252.232 257.849]` on page 323,
+and `pdftotext -bbox` puts a word `TD` at exactly `238.850`–`252.232`, `572.398`–`584.071` from the
+top of an 841.92-point page — the same box, and it is the `TD` in **Table 106's `T*` row**, whose
+description gives the operator as the code `0 –Tl TD`. So the table now reads `0 –Tl Td`.
+
+**So the rule generalises past the additions.** The last four sections each found a `Caret` with no
+`StrikeOut` and concluded that an erratum which only *adds* is invisible to `check` by construction.
+This one strikes and replaces, and is invisible for a second reason: `check` compares struck
+passages **of four words or more**, so every erratum that corrects a single token is below its floor
+whatever its shape. `emit` is the instrument for both.
+
+**It costs no arithmetic and it corrected two of this tree's own sentences.** `TD` sets the leading
+to the negation of its own `ty`, so `0 –Tl TD` sets the leading to `Tl` — where it already was —
+and the two codes move the line identically. What the erratum fixes is a reader. `run.rs`
+implements `T*` as the amended form and always has, touching no leading; §9.4.2's ledger row and
+`text_state.rs`'s `leading_moves_the_next_line_downwards` both quoted `0 -Tl TD`, and both now say
+`Td` with the erratum named.
+
+**Issue #372 on page 320 is not a finding and is recorded so that the next round need not look**:
+its strikeout covers `Tm` and its caret says `Tm`, so what changed is the typography of one symbol.
+
+**And Issue #191 is filed under §12.7.5.4 by `emit` and belongs to §12.7.5.3.** `emit` keys a note
+to the clause heading its page carries, and page 556 carries the tail of §12.7.5.3 above the
+§12.7.5.4 heading; the note strikes `The` for `An integer value greater than or equal to zero that
+is the` at the head of **Table 232's `/MaxLen`** row, which is the text field's maximum length and
+not a choice field's anything. Recorded in §12.7.5.3's row rather than acted on: the entry's
+`integer` type already says as much, and `appearance.rs`'s `text_shape` takes the entry through
+`u32::try_from` and then `filter(|value| *value > 0)`, so a `/MaxLen` at or below zero leaves the
+field a single line rather than a comb of nonsense width. The amended sentence calls such a file
+non-conforming and this reader already declines it, which is the erratum vindicating the code for
+the second time in this section.
