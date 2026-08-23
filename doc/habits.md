@@ -370,6 +370,14 @@ back and change `OCInteract`". A warning written where the work is does not fire
   this tree repeats, the work is done when the *sentence* is gone. "Vertical writing is refused"
   was true until session 36 and still written in four places in session 122 — a ledger row, a doc
   comment and two paragraphs of this file. ADRs 0101, 0111.
+- **And a claim a sweep counts is a string too, so a correction has to leave it findable.** The
+  other edge of the habit above, and the six-hundred-and-eighty-sixth session paid it: `doc/todo/01`'s
+  sixteenth sweep finds a row by the words "no corpus document", and two corrections written in this
+  project's house style — deleting the sentence outright in one row, quoting it as `[n]o corpus
+  document …` in the other — took both rows out of the *population* instead of moving them across
+  it. The count fell and nothing had been found. **Where a sweep's own population is a phrase, a
+  correction states the retired claim in words the phrase matches**, which is also the honest shape:
+  a row that says what it used to say is a row a reader can check. ADR 0523.
 - **A prose claim about the code can be turned into a grep, and twice that has paid.** Session 118
   swept the notes for expired reasons ("while §X does not exist"); session 122 for sentences
   claiming an entry is *unread*. Twenty minutes apiece, three live findings apiece.

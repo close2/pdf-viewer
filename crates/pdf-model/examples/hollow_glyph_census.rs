@@ -19,13 +19,20 @@
 //! what the renderer's own library thinks would measure the reader rather than the corpus.
 //!
 //! ```sh
-//! cargo run --release -p pdf-model --example hollow_glyph_census
+//! cargo run --release -p pdf-model --example hollow_glyph_census              # curated
+//! cargo run --release -p pdf-model --example hollow_glyph_census -- --pdfjs
+//! cargo run --release -p pdf-model --example hollow_glyph_census -- --crawl   # CC-MAIN-2021-31
 //! ```
+//!
+//! **The three scopes are the six-hundred-and-eighty-sixth session's.** ADR 0350's claim was
+//! measured over `doc/pdf.js` alone, before `CC-MAIN-2021-31` was on this disk, and a negative
+//! decays when the population grows (ADR 0490). The control run is stated beside the crawl run
+//! rather than merged with it, because one number over both would hide which of the two moved.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 #![allow(
     clippy::arithmetic_side_effects,
-    reason = "counters and table offsets over 974 documents' fonts; every quantity is bounded \
+    reason = "counters and table offsets over a corpus's fonts; every quantity is bounded \
               by a program this loop has already read into memory, and this is a measurement \
               rather than a shipped path"
 )]
@@ -34,16 +41,54 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pdf_syntax::{Document, ObjectId};
+use rayon::prelude::*;
 
-fn corpus() -> Vec<PathBuf> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&root)
-        .expect("the submodule is checked out")
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().is_some_and(|e| e == "pdf"))
-        .collect();
+/// How many witnessing document names are printed per finding before the list is truncated.
+const MAX_NAMED: usize = 12;
+
+/// Which population a run is over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// The pdf.js corpus alone — the population ADR 0350's claim was measured over.
+    PdfJs,
+    /// That, the four `doc/corpora/` submodules, and this project's own fixtures.
+    Curated,
+    /// The `SafeDocs` `CC-MAIN-2021-31` crawl under `corpus-cache/`, and nothing else.
+    Crawl,
+}
+
+fn corpus(scope: Scope) -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = Vec::new();
+    let roots: &[&str] = match scope {
+        Scope::PdfJs => &["doc/pdf.js/test/pdfs"],
+        Scope::Curated => &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"],
+        Scope::Crawl => &["corpus-cache/safedocs/cc-main-2021-31"],
+    };
+    for relative in roots {
+        collect(&root.join(relative), &mut files);
+    }
     files.sort();
+    files.dedup();
     files
+}
+
+/// Every `.pdf` under one directory, recursively.
+fn collect(dir: &Path, into: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, into);
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            into.push(path);
+        }
+    }
 }
 
 /// How a `CIDFontType2` reaches a glyph index, as its own dictionary states it.
@@ -61,7 +106,49 @@ struct Program {
     empty: usize,
 }
 
+/// What one document's `CIDFontType2` dictionaries said.
+#[derive(Default)]
+struct Answer {
+    /// `CIDFontType2` dictionaries seen at all.
+    fonts: usize,
+    /// Those with a `/FontFile2` this census could read.
+    embedded: usize,
+    /// Those reaching their glyphs through a `/CIDToGIDMap` stream.
+    through_stream: usize,
+    /// Those embedding a program whose every glyph is empty.
+    wholly_hollow: usize,
+    /// Those embedding a program some of whose glyphs are empty.
+    partly_hollow: usize,
+    /// The intersection this census exists for, named per font.
+    hollow_under_stream: Vec<String>,
+}
+
 fn main() {
+    let scope = if std::env::args().any(|a| a == "--crawl") {
+        Scope::Crawl
+    } else if std::env::args().any(|a| a == "--pdfjs") {
+        Scope::PdfJs
+    } else {
+        Scope::Curated
+    };
+    let files = corpus(scope);
+    eprintln!("{} PDF(s) in the population", files.len());
+
+    let measured: Vec<(String, Answer)> = files
+        .par_iter()
+        .filter_map(|path| {
+            let bytes = std::fs::read(path).ok()?;
+            let document = Document::open(bytes).ok()?;
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let answer = measure(&document, &name);
+            Some((name, answer))
+        })
+        .collect();
+
     let mut fonts = 0_usize;
     let mut embedded = 0_usize;
     let mut through_stream = 0_usize;
@@ -70,68 +157,25 @@ fn main() {
     let mut hollow_under_stream: Vec<String> = Vec::new();
     let mut hollow_documents: BTreeMap<String, usize> = BTreeMap::new();
     let mut stream_documents: BTreeMap<String, usize> = BTreeMap::new();
-    let mut documents = 0_usize;
-
-    for path in corpus() {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        let Ok(document) = Document::open(bytes) else {
-            continue;
-        };
-        documents += 1;
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-
-        for number in document.xref().object_numbers() {
-            let object = document.get(ObjectId {
-                number,
-                generation: 0,
-            });
-            let Some(dict) = object.as_dict() else {
-                continue;
-            };
-            let subtype = document.get_key(dict, "Subtype");
-            if subtype
-                .as_name()
-                .is_none_or(|n| n.as_bytes() != b"CIDFontType2")
-            {
-                continue;
-            }
-            fonts += 1;
-
-            let mapping = document.get_key(dict, "CIDToGIDMap");
-            let route = if mapping.as_stream().is_some() {
-                Route::Stream
-            } else {
-                Route::Identity
-            };
-            if route == Route::Stream {
-                through_stream += 1;
-                *stream_documents.entry(name.clone()).or_default() += 1;
-            }
-
-            let Some(program) = embedded_program(&document, dict) else {
-                continue;
-            };
-            embedded += 1;
-            if program.empty == 0 {
-                continue;
-            }
-            if program.empty == program.glyphs {
-                wholly_hollow += 1;
-                *hollow_documents.entry(name.clone()).or_default() += 1;
-                if route == Route::Stream {
-                    hollow_under_stream.push(format!("{name} (object {number})"));
-                }
-            } else {
-                partly_hollow += 1;
-            }
+    for (name, answer) in &measured {
+        fonts += answer.fonts;
+        embedded += answer.embedded;
+        through_stream += answer.through_stream;
+        wholly_hollow += answer.wholly_hollow;
+        partly_hollow += answer.partly_hollow;
+        hollow_under_stream.extend(answer.hollow_under_stream.iter().cloned());
+        if answer.through_stream > 0 {
+            *stream_documents.entry(name.clone()).or_default() += answer.through_stream;
+        }
+        if answer.wholly_hollow > 0 {
+            *hollow_documents.entry(name.clone()).or_default() += answer.wholly_hollow;
         }
     }
 
     println!(
-        "{documents} document(s) opened, {fonts} CIDFontType2 dictionaries, {embedded} of them \
-         with an embedded /FontFile2 this census could read"
+        "{} document(s) opened, {fonts} CIDFontType2 dictionaries, {embedded} of them \
+         with an embedded /FontFile2 this census could read",
+        measured.len()
     );
     println!("  {through_stream:6} reach their glyphs through a /CIDToGIDMap stream");
     println!("  {wholly_hollow:6} embed a program whose every glyph is empty");
@@ -139,7 +183,7 @@ fn main() {
     println!(
         "\n**{} font(s) combine both — a wholly hollow program under a remapping stream**: {}",
         hollow_under_stream.len(),
-        hollow_under_stream.join(", ")
+        truncated(&hollow_under_stream)
     );
     println!(
         "\n{} document(s) state a /CIDToGIDMap stream: {}",
@@ -153,13 +197,86 @@ fn main() {
     );
 }
 
+/// Every `CIDFontType2` this document's cross-reference table names, read for its glyphs.
+fn measure(document: &Document, name: &str) -> Answer {
+    let mut answer = Answer::default();
+    for number in document.xref().object_numbers() {
+        let object = document.get(ObjectId {
+            number,
+            generation: 0,
+        });
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        let subtype = document.get_key(dict, "Subtype");
+        if subtype
+            .as_name()
+            .is_none_or(|n| n.as_bytes() != b"CIDFontType2")
+        {
+            continue;
+        }
+        answer.fonts += 1;
+
+        let mapping = document.get_key(dict, "CIDToGIDMap");
+        let route = if mapping.as_stream().is_some() {
+            Route::Stream
+        } else {
+            Route::Identity
+        };
+        if route == Route::Stream {
+            answer.through_stream += 1;
+        }
+
+        let Some(program) = embedded_program(document, dict) else {
+            continue;
+        };
+        answer.embedded += 1;
+        if program.empty == 0 {
+            continue;
+        }
+        if program.empty == program.glyphs {
+            answer.wholly_hollow += 1;
+            if route == Route::Stream {
+                answer
+                    .hollow_under_stream
+                    .push(format!("{name} ({number})"));
+            }
+        } else {
+            answer.partly_hollow += 1;
+        }
+    }
+    answer
+}
+
 /// Names with their font counts, as the other censuses print them.
 fn listed(documents: &BTreeMap<String, usize>) -> String {
-    documents
+    let named: Vec<String> = documents
         .iter()
+        .take(MAX_NAMED)
         .map(|(name, count)| format!("{name} ({count})"))
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect();
+    if documents.len() > MAX_NAMED {
+        format!(
+            "{}, … and {} more",
+            named.join(", "),
+            documents.len() - MAX_NAMED
+        )
+    } else {
+        named.join(", ")
+    }
+}
+
+/// One flat list of names, truncated the same way.
+fn truncated(names: &[String]) -> String {
+    if names.len() > MAX_NAMED {
+        format!(
+            "{}, … and {} more",
+            names[..MAX_NAMED].join(", "),
+            names.len() - MAX_NAMED
+        )
+    } else {
+        names.join(", ")
+    }
 }
 
 /// The descendant's own `/FontFile2`, read for how many of its glyphs describe nothing.

@@ -15,17 +15,93 @@
 //! appearance the whole job and a border this crate never constructs cannot be misplaced by it.
 //!
 //! ```sh
-//! cargo run --release -p pdf-model --example border_precedence_census -- doc/pdf.js/test/pdfs/*.pdf
+//! cargo run --release -p pdf-model --example border_precedence_census              # curated
+//! cargo run --release -p pdf-model --example border_precedence_census -- --pdfjs
+//! cargo run --release -p pdf-model --example border_precedence_census -- --crawl   # CC-MAIN-2021-31
+//! cargo run --release -p pdf-model --example border_precedence_census -- <file.pdf>...
 //! ```
+//!
+//! **The three scopes are the six-hundred-and-eighty-sixth session's**, and they are here for the
+//! reason ADR 0490 gives: this row's negatives were measured over "the 964 openable documents"
+//! before `CC-MAIN-2021-31` was on the disk, and a negative decays when the population grows. Run
+//! the control beside the crawl rather than instead of it — the old sentence is usually right
+//! about its own population, which is exactly why nothing in the tree could see it.
+//!
+//! **What is counted alongside each total is the *subtype*.** §12.5.4 states which subtypes'
+//! `/BS` is a border at all — "[s]uch dictionaries may also be used to specify the width and dash
+//! pattern for the lines drawn by line, square, circle, and ink annotations" — so a corner radius
+//! on an ink annotation and one on a link are different findings, and a count that added them
+//! would retire the sharper half of the claim with the wider one (ADR 0516).
 
 #![expect(
     clippy::print_stdout,
+    clippy::print_stderr,
     reason = "an example whose entire output is a measurement"
 )]
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use pdf_syntax::{Document, Object};
+use rayon::prelude::*;
+
+/// How many witnessing document names are printed per finding before the list is truncated.
+///
+/// The curated population is small enough to print whole and the crawl is not; the shape
+/// `absence_audit` settled on, for the same reason it settled on it.
+const MAX_NAMED: usize = 12;
+
+/// Which population a run is over.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// The pdf.js corpus alone — "the 974", which this row's own sentences are about.
+    PdfJs,
+    /// That, the four `doc/corpora/` submodules, and this project's own fixtures.
+    Curated,
+    /// The `SafeDocs` `CC-MAIN-2021-31` crawl under `corpus-cache/`, and nothing else.
+    Crawl,
+    /// Whatever files the command line named.
+    Named,
+}
+
+/// Every PDF this census measures over, in the scope asked for.
+fn corpus(scope: Scope, named: &[String]) -> Vec<PathBuf> {
+    if scope == Scope::Named {
+        return named.iter().map(PathBuf::from).collect();
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut files = Vec::new();
+    let roots: &[&str] = match scope {
+        Scope::PdfJs => &["doc/pdf.js/test/pdfs"],
+        Scope::Curated => &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"],
+        Scope::Crawl => &["corpus-cache/safedocs/cc-main-2021-31"],
+        Scope::Named => &[],
+    };
+    for relative in roots {
+        collect(&root.join(relative), &mut files);
+    }
+    files.sort();
+    files.dedup();
+    files
+}
+
+/// Every `.pdf` under one directory, recursively.
+fn collect(dir: &Path, into: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, into);
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        {
+            into.push(path);
+        }
+    }
+}
 
 /// What one annotation contributes to the census.
 #[derive(Default)]
@@ -40,6 +116,10 @@ struct Counts {
     both_with_radius: usize,
     /// Of the constructed ones, per Table 168 border style name.
     styles: BTreeMap<String, usize>,
+    /// The subtypes carrying a non-zero ignored corner radius, which is the sharper claim.
+    radius_on: BTreeMap<String, usize>,
+    /// The subtypes carrying Table 168's `B` or `I`, which this tree draws as `S` and reports.
+    bevelled_on: BTreeMap<String, usize>,
 }
 
 impl Counts {
@@ -49,38 +129,69 @@ impl Counts {
         self.constructed = self.constructed.saturating_add(other.constructed);
         self.both = self.both.saturating_add(other.both);
         self.both_with_radius = self.both_with_radius.saturating_add(other.both_with_radius);
-        for (style, count) in &other.styles {
-            let held = self.styles.entry(style.clone()).or_default();
-            *held = held.saturating_add(*count);
-        }
+        merge(&mut self.styles, &other.styles);
+        merge(&mut self.radius_on, &other.radius_on);
+        merge(&mut self.bevelled_on, &other.bevelled_on);
+    }
+
+    /// Whether this document says anything the summary lines would not already imply.
+    fn is_a_witness(&self) -> bool {
+        self.both > 0 || self.styles.keys().any(|style| style != "S (or default)")
+    }
+}
+
+/// Adds one distribution's counts into another.
+fn merge(into: &mut BTreeMap<String, usize>, from: &BTreeMap<String, usize>) {
+    for (key, count) in from {
+        let held = into.entry(key.clone()).or_default();
+        *held = held.saturating_add(*count);
     }
 }
 
 fn main() {
-    let mut total = Counts::default();
-    let mut opened = 0_usize;
-    let mut lines: Vec<String> = Vec::new();
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let named: Vec<String> = arguments
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .cloned()
+        .collect();
+    let scope = if !named.is_empty() {
+        Scope::Named
+    } else if arguments.iter().any(|a| a == "--crawl") {
+        Scope::Crawl
+    } else if arguments.iter().any(|a| a == "--pdfjs") {
+        Scope::PdfJs
+    } else {
+        Scope::Curated
+    };
 
-    for path in std::env::args().skip(1) {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        let Ok(document) = Document::open(bytes) else {
-            continue;
-        };
-        opened = opened.saturating_add(1);
-        let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
-        let counts = document_counts(&document);
-        if counts.both > 0 || counts.styles.keys().any(|style| style != "S (or default)") {
-            lines.push(format!(
-                "  {name}: {} constructed, {} state both (radius {}), styles {:?}",
-                counts.constructed, counts.both, counts.both_with_radius, counts.styles
-            ));
-        }
-        total.absorb(&counts);
+    let files = corpus(scope, &named);
+    eprintln!("{} PDF(s) in the population", files.len());
+
+    let measured: Vec<(String, Counts)> = files
+        .par_iter()
+        .filter_map(|path| {
+            let bytes = std::fs::read(path).ok()?;
+            let document = Document::open(bytes).ok()?;
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            Some((name, document_counts(&document)))
+        })
+        .collect();
+
+    let mut total = Counts::default();
+    for (_, counts) in &measured {
+        total.absorb(counts);
     }
 
-    println!("{opened} document(s) opened, {} annotation(s)", total.seen);
+    println!(
+        "{} document(s) opened, {} annotation(s)",
+        measured.len(),
+        total.seen
+    );
     println!(
         "  {} state no /AP, so a border is constructed",
         total.constructed
@@ -91,8 +202,25 @@ fn main() {
         total.both_with_radius
     );
     println!("  border styles among the constructed: {:?}", total.styles);
-    for line in &lines {
-        println!("{line}");
+    println!("  a non-zero ignored radius sits on: {:?}", total.radius_on);
+    println!("  Table 168's B and I sit on: {:?}", total.bevelled_on);
+
+    let witnesses: Vec<&(String, Counts)> = measured
+        .iter()
+        .filter(|(_, counts)| counts.is_a_witness())
+        .collect();
+    println!("  {} document(s) witness one of the above", witnesses.len());
+    for (name, counts) in witnesses.iter().take(MAX_NAMED) {
+        println!(
+            "    {name}: {} constructed, {} state both (radius {}), styles {:?}",
+            counts.constructed, counts.both, counts.both_with_radius, counts.styles
+        );
+    }
+    if witnesses.len() > MAX_NAMED {
+        println!(
+            "    … and {} more",
+            witnesses.len().saturating_sub(MAX_NAMED)
+        );
     }
 }
 
@@ -118,6 +246,13 @@ fn document_counts(document: &Document) -> Counts {
                 continue;
             }
             counts.constructed = counts.constructed.saturating_add(1);
+            let subtype = document
+                .get_key(annotation, "Subtype")
+                .as_name()
+                .map_or_else(
+                    || "(no /Subtype)".to_owned(),
+                    |name| format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+                );
             let border = document.get_key(annotation, "Border");
             let style = document.get_key(annotation, "BS");
             let name = style.as_dict().map_or_else(
@@ -129,6 +264,13 @@ fn document_counts(document: &Document) -> Counts {
                     )
                 },
             );
+            if name == "B" || name == "I" {
+                let held = counts
+                    .bevelled_on
+                    .entry(format!("{name} on {subtype}"))
+                    .or_default();
+                *held = held.saturating_add(1);
+            }
             let held = counts.styles.entry(name).or_default();
             *held = held.saturating_add(1);
             let (Some(array), Some(_)) = (border.as_array(), style.as_dict()) else {
@@ -139,6 +281,8 @@ fn document_counts(document: &Document) -> Counts {
                 |item| matches!(document.resolve(item).as_number(), Some(value) if value != 0.0),
             ) {
                 counts.both_with_radius = counts.both_with_radius.saturating_add(1);
+                let held = counts.radius_on.entry(subtype).or_default();
+                *held = held.saturating_add(1);
             }
         }
     }
