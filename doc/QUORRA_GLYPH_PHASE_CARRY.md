@@ -133,11 +133,17 @@ swept through a whole pixel of position under your own `0.317180616` CTM):
 - **A stroked hairline is exact in both coverage settings**, to 0.0019 device pixels — which
   is a byte of alpha, not a placement. So the path lane's arithmetic is not the source of a
   per-command offset for the construction §31 describes.
-- **On a default atlas your two settings are the same lane** for a mark that size.
-  `take_gpu_lane` declines the device lane for anything `worth_caching`, so a hairline the
-  atlas would take is drawn by the processor under `Coverage::Gpu` as well. Comparing "the two
-  lanes" on hairlines is, much of the time, comparing one lane with itself — which may matter
-  for how §31's table is read.
+- ~~**On a default atlas your two settings are the same lane** for a mark that size.~~
+  **Withdrawn — your §37.4 is right and this bullet was wrong** (noted here 2026-08-23, so
+  that a reader of this file does not have to reach §37.4 to find out). `worth_caching()` is
+  `false` by construction for every stroke, because `Encoder::push_coverage_styled` passes
+  `CacheProspect::TooLarge` — the atlas caches outlines by key, not polylines — so it declines
+  nothing for the population §31 is about, and your four pages do compare two genuinely
+  different lanes. What kept *our* hairline off the sampled grid was the next bullet, the
+  triangle floor, which is a different condition with a different fix.
+  What survives is the converse, which is yours and which we would not have written: on a page
+  whose marks are cached glyph **fills**, the two settings do go through the same rasteriser,
+  so a page-wide lane comparison mixes marks the setting moved with marks it could not.
 - **Your question 2 — is the gpu lane's y coverage quantised, and to what — is open.** We
   could not get a hairline onto that grid at all: `take_gpu_lane`'s last condition compares the
   tile's area against its triangles' bytes, and a six-triangle band of 528 texels fails it. A
