@@ -291,19 +291,26 @@ fn a_content_stream_longer_than_the_bound_is_refused_by_name() {
 /// document that found it: a hand-traced drawing, all cubic Béziers and no text. §7.8.2 puts an
 /// operator after its operands, so `x1 y1 x2 y2 x3 y3 c` is seven tokens and one operator, and a
 /// counter reading the loop's turns charges a curve seven times over. The fixture below states
-/// **4.4 million lexer tokens and 1.1 million operators**: it was refused before ADR 0306 and
+/// **6.05 million lexer tokens and 1.65 million operators**: it was refused before ADR 0306 and
 /// draws after it, and no other assertion in this file can tell the two counters apart.
+///
+/// **The fixture used to write its curves with no `m` in front of them**, which ISO 32000-2
+/// §8.5.2.1 makes an error — and nothing said so until ADR 0563 raised
+/// `Unsupported::UndefinedCurrentPoint` for it, at which point this assertion failed with 550 000
+/// refused segments. The stream is a conforming one now: the bound is what is under test here, and
+/// a fixture that violates a *different* clause tests the two at once.
 #[test]
 fn a_stream_of_many_tokens_and_few_operators_still_draws() {
-    // `c` appends a cubic Bézier — six operands, seven tokens — and `n` ends the path so that
-    // the fixture does not accumulate half a million segments in one path object.
+    // `m` gives §8.5.2.1 the current point the `c` after it starts from, `c` appends a cubic
+    // Bézier — six operands, seven tokens — and `n` ends the path so that the fixture does not
+    // accumulate half a million segments in one path object.
     let mut content = "0 0 0 rg 10 10 100 100 re f\n".to_owned();
-    content.push_str(&"0 0 0 0 0 0 c\nn\n".repeat(550_000));
+    content.push_str(&"0 0 m 0 0 0 0 0 0 c\nn\n".repeat(550_000));
     let document = page(&content, "<< >>", "");
     let reported = reported(&document);
     assert_eq!(
         reported, "[]",
-        "1.1 million operators are inside a four-million-operator bound, whatever the token \
+        "1.65 million operators are inside a four-million-operator bound, whatever the token \
          count is"
     );
     assert!(

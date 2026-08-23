@@ -330,9 +330,9 @@ why = "the same refusal on a page whose hatching is most of its ink: 41.262 of 2
 path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605705.pdf"
 page = 1
 session = 653
-reports = ["NoninvertibleMatrix", "Damaged", "Operator"]
+reports = ["NoninvertibleMatrix", "Damaged", "Operator", "UndefinedCurrentPoint"]
 ink = 145.204 .. 147.204
-why = "a page refused whole — no raster at all, and the 282 commands that did draw lost with it — because one cm among eight damaged content streams has no inverse and all three backends turned that into an error about the target; §8.3.4's NOTE 3 makes only the mark undefined. The 2203 reports are what a noise stream says: 8 damaged parts, 2194 operators nobody wrote, and the 97 marks this round named (ADR 0482, 8.3.4, 10.7.4)"
+why = "a page refused whole — no raster at all, and the 282 commands that did draw lost with it — because one cm among eight damaged content streams has no inverse and all three backends turned that into an error about the target; §8.3.4's NOTE 3 makes only the mark undefined. The reports are what a noise stream says: 8 damaged parts, 2194 operators nobody wrote, and the 97 marks the six-hundred-and-fifty-third round named (ADR 0482, 8.3.4, 10.7.4). The fourth name arrived in the seven-hundred-and-second: 99 of those noise operators are §8.5.2.1 segments with no current point, which used to be drawn from the origin of user space and are now refused and counted, and the ink band holds because they were an edge at the left margin rather than a mark anybody reads (ADR 0563, 8.5.2.1)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/0546/0546320.pdf"

@@ -44,8 +44,8 @@ oracle's judged set for nothing. **The condition on all three is `is_hidden()`**
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Twelve places report *while* drawing, each deliberate**, and the test for adding a thirteenth is
-that suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
+**Thirteen places report *while* drawing, each deliberate**, and the test for adding a fourteenth
+is that suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
 clause states while naming what it does not (ADR 0030); §8.11.4.4's `/User` and `/Language`
@@ -73,7 +73,14 @@ lets Table 11's `/Rows` stop the filter above the image's `/Height`, where the s
 clause obeyed rather than damage** — the producer told the filter to stop — so the scan lines that
 arrived are drawn, the ones between `/Rows` and `/Height` are blank because ISO 32000-2 states
 nothing about them, and the report is what keeps an invented lower half distinguishable from a
-white one (ADR 0434).
+white one (ADR 0434); and §8.5.2.1's path segment issued with **no current point**, which the
+additive-or-substitutive test settles the same way a font program's prefix is settled: the clause
+gives the segment no first endpoint, so drawing one means substituting a place the file never wrote
+— `tiny-skia` substitutes the origin of user space and `kurbo` fires a `debug_assert!` — and the
+report is what keeps a page short of a segment distinguishable from a page whose producer drew less
+(ADR 0563). **Its `h` twin is deliberately *not* the fourteenth**, on trap 11's side of the same
+test: `h` with nothing to close adds no segment either way, so the page is complete and a report
+would only cost it the oracle's judgement.
 
 **The additive-or-substitutive test is what decides the other direction too**, and ADR 0343 is
 where it drew a line through one clause: the *same* damaged-prefix rule that is right for a

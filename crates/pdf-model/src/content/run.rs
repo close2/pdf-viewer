@@ -475,30 +475,44 @@ impl Interpreter<'_> {
                         begin_subpath(&mut path, current);
                     }
                 }
+                // The four operators §8.5.2.1 says "start at the current point": each is appended
+                // through `extend_subpath`, which refuses one that has none and says so. The
+                // current point moves only where the segment was taken, because the clause defines
+                // it as the endpoint of the segment most recently *added*.
                 b"l" => {
                     if let (Some(x), Some(y)) = (number_at(operands, 0), number_at(operands, 1)) {
-                        current = Point::new(x, y);
-                        path.push(PathCommand::LineTo(current));
+                        let to = Point::new(x, y);
+                        if self.extend_subpath(&mut path, PathCommand::LineTo(to)) {
+                            current = to;
+                        }
                     }
                 }
                 b"c" => {
                     if let Some(points) = points_from::<3>(operands) {
-                        path.push(PathCommand::CurveTo(points[0], points[1], points[2]));
-                        current = points[2];
+                        let segment = PathCommand::CurveTo(points[0], points[1], points[2]);
+                        if self.extend_subpath(&mut path, segment) {
+                            current = points[2];
+                        }
                     }
                 }
                 b"v" => {
-                    // The first control point is the current point.
+                    // The first control point is the current point — which is also why an empty
+                    // path cannot state this curve at all: the operand the clause implies does
+                    // not exist.
                     if let Some(points) = points_from::<2>(operands) {
-                        path.push(PathCommand::CurveTo(current, points[0], points[1]));
-                        current = points[1];
+                        let segment = PathCommand::CurveTo(current, points[0], points[1]);
+                        if self.extend_subpath(&mut path, segment) {
+                            current = points[1];
+                        }
                     }
                 }
                 b"y" => {
                     // The second control point is the endpoint.
                     if let Some(points) = points_from::<2>(operands) {
-                        path.push(PathCommand::CurveTo(points[0], points[1], points[1]));
-                        current = points[1];
+                        let segment = PathCommand::CurveTo(points[0], points[1], points[1]);
+                        if self.extend_subpath(&mut path, segment) {
+                            current = points[1];
+                        }
                     }
                 }
                 b"h" => {

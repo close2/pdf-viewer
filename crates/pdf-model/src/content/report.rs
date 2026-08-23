@@ -298,6 +298,41 @@ pub enum Unsupported {
         /// How many marking commands the page states under one.
         commands: usize,
     },
+    /// Path segments the stream issued with no current point, which state no geometry (§8.5.2.1).
+    ///
+    /// ISO 32000-2 §8.5.2.1 defines the current point and then makes this an error outright:
+    ///
+    /// > The trailing endpoint of the segment most recently added to the current path is referred
+    /// > to as the current point. If the current path is empty, the current point shall be
+    /// > undefined. Most operators that add a segment to the current path start at the current
+    /// > point; if the current point is undefined, an error shall be generated.
+    ///
+    /// The clause states the error and no recovery, and it names no substitute first point — the
+    /// paragraph above it says "the first one invoked shall be m or re to begin a new subpath",
+    /// so `l`, `c`, `v` and `y` cannot begin one. What this program does is therefore a
+    /// **documented choice** and not a reading: the operator adds nothing, and since the current
+    /// point is "[t]he trailing endpoint of the segment most recently added", it stays undefined
+    /// and the segments after it are refused for the same reason, until an `m` or an `re`. So a
+    /// run of segments after the error vanishes whole rather than hanging off a point the file
+    /// never stated. See [`crate::content::path::extend_subpath`] for the other two candidates
+    /// and why the clause rejects them.
+    ///
+    /// **The thirteenth place this program reports while drawing** (trap 5), and it is the *error*
+    /// the clause asks for: §7.8.2's neighbouring "an error shall occur", for an operator a reader
+    /// does not recognise, is raised on this same enum as [`Self::Operator`]. The page keeps every
+    /// mark the file did state, and what it loses is named rather than drawn from the corner of
+    /// user space, which is where `tiny_skia::PathBuilder` used to begin it.
+    ///
+    /// **Table 58's `h` is deliberately not counted here, and that asymmetry is the finding.** One
+    /// sentence, two costs: `h` on an empty path has no "starting point of the subpath" to close
+    /// to either, so it adds no segment on that invocation and
+    /// [`crate::content::path::close_subpath`] already pushes nothing — the page is complete, and
+    /// saying otherwise would take it out of the oracle's judgement for a mark nobody lost
+    /// (trap 11). ADR 0563.
+    UndefinedCurrentPoint {
+        /// How many `l`, `c`, `v` and `y` operators the page's content streams issued with none.
+        segments: usize,
+    },
 }
 
 /// A content stream that decoded only as far as its damage, on its way to being drawn.

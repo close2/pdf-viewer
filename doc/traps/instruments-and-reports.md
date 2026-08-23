@@ -233,6 +233,21 @@ So: **plant the defect back and confirm the sweep names it.** A scratch copy and
 <commit>^:<path>` is the whole cost, and without it "the sweep came back clean" is a sentence about
 a grep rather than about the tree. ADR 0439 has both sweeps as commands.
 
+**And the trap has a second shape, where the sweep is a census over documents rather than a grep
+over source: a census derived from the *clause* is not a census of the *defect*, because the code
+has conditions the clause does not.** `examples/operator_shape_census` counts ISO 32000-2
+§8.5.2.1's error by lexing a page and finding an `l`, `c`, `v` or `y` keyword with no `m` or `re`
+before it — which is exactly the clause — and named twelve documents and 5010 operators. The
+interpreter asks one thing more: an operator only runs when its **operands parse as numbers**. On
+`issue6342.pdf`, the one curated first page that census named, every offending `c` is preceded by
+byte soup the lexer splits into keywords of its own, so not one of them ever reaches a path and the
+page's display list has no such shape in it at all. The defect's true population over 1230 curated
+first pages is **zero** (ADR 0563). Two rules out of it, and the second is the general one: **name
+the population a census is about — the clause's shape or the program's behaviour — because they are
+different populations and a row that quotes one for the other is stale the day it is written**; and
+**a census that reaches for the clause when the interpreter is one call away has chosen the weaker
+instrument**, since a report the code already raises can be counted directly.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
