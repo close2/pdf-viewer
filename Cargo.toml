@@ -149,6 +149,18 @@ softbuffer = { version = "0.4.8", default-features = false, features = [
 # `gtk::DropDown` and `gtk::TreeListModel` available without reaching for the widgets GTK
 # deprecated in that release (`GtkTreeView`, `GtkComboBoxText`), which would compile with a
 # deprecation warning and this workspace turns warnings into errors.
+#
+# **`v4_12` was raised and put back in the six-hundred-and-seventy-eighth session, and the
+# reason is worth a round's time to whoever reads this next** (ADR 0508). `doc/todo/30` recorded
+# `viewer-gtk`'s one unobeyed clause — Table 234's `/TI` — as blocked on *this line*, because
+# `GtkListView::scroll_to` is GTK 4.12. The floor was raised, the method was called, and it moved
+# nothing: what it does is put an item *into view*, which is not Table 234's "first option
+# visible", and its `GtkScrollInfo` argument carries only which axes may move rather than an
+# alignment. Qt's `QAbstractItemView::PositionAtTop` has no GTK counterpart. The entry is obeyed
+# through the `GtkScrolledWindow`'s own adjustment instead — `controls.rs::scroll_to_top_index` —
+# which needs nothing this floor does not already have. **What a floor costs is a runtime
+# requirement**, since these crates link dynamically against the platform's own GTK, so it is not
+# raised for an API that does not answer the question.
 gtk4 = { version = "0.11.4", features = ["v4_10"] }
 
 # The second native host's bridge, and the only C++ in this tree. `doc/todo/30`'s order put Qt

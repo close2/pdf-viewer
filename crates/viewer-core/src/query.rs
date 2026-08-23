@@ -98,7 +98,8 @@ pub enum Query<'a> {
     /// Two names come back: [`pdf_model::view::FieldName::qualified`] addresses the field and
     /// [`pdf_model::view::FieldName::shown`] is what §14.9.3 requires a user interface to show.
     FieldAt((f32, f32)),
-    /// §12.7's form fields with a widget on the page being shown, as a host would *be* them.
+    /// §12.7's form fields with a widget on a page the arrangement is showing, as a host would
+    /// *be* them.
     ///
     /// **The sixth chrome population, and the one that did not cross until the
     /// three-hundred-and-ninety-eighth session.** §12.3.3's outline, §8.11.4.3's layers,
@@ -121,7 +122,15 @@ pub enum Query<'a> {
     /// appears and after an edit, exactly as it asks [`Query::Properties`] when a document opens.
     /// A click still asks [`Query::FieldAt`].
     ///
-    /// An empty list for a document with no `/AcroForm` and for a page with no widget on it, which
+    /// **One list for every page Table 29's arrangement is showing**, not for the current page —
+    /// which is what [`crate::Viewer`] has answered since `Command::Layout` existed and what these
+    /// two sentences said otherwise until the six-hundred-and-seventy-eighth session. A column
+    /// shows several pages, a host asking for controls draws all of them, and a page whose widget
+    /// appearances `Command::Delegate` took away while its fields went unanswered would show a form
+    /// with holes in it. The fields carry no page number and need none: a widget's quadrilateral is
+    /// already in the viewport's own pixels, which is where a host places a control (ADR 0509).
+    ///
+    /// An empty list for a document with no `/AcroForm` and for pages with no widget on them, which
     /// is most pages of most documents.
     Fields,
     /// Where the caret sits in the field at a point, given how far into the value it is.
@@ -485,7 +494,8 @@ pub enum Answer<'a> {
         /// `#[non_exhaustive]` is for. ADR 0247.
         value: Option<pdf_model::view::ShownValue>,
     },
-    /// §12.7's fields on the page being shown, each with its widgets placed on the screen.
+    /// §12.7's fields on every page Table 29's arrangement is showing, each with its widgets
+    /// placed on the screen.
     Fields(Vec<FormField>),
     /// Where the caret is, in device pixels of the viewport.
     ///

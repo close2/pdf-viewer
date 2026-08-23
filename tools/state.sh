@@ -180,6 +180,37 @@ section_counts() {
     printf '                     whatever has been fetched, and `survey --dir <path>` re-baselines it\n'
 }
 
+# How much of `viewer-core`'s vocabulary a C caller can reach.
+#
+# `doc/ui-boundary.md` and `doc/todo/30` both said the ABI's entry points were "the whole
+# vocabulary", which was true when ADR 0346 wrote it and decayed as the vocabulary grew —
+# eight messages have been added or reshaped since. The claim is countable, so this counts it
+# rather than any document restating it (ADR 0509).
+#
+# **Only `viewer-ffi` is asked, deliberately.** Every `Command::` and `Query::` in that crate
+# is a call: it has no trace module and no wire protocol, so naming a variant there means
+# offering it. `viewer-ui` names all of them in `trace.rs` and `viewer-confined` in its
+# protocol, so the same grep over those two would answer 100% and mean nothing — trap 11's
+# shape, a count whose condition is not the question.
+section_hosts() {
+    heading "viewer-core's vocabulary, and how much of it the C ABI offers" \
+        "grep -oE '(Command|Query)::[A-Za-z]+' crates/viewer-ffi/src, against the two enums"
+    local kind file all named missing
+    for kind in Command Query; do
+        file=crates/viewer-core/src/$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]').rs
+        all=$(sed -n "/^pub enum $kind/,/^}/p" "$file" | grep -oE '^    [A-Z][A-Za-z]*' | tr -d ' ' | sort -u)
+        named=$(grep -rhoE "$kind::[A-Za-z]+" crates/viewer-ffi/src | sed "s/$kind:://" | sort -u)
+        missing=$(comm -23 <(printf '%s\n' "$all") <(printf '%s\n' "$named" | grep -Fx -f <(printf '%s\n' "$all")))
+        printf '%-8s %s of %s reach the ABI\n' "$kind:" \
+            "$(($(printf '%s\n' "$all" | grep -c .) - $(printf '%s\n' "$missing" | grep -c .)))" \
+            "$(printf '%s\n' "$all" | grep -c .)"
+        if [ -n "$missing" ]; then
+            printf '         a C caller cannot ask for: %s\n' "$(printf '%s\n' "$missing" | paste -sd' ')"
+        fi
+    done
+    printf '%-8s %s\n' "symbols:" "$(grep -c 'unsafe(no_mangle)' crates/viewer-ffi/src/abi.rs) entry points in abi.rs"
+}
+
 # What a person can actually run, and how old it is. `doc/todo/02` §5 is what refreshes it.
 section_binaries() {
     heading "binaries a person can run" "ls -l target/"
@@ -192,8 +223,8 @@ section_disk() {
     du -sh /home/AI/cargo-target/pdf-viewer/tmp/pdfref-cache 2>/dev/null
 }
 
-all="ledger conformance annex-o counts binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
-quick="ledger conformance annex-o counts binaries disk"
+all="ledger conformance annex-o counts hosts binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
+quick="ledger conformance annex-o counts hosts binaries disk"
 
 case ${1-} in
 --list) printf '%s\n' $all; exit 0 ;;
@@ -222,6 +253,7 @@ for section in $sections; do
     jpeg2000) section_jpeg2000 ;;
     annex-o) section_annex_o ;;
     counts) section_counts ;;
+    hosts) section_hosts ;;
     binaries) section_binaries ;;
     disk) section_disk ;;
     *)

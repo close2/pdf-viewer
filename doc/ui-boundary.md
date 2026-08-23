@@ -143,7 +143,7 @@ Six consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
 (a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
 application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
-application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — 112 entry points, a
+application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — `tools/state.sh hosts` counts its entry points, a
 hand-written header and a C program that drives it, tier 1** (ADR 0247). The first two could not
 prove the interface alone — one is a toolkit, the other is not a program — and the last three are
 what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
@@ -406,9 +406,11 @@ is set in the same Helvetica on a machine with no fonts installed.
 - `viewer-gpu` (new, later) — tier 2. The only crate that may name `raw-window-handle`, `wgpu` or
   `vello` in its API.
 - `viewer-ffi` — **exists** since the four-hundred-and-eleventh, and it is the last host
-  `doc/todo/30` names. **112 `extern "C"` entry points since the five-hundred-and-twenty-second**, which
-  is the whole of this vocabulary — the pointer and the selection, §12.7's form and the four edits,
-  save and extract, the other two panels, §12.4.4's clock and the three policy values (ADR 0346) —
+  `doc/todo/30` names. **Its entry points are counted by `tools/state.sh hosts` rather than stated
+  here, and so is how much of this vocabulary they cover** — "the whole of it" was true when ADR
+  0346 wrote it and decayed as the vocabulary grew, which is a claim ADR 0509 turned into a command.
+  What ADR 0346 added is the pointer and the selection, §12.7's form and the four edits,
+  save and extract, the other two panels, §12.4.4's clock and the three policy values. Beside them,
   a hand-written `include/pdf_viewer.h`, and
   `c/open_a_page.c` which a test compiles with `-Werror` and runs. Commands are functions rather
   than a tagged union (a union's size is part of an ABI; a symbol is not); events and answers
