@@ -8,12 +8,26 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The object identifiers the elliptic-curve family is named by, as a second party's reading of
+# the registries that assign them rather than as digits typed from memory. Already in this graph
+# through `digest`; see the workspace manifest and ADR 0532.
+const-oid.workspace = true
 # §12.8.3's signature arithmetic: `bigint.rs` is a seam over this crate's `BoxedUint`, keeping
 # the budgets and refusal names ours while the multiplications are reviewed code. ADR 0331.
 crypto-bigint.workspace = true
+# The generic half of `ecdsa.rs`: one verification written once over the three curves below.
+ecdsa.workspace = true
+# ISO/TS 32002 Table 4's Ed25519, the EdDSA row its section 5.1.2 adds to Table 260. `eddsa.rs`
+# is the one place it is named; see the workspace manifest and ADR 0532.
+ed25519-dalek.workspace = true
 # Table 45's `/CheckSum` is an MD5 of an embedded file's bytes, and §7.6's algorithms already
 # brought the crate into the tree.
 md-5.workspace = true
+# ISO/TS 32002 Table 3's first three curves, for `ecdsa.rs`. Three packages rather than one
+# because a curve crate is one curve; see the workspace manifest and ADR 0532.
+p256.workspace = true
+p384.workspace = true
+p521.workspace = true
 pdf-font.workspace = true
 pdf-render.workspace = true
 pdf-sandbox.workspace = true

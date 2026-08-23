@@ -10,10 +10,11 @@
 //! 2048-bit (PDF 1.5) Up to 4096-bit (PDF 1.5)". This module is the RSA half of that. ADR 0229 has
 //! the decision.
 //!
-//! **Table 260 names three algorithm families and this tree now verifies two**: DSA is
-//! [`crate::dsa`] since the four-hundred-and-seventy-ninth session, and ECDSA — with the `EdDSA`
-//! that ISO/TS 32002 adds beside it — is refused with an argument rather than half-written (ADR
-//! 0314). Both refusals are reported by the object identifier the file states rather than skipped
+//! **Table 260 names three algorithm families, ISO/TS 32002 section 5.1.2 adds a fourth row, and
+//! this tree verifies all four**: DSA is [`crate::dsa`] since the four-hundred-and-seventy-ninth
+//! session, ECDSA [`crate::ecdsa`] and `EdDSA` [`crate::eddsa`] since the six-hundred-and-eighty-ninth
+//! (ADR 0532). What is still refused is a *curve* rather than a family, and every refusal is
+//! reported by the identifier the file states rather than skipped
 //! ([`crate::signature::Authenticity`]).
 //!
 //! **`id-RSASSA-PSS` is not this construction and is deliberately not treated as it.** It shares

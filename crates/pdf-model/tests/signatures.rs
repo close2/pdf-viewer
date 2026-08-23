@@ -568,3 +568,55 @@ fn flipped(signature: &Signature) -> Signature {
     }
     out
 }
+
+/// **The population's one DER-encoded ECDSA signature, verified against the file that carries it.**
+///
+/// `signature_algorithm_census` over 67 460 documents finds exactly one signature whose
+/// `SignerInfo` states RFC 5758 section 3.2's `ecdsa-with-SHA256` and whose value is the DER
+/// `ECDSA-Sig-Value` ISO/TS 32002 section 5.1.3's NOTE 2 requires. Until the
+/// six-hundred-and-eighty-ninth session it reached a reader as `AlgorithmNotVerifiable
+/// 1.2.840.10045.4.3.2`; it now verifies under the P-256 key in a certificate the value itself
+/// carries (ADR 0532).
+///
+/// **This is the demand-side half and `ecdsa.rs`'s fixtures are the other.** A real file is the
+/// only thing that proves the whole path works on bytes nobody here chose — the certificate's
+/// `namedCurve`, the point, the signed attributes, the DER integers as some other producer spelled
+/// them. What it cannot do is prove a *positive* verification over bytes this tree chose, because
+/// nobody here holds that signer's private key, which is why the module's fixtures exist too.
+///
+/// The document is in the machine-local `SafeDocs` crawl (`tools/safedocs`), so this **skips and
+/// says so** where it is not there, exactly as the pdf.js tests above do for their submodule.
+#[test]
+fn the_crawls_one_ecdsa_signature_verifies_under_its_own_p256_certificate() {
+    use pdf_model::ecdsa::Curve;
+    use pdf_model::signature::Family;
+
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../corpus-cache/safedocs/cc-main-2021-31/6100/6100006.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: {} is not in this machine's crawl", path.display());
+        return;
+    };
+    let document = Document::open(bytes).expect("the crawl's ECDSA-signed document opens");
+    let file = document.bytes().clone();
+    let found = signatures(&document);
+    let [signature] = found.as_slice() else {
+        panic!("one signature dictionary, not {}", found.len());
+    };
+    let authenticity = signature.authenticity(&file);
+    println!("6100006.pdf: {authenticity:?}");
+    let Authenticity::Verified { family, .. } = &authenticity else {
+        panic!("the crawl's ECDSA signature should verify, not {authenticity:?}");
+    };
+    assert_eq!(*family, Family::Ecdsa(Curve::P256));
+    // **The instrument has to be able to say no.** One bit of the signature value turned over is
+    // the same discrimination check the ten pdf.js signatures get, and for the same reason: a
+    // verifier stuck at `true` passes every assertion above.
+    assert!(
+        !matches!(
+            flipped(signature).authenticity(&file),
+            Authenticity::Verified { .. }
+        ),
+        "one bit of the signature value moved and it still verified"
+    );
+}

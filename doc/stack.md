@@ -52,17 +52,31 @@ a dependency needs from those three ADRs:
   and four of the corpus's ten signature values begin `30 80` — X.690 clause 8.1.3.6's indefinite
   length, which DER forbids and Adobe's handler emits. `openssl pkcs7` refuses exactly those four.
   This is why the CMS/X.509 *parsing* stays in tree whatever the arithmetic does.
-- **Elliptic curves: the domain-parameter objection is answered and the coverage arithmetic still
-  refuses.** ADR 0314 declined ECDSA partly because the curves' constants are in no document this
-  tree holds; a reviewed curve crate carries them as reviewed constants, which is the same footing
-  as `crypto-bigint`'s carry chains, so that premise no longer decides. What still does (ADR 0331,
-  measured 2026-08-14): `p256`/`p384`/`p521` 0.14 are now **stable on the `digest` 0.11 line** but
-  cover three of ISO/TS 32002's six ECDSA curves and neither Edwards one — the Brainpool pair is
-  release-candidate-only on that line (`bp256` 0.14.0-rc) and brainpoolP512r1 has no crate at all —
-  at about twenty packages for the first curve; and of the corpus's three ECDSA witnesses, one is
-  brainpoolP256r1 and two use BSI TR-03111's *plain* `r ‖ s` encoding, a specification this tree
-  does not hold. Taking the packages today would close **one signature in 811**. Still
-  **declined-for-now rather than declined**, which is a different thing from `rustybuzz` above.
+- **Elliptic curves are taken, and what refuses now is four curves rather than a family** (ADR
+  0532, measured 2026-08-23; supersedes the refusal ADRs 0314 and 0331 recorded). `p256`, `p384`
+  and `p521` 0.14.0 plus `ed25519-dalek` 3.0.0, all stable on this tree's `digest` 0.11 line, with
+  `ecdsa` named directly so one generic verification serves three curves. **23 new locked
+  packages** plus two patch bumps, `cargo deny` green on all four sections with no exception added
+  — `BSD-3-Clause`, which `ed25519-dalek` and `curve25519-dalek` are under and nothing else here
+  is, was already in the allow list. `default-features = false` everywhere, and
+  `precomputed-tables` is deliberately **off**: it trades image size for scalar-multiplication
+  speed, and a signature is verified a handful of times per document off the launch path while
+  every byte of a table is paged in at launch.
+  - **What is not takeable, re-measured rather than quoted**: `bp256` and `bp384` are
+    0.14.0-**rc.15** and their stable 0.6 is the old hash line; **`bp512` does not exist on
+    crates.io**; `ed448-goldilocks`'s stable 0.9.0 has the field arithmetic and **no signature
+    scheme**, on `rand_core` 0.6, and its 0.14 line is a pre-release. So four of ISO/TS 32002's
+    eight curves are refused by *package availability*, each named at runtime by its own
+    identifier.
+  - **`const-oid`'s `db` feature is the identifier supply, at zero new packages** — it is already
+    here through `digest` — and it is what keeps a dozen object identifiers out of this project's
+    memory. It also gave `cms::Digest` a second reading for six of its ten, retiring ADR 0390's
+    "SHAKE256 has no second reading" as a claim that had outlived its reason.
+  - **`curve25519-dalek`'s SIMD backend carries `unsafe`**, selected by its build script on
+    x86_64. This is the same shape as `sha2`, `cmov`, `block-buffer` and `hybrid-array`, all
+    already on `pdf-model`'s path, and `#![forbid(unsafe_code)]` is unchanged: it is
+    compiler-enforced over *this project's* source. Written down beside the dependency in
+    `Cargo.toml` rather than left to be discovered.
 - **The one dependency that was owed is spent, and cost twice what this file predicted** (ADR
   0390, 2026-08-17). ISO/TS 32001 section 5.1.4 adds SHA3-256, SHA3-384, SHA3-512 and SHAKE256 to
   Table 260 — **not** to Table 256, whose section 5.1.3 Errata Collection 3 deletes outright — and

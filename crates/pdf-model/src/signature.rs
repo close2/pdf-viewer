@@ -16,16 +16,19 @@
 //!    no network — the file and a hash function. [`Signature::integrity`] **answers this**.
 //! 2. **Does the signature verify under the signer's public key?** That needs the key out of an
 //!    X.509 certificate ([`crate::x509`]) and the arithmetic of whichever family Table 260 names:
-//!    RSA — under both of RFC 8017's paddings, [`crate::pkcs1`] and [`crate::pss`] — or DSA
-//!    ([`crate::dsa`]). [`Signature::authenticity`] **answers this** for both families. Table
-//!    260's third, ECDSA — with the `EdDSA` ISO/TS 32002 adds beside it — is named by the object
-//!    identifier the file states and verified by nothing (ADR 0314).
+//!    RSA — under both of RFC 8017's paddings, [`crate::pkcs1`] and [`crate::pss`] — DSA
+//!    ([`crate::dsa`]), ECDSA ([`crate::ecdsa`]), or the `EdDSA` row ISO/TS 32002 section 5.1.2 adds
+//!    to that table ([`crate::eddsa`]). [`Signature::authenticity`] **answers this** for all four.
+//!    What is left inside it is a *curve* rather than a family: three of ISO/TS 32002 Table 3's
+//!    six and one of its Table 4's two are named by their own identifier and computed by nothing,
+//!    for the reason ADR 0532 records.
 //! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
 //!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
 //!
-//! ADR 0215 separated the three and answered the first; ADR 0229 answered the second for RSA and
-//! ADR 0314 for DSA. The separation is the point of all three: the whole clause used to be refused
-//! on question 3's infrastructure, which questions 1 and 2 do not need.
+//! ADR 0215 separated the three and answered the first; ADR 0229 answered the second for RSA, ADR
+//! 0314 for DSA, ADR 0322 for the RSA family's other padding and ADR 0532 for the two
+//! elliptic-curve families. The separation is the point of all of them: the whole clause used to
+//! be refused on question 3's infrastructure, which questions 1 and 2 do not need.
 //!
 //! # What each answer proves, which is not the same thing
 //!
@@ -66,6 +69,8 @@
 
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
 use crate::dsa::{self, DsaError};
+use crate::ecdsa::{self, EcdsaError};
+use crate::eddsa::{self, EdDsaError};
 use crate::pkcs1::{self, Pkcs1Error};
 use crate::pss;
 use crate::x509::{self, X509Error};
@@ -320,17 +325,38 @@ pub enum Authenticity {
     },
     /// The signer's certificate would not parse.
     CertificateUnreadable(X509Error),
-    /// The certificate's public key is neither RSA nor DSA, named by the identifier it states.
+    /// The certificate's public key is one this program does not act on, by the identifier it
+    /// states.
     ///
-    /// Table 260 also names ECDSA, so this is a gap in this program rather than a defect in the
-    /// file — which is why the algorithm is carried out to a person by its number.
+    /// `id-Ed448` is the standing example: ISO/TS 32002 Table 4 names the curve and
+    /// [`crate::eddsa`] says why no package on this tree's line computes it. So this is a gap in
+    /// this program rather than a defect in the file — which is why the algorithm is carried out
+    /// to a person by its number. A key `adbe.x509.rsa_sha1` may not carry at all arrives here
+    /// too, and that one is Table 260's "No" rather than a gap.
     KeyNotVerifiable {
         /// The algorithm's object identifier as dotted decimal, or its octets in hexadecimal
         /// where the encoding is not a well-formed identifier.
         algorithm: String,
     },
-    /// The signature algorithm is none of RSASSA-PKCS1-v1_5, RSASSA-PSS and DSA, named the same
-    /// way.
+    /// The key is `id-ecPublicKey` on a curve this program does not compute on.
+    ///
+    /// Separate from [`Self::KeyNotVerifiable`] because the identifier that matters is a *second*
+    /// one: every certificate in this case states `1.2.840.10045.2.1` and they differ in their
+    /// `namedCurve`, so reporting the key algorithm would tell a reader nothing. ISO/TS 32002
+    /// Table 3's three Brainpool curves are what reach here today, and this program lacking them
+    /// is a gap rather than a defect in the file; a curve outside Table 3 and Table 4 is the file
+    /// leaving what the Technical Specification admits, and section 5.1.3's last sentence permits
+    /// exactly this treatment: "PDF processors may ignore or handle in an implementation-dependent
+    /// manner PDF documents which are signed with elliptic curves not listed in Table 3 or Table
+    /// 4."
+    CurveNotVerifiable {
+        /// The curve's object identifier as dotted decimal, with its Table 3 name where it has
+        /// one, or a sentence where the certificate states no `namedCurve` at all — which ISO/TS
+        /// 32002 section 5.1.3 forbids: "The implicitCurve and specifiedCurve options shall not be
+        /// used."
+        curve: String,
+    },
+    /// The signature algorithm is none this program verifies, named the same way.
     AlgorithmNotVerifiable {
         /// The algorithm's object identifier as dotted decimal.
         algorithm: String,
@@ -368,6 +394,10 @@ pub enum Authenticity {
     Refused(Pkcs1Error),
     /// The same for [`crate::dsa`]'s.
     RefusedDsa(DsaError),
+    /// The same for [`crate::ecdsa`]'s: an encoding or a range this module would not act on.
+    RefusedEcdsa(EcdsaError),
+    /// The same for [`crate::eddsa`]'s.
+    RefusedEdDsa(EdDsaError),
     /// The signature states a digest algorithm this program does not compute.
     ///
     /// All six that ISO 32000-2's Table 260 and Table 256 name are implemented, and so are the four
@@ -397,15 +427,13 @@ pub enum Authenticity {
     Unreadable(CmsError),
 }
 
-/// Which of Table 260's three algorithm families a signature was checked with — and, for the RSA
-/// family, which of RFC 8017's two paddings.
+/// Which algorithm family a signature was checked with — and, inside a family, which construction.
 ///
-/// The table names three families and this program verifies two, so the third has no arm here:
-/// an ECDSA signature never reaches a verification to be named after. It reaches
-/// [`Authenticity::AlgorithmNotVerifiable`] with its own object identifier, which is a stronger
-/// thing to print than a word this tree would have had to invent. RSA has two arms because the
-/// table's "RSA Algorithm Support" row states key sizes and no padding, and the sentence a
-/// person reads should say which construction did the verifying.
+/// Table 260 names three families and ISO/TS 32002 section 5.1.2 adds a fourth row to that table,
+/// so there are four here rather than three. RSA has two arms because the table's "RSA Algorithm
+/// Support" row states key sizes and no padding, and the sentence a person reads should say which
+/// construction did the verifying; ECDSA carries its curve for the same reason, since ISO/TS 32002
+/// Table 3 is a list of curves rather than of key sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     /// "RSA Algorithm Support", as RFC 8017's RSASSA-PKCS1-v1_5.
@@ -414,6 +442,13 @@ pub enum Family {
     RsaPss,
     /// "DSA Algorithm Support", as FIPS 186-4 section 4.7.
     Dsa,
+    /// "ECDSA Algorithm Support", on the curve ISO/TS 32002 Table 3 names ([`crate::ecdsa`]).
+    Ecdsa(ecdsa::Curve),
+    /// The "`EdDSA` algorithm support" row ISO/TS 32002 section 5.1.2 adds ([`crate::eddsa`]).
+    ///
+    /// No curve beside it, because Table 4's two are one implemented and one refused by number —
+    /// a verification that happened was Ed25519's.
+    EdDsa,
 }
 
 impl Family {
@@ -424,6 +459,10 @@ impl Family {
             Self::Rsa => "RSA (PKCS #1 v1.5)",
             Self::RsaPss => "RSA (RSASSA-PSS)",
             Self::Dsa => "DSA",
+            Self::Ecdsa(ecdsa::Curve::P256) => "ECDSA (P-256)",
+            Self::Ecdsa(ecdsa::Curve::P384) => "ECDSA (P-384)",
+            Self::Ecdsa(ecdsa::Curve::P521) => "ECDSA (P-521)",
+            Self::EdDsa => "EdDSA (Ed25519)",
         }
     }
 }
@@ -717,6 +756,11 @@ impl Signature {
                 algorithm: name(algorithm),
             };
         }
+        if let x509::PublicKey::EcCurveNotVerifiable { curve } = certificate.public_key {
+            return Authenticity::CurveNotVerifiable {
+                curve: curve_name(curve),
+            };
+        }
         // RFC 5652 section 5.4 decides what is hashed, and [`Signed`] documents what each one
         // proves. The digest *algorithm* is the one thing the constructions disagree about —
         // PKCS #1 v1.5 and DSA take the `SignerInfo`'s own `digestAlgorithm`, while RSASSA-PSS
@@ -728,11 +772,16 @@ impl Signature {
             (None, Some(_)) => Signed::EncapsulatedContent,
             (None, None) => Signed::TheDocumentsBytes,
         };
-        let compute = |algorithm: Digest| match (&attributes, cms.encapsulated) {
-            (Some(attributes), _) => algorithm.compute(&[attributes.as_slice()]),
-            (None, Some(content)) => algorithm.compute(&[content]),
-            (None, None) => algorithm.compute(&signed),
+        // The bytes themselves rather than only their digest, because one of the four families
+        // does not take a digest at all: RFC 8032's Ed25519 hashes the message internally, so
+        // [`crate::eddsa::verify`] needs the parts. They stay parts rather than being joined —
+        // a signature over a whole document would otherwise cost a copy of it.
+        let parts: Vec<&[u8]> = match (&attributes, cms.encapsulated) {
+            (Some(attributes), _) => vec![attributes.as_slice()],
+            (None, Some(content)) => vec![content],
+            (None, None) => signed.clone(),
         };
+        let compute = |algorithm: Digest| algorithm.compute(&parts);
         // The pair rather than either alone: a `SignerInfo` naming DSA over a certificate holding
         // an RSA key is two claims by one producer that contradict each other, and picking the one
         // to believe would be this program inventing a fact.
@@ -779,6 +828,38 @@ impl Signature {
                     dsa::verify(key, cms.signature, &compute(digest))
                         .map_err(Authenticity::RefusedDsa)
                         .map(|verified| (verified, key.bits())),
+                )
+            }
+            (SignatureAlgorithm::Ecdsa, x509::PublicKey::Ec(key)) => {
+                let Some(digest) = cms.digest else {
+                    return Authenticity::UnknownDigest {
+                        algorithm: name(cms.digest_algorithm),
+                    };
+                };
+                (
+                    digest,
+                    Family::Ecdsa(key.curve),
+                    ecdsa::verify(key, cms.signature, &compute(digest))
+                        .map_err(Authenticity::RefusedEcdsa)
+                        .map(|verified| (verified, key.curve.bits())),
+                )
+            }
+            (SignatureAlgorithm::EdDsa, x509::PublicKey::Ed25519(key)) => {
+                // The digest is reported rather than used: ISO/TS 32002 Table 4 pairs Ed25519 with
+                // SHA512, which is what question 1's `message-digest` attribute was computed with,
+                // and RFC 8032's signature is over the message itself.
+                let Some(digest) = cms.digest else {
+                    return Authenticity::UnknownDigest {
+                        algorithm: name(cms.digest_algorithm),
+                    };
+                };
+                (
+                    digest,
+                    Family::EdDsa,
+                    eddsa::verify(key, cms.signature, &parts)
+                        .map_err(Authenticity::RefusedEdDsa)
+                        // RFC 8032 section 5.1: `b` is 256 for Ed25519, so the key is 32 octets.
+                        .map(|verified| (verified, 256)),
                 )
             }
             _ => {
@@ -997,10 +1078,35 @@ fn pss_parameter_answer(problem: pss::ParameterProblem<'_>) -> Authenticity {
 /// The two families this program reads are named by the identifier the standard that defines them
 /// assigns rather than by the octets the certificate happened to write, because [`crate::x509`]
 /// keeps the key and not the identifier once it has recognised one. They are the same number.
+/// What a person is told about a `namedCurve` this program does not compute on.
+///
+/// The number always, because it is what a reader can check; and Table 3's own spelling beside it
+/// where the curve is one of the three this program lacks rather than one the standard never
+/// admitted, because "brainpoolP256r1, refused" and "1.3.36.3.3.2.8.1.1.7, refused" are the same
+/// fact and only one of them can be looked up in ISO/TS 32002.
+fn curve_name(curve: Option<&[u8]>) -> String {
+    let Some(curve) = curve else {
+        // ISO/TS 32002 section 5.1.3: "The implicitCurve and specifiedCurve options shall not be
+        // used." There is no identifier to print because the file stated none.
+        return "no namedCurve (ISO/TS 32002 5.1.3 requires one)".to_owned();
+    };
+    let number = name(curve);
+    ecdsa::UnsupportedCurve::of(curve).map_or(number.clone(), |known| {
+        format!("{number} ({})", known.name())
+    })
+}
+
 fn key_algorithm_name(certificate: &x509::Certificate<'_>) -> String {
     match certificate.public_key {
         x509::PublicKey::Rsa(_) => name(x509::RSA_ENCRYPTION),
         x509::PublicKey::Dsa(_) => name(dsa::ID_DSA),
+        // Both elliptic-curve arms state the same key algorithm: RFC 5480's `id-ecPublicKey` is
+        // what the certificate says, and which curve it is on is a second identifier that
+        // `Authenticity::CurveNotVerifiable` is where a reader hears about.
+        x509::PublicKey::Ec(_) | x509::PublicKey::EcCurveNotVerifiable { .. } => {
+            name(const_oid::db::rfc5912::ID_EC_PUBLIC_KEY.as_bytes())
+        }
+        x509::PublicKey::Ed25519(_) => name(eddsa::ID_ED25519.as_bytes()),
         x509::PublicKey::Unverifiable { algorithm } => name(algorithm),
     }
 }
@@ -2489,12 +2595,14 @@ mod tests {
         );
     }
 
-    /// A key this program cannot verify is named by its number, not skipped and not guessed at.
+    /// A key this `/SubFilter` may not carry is named by its number, not skipped and not verified.
     ///
-    /// Table 260 names ECDSA beside RSA — "ECDSA Algorithm Support ( defined by Internet RFC 5480
-    /// )" — and this program implements one of the two. The certificate is a real P-256 one, so
-    /// what is exercised is `x509`'s reading of a `subjectPublicKeyInfo` whose algorithm is not
-    /// `rsaEncryption` rather than a hand-made shape.
+    /// **Table 260 says "No" to ECDSA in its `adbe.x509.rsa_sha1` column**, exactly as it does to
+    /// DSA there, so a `/Cert` holding a P-256 key is a file departing from the table rather than
+    /// a case this program owes a verification — even now that it verifies that family through
+    /// CMS. What is exercised is that `pkcs1_authenticity` reports such a key by its identifier
+    /// instead of reaching for the curve, on a real P-256 certificate rather than a hand-made
+    /// shape.
     #[test]
     fn a_key_this_program_cannot_verify_is_named_by_its_object_identifier() {
         let file = b"the signed bytes";
@@ -2617,6 +2725,177 @@ mod tests {
                 over: Signed::TheDocumentsBytes,
             }
         );
+    }
+
+    /// **Table 260's third algorithm family, all the way through, on each of its three curves.**
+    ///
+    /// The `ecdsa` module's own tests exercise the arithmetic on a key and a signature; this
+    /// exercises everything between a signature dictionary and that call — the `SignerInfo`'s
+    /// `signatureAlgorithm` recognised as one of RFC 5758 section 3.2's `ecdsa-with-SHA*`, the
+    /// signer's certificate found among the ones the value carries, `x509` reading RFC 5480's
+    /// `namedCurve` and SEC1 point out of it, and the answer naming the curve rather than a key
+    /// width alone.
+    ///
+    /// **The corpus has one witness and it cannot stand in for this.** One signature of 811 in
+    /// 67 460 documents is `ecdsa-with-SHA256` over a DER `ECDSA-Sig-Value`, and it verifies —
+    /// that is the demand-side evidence, taken by `examples/signature_algorithm_census`. What it
+    /// cannot give is a *positive* verification over bytes this test chose, because nobody here
+    /// holds that signer's private key, and it exercises one curve of three.
+    #[test]
+    fn an_ecdsa_signature_verifies_through_the_whole_path_a_document_takes() {
+        use crate::ecdsa::fixtures as ec;
+        let file = b"the signed bytes";
+        // RFC 5758 section 3.2's `ecdsa-with-SHA256`, `-SHA384` and `-SHA512`, as `const_oid`
+        // reads them out of the registry rather than as digits written here.
+        for (certificate, value, digest, curve, algorithm) in [
+            (
+                ec::P256_CERTIFICATE,
+                ec::P256_SIGNATURE,
+                Digest::Sha256,
+                crate::ecdsa::Curve::P256,
+                const_oid::db::rfc5912::ECDSA_WITH_SHA_256,
+            ),
+            (
+                ec::P384_CERTIFICATE,
+                ec::P384_SIGNATURE,
+                Digest::Sha384,
+                crate::ecdsa::Curve::P384,
+                const_oid::db::rfc5912::ECDSA_WITH_SHA_384,
+            ),
+            (
+                ec::P521_CERTIFICATE,
+                ec::P521_SIGNATURE,
+                Digest::Sha512,
+                crate::ecdsa::Curve::P521,
+                const_oid::db::rfc5912::ECDSA_WITH_SHA_512,
+            ),
+        ] {
+            let certificate = ec::hex(certificate);
+            let parsed = crate::x509::parse(&certificate).expect("a certificate");
+            let signature = curve_signature(fixtures::detached_curve(
+                &certificate,
+                parsed.issuer,
+                parsed.serial_number,
+                digest,
+                algorithm.as_bytes(),
+                &ec::hex(value),
+            ));
+            assert_eq!(
+                signature.authenticity(file),
+                Authenticity::Verified {
+                    digest,
+                    family: Family::Ecdsa(curve),
+                    key_bits: curve.bits(),
+                    over: Signed::TheDocumentsBytes,
+                },
+                "{}",
+                curve.name()
+            );
+            assert_eq!(
+                signature.authenticity(b"the signed byteS"),
+                Authenticity::NotUnderThatKey {
+                    digest,
+                    family: Family::Ecdsa(curve),
+                    key_bits: curve.bits(),
+                    over: Signed::TheDocumentsBytes,
+                },
+                "{}",
+                curve.name()
+            );
+        }
+    }
+
+    /// **The row ISO/TS 32002 section 5.1.2 adds to Table 260, all the way through.**
+    ///
+    /// The difference from every other family, and the reason this test exists beside `eddsa`'s
+    /// own: RFC 8032's Ed25519 signs the *message*, so what `authenticity` hands the verifier is
+    /// the byte range's parts rather than a digest of them. A path that computed a digest and
+    /// passed that instead would fail here and nowhere else.
+    ///
+    /// **No corpus document could stand in.** Not one of the 811 signature dictionaries in 67 460
+    /// documents states an `EdDSA` algorithm or an Edwards key, which `CLAUDE.md`'s trap 8 says is a
+    /// fact about documents rather than about the standard — the same footing DSA is on.
+    #[test]
+    fn an_ed25519_signature_verifies_through_the_whole_path_a_document_takes() {
+        let file = b"the signed bytes";
+        let certificate = crate::ecdsa::fixtures::hex(crate::eddsa::fixtures::ED25519_CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = curve_signature(fixtures::detached_curve(
+            &certificate,
+            parsed.issuer,
+            parsed.serial_number,
+            // ISO/TS 32002 Table 4 pairs Ed25519 with SHA512, and that is what a conforming
+            // `SignerInfo` states — it describes the content digest, not a parameter of RFC
+            // 8032's signature.
+            Digest::Sha512,
+            crate::eddsa::ID_ED25519.as_bytes(),
+            &crate::ecdsa::fixtures::hex(crate::eddsa::fixtures::ED25519_SIGNATURE),
+        ));
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::Verified {
+                digest: Digest::Sha512,
+                family: Family::EdDsa,
+                key_bits: 256,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+        assert_eq!(
+            signature.authenticity(b"the signed byteS"),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha512,
+                family: Family::EdDsa,
+                key_bits: 256,
+                over: Signed::TheDocumentsBytes,
+            }
+        );
+    }
+
+    /// A curve ISO/TS 32002 Table 3 names and no package on this tree's line computes.
+    ///
+    /// What a reader is owed is the *curve*, not the key algorithm: every certificate in this case
+    /// states `1.2.840.10045.2.1`, so a report naming that would say nothing about which of the
+    /// six the file used. The fixture is a real brainpoolP256r1 certificate.
+    #[test]
+    fn a_curve_this_program_does_not_compute_on_is_named_by_its_own_identifier() {
+        use crate::ecdsa::fixtures as ec;
+        let file = b"the signed bytes";
+        let certificate = ec::hex(ec::BP256_CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let signature = curve_signature(fixtures::detached_curve(
+            &certificate,
+            parsed.issuer,
+            parsed.serial_number,
+            Digest::Sha256,
+            const_oid::db::rfc5912::ECDSA_WITH_SHA_256.as_bytes(),
+            &ec::hex(ec::BP256_SIGNATURE),
+        ));
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::CurveNotVerifiable {
+                curve: "1.3.36.3.3.2.8.1.1.7 (brainpoolP256r1)".to_owned(),
+            }
+        );
+    }
+
+    /// A detached `adbe.pkcs7.detached` signature over the whole of `b"the signed bytes"`.
+    fn curve_signature(contents: Vec<u8>) -> Signature {
+        Signature {
+            timestamp: false,
+            handler: Some("Adobe.PPKLite".to_owned()),
+            sub_filter: Some("adbe.pkcs7.detached".to_owned()),
+            byte_range: vec![(0, 16)],
+            contents,
+            certificate_chain: false,
+            chain: Vec::new(),
+            name: None,
+            signed_at: None,
+            location: None,
+            reason: None,
+            contact: None,
+            changes: None,
+            certification: false,
+        }
     }
 
     /// **The RSA family's other padding, all the way through.**

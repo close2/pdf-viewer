@@ -88,11 +88,13 @@ pub type IssuerAndSerial<'a> = (&'a [u8], &'a [u8]);
 /// The public-key algorithm a `SignerInfo` says its signature was made with.
 ///
 /// Table 260 names three families for a PDF signature — "RSA Algorithm Support", "DSA Algorithm
-/// Support" and "ECDSA Algorithm Support ( defined by Internet RFC 5480 )" — and this program
-/// verifies the first two, the RSA family under both of RFC 8017's paddings. The third reaches a
-/// person as the object identifier the file states, which is why the unrecognised arm carries it
-/// rather than dropping it, and ADR 0314 is the argument for stopping there rather than
-/// half-writing a curve.
+/// Support" and "ECDSA Algorithm Support ( defined by Internet RFC 5480 )" — and ISO/TS 32002
+/// section 5.1.2 adds a fourth row to that table for `EdDSA`. All four are here.
+///
+/// What decides whether a signature is *verified* is the pair of this and the key, and for the
+/// elliptic-curve families the second half carries more than this one does: every certificate on
+/// every curve states the same `id-ecPublicKey`, so a curve this program does not compute on is
+/// refused by its `namedCurve` identifier rather than by anything here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignatureAlgorithm<'a> {
     /// RSASSA-PKCS1-v1_5 — `rsaEncryption` or one of the `<hash>WithRSAEncryption` identifiers of
@@ -115,6 +117,18 @@ pub enum SignatureAlgorithm<'a> {
     /// Which digest was used is not read from here: `SignerInfo`'s own `digestAlgorithm` states
     /// it, and [`Digest`] is what reads that. See [`crate::dsa::is_dsa`].
     Dsa,
+    /// ECDSA — `ecdsa-with-SHA*`, RFC 9688's `id-ecdsa-with-sha3-*`, or `id-ecPublicKey` itself.
+    ///
+    /// Which digest is not read from here either, for the reason [`crate::ecdsa::is_ecdsa`]
+    /// states: ISO/TS 32002 section 5.1.4 requires the `SignerInfo`'s own `digestAlgorithm` to be
+    /// the one "passed to the signature algorithm", so that is the one entry read.
+    Ecdsa,
+    /// `EdDSA` — RFC 8410's `id-Ed25519`, the row ISO/TS 32002 section 5.1.2 adds to Table 260.
+    ///
+    /// `id-Ed448` is deliberately *not* here: it is [`Self::Unrecognised`], so a file stating it
+    /// is answered with that number rather than with a curve this program cannot compute on. See
+    /// [`crate::eddsa`].
+    EdDsa,
     /// Anything else, as the identifier the file wrote.
     Unrecognised(&'a [u8]),
 }
@@ -132,6 +146,12 @@ impl<'a> SignatureAlgorithm<'a> {
         }
         if oid == crate::pss::ID_RSASSA_PSS {
             return Self::RsaPss;
+        }
+        if crate::ecdsa::is_ecdsa(oid) {
+            return Self::Ecdsa;
+        }
+        if oid == crate::eddsa::ID_ED25519.as_bytes() {
+            return Self::EdDsa;
         }
         match oid {
             // `pkcs-1` is 1.2.840.113549.1.1; the last octet is `rsaEncryption` (1) and the
@@ -295,8 +315,15 @@ impl Digest {
     ///   three that have one — a second party's reading of the same registry is compared against
     ///   ours. Agreement raises confidence that the registry was read correctly, which is all
     ///   principle 5 ever lets another implementation do.
-    /// - **SHAKE256 has no second reading here**, because the package that computes it publishes no
-    ///   identifier. Its digits stand on the transcription alone and are marked as such below.
+    /// - **SHAKE256 gained its second reading in the six-hundred-and-eighty-ninth session**, and
+    ///   this bullet said it had none for a hundred and thirty-four sessions. The reason was true
+    ///   and narrow — `shake` 0.1 publishes no identifier, where `sha3` does — and it stopped
+    ///   deciding anything the moment `const-oid`'s `db` feature came into this crate for the
+    ///   elliptic-curve family (ADR 0532): `const_oid::db::fips202::ID_SHAKE_256` is a second
+    ///   party's reading of the same registry, at zero new packages, and the test below compares
+    ///   all ten against it. **A silence about a second reading decays the way any claim about a
+    ///   document does** — this one outlived its reason because nobody re-asked where else the
+    ///   number might already be in the tree.
     #[must_use]
     pub fn oid(self) -> &'static [u8] {
         match self {
@@ -1199,6 +1226,64 @@ pub(crate) mod fixtures {
         )
     }
 
+    /// A detached signature whose signer states an elliptic-curve algorithm.
+    ///
+    /// The counterpart of [`detached_dsa`] for the two families ISO/TS 32002 governs, and what
+    /// carries them through [`crate::signature::Signature::authenticity`] end to end: the
+    /// `signatureAlgorithm` recognised, the certificate found by RFC 5652's issuer and serial
+    /// number, the `namedCurve` read out of its `subjectPublicKeyInfo`, and the arithmetic.
+    ///
+    /// `algorithm` is the `signatureAlgorithm`'s object identifier — `ecdsa-with-SHA*` or
+    /// `id-Ed25519` — and `digest` is what the `SignerInfo` states, which ISO/TS 32002 section
+    /// 5.1.4 requires to be the one the signature was made under.
+    ///
+    /// The signer states **no signed attributes**, for [`detached_dsa`]'s reason: RFC 5652 then
+    /// signs the content itself — the byte range — which is what lets a fixture use a signature
+    /// made once over bytes chosen by the test.
+    pub(crate) fn detached_curve(
+        certificate: &[u8],
+        issuer: &[u8],
+        serial: &[u8],
+        digest: Digest,
+        algorithm: &[u8],
+        signature: &[u8],
+    ) -> Vec<u8> {
+        // `SignerInfo`, positionally: version, sid, digestAlgorithm, signatureAlgorithm, signature.
+        let signer = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(
+                    0x30,
+                    &[tagged(0x30, &[issuer.to_vec()]), primitive(0x02, serial)],
+                ),
+                digest_algorithm(digest),
+                tagged(0x30, &[primitive(0x06, algorithm)]),
+                primitive(0x04, signature),
+            ],
+        );
+        let body = tagged(
+            0x30,
+            &[
+                primitive(0x02, &[0x01]),
+                tagged(0x31, &[digest_algorithm(digest)]),
+                tagged(0x30, &[primitive(0x06, ID_DATA)]),
+                tagged(0xA0, &[certificate.to_vec()]),
+                tagged(0x31, &[signer]),
+            ],
+        );
+        tagged(
+            0x30,
+            &[
+                primitive(
+                    0x06,
+                    &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02],
+                ),
+                tagged(0xA0, &[body]),
+            ],
+        )
+    }
+
     /// An `ETSI.RFC3161` timestamp token committing to `digest`.
     ///
     /// `TSTInfo ::= SEQUENCE { version, policy, messageImprint, … }`, encapsulated as
@@ -1406,14 +1491,20 @@ mod tests {
     /// identifier written as octets is a *claim about a number*, and `x509::dotted` is what checks
     /// that the octets say what the comment beside them says.
     ///
-    /// **The three SHA-3 rows carry a second reading and SHAKE256 cannot.** ISO 32000-2 and ISO/TS
-    /// 32001 print none of these digits, and Errata Collection 3 took away even the *symbol* the
-    /// standard named for the fourth — see [`Digest::oid`] and [`Digest::Shake256`] for the two
-    /// decisions and their costs — so
-    /// where a second party publishes its own transcription of the same registry, comparing the two
-    /// is worth doing. That is all it is: agreement raises confidence that the registry was read
-    /// correctly, which is the only thing principle 5 lets another implementation do. `shake`
-    /// publishes no identifier, so `id-shake256` stands on the transcription alone.
+    /// ISO 32000-2 and ISO/TS 32001 print none of these digits, and Errata Collection 3 took away
+    /// even the *symbol* the standard named for SHAKE256 — see [`Digest::oid`] and
+    /// [`Digest::Shake256`] for the two decisions and their costs — so where a second party
+    /// publishes its own transcription of the same registry, comparing the two is worth doing.
+    /// That is all it is: agreement raises confidence that the registry was read correctly, which
+    /// is the only thing principle 5 lets another implementation do.
+    ///
+    /// **Nine of the ten now carry a second reading, and six of them gained one in the
+    /// six-hundred-and-eighty-ninth session**, when `const_oid`'s database came into this crate
+    /// for the elliptic-curve family and turned out to hold these too at no cost (ADR 0532). The
+    /// three `sha3` rows keep a *third* reading below, which is the package that computes them.
+    /// RIPEMD-160 is the exception and stays one: no package in this graph publishes its
+    /// identifier — `TeleTrusT`'s arc is nobody's registry here — so `1.3.36.3.2.1` stands on the
+    /// transcription alone.
     #[test]
     fn the_object_identifiers_are_the_numbers_the_registry_assigns() {
         use crate::x509::dotted;
@@ -1437,7 +1528,29 @@ mod tests {
                 "and the pair reads the same constant in both directions"
             );
         }
-        // The second reading, for the three that have one.
+        // The second reading: `const_oid`'s database, grouped by the document that assigns each.
+        // MD5 is RFC 8017's `pkcs-1` neighbour, SHA-1 the OIW arc RFC 5912 records, and the six
+        // NIST ones FIPS 202's and RFC 5912's. RIPEMD-160 has no row because that database has no
+        // TeleTrusT identifier.
+        for (digest, second) in [
+            (Digest::Md5, const_oid::db::rfc5912::ID_MD_5),
+            (Digest::Sha1, const_oid::db::rfc5912::ID_SHA_1),
+            (Digest::Sha256, const_oid::db::rfc5912::ID_SHA_256),
+            (Digest::Sha384, const_oid::db::rfc5912::ID_SHA_384),
+            (Digest::Sha512, const_oid::db::rfc5912::ID_SHA_512),
+            (Digest::Sha3_256, const_oid::db::fips202::ID_SHA_3_256),
+            (Digest::Sha3_384, const_oid::db::fips202::ID_SHA_3_384),
+            (Digest::Sha3_512, const_oid::db::fips202::ID_SHA_3_512),
+            (Digest::Shake256, const_oid::db::fips202::ID_SHAKE_256),
+        ] {
+            assert_eq!(
+                digest.oid(),
+                second.as_bytes(),
+                "{}: a second party's reading of the same registry",
+                Digest::name(digest)
+            );
+        }
+        // And a third for the three the `sha3` package itself publishes an identifier for.
         assert_eq!(Digest::Sha3_256.oid(), sha3::Sha3_256::OID.as_bytes());
         assert_eq!(Digest::Sha3_384.oid(), sha3::Sha3_384::OID.as_bytes());
         assert_eq!(Digest::Sha3_512.oid(), sha3::Sha3_512::OID.as_bytes());
