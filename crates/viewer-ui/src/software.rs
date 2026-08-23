@@ -226,6 +226,51 @@ pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, Sof
     Ok(composed)
 }
 
+/// A window with no page on it at all, in [`pdf_render::SURROUND`].
+///
+/// **The window before any document is open, which since the six-hundred-and-ninety-fifth session
+/// is a window that still has something on it**: §7.6.4.1's card is drawn over an encrypted
+/// document that has not authenticated, and there is no page behind it to compose onto.
+///
+/// The colour is [`Medium::WINDOW`]'s ground rather than a value chosen here, which is
+/// [`compose_pages`]'s own reading applied to the degenerate case: §11.4.7's 𝑊 is *the page's*
+/// initial colour and stops at §14.11.2.1's crop box, so what a window shows where there is no
+/// page is this program's choice and is stated once, in [`pdf_render::medium`] (ADR 0446).
+///
+/// Built by rasterising an empty display list rather than by filling a buffer, so that the one
+/// place the surround is decided stays the one place it is applied.
+///
+/// # Errors
+///
+/// [`SoftwareError::NoExtent`] for a window with no pixels, and [`SoftwareError::Page`] where the
+/// rasteriser refused an empty list — which would be a defect in this host rather than anything
+/// about a document.
+pub fn surround(width: u32, height: u32) -> Result<Raster, SoftwareError> {
+    if width == 0 || height == 0 {
+        return Err(SoftwareError::NoExtent);
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a window's extent in pixels, which is thousands"
+    )]
+    let size = pdf_render::Size {
+        width: width as f32,
+        height: height as f32,
+    };
+    let empty = DisplayList::new(size);
+    CpuRasterizer::new()
+        .with_medium(Medium::WINDOW)
+        .rasterize(
+            &empty,
+            TargetSpec {
+                width,
+                height,
+                transform: Transform::IDENTITY,
+            },
+        )
+        .map_err(|problem| SoftwareError::Page { page: 0, problem })
+}
+
 /// Draws every overlay over `page`, in order, and answers the result.
 ///
 /// The overlays are window-pixel display lists — selection quads, the sidebar, the modal card —

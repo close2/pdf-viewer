@@ -1288,7 +1288,10 @@ void MainWindow::askForAPassword()
     dialog.setWindowTitle(QStringLiteral("Password"));
     dialog.setModal(true);
     auto* column = new QVBoxLayout(&dialog);
-    column->addWidget(new QLabel(QStringLiteral("This document is encrypted (§7.6.4.1)."), &dialog));
+    // The words are Rust's, for the reason `notices` is: `viewer_host::password` states one
+    // question for three hosts, and a sentence written here would be this host's alone.
+    const rust::String prompt = host_->password_prompt();
+    column->addWidget(new QLabel(QString::fromUtf8(prompt.data(), static_cast<int>(prompt.size())), &dialog));
     auto* entry = new QLineEdit(&dialog);
     entry->setEchoMode(QLineEdit::Password);
     column->addWidget(entry);
@@ -1299,12 +1302,22 @@ void MainWindow::askForAPassword()
     connect(entry, &QLineEdit::returnPressed, &dialog, &QDialog::accept);
     entry->setFocus();
 
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
+    // A dialogue closed with Cancel, with Escape or with the window's own close button sends an
+    // empty password rather than nothing at all: §7.6.4.1's default user password has already been
+    // tried, so the empty string cannot be a password here and is free to mean *declined* — and a
+    // document that is not on the screen has to say why (trap 5). `viewer_host::password::supplied`
+    // is where that is decided, once, for all three hosts.
+    QByteArray utf8;
+    if (dialog.exec() == QDialog::Accepted) {
+        utf8 = entry->text().toUtf8();
     }
-    const QByteArray utf8 = entry->text().toUtf8();
+    // Qt keeps what was typed in the `QLineEdit`'s own storage, which is not this program's to
+    // clear; emptying the widget before it is destroyed is the part a host can reach, and
+    // `viewer_core::Secret` documents the rest as best effort.
+    entry->clear();
     Busy guard(busy_);
     host_->supply_password(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));
+    utf8.fill('\0');
     applyUpdates();
 }
 

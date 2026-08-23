@@ -8,6 +8,7 @@
 use pdf_render::Raster;
 use pdf_syntax::ObjectId;
 
+use crate::secret::Secret;
 use crate::viewer::{DocumentId, RenderToken};
 
 /// One thing a host asks the viewer to do.
@@ -34,7 +35,11 @@ pub enum Command {
         /// The file, whole.
         bytes: Vec<u8>,
         /// §7.6.4.1's user or owner password, where one is already known.
-        password: Option<String>,
+        ///
+        /// A [`Secret`] rather than a `String` because this enumeration derives [`Debug`] and two
+        /// hosts trace a command by printing one — see [`crate::secret`] for what that cost and
+        /// what the type carries instead.
+        password: Option<Secret>,
         /// Annex O's fragment identifier — the text after `#`, or nothing.
         fragment: Option<String>,
     },

@@ -2244,3 +2244,347 @@ fn wrap(chrome: &Chrome, paragraph: &str, size: f32, room: f32) -> Vec<String> {
     }
     lines
 }
+
+/// How wide §7.6.4.1's password card is, in logical pixels.
+///
+/// **Every number under this heading is a choice, and the standard states none of them**: the
+/// clause says an interactive processor *should* prompt and describes no window at all, exactly as
+/// §12.5.6.14 describes no popup furniture (ADR 0250). A native host asks its toolkit for a
+/// `gtk4::PasswordEntry` or a `QLineEdit`; this host has no toolkit and so states its own.
+///
+/// Wide enough for the clause citation the prompt carries on one line at [`TEXT_SIZE`], because a
+/// question a person is answering under pressure should not wrap.
+const PASSWORD_WIDTH: f32 = 420.0;
+
+/// How tall it is, in logical pixels: two lines of prose, a box, and a line of instruction.
+const PASSWORD_HEIGHT: f32 = 150.0;
+
+/// How far its contents are inset from its own edge, in logical pixels.
+const PASSWORD_PADDING: f32 = 18.0;
+
+/// The card's paper.
+const PASSWORD_PAPER: Color = Color {
+    r: 0.99,
+    g: 0.99,
+    b: 1.0,
+    a: 1.0,
+};
+
+/// The box the bullets sit in.
+const PASSWORD_FIELD: Color = Color {
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
+};
+
+/// The card's own text, and the bullets.
+const PASSWORD_INK: Color = Color {
+    r: 0.10,
+    g: 0.10,
+    b: 0.12,
+    a: 1.0,
+};
+
+/// Table 231 bit 14's echo, which §12.7.5.3 names by example.
+///
+/// > Characters typed from the keyboard shall instead be echoed in some unreadable form, such as
+/// > asterisks or bullet characters.
+///
+/// That sentence is about a *form field* rather than about this card, and it is quoted here
+/// because it is the only place the standard says what an unreadable echo looks like — so this
+/// host takes the second of the two examples it gives rather than inventing a third. What a
+/// password prompt echoes is stated nowhere at all.
+const PASSWORD_ECHO: char = '\u{2022}';
+
+/// §7.6.4.1's prompt, drawn by the host that has no toolkit to ask for one.
+///
+/// **The counterpart of `viewer-gtk`'s `gtk4::PasswordEntry` and `viewer-qt`'s `QLineEdit` with
+/// `QLineEdit::Password`**, and it exists because until the six-hundred-and-ninety-fifth session
+/// this host answered an encrypted document on `stderr`, read `stdin`, and called
+/// `std::process::exit(1)` when there was no terminal — so a window opened from a desktop launcher
+/// could not open an encrypted document at all. ISO 32000-2 §7.6.4.1's NOTE 2 describes the
+/// processor that genuinely cannot ask ("non-interactive PDF readers that do not have a person
+/// running them such as printing off-line or on a server"), and a window on a screen is not one of
+/// them whatever it was launched from.
+///
+/// What is *not* here is the attempt policy: how many times to ask, what to say when the attempts
+/// are used up, and that an empty entry is a decline rather than the default user password are all
+/// [`viewer_host::password`]'s, shared with the other two hosts.
+///
+/// **The typed password never leaves this value except to [`viewer_core::Command::Open`]**, and it
+/// is a [`viewer_core::Secret`] the whole way: the card draws [`PASSWORD_ECHO`] once per character
+/// and never the characters, and no [`std::fmt::Debug`] anywhere in this host can print one.
+///
+/// [`viewer_host::password`]: https://docs.rs/viewer-host
+#[derive(Debug, Default)]
+pub struct PasswordCard {
+    /// Whether the card is over the page.
+    ///
+    /// Public because whether a modal card is up decides which keys reach the page, and that
+    /// ordering is the host's — the same shape [`About::shown`] and [`FindBar::shown`] have.
+    pub shown: bool,
+    /// What has been typed, echoed as bullets and read exactly once.
+    typed: viewer_core::Secret,
+    /// What the card says above the box, and the attempt line under it.
+    ///
+    /// [`viewer_host::password::prompt`]'s two sentences, unpacked because the card draws them at
+    /// two sizes in two colours and every other field here is a thing to draw.
+    ///
+    /// [`viewer_host::password::prompt`]: https://docs.rs/viewer-host
+    prompt: String,
+    /// Which attempt this is, and how many there are.
+    counted: String,
+}
+
+impl PasswordCard {
+    /// Puts the card up for one attempt, with nothing typed into it.
+    ///
+    /// The words are [`viewer_host::password::prompt`]'s, which is what keeps the question this
+    /// host asks the same as the two native ones'. The previous attempt's
+    /// [`viewer_core::Secret`] is dropped here, which is what clears the buffer it was typed into.
+    ///
+    /// [`viewer_host::password::prompt`]: https://docs.rs/viewer-host
+    pub fn ask(&mut self, words: viewer_host::Wording) {
+        self.shown = true;
+        self.typed = viewer_core::Secret::new();
+        self.prompt = words.question;
+        self.counted = words.counted;
+    }
+
+    /// Adds what a key press typed. Answers whether anything changed.
+    pub fn typed(&mut self, text: &str) -> bool {
+        if text.is_empty() {
+            return false;
+        }
+        self.typed.push_str(text);
+        true
+    }
+
+    /// Removes the last character. Answers whether there was one.
+    pub fn backspace(&mut self) -> bool {
+        self.typed.backspace()
+    }
+
+    /// Forgets what was typed without taking the card down.
+    ///
+    /// The old [`viewer_core::Secret`] is dropped here, which clears the buffer it was in.
+    pub fn clear(&mut self) {
+        self.typed = viewer_core::Secret::new();
+    }
+
+    /// Takes the card down and hands over what was typed.
+    ///
+    /// Whether an empty answer is a decline is [`viewer_host::password`]'s decision and not this
+    /// card's, which is why this hands over the [`viewer_core::Secret`] rather than an `Option`:
+    /// Escape and Enter-on-nothing are the same fact about the person, and one place decides what
+    /// it means.
+    #[must_use]
+    pub fn take(&mut self) -> viewer_core::Secret {
+        self.shown = false;
+        self.prompt = String::new();
+        self.counted = String::new();
+        std::mem::take(&mut self.typed)
+    }
+
+    /// The card, in device pixels of the window.
+    #[must_use]
+    pub fn draw(
+        &self,
+        chrome: &Chrome,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> Option<DisplayList> {
+        if !self.shown {
+            return None;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's extent in pixels, which is thousands"
+        )]
+        let (wide, tall) = (width as f32, height as f32);
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: wide,
+            height: tall,
+        });
+        // The page is still there and is still the document, so it is dimmed rather than covered:
+        // the same sentence `About::draw` is written under, and the same reason — a modal panel
+        // with no window manager behind it has to say for itself that it is *over* something.
+        rectangle(
+            &mut list,
+            (0.0, 0.0, wide, tall),
+            Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 0.45,
+            },
+        );
+        let (card_wide, card_tall) = (PASSWORD_WIDTH * scale, PASSWORD_HEIGHT * scale);
+        let (left, top) = (
+            (wide - card_wide).max(0.0) / 2.0,
+            (tall - card_tall).max(0.0) / 2.0,
+        );
+        rectangle(&mut list, (left, top, card_wide, card_tall), PASSWORD_PAPER);
+
+        let size = TEXT_SIZE * scale;
+        let pad = PASSWORD_PADDING * scale;
+        let inner = (card_wide - pad * 2.0).max(0.0);
+        let mut baseline = top + pad + size;
+        for line in wrap(chrome, &self.prompt, size, inner) {
+            chrome.text(
+                &mut list,
+                &line,
+                (left + pad, baseline),
+                size,
+                Style::default(),
+                PASSWORD_INK,
+            );
+            baseline += size * 1.4;
+        }
+        chrome.text(
+            &mut list,
+            &self.counted,
+            (left + pad, baseline),
+            size,
+            Style::default(),
+            DIMMED,
+        );
+
+        // The box, with one bullet per character and a caret after them. Built from the count
+        // rather than from the characters, which is the property this card exists to have:
+        // `Secret::reveal` is called nowhere in this module.
+        let box_top = top + card_tall - pad * 2.0 - size * 3.4;
+        let box_tall = size * 1.9;
+        rectangle(
+            &mut list,
+            (left + pad, box_top, inner, box_tall),
+            PASSWORD_FIELD,
+        );
+        rectangle(&mut list, (left + pad, box_top, inner, scale), EDGE);
+        rectangle(
+            &mut list,
+            (left + pad, box_top + box_tall - scale, inner, scale),
+            EDGE,
+        );
+        let echoed: String = std::iter::repeat_n(PASSWORD_ECHO, self.typed.characters()).collect();
+        let after = chrome.text(
+            &mut list,
+            &echoed,
+            (
+                left + pad + 6.0 * scale,
+                box_top + f32::midpoint(box_tall, size * 0.72),
+            ),
+            size,
+            Style::default(),
+            PASSWORD_INK,
+        );
+        rectangle(
+            &mut list,
+            (
+                after + scale,
+                box_top + 4.0 * scale,
+                scale.max(1.0),
+                box_tall - 8.0 * scale,
+            ),
+            PASSWORD_INK,
+        );
+
+        // What the two keys do, because a card with no window manager behind it has no Cancel
+        // button to point at. Escape is a *decline* here rather than the selection-clearing row
+        // `viewer_host::keys` states, for the reason that module gives: a modal card takes the
+        // keyboard before the page does.
+        chrome.text(
+            &mut list,
+            "Enter to open  ·  Escape to give up",
+            (left + pad, top + card_tall - pad),
+            size,
+            Style::default(),
+            DIMMED,
+        );
+        Some(list)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PASSWORD_ECHO, PasswordCard};
+
+    /// The words a prompt shows, so the card can be driven without a `viewer-host` in the test.
+    fn words() -> viewer_host::Wording {
+        viewer_host::password::prompt("locked.pdf", 1, 3)
+    }
+
+    /// What the card echoes is a count of bullets and never a character of the password.
+    ///
+    /// **The property the whole item is about**, and it is checkable without a window: the card
+    /// holds a [`viewer_core::Secret`], its own [`std::fmt::Debug`] goes through that type's, and
+    /// the only thing it draws is [`PASSWORD_ECHO`] repeated.
+    #[test]
+    fn the_card_never_holds_or_prints_what_was_typed() {
+        let mut card = PasswordCard::default();
+        card.ask(words());
+        assert!(card.typed("hunter2"));
+        let printed = format!("{card:?}");
+        assert!(
+            !printed.contains("hunter2"),
+            "the card printed the password: {printed}"
+        );
+        assert!(printed.contains("7 character(s)"), "{printed}");
+        assert_eq!(PASSWORD_ECHO, '\u{2022}', "§12.7.5.3's bullet");
+    }
+
+    /// Editing, and that taking the card down hands the password over exactly once.
+    #[test]
+    fn the_card_edits_and_hands_over_once() {
+        let mut card = PasswordCard::default();
+        card.ask(words());
+        assert!(card.shown);
+        assert!(
+            !card.typed(""),
+            "a key that produced no text changes nothing"
+        );
+        assert!(card.typed("abc"));
+        assert!(card.backspace());
+        let taken = card.take();
+        assert_eq!(taken.reveal(), "ab");
+        assert!(!card.shown, "taking the answer takes the card down");
+        assert!(
+            card.take().is_empty(),
+            "a second take answers with nothing rather than with the same password again"
+        );
+    }
+
+    /// Escape's route: the buffer is cleared, and what is handed over is then a decline.
+    ///
+    /// The decision that an empty answer *is* a decline is `viewer_host::password::supplied`'s and
+    /// is tested there; what this checks is that this card reaches it with nothing.
+    #[test]
+    fn clearing_leaves_the_card_up_with_nothing_in_it() {
+        let mut card = PasswordCard::default();
+        card.ask(words());
+        card.typed("wrong");
+        card.clear();
+        assert!(card.shown, "clearing is not the same as answering");
+        assert!(card.take().is_empty());
+    }
+
+    /// A card that is not shown draws nothing at all, which is what keeps it off every frame.
+    #[test]
+    fn a_card_that_is_not_shown_is_not_a_display_list() {
+        let card = PasswordCard::default();
+        let Ok(chrome) = super::Chrome::new() else {
+            // A build whose compiled-in faces will not parse cannot draw chrome at all, which the
+            // host already reports; there is nothing for this test to say about it.
+            return;
+        };
+        assert!(card.draw(&chrome, 800, 600, 1.0).is_none());
+        let mut shown = PasswordCard::default();
+        shown.ask(words());
+        assert!(
+            shown.draw(&chrome, 800, 600, 1.0).is_some(),
+            "a card that is up has to reach the frame"
+        );
+    }
+}

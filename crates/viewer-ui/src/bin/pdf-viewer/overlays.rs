@@ -404,9 +404,11 @@ pub(crate) struct Overlays {
     panel: Option<pdf_render::DisplayList>,
     /// The find bar, over the sidebar and under the modal card.
     find: Option<pdf_render::DisplayList>,
-    /// `/NOTICE`, where it is shown. **Last, so it is on top**: it is a modal card and the
-    /// sidebar is behind it.
+    /// `/NOTICE`, where it is shown. A modal card, so the sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
+    /// §7.6.4.1's prompt. **Last, so it is on top of everything including the notices card**: the
+    /// document behind it is not open, so nothing drawn over it could be about this document.
+    password: Option<pdf_render::DisplayList>,
 }
 
 impl Overlays {
@@ -423,6 +425,7 @@ impl Overlays {
             panel: app.panel_list(height),
             find: app.find_list(width),
             about: app.about_list(width, height),
+            password: app.password_list(width, height),
         }
     }
 
@@ -440,6 +443,7 @@ impl Overlays {
             self.panel.as_ref(),
             self.find.as_ref(),
             self.about.as_ref(),
+            self.password.as_ref(),
         ]
         .into_iter()
         .flatten()

@@ -51,6 +51,10 @@
 //! - [`fit`] — the magnification at which every §12.7 control fits the `/Rect` its document states
 //!   for it, from the rectangles `Query::Fields` answers with and the minimum sizes a toolkit
 //!   measures. ADR 0245's scale question, answered with the messages that already existed.
+//! - [`password`] — §7.6.4.1's attempts, and the sentence a host says when they are used up. The
+//!   clause says an *interactive* processor **should** prompt and states no number; three hosts
+//!   held three copies of the number, and the third copy is where `viewer-ui` came to exit the
+//!   process for want of a terminal.
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
@@ -80,6 +84,7 @@ pub mod fit;
 pub mod form;
 pub mod keys;
 pub mod panel;
+pub mod password;
 pub mod policy;
 pub mod presentation;
 pub mod status;
@@ -92,6 +97,7 @@ pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use keys::{Key, Meaning, Mode, WindowAct, meaning};
 pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
+pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
     ImportRefusal, may_open_extracted, may_write_extracted, read_import, resolve_import,
 };

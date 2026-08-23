@@ -271,7 +271,10 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                if self.about.shown {
+                // Both modal cards take the pointer as well as the keyboard: a click that
+                // followed a link under §7.6.4.1's prompt would be acting on a document nobody has
+                // authenticated.
+                if self.about.shown || self.password.shown {
                     return;
                 }
                 if self.over_panel() {
@@ -364,6 +367,14 @@ impl App {
         // `typed` was ever asked. `keys_reach_the_field` presses one of them at a field rather
         // than trusting the order.
         if self.typing.is_some() && self.typed(key) {
+            return;
+        }
+        // **§7.6.4.1's card takes every key while it is up**, and it takes them before the find
+        // bar and before the page: the document behind it is not open, so there is nothing for any
+        // other key to be about. It is checked after the field above only because the two are never
+        // up together — a document nobody has authenticated has no §12.7 field to type into.
+        if self.password.shown {
+            self.password_key(key);
             return;
         }
         // **The find bar takes every key while it is open**, for the same reason and in the same

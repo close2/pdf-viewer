@@ -360,7 +360,7 @@ fn examine(path: &Path, cache: &ExtractionCache, work_dir: &Path) -> Census {
         .handle(Command::Open {
             id: DOCUMENT,
             bytes,
-            password: (!password.is_empty()).then(|| password.to_owned()),
+            password: (!password.is_empty()).then(|| password.to_owned().into()),
             fragment: None,
         })
         .any(|event| matches!(event, viewer_core::Event::Opened { .. }));

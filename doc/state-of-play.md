@@ -48,7 +48,9 @@ since the five-hundred-and-eighty-sixth session the first sentence of it is **me
 than asserted: a gate drags across `pdftotext`'s own word boxes on every corpus document and asks
 what came back, which is the first thing in this tree that clicks, and it found a press that set
 no selection anchor at all (ADR 0421). A
-locked document asks for its password (§7.6.4.1); the page zooms and scrolls; the cursor knows
+locked document asks for its password (§7.6.4.1) — **in a window of the host's own in all three,
+since the six-hundred-and-ninety-fifth session**, where `viewer-ui` stopped reading `stdin` and
+stopped leaving the process when there was no terminal (ADR 0545); the page zooms and scrolls; the cursor knows
 what it is over and §12.5.5's appearances follow it, as does §12.5.6.19's `/H`; a drag **selects
 text**, whose shapes cross to the host as geometry so that it draws them in its own colour, **and
 that text can leave the program** — every one of the four consumers puts it on the platform's own

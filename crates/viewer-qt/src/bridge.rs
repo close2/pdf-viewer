@@ -302,8 +302,19 @@ pub mod ffi {
         fn toggle_control(self: &mut Host, index: usize, on: bool);
         /// §12.7.5.2.2's push button was pressed.
         fn activate_control(self: &mut Host, index: usize);
-        /// §7.6.4.1: a person typed a password, or dismissed the prompt with `None`.
+        /// §7.6.4.1: a person typed a password, or dismissed the prompt with an empty one.
+        ///
+        /// **An empty string is a decline and not the default user password**, which the reader
+        /// has already tried by the time `QtUpdate::password` was set — so a dialogue closed with
+        /// Cancel, with Escape or with the close button sends this with nothing in it, and the
+        /// person is told why the document is not on the screen (`viewer_host::password`).
         fn supply_password(self: &mut Host, password: &str);
+        /// §7.6.4.1: what to put above the entry, including which attempt this is.
+        ///
+        /// A function rather than a string built in C++ for `notices`' reason: the words are
+        /// `viewer_host::password`'s so that three hosts ask the same question, and only Rust has
+        /// them. Asked once, when `QtUpdate::password` says so.
+        fn password_prompt(self: &Host) -> String;
         /// A toolbar button: 0 previous page, 1 next page, 2 zoom out, 3 zoom in, 4 fit page.
         fn command(self: &mut Host, what: u8);
         /// Every control the window has just placed, with the minimum its style gives it.

@@ -56,12 +56,17 @@ impl Session {
     }
 
     /// §7.6.4.1 and Annex O: opens a document from bytes the caller owns.
+    ///
+    /// The password arrives as a [`viewer_core::Secret`] rather than a `String` so that the text
+    /// the caller's NUL-terminated bytes became **moves** into it: a conversion here would leave a
+    /// second copy in a buffer nothing clears. What the *caller's* memory holds is the caller's,
+    /// and the header says so.
     #[must_use]
     pub fn open(
         &mut self,
         id: u64,
         bytes: Vec<u8>,
-        password: Option<String>,
+        password: Option<viewer_core::Secret>,
         fragment: Option<String>,
     ) -> Events {
         self.handle(Command::Open {

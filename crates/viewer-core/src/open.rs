@@ -589,12 +589,15 @@ impl Open {
     /// rather than into a failure.
     pub(crate) fn new(
         bytes: Vec<u8>,
-        password: Option<&str>,
+        password: Option<&crate::Secret>,
     ) -> Result<Self, pdf_syntax::SyntaxError> {
         Ok(Self::around(Document::open_with_password(
             bytes,
             pdf_syntax::Limits::DEFAULT,
-            password.unwrap_or_default(),
+            // The one call in this crate that reads a password, which is what
+            // `Secret::reveal` is named to make visible at its call site. §7.6.4.1's default
+            // user password is the empty string, so a document opened without one asks with it.
+            password.map_or("", crate::Secret::reveal),
         )?))
     }
 

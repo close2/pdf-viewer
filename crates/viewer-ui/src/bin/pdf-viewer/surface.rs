@@ -568,7 +568,17 @@ impl App {
         )]
         let edge = self.inset() as f32;
         let pages = self.arrangement(edge, width, height);
-        let first = pages.first()?;
+        let Some(first) = pages.first() else {
+            // **A window with no page is a window that can still have something on it**, and until
+            // the six-hundred-and-ninety-fifth session this line was a `?` that ended the frame.
+            // §7.6.4.1's card is drawn over a document that has not authenticated: there is no
+            // page behind it because the document is not open, which is the whole reason the card
+            // is there. 687's lesson one round on — a piece of chrome added is a piece of chrome
+            // to check on *both* surfaces — and this is the third path it has to reach.
+            let chrome = Overlays::of(self, edge, width, height);
+            stages.host = began.elapsed();
+            return self.without_a_page(&chrome, (width, height), stages);
+        };
         stages.page = first.of.page().saturating_add(1);
         stages.pages = pages.len();
         stages.commands = pages
@@ -609,6 +619,84 @@ impl App {
             return self.on_the_device(&for_the_frame, !transitioning, &chrome, stages);
         }
         self.on_the_processor(&for_the_frame, !transitioning, &chrome, stages)
+    }
+
+    /// The chrome alone, on a window with no page under it.
+    ///
+    /// One method for both surfaces because there is nothing to decide between them here: no page
+    /// means no magnification to pick a coverage lane for, no retained pixels to stand in with and
+    /// no view change to approximate, so all the machinery `on_the_device` and `on_the_processor`
+    /// exist for has no subject. What is left is *draw these lists over the surround and present*.
+    ///
+    /// `None` where there is nothing to draw either, which is a window whose document has not
+    /// arrived yet — every tick between the window appearing and the first frame landing, exactly
+    /// as before.
+    fn without_a_page(
+        &mut self,
+        chrome: &Overlays,
+        extent: (u32, u32),
+        stages: &mut Stages,
+    ) -> Option<Rendered> {
+        // **Nothing to draw and nothing ever drawn is the launch path**, and it stays exactly what
+        // it was: the ticks between the window appearing and page one landing present nothing, so
+        // no blank frame goes up in front of the first page. Once this method *has* put chrome up,
+        // an empty list stops meaning "nothing to show" and starts meaning "take it away" — which
+        // is what a card whose attempts have run out needs, and what the screen said otherwise: the
+        // prompt stayed on the window after the program had said it was done asking.
+        if chrome.lists().is_empty() && !self.drawn_without_a_page {
+            return None;
+        }
+        self.drawn_without_a_page = true;
+        let began = std::time::Instant::now();
+        if self.device_window().is_some() {
+            let owned = chrome.owned();
+            let now = std::time::Instant::now();
+            // **The frame drawn for the *previous* tick is taken here, and leaving this line out
+            // is what a first run of this method looked like**: the job went to the render thread,
+            // the thread drew the card, and nothing ever collected it — so every tick asked again
+            // and reported *nothing to show*, for ever, at the tick rate. `on_the_device` opens
+            // with the same call for the same reason.
+            self.adopt(now, stages);
+            let asked = {
+                let window = self.device_window()?;
+                // The same test `on_the_device` makes, with the page half of it answered by there
+                // being no page: a frame of exactly these overlays over nothing needs no successor.
+                let of_this_view = window.shown().is_some_and(|shown| shown.pages.is_empty())
+                    && window.chrome_asked() == owned;
+                if of_this_view {
+                    false
+                } else {
+                    window.ask(Vec::new(), owned, coverage_for(Transform::IDENTITY), now);
+                    true
+                }
+            };
+            // **Armed only where a frame was asked for**, which is `doc/todo/36`'s fourth rule and
+            // not a detail: a frame is collected on a later tick than the one that asked for it, so
+            // the clock has to stay on until it lands — and arming it unconditionally makes a
+            // window with an unchanging card present at the tick rate for ever. Measured doing
+            // exactly that before this line distinguished the two cases.
+            if asked {
+                self.cadence.owed(now);
+            }
+            return self.put_up(Some(Transform::IDENTITY), &[], stages);
+        }
+        // The composing thread's counterpart, and the same reason: a refusal it reported has to be
+        // taken before anything is asked for again, or a window that cannot draw spins.
+        if let Some(problem) = self.adopt_composed(stages) {
+            return Some(Rendered::Failed(problem));
+        }
+        let overlays = chrome.lists();
+        let outcome = self.composer()?.put_up_without_a_page(extent, &overlays);
+        stages.present = began.elapsed();
+        match outcome {
+            Ok(()) => Some(Rendered::Presented),
+            // Trap 5: a card a person is meant to type into that did not reach the window is
+            // exactly the failure this whole item is about, so it is said rather than counted as a
+            // tick with nothing on it.
+            Err(problem) => Some(Rendered::Failed(format!(
+                "presenting the chrome over an empty window: {problem}"
+            ))),
+        }
     }
 
     /// Everything a tick does with a window the processor draws on: adopt, ask, place.
