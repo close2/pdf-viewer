@@ -3168,6 +3168,7 @@ them name a **PDF name**, and a name is countable:
 ```sh
 cargo run --release -p pdf-model --example witness_census -- --pdfjs Collection Threads IDTree
 cargo run --release -p pdf-model --example absence_audit          # the structural half
+cargo run --release -p pdf-model --example operator_shape_census  # the third half: an *order*
 ```
 
 `witness_census` asks each term three ways of the same document — the file's raw bytes (what a
@@ -3176,6 +3177,15 @@ streams*, and every stream's decoded data — and prints the three counts side b
 `absence_audit` re-asks the same claims through the readers that would act on them, because a name
 being present is not the structure being present. **Run both**: that is ADR 0403's rule, and here
 it is the object walk that finds what the byte search cannot rather than the other way round.
+
+**And a third instrument answers the claims neither can, which is a sentence about an *order* of
+operators** (ADR 0548). `operator_shape_census` lexes a page's `/Contents` and every form `XObject`
+its resources reach, so a witness that is a sequence — a segment with no move before it, a `q` and a
+`Q` with a `Tm` between them — is countable the way a name and a token already were. It skips inline
+image data through `pdf_model::inline_image::scan`, because bytes lex into keywords and an image
+whose samples spell `l` would be a witness the census invented; and it prints how many content
+streams it does **not** reach, which for the crawl's first pages is 37 685 pattern cells, Type 3
+procedures and appearance streams.
 
 ### The three ways such a claim goes wrong, and the first run found all three
 
@@ -3968,15 +3978,23 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     fifth is a token rather than a shape** — corrected in the six-hundred-and-eighty-sixth (ADR
     0523), which found the content-stream census already built: `witness_census`'s third column
     searches every stream's *decoded* data, so anything whose witness is a **token** is in reach
-    without an interpreter. §9.7.5.4 (`beginrearrangedfont` and `beginusematrix` in a CMap) is one
-    of those, and its control run is taken — **0 of 1251 curated for either, with `usecmap` found in
-    one document's decoded stream as the positive control that the search reaches a CMap operator at
-    all** — leaving the crawl run owed, which is one invocation. The four that are genuinely shapes:
-    §8.5.2.1 (a path segment with no current point), §9.4.2 (a `q` or `Q` inside a text object with a
-    `Tm` between), §9.7.6.2 (a codespace range a byte-by-byte match reads differently from a numeric
-    one), §11.6.7 (a tiling pattern's paint). These are the expensive ones and they share an
-    instrument: interpret page one and count operator shapes. The artifact census already owed below
-    is the same program.
+    without an interpreter. ~~§9.7.5.4 (`beginrearrangedfont` and `beginusematrix` in a CMap) is one
+    of those, and its control run is taken … leaving the crawl run owed, which is one invocation.~~
+    **Done in the six-hundred-and-ninety-sixth, and it holds** (ADR 0548): 0 of the 65 703 crawled
+    documents that open write either operator in any decoded stream, against 0 of 1239 curated, with
+    **`endcmap` in 46 028 of them** as the control that the search reaches a CMap operator at all —
+    a stronger control than the single `usecmap` the curated run had. Twenty-three minutes.
+    ~~The four that are genuinely shapes: §8.5.2.1 …, §9.4.2 …, §9.7.6.2 …, §11.6.7 ….~~ **Two of
+    the four are done and the instrument they shared is built**: `examples/operator_shape_census`
+    lexes a page's `/Contents` and every form `XObject` its resources reach, so an *order* of
+    operators is countable now as a *token* already was. **§8.5.2.1 is false** — a segment operator
+    with no current point occurs on one curated first page and five crawled ones, and the row went
+    from `implemented` to `partial` because of it — and **§9.4.2 is false in the half it states and
+    true in the half it means**, which is the rule below. What is left of this group is
+    **§9.7.6.2** (a codespace range a byte-by-byte match reads differently from a numeric one) and
+    **§11.6.7** (a tiling pattern's paint); neither is an operator shape, so neither is this
+    program's, and both need a reader's own answer rather than a lexer's. The artifact census
+    already owed below is the operator census's shape and could be a fifth question in it.
   - ~~**Nine need a structural block in `absence_audit`, which the six-hundred-and-seventy-first round
     added eight of and the six-hundred-and-seventy-sixth the ninth.**~~ **Eight of the nine were
     taken in the six-hundred-and-eighty-second** (ADR 0516) — §7.6.5, §7.9.2.2.2, §8.9.5.2, §8.10.3,
@@ -4003,8 +4021,19 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     had decayed twice** — it was measured over *first pages*, and the curated witness writes its tag
     on page 6, so the population and the instrument's reach were both narrower than the words.
 
-    **Three things this round adds to the recipe.** **A negative can be false and the code still owe
-    nothing** — §7.6.5's one witness is a file declined by name, which is trap 5 working. **A
+    **A sixth rule, from the six-hundred-and-ninety-sixth** (ADR 0548): **a negative about a
+    *structure* and a negative about its *consequence* are different sentences, and the instrument
+    has to print both.** §9.4.2's row said no corpus document moves `Tm` inside a `q` … `Q` pair in
+    a text object; four such pairs sit on `NegativeFontSize.pdf`'s first page, so the outer claim is
+    false — and not one *well-formed* page draws differently, because Table 106 makes the next `Tm`
+    replace what the `Q` restored, so the restore reaches a mark only in a damaged stream. One extra
+    column in the same state machine separates the two. The other direction cost more: §8.5.2.1's
+    row called a reachable requirement `implemented` on the strength of the shape having no witness,
+    which is the same conflation upside down.
+
+    **Three things the six-hundred-and-eighty-sixth adds to the recipe.** **A negative can be false
+    and the code still owe nothing** — §7.6.5's one witness is a file declined by name, which is
+    trap 5 working. **A
     negative can be false and the *residue* it justifies survive one condition narrower**: §11.6.5.2
     is false by 2882 crawled documents while the refusal it names is reached by six of them, because
     `soft_mask_entry` asks about the codec only where `worth_combining` has already refused the finer
@@ -4023,10 +4052,16 @@ files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it
     `absence_audit`, plus `rayon`, plus the explicit file list two of them already took. **All
     three negatives were false**, and two of them left a *sharper* claim standing that the wider
     count would have thrown away — the rule ADR 0516 found at §11.6.5.2, met twice more. §9.7.4.2
-    is the one the four-group reading missed. **§12.7.5.4 is what is left of this group**, and its
-    instrument exists too: `variable_text_census` counts list-box and combo-box widgets against
-    their `/AP` and `/NeedAppearances`, over whatever files it is given, and owes the same scope
-    selector. Run the script rather than adding any of this up, for the reason the bullet above
+    is the one the four-group reading missed. ~~**§12.7.5.4 is what is left of this group**, and its
+    instrument exists too: `variable_text_census` … owes the same scope selector.~~ **Done in the
+    six-hundred-and-ninety-sixth** (ADR 0548): the census has the selector, its control run
+    reproduces the row's figures to the digit, and **the negative holds** — the crawl states two
+    list-box widgets over two documents, both with an `/AP` `/N` stream and neither in a
+    `/NeedAppearances` document. **And the sentence the script actually matches in that row is a
+    correction quoting a retired negative**, so §12.7.5.4 was a member of the noise group below all
+    along; what was owed was the *count* beside it rather than the sentence, which is a distinction
+    worth carrying: the regex defines the queue's population, and a row can be noise for the regex
+    while its measured figures are stale. Run the script rather than adding any of this up, for the reason the bullet above
     gives.
   - **Six are this population's own noise shape and nothing is owed.** Three are a *correction*
     quoting the negative it retired, which is the same false positive the twelfth and seventeenth

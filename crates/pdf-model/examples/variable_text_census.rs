@@ -23,12 +23,15 @@
 //! is named as such below.
 //!
 //! ```sh
-//! cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf
-//! cargo run --release -p pdf-model --example variable_text_census -- corpus-cache doc/corpora
+//! cargo run --release -p pdf-model --example variable_text_census              # curated
+//! cargo run --release -p pdf-model --example variable_text_census -- --pdfjs
+//! cargo run --release -p pdf-model --example variable_text_census -- --crawl   # CC-MAIN-2021-31
+//! cargo run --release -p pdf-model --example variable_text_census -- <file-or-directory>...
 //! ```
 //!
-//! Each argument is a file or a directory walked recursively, which is what lets the second line
-//! ask the crawl — 66 000 documents no shell will expand onto one command line.
+//! Each named argument is a file or a directory walked recursively; the three flags name the
+//! populations `doc/todo/01`'s sixteenth sweep is read against, and are the selector ADR 0523
+//! gave the other three censuses that answer a ledger negative.
 
 #![expect(
     clippy::print_stdout,
@@ -300,13 +303,39 @@ impl Census {
 }
 
 fn main() {
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
     let mut census = Census::default();
-    for argument in std::env::args().skip(1) {
-        for path in pdfs_under(std::path::Path::new(&argument)) {
+    for root in roots(&arguments) {
+        for path in pdfs_under(&root) {
             census.take(&path.to_string_lossy());
         }
     }
     census.report();
+}
+
+/// Which population a run is over, as the three named scopes or as whatever was on the line.
+///
+/// The same selector `long_mitre_census`, `hollow_glyph_census` and `border_precedence_census`
+/// took in the six-hundred-and-eighty-sixth session (ADR 0523), for ADR 0490's reason: this
+/// census's §12.7.5.4 figures were taken before `CC-MAIN-2021-31` was on this disk, and a
+/// negative decays when the population grows. A named path still works and still means itself.
+fn roots(arguments: &[String]) -> Vec<std::path::PathBuf> {
+    let named: Vec<&String> = arguments
+        .iter()
+        .filter(|argument| !argument.starts_with("--"))
+        .collect();
+    if !named.is_empty() {
+        return named.iter().map(std::path::PathBuf::from).collect();
+    }
+    let tree = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let relative: &[&str] = if arguments.iter().any(|argument| argument == "--crawl") {
+        &["corpus-cache/safedocs/cc-main-2021-31"]
+    } else if arguments.iter().any(|argument| argument == "--pdfjs") {
+        &["doc/pdf.js/test/pdfs"]
+    } else {
+        &["doc/pdf.js/test/pdfs", "doc/corpora", "doc/corpora-own"]
+    };
+    relative.iter().map(|path| tree.join(path)).collect()
 }
 
 /// Every `.pdf` at or under `root`, so that a whole corpus is one argument.

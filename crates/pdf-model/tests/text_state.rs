@@ -299,10 +299,18 @@ fn text_rise_is_not_scaled_by_the_font_size() {
 /// `spec-errata emit` over clause 9 before writing, which is what `doc/todo/02` §4 asks for; the
 /// row for §9.4.1 had said the opposite in as many words for hundreds of sessions. ADR 0421.
 ///
-/// **A pair differing only in the rule**, which is trap 8's construction and is what this needs:
-/// 13 of the 974 corpus documents put a `q` or a `Q` inside a text object, and not one of them
-/// moves `Tm` between the two — so the corpus exercises the operators and cannot exercise the
-/// requirement. Both streams below show three glyphs; they differ by one `q` … `Q`.
+/// **A pair differing only in the rule**, which is trap 8's construction and is what this needs.
+/// The reason it needs it changed in the six-hundred-and-ninety-sixth session and is worth
+/// stating in the corrected form: this doc comment read that 13 of the 974 corpus documents put
+/// a `q` or a `Q` inside a text object and not one of them moved `Tm` between the two, and
+/// `examples/operator_shape_census` finds that the second half is **false**. Documents do move
+/// `Tm` inside such a pair — `NegativeFontSize.pdf` four times over on its first page — and one
+/// crawled first page even shows a glyph from the restored matrix. What no *well-formed* file
+/// does is the last of those: every page whose restore reaches a mark is a damaged content
+/// stream, because a producer that closes a save inside a text object positions afresh
+/// immediately afterwards, and Table 106 makes a `Tm` replace what the `Q` put back. So a
+/// synthetic pair is still what discriminates, on a sharper claim than the one it was built
+/// under. ADR 0548. Both streams below show three glyphs; they differ by one `q` … `Q`.
 #[test]
 fn q_and_q_save_the_text_matrices_inside_a_text_object() {
     // Without the save: the `Td` inside moves the line, and the third glyph follows the second
@@ -331,9 +339,18 @@ fn q_and_q_save_the_text_matrices_inside_a_text_object() {
 
 /// §9.3.5: leading is used by `T*`, `'` and `"`, and `TD` sets it.
 ///
-/// Table 103 names exactly four operators, and Table 106 gives `T*` as `0 -Tl TD` — the
+/// Table 103 names exactly four operators, and Table 106 gives `T*` as `0 -Tl Td` — the
 /// negation being the part a reader gets backwards, since leading is "expressed as a
 /// positive number" and going to the next line decreases y.
+///
+/// **The base text writes that code with a `TD` and Errata Collection 3 strikes it for a `Td`**
+/// — issue #373, `/State` `Review` `Completed`, whose strikeout covers the `TD` on the `T*` row
+/// and whose caret says `Td`. It costs no arithmetic, which is why nothing here changes: `TD`
+/// sets the leading to the negation of its own `ty`, and with `ty` already `-Tl` that leaves the
+/// leading where it was. What it costs is a reader, and this tree had implemented the amended
+/// form all along. Found by `spec-errata emit` in the six-hundred-and-ninety-sixth session
+/// (ADR 0548); `spec-errata check` cannot see it, because a one-word strike is below the four
+/// that sweep compares.
 #[test]
 fn leading_moves_the_next_line_downwards() {
     let lines = placements("BT /F1 10 Tf 12 TL 0 50 Td (A) Tj T* (A) Tj (A) ' ET");
