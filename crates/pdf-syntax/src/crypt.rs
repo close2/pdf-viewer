@@ -801,6 +801,14 @@ struct CryptFilters {
 ///
 /// Before `/V` 4 there are no crypt filters at all and Algorithm 1's RC4 applies to
 /// everything, which is what Table 20's description of `/V` 1 and 2 states.
+///
+/// **At `/V` 5 they are read too, and the clause as printed says they shall not be.** §7.6.6's
+/// first bullet ends "the value of the V entry shall be 4 to use crypt filters", and every
+/// AES-256 file in the corpus is `/V` 5 with a crypt filter naming `AESV3` — because Table 25
+/// gives `AESV3` no other home. Errata Collection 3 Issue #74, `/State` `Review` `Completed`,
+/// inserts "or 5" after that 4, so the amended sentence is what this reader has been doing. It
+/// is a bare `Caret` with no `StrikeOut` beside it and therefore invisible to a check that
+/// compares quotations against struck text; found by reading `spec-errata emit` under §7.6.6.
 fn crypt_filters(
     get: &dyn Fn(&str) -> Object,
     version: i64,
@@ -911,11 +919,20 @@ fn method_from_cfm(name: Option<&Name>) -> SyntaxResult<Method> {
 /// greater than 1, in which case n is the value of Length divided by 8."
 ///
 /// At `/V` 4 the key belongs to a crypt filter, and Table 25's `/Length` is where its size
-/// is stated. That entry is famously ambiguous — the same table says "The standard security
-/// handler expresses the Length entry in bytes (e.g., 32 means a length of 256 bits) and
-/// public-key security handlers express it as is" — and the two readings do not overlap:
-/// Table 25 bounds the key at 40 to 256 bits, so a value below 40 can only be a byte count
-/// and a value of 40 or more can only be a bit count.
+/// is stated. The entry states its own unit — "The standard security handler expresses the
+/// Length entry in bytes (e.g., 32 means a length of 256 bits) and public-key security
+/// handlers express it as is" — and the disambiguation below needs no more than that: Table 25
+/// bounds the key at 40 to 256 bits, so a value below 40 can only be a byte count and a value
+/// of 40 or more can only be a bit count.
+///
+/// **This comment called the entry "famously ambiguous", and Errata Collection 3 Issue #184
+/// removes what ambiguity there was**, `/State` `Review` `Completed`. The two sentences the
+/// table closes with were unit-less — "When CFM is AESV2 , the Length key shall have the value
+/// of 128", and 256 for `AESV3` — and the erratum appends "for public-key security handlers,
+/// and 16 for the standard security handler" to the first and "and 32 for the standard security
+/// handler" to the second. So the standard now states the byte reading twice. It is a bare
+/// `Caret` with no `StrikeOut`, which is why no automatic check found it; the arithmetic below
+/// is unchanged, because 16 and 32 are under 40 and 128 and 256 are over it.
 fn key_length(
     get: &dyn Fn(&str) -> Object,
     version: i64,
