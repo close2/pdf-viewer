@@ -3735,6 +3735,35 @@ of §10.4.2.3's `black = 1.0 − grey`, writing *gray* — the spelling both cla
 everywhere else. The annotations sit on the page whose last line is §10.4.2.4's heading, and `emit`
 files by the clause the outline puts a page in. Recorded in §10.4.2.2's row; it changes nothing.
 
+## Choosing the family by measurement rather than by eye, in the seven-hundred-and-fifth
+
+The three rounds from the six-hundred-and-ninety-first each chose a *family* rather than a rank, and
+each sharpened the criterion: take the family whose rows quote each other's figures (ADR 0551), and
+then the one where **a claim is held in duplicate**, because a claim held in duplicate has somewhere
+to disagree with itself (ADR 0560). That last criterion is a search rather than a judgement, and
+running it as one costs a minute:
+
+> For every parent whose subtree holds two or more `partial` rows, take each pair of those rows and
+> count the five-word sequences their notes share, keeping only sequences that at most four rows in
+> the whole ledger carry. Rank the families by the total.
+
+The rare-sequence filter is the whole of it: without it every pair scores on the ledger's shared
+vocabulary, and with it what surfaces is a *list* or a *figure* one round wrote into two rows. Its
+first run put §12.8 at the head, with §12.8.3's subtree the reason — five rows all `partial`, sharing
+a digest list and a sentence about Table 260's families — ahead of §12.5.6, §8.11.4, §12.5, §12.4.4
+and §10.7. §11.3.7, §12.3.5 and §14.8.2.2 also score, and each is a family in which every row is
+`partial`.
+
+**What the ranking cannot show is how far the duplication goes**, which is the reason to read the
+family rather than the score: §12.8.3's actual finding was a paragraph of 92 words standing
+byte-for-byte identical in **fifteen** rows, `partial` and `reported` alike, ending in two counts
+that had been stale for four rounds. The pairwise comparison saw a fraction of it, because the rows
+it compares are only the `partial` ones.
+
+**Not built as a sweep, deliberately** (ADR 0567 §7): its output is a ranking rather than a hit list,
+no line of it is a defect, and it settles nothing a person does not then have to read. What it
+replaces is choosing by eye, which is what the three rounds before it did.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
