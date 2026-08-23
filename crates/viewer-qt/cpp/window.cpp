@@ -17,7 +17,9 @@
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QFontDatabase>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -696,7 +698,7 @@ void MainWindow::buildFindBar()
         }
         if (host_->chrome().full_screen) {
             Busy guard(busy_);
-            host_->key(static_cast<unsigned int>(Qt::Key_Escape));
+            host_->key(static_cast<unsigned int>(Qt::Key_Escape), false);
             applyUpdates();
             return;
         }
@@ -746,6 +748,30 @@ void MainWindow::pumpPresentation()
     }
 }
 
+// The notices, in a modal window with a read-only `QPlainTextEdit` in it.
+//
+// **Not re-wrapped**, deliberately and for the reason the other two hosts state: a BSD licence's
+// paragraphs and a font list's columns are laid out by the file's own line breaks, and re-flowing
+// text this program is obliged to reproduce would be editing it. Hence `NoWrap` and a fixed font.
+void MainWindow::showNotices()
+{
+    auto* dialog = new QDialog(this);
+    dialog->setWindowTitle(QStringLiteral("Third-party notices"));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->resize(760, 620);
+    auto* view = new QPlainTextEdit(dialog);
+    view->setReadOnly(true);
+    view->setLineWrapMode(QPlainTextEdit::NoWrap);
+    view->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    view->setPlainText(text(host_->notices()));
+    auto* layout = new QVBoxLayout(dialog);
+    layout->addWidget(view);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    dialog->show();
+}
+
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
     if (busy_) {
@@ -753,7 +779,10 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
         return;
     }
     Busy guard(busy_);
-    host_->key(static_cast<unsigned int>(event->key()));
+    // ISO 32000-2 §12.5.1's tab key needs a direction and no other row of `viewer_host::keys`
+    // looks at a modifier, so Shift is the whole of what crosses beside the key (ADR 0526).
+    host_->key(static_cast<unsigned int>(event->key()),
+               (event->modifiers() & Qt::ShiftModifier) != 0);
     applyUpdates();
 }
 
@@ -811,6 +840,17 @@ void MainWindow::applyUpdates()
         // side**, by the function all three hosts share, because that is a reading of the standard
         // rather than a fact about Qt.
         QGuiApplication::clipboard()->setText(text(host_->take_clipboard()));
+    }
+    if (update.find_bar) {
+        // `f` and `/`, which mean the find bar in all three hosts since ADR 0526. The key
+        // reaches Rust and comes back as a flag for `clipboard`'s reason: a `QToolBar` is a Qt
+        // object and Rust never calls one.
+        find_->show();
+        needle_->setFocus();
+        needle_->selectAll();
+    }
+    if (update.notices) {
+        showNotices();
     }
     if (update.password) {
         // Queued rather than called: `QDialog::exec` runs a nested event loop, and starting one

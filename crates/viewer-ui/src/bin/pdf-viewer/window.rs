@@ -1,13 +1,18 @@
-//! winit's side of the program: the window, the event loop's three callbacks, and the key table.
+//! winit's side of the program: the window, the event loop's three callbacks, and the keyboard.
 //!
 //! Everything the toolkit calls is here and nothing else is, which is what makes the rest of this
 //! program readable without knowing winit: an event arrives, is named, and is handed to the
-//! module that owns the answer. The key bindings sit beside it because a binding is only half a
-//! decision until you can see which keys the handler answers before it ever reaches the table.
+//! module that owns the answer.
+//!
+//! **The key *table* is no longer here, and that is the point of ADR 0526.** What this module
+//! holds is the two halves a toolkit genuinely owns — [`press`], which turns a
+//! `winit::keyboard::Key` into the key [`viewer_host::keys`] states a meaning for, and
+//! [`App::pressed`], which decides in what order this window's chrome claims a press before the
+//! page ever sees it. What a press *means* is the same value in all three hosts.
 
 use std::sync::Arc;
 
-use viewer_core::{Command, Edit, Find, FocusMove, PageTarget, PointerAction, Selection, Zoom};
+use viewer_core::{Command, Edit, Find, PointerAction};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -228,11 +233,6 @@ impl ApplicationHandler for App {
         });
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "every window event this host answers, in one match — which is where a reader \
-                  looking for \"what does this program do with a click\" should find them all"
-    )]
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if self.state.is_none() {
             return;
@@ -259,131 +259,7 @@ impl ApplicationHandler for App {
                         ..
                     },
                 ..
-            } => {
-                if matches!(logical_key.as_ref(), Key::Named(NamedKey::Escape)) {
-                    // **A field with the keyboard takes this key first**, which is what ADR 0201
-                    // decided and what this branch quietly defeated: the press exited the program
-                    // before `typed` was ever asked, so the one binding typing changes the meaning
-                    // of was dead code from the round that wrote it. Found by reading the two
-                    // against each other in the three-hundred-and-seventy-first session, because
-                    // no gate in this tree presses a key twice in one window.
-                    if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
-                        return;
-                    }
-                    // **And a full-screen presentation takes it next**, since ADR 0470. No clause
-                    // states how full screen ends — §12.2 states only what is displayed
-                    // afterwards — so this is a documented choice, and it is the one that keeps
-                    // `CLAUDE.md` principle 3's promise: a document that asked for
-                    // `/PageMode /FullScreen` must not be able to keep a reader there.
-                    if self.leave_full_screen() {
-                        return;
-                    }
-                    event_loop.exit();
-                    return;
-                }
-                // **A field being typed into takes every character key**, which is what makes `+`
-                // a plus sign there and a magnification everywhere else — and what this branch
-                // defeated for two of them in exactly the shape Escape's did: an `o` typed into a
-                // field toggled the sidebar and a `?` opened the About card, because both were
-                // answered before `typed` was ever asked. Escape's copy of this defect was found
-                // in the three-hundred-and-seventy-first session and these two survived it to the
-                // three-hundred-and-eighty-eighth, which is the reason `keys_reach_the_field`
-                // now presses one of them at a field rather than trusting the order.
-                if self.typing.is_some() && self.typed(&logical_key.as_ref()) {
-                    return;
-                }
-                // **The find bar takes every key while it is open**, for the reason the field
-                // above does and in the same place: a `/` typed into a search string is a
-                // slash, and answering `o`, `p` or `c` first would be the defect ADR 0201 found
-                // twice already. Opening it is a key this host answers itself — whether a bar is
-                // on the screen is chrome, and `viewer-core` has no opinion about chrome (rule 5).
-                if self.find.shown && self.find_key(&logical_key.as_ref()) {
-                    return;
-                }
-                if matches!(logical_key.as_ref(), Key::Character("/")) {
-                    let shown = self.find.toggle();
-                    if !shown {
-                        self.pages_left = 0;
-                        self.dispatch(Command::Find(Find::Stop));
-                    }
-                    self.redraw();
-                    return;
-                }
-                // The two keys this program answers itself rather than by sending a command:
-                // whether a panel is shown is chrome, and `viewer-core` has no opinion about
-                // chrome by construction (rule 5).
-                if matches!(logical_key.as_ref(), Key::Character("o")) {
-                    self.panel.toggle();
-                    self.resize_page();
-                    return;
-                }
-                if matches!(logical_key.as_ref(), Key::Character("?")) {
-                    self.about.toggle();
-                    self.redraw();
-                    return;
-                }
-                // §12.4.4's presentation, and the third key this program answers itself: whether
-                // a clock is running is a fact about this host and not about the document
-                // (ADR 0135), so there is no command for it.
-                if matches!(logical_key.as_ref(), Key::Character("p")) {
-                    self.present_or_stop();
-                    return;
-                }
-                // §14.8.2.5, and the fifth key this program answers itself: what a copy *is* —
-                // a clipboard — belongs to the platform, so `viewer-core` has no command for it
-                // and only the two orders to answer with. Ctrl and no Ctrl reach the same arm,
-                // because a field being typed into took this key above (`clipped`) and what is
-                // left is a page, where the modifier changes nothing.
-                if matches!(logical_key.as_ref(), Key::Character("c")) {
-                    self.copy_selection();
-                    return;
-                }
-                // §12.5.6.6, and the sixth: whether the next drag draws a text box is a mode this
-                // host is in, and `viewer-core` has no opinion about chrome by construction
-                // (rule 5). The command goes out on the *release*, with both corners.
-                if matches!(logical_key.as_ref(), Key::Character("f")) {
-                    self.drawing = if self.drawing.is_some() {
-                        println!("note: not drawing a free text annotation after all");
-                        None
-                    } else {
-                        println!(
-                            "note: drag out a rectangle for a free text annotation (§12.5.6.6)"
-                        );
-                        Some(Drawing::Armed)
-                    };
-                    return;
-                }
-                // Table 29's six arrangements, and the seventh key this program answers itself:
-                // §7.7.2 states the layout a document *opens* in, so which of the six a reader
-                // has moved on to is a fact about this window and the command to send depends on
-                // which one is in force. The other two hosts bind the same letter (ADR 0442).
-                if matches!(logical_key.as_ref(), Key::Character("l")) {
-                    self.cycle_layout();
-                    return;
-                }
-                // Everything else goes to the page, and the About card is over it: a key press
-                // that turned a page nobody can see would be answering the wrong question.
-                if self.about.shown {
-                    return;
-                }
-                let Some(command) = key_command(&logical_key.as_ref(), self.shift) else {
-                    return;
-                };
-                // §12.5.6.10's markups are defined over selected text, so a press with nothing
-                // selected asks for an annotation over nothing. `viewer-core` answers by doing
-                // nothing, which is right and silent — and a person who pressed a key and saw no
-                // change has been told nothing at all (trap 5). The host has the selection
-                // already, because it draws it.
-                if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
-                    println!("note: select some text first — §12.5.6.10's markups mark up text");
-                    return;
-                }
-                let walked = matches!(command, Command::Focused(_));
-                self.dispatch(command);
-                if walked {
-                    self.aim_at_focus();
-                }
-            }
+            } => self.pressed(&logical_key.as_ref()),
 
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = (position.x, position.y);
@@ -474,61 +350,285 @@ impl ApplicationHandler for App {
     }
 }
 
-/// What a key press asks for, where it asks for anything.
-///
-/// One place rather than an arm apiece inside the event handler, because this is the whole of
-/// this program's key bindings and a reader looking for them should find them together.
-fn key_command(key: &Key<&str>, shift: bool) -> Option<Command> {
-    Some(match *key {
-        // §12.5.1 names this key: "[i]nteractive PDF processors may permit the user to navigate
-        // through the annotations on a page by using the keyboard (in particular, the tab key)".
-        // The *order* is the document's, in `pdf_model::tab_order`; shift is the only thing that
-        // separates the two directions, because winit reports one key for both.
-        Key::Named(NamedKey::Tab) => Command::Focused(if shift {
-            FocusMove::Previous
-        } else {
-            FocusMove::Next
-        }),
-        Key::Named(NamedKey::ArrowRight | NamedKey::PageDown | NamedKey::Space) => {
-            Command::GoTo(PageTarget::Next)
+impl App {
+    /// A key press that reached the window, in the order the chrome over the page claims it.
+    ///
+    /// **The ordering is this host's and the meaning is not** (ADR 0526). Which widget has the
+    /// keyboard is a fact about a window that no shared value can know, so the three claims below
+    /// are decided here; what a press means once it has got past them is
+    /// [`viewer_host::keys::meaning`], which the other two hosts ask the same question of.
+    fn pressed(&mut self, key: &Key<&str>) {
+        // **A field being typed into takes every key, Escape included**, which is what ADR 0201
+        // decided and what an earlier version of this handler quietly defeated three times: Escape
+        // exited the program, `o` toggled the sidebar and `?` opened the notices card before
+        // `typed` was ever asked. `keys_reach_the_field` presses one of them at a field rather
+        // than trusting the order.
+        if self.typing.is_some() && self.typed(key) {
+            return;
         }
-        Key::Named(NamedKey::ArrowLeft | NamedKey::PageUp) => Command::GoTo(PageTarget::Previous),
-        Key::Named(NamedKey::Home) => Command::GoTo(PageTarget::First),
-        Key::Named(NamedKey::End) => Command::GoTo(PageTarget::Last),
-        // No anchor: a keyboard names no point, so the core holds the viewport's centre.
-        Key::Character("+" | "=") => Command::Zoom {
-            zoom: Zoom::In,
-            at: None,
-        },
-        Key::Character("-") => Command::Zoom {
-            zoom: Zoom::Out,
-            at: None,
-        },
-        Key::Character("0") => Command::Zoom {
-            zoom: Zoom::FitPage,
-            at: None,
-        },
-        Key::Character("a") => Command::Select(Selection::All),
-        Key::Character("s") => Command::Save,
-        // §12.5.6.10 over what is selected. Four subtypes and one key apiece would be four
-        // bindings a person has to learn; this host offers the one a person means by "mark
-        // this" and leaves the other three to a host with a menu. The colour is this host's
-        // choice — the standard states none, Table 166's `/C` simply carries what a processor
-        // was told — and a soft yellow is what a highlighter is.
-        Key::Character("h") => Command::Edit(Edit::Markup {
-            kind: pdf_model::view::Markup::Highlight,
-            colour: [1.0, 0.9, 0.2],
-        }),
-        // The same mark struck through rather than washed over, because a person marking up a
-        // draft means both and the two are one construction in `pdf-model`.
-        Key::Character("k") => Command::Edit(Edit::Markup {
-            kind: pdf_model::view::Markup::StrikeOut,
-            colour: [0.85, 0.15, 0.15],
-        }),
-        // A page taller than the window: the scroll is in device pixels, so this is about a
-        // fifteenth of a fitted A4 page and the same on any display.
-        Key::Named(NamedKey::ArrowDown) => Command::Scroll { dx: 0.0, dy: 60.0 },
-        Key::Named(NamedKey::ArrowUp) => Command::Scroll { dx: 0.0, dy: -60.0 },
+        // **The find bar takes every key while it is open**, for the same reason and in the same
+        // place: a `/` typed into a search string is a slash. Whether a bar is on the screen is
+        // chrome, and `viewer-core` has no opinion about chrome by construction (rule 5).
+        if self.find.shown && self.find_key(key) {
+            return;
+        }
+        let stated = press(key);
+        // **And the notices card is modal**, so the only keys that reach the page while it is up
+        // are the two that take it down. A key press that turned a page nobody can see would be
+        // answering the wrong question.
+        if self.about.shown {
+            if matches!(
+                stated,
+                Some(viewer_host::Key::Question | viewer_host::Key::Escape)
+            ) {
+                self.about.toggle();
+                self.redraw();
+            }
+            return;
+        }
+        let Some(stated) = stated else { return };
+        let mode = if self.presenting.full_screen() {
+            viewer_host::Mode::Presenting
+        } else {
+            viewer_host::Mode::Reading
+        };
+        let Some(meaning) = viewer_host::meaning(stated, self.shift, mode) else {
+            return;
+        };
+        match meaning {
+            viewer_host::Meaning::Send(command) => self.send(command),
+            viewer_host::Meaning::Window(act) => self.window_act(act),
+        }
+    }
+
+    /// A message the key table produced whole, on its way to the core.
+    ///
+    /// One thing happens between the table and [`App::dispatch`] and it is trap 5's: §12.5.6.10's
+    /// markups are defined over selected text, so a press with nothing selected asks for an
+    /// annotation over nothing. The core answers by doing nothing, which is right and silent — and
+    /// a person who pressed a key and saw no change has been told nothing at all. The host has the
+    /// selection already, because it draws it.
+    fn send(&mut self, command: Command) {
+        if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
+            println!("note: select some text first — §12.5.6.10's markups mark up text");
+            return;
+        }
+        let walked = matches!(command, Command::Focused(_));
+        self.dispatch(command);
+        if walked {
+            self.aim_at_focus();
+        }
+    }
+
+    /// The half of the key table that is this window's rather than the document's.
+    ///
+    /// Matched exhaustively and with no catch-all arm, which is `doc/ui-boundary.md`'s rule
+    /// applied one layer out: a binding added to [`viewer_host::keys`] has to fail to compile in
+    /// all three hosts, or the level-hosts decision is a sentence with no instrument again.
+    fn window_act(&mut self, act: viewer_host::WindowAct) {
+        match act {
+            // Logical pixels out of the table and device pixels into the command, which is the
+            // whole reason the table states a scroll rather than building the message itself.
+            viewer_host::WindowAct::ScrollBy(by) => self.dispatch(Command::Scroll {
+                dx: 0.0,
+                dy: by * self.scale(),
+            }),
+            viewer_host::WindowAct::Copy => self.copy_selection(),
+            // Only ever *opens*. While the bar is shown it has the keyboard, so neither `f` nor
+            // `/` reaches the table at all (see [`App::pressed`]), and Escape inside the bar is
+            // what closes it and sends `Find::Stop`.
+            viewer_host::WindowAct::Find => {
+                if !self.find.shown {
+                    self.find.toggle();
+                    self.redraw();
+                }
+            }
+            viewer_host::WindowAct::Panel => {
+                self.panel.toggle();
+                self.resize_page();
+            }
+            viewer_host::WindowAct::Notices => {
+                self.about.toggle();
+                self.redraw();
+            }
+            viewer_host::WindowAct::Present => self.present_or_stop(),
+            viewer_host::WindowAct::LeaveFullScreen => {
+                self.leave_full_screen();
+            }
+            viewer_host::WindowAct::NextLayout => self.cycle_layout(),
+            // **The one binding this host answers by saying why it has nothing to do**, and it is
+            // a fact about the tier rather than a gap. `viewer_host::ControlFit` compares a
+            // *toolkit's* minimum size against the `/Rect` the document states, and this host
+            // sends no `Command::Delegate` and places no toolkit control: what it draws is the
+            // widget's own appearance stream, which is inside that rectangle by construction. So
+            // the answer is the same one the native hosts give for a page whose controls all fit.
+            viewer_host::WindowAct::FitControls => println!(
+                "note: every §12.7 control on this page already fits its /Rect — this host draws \
+                 the widget's own appearance rather than placing a toolkit control, so there is \
+                 no minimum size to magnify for"
+            ),
+            // §12.5.6.6: whether the next drag draws a text box is a mode this host is in, and
+            // `viewer-core` has no opinion about chrome by construction (rule 5). The command
+            // goes out on the *release*, with both corners.
+            viewer_host::WindowAct::FreeText => {
+                self.drawing = if self.drawing.is_some() {
+                    println!("note: not drawing a free text annotation after all");
+                    None
+                } else {
+                    println!("note: drag out a rectangle for a free text annotation (§12.5.6.6)");
+                    Some(Drawing::Armed)
+                };
+            }
+        }
+    }
+
+    /// This window's display scale, or one where there is no window yet.
+    fn scale(&self) -> f32 {
+        self.state.as_ref().map_or(1.0, |state| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a display's scale factor is a small ratio"
+            )]
+            let scale = state.window.scale_factor() as f32;
+            scale
+        })
+    }
+}
+
+/// winit's key as the one [`viewer_host::keys`] states a meaning for, or nothing.
+///
+/// **This is the whole of what this host contributes to its key bindings**, which is the point of
+/// ADR 0526: `winit::keyboard::Key` against `gdk::Key` against `Qt::Key` is what a toolkit is, and
+/// what a press *means* is not. A letter arrives folded to lower case because none of the letters
+/// the table binds means a second thing when shifted, and winit reports the shifted character.
+fn press(key: &Key<&str>) -> Option<viewer_host::Key> {
+    use viewer_host::Key as Stated;
+    Some(match *key {
+        Key::Named(NamedKey::Escape) => Stated::Escape,
+        Key::Named(NamedKey::Tab) => Stated::Tab,
+        Key::Named(NamedKey::Space) => Stated::Space,
+        Key::Named(NamedKey::Home) => Stated::Home,
+        Key::Named(NamedKey::End) => Stated::End,
+        Key::Named(NamedKey::ArrowLeft) => Stated::Left,
+        Key::Named(NamedKey::ArrowRight) => Stated::Right,
+        Key::Named(NamedKey::ArrowUp) => Stated::Up,
+        Key::Named(NamedKey::ArrowDown) => Stated::Down,
+        Key::Named(NamedKey::PageUp) => Stated::PageUp,
+        Key::Named(NamedKey::PageDown) => Stated::PageDown,
+        Key::Character(text) => return character(text),
         _ => return None,
     })
+}
+
+/// The character keys, from whatever a layout produced.
+///
+/// Separate from [`press`] because winit reports these as text rather than as names, so the match
+/// is on a string and the fold to lower case has to happen somewhere.
+fn character(text: &str) -> Option<viewer_host::Key> {
+    use viewer_host::Key as Stated;
+    let mut characters = text.chars();
+    let (first, rest) = (characters.next()?, characters.next());
+    if rest.is_some() {
+        // A dead key's composition or an input method's phrase. Nothing this table binds is more
+        // than one character, and a page turn on the first letter of somebody's word would be a
+        // key press this program invented.
+        return None;
+    }
+    Some(match first.to_ascii_lowercase() {
+        'a' => Stated::A,
+        'c' => Stated::C,
+        'f' => Stated::F,
+        'h' => Stated::H,
+        'k' => Stated::K,
+        'l' => Stated::L,
+        'o' => Stated::O,
+        'p' => Stated::P,
+        's' => Stated::S,
+        't' => Stated::T,
+        'w' => Stated::W,
+        'y' => Stated::Y,
+        'z' => Stated::Z,
+        '0' => Stated::Zero,
+        '+' => Stated::Plus,
+        '-' => Stated::Minus,
+        '=' => Stated::Equals,
+        '/' => Stated::Slash,
+        '?' => Stated::Question,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::press;
+    use winit::keyboard::{Key, NamedKey};
+
+    /// Every key the shared table states has a `winit` key in this host.
+    ///
+    /// **This is the instrument the level-hosts decision never had** (ADR 0526). The match below
+    /// is exhaustive over [`viewer_host::Key`], so a binding added to `viewer-host` fails to
+    /// compile here until this host says which key produces it; and the assertion then checks that
+    /// the *runtime* translation agrees, so a key named here and forgotten in [`press`] fails
+    /// rather than drifting. `viewer-gtk` and `viewer-qt` carry the same test against their own
+    /// toolkits.
+    #[test]
+    fn every_key_the_table_states_has_one_in_this_toolkit() {
+        use viewer_host::Key as Stated;
+        for stated in Stated::ALL {
+            let key: Key<&str> = match stated {
+                Stated::A => Key::Character("a"),
+                Stated::C => Key::Character("c"),
+                Stated::F => Key::Character("f"),
+                Stated::H => Key::Character("h"),
+                Stated::K => Key::Character("k"),
+                Stated::L => Key::Character("l"),
+                Stated::O => Key::Character("o"),
+                Stated::P => Key::Character("p"),
+                Stated::S => Key::Character("s"),
+                Stated::T => Key::Character("t"),
+                Stated::W => Key::Character("w"),
+                Stated::Y => Key::Character("y"),
+                Stated::Z => Key::Character("z"),
+                Stated::Zero => Key::Character("0"),
+                Stated::Plus => Key::Character("+"),
+                Stated::Minus => Key::Character("-"),
+                Stated::Equals => Key::Character("="),
+                Stated::Slash => Key::Character("/"),
+                Stated::Question => Key::Character("?"),
+                Stated::Escape => Key::Named(NamedKey::Escape),
+                Stated::Tab => Key::Named(NamedKey::Tab),
+                Stated::Space => Key::Named(NamedKey::Space),
+                Stated::Home => Key::Named(NamedKey::Home),
+                Stated::End => Key::Named(NamedKey::End),
+                Stated::Left => Key::Named(NamedKey::ArrowLeft),
+                Stated::Right => Key::Named(NamedKey::ArrowRight),
+                Stated::Up => Key::Named(NamedKey::ArrowUp),
+                Stated::Down => Key::Named(NamedKey::ArrowDown),
+                Stated::PageUp => Key::Named(NamedKey::PageUp),
+                Stated::PageDown => Key::Named(NamedKey::PageDown),
+            };
+            assert_eq!(
+                press(&key),
+                Some(*stated),
+                "{stated:?} is stated by the table and this host does not produce it"
+            );
+        }
+    }
+
+    /// A shifted letter is the same key, because none of them means a second thing shifted.
+    #[test]
+    fn a_capital_letter_is_the_same_key_as_its_lower_case() {
+        assert_eq!(
+            press(&Key::Character("A")),
+            press(&Key::Character("a")),
+            "winit reports the shifted character and the table binds the letter"
+        );
+    }
+
+    /// An input method's phrase is not a key press this program invents a meaning for.
+    #[test]
+    fn a_composed_phrase_turns_no_page() {
+        assert_eq!(press(&Key::Character("ss")), None);
+        assert_eq!(press(&Key::Character("")), None);
+    }
 }

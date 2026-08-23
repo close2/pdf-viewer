@@ -29,7 +29,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, PresentationMode, Query, Rendered, Selection, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Query, Rendered, Viewer, Zoom,
 };
 
 use crate::controls::{FieldChange, Placed};
@@ -136,6 +136,17 @@ struct Ui {
 }
 
 /// One document, one window, and the loop between them.
+///
+/// `struct_excessive_bools` is asking for a state machine, and there is no state here to make one
+/// of: each flag is an independent fact about a *different* clause's window — whether the document
+/// is open, whether it is unsaved, whether the first frame has been reported, whether the reader
+/// asked for Table 29's panel. Packing four unrelated sentences into one enumeration would make a
+/// state out of their product, which is fifteen states nobody wrote down. The same argument
+/// `viewer_host::Chrome` is written under.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts about one window, each read in one place and none a state"
+)]
 pub struct Host {
     /// The state machine every host on this boundary drives.
     viewer: Viewer,
@@ -199,6 +210,14 @@ pub struct Host {
     /// magnified a page by itself because a form is on it would be answering a question nobody
     /// asked — which gesture asks for it is chrome, and chrome is a host's (rule 5).
     fit_magnification: Option<f32>,
+    /// Whether the reader wants the panel of three trees on the screen.
+    ///
+    /// **A wish, beside Table 29's *permission***. `Presenting::chrome`'s `other_windows` says
+    /// whether the clause allows a panel at all and this says whether the person asked for one;
+    /// `apply_chrome` shows it only where both are true, so leaving full screen puts back what the
+    /// reader had rather than what the document last permitted. `o` is the key, in all three hosts
+    /// since ADR 0526.
+    panel_wanted: bool,
     /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
     ///
     /// **The window §12.4.4's presentation had never had** (ADR 0470). Which sentence this window
@@ -331,6 +350,8 @@ impl Host {
                 pages_left: 0,
                 widget_appearances,
                 fit_magnification: None,
+                // The panel is what this window opens with, and `o` is what takes it away.
+                panel_wanted: true,
                 // Table 147's and Table 29's own defaults, replaced by what the catalog states
                 // the moment the document opens.
                 presenting: viewer_host::Presenting::default(),
@@ -961,6 +982,16 @@ impl Host {
         self.ui.status.set_text(what);
     }
 
+    /// Whether anything on the page is selected.
+    ///
+    /// Asked before §12.5.6.10's markup, which is defined over selected text: the core does
+    /// nothing when there is nothing to mark up, and a person who pressed a key and saw no change
+    /// has been told nothing at all.
+    fn has_selection(&self) -> bool {
+        matches!(self.viewer.query(Query::Selection),
+            Answer::Selected(selection) if !selection.quads.is_empty())
+    }
+
     /// Puts what is selected on the page onto the session's clipboard.
     ///
     /// **The platform end of `doc/todo/30`'s first item, and it is one call** (ADR 0519). This
@@ -1143,7 +1174,11 @@ impl Host {
         // window visible" rather than "no other window drawn". A removed child is unambiguous:
         // the end child gets the whole allocation. `Ui::tabs` holds the reference across the
         // unparenting, so the three trees inside it are still there when it goes back.
-        if chrome.other_windows {
+        //
+        // **Two conditions rather than one since ADR 0526**: the clause's permission, and the
+        // reader's own wish. `o` moves the second, and composing them here is what makes leaving
+        // full screen put back what the *reader* had.
+        if chrome.other_windows && self.panel_wanted {
             if self.ui.split.start_child().is_none() {
                 self.ui.split.set_start_child(Some(&self.ui.tabs));
                 self.ui.split.set_position(PANEL_WIDTH);
@@ -1422,24 +1457,91 @@ impl Host {
         }
     }
 
-    /// What a key press means.
-    fn key(&mut self, key: gtk4::gdk::Key) {
-        match key {
-            gtk4::gdk::Key::Right | gtk4::gdk::Key::Down | gtk4::gdk::Key::Page_Down => {
-                self.dispatch(Command::GoTo(PageTarget::Next));
+    /// What a key press means, which is [`viewer_host::keys`]'s answer and not this host's.
+    ///
+    /// **Only the translation is GTK's** (ADR 0526). This host used to carry a table of its own
+    /// and it disagreed with the other two about the arrow keys, about `f` and about Escape; what
+    /// is left here is [`key_pressed`] turning a `gdk::Key` into a [`viewer_host::Key`] and
+    /// [`Host::window_act`] doing the half of the table that is a widget's rather than a message.
+    fn key(&mut self, key: gtk4::gdk::Key, shift: bool) {
+        let Some(stated) = key_pressed(key) else {
+            return;
+        };
+        let mode = if self.presenting.full_screen() {
+            viewer_host::Mode::Presenting
+        } else {
+            viewer_host::Mode::Reading
+        };
+        let Some(meaning) = viewer_host::meaning(stated, shift, mode) else {
+            return;
+        };
+        match meaning {
+            viewer_host::Meaning::Send(command) => {
+                // §12.5.6.10's markups are defined over selected text, so a press with nothing
+                // selected asks for an annotation over nothing. The core answers by doing
+                // nothing, which is right and silent — and trap 5 is that a person who pressed a
+                // key and saw no change has been told nothing at all.
+                if matches!(command, Command::Edit(Edit::Markup { .. })) && !self.has_selection() {
+                    self.say("select some text first — §12.5.6.10's markups mark up text");
+                    return;
+                }
+                self.dispatch(command);
             }
-            gtk4::gdk::Key::Left | gtk4::gdk::Key::Up | gtk4::gdk::Key::Page_Up => {
-                self.dispatch(Command::GoTo(PageTarget::Previous));
+            viewer_host::Meaning::Window(act) => self.window_act(act),
+        }
+    }
+
+    /// The half of the key table that is a widget's rather than a message.
+    ///
+    /// Matched exhaustively and with no catch-all arm, which is `doc/ui-boundary.md`'s rule
+    /// applied one layer out: a binding added to [`viewer_host::keys`] fails to compile in all
+    /// three hosts, so "the hosts stay level" is checked rather than agreed to.
+    fn window_act(&mut self, act: viewer_host::WindowAct) {
+        match act {
+            // GTK draws in logical pixels and `Command::Scroll` speaks device ones, which is why
+            // the table states a distance and not the message: the same conversion `scrolled`
+            // does for a wheel notch.
+            viewer_host::WindowAct::ScrollBy(by) => {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "a step in logical pixels times a display scale, which is tens"
+                )]
+                let dy = (f64::from(by) * f64::from(self.scale)) as f32;
+                self.dispatch(Command::Scroll { dx: 0.0, dy });
             }
-            gtk4::gdk::Key::Home => self.dispatch(Command::GoTo(PageTarget::First)),
-            gtk4::gdk::Key::End => self.dispatch(Command::GoTo(PageTarget::Last)),
-            gtk4::gdk::Key::plus | gtk4::gdk::Key::equal => self.dispatch(Command::Zoom {
-                zoom: Zoom::In,
-                at: None,
-            }),
+            // §14.8.2.5 leaving the program, which needed no message at all (ADR 0519). A `c`
+            // reaching here has already passed the find bar, and a `c` typed into a §12.7 control
+            // never reaches a window-level controller because the widget has the focus.
+            viewer_host::WindowAct::Copy => self.copy_selection(),
+            // The find bar is revealed by a key this host binds rather than by
+            // `gtk_search_bar_set_key_capture_widget`, which forwards *every* letter to the entry
+            // and would take `a`, `s`, `z` and `y` away from the rest of the table.
+            viewer_host::WindowAct::Find => self.ui.find.set_search_mode(true),
+            // Table 29's "any other window visible" is a *permission*, and this is the reader's
+            // wish beside it: the panel is on the screen when the clause allows one and the
+            // person asked for one. `apply_chrome` composes the two.
+            viewer_host::WindowAct::Panel => {
+                self.panel_wanted = !self.panel_wanted;
+                self.apply_chrome();
+            }
+            viewer_host::WindowAct::Notices => self.show_notices(),
+            viewer_host::WindowAct::Present | viewer_host::WindowAct::LeaveFullScreen => {
+                self.present_or_stop();
+            }
+            // Table 29's six arrangements, in the order that table states them. A key rather
+            // than a menu because this host has no menu bar; what matters for `doc/todo/30` is
+            // that the *message* is exercised by a person driving a real window.
+            viewer_host::WindowAct::NextLayout => {
+                self.layout = next_layout(self.layout);
+                self.dispatch(Command::Layout(self.layout));
+                self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
+                // A new arrangement is a new set of pages on the screen, and therefore a new set
+                // of things they could not draw.
+                self.restate();
+            }
             // ADR 0245's third decision, made with the messages that already exist: magnify until
             // every platform control fits the `/Rect` the document states for it.
-            gtk4::gdk::Key::w => match self.fit_magnification {
+            viewer_host::WindowAct::FitControls => match self.fit_magnification {
                 Some(wanted) => {
                     self.say(&format!("fitting §12.7's controls at {wanted:.3}"));
                     self.dispatch(Command::Zoom {
@@ -1449,55 +1551,50 @@ impl Host {
                 }
                 None => self.say("every control on this page already fits its /Rect"),
             },
-            gtk4::gdk::Key::minus => self.dispatch(Command::Zoom {
-                zoom: Zoom::Out,
-                at: None,
-            }),
-            gtk4::gdk::Key::_0 => self.dispatch(Command::Zoom {
-                zoom: Zoom::FitPage,
-                at: None,
-            }),
-            // The find bar is revealed by a key this host binds rather than by
-            // `gtk_search_bar_set_key_capture_widget`, which forwards *every* letter to the entry
-            // and would take `a`, `s`, `z` and `y` away from the bindings below.
-            gtk4::gdk::Key::f | gtk4::gdk::Key::slash => self.ui.find.set_search_mode(true),
-            gtk4::gdk::Key::a => self.dispatch(Command::Select(Selection::All)),
-            // §12.4.4's presentation, which for this program is the full-screen window: the same
-            // letter the other two hosts bind (ADR 0470).
-            gtk4::gdk::Key::p => self.present_or_stop(),
-            // **Escape leaves full screen before it clears the selection**, which is a documented
-            // choice: no clause states how full screen ends, and a reader who cannot get their
-            // chrome back has had a restriction imposed on them by somebody else's file.
-            gtk4::gdk::Key::Escape => {
-                if self.presenting.full_screen() {
-                    self.present_or_stop();
-                } else {
-                    self.dispatch(Command::Select(Selection::None));
-                }
-            }
-            // §14.8.2.5 leaving the program, which needed no message at all (ADR 0519): the two
-            // questions that answer with the text have existed since the three-hundred-and-
-            // eighty-eighth session and this host asked neither. `viewer-ui` binds the same
-            // letter with and without Control, and so does this one — a `c` reaching here has
-            // already passed the find bar, and a `c` typed into a §12.7 control never reaches a
-            // window-level controller because the widget has the focus.
-            gtk4::gdk::Key::c => self.copy_selection(),
-            gtk4::gdk::Key::s => self.dispatch(Command::Save),
-            gtk4::gdk::Key::z => self.dispatch(Command::Undo),
-            gtk4::gdk::Key::y => self.dispatch(Command::Redo),
-            // Table 29's six arrangements, in the order that table states them. A key rather
-            // than a menu because this host has no menu bar; what matters for `doc/todo/30` is
-            // that the *message* is exercised by a person driving a real window.
-            gtk4::gdk::Key::l => {
-                self.layout = next_layout(self.layout);
-                self.dispatch(Command::Layout(self.layout));
-                self.say(&format!("page layout: {:?} (§7.7.2)", self.layout));
-                // A new arrangement is a new set of pages on the screen, and therefore a new set
-                // of things they could not draw.
-                self.restate();
-            }
-            _ => {}
+            // **Refused by name rather than ignored**, which is trap 5 and is the honest answer
+            // here: §12.5.6.6's annotation is authored by dragging a rectangle and then typing
+            // into it, and this host has neither the drag mode nor the editor. `doc/todo/30`
+            // carries it as the remaining asymmetry rather than leaving it silent.
+            viewer_host::WindowAct::FreeText => self.say(
+                "this host cannot draw a §12.5.6.6 free text annotation yet — the drag mode and \
+                 its editor are viewer-ui's alone (doc/todo/30)",
+            ),
         }
+    }
+
+    /// The third-party notices this binary is obliged to carry, in a window of their own.
+    ///
+    /// **A licence obligation with a surface, and this host had neither half of it until the
+    /// six-hundred-and-eighty-seventh session**: `pdf-font` compiles the standard 14 font programs
+    /// into every binary in this tree, both of their licences require a binary distribution to
+    /// reproduce their notices, and `pdf-viewer-gtk` reproduced them nowhere at all. The text is
+    /// [`viewer_host::NOTICE`], shared with the other two hosts because a notice that differs
+    /// between two binaries of one program is two claims about one obligation.
+    ///
+    /// Set in a monospace font and **not re-wrapped**: a BSD licence's paragraphs and a font
+    /// list's columns are laid out by the file's own line breaks, and re-flowing text this program
+    /// is obliged to reproduce would be editing it.
+    fn show_notices(&self) {
+        let text = gtk4::TextView::new();
+        text.set_editable(false);
+        text.set_cursor_visible(false);
+        text.set_monospace(true);
+        text.set_left_margin(12);
+        text.set_right_margin(12);
+        text.set_top_margin(12);
+        text.set_bottom_margin(12);
+        text.buffer().set_text(viewer_host::NOTICE);
+        let scroller = gtk4::ScrolledWindow::new();
+        scroller.set_child(Some(&text));
+        let window = gtk4::Window::builder()
+            .title("Third-party notices")
+            .transient_for(&self.ui.window)
+            .modal(true)
+            .default_width(760)
+            .default_height(620)
+            .child(&scroller)
+            .build();
+        window.present();
     }
 
     /// One notch of the wheel, in whichever direction it turned.
@@ -1917,8 +2014,11 @@ fn listen(
 
     let keys = gtk4::EventControllerKey::new();
     let listener = me.clone();
-    keys.connect_key_pressed(move |_, key, _, _| {
-        with(&listener, |host| host.key(key));
+    // The modifier state is read because §12.5.1's tab key needs a direction and Shift is the
+    // only thing that separates the two; no other row of `viewer_host::keys` looks at it.
+    keys.connect_key_pressed(move |_, key, _, held| {
+        let shift = held.contains(gtk4::gdk::ModifierType::SHIFT_MASK);
+        with(&listener, |host| host.key(key, shift));
         glib::Propagation::Proceed
     });
     window.add_controller(keys);
@@ -2109,4 +2209,125 @@ fn trace_quad(cr: &gtk4::cairo::Context, quad: [f32; 8], scale: f64) {
     cr.line_to(f64::from(quad[4]) / scale, f64::from(quad[5]) / scale);
     cr.line_to(f64::from(quad[6]) / scale, f64::from(quad[7]) / scale);
     cr.close_path();
+}
+
+/// GDK's key as the one [`viewer_host::keys`] states a meaning for, or nothing.
+///
+/// **This is the whole of what this host contributes to its key bindings** (ADR 0526).
+/// `gdk::Key` against `Qt::Key` against `winit::keyboard::Key` is what a toolkit is, and what a
+/// press *means* is this project's reading of §12.5.1 and §12.4.4.2 plus a page of choices — which
+/// is why the table is in `viewer-host` and this function is here.
+///
+/// A letter arrives in both cases because GDK reports the shifted one and none of the letters the
+/// table binds means a second thing when shifted.
+fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
+    use gtk4::gdk::Key as Gdk;
+    use viewer_host::Key as Stated;
+    Some(match key {
+        Gdk::a | Gdk::A => Stated::A,
+        Gdk::c | Gdk::C => Stated::C,
+        Gdk::f | Gdk::F => Stated::F,
+        Gdk::h | Gdk::H => Stated::H,
+        Gdk::k | Gdk::K => Stated::K,
+        Gdk::l | Gdk::L => Stated::L,
+        Gdk::o | Gdk::O => Stated::O,
+        Gdk::p | Gdk::P => Stated::P,
+        Gdk::s | Gdk::S => Stated::S,
+        Gdk::t | Gdk::T => Stated::T,
+        Gdk::w | Gdk::W => Stated::W,
+        Gdk::y | Gdk::Y => Stated::Y,
+        Gdk::z | Gdk::Z => Stated::Z,
+        Gdk::_0 => Stated::Zero,
+        Gdk::plus => Stated::Plus,
+        Gdk::minus => Stated::Minus,
+        Gdk::equal => Stated::Equals,
+        Gdk::slash => Stated::Slash,
+        Gdk::question => Stated::Question,
+        Gdk::Escape => Stated::Escape,
+        Gdk::Tab | Gdk::ISO_Left_Tab => Stated::Tab,
+        Gdk::space => Stated::Space,
+        Gdk::Home => Stated::Home,
+        Gdk::End => Stated::End,
+        Gdk::Left => Stated::Left,
+        Gdk::Right => Stated::Right,
+        Gdk::Up => Stated::Up,
+        Gdk::Down => Stated::Down,
+        Gdk::Page_Up => Stated::PageUp,
+        Gdk::Page_Down => Stated::PageDown,
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key_pressed;
+    use gtk4::gdk::Key as Gdk;
+
+    /// Every key the shared table states has a `gdk::Key` in this host.
+    ///
+    /// **This is the instrument the level-hosts decision never had** (ADR 0526). The match is
+    /// exhaustive over [`viewer_host::Key`], so a binding added to `viewer-host` fails to compile
+    /// here until this host says which key produces it, and the assertion then checks that the
+    /// *runtime* translation agrees — a key named here and forgotten in [`key_pressed`] fails
+    /// rather than drifting. `viewer-ui` and `viewer-qt` carry the same test against their own
+    /// toolkits.
+    ///
+    /// It needs no display: a `gdk::Key` is a wrapped keyval and nothing here calls into GTK.
+    #[test]
+    fn every_key_the_table_states_has_one_in_this_toolkit() {
+        use viewer_host::Key as Stated;
+        for stated in Stated::ALL {
+            let key = match stated {
+                Stated::A => Gdk::a,
+                Stated::C => Gdk::c,
+                Stated::F => Gdk::f,
+                Stated::H => Gdk::h,
+                Stated::K => Gdk::k,
+                Stated::L => Gdk::l,
+                Stated::O => Gdk::o,
+                Stated::P => Gdk::p,
+                Stated::S => Gdk::s,
+                Stated::T => Gdk::t,
+                Stated::W => Gdk::w,
+                Stated::Y => Gdk::y,
+                Stated::Z => Gdk::z,
+                Stated::Zero => Gdk::_0,
+                Stated::Plus => Gdk::plus,
+                Stated::Minus => Gdk::minus,
+                Stated::Equals => Gdk::equal,
+                Stated::Slash => Gdk::slash,
+                Stated::Question => Gdk::question,
+                Stated::Escape => Gdk::Escape,
+                Stated::Tab => Gdk::Tab,
+                Stated::Space => Gdk::space,
+                Stated::Home => Gdk::Home,
+                Stated::End => Gdk::End,
+                Stated::Left => Gdk::Left,
+                Stated::Right => Gdk::Right,
+                Stated::Up => Gdk::Up,
+                Stated::Down => Gdk::Down,
+                Stated::PageUp => Gdk::Page_Up,
+                Stated::PageDown => Gdk::Page_Down,
+            };
+            assert_eq!(
+                key_pressed(key),
+                Some(*stated),
+                "{stated:?} is stated by the table and this host does not produce it"
+            );
+        }
+    }
+
+    /// A capital letter is the same key, because GDK reports the shifted keyval.
+    #[test]
+    fn a_capital_letter_is_the_same_key_as_its_lower_case() {
+        assert_eq!(key_pressed(Gdk::A), key_pressed(Gdk::a));
+        assert_eq!(key_pressed(Gdk::Z), key_pressed(Gdk::z));
+    }
+
+    /// A key this host does not bind produces nothing rather than a default.
+    #[test]
+    fn an_unbound_key_is_nothing_rather_than_something() {
+        assert_eq!(key_pressed(Gdk::F1), None);
+        assert_eq!(key_pressed(Gdk::b), None);
+    }
 }

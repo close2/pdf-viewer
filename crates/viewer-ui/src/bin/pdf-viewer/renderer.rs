@@ -242,6 +242,19 @@ pub(crate) struct Window {
     thread: Option<Link>,
     /// The newest finished frame, which is what every present draws.
     shown: Option<Shown>,
+    /// The chrome the last accepted job was asked to draw over the page.
+    ///
+    /// **Kept because a frame is the page *and* the chrome, and the tick that decides whether to
+    /// ask for a new one used to compare only the pages** (ADR 0526). The find bar, the panel, the
+    /// notices card, the selection and §12.5.1's ring are all overlays, so a window whose page had
+    /// not changed put up the frame it already had and none of them ever reached the screen. Found
+    /// by pressing `?` under `Xvfb` and getting the flag set, the display list built, and nothing
+    /// on the window.
+    ///
+    /// The clone is priced: `Overlays::owned` already builds these fresh every frame — "tens of
+    /// commands against a page's tens of thousands" — so keeping a second copy of a window's chrome
+    /// costs less than the comparison it enables saves in whole frames.
+    chrome: Vec<DisplayList>,
     /// The whole pages this window is holding a low-resolution picture of.
     ///
     /// **A second copy of what the render thread holds, and it is a copy on purpose.** The thread
@@ -421,6 +434,7 @@ impl Window {
             idle: Some(renderer),
             thread: None,
             shown: None,
+            chrome: Vec::new(),
             proxies: crate::stale::Proxies::new(proxy_pages),
             spare: None,
             in_flight: None,
@@ -559,6 +573,9 @@ impl Window {
             return;
         };
         self.serial = self.serial.saturating_add(1);
+        // Recorded before the move, and only here: every path above this line declines the job, so
+        // a window that remembered chrome it never asked for would stop asking for it.
+        self.chrome.clone_from(&overlays);
         let job = Job {
             width,
             height,
@@ -578,6 +595,15 @@ impl Window {
     /// answer, asked here because the store lives here.
     pub(crate) fn underlay(&self, pages: &[crate::stale::Placed]) -> Vec<(usize, Transform)> {
         self.proxies.placements(pages)
+    }
+
+    /// The chrome the frame on hand was drawn with, or was asked to be drawn with.
+    ///
+    /// What [`crate::surface`] compares against this frame's overlays, for the reason
+    /// [`Self::chrome`] states: a rendering of the same pages with *different* chrome is a
+    /// different picture, and skipping it left the find bar and the notices card unreachable.
+    pub(crate) fn chrome_asked(&self) -> &[DisplayList] {
+        &self.chrome
     }
 
     /// How many whole pages this window is holding a picture of, for the trace.

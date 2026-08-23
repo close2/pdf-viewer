@@ -235,12 +235,18 @@ impl App {
             // the targets by value, because a resize is a different frame at the same transform.
             // The *count* is compared with them: a scroll that brings a further row of a column
             // onto the screen leaves every page already up exactly where it was.
+            // **And the chrome with them, since ADR 0526.** A frame is the pages *and* the
+            // overlays drawn over them, and this test compared only the pages — so a window whose
+            // page had not moved put up the frame it already had, and the find bar, the panel, the
+            // notices card and §12.5.1's ring never reached the screen at all. Compared by value
+            // because that is what a display list is: a few hundred commands against a page's tens
+            // of thousands, and the comparison is what decides whether a whole frame is skipped.
             let of_this_view = window.shown().is_some_and(|shown| {
                 shown.pages.len() == pages.len()
                     && shown.pages.iter().zip(pages).all(|(drawn, asked)| {
                         Arc::ptr_eq(&drawn.list, &asked.list) && drawn.target == asked.target
                     })
-            });
+            }) && window.chrome_asked() == overlays;
             if !of_this_view {
                 window.ask(pages.to_vec(), overlays, coverage, now);
             }
@@ -274,6 +280,15 @@ impl App {
         );
         let stand = match planned {
             crate::stale::Plan::Render => {
+                // **A frame asked for on this tick has to be collected on a later one, and this
+                // is the only branch where nothing else arms the clock for it** (ADR 0526). A
+                // view that has not moved plans no approximation, so `about_to_wait` rests on
+                // `Wait`: the frame carrying the chrome that was just asked for would land in the
+                // channel and stay there. It cannot spin — the tick that collects it finds the
+                // chrome unchanged, asks for nothing, and stops arming.
+                if self.device_window().is_some_and(|window| window.drawing()) {
+                    self.cadence.owed(now);
+                }
                 return self.put_up(Some(Transform::IDENTITY), &[], stages);
             }
             crate::stale::Plan::Approximate(stand) => stand,
