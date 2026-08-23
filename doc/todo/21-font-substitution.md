@@ -127,8 +127,17 @@ resolve `NimbusSans` through `fontconfig`. Drawn straight from the two files, th
 **0.687500 em** against **0.729167 em**, in the regular and the bold alike, and the corpus rasters
 reproduce both exactly — `issue6108.pdf` at 12 pt draws 66 device rows against 70, `issue7580.pdf`
 at 18 pt draws 99 against 105. That is 5.7% shorter capitals and 1.0% to 7.7% of the page's ink on
-the six `CONTRADICTED_SUBSTITUTED_FONT` pages naming a Helvetica or Arial face; the serif faces have
+the `CONTRADICTED_SUBSTITUTED_FONT` pages naming a Helvetica or Arial face; the serif faces have
 no such gap, and the advances have none in either family.
+
+**And the six-hundred-and-eightieth session priced the whole substitution rather than the metric**,
+which is what the gap is worth in the units a verdict is made of: rewriting each of that group's
+eight documents with `gs -sDEVICE=pdfwrite` so that the face the references resolve is *embedded* —
+after which every renderer draws one program — takes **seven of the eight inside every bound they
+were failing**, the references rendering the rewritten file byte-identically to the original on
+seven of the eight. `issue6108.pdf` is the exception, and the face owns 82% of its excess. So this
+section's gap is not a residue beside a larger unknown; on these pages it is the whole of it. ADR
+0510.
 
 **It is left open on purpose** (ADR 0267): §9.5 NOTE 5 puts substitution beyond the standard,
 §9.8.1 says a descriptor's metrics exist so that a processor may synthesise or select a substitute

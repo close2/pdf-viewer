@@ -440,17 +440,23 @@ it does not.
 
 **And the list is ranked, for the first time in four hundred sessions.** `rank_the_contradicted`
 prints the ten pages furthest from their *nearest* reference, the instrument the ambiguous bucket has
-had since the hundred-and-seventy-sixth. In bounds the head is the JBIG2 pages; taken in levels of
-255 by hand it is `bug847420.pdf` at 8.65 from the nearest of four renderers that agree among
-themselves to 4.64, twice as far as anything on the list that is not a link border. That page was
+had since the hundred-and-seventy-sixth. In bounds the head is the JBIG2 pages; **taken in levels of
+255 by hand it was written up as `bug847420.pdf` at 8.65 from the nearest of four renderers that
+agree among themselves to 4.64, twice as far as anything on the list that is not a link border, and
+the six-hundred-and-eightieth session could reproduce none of the three** on rasters that have not
+moved since: 8.65 is our distance from `hayro`, the *furthest* of the four and the one that does not
+vote, where the nearest is `poppler` at 7.44; the four references' six pairwise means run 1.38 to
+3.48; and `issue15716.pdf` sits 13.96 from its nearest in the same unit. The unit is real — that
+hand ranking is the one `rank_the_contradicted`'s own comment describes — and the operands were the
+wrong end of the range (ADR 0510). That page was
 re-derived in the same session and is `CONTRADICTED_SUBSTITUTED_FONT`'s name for once: `/Widths` are
 honoured to **1420 device columns against both references' 1419** at 8×, and what differs is the face,
 3.6% lighter at every scale. §9.5 NOTE 5 is the clause that leaves it open — "some details of font
 naming, font substitution, and glyph selection are implementation-dependent" — and the group had
 argued from it for four hundred sessions without citing it.
 
-**And the group is twelve rather than seventeen since the four-hundred-and-thirty-first session**,
-which measured the five pages nobody had ever opened. `CONTRADICTED_SUBSTITUTED_FONT` admits a page
+**And the four-hundred-and-thirty-first session took five pages off it**, having measured the five
+nobody had ever opened. `CONTRADICTED_SUBSTITUTED_FONT` admits a page
 on what it *carries* — the page names a font nobody embedded — which its own first paragraph calls
 the weakest rule in the file, and six of its seventeen had been re-derived one at a time over four
 hundred sessions while five had come in together and stayed. All five name `/Times-Roman`, and on

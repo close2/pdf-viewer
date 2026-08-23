@@ -1191,6 +1191,77 @@ const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 /// at `y` 20 — **600 pixels at 255 levels, one row**, on clip rectangles and shading matrices
 /// that differ only by an integer translation. Recorded rather than chased, and unreported
 /// upstream.
+///
+/// # Which bound the gate actually fails each page on, and what the press owns of it
+///
+/// Everything above is a measurement of *colour*, in levels of 255, and not one line of it was
+/// ever in the units the verdict is made of — ADR 0497's sixth criterion, *a mechanism explained
+/// is not a number accounted for*. The six-hundred-and-eightieth session put it there (ADR 0510):
+///
+/// ```text
+///   function_based_shading_cmyk.pdf p1   mean, worst tile, differing   bound 1.00 / 5.00 / 1.00%
+///   function_based_shading_cmyk.pdf p2   mean, worst tile, differing   bound 1.00 / 5.00 / 1.00%
+///   postscript_type4_many_outputs.pdf    mean, worst tile, differing   bound 1.00 / 5.00 / 1.56%
+///   transparent.pdf p1                   the differing fraction alone  bound 1.00 / 5.00 / 1.38%
+///   type4psfunc.pdf p1                   worst tile, differing         bound 1.00 / 5.00 / 1.00%
+/// ```
+///
+/// **`transparent.pdf` converts exactly, because it is one flat ink.** The table above samples it
+/// at ours (28, 32, 40) against `ghostscript` (25, 35, 46) — 3, 3 and 6 levels — and
+/// `raster_compare`'s `JUST_NOTICEABLE` is **4**, so exactly one channel of four crosses it and
+/// the differing fraction is the bottle's own area divided by four:
+///
+/// ```text
+///   ours' ink                                      11.4175% of the page
+///   blue alone, as a share of all four channels     2.8750%   = 11.50% of pixels ÷ 4
+///   red and green, at the silhouette's edge only    0.4413%
+///   printed by the gate                             3.3163%   against a bound of 1.38%
+/// ```
+///
+/// **The whole failing measurement is two levels of blue.** At four levels rather than six in
+/// every channel this page would report about 0.44% and agree, which is what §10.3.2's licence
+/// costs a verdict when the ink is dark enough to cross a noise threshold and nothing else is.
+///
+/// # And the press owns all of it on all five, priced by naming a press in the document
+///
+/// §8.6.5.6 lets a *document* say what its `DeviceCMYK` is, and this tree honours it — so the
+/// counterfactual "if our source assumption had been theirs" is a §7.5.6 incremental update adding
+/// a `/DefaultCMYK`, with no line of this tree's code changed. Our ablated render against **the
+/// references' renders of the original file**, worst-ratio member of the consensus pair (`mupdf`
+/// and `ghostscript` on all five):
+///
+/// ```text
+///                                          ours                       with hayro's CGATS press
+///   function_based_shading_cmyk p1   2.70 / 10.68 / 17.25% / .9959    0.48 / 1.74 / 0.19% / .9988
+///   function_based_shading_cmyk p2   5.15 / 19.47 / 29.19% / .9956    0.41 / 3.15 / 0.46% / .9988
+///   postscript_type4_many_outputs    7.30 / 18.04 / 37.25% / .9942    0.39 / 0.74 / 0.85% / .9976
+///   transparent p1                   0.65 /  3.18 /  3.32% / .9952    0.41 / 1.77 / 0.66% / .9953
+///   type4psfunc p1                   0.31 /  6.70 /  1.29% / .9998    0.12 / 1.72 / 0.07% / .9954
+/// ```
+///
+/// **Every one of the five is then inside every bound**, the largest ratio in that column being
+/// 0.63 of what its page allows. So the group's named mechanism owns **100% of every failing
+/// measurement on all five pages** — and the paragraph above stands unchanged, because pricing a
+/// mechanism is not a licence to adopt it. §10.4.2.1 ranks §10.3 above §10.4.2.5's formula and
+/// §10.3.2's NOTE licenses a source assumption; moving to somebody's press because it takes five
+/// pages green is the curve-fitting principle 5 forbids, and the table is what the refusal costs.
+///
+/// # The two profiles are not interchangeable through *our* evaluator, and the shadow end is why
+///
+/// Run with Artifex's SWOP profile instead, the three shading pages land in the same place — but
+/// `transparent.pdf` goes to 1.07 / 5.97 / 8.64% / 0.9924, *further* than our own conversion. The
+/// same 187 484 bytes `mupdf` and `ghostscript` are both reading put the bottle at **(36, 44, 53)**
+/// through `pdf_model::icc` where all three renderers are within a level of (25, 34, 45), while
+/// `hayro`'s 8 464-byte CGATS profile through the same evaluator gives **(25, 34, 44)**.
+///
+/// It is not the rendering intent — Artifex's `A2B0` and `A2B1` point at the same 41 478 bytes —
+/// and `icc.rs` had already predicted it in prose, under `detect_black`: a colorimetric
+/// black point walked off the device range and Little CMS's perceptual one round-tripped through
+/// `B2A` "agree everywhere except in the darkest few percent". `0.82 0.7 0.54 0.67 k` is the
+/// darkest few percent, and the CGATS profile carries no `B2A` for the two constructions to
+/// disagree over. **So trap 9's sixth bullet is right about the region it was measured in and not
+/// about this one**: our evaluator on *either* press predicts all three renderers to eight levels
+/// on the sampled ramp, and on this one deep ink one of the two is eleven levels out. ADR 0510.
 const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
     "function_based_shading_cmyk.pdf page 1",
     "function_based_shading_cmyk.pdf page 2",
@@ -2262,10 +2333,19 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///
 /// # `bug847420.pdf` page 1, measured in the four-hundred-and-sixth, and it is the group's name
 ///
-/// It is the head of the contradicted list ranked in *levels* — 8.65 of 255 from the nearest of
-/// four renderers that agree among themselves to 4.64, twice as far as any page on the list
-/// that is not a link border — and nothing had ranked that list at all until
-/// `rank_the_contradicted`. 200 × 50 points, one line: `/BaseFont /Arial,Italic`, a `/TrueType`
+/// It was written up as the head of the contradicted list ranked in *levels* — the hand-built
+/// second ranking [`rank_the_contradicted`]'s own comment describes — at "8.65 of 255 from the
+/// nearest of four renderers that agree among themselves to 4.64, twice as far as any page on the
+/// list that is not a link border". **The unit is real and all three figures are wrong about their
+/// operand**, on rasters that have not moved since: 8.65 is our distance from **`hayro`**
+/// (8.6520), the *furthest* of the four and the one that does not vote, where the nearest is
+/// `poppler` at **7.44**; the four references' six pairwise means run **1.38 to 3.48** and 4.64 is
+/// none of them; and `issue15716.pdf` sits **13.96** from its nearest in the same unit, so nothing
+/// here is twice anything. Our render has not changed — the ink ladder below still reproduces to
+/// three decimals — so these were the wrong end of the range when they were written rather than
+/// figures that decayed (ADR 0510). What is true and was the point is that nothing had ranked that
+/// list at all until `rank_the_contradicted`.
+/// 200 × 50 points, one line: `/BaseFont /Arial,Italic`, a `/TrueType`
 /// dictionary with no `/FontFile`, `/Flags 96` (Nonsymbolic and Italic), `/ItalicAngle -120`
 /// and a full `/Widths`. Mozilla bug 847420 is *Text that should be italicized*, and it is:
 /// five renderers draw it sloped, so the `,Italic` half is nobody's difference.
@@ -2431,6 +2511,72 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// while costing nothing at all in placement. All three are §9.5 NOTE 5's sentence — "some details
 /// of font naming, font substitution, and glyph selection are implementation-dependent" — and the
 /// third is the plainest instance of it in the file, because a dingbat *is* its outline.
+///
+/// # Which bound the gate fails each page on, and five of the eight are this note's own exit rule
+///
+/// Every figure above is ink, cap rows, charstring area or a bounding box, and none of it is in
+/// the units the verdict is made of — ADR 0497's sixth criterion. Written out (ADR 0510), the
+/// eight are not one shape:
+///
+/// ```text
+///   bug847420.pdf p1           poppler+mupdf   mean 8.45/5.00, differing 9.16%/8.09%, ssim .8581/.9000
+///   issue15716.pdf p1          mupdf+gs        mean 14.03/5.00, differing 9.22%/6.06%, ssim .6886/.9000
+///   issue9243.pdf p1           all three       structural similarity alone, .8907/.9000
+///   bug850854.pdf p1           poppler+mupdf   the differing fraction alone, 5.38%/5.00%
+///   issue11403_reduced.pdf p1  poppler+mupdf   differing alone, 6.25%/5.00%
+///   issue6069.pdf p1           poppler+mupdf   differing alone, 6.62%/6.55%
+///   issue6108.pdf p1           poppler+mupdf   differing alone, 6.55%/5.75%
+///   issue7580.pdf p1           poppler+mupdf   differing alone, 6.92%/5.00%
+/// ```
+///
+/// **Five of the eight are the shape this note moved five pages *out* for.** The paragraph above
+/// about `bad-PageLabels.pdf` and its four says a page failing on the differing fraction alone is
+/// `CONTRADICTED_GLYPH_EDGES`' diagnosis — so the discriminator, applied as written, would empty
+/// most of what is left. Whether the cap height owns those five differing fractions or the glyph
+/// edges do is not answerable by any arithmetic in this comment.
+///
+/// # So the face was taken out of the documents, and it owns the bound on seven of the eight
+///
+/// `gs -sDEVICE=pdfwrite -dEmbedAllFonts=true -dSubsetFonts=false` with `<</NeverEmbed[]>>`
+/// writes each page back with `ghostscript`'s own fontconfig resolution embedded as a
+/// `/FontFile3`, after which every renderer draws one program and §9.5 NOTE 5's mechanism cannot
+/// act. **The control is as clean as this instrument gets**: on seven of the eight files
+/// `poppler`, `mupdf` and `ghostscript` render the rewritten document byte-identically to the
+/// original, so the rewrite changed the font program and nothing else — and the page's bound,
+/// derived from the references' distance from each other, is unchanged with it. The exceptions
+/// are `mupdf` at 0.09 on `bug847420.pdf` and 0.08 on `issue11403_reduced.pdf`, and `poppler` at
+/// 0.72 on `issue15716.pdf`, where `poppler` is not in the consensus and both members of it are
+/// byte-identical.
+///
+/// Worst-ratio member of the named consensus, before and after:
+///
+/// ```text
+///                                 ours                            with the face embedded
+///   bug847420.pdf p1          8.45 / 16.01 / 9.16% / .8581     1.62 /  3.77 / 6.51% / .9928
+///   bug850854.pdf p1          2.76 / 10.39 / 5.38% / .9758     1.01 /  4.26 / 4.22% / .9964
+///   issue11403_reduced.pdf    2.55 /  5.32 / 6.25% / .9795     0.80 /  1.69 / 4.78% / .9975
+///   issue15716.pdf p1        14.03 / 31.31 / 9.22% / .6886     3.28 / 10.55 / 4.94% / .9461
+///   issue6069.pdf p1          2.41 /  5.33 / 6.62% / .9836     1.46 /  4.19 / 5.97% / .9936
+///   issue6108.pdf p1          2.35 /  4.94 / 6.55% / .9791     1.48 /  3.58 / 5.89% / .9926
+///   issue7580.pdf p1          2.92 /  6.93 / 6.92% / .9753     0.80 /  1.66 / 4.99% / .9978
+///   issue9243.pdf p1          3.13 / 16.29 / 3.05% / .8907     0.92 /  4.49 / 1.85% / .9793
+/// ```
+///
+/// **Seven of eight go inside every bound they were failing**, including all three of
+/// `bug847420.pdf`'s and all three of `issue15716.pdf`'s, and including `issue9243.pdf`, the one
+/// page in this file whose only failing measure is structural similarity. So the answer to the
+/// five-page question above is the group's name and not the edges'.
+///
+/// **`issue6108.pdf` is the eighth and it carries two mechanisms.** The face owns 0.66 of the 0.80
+/// points by which it misses its differing bound — 82% — and the 5.89% left against 5.75% is a
+/// sub-pixel glyph-edge population that would keep the page contradicted with the substitution
+/// entirely removed. That is trap 9's *a page can carry two of the eight*, in a group that is not
+/// `visibility_expressions.pdf`; it is recorded rather than moved, because a mechanism owning 82%
+/// of a bound is this group's and the second one is named beside it.
+///
+/// `issue7580.pdf` clears its bound by **0.0125 of a percentage point**, stated at the precision
+/// it was measured. Five of these pages sit within a point of a bound in one direction or the
+/// other, which is what a 200 × 50 line of text does to a metric that counts channels.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 8] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",

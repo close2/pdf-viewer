@@ -107,7 +107,15 @@ results is read — because a mechanism accounted for in the wrong units is not 
   what it carries is its own `CGATS001Compat-v2-micro.icc`, 8 464 bytes, `desc` `uCMY`, `cprt`
   `CC0`, one `A2B0` tag, against Artifex's 187 484 bytes and three `A2B` tables. Different file,
   different author, different licence — and this tree's own evaluator on **either** of the two
-  predicts all three renderers to within eight levels while sitting 48 from ours. What the three
+  predicts all three renderers to within eight levels while sitting 48 from ours. **That last clause
+  is true of the region it was sampled in and of no other**, which the six-hundred-and-eightieth
+  session found on the fifth page of the same group: on `transparent.pdf`'s single ink,
+  `0.82 0.7 0.54 0.67 k`, the *Artifex* profile through our evaluator is **eleven levels** from all
+  three renderers that read it, while the CGATS one is within one — a colorimetric black point
+  walked off the device range against Little CMS's round trip through `B2A`, which
+  `icc.rs::detect_black` already said agree "everywhere except in the darkest few percent". **A
+  profile predicts a renderer over the colours somebody sampled, and that is not a property of the
+  file.** ADR 0510. What the three
   share is the *press*: Artifex's `desc` says **SWOP** and CGATS TR 001 is the characterisation
   data SWOP publishes. **So implementations can agree because each independently went and got a
   copy of the same published standard**, which no dependency graph shows, no digest comparison
@@ -191,6 +199,20 @@ results is read — because a mechanism accounted for in the wrong units is not 
   `rank_the_contradicted` prints bounds, not levels of 255** — `Distance::of` takes the largest of
   three ratios against the bounds the page was held to — which two notes had wrong, one of them
   quoting a page's worst tile over its bound as though it were a distance in levels. ADR 0499.
+
+  **The differing fraction is a *threshold* count, so a colour mechanism's whole contribution to it
+  is an area times a number of channels.** `JUST_NOTICEABLE` is 4, alpha never differs between two
+  opaque rasters, and a flat mark whose colour is off by (3, 3, 6) therefore contributes its own
+  area **÷ 4** rather than `× 3 ÷ 4`: on `transparent.pdf` the bottle is 11.4175% of the page, blue
+  alone crosses the threshold, 11.50 ÷ 4 = 2.875 of the 3.316 points the gate prints, and the rest
+  is the silhouette's edge. **Two levels of one channel decide that verdict**, which is worth
+  knowing before reading a five-level disagreement as small. ADR 0510.
+
+  **And the printed line is the worst-ratio member of the *agreeing consensus*, not of every
+  reference.** `bug847420.pdf`'s four numbers are `mupdf`'s although `ghostscript` is further from
+  us on all four, because `ghostscript` is not in the pair the verdict names. A before-and-after on
+  a contradicted page has to be read against that same pair, or it compares two populations.
+  ADR 0510.
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
