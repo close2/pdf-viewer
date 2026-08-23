@@ -68,6 +68,13 @@ pub(crate) const NEXT_LAYOUT: u32 = 0x4c;
 /// whether one is running. `viewer-ui` and `viewer-gtk` bind the same letter.
 pub(crate) const PRESENT: u32 = 0x50;
 
+/// `Qt::Key_C`, and the fifth key this module names without giving it a command.
+///
+/// §14.8.2.5's text leaving the program is not a `Command` and never will be: what a copy *is* —
+/// a clipboard — belongs to the platform, so `viewer-core` has none for it and answers only with
+/// the two orders (ADR 0519). `viewer-ui` and `viewer-gtk` bind the same letter.
+pub(crate) const COPY: u32 = 0x43;
+
 /// `Qt::Key_Y`.
 const Y: u32 = 0x59;
 /// `Qt::Key_Z`.
@@ -147,5 +154,16 @@ mod tests {
     #[test]
     fn the_fit_key_is_the_hosts_rather_than_this_tables() {
         assert!(command(super::FIT_CONTROLS).is_none());
+    }
+
+    /// So is `c`, and for a reason that is about the boundary rather than about this host.
+    ///
+    /// A copy reaches a *platform* and `viewer-core` has no command for one, so a later session
+    /// putting `COPY` in this table would have to invent a message for it. That is the thing
+    /// `doc/todo/30`'s claim is about, and this test is what makes the claim fail rather than
+    /// drift.
+    #[test]
+    fn the_copy_key_is_a_platforms_rather_than_a_command() {
+        assert!(command(super::COPY).is_none());
     }
 }

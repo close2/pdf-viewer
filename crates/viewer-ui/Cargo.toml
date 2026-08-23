@@ -41,6 +41,11 @@ winit.workspace = true
 softbuffer.workspace = true
 # The software path's refusals are typed, like every other error in this tree.
 thiserror.workspace = true
+# §14.8.2.5's text leaving the program. The one platform surface this host cannot reach through
+# something it already links: `winit` offers no clipboard and `softbuffer` offers pixels. The two
+# native hosts ask their own toolkits and name nothing here (ADR 0519); the workspace manifest
+# prices the dependency and says why its two optional halves are off.
+arboard.workspace = true
 
 # The interactive spike example needs a scene, a target and a device. These are
 # dev-dependencies because the shell itself will drive rendering through `viewer-core`

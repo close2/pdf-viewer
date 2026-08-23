@@ -11,10 +11,12 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QElapsedTimer>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -798,6 +800,17 @@ void MainWindow::applyUpdates()
     pumpPresentation();
     if (update.window) {
         applyChrome();
+    }
+    if (update.clipboard) {
+        // ISO 32000-2 §14.8.2.5's text leaving the program (ADR 0519). `QGuiApplication` owns the
+        // clipboard and hands out a pointer it keeps, so there is nothing here to create, to store
+        // or to delete — and nothing on the launch path, which is what `CLAUDE.md`'s second
+        // principle asks of a surface page one does not need.
+        //
+        // **Which of the two content orders these characters are in was decided on the Rust
+        // side**, by the function all three hosts share, because that is a reading of the standard
+        // rather than a fact about Qt.
+        QGuiApplication::clipboard()->setText(text(host_->take_clipboard()));
     }
     if (update.password) {
         // Queued rather than called: `QDialog::exec` runs a nested event loop, and starting one

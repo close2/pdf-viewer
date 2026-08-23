@@ -112,6 +112,14 @@ extern "C" {
 #define PDFV_LAYOUT_TWO_PAGE_LEFT    4u
 #define PDFV_LAYOUT_TWO_PAGE_RIGHT   5u
 
+/* §14.8.2.5's two content orders, which is what pdfv_selection_copy_text says about its text.
+ * There is no third and no _COUNT: the clause defines exactly these two. LOGICAL is "a
+ * depth-first traversal of the document's logical structure"; PAGE_CONTENT is "the sequencing of
+ * graphics objects within a page's content stream", which is also what a selection is measured
+ * in and what pdfv_selection_quads covers. */
+#define PDFV_ORDER_LOGICAL       0u
+#define PDFV_ORDER_PAGE_CONTENT  1u
+
 /* Whether §12.4.4's presentation is running. OFF is the default. */
 #define PDFV_PRESENT_OFF  0u
 #define PDFV_PRESENT_ON   1u
@@ -516,6 +524,14 @@ int32_t pdfv_report(const pdfv_viewer *viewer, size_t entry, size_t index, char 
    page boundary, in which case this is each page's part in page order, joined by a newline. */
 int32_t pdfv_selection_text(const pdfv_viewer *viewer, char *out, size_t cap, size_t *needed);
 int32_t pdfv_selection_quads(const pdfv_viewer *viewer, pdfv_quads **quads);
+/* What to put on YOUR clipboard, which is not the same string as pdfv_selection_text: §14.8.2.5
+   gives a page a logical content order as well as a page content order and only recommends that
+   they coincide, so a copy off a two-column page wants the first and a highlight wants the
+   second. `order` receives PDFV_ORDER_* and may be null; it is written only on PDFV_OK.
+   PDFV_NO_ANSWER where nothing is selected — a copy with nothing to copy must not empty your
+   clipboard. The clipboard itself is yours: this ABI has no idea what platform you are on. */
+int32_t pdfv_selection_copy_text(const pdfv_viewer *viewer, char *out, size_t cap, size_t *needed,
+                                 uint32_t *order);
 /* Annex O's `highlight`: the rectangles the URI's fragment asked to be shown highlighted, on the
    page being shown. Empty unless a fragment named one — the annex leaves the look to you. */
 int32_t pdfv_highlight_quads(const pdfv_viewer *viewer, pdfv_quads **quads);

@@ -189,6 +189,13 @@ pub struct Host {
     viewport: (u32, u32),
     /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
     layout: pdf_model::viewer_preferences::PageLayout,
+    /// §14.8.2.5's text between the key that copied it and the C++ side taking it to `QClipboard`.
+    ///
+    /// Empty at every other moment, because `take_clipboard` clears it: this is a hand-over and
+    /// not a second clipboard. `viewer-ui` keeps its string for a different reason — it is what
+    /// Ctrl + V pastes into a field — and this host pastes with `QLineEdit`'s own binding, so
+    /// there is nothing here to keep.
+    clipboard: String,
 }
 
 impl std::fmt::Debug for Host {
@@ -260,6 +267,7 @@ impl Host {
             // moment the document opens.
             presenting: viewer_host::Presenting::default(),
             layout: pdf_model::viewer_preferences::PageLayout::SinglePage,
+            clipboard: String::new(),
         })
     }
 
@@ -330,6 +338,13 @@ impl Host {
         }
         if code == keys::ESCAPE && self.presenting.full_screen() {
             self.present_or_stop();
+            return;
+        }
+        // The fifth, and the only one whose answer leaves the program: §14.8.2.5's text on the
+        // session's clipboard. Not a command, because what a copy *is* belongs to the platform —
+        // see `keys::COPY` and ADR 0519.
+        if code == keys::COPY {
+            self.copy_selection();
             return;
         }
         if let Some(command) = keys::command(code) {
@@ -876,6 +891,47 @@ impl Host {
     /// What has changed since this was last called, which also clears it.
     pub(crate) fn take_update(&mut self) -> QtUpdate {
         std::mem::replace(&mut self.update, nothing_changed())
+    }
+
+    /// Puts what is selected on the page where the C++ side will hand it to `QClipboard`.
+    ///
+    /// **The platform end of `doc/todo/30`'s first item** (ADR 0519), and it goes *out* through
+    /// the update flag rather than by Rust calling Qt, which is the one property `crate::bridge`'s
+    /// documentation states about this crate's direction of travel. The two questions and the
+    /// choice between §14.8.2.5's orders are this side's; the clipboard is `window.cpp`'s.
+    ///
+    /// Which order the text is in is [`viewer_host::copied`] and not this host's, because it is
+    /// the same decision in all three windowed hosts.
+    fn copy_selection(&mut self) {
+        // Owned before the second question, because both answers borrow the viewer.
+        let page_order = match self.viewer.query(Query::Selection) {
+            Answer::Selected(selected) => selected.text.into_owned(),
+            _ => String::new(),
+        };
+        let logical = match self.viewer.query(Query::LogicalSelection) {
+            Answer::LogicalSelection(text) => Some(text),
+            _ => None,
+        };
+        let Some(copied) = viewer_host::copied(logical, &page_order) else {
+            self.say("nothing on the page is selected to copy");
+            return;
+        };
+        self.say(&format!(
+            "copied {} characters in {}",
+            copied.text.chars().count(),
+            copied.order
+        ));
+        self.clipboard = copied.text;
+        self.update.clipboard = true;
+    }
+
+    /// The text a copy is putting on the clipboard, which this also clears.
+    ///
+    /// Taken rather than borrowed, for the reason every other `take_` on this bridge is: a
+    /// `cxx::String` is a copy whichever way it crosses, and leaving the characters here
+    /// afterwards would be this host holding a second clipboard nobody reads.
+    pub(crate) fn take_clipboard(&mut self) -> String {
+        std::mem::take(&mut self.clipboard)
     }
 
     /// How many pages Table 29's arrangement is showing pixels for.
@@ -1736,6 +1792,7 @@ fn nothing_changed() -> QtUpdate {
         status: false,
         password: false,
         window: false,
+        clipboard: false,
     }
 }
 

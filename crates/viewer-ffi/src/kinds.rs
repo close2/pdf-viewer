@@ -503,6 +503,60 @@ impl LayoutKind {
     }
 }
 
+/// Which of ISO 32000-2 §14.8.2.5's two content orders a copy's text came back in.
+///
+/// A kind of its own, for the reason [`LayoutKind`] is one: this is the answer to a call the
+/// caller wrote rather than something that arrives unasked, so it needs no place in
+/// [`crate::abi::pdfv_abi_check`].
+///
+/// **And it has no `name` or `count` entry point, unlike [`ControlKind`] and [`RowKind`].** Those
+/// exist for an enumeration that may *grow* under a compiled caller; §14.8.2.5.1 defines exactly
+/// two orders and a third would be a change to the standard rather than to this build. A pair of
+/// functions guarding against a case the specification forecloses is machinery pretending to be
+/// caution (`CLAUDE.md` principle 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum OrderKind {
+    /// §14.8.2.5.1's logical content order, "a depth-first traversal of the document's logical
+    /// structure".
+    Logical = 0,
+    /// §14.8.2.5.1's page content order, "the sequencing of graphics objects within a page's
+    /// content stream" — which is what a selection is measured in and what a caller gets where
+    /// the structure tree could not give the other.
+    PageContent = 1,
+}
+
+impl OrderKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Logical,
+            1 => Self::PageContent,
+            _ => return None,
+        })
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+
+    /// What the hosts call it.
+    ///
+    /// Exhaustive over [`viewer_host::ContentOrder`], which is the property this module exists
+    /// for: an order added there fails to compile *here*, in the last place a compiler can still
+    /// say so, rather than reaching a caller as a number with no meaning.
+    #[must_use]
+    pub const fn of(order: viewer_host::ContentOrder) -> Self {
+        match order {
+            viewer_host::ContentOrder::Logical => Self::Logical,
+            viewer_host::ContentOrder::PageContent => Self::PageContent,
+        }
+    }
+}
+
 /// Whether §12.4.4's presentation is running, as the host has said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]

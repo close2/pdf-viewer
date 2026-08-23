@@ -13,6 +13,7 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Fonts | `skrifa` (+ Type1/Type3 handled in-tree) |
 | Windowing | `winit` |
 | Dialogs | `ashpd` (XDG desktop portal — native KDE dialogs, any toolkit) |
+| Clipboard | `arboard`, **in `viewer-ui` only** — the two native hosts ask `gdk::Clipboard` and `QClipboard`, and the C ABI hands a caller the text (ADR 0519) |
 | Accessibility | `AccessKit` (AT-SPI on Linux) |
 | Parallelism | `rayon` |
 | Deflate | `flate2` with `zlib-rs` backend (pure Rust, ~C speed) |

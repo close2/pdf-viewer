@@ -50,6 +50,23 @@ allow = [
 ]
 confidence-threshold = 0.93
 
+# Two crates, one licence, and a narrow exception rather than a line in `allow` above.
+#
+# `BSL-1.0` is the Boost Software License: OSI-approved, permissive, and — unlike every entry
+# above — it requires no notice in a **binary** distribution at all, so it is strictly less
+# demanding than MIT. It is not in `allow` because nothing in this tree is under it and a licence
+# on that list is a standing permission; these two are named instead, which is the reviewable form.
+#
+# Both arrive through `arboard`, the clipboard `viewer-ui` reaches the platform with (ADR 0519),
+# and **neither is ever compiled here**: `clipboard-win` is that crate's Windows backend and
+# `error-code` is its dependency, both `cfg`-gated to `windows`. `cargo deny` reads the lockfile
+# rather than a target's build plan, which is correct — a Windows build of this program *would*
+# link them, and that is exactly the question this file is for.
+exceptions = [
+    { crate = "clipboard-win", allow = ["BSL-1.0"] },
+    { crate = "error-code", allow = ["BSL-1.0"] },
+]
+
 [bans]
 # Two versions of the same crate usually means a dependency needs updating; it also
 # inflates compile time and binary size. Warn rather than deny, because a transitive

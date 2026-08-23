@@ -356,6 +356,40 @@ impl Session {
         }
     }
 
+    /// The text a *copy* should carry, and which of §14.8.2.5's two orders it is in.
+    ///
+    /// **The gap `tools/state.sh hosts` found, closed with the decision rather than the
+    /// ingredients** (ADR 0519). [`Self::selection_text`] answers in page content order, because
+    /// that is what a selection is measured in and what the quadrilaterals are drawn from;
+    /// §14.8.2.5.1 says the two orders "should coincide" and does not require it, so a copy off a
+    /// page whose producer wrote its columns out of order wants the other one. A C caller could
+    /// not ask for it at all: `Query::LogicalSelection` reached no entry point.
+    ///
+    /// Handing over both answers and letting the caller choose was the alternative, and it is the
+    /// worse one — it would make a fifth consumer re-derive a reading of the standard that
+    /// [`viewer_host::copied`] already states for the three windowed hosts. So this answers with
+    /// what those hosts put on their clipboards, and says which order it is so that a caller who
+    /// disagrees can still tell.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, or where nothing is selected — the
+    /// second because a copy with nothing to copy must not empty a caller's clipboard.
+    pub fn copy_text(&self) -> Result<(String, viewer_host::ContentOrder), Status> {
+        // Owned before the second question, because both answers borrow the viewer.
+        let page_order = match self.viewer.query(Query::Selection) {
+            Answer::Selected(selected) => selected.text.into_owned(),
+            _ => return Err(Status::NoAnswer),
+        };
+        let logical = match self.viewer.query(Query::LogicalSelection) {
+            Answer::LogicalSelection(text) => Some(text),
+            _ => None,
+        };
+        viewer_host::copied(logical, &page_order)
+            .map(|copied| (copied.text, copied.order))
+            .ok_or(Status::NoAnswer)
+    }
+
     /// The shapes covering what is selected, in device pixels of the viewport.
     ///
     /// # Errors
