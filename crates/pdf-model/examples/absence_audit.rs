@@ -36,6 +36,7 @@
               shipped path"
 )]
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pdf_syntax::{Dictionary, Document, Object, ObjectId};
@@ -119,6 +120,8 @@ struct Answers {
     spider: Option<String>,
     /// §12.7.5.5's `/Lock` on a signature field.
     field_lock: Option<String>,
+    /// §12.7.5.5's Table 236 `/P`, which that row says is deliberately not read.
+    lock_permission: Option<String>,
     /// §12.8.2.4's `FieldMDP` transform.
     field_mdp: Option<String>,
     /// §12.2's four deprecated page-boundary entries of Table 147.
@@ -135,6 +138,13 @@ struct Answers {
     page_visibility: Option<String>,
     /// §12.6.4.7's thread action — an action dictionary whose `/S` is `Thread`.
     thread_action: Option<String>,
+    /// §12.8.2.2.1's `/DocMDP`, by the level §12.8.6's `/Perms` makes binding.
+    ///
+    /// Two facts rather than one, because the clause separates them: a `DocMDP` transform states
+    /// what invalidates the author's signature, and only §12.8.2.2.1's parenthesis — a signature
+    /// dictionary the permissions dictionary refers to — turns that into something a reader has
+    /// to prevent. A count of certification signatures is therefore not a count of restrictions.
+    certification: Option<String>,
 }
 
 fn main() {
@@ -160,80 +170,99 @@ fn main() {
         })
         .collect();
 
+    report_every_claim(&results);
+}
+
+/// Prints one section per written claim, in the order the claims were added.
+///
+/// Separate from [`main`] only because the list grows by one entry per round that re-derives a
+/// negative, and a claim is a line here rather than a branch anywhere: the ordering carries no
+/// meaning and nothing reads the sections back.
+fn report_every_claim(results: &[(String, Answers)]) {
     report(
         "§14.7.2's /IDTree — the claim was \"none at all\" and is FALSE (ADR 0405)",
-        &results,
+        results,
         |a| a.id_tree.as_deref(),
     );
     report(
         "§12.4.3's articles — the claim was \"none\"; true of pdf.js, FALSE wider (ADR 0405)",
-        &results,
+        results,
         |a| a.articles.as_deref(),
     );
     report(
         "§12.3.5's /Collection — the claim was \"none\"; true of pdf.js, FALSE wider (ADR 0405)",
-        &results,
+        results,
         |a| a.collection.as_deref(),
     );
     report(
         "§12.9's /VP, with each viewport's /Measure subtype named",
-        &results,
+        results,
         |a| a.viewports.as_deref(),
     );
     report(
         "§12.9.2's algorithm — its population is Table 267's RL measure, not §12.10's GEO",
-        &results,
+        results,
         |a| a.rectilinear.as_deref(),
     );
     report(
         "§14.10.2's /SpiderInfo — the claim was \"none\" and is FALSE (ADR 0405)",
-        &results,
+        results,
         |a| a.spider.as_deref(),
     );
     report(
         "§12.7.5.5's /Lock on a signed field — the claim was \"none\" (curated) and is FALSE wider",
-        &results,
+        results,
         |a| a.field_lock.as_deref(),
     );
     report(
+        "§12.7.5.5's Table 236 /P — the claim is that it is deliberately not read here",
+        results,
+        |a| a.lock_permission.as_deref(),
+    );
+    report(
         "§12.8.2.4's FieldMDP — the transform, over the whole population",
-        &results,
+        results,
         |a| a.field_mdp.as_deref(),
     );
     report(
         "§12.2's Table 147 boundary entries — the claim was \"none of the four\" (curated)",
-        &results,
+        results,
         |a| a.boundaries.as_deref(),
     );
     report(
         "§12.11.1's /Requirements — the claim was \"no corpus document states a requirement\"",
-        &results,
+        results,
         |a| a.requirements.as_deref(),
     );
     report(
         "§12.5.6.21 and §14.11.6.2's /TrapNet — the claim was \"none at all\"",
-        &results,
+        results,
         |a| a.trap_net.as_deref(),
     );
     report(
         "§10.7.2's /FL in an /ExtGState — the claim was \"none writes it in one at all\"",
-        &results,
+        results,
         |a| a.flatness.as_deref(),
     );
     report(
         "§7.11.4.2's /RF — the claim was \"no corpus file specification carries one\"",
-        &results,
+        results,
         |a| a.related_files.as_deref(),
     );
     report(
         "§12.6.3's /PV and /PI — the claim was \"no document states\" either",
-        &results,
+        results,
         |a| a.page_visibility.as_deref(),
     );
     report(
         "§12.6.4.7's thread action — the claim was \"no corpus document states\" one",
-        &results,
+        results,
         |a| a.thread_action.as_deref(),
+    );
+    report(
+        "§12.8.2.2.1's /DocMDP — the claim was \"one corpus document, and it states /P 2\"",
+        results,
+        |a| a.certification.as_deref(),
     );
 }
 
@@ -258,6 +287,8 @@ struct Sightings {
     visibility: Vec<String>,
     /// §12.6.4.7: action dictionaries whose `/S` is `Thread`.
     threads: usize,
+    /// §12.7.5.5: Table 236's `/P`, as each signature field lock dictionary states it.
+    lock_permissions: Vec<String>,
 }
 
 /// Asks one object, and everything nested inside it, the six object-scoped claims.
@@ -345,6 +376,34 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
         into.threads += 1;
     }
 
+    // §12.7.5.5's Table 236 `/P`, which §12.7.5.5's ledger row says is "deliberately not read
+    // here". That disposal rests on one of the entry's sentences — absence having "no effect on
+    // signature validation rules" — and the entry states five more, of which one is addressed to
+    // a processor that changes the file: "The new permission applies to any incremental changes
+    // to the document following the signature of which this key is part." So the question the row
+    // settles by argument has a population, and nothing was counting it.
+    //
+    // Asked of the lock dictionary wherever one is stated, rather than only where the field is
+    // signed: the row's claim is that this tree never reads the key, and a document stating it on
+    // an unsigned field still falsifies "never stated" while not falsifying "asserts nothing".
+    // The signed count is `field_locks`' and is reported by the block above.
+    //
+    // The `/Action` is named beside the level because the two answer different halves of what a
+    // reader would owe: `All` already withholds every field from `Operation::FillInForm`, so a
+    // `/P` beside it changes nothing this program does, while a narrower action leaves the rest of
+    // the document open to an operation the level says is not permitted.
+    if let Some(lock) = document.get_key(dict, "Lock").as_dict()
+        && let Some(level) = document.get_key(lock, "P").as_integer()
+    {
+        let action = document.get_key(lock, "Action");
+        let action = action.as_name().map_or_else(
+            || "(no /Action)".to_owned(),
+            |name| format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+        );
+        into.lock_permissions
+            .push(format!("/P {level} on {action}"));
+    }
+
     for (_, value) in dict.iter() {
         visit(document, value, depth + 1, into);
     }
@@ -362,10 +421,19 @@ fn named(document: &Document, dict: &Dictionary, key: &str, value: &[u8]) -> boo
 }
 
 /// Prints one claim's witnesses, or says it has none.
+///
+/// # The tally, where the list is truncated
+///
+/// A negative is retired by a count and *replaced* by a distribution — §12.2's ninety-six
+/// witnesses turned out to state Table 147's own default, which is what kept the sharper half of
+/// that claim true — so a truncated list of a hundred and forty-three names is a number with the
+/// finding cut off it. Where more witnesses were found than [`MAX_NAMED`] prints, the answers
+/// themselves are tallied: each block's answer is worded as what the document *holds*, so the
+/// distinct answers are the distribution and there are few of them.
 fn report(claim: &str, results: &[(String, Answers)], pick: impl Fn(&Answers) -> Option<&str>) {
-    let found: Vec<String> = results
+    let found: Vec<(&str, &str)> = results
         .iter()
-        .filter_map(|(label, answers)| pick(answers).map(|what| format!("{label}: {what}")))
+        .filter_map(|(label, answers)| pick(answers).map(|what| (label.as_str(), what)))
         .collect();
     println!();
     println!("{claim}");
@@ -374,11 +442,19 @@ fn report(claim: &str, results: &[(String, Answers)], pick: impl Fn(&Answers) ->
         return;
     }
     println!("  {} witness(es)", found.len());
-    for entry in found.iter().take(MAX_NAMED) {
-        println!("    {entry}");
+    for (label, what) in found.iter().take(MAX_NAMED) {
+        println!("    {label}: {what}");
     }
     if found.len() > MAX_NAMED {
         println!("    … and {} more", found.len() - MAX_NAMED);
+        let mut tally: BTreeMap<&str, usize> = BTreeMap::new();
+        for (_, what) in &found {
+            *tally.entry(what).or_default() += 1;
+        }
+        println!("    what they hold, every distinct answer:");
+        for (what, count) in &tally {
+            println!("      {count:>6}  {what}");
+        }
     }
 }
 
@@ -518,6 +594,11 @@ fn measure(path: &Path) -> Answers {
     if sightings.threads > 0 {
         answers.thread_action = Some(format!("{} action(s)", sightings.threads));
     }
+    if !sightings.lock_permissions.is_empty() {
+        sightings.lock_permissions.sort();
+        sightings.lock_permissions.dedup();
+        answers.lock_permission = Some(sightings.lock_permissions.join(", "));
+    }
 
     // §12.2's four deprecated page-boundary entries, read as *statements*: `ViewerPreferences`
     // resolves an absent entry to Table 147's `CropBox` default, so the reader alone cannot tell
@@ -571,6 +652,43 @@ fn measure(path: &Path) -> Answers {
     let covered = pdf_model::signature::field_mdp(&document);
     if !covered.is_empty() {
         answers.field_mdp = Some(format!("{covered:?}"));
+    }
+
+    // §12.8.2.2.1's `/P`, asked along the route that makes it binding rather than by the name.
+    //
+    // The clause states the two apart, and a claim about what a *reader* owes is about the second
+    // only: "(These changes to the document shall also be prevented if the signature dictionary is
+    // referred from the DocMDP entry in the permissions dictionary.)" So the key is asked of the
+    // permissions dictionary, the level is `permissions`' — the same reader `restriction::asserted`
+    // consults — and the number of certification signature fields is printed beside it, because a
+    // `DocMDP` transform on a signature nothing points at asserts nothing and would otherwise be
+    // counted as a restriction that is not there.
+    //
+    // **The third figure is the one a name census cannot produce**: a `/Perms /DocMDP` this tree
+    // reads no level out of. Table 263 says the entry's dictionary "shall contain a Reference entry
+    // that shall be a signature reference dictionary", singular, while Table 255 makes `/Reference`
+    // an array — so a producer following the wrong one of the standard's two sentences writes a
+    // bare dictionary, and a reader that only accepts the array finds no level and permits
+    // everything without saying so.
+    let states_perms_doc_mdp = document.catalog().is_ok_and(|catalog| {
+        document
+            .get_key(&catalog, "Perms")
+            .as_dict()
+            .is_some_and(|perms| !document.get_key(perms, "DocMDP").is_null())
+    });
+    let certifications = pdf_model::signature::signatures(&document)
+        .iter()
+        .filter(|signature| signature.certification)
+        .count();
+    if states_perms_doc_mdp || certifications > 0 {
+        let bound = match pdf_model::signature::permissions(&document).doc_mdp {
+            Some(level) => format!("/Perms binds {level:?}"),
+            None if states_perms_doc_mdp => {
+                "a /Perms /DocMDP this tree reads no level out of".to_owned()
+            }
+            None => "no /Perms /DocMDP".to_owned(),
+        };
+        answers.certification = Some(format!("{bound}; {certifications} certification field(s)"));
     }
 
     answers

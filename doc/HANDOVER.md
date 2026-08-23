@@ -73,7 +73,7 @@ meant to be.
 | [`doc/traps/oracle-and-references.md`](traps/oracle-and-references.md) | reads a verdict, diagnoses a page, invokes another renderer, or moves a tolerance | 3, 9, 12 |
 | [`doc/traps/parsers-and-streams.md`](traps/parsers-and-streams.md) | touches `pdf-syntax`, a filter, a font program, an image codec, or decides what to do with input it cannot fully handle | 4, 5, 8 |
 | [`doc/traps/the-interactive-loop.md`](traps/the-interactive-loop.md) | turns a press into a command, or converts between the page's space, the display list's and the raster's | 12a |
-| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 10b, 11, 13 |
+| [`doc/traps/instruments-and-reports.md`](traps/instruments-and-reports.md) | runs a gate, believes a number, adds a report, sweeps for a defect — **and any round that writes Rust at all**, for trap 7 | 7, 10, 10a, 10b, 11, 13, 15 |
 
 **Two of them are not optional for the round they are about.** If this round can change a pixel,
 **trap 1** — *the metrics lie, look at the page* — is the one that has paid every session since the
@@ -108,6 +108,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 12c | A dependency that reports through a *handler* has an ordering you have to obey | pixels |
 | 13 | A sweep for a defect must be run against the defect before it is believed | instruments |
 | 14 | A target that *is* the region a clause names cannot tell you whether you applied it | pixels |
+| 15 | A sweep binary carries its tree with it, so one from a neighbour's build directory measures the neighbour | instruments |
 
 ---
 
