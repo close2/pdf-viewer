@@ -131,6 +131,17 @@ can and cannot open a window on, and where the build lands.
   happened" without spending an hour on it.** Whichever it is, `cargo test -p conformance` catches
   the result, which is the only line of the three that has never failed.
 
+  **And `git checkout -- doc` takes the symlinks away**, which is a third way into the same hole and
+  the one the seven-hundred-and-twentieth session fell into: it is a *directory* argument, so git
+  restores the four submodule paths under it as empty directories and the links into the main
+  worktree are gone. Nothing in `git status` says so — the gitlinks look untouched — and what a
+  round sees instead is `pdf-spec`'s build script panicking with *the Arlington PDF Model is
+  missing … It is a git submodule; run: `git submodule update --init`*, whose advice would clone a
+  second copy into the worktree rather than restore the link. The repair is
+  `rmdir doc/arlington-pdf-model doc/pdf.js && ln -s /home/cl/projects/pdf-viewer/doc/<each> doc/<each>`,
+  and the rule is the same one two paragraphs up: **name the paths you mean.** A checkout of nine
+  files by name does what a checkout of `doc` was meant to do and touches nothing else.
+
   So **do not `git stash` here**. To take a before-and-after measurement, use a patch of your own:
   `git diff > x.patch`, `git apply -R x.patch`, measure, `git apply x.patch` — plus a copy of any
   *untracked* file, which `git diff` does not carry. If a stash has already gone wrong, the popped

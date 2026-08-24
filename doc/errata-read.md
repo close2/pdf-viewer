@@ -27,6 +27,16 @@ of **two words**, under the four-word floor `check` filters on. So a quotation c
 text and pass the check that exists to find exactly that, and the only instrument that sees it is
 `emit` read against the caret's `/Rect`. The rule above is unchanged and now has a second reason.
 
+**And a collection of errata is not a corrected standard**, which the seven-hundred-and-twentieth
+session found by meeting the first place where it is inconsistent: Table 161's alphabetic page
+labels carry two annotations, both `Review`/`Accepted`, that cannot both be applied — one rewriting
+*AA to ZZ* as *AA to AZ*, the other inserting *AAA to ZZZ for the next 26* after it. Every round
+before that had treated an accepted erratum as settling a question, which works exactly while the
+collection agrees with itself. **So an erratum is evidence about the standard, in the way another
+renderer is evidence about our reading** (`CLAUDE.md` principle 5): where two disagree, the
+published clause and its own arithmetic decide, and the disagreement is recorded rather than
+resolved. ADR 0601, and the section at the end of this file.
+
 **The instrument was corrected once, between the first table and the third.** Its comparison was
 whitespace-sensitive and both sides are extractions of the same glyphs by different programs, so a
 passage one writes `inthe` and the other writes `in the` was called absent; dropping the spaces took
@@ -1088,3 +1098,47 @@ corners, so `array` is the right type name and `rectangle` was not. A one-word s
 rectangle, and `appearance::differences` reads four numbers in the clause's own order of left,
 top, right and bottom. **Establishing that is worth recording**: the entry is read by three
 subtypes and a wrong type name in the table is exactly the sort of thing a reader copies.
+
+## Table 161's letters, where two accepted errata cannot both be applied — the seven-hundred-and-twentieth
+
+`emit` over the pages §12.4.4 spans files nothing new against that clause — **Issues #36 and #75
+and no others**, both already recorded above, which is the answer the round wanted and is worth as
+much as a finding. What it did file, two pages earlier, is a pair this collection had never named,
+and they are about the same sentence.
+
+Table 161's `/S` row gives the alphabetic styles as *A Uppercase letters (A to Z for the first 26
+pages, AA to ZZ for the next 26, and so on)* and the same for lowercase. Two annotations amend it,
+in opposite directions:
+
+- **Issue #432**, `Review`/`Accepted`, `D:20240617182323+10'00'`: a `StrikeOut` at
+  `[444.54664 540.3789 455.29353 552.052]` with a `Caret` saying `AZ` beside it, and the same pair
+  at `[440.3896 513.9789 449.4532 525.652]` saying `az` one row down. The amended sentence is *AA
+  to **AZ** for the next 26* — the **odometer**, where the twenty-eighth page is `AB`.
+- **Issue #593**, `Review`/`Accepted`, `D:20260521092610-05'00'`: a `Caret` at
+  `[519.7684 538.8924 528.8445 546.2877]` with **no** `StrikeOut`, saying `AAA to ZZZ for the next
+  26, AAAA to ZZZZ for the next 26,`, and its lowercase twin at `[513.94796 512.4924 523.02407
+  519.8877]`. That is the **repeat**, where the twenty-eighth page is `BB`.
+
+**The placement is arithmetic rather than opinion.** The page is 841.92 tall, so #432's strike
+occupies 289.868–301.541 from the top and 444.547–455.294 across; `pdftotext -bbox` on physical
+page 474 puts the word `ZZ` at exactly `xMin="444.546640" yMin="289.868000" xMax="455.293500"
+yMax="301.541120"`. It is that word and no other. #593's caret shares the line's y and sits at
+x 519.77, just past `26,` which ends at 522.115 — an insertion after the clause #432 rewrites.
+
+They are mutually exclusive: with #432 applied the sentence enumerates an odometer, and #593's
+addition of *AAA to ZZZ for the next 26* is then false, since an odometer's `AAA` to `ZZZ` is
+17 576 labels rather than 26.
+
+**This reader keeps the repeat, and not because the newer erratum says so.** The published
+sentence carries its own count — *for the next 26* — and `AA` to `ZZ` is 26 labels only if the
+letter repeats. `page_label::letters` has produced `A…Z, AA…ZZ, AAA…` since it was written, on that
+arithmetic, and `letters_repeat_rather_than_carrying` pins `BB` at 28 against base 26's `AB`.
+#593 states the reading outright, which is a stronger form of the same answer; #432 denies it.
+Nothing changes but what is written down, and what is written down is the *disagreement* — a claim
+about the specification that a future edition may settle either way. §12.4.2's ledger row and
+`letters`'s own doc comment both carry it now.
+
+**A third property of `check` is on display and it is the first blindness twice over**: #593 is a
+`Caret` with no `StrikeOut`, so there is no retired text for a quotation to fail to match, and
+#432's strike is one word, under the four-word floor. Neither could have been printed by anything
+but `emit`.

@@ -138,12 +138,15 @@ impl Clock {
         (millis > 0).then_some(millis)
     }
 
-    /// Whether `viewer_core::transition` shapes frames for this style at all.
+    /// Whether `viewer_core::transition` shapes frames for this transition at all.
     ///
-    /// Five of Table 164's twelve are shaped by nothing: four are reported by name, each because
-    /// the table describes it with a quantity it does not state, and the fifth is `R`, which is
-    /// the cut the table defines and so has nothing to report — `viewer_core::transition` owns
-    /// that list and the core has already said which by the time an
+    /// Five of Table 164's twelve styles are shaped by nothing: four are reported by name, each
+    /// because the table describes it with a quantity it does not state, and the fifth is `R`,
+    /// which is the cut the table defines and so has nothing to report. **A sixth refusal is not
+    /// a style**: `Wipe`, `Cover`, `Uncover` and `Push` travel along `/Di`, and a direction
+    /// Table 164 does not give the style is a frame this program does not shape either — which is
+    /// why the argument here is the whole transition and not its style. `viewer_core::transition`
+    /// owns every one of those decisions and the core has said which by the time a
     /// [`viewer_core::Event::Transition`] arrives, so a host asks this instead of repeating it.
     #[must_use]
     pub fn shapes(transition: &Transition, viewport: Rect) -> bool {

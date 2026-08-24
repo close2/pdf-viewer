@@ -32,7 +32,7 @@
 
 use std::collections::BTreeMap;
 
-use pdf_model::navigation::{Style, display_duration, transition};
+use pdf_model::navigation::{Direction, Style, display_duration, transition};
 use pdf_syntax::Document;
 
 /// How many pages of one document are walked.
@@ -49,6 +49,7 @@ fn main() {
     let mut with_steps = 0_usize;
     let mut pages_seen = 0_usize;
     let mut styles: BTreeMap<String, usize> = BTreeMap::new();
+    let mut directions: BTreeMap<String, usize> = BTreeMap::new();
     let mut named: Vec<String> = Vec::new();
 
     for path in std::env::args().skip(1) {
@@ -71,6 +72,11 @@ fn main() {
                 trans = true;
                 let counter = styles.entry(spelling(&found.style)).or_default();
                 *counter = counter.saturating_add(1);
+                if travels(&found.style) {
+                    let key = format!("{} /Di {}", spelling(&found.style), stated(found.direction));
+                    let counter = directions.entry(key).or_default();
+                    *counter = counter.saturating_add(1);
+                }
             }
             dur |= display_duration(&document, &page.dict).is_some();
             steps |= !pdf_model::navigation::steps(&document, &page.dict).is_empty();
@@ -92,8 +98,33 @@ fn main() {
     println!("  {with_dur} state a /Dur on a page");
     println!("  {with_steps} state a /PresSteps on a page");
     println!("  styles: {styles:?}");
+    println!("  directions, on the styles that travel along one: {directions:?}");
     if named.len() <= 40 {
         println!("  stating a /Trans: {}", named.join(" "));
+    }
+}
+
+/// Whether Table 164 gives this style a `/Di` that a rectangle can be swept or slid along.
+///
+/// `Wipe`, `Cover`, `Uncover` and `Push` — the four `viewer_core::transition` shapes a frame for
+/// only where the direction is one of the table's quarter turns. `Glitter` and `Fly` read `/Di`
+/// too and are reported by name whatever it says, so their directions are not what this counts.
+fn travels(style: &Style) -> bool {
+    matches!(
+        style,
+        Style::Wipe | Style::Cover | Style::Uncover | Style::Push
+    )
+}
+
+/// A `/Di` as the file stated it, so that a tally of them can be read against Table 164's five.
+///
+/// **The census counts values and judges none of them**: which of them a frame is shaped for is
+/// `viewer-core`'s decision, made in one expression there, and restating it in an example under
+/// `pdf-model` would be the same decision in two places again.
+fn stated(direction: Direction) -> String {
+    match direction {
+        Direction::Degrees(degrees) => format!("{degrees}"),
+        Direction::None => "/None".to_owned(),
     }
 }
 
