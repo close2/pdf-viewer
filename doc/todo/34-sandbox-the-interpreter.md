@@ -1,6 +1,7 @@
 # Confine the interpreter and the rasteriser
 
-Status: **built, answers every question, stoppable, and not yet where a person would meet it.** The
+Status: **built, answers every question, stoppable, its tier question settled, and not yet where a
+person would meet it.** The
 confined process exists, draws real pages (ADR 0218) and carries all **twenty-nine** questions —
 twenty-five since the three-hundred-and-eighty-sixth (ADR 0223), the caret's inverse and a field's
 selected range since the three-hundred-and-eighty-eighth (ADR 0225), §12.7's form since the
@@ -61,19 +62,37 @@ is `Command::Activate(item.id)`, which follows §12.6's action machinery inside 
 Worth knowing rather than fixing; it becomes a question the day a panel wants to print a number
 beside a row.
 
-### 2. The window is a tier-2 host and this boundary is tier 1
+### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled in the seven-hundred-and-twenty-fourth session
 
 `viewer-ui` hands back `Rendered::Presented` and draws on the graphics device; a confined process
-draws on the processor and hands over a raster. Putting the window on this boundary is therefore a
-change of *tier*, not a change of transport — and `CLAUDE.md` says page one goes to the graphics
-device, by the owner's decision. Two ways out, and neither has been argued:
+draws on the processor and hands over a raster, so putting the window on this boundary is a change
+of *tier* rather than of transport. This entry named two ways out and argued neither. **ADR 0607
+argues both and the answer is display lists**, with the raster payload kept and chosen per page by
+size. What is owed now is the codec, not the decision.
 
-- the host keeps the device and the confined process ships **display lists** rather than pixels,
-  which is the two-protocol design section 0 was glad to be rid of;
-- or the confined process is given a window handle and drives the device itself, which needs
-  `wgpu` inside the confinement — a large surface, and drivers open files.
+**The second way out — a window handle and `wgpu` inside the confinement — does not exist**, and
+that is measured rather than reasoned. `render-quorra`'s `examples/device_under_confinement`
+brings a real device up and confines the process holding it: a device confined *before* drawing
+dies on its first frame, and a device confined after a frame has already been drawn dies on the
+*same* frame drawn again, both with **SIGSYS**, both on `ioctl(DRM_IOCTL_AMDGPU_GEM_CREATE)` — the
+first system call after the filter goes on. A graphics device is a conversation with a kernel
+driver, and no ordering makes it stop needing `ioctl`. The process also holds **9 descriptors
+against the confinement's ceiling of 8**, so `landlock_create_ruleset` fails `EMFILE` and the depth
+layer is gone before the filter is reached. This entry's "a large surface, and drivers open files"
+now has counts: **55 distinct system calls in a bring-up, 35 of them off the interpreter's 28-call
+allow-list**, `/dev/dri/renderD128` with 25 distinct DRM request numbers and about 190 ioctls a
+frame, the shader cache read *and written*, 56 driver manifests parsed, and a socket connected to
+`/tmp/.X11-unix/X0` on a headless run.
 
-Until one of them is settled, the confined path is for hosts that want pixels.
+**What decides the first way out is one number this entry never had**: how big a display list is
+beside the pixels it produces. `viewer-confined`'s `examples/list_against_raster` is that
+instrument — byte counts, so it is load-immune — and over `doc/pdf.js`'s first pages a list is
+**about 2% of its raster at the median** at a window's scale, exceeding it on **4%** of pages,
+which are the scanned ones: a scan's decoded samples *are* its display list. Hence the per-page
+choice. Two constraints came with it and are the codec's, both with numbers in ADR 0607: the
+encoder **must** preserve `Arc` identity or it buys nothing, and `ImageSource::AtDeviceScale` and
+`ShadingKind::Sampled` carry trait objects that cannot cross as they stand — 4 of 958 first pages,
+covered by the raster arm.
 
 ### 3. ~~A hostile document has no deadline~~ — closed in the four-hundred-and-fourth session
 

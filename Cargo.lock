@@ -3720,6 +3720,7 @@ dependencies = [
  "kurbo",
  "pdf-model",
  "pdf-render",
+ "pdf-sandbox",
  "pdf-syntax",
  "png",
  "pollster",

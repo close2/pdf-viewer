@@ -15,6 +15,10 @@ quorra-scene.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# `examples/device_under_confinement` asks what a graphics device does when the process
+# holding it is confined — `doc/todo/34` §2's second way out, measured rather than argued.
+# A dev-dependency, so nothing that ships names it.
+pdf-sandbox.workspace = true
 pollster.workspace = true
 raster-compare.workspace = true
 render-cpu.workspace = true

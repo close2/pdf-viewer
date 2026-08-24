@@ -1,8 +1,8 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
-Status: **open, and one of its two defects is carried out** (ADR 0597). The machinery exists and is
-verified against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash,
-and the tier change is priced but not made.
+Status: **open, one of its two defects carried out (ADR 0597), and the tier change decided (ADR
+0607).** The machinery exists and is verified against the kernel (ADRs 0218, 0223, 0235, 0241); a
+ceiling breach is no longer a crash; the tier change is priced, argued and not yet made.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
@@ -76,12 +76,15 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
 
 ## What a round taking this still owes
 
-- **The tier change itself**, which is [`34`](34-sandbox-the-interpreter.md) §2's unargued
-  question and not a transport problem: `viewer-ui` hands back `Rendered::Presented` and draws on
-  the graphics device, a confined process draws on the processor. Either display lists cross
-  instead of pixels, or `wgpu` goes inside the confinement. **Neither has been argued**, and
-  `CLAUDE.md`'s "page one goes to the graphics device" is what makes it a decision rather than a
-  port.
+- **The tier change itself**, whose *decision* is no longer owed: [`34`](34-sandbox-the-interpreter.md)
+  §2 is settled and ADR 0607 is the argument. **Display lists cross, and the raster payload stays**,
+  chosen per page by comparing the two sizes the confined process can both compute — a list for
+  about 96% of first pages at a window's scale, pixels for the scanned 4% where pixels are smaller.
+  The alternative, `wgpu` inside the confinement, was not rejected on price: a device confined at
+  any point in the ordering dies on its first `ioctl`, and a process holding one cannot install
+  Landlock under this crate's own descriptor ceiling. What is owed here now is **the codec** —
+  both sides, `Arc` identity preserved, a fuzz target beside `confined_wire`, and either an
+  encoding for the two deferred producers or the raster arm they already fall back to.
 - **The cancel path proven from the host**, not only from a test: the owner's brief says the
   callback may not block, and the `Canceller` is already about a millisecond.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the

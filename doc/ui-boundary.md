@@ -595,6 +595,17 @@ question". **It dissolved exactly as predicted**: `viewer-confined` is `Command`
 `Raster` payloads, the confined process owns document, interpretation and rasterisation, and the
 host receives pixels and events — one protocol instead of two.
 
+**And it comes back for the *window*, which is the one host this dissolution did not cover — decided
+in the seven-hundred-and-twenty-fourth session** (ADR 0607). A tier-2 host draws on a device the
+*host* owns, so a confined process behind it has either to ship marks instead of pixels or to hold
+a device of its own; the second was measured and does not exist, because a device confined at any
+point in the ordering dies on its first `ioctl` and a process holding one cannot install Landlock
+under this crate's descriptor ceiling. So **display lists cross for a tier-2 host, and the raster
+payload stays**, chosen per page by comparing two sizes the confined process can both compute —
+about 2% of a raster at the median, larger than one on the 4% of pages that are scans. It is still
+one protocol: `Rendered::{Raster, Presented}` was already a payload choice on this boundary, and
+this makes the choice a measurement rather than a tier.
+
 What the prediction did not say, and what building it showed: **`viewer-core` needed no change at
 all**. The five rules below are a description of a confined process — no filesystem, no clock, no
 threads it was not handed — so the crate written to be free of a *toolkit* turned out to be free of
