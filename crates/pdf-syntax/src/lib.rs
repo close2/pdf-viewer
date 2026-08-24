@@ -46,7 +46,7 @@ pub use document::{
 };
 pub use error::{SyntaxError, SyntaxResult};
 pub use filter::{
-    Damage, Decoded, Delimiting, EncodedExtent, FilterRefusal, Pump, Pumped, Pumping,
+    Damage, Decoded, Delimiting, EncodedExtent, FilterRefusal, Pump, Pumped, Pumping, Stage,
 };
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};

@@ -376,17 +376,7 @@ pub fn decode_reported(
 ) -> Result<Decoded, FilterRefusal> {
     match filter {
         b"FlateDecode" | b"Fl" => flate(data, limits),
-        b"LZWDecode" | b"LZW" => {
-            // Table 8: "If the value of this entry is 0, code length increases shall be
-            // postponed as long as possible. If the value is 1, code length increases shall
-            // occur one code early." Default 1, which is the *incorrect* behaviour of a
-            // widely-copied encoder and is therefore what almost every file needs.
-            let early = parms
-                .and_then(|parms| parms.get("EarlyChange"))
-                .and_then(Object::as_integer)
-                .unwrap_or(1);
-            lzw(data, early != 0, limits)
-        }
+        b"LZWDecode" | b"LZW" => lzw(data, early_change(parms), limits),
         b"ASCIIHexDecode" | b"AHx" => Ok(Decoded::whole(ascii_hex(data))),
         b"ASCII85Decode" | b"A85" => ascii85(data, limits),
         b"RunLengthDecode" | b"RL" => run_length(data, limits),
@@ -790,22 +780,114 @@ pub enum Pumped {
     Damaged(usize, Damage),
 }
 
-/// Which of §7.4's filters a [`Pump`] is to run, and with which of its parameters.
+/// One of §7.4's filters as a *resumable* decoder: which filter, and with the parameter that
+/// decides what its bits mean.
 ///
 /// **The route is chosen once, by `Document::pumping`, and carried rather than re-derived.**
 /// One of §7.8.2's content streams is read more than once — a form, a tiling cell, a glyph
 /// description — so a fresh pump is made per read, and a value that says which decoder to build
 /// is what keeps the second read from asking the question again and answering it differently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pumping {
-    /// `FlateDecode`, with no predictor.
+pub enum Stage {
+    /// `FlateDecode`.
     Inflate,
-    /// `LZWDecode`, with no predictor.
+    /// `LZWDecode`.
     Lzw {
         /// Table 8's `/EarlyChange`, which decides where the code width grows and therefore
         /// what every bit after that point decodes to. Its default is 1, hence `true`.
         early_change: bool,
     },
+    /// `ASCIIHexDecode`.
+    AsciiHex,
+    /// `ASCII85Decode`.
+    Ascii85,
+    /// `RunLengthDecode`.
+    RunLength,
+}
+
+/// Which resumable stage a filter name and its own parameters describe, or `None` where §7.4
+/// gives this crate nothing a window can run.
+///
+/// **All five of §7.4's byte-to-byte filters are here, and what is missing is missing because it
+/// is not one.** §7.4.6's `CCITTFaxDecode`, §7.4.7's `JBIG2Decode`, §7.4.8's `DCTDecode` and
+/// §7.4.9's `JPXDecode` produce a raster with a width, a depth and a component count rather than
+/// a sequence of bytes ([`is_image_codec`] is where that line is drawn), and §7.4.10's `Crypt`
+/// is not a transformation this code performs at all — it declares that the stream is encrypted,
+/// which §7.6 answers before any filter is reached.
+///
+/// **The predictor is deliberately not asked about here**, because the two callers want
+/// different answers and each is right: `Document::pumping` refuses a predicted stage a window,
+/// since §7.4.4.4 reverses each row against its predecessor and that is not a transformation a
+/// few thousand bytes at a time can apply; `Document::filtered_extent` does not care, because a
+/// predictor runs over a stage's *output* and so moves no byte of its input.
+#[must_use]
+pub fn stage(filter: &[u8], parms: Option<&Dictionary>) -> Option<Stage> {
+    Some(match filter {
+        b"FlateDecode" | b"Fl" => Stage::Inflate,
+        b"LZWDecode" | b"LZW" => Stage::Lzw {
+            early_change: early_change(parms),
+        },
+        b"ASCIIHexDecode" | b"AHx" => Stage::AsciiHex,
+        b"ASCII85Decode" | b"A85" => Stage::Ascii85,
+        b"RunLengthDecode" | b"RL" => Stage::RunLength,
+        _ => return None,
+    })
+}
+
+/// Table 8's `/EarlyChange`, ISO 32000-2 §7.4.4.3, read in one place so that the whole decode
+/// and the window cannot build different decoders over the same bits.
+///
+/// Zero postpones a code-length increase as long as possible and one takes it a code early; the
+/// default is one, which is the *incorrect* behaviour of a widely-copied encoder and is
+/// therefore what almost every file needs.
+fn early_change(parms: Option<&Dictionary>) -> bool {
+    parms
+        .and_then(|parms| parms.get("EarlyChange"))
+        .and_then(Object::as_integer)
+        .unwrap_or(1)
+        != 0
+}
+
+/// The chain of stages a [`Pump`] runs, in Table 5's application order — ISO 32000-2 §7.3.8.2:
+///
+/// > Multiple filters shall be specified in the order in which they are to be applied.
+///
+/// **A chain rather than a single stage, because §7.4.1's own two cascades are chains.** Its
+/// EXAMPLE 2 is `/Filter [/ASCII85Decode /LZWDecode]` and its EXAMPLE 3 is a page's marking
+/// instructions under `[/ASCII85Decode /FlateDecode]` — so a window that could run only one
+/// filter left the standard's own worked arrangement decoding a bomb whole, which is how a
+/// hex-wrapped gibibyte escaped road D at 25 000× the cost of the same bomb unwrapped. ADR 0587,
+/// and `doc/todo/14` for the road.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pumping {
+    /// Never empty: a chain of no stages is a stream with no filter, which nothing pumps.
+    stages: Vec<Stage>,
+}
+
+impl Pumping {
+    /// The chain, or `None` where there is no stage to run.
+    #[must_use]
+    pub fn of(stages: Vec<Stage>) -> Option<Self> {
+        if stages.is_empty() {
+            None
+        } else {
+            Some(Self { stages })
+        }
+    }
+
+    /// A chain of one.
+    #[must_use]
+    pub fn single(stage: Stage) -> Self {
+        Self {
+            stages: vec![stage],
+        }
+    }
+
+    /// The stages, in the order they are applied.
+    #[must_use]
+    pub fn stages(&self) -> &[Stage] {
+        &self.stages
+    }
 }
 
 /// A decode in progress, producing its output a window at a time.
@@ -825,21 +907,101 @@ pub struct Pump {
     /// The still-encoded bytes, held whole because they are already resident: the pump takes
     /// its input from the stream object rather than copying it.
     data: Arc<[u8]>,
-    /// The decoder, held across turns — which is what makes this a pump rather than a decode.
-    engine: Engine,
+    /// How many of `data` the first stage has taken.
+    at: usize,
+    /// Which chain this is, kept so that a second read of the same stream builds the same
+    /// decoders without asking the document again.
+    pumping: Pumping,
+    /// One per stage, in Table 5's application order. Never empty.
+    running: Vec<Running>,
     /// Set once end-of-data or damage has been reported, so that a further turn is a no-op
     /// rather than a second report.
     finished: bool,
 }
 
-/// The decoder a [`Pump`] holds across its turns.
+/// One stage of a chain in progress: its decoder, and the bytes it has produced that the next
+/// stage has not taken.
+///
+/// **The link is a fixed buffer and that is the whole trick.** Stage *n*'s output is stage
+/// *n+1*'s input, and if that output were a `Vec` grown to the size of the answer then a bomb
+/// behind an ASCII armour would cost its gibibyte before the pumping stage ever saw it — which
+/// is exactly how one escaped road D (ADR 0586). Here it costs [`LINK`] bytes per stage.
+#[derive(Debug)]
+struct Running {
+    /// The decoder, held across turns — which is what makes this a pump rather than a decode.
+    engine: Engine,
+    /// What this stage has produced and the next has not taken. The last stage of a chain
+    /// writes into the caller's window instead and leaves this empty.
+    link: Vec<u8>,
+    /// How much of `link` holds bytes.
+    filled: usize,
+    /// How much of `link` the next stage has taken.
+    at: usize,
+    /// How this stage finished, once it has.
+    done: Option<Ending>,
+}
+
+/// The two ways a stage stops having more to give.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    /// The filter's own end-of-data was read.
+    Ended,
+    /// The decode stopped short of it.
+    Damaged(Damage),
+}
+
+/// How many bytes stand between one stage and the next.
+///
+/// **A scratch buffer rather than a policy**, which is `doc/todo/14`'s argument for the whole
+/// road: a window's size is not a number anybody has to defend, and ADR 0362 measured 4 KiB,
+/// 64 KiB and 1 MiB windows at the same peak on the same document. What this one also has to be
+/// is large enough for [`Inflate`]'s framing retry — see [`Pump::pump`].
+const LINK: usize = 8192;
+
+/// What one turn of one stage did with the input it was offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Turned {
+    /// How many of the offered input bytes it took.
+    took: usize,
+    /// How many bytes it wrote into the room it was given.
+    wrote: usize,
+    /// Where the stage stands now.
+    state: Standing,
+}
+
+/// Where a stage stands after a turn.
+///
+/// There is deliberately no *hungry* answer beside [`Standing::More`]: a stage that has run out
+/// of the input it was offered and a stage that has more to do with what it holds are the same
+/// instruction to the driver — turn me again — and the difference between them is `last`, which
+/// the driver already knows because it owns the source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// Turn it again.
+    More,
+    /// It wants to re-read its input from the beginning under the other framing. Only
+    /// [`Inflate`] asks, and only before it has produced a byte.
+    Rewind,
+    /// The filter's own end-of-data was read.
+    Ended,
+    /// The decode stopped short of it.
+    Damaged(Damage),
+}
+
+/// The decoder a [`Running`] stage holds across its turns.
 #[derive(Debug)]
 enum Engine {
     /// `FlateDecode`, driven through `flate2::Decompress`.
     Inflate(Inflate),
-    /// `LZWDecode`. **Boxed**, because §7.4.4.2's table is twelve kilobytes and an inflating
-    /// pump would otherwise carry room for one it will never fill.
+    /// `LZWDecode`. **Boxed**, because §7.4.4.2's table is twelve kilobytes and every other
+    /// engine would otherwise carry room for one it will never fill.
     Lzw(Box<Lzw>),
+    /// `ASCIIHexDecode`.
+    AsciiHex(AsciiHex),
+    /// `ASCII85Decode`.
+    Ascii85(Ascii85),
+    /// `RunLengthDecode`.
+    RunLength(RunLength),
 }
 
 /// One `FlateDecode` in progress. See [`Pump`].
@@ -849,55 +1011,134 @@ struct Inflate {
     decoder: flate2::Decompress,
     /// Whether `decoder` expects zlib's two-byte header.
     zlib_header: bool,
-    /// How many of the encoded bytes the decoder has taken, from `start`.
-    consumed: usize,
-    /// Where the encoded data begins; [`flate`] skips leading white space before the header,
-    /// and a resumable decoder has to skip the same bytes.
-    start: usize,
-    /// How much output the pump has produced, which is what says whether a restart under the
-    /// other framing is still free.
+    /// Whether leading white space is still being skipped; [`flate`] skips it before the header
+    /// check and a resumable decoder has to skip the same bytes.
+    skipping: bool,
+    /// How much output this stage has produced, which is half of what says whether a restart
+    /// under the other framing is still free.
     produced: u64,
+    /// Set where the driver can no longer offer the input again, which is the other half. See
+    /// [`Pump::pump`].
+    settled: bool,
+}
+
+/// One `ASCIIHexDecode` in progress, ISO 32000-2 §7.4.2. See [`ascii_hex`] for the clause.
+///
+/// **The whole of the state is one nibble**, which is what makes this the easiest stage in §7.4
+/// to window: the filter "shall produce one byte of binary data for each pair of ASCII
+/// hexadecimal digits", so a byte of output depends on two bytes of input and on nothing else.
+#[derive(Debug, Default)]
+struct AsciiHex {
+    /// The high nibble of a byte whose second digit has not arrived.
+    pending: Option<u8>,
+    /// §7.4.2's EOD has been read, or the input ran out; what may be left is the odd digit's
+    /// zero.
+    ended: bool,
+}
+
+/// One `ASCII85Decode` in progress, ISO 32000-2 §7.4.3. See [`ascii85`] for the clause.
+#[derive(Debug, Default)]
+struct Ascii85 {
+    /// The digits of a group that is not yet five long.
+    group: [u8; 5],
+    /// How many of them there are.
+    count: usize,
+    /// Whether the optional `<~` introducer has been looked for.
+    opened: bool,
+    /// The bytes a completed group produced, in as far as the window has not taken them: a
+    /// group yields four at once and a window is not obliged to have room for four.
+    spill: [u8; 4],
+    /// How many of `spill` are the group's.
+    spill_len: usize,
+    /// How many of those have been handed over.
+    spill_at: usize,
+    /// The EOD marker has been read, or the input ran out.
+    ended: bool,
+}
+
+/// Where a `RunLengthDecode` stands between bytes, ISO 32000-2 §7.4.5.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Run {
+    /// Waiting for a run's length byte.
+    #[default]
+    Length,
+    /// Copying this many more bytes literally.
+    Literal {
+        /// How many are left of the run.
+        left: usize,
+    },
+    /// Waiting for the byte a repeat run repeats.
+    Repeating {
+        /// How many times it will be repeated.
+        left: usize,
+    },
+    /// Repeating that byte, that many more times.
+    Repeat {
+        /// The byte.
+        byte: u8,
+        /// How many are left of the run.
+        left: usize,
+    },
+}
+
+/// One `RunLengthDecode` in progress. See [`run_length`] for the clause.
+#[derive(Debug, Default)]
+struct RunLength {
+    /// Where it stands between bytes.
+    run: Run,
 }
 
 impl Engine {
-    /// The decoder `pumping` names, positioned at the start of `data`.
+    /// The decoder `stage` names, at the start of its input.
     ///
     /// `FlateDecode`'s white-space skip is [`flate`]'s, kept exactly, and the zlib-then-raw
-    /// fallback is taken later by [`Inflate::pump`]: a stream missing its two-byte header is
+    /// fallback is taken later by [`Inflate::turn`]: a stream missing its two-byte header is
     /// common in the wild, and a decoder that has produced nothing yet can be restarted under
     /// the other framing for nothing.
-    fn new(pumping: Pumping, data: &[u8]) -> Self {
-        match pumping {
-            Pumping::Inflate => {
-                let start = data
-                    .iter()
-                    .position(|&byte| !crate::lexer::is_whitespace(byte))
-                    .unwrap_or(data.len());
-                Self::Inflate(Inflate {
-                    decoder: flate2::Decompress::new(true),
-                    zlib_header: true,
-                    consumed: 0,
-                    start,
-                    produced: 0,
-                })
+    fn new(stage: Stage) -> Self {
+        match stage {
+            Stage::Inflate => Self::Inflate(Inflate {
+                decoder: flate2::Decompress::new(true),
+                zlib_header: true,
+                skipping: true,
+                produced: 0,
+                settled: false,
+            }),
+            Stage::Lzw { early_change } => Self::Lzw(Box::new(Lzw::new(early_change))),
+            Stage::AsciiHex => Self::AsciiHex(AsciiHex::default()),
+            Stage::Ascii85 => Self::Ascii85(Ascii85::default()),
+            Stage::RunLength => Self::RunLength(RunLength::default()),
+        }
+    }
+
+    /// One turn of whichever decoder this is, over the input it has not taken.
+    ///
+    /// `last` says that no further input will arrive, which is what tells a decoder that has run
+    /// out of bytes apart from one that is merely waiting for the stage in front of it.
+    fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
+        match self {
+            Self::Inflate(inflate) => inflate.turn(input, last, out),
+            Self::Lzw(lzw) => lzw.turn(input, last, out),
+            Self::AsciiHex(hex) => hex.turn(input, last, out),
+            Self::Ascii85(ascii85) => ascii85.turn(input, last, out),
+            Self::RunLength(runs) => runs.turn(input, last, out),
+        }
+    }
+
+    /// Whether this stage may still ask for its input from the beginning again.
+    fn may_rewind(&self) -> bool {
+        match self {
+            Self::Inflate(inflate) => {
+                inflate.produced == 0 && inflate.zlib_header && !inflate.settled
             }
-            Pumping::Lzw { early_change } => Self::Lzw(Box::new(Lzw::new(early_change))),
+            _ => false,
         }
     }
 
-    /// How many of the encoded bytes the decoder has taken, counting from the start of `data`.
-    fn consumed(&self) -> usize {
-        match self {
-            Self::Inflate(inflate) => inflate.start.saturating_add(inflate.consumed),
-            Self::Lzw(lzw) => lzw.at,
-        }
-    }
-
-    /// One turn of whichever decoder this is. See [`Pump::pump`].
-    fn pump(&mut self, data: &[u8], out: &mut [u8]) -> Pumped {
-        match self {
-            Self::Inflate(inflate) => inflate.pump(data, out),
-            Self::Lzw(lzw) => lzw.pump(data, out),
+    /// Gives up the right to ask, because the driver can no longer offer the bytes.
+    fn settle(&mut self) {
+        if let Self::Inflate(inflate) = self {
+            inflate.settled = true;
         }
     }
 }
@@ -939,7 +1180,10 @@ pub enum EncodedExtent {
 pub enum Delimiting {
     /// Run the decoder and ask how much input it took: `FlateDecode` and `LZWDecode`, whose
     /// end-of-data is RFC 1951's final block and §7.4.4.2's `EarlyChange`-dependent 257.
-    Decoded(Pumping),
+    ///
+    /// One stage rather than a chain, because Table 5 applies the filters "in the order in
+    /// which they are to be applied" and the bytes in the file are the *first* stage's input.
+    Decoded(Stage),
     /// A byte sequence no correctly encoded byte of the filter's own alphabet can be.
     ///
     /// §7.4.2, of `ASCIIHexDecode`:
@@ -1010,26 +1254,34 @@ pub fn encoded_extent(delimiting: Delimiting, data: &[u8], ceiling: usize) -> En
 /// size held across a scan whose whole purpose is to avoid one — and it replaces a linear
 /// search over the same bytes, so the population it runs on is one where a walk over those
 /// bytes was the cost already.
-fn decoded_extent(pumping: Pumping, data: &[u8], ceiling: usize) -> EncodedExtent {
+fn decoded_extent(stage: Stage, data: &[u8], ceiling: usize) -> EncodedExtent {
     // Room for one turn's output, which is thrown away. §7.4.4.2 caps an `LZWDecode` entry at
-    // 4096 bytes and `Lzw::pump` hands a longer sequence over in pieces, so any size works and
+    // 4096 bytes and `Lzw::turn` hands a longer sequence over in pieces, so any size works and
     // this one is a page of them.
     let mut sink = [0u8; 8192];
-    let mut engine = Engine::new(pumping, data);
+    let mut engine = Engine::new(stage);
+    let mut consumed = 0usize;
     let mut produced = 0usize;
     loop {
-        match engine.pump(data, &mut sink) {
-            Pumped::Wrote(wrote) => {
-                produced = produced.saturating_add(wrote);
+        // The whole buffer is offered at once, so there is never more input to come and the
+        // stage's own end-of-data is the only thing that can stop it short.
+        let turned = engine.turn(data.get(consumed..).unwrap_or_default(), true, &mut sink);
+        consumed = consumed.saturating_add(turned.took);
+        produced = produced.saturating_add(turned.wrote);
+        match turned.state {
+            Standing::More => {
                 if produced > ceiling {
                     return EncodedExtent::Unknown;
                 }
             }
-            Pumped::Ended(_) => return EncodedExtent::Ends(engine.consumed().min(data.len())),
+            // The other framing gets its turn over the same bytes, exactly as [`flate`] gives
+            // it one over the whole buffer.
+            Standing::Rewind => consumed = 0,
+            Standing::Ended => return EncodedExtent::Ends(consumed.min(data.len())),
             // The input ending before the marker is what [`Damage::Truncated`] is, and it is
             // the one damage a longer buffer could still answer.
-            Pumped::Damaged(_, Damage::Truncated) => return EncodedExtent::Short,
-            Pumped::Damaged(_, _) => return EncodedExtent::Unknown,
+            Standing::Damaged(Damage::Truncated) => return EncodedExtent::Short,
+            Standing::Damaged(_) => return EncodedExtent::Unknown,
         }
     }
 }
@@ -1297,100 +1549,275 @@ fn end_of_block_extent(data: &[u8], end_of_lines: u32) -> EncodedExtent {
 }
 
 impl Pump {
-    /// A pump over `data`, decoding it as [`decode_reported`] would.
+    /// A pump over `data`, decoding it as [`decode_reported`] would run the same chain.
     ///
     /// `FlateDecode`'s white-space skip and zlib-then-raw fallback are [`flate`]'s, kept
     /// exactly: a stream missing its two-byte header is common in the wild, and a decoder that
     /// has produced nothing yet can be restarted under the other framing for nothing.
     #[must_use]
     pub fn new(pumping: Pumping, data: Arc<[u8]>) -> Self {
-        let engine = Engine::new(pumping, &data);
+        let count = pumping.stages().len();
+        let running = pumping
+            .stages()
+            .iter()
+            .enumerate()
+            .map(|(index, stage)| Running {
+                engine: Engine::new(*stage),
+                // The last stage writes into the caller's window, so it needs no link of its
+                // own — and a chain of one, which is every stream this crate pumped before ADR
+                // 0587, therefore allocates nothing here at all.
+                link: if index.saturating_add(1) == count {
+                    Vec::new()
+                } else {
+                    vec![0u8; LINK]
+                },
+                filled: 0,
+                at: 0,
+                done: None,
+            })
+            .collect();
         Self {
             data,
-            engine,
+            at: 0,
+            pumping,
+            running,
             finished: false,
         }
     }
 
-    /// Which filter this pump runs, so that a second read of the same stream builds the same
-    /// decoder without asking the document again.
+    /// Which chain this pump runs, so that a second read of the same stream builds the same
+    /// decoders without asking the document again.
     #[must_use]
     pub fn pumping(&self) -> Pumping {
-        match &self.engine {
-            Engine::Inflate(_) => Pumping::Inflate,
-            Engine::Lzw(lzw) => Pumping::Lzw {
-                early_change: lzw.early_change,
-            },
-        }
+        self.pumping.clone()
     }
 
     /// Writes the next bytes of the decoded stream into `out`.
     ///
     /// `out` must not be empty: a decoder given no room makes no progress, and for
     /// `FlateDecode` no progress is how [`turn`] recognises a truncated input.
+    ///
+    /// **One pass over the chain per call, front to back**, so that bytes a stage produces reach
+    /// the stage after it within the same call rather than a call later. A pass that moves bytes
+    /// without any of them reaching the end of the chain answers [`Pumped::Wrote`] with zero,
+    /// which `pdf_model::content::reader` already documents as "progress of a kind the caller
+    /// must keep asking through" — an inflate that takes input without emitting has always been
+    /// able to answer that way.
+    ///
+    /// **The one thing a chain has that a single stage did not is a rewind.** [`Inflate`] asks
+    /// to re-read its input under raw framing when zlib's produced nothing, and for the first
+    /// stage that is free because the whole encoded buffer is still there. For a later stage the
+    /// input is a [`LINK`]-byte link, so the driver holds its bytes back from compaction until
+    /// the stage reading them has produced something — and where that cannot be done, because
+    /// the stage consumed a whole link's worth without emitting a byte, it is told
+    /// ([`Engine::settle`]) that the offer is withdrawn rather than being allowed to ask for
+    /// bytes that are gone. A zlib framing that is wrong fails at its two-byte header, so the
+    /// withdrawal needs a stage that consumes eight kilobytes of a *valid* zlib stream while
+    /// emitting nothing and then fails; that stream decodes to nothing under raw framing either.
     pub fn pump(&mut self, out: &mut [u8]) -> Pumped {
         if self.finished || out.is_empty() {
             return Pumped::Wrote(0);
         }
-        let pumped = self.engine.pump(&self.data, out);
-        if matches!(pumped, Pumped::Ended(_) | Pumped::Damaged(_, _)) {
-            self.finished = true;
+        let count = self.running.len();
+        let mut progressed = false;
+        let mut wrote = 0usize;
+
+        // **Every link is compacted before any stage runs**, because a link is compacted on the
+        // authority of the stage that *reads* it and filled by the stage that writes it — and a
+        // pass that did both in one visit left the writer looking at a full buffer it was about
+        // to be given room in, which stalled the whole chain at eight kilobytes a turn.
+        for index in 1..count {
+            let (before, from) = self.running.split_at_mut(index);
+            let (Some(up), Some(running)) = (before.last_mut(), from.first_mut()) else {
+                break;
+            };
+            if up.at == 0 {
+                continue;
+            }
+            // The bytes may only be dropped once the stage reading them can no longer ask for
+            // them again — and where that stage has taken a whole link's worth without emitting
+            // a byte, the offer is withdrawn rather than the buffer being allowed to grow.
+            if running.engine.may_rewind() && up.filled < up.link.len() {
+                continue;
+            }
+            running.engine.settle();
+            up.link.copy_within(up.at..up.filled, 0);
+            up.filled = up.filled.saturating_sub(up.at);
+            up.at = 0;
         }
-        pumped
-    }
-}
 
-impl Inflate {
-    /// One turn of the inflate, writing into `out`. See [`Pump::pump`].
-    fn pump(&mut self, data: &[u8], out: &mut [u8]) -> Pumped {
-        loop {
-            let input = data
-                .get(self.start.saturating_add(self.consumed)..)
-                .unwrap_or_default();
-            let (before_in, before_out) = (self.decoder.total_in(), self.decoder.total_out());
-            let status = self
-                .decoder
-                .decompress(input, out, flate2::FlushDecompress::None);
-            let took = self.decoder.total_in().saturating_sub(before_in);
-            let wrote = usize::try_from(self.decoder.total_out().saturating_sub(before_out))
-                .unwrap_or(usize::MAX);
-            self.consumed = self
-                .consumed
-                .saturating_add(usize::try_from(took).unwrap_or(usize::MAX));
-            self.produced = self.produced.saturating_add(wrote as u64);
+        for index in 0..count {
+            let (before, from) = self.running.split_at_mut(index);
+            let mut upstream = before.last_mut();
+            let Some(running) = from.first_mut() else {
+                break;
+            };
+            if running.done.is_some() {
+                continue;
+            }
 
-            match turn(&status, took > 0 || wrote > 0) {
-                Turn::Again => return Pumped::Wrote(wrote),
-                Turn::Whole => return Pumped::Ended(wrote),
-                // Nothing has come out under this framing, so the other one gets its turn —
-                // [`flate`]'s fallback, taken here at the point the first framing fails
-                // rather than after a whole decode. A restart is free exactly while the
-                // pump has produced nothing, because there is nothing to un-hand-over.
-                Turn::Damaged(damage) => {
-                    if self.produced == 0 && self.zlib_header {
-                        self.zlib_header = false;
-                        self.decoder = flate2::Decompress::new(false);
-                        self.consumed = 0;
-                        continue;
-                    }
-                    return Pumped::Damaged(wrote, damage);
+            let (input, last) = match upstream.as_deref() {
+                Some(up) => (
+                    up.link.get(up.at..up.filled).unwrap_or_default(),
+                    up.done.is_some(),
+                ),
+                // The first stage's input is the whole encoded buffer, and there is never any
+                // more of it than the file holds.
+                None => (self.data.get(self.at..).unwrap_or_default(), true),
+            };
+
+            let turned = if index.saturating_add(1) == count {
+                running.engine.turn(input, last, out)
+            } else {
+                let Running {
+                    engine,
+                    link,
+                    filled,
+                    ..
+                } = running;
+                let room = link.get_mut(*filled..).unwrap_or_default();
+                if room.is_empty() {
+                    // The stage after this one has to drain the link before there is anywhere
+                    // to put more.
+                    continue;
                 }
+                engine.turn(input, last, room)
+            };
+
+            if turned.took > 0 || turned.wrote > 0 {
+                progressed = true;
+            }
+            match upstream.as_deref_mut() {
+                Some(up) => up.at = up.at.saturating_add(turned.took),
+                None => self.at = self.at.saturating_add(turned.took),
+            }
+            if index.saturating_add(1) == count {
+                wrote = turned.wrote;
+            } else {
+                running.filled = running.filled.saturating_add(turned.wrote);
+            }
+
+            match turned.state {
+                Standing::More => {}
+                Standing::Rewind => {
+                    // A stage may ask at most twice — zlib once, raw once — and `may_rewind`
+                    // is false for ever afterwards, so this cannot loop.
+                    progressed = true;
+                    match upstream {
+                        Some(up) => up.at = 0,
+                        None => self.at = 0,
+                    }
+                }
+                Standing::Ended => running.done = Some(Ending::Ended),
+                Standing::Damaged(damage) => running.done = Some(Ending::Damaged(damage)),
+            }
+        }
+
+        match self.running.last().and_then(|last| last.done) {
+            Some(Ending::Ended) => {
+                self.finished = true;
+                Pumped::Ended(wrote)
+            }
+            Some(Ending::Damaged(damage)) => {
+                self.finished = true;
+                Pumped::Damaged(wrote, damage)
+            }
+            None if progressed => Pumped::Wrote(wrote),
+            // **Unreachable, and loud rather than silent because the alternative is a hang.**
+            // A pass moves nothing only if every stage is waiting for input that will not come,
+            // and a stage whose source is closed is given `last`, on which every engine here
+            // ends or reports damage rather than asking again. Saying so costs a branch and
+            // keeps a decoder defect from becoming an unkillable loop in the reader's refill.
+            None => {
+                self.finished = true;
+                Pumped::Damaged(wrote, Damage::Truncated)
             }
         }
     }
 }
 
+impl Inflate {
+    /// One turn of the inflate. See [`Engine::turn`].
+    fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
+        let mut took = 0usize;
+        if self.skipping {
+            match input
+                .iter()
+                .position(|&byte| !crate::lexer::is_whitespace(byte))
+            {
+                Some(at) => {
+                    took = at;
+                    self.skipping = false;
+                }
+                // [`flate`] refuses a buffer that is white space to its end, and refuses it as
+                // corrupt rather than as damaged, so a chain that produced nothing but white
+                // space reaches the same answer through `part.kept == 0`.
+                None => {
+                    return Turned {
+                        took: input.len(),
+                        wrote: 0,
+                        state: if last {
+                            Standing::Damaged(Damage::Corrupt)
+                        } else {
+                            Standing::More
+                        },
+                    };
+                }
+            }
+        }
+
+        let body = input.get(took..).unwrap_or_default();
+        let (before_in, before_out) = (self.decoder.total_in(), self.decoder.total_out());
+        let status = self
+            .decoder
+            .decompress(body, out, flate2::FlushDecompress::None);
+        let read = usize::try_from(self.decoder.total_in().saturating_sub(before_in))
+            .unwrap_or(usize::MAX);
+        let wrote = usize::try_from(self.decoder.total_out().saturating_sub(before_out))
+            .unwrap_or(usize::MAX);
+        took = took.saturating_add(read);
+        self.produced = self.produced.saturating_add(wrote as u64);
+
+        let state = match turn(&status, read > 0 || wrote > 0) {
+            Turn::Again => Standing::More,
+            Turn::Whole => Standing::Ended,
+            // No progress with input still to come is a stage waiting rather than a stream
+            // that stopped: [`turn`] cannot tell those apart, because over a whole buffer
+            // there is no such thing as input still to come.
+            Turn::Damaged(Damage::Truncated) if !last => Standing::More,
+            // Nothing has come out under this framing, so the other one gets its turn —
+            // [`flate`]'s fallback, taken here at the point the first framing fails rather
+            // than after a whole decode. A restart is free exactly while the stage has
+            // produced nothing, because there is nothing to un-hand-over.
+            Turn::Damaged(damage) => {
+                if self.produced == 0 && self.zlib_header && !self.settled {
+                    self.zlib_header = false;
+                    self.decoder = flate2::Decompress::new(false);
+                    self.skipping = true;
+                    return Turned {
+                        took: 0,
+                        wrote: 0,
+                        state: Standing::Rewind,
+                    };
+                }
+                Standing::Damaged(damage)
+            }
+        };
+        Turned { took, wrote, state }
+    }
+}
+
 impl Lzw {
-    /// One turn of the LZW decode, writing into `out`. See [`Pump::pump`].
+    /// One turn of the LZW decode. See [`Engine::turn`].
     ///
     /// **A code names a sequence and a window has room for however much it has room for**, so
     /// the sequence the last [`Self::step`] produced is handed over in pieces across as many
     /// turns as it takes. That is the only thing this route has that [`lzw`]'s has not: an
     /// entry can be 4096 bytes and a window is not obliged to be larger than one.
-    fn pump(&mut self, data: &[u8], out: &mut [u8]) -> Pumped {
+    fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
         let mut wrote = 0usize;
-        let mut stopped: Option<Step> = None;
-        loop {
+        let mut stopped: Option<Standing> = None;
+        let state = loop {
             let room = out.len().saturating_sub(wrote);
             let pending = self.pending();
             let take = pending.len().min(room);
@@ -1406,20 +1833,325 @@ impl Lzw {
             }
             if self.spill_at < self.spill.len() {
                 // The window filled before the sequence did; the rest is the next turn's.
-                return Pumped::Wrote(wrote);
+                break Standing::More;
             }
-            match stopped {
-                Some(Step::Ended) => return Pumped::Ended(wrote),
-                Some(Step::Damaged(damage)) => return Pumped::Damaged(wrote, damage),
-                // `step` never hands back `Again` as a stopping reason.
-                Some(Step::Again) | None => {}
+            if let Some(standing) = stopped {
+                break standing;
             }
             if wrote >= out.len() {
-                return Pumped::Wrote(wrote);
+                break Standing::More;
             }
-            match self.step(data) {
+            match self.step(input) {
                 Step::Again => {}
-                ended => stopped = Some(ended),
+                // The input this stage was offered ran out mid-code; `held` and `bits` keep
+                // the part of it already read, so the next turn resumes inside the same code.
+                Step::Damaged(Damage::Truncated) if !last => break Standing::More,
+                Step::Ended => stopped = Some(Standing::Ended),
+                Step::Damaged(damage) => stopped = Some(Standing::Damaged(damage)),
+            }
+        };
+        // `at` indexes the bytes this turn was offered, and the driver takes them from the
+        // source; the next turn starts at nothing again.
+        let took = self.at;
+        self.at = 0;
+        Turned { took, wrote, state }
+    }
+}
+
+impl AsciiHex {
+    /// One turn of the hexadecimal decode. See [`Engine::turn`] and [`ascii_hex`].
+    fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
+        let mut took = 0usize;
+        let mut wrote = 0usize;
+        while !self.ended && wrote < out.len() {
+            let Some(&byte) = input.get(took) else {
+                // No EOD marker in what there is. If there will be no more, §7.4.2's odd-digit
+                // rule is all that is left to apply — which is what [`ascii_hex`] does when it
+                // falls off the end of its buffer, and it calls that whole rather than damaged.
+                if last {
+                    self.ended = true;
+                }
+                break;
+            };
+            took = took.saturating_add(1);
+            if byte == b'>' {
+                self.ended = true;
+                break;
+            }
+            let value = match byte {
+                b'0'..=b'9' => byte.saturating_sub(b'0'),
+                b'a'..=b'f' => byte.saturating_sub(b'a').saturating_add(10),
+                b'A'..=b'F' => byte.saturating_sub(b'A').saturating_add(10),
+                // [`ascii_hex`]'s deliberate departure from "[a]ny other characters shall cause
+                // an error", stated there and pinned by its own test.
+                _ => continue,
+            };
+            match self.pending.take() {
+                Some(high) => {
+                    if let Some(slot) = out.get_mut(wrote) {
+                        *slot = high.saturating_mul(16).saturating_add(value);
+                        wrote = wrote.saturating_add(1);
+                    }
+                }
+                None => self.pending = Some(value),
+            }
+        }
+        if !self.ended {
+            return Turned {
+                took,
+                wrote,
+                state: Standing::More,
+            };
+        }
+        // "If the filter encounters the EOD marker after reading an odd number of hexadecimal
+        // digits, it shall behave as if a 0 (zero) followed the last digit."
+        if let Some(high) = self.pending {
+            let Some(slot) = out.get_mut(wrote) else {
+                // No room for the last byte; it is the next turn's, and the end with it.
+                return Turned {
+                    took,
+                    wrote,
+                    state: Standing::More,
+                };
+            };
+            *slot = high.saturating_mul(16);
+            wrote = wrote.saturating_add(1);
+            self.pending = None;
+        }
+        Turned {
+            took,
+            wrote,
+            state: Standing::Ended,
+        }
+    }
+}
+
+impl Ascii85 {
+    /// One turn of the base-85 decode. See [`Engine::turn`] and [`ascii85`].
+    fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
+        let mut took = 0usize;
+        let mut wrote = 0usize;
+        if !self.opened {
+            // The optional `<~` introducer, which needs two bytes to recognise and is only ever
+            // at the very beginning.
+            if input.len() < 2 && !last {
+                return Turned {
+                    took: 0,
+                    wrote: 0,
+                    state: Standing::More,
+                };
+            }
+            self.opened = true;
+            if input.starts_with(b"<~") {
+                took = 2;
+            }
+        }
+        loop {
+            while self.spill_at < self.spill_len && wrote < out.len() {
+                let (Some(slot), Some(&byte)) = (out.get_mut(wrote), self.spill.get(self.spill_at))
+                else {
+                    break;
+                };
+                *slot = byte;
+                wrote = wrote.saturating_add(1);
+                self.spill_at = self.spill_at.saturating_add(1);
+            }
+            if self.spill_at < self.spill_len {
+                return Turned {
+                    took,
+                    wrote,
+                    state: Standing::More,
+                };
+            }
+            self.spill_len = 0;
+            self.spill_at = 0;
+            if self.ended {
+                return Turned {
+                    took,
+                    wrote,
+                    state: Standing::Ended,
+                };
+            }
+            if wrote >= out.len() {
+                return Turned {
+                    took,
+                    wrote,
+                    state: Standing::More,
+                };
+            }
+            let Some(&byte) = input.get(took) else {
+                if !last {
+                    return Turned {
+                        took,
+                        wrote,
+                        state: Standing::More,
+                    };
+                }
+                // The bytes ran out before the EOD marker. [`ascii85`] flushes the partial
+                // group and calls that whole, because §7.4.3 makes a partial final group the
+                // encoding rather than damage.
+                self.close();
+                continue;
+            };
+            took = took.saturating_add(1);
+            if crate::lexer::is_whitespace(byte) {
+                continue;
+            }
+            if byte == b'~' {
+                self.close();
+                continue;
+            }
+            // "if all five bytes are 0, they shall be represented by the character with code
+            // 122 (z)", and only between groups.
+            if byte == b'z' && self.count == 0 {
+                self.spill = [0; 4];
+                self.spill_len = 4;
+                self.spill_at = 0;
+                continue;
+            }
+            if !(b'!'..=b'u').contains(&byte) {
+                // §7.4.3: any other character "shall cause an error". A window has already given
+                // its bytes to a lexer, so the error is met where it is and the groups in front
+                // of it stand — which is ADR 0343's rule for a content stream, and a content
+                // stream is the only thing a window is ever run over. [`ascii85`] refuses the
+                // whole stream instead, for the population *it* serves, and says why.
+                return Turned {
+                    took,
+                    wrote,
+                    state: Standing::Damaged(Damage::Corrupt),
+                };
+            }
+            if let Some(slot) = self.group.get_mut(self.count) {
+                *slot = byte.saturating_sub(b'!');
+            }
+            self.count = self.count.saturating_add(1);
+            if self.count == 5 {
+                self.expand(5);
+                self.count = 0;
+            }
+        }
+    }
+
+    /// Ends the stream, flushing §7.4.3's partial final group.
+    fn close(&mut self) {
+        self.ended = true;
+        if self.count > 1 {
+            // "the last, partial group of 4 shall be used to produce a last, partial group of 5
+            // output characters" — padded with the maximum digit and cut back to `count - 1`.
+            for slot in self.group.iter_mut().skip(self.count) {
+                *slot = 84;
+            }
+            self.expand(self.count);
+        }
+        self.count = 0;
+    }
+
+    /// Turns the group into the `count - 1` bytes it names.
+    fn expand(&mut self, count: usize) {
+        let mut value = 0u32;
+        for digit in self.group {
+            value = value.saturating_mul(85).saturating_add(u32::from(digit));
+        }
+        self.spill = value.to_be_bytes();
+        self.spill_len = count.saturating_sub(1).min(4);
+        self.spill_at = 0;
+    }
+}
+
+impl RunLength {
+    /// One turn of the run-length decode. See [`Engine::turn`] and [`run_length`].
+    fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
+        let mut took = 0usize;
+        let mut wrote = 0usize;
+        // "The encoded data shall be a sequence of runs, where each run shall consist of a
+        // length byte followed by 1 to 128 bytes of data", so the input ending anywhere other
+        // than on a `128` is the stream stopping short — [`run_length`]'s [`Damage::Truncated`].
+        let short = |took: usize, wrote: usize| Turned {
+            took,
+            wrote,
+            state: if last {
+                Standing::Damaged(Damage::Truncated)
+            } else {
+                Standing::More
+            },
+        };
+        loop {
+            if wrote >= out.len() {
+                return Turned {
+                    took,
+                    wrote,
+                    state: Standing::More,
+                };
+            }
+            match self.run {
+                Run::Length => {
+                    let Some(&length) = input.get(took) else {
+                        return short(took, wrote);
+                    };
+                    took = took.saturating_add(1);
+                    self.run = match length {
+                        // "A length value of 128 shall denote EOD."
+                        128 => {
+                            return Turned {
+                                took,
+                                wrote,
+                                state: Standing::Ended,
+                            };
+                        }
+                        0..=127 => Run::Literal {
+                            left: usize::from(length).saturating_add(1),
+                        },
+                        _ => Run::Repeating {
+                            left: 257usize.saturating_sub(usize::from(length)),
+                        },
+                    };
+                }
+                Run::Literal { left } => {
+                    let available = input.len().saturating_sub(took);
+                    if available == 0 {
+                        return short(took, wrote);
+                    }
+                    let take = left.min(available).min(out.len().saturating_sub(wrote));
+                    let (Some(slot), Some(source)) = (
+                        out.get_mut(wrote..wrote.saturating_add(take)),
+                        input.get(took..took.saturating_add(take)),
+                    ) else {
+                        return short(took, wrote);
+                    };
+                    slot.copy_from_slice(source);
+                    took = took.saturating_add(take);
+                    wrote = wrote.saturating_add(take);
+                    self.run = if take >= left {
+                        Run::Length
+                    } else {
+                        Run::Literal {
+                            left: left.saturating_sub(take),
+                        }
+                    };
+                }
+                Run::Repeating { left } => {
+                    let Some(&byte) = input.get(took) else {
+                        return short(took, wrote);
+                    };
+                    took = took.saturating_add(1);
+                    self.run = Run::Repeat { byte, left };
+                }
+                Run::Repeat { byte, left } => {
+                    let take = left.min(out.len().saturating_sub(wrote));
+                    let Some(slot) = out.get_mut(wrote..wrote.saturating_add(take)) else {
+                        return short(took, wrote);
+                    };
+                    slot.fill(byte);
+                    wrote = wrote.saturating_add(take);
+                    self.run = if take >= left {
+                        Run::Length
+                    } else {
+                        Run::Repeat {
+                            byte,
+                            left: left.saturating_sub(take),
+                        }
+                    };
+                }
             }
         }
     }
@@ -1555,7 +2287,28 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
     Arc::from(out.as_slice())
 }
 
-/// Decodes `ASCII85Decode`.
+/// Decodes `ASCII85Decode`, ISO 32000-2 §7.4.3.
+///
+/// > Any other characters, and any character sequences that represent impossible combinations
+/// > in the ASCII base-85 encoding, shall cause an error.
+///
+/// **The whole stream is refused, and [`Ascii85`] — the same clause through a window — keeps
+/// the groups in front of the character instead. That is not a drift between two readings; it
+/// is ADR 0343's own distinction arriving by route rather than by consumer**, and the
+/// seven-hundred-and-fourteenth session had it the other way round for an afternoon until a
+/// fuzzed corpus document said so. `PDFBOX-3148-2-fuzzed.pdf` states its **cross-reference
+/// stream** as `/Filter [/ASCII85Decode]` with a byte outside `!`..=`u` eight bytes in: refusing
+/// it sends [`crate::Parser`] to its header scan and the file's page is found, while handing
+/// back the eight bytes as a decode makes them a cross-reference *section* with almost every
+/// entry missing and the document loses its only page in silence. A prefix of a table is not a
+/// shorter table — the question `doc/traps/parsers-and-streams.md` puts as *what a prefix of the
+/// thing is* — whereas a prefix of §7.8.2's "sequence of instructions" is a shorter sequence of
+/// the same kind.
+///
+/// So the buffered route, which every consumer but one takes — cross-reference streams, font
+/// programs, image samples, ICC profiles — refuses; and the windowed route, which only ever runs
+/// over a content stream, reports [`Damage::Corrupt`] over the bytes it has already handed to a
+/// lexer, which is what ADR 0343 requires of exactly that population. ADR 0587.
 fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     let mut out = Vec::new();
     let mut group = [0u8; 5];
@@ -2064,7 +2817,7 @@ mod tests {
             let whole = decode(b"LZWDecode", data, None, Limits::DEFAULT).expect("decodes whole");
             for window in [1usize, 3, 7, 64, 4096] {
                 let mut pump = super::Pump::new(
-                    super::Pumping::Lzw { early_change: true },
+                    super::Pumping::single(super::Stage::Lzw { early_change: true }),
                     std::sync::Arc::from(data),
                 );
                 let (pumped, end) = drain(&mut pump, window);
@@ -2091,15 +2844,15 @@ mod tests {
         let whole = decode(b"LZWDecode", &packed, Some(&parms), Limits::DEFAULT).expect("decodes");
 
         let mut late = super::Pump::new(
-            super::Pumping::Lzw {
+            super::Pumping::single(super::Stage::Lzw {
                 early_change: false,
-            },
+            }),
             std::sync::Arc::from(packed.as_slice()),
         );
         assert_eq!(drain(&mut late, 16).0.as_slice(), &*whole);
 
         let mut early = super::Pump::new(
-            super::Pumping::Lzw { early_change: true },
+            super::Pumping::single(super::Stage::Lzw { early_change: true }),
             std::sync::Arc::from(packed.as_slice()),
         );
         assert_ne!(
@@ -2127,7 +2880,7 @@ mod tests {
             assert_eq!(whole.damage, Some(damage));
 
             let mut pump = super::Pump::new(
-                super::Pumping::Lzw { early_change: true },
+                super::Pumping::single(super::Stage::Lzw { early_change: true }),
                 std::sync::Arc::from(data.as_slice()),
             );
             let (bytes, end) = drain(&mut pump, 2);
@@ -2195,7 +2948,7 @@ mod tests {
         let window = 4096usize;
         let mut buffer = vec![0u8; window];
         let mut pump = super::Pump::new(
-            super::Pumping::Lzw { early_change: true },
+            super::Pumping::single(super::Stage::Lzw { early_change: true }),
             std::sync::Arc::from(bomb.as_slice()),
         );
         let mut produced = 0usize;
@@ -2219,6 +2972,424 @@ mod tests {
             "{} encoded bytes named {produced} decoded ones",
             bomb.len()
         );
+    }
+
+    /// §7.4.2's encoding, so that a chain test can build what a producer would have written.
+    fn hex_encoded(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for &byte in data {
+            out.extend_from_slice(format!("{byte:02X}").as_bytes());
+            // "All white-space characters shall be ignored", and a producer wrapping long lines
+            // is why that sentence is there — so the encoder writes some.
+            if out.len() % 65 == 0 {
+                out.push(b'\n');
+            }
+        }
+        out.push(b'>');
+        out
+    }
+
+    /// §7.4.3's encoding, including its `z` special case.
+    fn base85_encoded(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for group in data.chunks(4) {
+            let mut value = 0u32;
+            for index in 0..4 {
+                value = value.wrapping_mul(256) + u32::from(group.get(index).copied().unwrap_or(0));
+            }
+            if group.len() == 4 && value == 0 {
+                out.push(b'z');
+                continue;
+            }
+            let mut digits = [0u8; 5];
+            for slot in digits.iter_mut().rev() {
+                *slot = u8::try_from(value % 85).expect("a base-85 digit") + b'!';
+                value /= 85;
+            }
+            out.extend_from_slice(digits.get(..group.len() + 1).expect("five digits"));
+        }
+        out.extend_from_slice(b"~>");
+        out
+    }
+
+    /// §7.4.5's encoding: repeat runs where the data repeats, literal runs elsewhere.
+    fn run_length_encoded(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut at = 0usize;
+        while at < data.len() {
+            let byte = data.get(at).copied().expect("in range");
+            let mut run = 1usize;
+            while run < 128 && data.get(at + run).copied() == Some(byte) {
+                run += 1;
+            }
+            if run >= 2 {
+                out.push(u8::try_from(257 - run).expect("129 to 255"));
+                out.push(byte);
+                at += run;
+            } else {
+                let start = at;
+                let mut length = 0usize;
+                while at < data.len() && length < 128 {
+                    if length > 0
+                        && data.get(at).copied() == data.get(at + 1).copied()
+                        && data.get(at).copied() == data.get(at + 2).copied()
+                    {
+                        break;
+                    }
+                    at += 1;
+                    length += 1;
+                }
+                out.push(u8::try_from(length - 1).expect("0 to 127"));
+                out.extend_from_slice(data.get(start..at).expect("in range"));
+            }
+        }
+        out.push(128);
+        out
+    }
+
+    /// A zlib stream, which is what `FlateDecode` names.
+    fn deflated(data: &[u8]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder.write_all(data).expect("in-memory write");
+        encoder.finish().expect("finish")
+    }
+
+    /// Runs a whole `/Filter` chain the way `Document::chain_over` does, stage by stage.
+    fn whole_chain(filters: &[&[u8]], data: &[u8], limits: Limits) -> super::Decoded {
+        let mut decoded = super::Decoded::whole(data);
+        for filter in filters {
+            let stage = super::decode_reported(filter, &decoded.data, None, limits)
+                .expect("the whole route decodes it");
+            decoded = super::Decoded {
+                data: stage.data,
+                damage: decoded.damage.or(stage.damage),
+            };
+        }
+        decoded
+    }
+
+    /// Where two byte sequences first differ, so that a failure names a place rather than
+    /// printing two megabytes of `Debug`.
+    fn same(got: &[u8], want: &[u8], context: &str) {
+        if got == want {
+            return;
+        }
+        let at = got
+            .iter()
+            .zip(want.iter())
+            .position(|(left, right)| left != right);
+        panic!(
+            "{context}: {} bytes against {}, first difference at {at:?} ({:?} against {:?})",
+            got.len(),
+            want.len(),
+            at.and_then(|at| got.get(at.saturating_sub(4)..at + 4).map(<[u8]>::to_vec)),
+            at.and_then(|at| want.get(at.saturating_sub(4)..at + 4).map(<[u8]>::to_vec)),
+        );
+    }
+
+    /// The pump over a chain, from `Document::pumping`'s own vocabulary.
+    fn chain_pump(stages: &[super::Stage], data: &[u8]) -> super::Pump {
+        super::Pump::new(
+            super::Pumping::of(stages.to_vec()).expect("a chain of at least one stage"),
+            std::sync::Arc::from(data),
+        )
+    }
+
+    /// One `/Filter` chain to test: its names, the stages they become, and encoded bytes.
+    type Arrangement = (Vec<&'static [u8]>, Vec<super::Stage>, Vec<u8>);
+
+    /// **Every chain a window runs hands back what the whole decode hands back.**
+    ///
+    /// This is what the whole of ADR 0587 rests on: five filters, each with a resumable decoder
+    /// beside its buffered one, composed in the arrangements §7.4.1's own examples use. A window
+    /// of **one byte** is in the list deliberately — a `LZWDecode` entry may be 4096 bytes and a
+    /// base-85 group four, so the smallest window is what exercises handing a sequence over in
+    /// pieces across turns, and the eight-kilobyte link between two stages is what exercises the
+    /// opposite.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn every_pumpable_chain_agrees_with_the_whole_decode() {
+        use super::Stage::{Ascii85, AsciiHex, Inflate, Lzw, RunLength};
+
+        // Long enough to cross a link buffer several times, with a run for `RunLengthDecode`
+        // and a zero group for §7.4.3's `z`.
+        let mut payload = Vec::new();
+        for index in 0..40_000u32 {
+            match index % 7 {
+                0 => payload.extend_from_slice(&[0, 0, 0, 0]),
+                1 => payload.extend_from_slice(b"BT /F1 12 Tf (chain) Tj ET "),
+                2 => payload.resize(payload.len() + 300, b'#'),
+                _ => payload.extend_from_slice(&index.to_be_bytes()),
+            }
+        }
+
+        let lzw = |data: &[u8]| -> Vec<u8> {
+            // §7.4.4.2 without a compressor: every byte as its own literal code, which is a
+            // valid encoding and the one a decoder has the least help from.
+            let mut codes = vec![256u16];
+            codes.extend(data.iter().map(|&byte| u16::from(byte)));
+            codes.push(257);
+            pack_lzw(&codes, true)
+        };
+
+        let arrangements: Vec<Arrangement> = vec![
+            (
+                vec![b"ASCIIHexDecode"],
+                vec![AsciiHex],
+                hex_encoded(&payload),
+            ),
+            (
+                vec![b"ASCII85Decode"],
+                vec![Ascii85],
+                base85_encoded(&payload),
+            ),
+            (
+                vec![b"RunLengthDecode"],
+                vec![RunLength],
+                run_length_encoded(&payload),
+            ),
+            (vec![b"FlateDecode"], vec![Inflate], deflated(&payload)),
+            // §7.4.1 EXAMPLE 3: a page's marking instructions, deflated and then base-85 armoured.
+            (
+                vec![b"ASCII85Decode", b"FlateDecode"],
+                vec![Ascii85, Inflate],
+                base85_encoded(&deflated(&payload)),
+            ),
+            // ADR 0437's witness and ADR 0586's, which is the arrangement that escaped road D.
+            (
+                vec![b"ASCIIHexDecode", b"FlateDecode"],
+                vec![AsciiHex, Inflate],
+                hex_encoded(&deflated(&payload)),
+            ),
+            // §7.4.1 EXAMPLE 2, verbatim: `/Filter [/ASCII85Decode /LZWDecode]`.
+            (
+                vec![b"ASCII85Decode", b"LZWDecode"],
+                vec![Ascii85, Lzw { early_change: true }],
+                base85_encoded(&lzw(&payload)),
+            ),
+            // A compressing stage in front of an armouring one, which no sane producer writes
+            // and a hostile one may: the expansion is then *inside* the chain.
+            (
+                vec![b"FlateDecode", b"ASCIIHexDecode"],
+                vec![Inflate, AsciiHex],
+                deflated(&hex_encoded(&payload)),
+            ),
+            // Three stages, so that a link feeds a link.
+            (
+                vec![b"ASCII85Decode", b"FlateDecode", b"RunLengthDecode"],
+                vec![Ascii85, Inflate, RunLength],
+                base85_encoded(&deflated(&run_length_encoded(&payload))),
+            ),
+        ];
+
+        for (filters, stages, encoded) in arrangements {
+            let name = filters
+                .iter()
+                .map(|filter| String::from_utf8_lossy(filter).into_owned())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let whole = whole_chain(&filters, &encoded, Limits::DEFAULT);
+            assert_eq!(&*whole.data, payload.as_slice(), "[{name}] whole");
+            assert_eq!(whole.damage, None, "[{name}] whole");
+            for window in [1usize, 3, 64, 4096, 100_000] {
+                let mut pump = chain_pump(&stages, &encoded);
+                let (pumped, ended) = drain(&mut pump, window);
+                same(
+                    pumped.as_slice(),
+                    &whole.data,
+                    &format!("[{name}] through a {window}-byte window"),
+                );
+                assert!(
+                    matches!(ended, super::Pumped::Ended(_)),
+                    "[{name}] through a {window}-byte window ended {ended:?}"
+                );
+            }
+        }
+    }
+
+    /// **A bomb behind an ASCII armour costs the window rather than its decode**, which is the
+    /// hole ADR 0586 measured at about 25 000× and declined to close in the cache.
+    ///
+    /// The whole route refuses it, having inflated to the bound first; the pump reads every byte
+    /// of it in a buffer that never grows. `Document::pumping` is what sends a chain here, and
+    /// `nested_content_window.rs` is where that routing is asserted from a document.
+    #[cfg_attr(
+        miri,
+        ignore = "a bomb's worth of inflation under the interpreter; ADR 0463's reason"
+    )]
+    #[test]
+    fn a_bomb_behind_an_ascii_armour_costs_the_window() {
+        let bomb = hex_encoded(&deflated(&vec![0u8; 8 << 20]));
+        let limits = Limits {
+            max_stream_len: 1 << 16,
+            ..Limits::DEFAULT
+        };
+
+        assert_eq!(
+            whole_route_refusal(&[b"ASCIIHexDecode", b"FlateDecode"], &bomb, limits),
+            Some(super::FilterRefusal::TooLarge {
+                limit: limits.max_stream_len
+            }),
+            "the whole route refuses it"
+        );
+
+        let window = 4096usize;
+        let mut buffer = vec![0u8; window];
+        let mut pump = chain_pump(&[super::Stage::AsciiHex, super::Stage::Inflate], &bomb);
+        let mut produced = 0usize;
+        loop {
+            match pump.pump(&mut buffer) {
+                super::Pumped::Wrote(wrote) => produced += wrote,
+                super::Pumped::Ended(wrote) => {
+                    produced += wrote;
+                    break;
+                }
+                super::Pumped::Damaged(_, damage) => panic!("the bomb is whole, not {damage:?}"),
+            }
+        }
+        assert_eq!(produced, 8 << 20, "every byte of it came through");
+        assert_eq!(buffer.len(), window, "the window never grew");
+        assert!(
+            produced > bomb.len() * 500,
+            "{} encoded bytes named {produced} decoded ones",
+            bomb.len()
+        );
+    }
+
+    /// The first stage of a chain that refuses, or `None` where the chain decodes.
+    fn whole_route_refusal(
+        filters: &[&[u8]],
+        data: &[u8],
+        limits: Limits,
+    ) -> Option<super::FilterRefusal> {
+        let mut decoded: std::sync::Arc<[u8]> = std::sync::Arc::from(data);
+        for filter in filters {
+            match super::decode_reported(filter, &decoded, None, limits) {
+                Ok(stage) => decoded = stage.data,
+                Err(why) => return Some(why),
+            }
+        }
+        None
+    }
+
+    /// §7.4.3's error refuses the buffered route and keeps the window's groups, on purpose.
+    ///
+    /// **The two answers are ADR 0343's own distinction rather than a drift**, and this is what
+    /// pins both halves. The buffered route serves every consumer whose prefix is not a shorter
+    /// thing of the same kind — a cross-reference stream above all, which is how
+    /// `PDFBOX-3148-2-fuzzed.pdf` loses its only page when this filter hands back eight bytes
+    /// instead of refusing. The window is only ever run over §7.8.2's "sequence of instructions",
+    /// where the groups in front of the character are the producer's own and are drawn.
+    /// [`super::ascii85`] carries the argument; ADR 0587 is the round that had it backwards for
+    /// an afternoon.
+    #[test]
+    fn a_base85_error_keeps_the_groups_before_it() {
+        let mut broken = base85_encoded(b"the groups before it");
+        // A character outside `!`..`u` that is neither white space, `z`, nor the marker, placed
+        // on a group boundary so that what stands before it is a whole number of groups.
+        broken.splice(10..10, *b"\x01");
+
+        assert_eq!(
+            super::decode_reported(b"ASCII85Decode", &broken, None, Limits::DEFAULT).err(),
+            Some(super::FilterRefusal::Corrupt),
+            "the buffered route refuses, for the consumers whose prefix is not one"
+        );
+
+        for window in [1usize, 4, 4096] {
+            let mut pump = chain_pump(&[super::Stage::Ascii85], &broken);
+            let (pumped, ended) = drain(&mut pump, window);
+            // Ten base-85 characters are two whole groups, so eight bytes stand and the group
+            // the character interrupted does not.
+            same(
+                pumped.as_slice(),
+                b"the grou",
+                &format!("through {window} bytes"),
+            );
+            assert!(
+                matches!(ended, super::Pumped::Damaged(_, super::Damage::Corrupt)),
+                "through {window} bytes: {ended:?}"
+            );
+        }
+    }
+
+    /// Damage inside a chain is met where it is, and the prefix in front of it stands.
+    ///
+    /// A deflate stream cut short behind a hex armour: the hex stage decodes everything it was
+    /// given, the inflate stops where the encoder's bytes stop, and both routes report
+    /// [`super::Damage::Truncated`] over the same prefix. ADR 0343's rule, through two stages.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn a_chain_reports_the_damage_the_whole_decode_does() {
+        let payload: Vec<u8> = (0..20_000u32).flat_map(u32::to_be_bytes).collect();
+        let mut deflate = deflated(&payload);
+        deflate.truncate(deflate.len() / 2);
+        let encoded = hex_encoded(&deflate);
+
+        let whole = super::decode_reported(
+            b"FlateDecode",
+            &super::decode_reported(b"ASCIIHexDecode", &encoded, None, Limits::DEFAULT)
+                .expect("hex decodes")
+                .data,
+            None,
+            Limits::DEFAULT,
+        )
+        .expect("a prefix, not a refusal");
+        assert_eq!(whole.damage, Some(super::Damage::Truncated));
+        assert!(!whole.data.is_empty(), "a prefix came out");
+
+        for window in [1usize, 512, 65_536] {
+            let mut pump = chain_pump(&[super::Stage::AsciiHex, super::Stage::Inflate], &encoded);
+            let (pumped, ended) = drain(&mut pump, window);
+            same(
+                pumped.as_slice(),
+                &whole.data,
+                &format!("through {window} bytes"),
+            );
+            assert!(
+                matches!(ended, super::Pumped::Damaged(_, super::Damage::Truncated)),
+                "through {window} bytes: {ended:?}"
+            );
+        }
+    }
+
+    /// A raw deflate stream behind an armouring stage still takes [`super::flate`]'s fallback.
+    ///
+    /// **This is the one thing a chain has that a single stage did not**: the retry re-reads the
+    /// stage's input, which for a later stage lives in a link that the driver has to hold back
+    /// from compaction. See [`super::Pump::pump`].
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn a_raw_deflate_stream_behind_an_armour_still_falls_back() {
+        use std::io::Write as _;
+        let payload: Vec<u8> = (0..30_000u32).flat_map(u32::to_le_bytes).collect();
+        let mut deflating =
+            flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
+        deflating.write_all(&payload).expect("in-memory write");
+        let armoured = base85_encoded(&deflating.finish().expect("finish"));
+
+        let whole = whole_chain(
+            &[b"ASCII85Decode", b"FlateDecode"],
+            &armoured,
+            Limits::DEFAULT,
+        );
+        assert_eq!(&*whole.data, payload.as_slice());
+
+        for window in [1usize, 4096] {
+            let mut pump = chain_pump(&[super::Stage::Ascii85, super::Stage::Inflate], &armoured);
+            let (pumped, ended) = drain(&mut pump, window);
+            assert_eq!(pumped.as_slice(), payload.as_slice(), "through {window}");
+            assert!(matches!(ended, super::Pumped::Ended(_)), "{ended:?}");
+        }
     }
 
     /// An unsupported filter must be visibly unsupported, not silently passed through.

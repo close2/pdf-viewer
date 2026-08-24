@@ -256,7 +256,7 @@ impl NestedContent {
                 limit,
             } => ContentReader {
                 held: Held::Window(Box::new(Window::single(
-                    *pumping,
+                    pumping.clone(),
                     Arc::clone(data),
                     filters.clone(),
                     *limit,

@@ -64,11 +64,14 @@ the per-entry overhead this file said was owed is `size_of::<DecodedEntry>()`, c
 entry rather than only to refusals, so nothing was invented.
 
 **Three sessions had moved the item under it and the round checked first.** All five of §7.8.2's
-content streams have a window now (ADRs 0427, 0429, 0430), and `Document::pumping` grants one only
+content streams have a window now (ADRs 0427, 0429, 0430), and `Document::pumping` granted one only
 to a *single* `FlateDecode` or `LZWDecode` with no predictor — so a bomb in a page's `/Contents`, a
 form or a pattern cell costs kilobytes and was never what remained. What remained is everything the
-window declines: a chain of two filters (`[/ASCIIHexDecode /FlateDecode]`, §7.4.7's own worked
-arrangement), a predictor, and every stream that is not content at all — a font program, an
+window declined: a chain of two filters (`[/ASCIIHexDecode /FlateDecode]` — **§7.4.1's worked
+arrangement rather than §7.4.7's, which this line said for two sessions**; §7.4.7 is `JBIG2Decode`
+and its example is `[/ASCIIHexDecode /JBIG2Decode]`, while §7.4.1 EXAMPLE 3 is
+`[/ASCII85Decode /FlateDecode]` over a page's own marking instructions), a predictor, and every
+stream that is not content at all — a font program, an
 `ICCBased` profile, a cross-reference stream — read whole from every page that names them.
 
 The witness this file asked for is that shape: Bomb B inside a form `XObject` that twenty pages
@@ -111,7 +114,21 @@ The generator is in `doc/history/712-…`.
 **ADR 0586 declined the construction this file asked for and says why**: charging a refusal nothing
 loses the ceiling that is this cache's whole shape, letting one entry exceed the budget makes the
 bomb evict everything around it, and keying on a digest trades a decode for a hash and a collision
-for content dropped in silence. The cost is better removed than remembered — a `Pump` that accepts a
-*chain* whose every stage is pumpable spends kilobytes on every read rather than on every read after
-the first, and §7.4.2's `ASCIIHexDecode` "produces one byte per two" so it cannot inflate at all.
-**That is `doc/todo/14`, and this line is now a reason to rank it rather than an item here.**
+for content dropped in silence.
+
+**Its redirect was taken in the seven-hundred-and-fourteenth session and was half right, which is
+what this line now records.** `doc/todo/14`'s chain pump landed (ADR 0587) and the gibibyte is
+gone — 1 070 828 KB of peak resident memory against 22 608 on the same twenty pages. What did not
+follow is the sentence ADR 0586 wrote beside it, that a chain pump "would take this document to
+kilobytes on **every** read": kilobytes of *memory*, but the read is still the bomb's whole decode,
+and the 25 000× was the distance between a refusal **remembered** and a refusal **re-reached**. A
+window re-reaches it. Measured after the pump: **154.98 µs against 14.62 s** over twenty pages, the
+first arm being the buffered route with ADR 0437's memo behind it.
+
+**So the item is back here, and it is smaller than the one that was declined.** Nothing has to be
+charged differently, exceed the budget or be keyed on a digest: the refusal a window reaches is the
+*same* `FilterRefusal::TooLarge` under the same key as the one the buffered route reaches, and the
+reader already knows it has read `max_stream_len` decoded bytes out of one stream. What is needed
+is that fact travelling one hop back to `Document`, for the single-part case where the stream it is
+about is unambiguous (`Window::single`, which is every one of §7.8.2's nested content streams).
+Whoever takes it owes the hop, not a new number — and the witness and both arms are ADR 0587's.

@@ -1,61 +1,59 @@
 # Road D — stream the decompression, so the bomb never becomes an allocation
 
-Status: **one item owed again — a *chain* of pumpable stages is not pumped, which is how a bomb
-escapes this road (ADR 0586, and the section below)**. Everything the road was opened about is
-done: all five of §7.8.2's content streams are read through a window and both streaming bombs'
-filters pump (ADRs 0365, 0427, 0429, 0430). A bomb in a page's `/Contents`
-costs 8.4 MB (flate) or 10 MB (LZW) where it cost 1032/1035 MB, one in a form XObject 10.7 MB
-where it cost 1032, one in a **tiling pattern's cell** 9.4 MB where it cost 1055, and the witness
-194 MB where it took 381 — every gate's output identical, and the corpus display lists identical
-but for the last `f32` digit on the 18 pages ADR 0430 moved.
+Status: **done, and done a second time.** Everything the road was opened about is finished and the
+one item that came back is closed: all five of §7.8.2's content streams are read through a window
+(ADRs 0365, 0427, 0430), all five of §7.4's byte-to-byte filters have a resumable decoder, and a
+**chain** of them is pumped end to end (ADRs 0429, 0587). A bomb in a page's `/Contents` costs
+8.4 MB (flate) or 10 MB (LZW) where it cost 1032/1035 MB, one in a form XObject 10.7 MB where it
+cost 1032, one in a **tiling pattern's cell** 9.4 MB where it cost 1055, one wearing a second
+filter — §7.4.1 EXAMPLE 3's own arrangement for a page's marking instructions — 22 608 KB where it
+cost 1 070 828, and the witness 194 MB where it took 381.
 
 **The file is kept rather than deleted**, against `README.md`'s rule that a done item's file goes,
 for two reasons that are about memory rather than about status: fourteen comments in
 `pdf-syntax` and `pdf-model` point a reader here for the road's argument, and `doc/todo/01`'s
 sweeps read it. What it holds now is the argument and the measurements; the *decisions* live in
-the four ADRs, which is where `README.md` wants them. Nothing below is owed except the section
-that follows.
+the five ADRs, which is where `README.md` wants them. **One line below is a note for whoever takes
+`doc/todo/41` next, and it is that file's item rather than this one's.**
 
-## One thing is owed again, and it arrived from `doc/todo/41` with a number attached
+## What a window does not do, and what still belongs to the memo
 
-**A chain of pumpable stages is not pumped, and that is how a bomb escapes this road.**
-`Document::pumping` grants a window to a *single* `FlateDecode` or `LZWDecode` with no predictor, so
-an author defeats the whole of road D by wrapping the bomb in a second filter —
-`[/ASCIIHexDecode /FlateDecode]`, which is §7.4.7's own worked arrangement. §7.4.2 makes
-`ASCIIHexDecode` the easiest stage in §7.4 to window: it "produces one byte per two", so no file can
-inflate through it and a window over it needs no ratio argument at all.
+**A window removes the allocation. It does not remove the decode**, and ADR 0586 predicted
+otherwise — it wrote that a chain pump "would take this document to kilobytes on **every** read
+rather than on every read after the first", which is true of the *memory* and not of the reading.
+The 25 000× that ADR measured was the distance between a refusal **remembered** (ADR 0437's memo)
+and a refusal **re-reached**, and a window re-reaches it too, at 22 MB instead of a gibibyte.
 
-The seven-hundred-and-twelfth session priced what that costs, from the other side of the same
-question (ADR 0586). Twenty pages drawing one hex-wrapped bomb as a form `XObject`, the two
-documents differing only in how many gibibytes of zeros the deflate stream carries:
+That is not a pathology this road introduced, and the control measurement is what says so: the
+*same* bomb with no armour at all — a single `/FlateDecode` form, which this tree has windowed
+since ADR 0365 — already cost seconds and fourteen megabytes before any of this, because a bomb of
+zeros decodes to white space and `MAX_OPERATIONS` never sees an operator to count. What ADR 0587
+did was make the chained arrangement cost what the unwrapped one always cost, in both dimensions
+at once. Which dimension to spend is this file's own ranking, below: time is what roads A and C
+make interruptible, and memory is what none of them can take back.
 
-| encoded | one cold sweep of twenty pages |
-|---|---|
-| 4 174 537 B — under `DECODED_BUDGET`, so the refusal is memoised | 257–279 µs |
-| 12 523 517 B — over it, so it is not | 6.93–6.98 s |
-
-**About 25 000×, bought with padding.** ADR 0437's memo is what makes the first row cheap and it
-stops at the budget by construction; ADR 0586 followed the three ways to make the memo hold the
-second row and each gives up the ceiling, the cache, or soundness. A pump over the chain removes the
-gibibyte instead of remembering it, on *every* read rather than every read after the first, and
-needs no entry, no charge and no eviction argument. That is the ranking argument this item did not
-have when it was closed.
-
-`Document::pumping` is still the one function this changes, and the shape is `Lzw`'s: a resumable
-state per stage, composed, with the whole-buffer entry point a loop over it (trap 6 — one decoder,
-not two).
+**What is left is one fact travelling one hop, and it is `doc/todo/41`'s**: a refusal a *window*
+reaches is not remembered, where one the buffered route reaches is. The reader knows it has read
+`max_stream_len` decoded bytes out of one stream, which is the same `FilterRefusal::TooLarge` the
+buffered route would have recorded under the same key — so the memo could hold it, and a bomb whose
+encoded bytes fit `DECODED_BUDGET` would then be reached once per document rather than once per
+read. Measured on ADR 0586's own witness: 154.98 µs against 14.62 s over twenty pages.
 
 The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite ADR 0365's, the
-other three nested streams ADR 0427's, the LZW pump ADR 0429's, and §8.7.3.1's tiling cell — the
-last item, which needed the cell drawn once and its commands repeated before its decode could be
-windowed at all — ADR 0430's.
+other three nested streams ADR 0427's, the LZW pump ADR 0429's, §8.7.3.1's tiling cell — which
+needed the cell drawn once and its commands repeated before its decode could be windowed at all —
+ADR 0430's, and the chain ADR 0587's.
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
-four and whose §6 binds whatever lands here. **Everything the road was opened about is finished and
-one item came back** (above); road B ([`15`](15-ship-the-confinement.md)) is what the owner's order
-points at next.
+four and whose §6 binds whatever lands here. **Finished, twice** (above); road B
+([`15`](15-ship-the-confinement.md)) is what the owner's order points at next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
-that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519,
-527 and 595 rebuilt it from that description, the last of them inside a pattern cell)
+that path; Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519,
+527 and 595 rebuilt it from that description, the last of them inside a pattern cell); and ADR
+0586's hex-wrapped pair, whose generator is in `doc/history/712-…` and which the
+seven-hundred-and-fourteenth session rebuilt from it to the byte — 4 174 537 and 12 523 517
+encoded, the two sides of `DECODED_BUDGET`. A third witness is worth building beside them and is
+two lines of the same generator: the **same deflate stream with no armour**, which is the control
+that says what the armour costs and what it does not.
 Instrument: `cargo run --profile gates -p pdf-model --example window_lexer_spike -- <pdf> <page>
 whole|window|both [bytes]` is the experiment, and `--example token_window_census -- <dir>…` the
 census behind both design questions; `content_budget_census` still prints a page's operators and
@@ -283,14 +281,35 @@ to the cell, which `issue8565.pdf` showed as a lost radial glow. ADR 0430.
 
 `Document::stream_source` used to pump a single `FlateDecode` and hand everything else back whole.
 It now pumps a single `LZWDecode` too, which was the sharper of road D's two remaining bombs
-(1365:1 against 585:1 measured on operators). The three §7.4 filters *not* pumped are left out on
-their expansion ratio, which is the whole point — a filter that cannot name a bomb has nothing for
-a window to save: `ASCIIHexDecode` shrinks its input (1:2), `ASCII85Decode` reaches 4:1 from a
-stream of nothing but `z`, `RunLengthDecode` 64:1. Should one ever be wanted for a reason other
-than a bomb, the shape is `Lzw`'s: a resumable state struct with `pump(&mut self, out: &mut [u8])`
-and the whole-buffer entry point a loop over it (trap 6 — one decoder, not two). `Document::pumping`
-(was `is_pumpable`) is the one place a chain's route is decided, and it is the one function a
-further filter pump changes.
+(1365:1 against 585:1 measured on operators). The three §7.4 filters it left out were left out on
+their expansion ratio — a filter that cannot name a bomb has nothing for a window to save:
+`ASCIIHexDecode` shrinks its input (1:2), `ASCII85Decode` reaches 4:1 from a stream of nothing but
+`z`, `RunLengthDecode` 64:1. `Document::pumping` (was `is_pumpable`) is the one place a chain's
+route is decided, and it is the one function a further filter pump changes.
+
+**That ranking was right about the question it asked and wrong about the one that mattered**, which
+the section below is the correction to: a filter that cannot name a bomb can still *carry* one, and
+a chain is only as windowed as its worst stage.
+
+## What was owed a second time and is done — the chain (ADR 0587)
+
+All three of the filters ADR 0429 ranked out now have a resumable decoder — the shape it named,
+a state struct whose buffered entry point is a loop over the same state — and `Document::pumping`
+walks the whole of `/Filter` instead of accepting one stage. §7.4.1's own EXAMPLE 2 and EXAMPLE 3
+are cascades, the second of them over "the marking instructions for a page", so the arrangement
+that took road D off was the standard's own worked example rather than a hostile invention.
+
+Each stage's licence is its clause's arithmetic and is written where the route is chosen:
+`ASCIIHexDecode` "shall produce one byte of binary data for each pair" (1:2, one nibble of state),
+`ASCII85Decode` "5 ASCII characters for every 4 bytes" read backwards or four per `z` (4:1 at
+most, one group of state), `RunLengthDecode` "1 to 128 bytes" per length byte (64:1, one run).
+`Pump` composes them through a fixed **link** per stage, so nothing between two stages is ever
+materialised; a chain of one allocates no link at all.
+
+Measured on ADR 0586's own pair of witnesses, twenty pages apiece: **1 070 828 KB → 22 608 KB** and
+**1 103 596 KB → 55 016 KB** of peak `VmHWM`, ISO 32000-2 page 101 **+0.050%** instructions, the
+two largest corpus documents stating `[/ASCII85Decode /FlateDecode]` +0.0003% and −0.016%, and
+every corpus first page's display list byte-identical.
 
 `doc/todo/10` §6 binds whatever lands: nothing arbitrary replaced by something equally arbitrary,
 the gates stay reproducible, a count that reports says what it counted, and **a bound on an
