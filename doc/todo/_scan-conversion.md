@@ -43,11 +43,21 @@ the first three all in one direction:
    therefore be one rule. Both backends now answer the ladder to a level of 255 at all twenty-one
    rungs. **What still carries the quantum is every shape that is not a single axis-aligned
    rectangle**, where it is a sixteenth rather than a quarter and averages along the edge; a glyph,
-   a curve, a diagonal and a path stating several rectangles are all in it, and `doc/todo/11`
-   item 7 says why the last of those is deliberate. **A stroke's outline joined the exception in
-   the six-hundred-and-ninetieth** (ADR 0535), where the outline is one rectangle: a butt-capped
+   a curve and a diagonal are in it. **A stroke's outline joined the exception in the
+   six-hundred-and-ninetieth** (ADR 0535), where the outline is one rectangle: a butt-capped
    straight rule along a device axis is drawn as the fill of that rectangle and measured by the
-   same closed form.
+   same closed form. **And a path stating *several* rectangles joined it in the
+   seven-hundred-and-eleventh, on a clause that is not this one** (ADR 0583): this file and
+   `doc/todo/11` item 7 both said such a path was deliberate and waited on item 5's seam, and
+   §11.3.7.3's union is what the standard says to do with two *objects*. A path's subpaths are
+   portions of one, and §11.6.2 forbids compositing portions of one object with one another — so
+   the construction was forbidden rather than traded. `pdf_render::device_rectangles` decomposes
+   such a path and `DeviceRectangles::share_a_device_pixel` asks §10.7.4's own question, whether
+   two portions fall in one pixel; where none do, each is drawn as its own mark at the exact area,
+   for a fill and for a clipping region alike. 3419 fills over 151 first pages of the pdf.js
+   corpus, +0.074% of the rasteriser on a page of text against −0.53% on a page that states them.
+   What is left is the 505 that *do* share a pixel, whose construction is one coverage buffer per
+   mark rather than item 5's rasteriser.
 2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
    four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
    states one region as *many* opaque fills, every internal boundary falls inside some device
@@ -58,6 +68,20 @@ the first three all in one direction:
    0.0673 at 4× and 0.0156 at 8×. `doc/todo/11` item 5 has the whole measurement, the three
    backends, the four references and what a cure would cost; `crates/pdf-model/examples/
    uncovered_share.rs` is the instrument for any page.
+
+   **And the seam belongs to *this* departure rather than to §11.3.7.3, which is the correction
+   the seven-hundred-and-eleventh session made** (ADR 0582). ADR 0308 recorded it as "the model,
+   applied to the fractional shape §11.3.7.2's NOTE 1 says anti-aliasing produces". The model's
+   values are at *points*: §11.2 is a `shall` — shape and opacity "shall be defined at every point
+   in the plane" — and §11.6.4.2 makes a path's shape "1.0 inside and 0.0 outside", so the union of
+   two abutting marks is 1.0 at every point and **the clause states no seam**. The fraction enters
+   through a `can` in a NOTE about rasterising to device pixels, and averaging does not commute
+   with a non-linear function. §11.2's own NOTE 1 names the cause: the model "does not require a
+   PDF processor to rasterize objects immediately or to commit to a raster representation at any
+   time before rendering the entire stack onto the page … since rasterization often causes
+   significant loss of information and precision". So the seam is departure (1) meeting §11.3.7.3,
+   the departure is still licensed, and what a cure costs is unchanged — but the value it would
+   reach is the clause's own rather than an improvement on it.
 3. `Image::area_averaged` averages over the pixel area where the clause says "there shall not be
    averaging over the pixel area" (ADR 0025 — it is what made `bug1001080.pdf` legible).
 4. A clip's effect on a mark is a **product** where the clause states an intersection of sets —

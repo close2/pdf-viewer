@@ -230,3 +230,39 @@ fn many_abutting_marks_stay_under_the_union_s_own_limit() {
         );
     }
 }
+
+/// §11.6.2: the same two rectangles stated as **one path** leave nothing, on both backends.
+///
+/// The discriminator between this file's subject and `doc/todo/11` item 7's, and the reason the two
+/// are different clauses. Everything above states the region as two `f` operators, which is two
+/// graphics objects and is what §11.3.7.3 composites; this states it as two subpaths of one `f`,
+/// which is one object — and §11.6.2 is a `shall` about that:
+///
+/// > Portions of an object shall not be composited with one another, even if they are described in
+/// > a way that would seem to cause overlaps (such as a self-intersecting path, combined fill and
+/// > stroke of a path, or a shading pattern containing an overlap or fold-over).
+///
+/// So one scan conversion accumulates the two portions and the seam does not exist here at all.
+/// Both backends already did this; what the test pins is that nothing added to make a
+/// multi-rectangle path *measurable* starts drawing its portions separately, which would trade
+/// item 7's quantum for this file's seam. ADR 0583.
+#[test]
+fn two_portions_of_one_path_leave_none_of_the_backdrop() {
+    let mut list = DisplayList::new(PAGE);
+    fill(&mut list, rectangle(LOW, HIGH), Color::BLACK);
+    let mut both_halves = rectangle(LOW, SEAM);
+    both_halves.extend(rectangle(SEAM, HIGH).commands());
+    fill(&mut list, both_halves, Color::WHITE);
+    let Some(drawn) = both(&list, SEAM as usize) else {
+        println!("skipped: no adapter on this machine");
+        return;
+    };
+    for (backend, showing) in drawn {
+        println!("one path, two portions, {backend}: {showing:.4} of the backdrop showing");
+        assert!(
+            showing < TOLERANCE,
+            "§11.6.2: portions of an object shall not be composited with one another, and the \
+             {backend} left {showing:.4} of the backdrop showing between two subpaths of one fill"
+        );
+    }
+}

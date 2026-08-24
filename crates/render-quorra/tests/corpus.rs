@@ -516,6 +516,18 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// stroke ink**, and quorra was drawing all of it. Once the processor draws a turned sub-pixel rule
 /// one device pixel wide with the width it gave up in the paint's alpha (ADR 0268), the page's own
 /// ink goes 5.0782 → 5.1550 and the two backends have nothing left to differ about.
+/// **`issue8187.pdf` left in the seven-hundred-and-eleventh, and it is the same sentence as the
+/// three that left in the three-hundred-and-eighty-ninth one clause over** (ADR 0583). Its page is
+/// fourteen fills of which **fourteen are paths stating several axis-aligned rectangles** — eight
+/// whose portions fall in different device pixels and six whose do not — and the processor was
+/// sending all of them to `tiny-skia`'s supersampled path converter, which rounds an axis-aligned
+/// edge to a quarter, where quorra tracks the fraction to a level of 255. §11.6.2 is what admits
+/// measuring each portion exactly ("[p]ortions of an object shall not be composited with one
+/// another", so drawing them one at a time is only allowed while no pixel receives two), and once
+/// the processor measures the eight the way quorra already did, the page agrees. **The processor
+/// moving to the device, which is the direction this list is allowed to move in** — the same as
+/// ADR 0476's `issue18823.pdf`.
+///
 /// **`issue2177.pdf` left in the five-hundred-and-thirty-second, and the defect was quorra's
 /// own.** Its `fill_mask` computes a shape's coverage over a rectangle of device pixels, and
 /// where an edge entered that rectangle from *outside* it clamped the edge piece's two endpoints
@@ -527,12 +539,11 @@ fn refused_pages(by_the_device: &[&'static str]) -> Vec<&'static str> {
 /// 128). **Only a tile a clip or the page edge cuts in x can move at all**, which is why one page
 /// of 956 does and why the 4× lane does not move at all — and it is a page joining the oracle
 /// rather than a bound being crossed, which is the direction this list is allowed to move in.
-const DIFFERS_AT_THE_EDGES: [&str; 6] = [
+const DIFFERS_AT_THE_EDGES: [&str; 5] = [
     "bug1743245.pdf",
     "endchar.pdf",
     "issue11473.pdf",
     "issue2884_reduced.pdf",
-    "issue8187.pdf",
     "pr12564.pdf",
 ];
 

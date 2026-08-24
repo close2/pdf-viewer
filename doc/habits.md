@@ -140,6 +140,15 @@ reading in this project goes through them:
   answered by looking at other renderers.
 - **The Arlington model is the object model, not the semantics.** It says `/BaseEncoding` must be
   one of three names; it does not say what those encodings contain.
+- **A dependency between two owed items is a claim about *which clause governs*, and it decays like
+  a ledger row.** `doc/todo/11` item 7 said its last case was blocked on item 5's seam for four
+  sessions, and item 5's own text said the seam was "what §11.3.7.3 states". Both sentences named
+  the wrong clause: §11.3.7.3 governs two *objects* and the blocked case is one object's subpaths,
+  which §11.6.2 governs and answers the opposite way — it *forbids* the construction item 7 was
+  weighing against a cost, so there was never a trade. **The tell is a dependency whose reason is a
+  clause number**, because a clause number is checkable in a minute and nobody checks it: the item
+  reads as settled, and the citation is doing the work of an argument. Read the cited clause's own
+  subject line before inheriting a block. ADRs 0582 and 0583.
 
 ### Judging against other implementations
 

@@ -59,7 +59,12 @@ with a mark, and what a page's own marks are),
 `crates/render-quorra/examples/mitre_ladder.rs` and
 `crates/pdf-model/examples/long_mitre_census.rs` (item 6's two instruments),
 `crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
-(item 5's gate and its instrument),
+(item 5's gate and its instrument — the gate's fourth scene is §11.6.2's discriminator),
+`crates/pdf-render/src/edge.rs`'s `device_rectangles` and `DeviceRectangles::share_a_device_pixel`,
+`crates/render-cpu/src/lib.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact` and
+`fill_rectangles`, `crates/render-cpu/tests/edge_coverage.rs` and
+`crates/pdf-model/examples/rectangular_path_census.rs` (item 7's remainder, its gate and its
+instrument),
 `crates/render-quorra/examples/edge_coverage_ladder.rs` and
 `crates/pdf-model/examples/compare_rasters.rs` (item 7's two instruments),
 `crates/render-quorra/tests/singular_transform.rs` and
@@ -581,7 +586,7 @@ to 3% under the geometry at 2× and 4×, and that is the rules' **ends** abuttin
 the same seam one axis over, over one pixel column per three rather than the whole length of every
 rule. It is `AMBIGUOUS_TILING_CELL_CLIP`'s own last paragraph.
 
-## 5. Two marks that abut anywhere — **witnessed, measured, and not this program's** (ADR 0308)
+## 5. Two marks that abut anywhere — **witnessed, measured, and ours after all** (ADR 0308, corrected by ADR 0582)
 
 Item 2 above is this one inside a tiling cell, and the *unwitnessed general case* it hands on is
 narrower than what a document actually does. **A witness arrived from the project owner in the
@@ -594,13 +599,44 @@ page is magnified.
 It reproduces exactly, and the mark either side of it is stated: the rule is two stroked
 rectangles sharing a coincident edge (user x 1329.8279 and 1329.914, display-list commands 1 and
 2), and the polygons over it are ordinary opaque fills three to seven device pixels across at page
-scale. **The seam is what §11.3.7.3 states.** Result shape is the *union* of the backdrop's and
-the source's, "an 'inverted multiplication' -a multiplication with the inputs and outputs
-complemented", so two marks each covering half a boundary pixel unite to three quarters of it and
-a quarter of whatever lies beneath survives. Four marks covering a quarter each leave `0.75⁴`, and
-*n* of them rise towards `1/e`: **the seam gets worse the more pieces a drawing states its region
-in**, which is why a cross-section of 58 003 polygons is where it is seen and a page of text is
-not.
+scale. Result shape is the *union* of the backdrop's and the source's, "an 'inverted
+multiplication' -a multiplication with the inputs and outputs complemented", so two marks each
+covering half a boundary pixel unite to three quarters of it and a quarter of whatever lies beneath
+survives. Four marks covering a quarter each leave `0.75⁴`, and *n* of them rise towards `1/e`:
+**the seam gets worse the more pieces a drawing states its region in**, which is why a
+cross-section of 58 003 polygons is where it is seen and a page of text is not.
+
+### **This item said "the seam is what §11.3.7.3 states" and that was wrong** (ADR 0582)
+
+ADR 0308's sentence was "the seam is not a deviation from the model — it is the model, applied to
+the fractional shape §11.3.7.2's NOTE 1 says anti-aliasing produces", and the
+seven-hundred-and-eleventh session read the clauses that say where the model's values live. **The
+model states no seam anywhere**, and four sentences settle it:
+
+- §11.2, a `shall`: "Two scalar quantities called shape and opacity mediate compositing of an
+  object with its backdrop. Conceptually, for each object, these quantities shall be defined at
+  every point in the plane". §11.3.7.1 repeats it — "computed for every point on the page".
+- §11.6.4.2, on what the value *is* at a point: for a path or a glyph "the shape shall always be
+  1.0 inside and 0.0 outside the path". Two-valued, per point.
+- So §11.3.7.3's union is a function of point values, and at every point of two abutting marks one
+  of the two shapes is 1.0. **The union is 1.0 across the seam and nothing of the backdrop
+  survives.**
+- §11.3.7.2's NOTE 1 is what introduces the fraction, and it is a `can` in a NOTE about what
+  happens "when such objects are rasterized to device pixels" — a step the model does not contain.
+
+The seam is therefore a **non-linear function evaluated on pixel-averaged arguments**: averaging and
+union do not commute. And §11.2's own NOTE 1 names that loss by its cause, which is the sentence
+worth keeping: "the transparency model does not require a PDF processor to rasterize objects
+immediately or to commit to a raster representation at any time before rendering the entire stack
+onto the page. This is important, since rasterization often causes significant loss of information
+and precision that is best avoided during intermediate stages of the transparency computation."
+
+So it is a *departure* — `_scan-conversion.md`'s departure (1) meeting a non-linear composition,
+licensed by §10.7.1's NOTE — rather than the clause's own arithmetic, and "every rasteriser measured
+has it" is evidence that every rasteriser measured commits to a raster per object. **Nothing about
+the artefact, the numbers below or the price changes**; what changed is that the value the clause
+defines is now written down, and the gate below is still an *upper* bound so that a rasteriser
+reaching that value passes unchanged.
 
 The numbers, all from `crates/render-quorra/tests/abutting_marks.rs` and
 `crates/pdf-model/examples/uncovered_share.rs`:
@@ -630,8 +666,16 @@ axis-aligned and `poppler` leaks too: 1.765 device pixels over the fixture's squ
 two, and `mupdf` — agree to a level of 255; the two that do not are the two that are not
 anti-aliasing the shape.
 
-So **nothing here is `render-quorra`'s** and no feedback section is owed: it answers 0.2471 where
-the processor answers 0.2510 and vello 0.2510, all three inside one level of 255 of the arithmetic.
+So **nothing here is `render-quorra`'s** and no feedback section is owed: the three answer 0.2471,
+0.2510 and 0.2510, all inside one level of 255 of the arithmetic. (Which backend holds which of the
+first two has *exchanged* since ADR 0476 made the processor's rectangle exact, and the run is where
+that is read rather than this table.)
+
+**And the seam is between two *objects*, which is now a gate rather than an argument.** The same two
+rectangles stated as two subpaths of **one** `f` leave **0.0000** of the backdrop on both backends,
+because §11.6.2 makes them portions of one object and one scan conversion accumulates them —
+`two_portions_of_one_path_leave_none_of_the_backdrop`. That is the discriminator between this item
+and item 7's remainder, and it is why the two are different clauses (ADR 0583).
 
 ### What it would take, and what that costs
 
@@ -779,14 +823,36 @@ question was which converter, not how many calls.
 
 - **Every shape that is not a single axis-aligned rectangle keeps the quantum**, where it is a
   sixteenth rather than a quarter and averages along the edge: a glyph, a curve, a diagonal, a
-  stroke's outline that is not one rectangle, and a path stating *several* rectangles. **A
-  butt-capped straight rule along a device axis left that list in the six-hundred-and-ninetieth
-  session** (ADR 0535) and it left sideways: item 4's stroke half draws such a mark as the fill of
-  its own outline, and that outline *is* one axis-aligned rectangle, so `device_rectangle` answers
-  for it exactly as it does for an `re f`. The last of the list is deliberate and is item 5's
-  subject — two rectangles drawn as two marks composite by §11.3.7.3's union where one scan
-  conversion accumulates them, so taking them one at a time would trade this defect for a worse one
-  along every seam. A round that wants it needs the seam answered first.
+  stroke's outline that is not one rectangle. **A butt-capped straight rule along a device axis left
+  that list in the six-hundred-and-ninetieth session** (ADR 0535) and it left sideways: item 4's
+  stroke half draws such a mark as the fill of its own outline, and that outline *is* one
+  axis-aligned rectangle, so `device_rectangle` answers for it exactly as it does for an `re f`.
+- ~~**A path stating *several* rectangles**, which is deliberate and is item 5's subject — two
+  rectangles drawn as two marks composite by §11.3.7.3's union, so taking them one at a time would
+  trade this defect for a worse one along every seam. A round that wants it needs the seam answered
+  first.~~ **Seven eighths of it paid, and the dependency did not exist** (ADR 0583). §11.3.7.3 is
+  what the standard says to do with two *objects*; a path's subpaths are portions of **one**, and
+  §11.6.2 is a `shall` about exactly that — "[p]ortions of an object shall not be composited with
+  one another, even if they are described in a way that would seem to cause overlaps". So the
+  construction this bullet was declining is *forbidden* rather than weighed against a seam, and what
+  the clause leaves open is only where the portions land. `pdf_render::device_rectangles` decomposes
+  such a path into disjoint device rectangles and `DeviceRectangles::share_a_device_pixel` asks the
+  clause's own question; where no device pixel receives two portions, each is drawn as its own mark
+  at §10.7.4's exact area, for a mark **and** for a clipping region.
+
+  The census, before the code (trap 14) — `pdf-model/examples/rectangular_path_census`, first pages
+  at scale 1, pdf.js corpus: 223 545 fills, 12 987 one rectangle, **3419 several with no shared
+  pixel**, 505 several sharing one, 3084 with a rectangular subpath declined. It cost +0.074% of the
+  rasteriser on a page of text and bought −0.372% to −0.531% on the pages that state the population;
+  135 of 974 first pages move pixels, and **a share of them is text**, because a glyph whose outline
+  is two axis-aligned rectangles — an `i`, a `"`, an `=` — is a two-subpath fill like any other.
+
+  **What is left is the sharing half**, 505 of 3924 in that corpus, and its price is *not* item 5's
+  rasteriser: it is one coverage buffer per mark with the portions' areas **summed** into it and the
+  paint blitted once, which is `scan::intersected`'s shape already (ADR 0355) and would cost about
+  what that cost. Overlapping rectangles stay declined on the clause's own grounds — §11.6.2's
+  sentence names that case and the two fill rules answer it differently, so the decomposition would
+  have to carry a winding number per cell.
 - **A rectangle is measured exactly and then still *multiplied* into its clip** for an image's edge
   and for part of a group's raster, which is item 4: what moved is what each surviving factor is
   worth, and a fill's, a stroke's and an opaque group's are no longer among them. `issue21346.pdf`'s edge went

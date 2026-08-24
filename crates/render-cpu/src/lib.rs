@@ -1553,12 +1553,19 @@ impl CpuRasterizer {
         };
         // §10.7.4 a third time, for the *edge* of a shape thicker than a pixel: an axis-aligned
         // rectangle's coverage is the product of its two overlaps, which `pdf_render::edge`
-        // derives from the clause's own definition of a pixel and `scan::fill_rectangle` draws
-        // exactly where this converter would round it to a quarter.
-        if let Some(rect) = pdf_render::device_rectangle(remaining, at)
-            && let Some(rect) = convert::to_skia_rect(rect)
-        {
-            scan::fill_rectangle(pixmap, (&path, rect), &brush, convert::transform(at), clip);
+        // derives from the clause's own definition of a pixel and `scan::fill_rectangles` draws
+        // exactly where this converter would round it to a quarter. §11.6.2 is what admits a path
+        // stating *several* — they are portions of one object, so they may be drawn one at a time
+        // only while no device pixel receives two of them (ADR 0583).
+        let exact = rectangular_mark(remaining, at);
+        if exact.is_some() {
+            scan::fill_rectangles(
+                pixmap,
+                (&path, &exact),
+                &brush,
+                convert::transform(at),
+                clip,
+            );
             return Ok(());
         }
         scan::fill(
@@ -2170,6 +2177,39 @@ fn draw_rule_at_one_pixel(
     true
 }
 
+/// Which device rectangles a fill's path is, if any — ISO 32000-2 §10.7.4 and §11.6.2.
+///
+/// One walk answers both questions: `pdf_render::device_rectangles` returns its one-rectangle
+/// variant without allocating, which is the great majority of every corpus here
+/// (`pdf-model/examples/rectangular_path_census`), and a `Vec` only for the paths that state
+/// several. Asking two functions instead cost +0.18% of the rasteriser on a page of text, which is
+/// the second walk over every fill the first one declined.
+///
+/// **The second half is `DeviceRectangles::share_a_device_pixel`**: §11.6.2 makes a path's subpaths
+/// portions of one object and forbids compositing portions with one another, so a pixel reached by
+/// two of them would be composited twice and the whole path is left to the one supersampled
+/// conversion that accumulates it. Both questions live in the shared crate because both are
+/// decisions about the device, which is trap 2's rule and [`scan::Exact`]'s own comment. ADR 0583.
+fn rectangular_mark(path: &Path, at: Transform) -> scan::Exact {
+    let Some(rectangles) = pdf_render::device_rectangles(path, at) else {
+        return scan::Exact::Unknown;
+    };
+    match rectangles {
+        pdf_render::DeviceRectangles::One(rect) => {
+            convert::to_skia_rect(rect).map_or(scan::Exact::Unknown, scan::Exact::One)
+        }
+        // §11.6.2 admits drawing the portions one at a time only while no device pixel receives
+        // two of them; where one does, the whole path keeps the single supersampled conversion
+        // that accumulates it, which honours the clause and measures it to a quarter.
+        ref several if several.share_a_device_pixel() => scan::Exact::Unknown,
+        pdf_render::DeviceRectangles::Several(rects) => rects
+            .into_iter()
+            .map(convert::to_skia_rect)
+            .collect::<Option<Vec<_>>>()
+            .map_or(scan::Exact::Unknown, scan::Exact::Several),
+    }
+}
+
 /// The verbs an axis-aligned rectangle's outline can take, above which [`draw_stroked_outline`]
 /// stops asking whether it is one.
 ///
@@ -2269,7 +2309,13 @@ fn draw_stroked_outline(
         && let Some(rect) = pdf_render::device_rectangle(&convert::from_skia_path(&outline), at)
         && let Some(rect) = convert::to_skia_rect(rect)
     {
-        scan::fill_rectangle(pixmap, (&outline, rect), brush, at_device, clip);
+        scan::fill_rectangles(
+            pixmap,
+            (&outline, &scan::Exact::One(rect)),
+            brush,
+            at_device,
+            clip,
+        );
         return true;
     }
     // The non-zero rule, because a stroked outline's inner contours are wound against its outer
@@ -3575,16 +3621,17 @@ impl MaskCache {
             },
         )?;
         // A fresh mask blocks everything, so filling the root path is what opens it.
-        let exact = |shape: &Shape<'_>| {
-            let at = to_band.of(shape.transform);
-            pdf_render::device_rectangle(shape.source, at).and_then(convert::to_skia_rect)
-        };
+        // §10.7.4 says a clipping region "consists of the set of pixels that would be included by
+        // a fill operation", so a region is measured by the rule a mark is: the same
+        // [`rectangular_mark`], for the same reason `clip_intersection.rs` exists — a mark painted
+        // at its exact area under a region measured to a quarter breaks `S ∩ C = S`.
+        let exact = |shape: &Shape<'_>| rectangular_mark(shape.source, to_band.of(shape.transform));
         scan::mask_fill(
             &mut mask,
             &root.path,
             root.fill_rule,
             self.anti_alias,
-            (convert::transform(to_band.of(root.transform)), exact(root)),
+            (convert::transform(to_band.of(root.transform)), &exact(root)),
         );
         if !nested.is_empty() {
             // One scratch mask for the whole chain, allocated from the same width and height as
@@ -3606,7 +3653,7 @@ impl MaskCache {
                     self.anti_alias,
                     (
                         convert::transform(to_band.of(shape.transform)),
-                        exact(shape),
+                        &exact(shape),
                     ),
                 );
             }
