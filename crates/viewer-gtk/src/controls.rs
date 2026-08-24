@@ -101,8 +101,10 @@ pub(crate) fn build(
         } => toggle(field, widget, *on, *no_toggle_to_off, suppress, change),
         ControlKind::Push => push(field, widget, change),
         ControlKind::Combo {
-            options, selected, ..
-        } => combo(field, options, *selected, suppress, change),
+            options,
+            selected,
+            editable,
+        } => combo(field, options, *selected, *editable, suppress, change),
         ControlKind::List {
             options,
             selected,
@@ -303,13 +305,36 @@ fn chosen(selection: &gtk4::SelectionModel) -> Vec<usize> {
 }
 
 /// §12.7.5.4's combo box, which Table 233 bit 18 distinguishes from a list.
+///
+/// **Table 233 bit 19 decides which of two controls this is, and it binds both ways** (ISO 32000-2
+/// §12.7.5.4). If the bit is set the combo box "shall include an editable text box as well as a
+/// drop-down list", and if it is clear it shall include only a drop-down list.
+///
+/// So a clear flag is not the absence of a requirement: only a drop-down list is what a
+/// [`gtk4::DropDown`] is, and that is the control below. A set flag asks for two things at once,
+/// and GTK4 has no single widget that is both — which is what `doc/todo/30` item 7 and ADR 0509
+/// §3 called a toolkit floor for thirty-nine sessions.
+///
+/// **It is not a floor, and ADR 0508's rule is what found that: call the API before writing that
+/// something is blocked on it.** The floor was read off the *widget list* — `GtkDropDown` has no
+/// entry and `GtkComboBoxText` is deprecated in the release this crate binds — and the clause does
+/// not ask for a widget. It asks for an editable text box *and* a drop-down list, which
+/// [`gtk4::Entry`] beside a [`gtk4::MenuButton`] over a [`gtk4::ListBox`] is, in one `linked` box,
+/// with nothing deprecated and the `v4_10` feature floor untouched. The composition is what GTK's
+/// own migration note points at, and it is the same answer ADR 0508 reached one entry further up
+/// this file: a toolkit that will not hand over a *widget* has usually not withheld the
+/// *capability*.
 fn combo(
     field: &FormField,
     options: &[String],
     selected: Option<usize>,
+    editable: bool,
     suppress: &Rc<Cell<bool>>,
     change: &Rc<dyn Fn(FieldChange)>,
 ) -> gtk4::Widget {
+    if editable {
+        return editable_combo(field, options, selected, suppress, change);
+    }
     let shown: Vec<&str> = options.iter().map(String::as_str).collect();
     let drop = gtk4::DropDown::from_strings(&shown);
     match selected.and_then(|index| u32::try_from(index).ok()) {
@@ -333,14 +358,105 @@ fn combo(
         // §12.7.5.4's item, named by its position in Table 234's `/Opt` rather than by the label
         // `/V` will hold. The clause makes the label the value — "the name string is the second of
         // the two array elements" — and the position is what says *which* label, where two entries
-        // carry the same one. `GtkDropDown` is not editable, so this control has no other value to
-        // send; Table 233 bit 19's editable combo box is the case this host reports and Qt obeys.
+        // carry the same one. A drop-down list has no other value to send, which is Table 233 bit
+        // 19 clear stated as a control rather than reported: there is nowhere here to type.
         change(FieldChange::Set {
             field: name.clone(),
             value: Entered::Chosen(vec![index]),
         });
     });
     drop.upcast()
+}
+
+/// Table 233 bit 19 set: "an editable text box as well as a drop-down list", composed.
+///
+/// The two halves send **different** values, and that is the clause rather than a convenience.
+/// Typing sends characters, because §12.7.5.4 lets an editable combo box hold "a value other than
+/// the predefined choices" and there is no index for such a value to be. Picking a row sends the
+/// row's *position* in Table 234's `/Opt`, because two entries may carry the same name string and
+/// a label could not say which was picked — the same reason the plain drop-down above sends one.
+///
+/// The entry is what the value is read back into ([`crate::host`]'s `write_back`), so §12.7.5.3's
+/// truncation and a row picked from the list both arrive by the one road every other control's
+/// value takes.
+fn editable_combo(
+    field: &FormField,
+    options: &[String],
+    selected: Option<usize>,
+    suppress: &Rc<Cell<bool>>,
+    change: &Rc<dyn Fn(FieldChange)>,
+) -> gtk4::Widget {
+    let name = field.name.qualified.clone();
+    let entry = gtk4::Entry::new();
+    entry.set_hexpand(true);
+    // Before the signal is connected, so that seeding the control is not a keystroke.
+    entry.set_text(field.value.as_ref().map_or("", |shown| shown.text.as_str()));
+    {
+        let name = name.clone();
+        let suppress = Rc::clone(suppress);
+        let change = Rc::clone(change);
+        entry.connect_changed(move |entry| {
+            if suppress.get() {
+                return;
+            }
+            change(FieldChange::Set {
+                field: name.clone(),
+                value: Entered::Text(entry.text().to_string()),
+            });
+        });
+    }
+    let list = gtk4::ListBox::new();
+    list.set_selection_mode(gtk4::SelectionMode::Single);
+    for option in options {
+        let label = gtk4::Label::new(Some(option));
+        label.set_xalign(0.0);
+        let row = gtk4::ListBoxRow::new();
+        row.set_child(Some(&label));
+        list.append(&row);
+    }
+    if let Some(row) = selected
+        .and_then(|index| i32::try_from(index).ok())
+        .and_then(|index| list.row_at_index(index))
+    {
+        list.select_row(Some(&row));
+    }
+    let scroller = gtk4::ScrolledWindow::new();
+    scroller.set_child(Some(&list));
+    scroller.set_propagate_natural_width(true);
+    scroller.set_propagate_natural_height(true);
+    // A widget's `/Rect` says nothing about how many options are behind it, and a form with a
+    // hundred of them would otherwise ask for a popover taller than the screen.
+    scroller.set_max_content_height(320);
+    let popover = gtk4::Popover::new();
+    popover.set_child(Some(&scroller));
+    popover.set_has_arrow(false);
+    let button = gtk4::MenuButton::new();
+    button.set_icon_name("pan-down-symbolic");
+    button.set_popover(Some(&popover));
+    {
+        let count = options.len();
+        let change = Rc::clone(change);
+        list.connect_row_activated(move |_, row| {
+            let Ok(index) = usize::try_from(row.index()) else {
+                return;
+            };
+            if index >= count {
+                return;
+            }
+            popover.popdown();
+            change(FieldChange::Set {
+                field: name.clone(),
+                value: Entered::Chosen(vec![index]),
+            });
+        });
+    }
+    let composed = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    // GTK's own style class for "these are one control", which is what makes the pair read as a
+    // combo box rather than as an entry that happens to have a button beside it.
+    composed.add_css_class("linked");
+    composed.append(&entry);
+    composed.append(&button);
+    composed.upcast()
 }
 
 /// §12.7.5.4's list box, which the page draws nothing for.

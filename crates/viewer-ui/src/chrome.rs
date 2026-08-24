@@ -2144,6 +2144,230 @@ fn wrap(chrome: &Chrome, paragraph: &str, size: f32, room: f32) -> Vec<String> {
     lines
 }
 
+/// How many of Table 234's options this host shows at once.
+///
+/// A choice and not a clause's: §12.7.5.4 calls a list box "scrollable" and states nothing about
+/// how tall either control is. The number is what fits under a widget near the middle of an
+/// ordinary window without covering the rest of the form, and the options past it are *counted*
+/// rather than dropped in silence — a list that showed twelve of ninety with nothing saying so
+/// would be this program hiding the document's own data.
+const CHOICE_ROWS: usize = 12;
+
+/// The paper §12.7.5.4's options are listed on.
+const CHOICE_PAPER: Color = Color {
+    r: 0.99,
+    g: 0.99,
+    b: 1.0,
+    a: 1.0,
+};
+
+/// §12.7.5.4's options, listed where a tier-1 host would have put a widget.
+///
+/// **Why this exists at all, since a tier-2 host normally leaves the form to the page.** The two
+/// native hosts place a real `GtkDropDown` or `QComboBox` over the widget and a person picks an
+/// option out of it; this host draws the page's own appearance and had no way to *select* anything
+/// — the only value it could give a choice field was characters typed into it, which Table 233 bit
+/// 19 permits for one of the two combo boxes and forbids for the other and for every list box.
+/// So the list is not chrome for its own sake: it is the control the clause's "drop-down list"
+/// names, drawn rather than placed. ADR 0596.
+///
+/// **The geometry is computed once and used twice** — to draw the list and to say which option a
+/// click landed on. Two derivations of one layout is how a control comes to show one row and act
+/// on another, and neither the page nor the boundary could tell us it had happened.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChoiceList {
+    /// The whole list, in the window's device pixels: x, y, width, height.
+    frame: (f32, f32, f32, f32),
+    /// The rows on the screen, each with the index into Table 234's `/Opt` that it is.
+    rows: Vec<(usize, (f32, f32, f32, f32))>,
+    /// What each row says, elided to the width, in `rows`' order.
+    labels: Vec<String>,
+    /// Which of `rows` are selected, in `rows`' order.
+    chosen: Vec<bool>,
+    /// How many options are not on the screen.
+    hidden: usize,
+    /// The type size these rows are set at.
+    size: f32,
+}
+
+impl ChoiceList {
+    /// Lays the options out under (or over) the widget they belong to.
+    ///
+    /// `over` is the widget's quadrilateral in the **window's** device pixels — `Query::Fields`
+    /// answers in the page viewport's, so the caller has already added the sidebar's width, which
+    /// is the one addition every overlay in this program makes. `first` is the option to start at:
+    /// Table 234's `/TI` for a list box and the selected one for a drop-down, clamped so that a
+    /// full window of rows is shown.
+    ///
+    /// `None` where there is nothing to list, which is a choice field whose `/Opt` is absent:
+    /// Table 234 says "[i]f this entry is not present, no choices should be presented to the
+    /// user", so a list with no rows is not drawn at all rather than drawn empty.
+    #[must_use]
+    pub fn of(
+        chrome: &Chrome,
+        over: [f32; 8],
+        options: &[String],
+        selected: &[usize],
+        first: usize,
+        (width, height, scale): (u32, u32, f32),
+    ) -> Option<Self> {
+        if options.is_empty() {
+            return None;
+        }
+        let size = TEXT_SIZE * scale;
+        let row = size * ROW_HEIGHT;
+        let padding = POPUP_PADDING * scale;
+        let shown = options.len().min(CHOICE_ROWS);
+        let hidden = options.len().saturating_sub(shown);
+        let first = first.min(hidden);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window extent in pixels, far inside f32's exact integer range"
+        )]
+        let (window_width, window_height) = (width as f32, height as f32);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "at most CHOICE_ROWS rows plus the count of the rest"
+        )]
+        let rows_high = row * (shown as f32) + if hidden > 0 { size } else { 0.0 };
+        let box_height = rows_high + 2.0 * padding;
+        let widest = options
+            .iter()
+            .skip(first)
+            .take(shown)
+            .map(|label| chrome.width(label, size, Style::default()))
+            .fold(0.0_f32, f32::max);
+        let anchor_left = over[0].min(over[2]).min(over[4]).min(over[6]);
+        let anchor_right = over[0].max(over[2]).max(over[4]).max(over[6]);
+        let anchor_top = over[1].min(over[3]).min(over[5]).min(over[7]);
+        let anchor_bottom = over[1].max(over[3]).max(over[5]).max(over[7]);
+        let box_width = (widest + 2.0 * padding)
+            .max(anchor_right - anchor_left)
+            .min(window_width);
+        let x = anchor_left.min(window_width - box_width).max(0.0);
+        // Under the widget where there is room, and above it where there is not — which is what
+        // every drop-down on every platform does and what a widget near the bottom of a page
+        // needs. Clamped to the window last, so that a list taller than the window still starts
+        // at the top of it rather than off the screen.
+        let below = anchor_bottom;
+        let y = if below + box_height <= window_height {
+            below
+        } else {
+            (anchor_top - box_height).max(0.0)
+        };
+        let mut rows = Vec::with_capacity(shown);
+        let mut labels = Vec::with_capacity(shown);
+        let mut chosen = Vec::with_capacity(shown);
+        for (nth, option) in (first..first.saturating_add(shown)).enumerate() {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "at most CHOICE_ROWS, which is a dozen"
+            )]
+            let top = y + padding + row * (nth as f32);
+            rows.push((option, (x + 1.0, top, box_width - 2.0, row)));
+            labels.push(elide(
+                chrome,
+                &options[option],
+                size,
+                Style::default(),
+                box_width - 2.0 * padding,
+            ));
+            chosen.push(selected.contains(&option));
+        }
+        Some(Self {
+            frame: (x, y, box_width, box_height),
+            rows,
+            labels,
+            chosen,
+            hidden,
+            size,
+        })
+    }
+
+    /// Which of Table 234's options a point landed on, if any.
+    ///
+    /// A point outside every row is `None`, which the caller reads as "not on the list" — the
+    /// press that closes it.
+    #[must_use]
+    pub fn option_at(&self, at: (f32, f32)) -> Option<usize> {
+        self.rows
+            .iter()
+            .find(|(_, (x, y, w, h))| at.0 >= *x && at.0 <= x + w && at.1 >= *y && at.1 <= y + h)
+            .map(|(option, _)| *option)
+    }
+
+    /// The middle of the row an option is drawn on, where it is on the screen.
+    ///
+    /// [`Self::option_at`]'s inverse, and it exists for the same reason `Query::Offset` exists
+    /// beside `Query::Caret`: something has to be able to *aim* at a row rather than hit-test one.
+    /// An assistive technology asking `org.a11y.atspi.Action` for a click names an option and not
+    /// a pixel (ADR 0425), and the test that the row drawn and the row picked are one row asks
+    /// both questions of the same layout.
+    #[must_use]
+    pub fn row_middle(&self, option: usize) -> Option<(f32, f32)> {
+        self.rows
+            .iter()
+            .find(|(held, _)| *held == option)
+            .map(|(_, (x, y, w, h))| (x + w * 0.5, y + h * 0.5))
+    }
+
+    /// Whether a point is anywhere on the list at all.
+    #[must_use]
+    pub fn covers(&self, at: (f32, f32)) -> bool {
+        let (x, y, w, h) = self.frame;
+        at.0 >= x && at.0 <= x + w && at.1 >= y && at.1 <= y + h
+    }
+
+    /// The list as a display list in the window's own pixels.
+    #[must_use]
+    pub fn draw(&self, chrome: &Chrome, width: u32, height: u32) -> DisplayList {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "window dimensions are far below f32's exact integer range"
+        )]
+        let mut list = DisplayList::new(pdf_render::Size::new(width as f32, height as f32));
+        let (x, y, w, h) = self.frame;
+        rectangle(&mut list, (x, y, w, h), EDGE);
+        rectangle(
+            &mut list,
+            (x + 1.0, y + 1.0, w - 2.0, h - 2.0),
+            CHOICE_PAPER,
+        );
+        let padding = self.size * (POPUP_PADDING / TEXT_SIZE);
+        for (nth, (_, (row_x, row_y, row_w, row_h))) in self.rows.iter().enumerate() {
+            if self.chosen.get(nth).copied().unwrap_or_default() {
+                // §12.7.5.4 states no highlight for a selection and this host draws one, which is
+                // ADR 0407's own reading: the *options* are the clause's and the mark over the
+                // chosen one is the platform's, so it is drawn in this interface's colour exactly
+                // as a text selection is.
+                rectangle(&mut list, (*row_x, *row_y, *row_w, *row_h), HOVER);
+            }
+            let baseline = row_y + row_h - (row_h - self.size) * 0.5 - self.size * 0.22;
+            chrome.text(
+                &mut list,
+                self.labels.get(nth).map_or("", String::as_str),
+                (row_x + padding, baseline),
+                self.size,
+                Style::default(),
+                Color::BLACK,
+            );
+        }
+        if self.hidden > 0 {
+            let note = format!("{} more", self.hidden);
+            let baseline = y + h - padding;
+            chrome.text(
+                &mut list,
+                &note,
+                (x + padding, baseline),
+                self.size * 0.85,
+                Style::default(),
+                DIMMED,
+            );
+        }
+        list
+    }
+}
+
 /// How wide §7.6.4.1's password card is, in logical pixels.
 ///
 /// **Every number under this heading is a choice, and the standard states none of them**: the

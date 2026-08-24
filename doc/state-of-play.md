@@ -63,7 +63,12 @@ kept under a per-document bound so that searching the same document twice does n
 (ADRs 0250, 0256); a person can **fill in a form field** — where the host keeps the *point* it
 clicked and never the text, so §12.7.5.3's truncation is read back rather than predicted (ADR
 0201), with a caret that says where the next character goes so that correcting the middle of a
-value is not deleting back to it (ADR 0211) — undo it and redo it; a click on a markup annotation
+value is not deleting back to it (ADR 0211) — undo it and redo it; a person can **choose an option
+in §12.7.5.4's two controls in all three windows**, which is Table 233 bit 19 obeyed in both of the
+directions it states rather than in the one that reads as a permission: the flag set is an editable
+text box beside a drop-down list — composed in GTK4, which has no widget that is both — and the flag
+clear is a drop-down and no way to type into it, which the host drawing its own chrome broke for the
+whole of its life (ADR 0596); a click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
 activation (ADR 0191); a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the

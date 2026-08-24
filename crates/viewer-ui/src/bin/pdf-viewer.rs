@@ -307,6 +307,7 @@ fn main() {
         articles: Vec::new(),
         collection: None,
         typing: None,
+        choosing: None,
         clipboard: String::new(),
         // Connects to nothing here, which is `CLAUDE.md`'s second principle: a clipboard is not
         // needed to show page one, so the session is not asked for one until somebody copies.

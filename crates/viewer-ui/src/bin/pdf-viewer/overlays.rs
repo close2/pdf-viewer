@@ -179,6 +179,18 @@ impl App {
         viewer_ui::chrome::popup_windows(chrome, &windows, width, height, scale)
     }
 
+    /// §12.7.5.4's options, listed under the choice field somebody pressed.
+    ///
+    /// The whole layout is [`App::choices`], because the press that picks a row uses the same one:
+    /// two derivations of one list is how a control comes to show one option and act on another.
+    /// Nothing is drawn while no list is open, which is every frame until somebody presses a
+    /// choice field.
+    pub(crate) fn choices_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let (list, _) = self.choices()?;
+        Some(list.draw(chrome, width, height))
+    }
+
     /// §12.5.1's focus ring: a stroked box round whatever the tab key last landed on.
     ///
     /// The clause lets a processor walk the annotations with the tab key and says nothing about
@@ -400,6 +412,10 @@ pub(crate) struct Overlays {
     caret: Option<pdf_render::DisplayList>,
     /// §12.5.6.14's popup windows, which belong to the document and so are under the sidebar.
     popups: Option<pdf_render::DisplayList>,
+    /// §12.7.5.4's options, where a choice field has been pressed. **Over the popups**: it is a
+    /// control this host is showing rather than something the document states, and a control a
+    /// person has just opened is the thing they are looking at.
+    choices: Option<pdf_render::DisplayList>,
     /// The sidebar, where it is shown.
     panel: Option<pdf_render::DisplayList>,
     /// The find bar, over the sidebar and under the modal card.
@@ -427,6 +443,7 @@ impl Overlays {
             focus: app.focus_list(edge, width, height),
             caret: app.caret_list(edge, width, height),
             popups: app.popup_list(edge, width, height),
+            choices: app.choices_list(width, height),
             panel: app.panel_list(height),
             find: app.find_list(width),
             about: app.about_list(width, height),
@@ -446,6 +463,7 @@ impl Overlays {
             self.focus.as_ref(),
             self.caret.as_ref(),
             self.popups.as_ref(),
+            self.choices.as_ref(),
             self.panel.as_ref(),
             self.find.as_ref(),
             self.about.as_ref(),

@@ -1178,3 +1178,63 @@ fn pale(bar: &pdf_render::DisplayList) -> usize {
     }
     light
 }
+
+/// §12.7.5.4's options are drawn where the list says they are, and picked there too.
+///
+/// **The one test that has to be here rather than in `viewer-host`**: the two native hosts obey
+/// Table 233 bit 19 by *choosing a widget*, so their toolkits are what draw a list and place a
+/// row. This host draws its own, which means the geometry is ours and so is the way it can be
+/// wrong — a list that shows one option and acts on another is a defect no gate in this tree
+/// rasterises, because chrome is not a page.
+///
+/// So both halves of the one layout are asked: `option_at` for every row's own middle, and ink
+/// inside that row's band. Trap 1's rule in an interface — a display list holding the right
+/// commands can still draw nothing.
+#[test]
+fn a_choice_fields_options_are_drawn_on_the_rows_a_press_picks() {
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let options: Vec<String> = ["Red", "My favourite colour", "Blue"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    // A widget near the top of the window, so the list has room under it: 40..60 down, 30..230
+    // across, which is the shape `Query::Fields` answers with.
+    let over = [30.0, 40.0, 230.0, 40.0, 230.0, 60.0, 30.0, 60.0];
+    let list = viewer_ui::chrome::ChoiceList::of(
+        &chrome,
+        over,
+        &options,
+        // §12.7.5.4's `/V`, "a text string representing the selected item": the third.
+        &[2],
+        0,
+        (WIDTH, HEIGHT, 1.0),
+    )
+    .expect("three options are three rows");
+    let drawn = list.draw(&chrome, WIDTH, HEIGHT);
+
+    for (index, option) in options.iter().enumerate() {
+        let point = list
+            .row_middle(index)
+            .expect("every option of three is on the screen");
+        assert_eq!(
+            list.option_at(point),
+            Some(index),
+            "the middle of the row drawn for {option} picks it"
+        );
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a row this layout placed inside a 300 px window, so positive and small"
+        )]
+        let row = point.1 as u32;
+        assert!(
+            ink(&drawn, row - 4..row + 4) > 0,
+            "{option} is set on the row that picks it"
+        );
+    }
+
+    // A point outside every row is not a row, which is the press that dismisses the list.
+    assert_eq!(list.option_at((5.0, 5.0)), None);
+    assert!(!list.covers((5.0, 5.0)));
+    assert!(list.covers(list.row_middle(0).expect("the first row")));
+}
