@@ -9,8 +9,9 @@
 //! # What is here, and what turned out not to be GTK's
 //!
 //! Four of this crate's original eight modules named no GTK type at all, and the second host wanted
-//! all four unchanged — so they are [`viewer_host`] now: §12.3.3's, §8.11.4.3's and §7.11.4's
-//! answers as one row shape, §12.7.5's field as the control it is, §12.7.6.4's file policy, and
+//! all four unchanged — so they are [`viewer_host`] now: §12.3.3's, §8.11.4.3's, §7.11.4's,
+//! §12.4.3's and §14.3.3's answers as one row shape, which of them a window offers as a panel
+//! ([`viewer_host::Tab`]), §12.7.5's field as the control it is, §12.7.6.4's file policy, and
 //! the launch timeline. What is left here is the toolkit and nothing else, which is why this
 //! crate's whole public interface is [`Host`] and [`HostError`] (ADR 0246).
 //!
@@ -54,6 +55,7 @@
 mod controls;
 mod host;
 mod page;
+mod pages;
 mod tree;
 
 pub use host::{Host, HostError};

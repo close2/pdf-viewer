@@ -60,6 +60,17 @@ impl App {
         self.password.draw(chrome, width, height, scale)
     }
 
+    /// Why there is no document at all, where there is none.
+    ///
+    /// Beside the password card for the same reason it is: both are chrome this host draws over a
+    /// window with no page in it, and `Surface::without_a_page` is the path that gets either of
+    /// them onto the screen (ADR 0545).
+    pub(crate) fn refusal_list(&self, width: u32, height: u32) -> Option<pdf_render::DisplayList> {
+        let chrome = self.chrome.as_ref()?;
+        let scale = self.window().map_or(1.0, |(_, _, scale)| scale);
+        self.refused.draw(chrome, width, height, scale)
+    }
+
     /// §8.11.4.3's `/Order`, asked for fresh.
     ///
     /// Unlike the outline and the attachments this is *not* cached: a click on a layer's switch
@@ -87,35 +98,64 @@ impl App {
             }),
             information: &self.information,
             metadata: self.metadata.as_ref(),
-            pages: &self.pages,
+            page_count: self.page_count,
+            pages: Some(&self.pages),
         }
     }
 
-    /// Builds §12.3.4's page list, once, the first time its tab is shown.
+    /// Fetches §12.3.4's rows the panel is about to draw, and no others.
     ///
-    /// Called from `present`, which is the one place that runs before the panel is drawn and
-    /// holds `&mut self`. A document with no thumbnails at all still gets a list — the rows are
-    /// its pages, and §12.3.4's NOTE is why a page without one is still a page.
-    pub(crate) fn ensure_pages(&mut self) {
-        if !self.panel.shows_pages() || !self.pages.is_empty() {
+    /// Called from `present`, which is the one place that runs before the panel is drawn and holds
+    /// `&mut self`.
+    ///
+    /// **This used to build every row of the list the first time the tab was shown**, which is
+    /// `CLAUDE.md` section 2's forbidden thumbnail generation reached by a different road: a
+    /// document stating Table 29's `/PageMode /UseThumbs` opens that tab as it opens, so the whole
+    /// list was on the *launch path* — measured at **121 ms of a 156 ms first present** on a
+    /// thousand-page document, by the trace line below, which is why the line is there. The two
+    /// native hosts never had it, because a `GtkListView` and a `QAbstractListModel` bind the rows
+    /// they lay out and this host lays out its own.
+    ///
+    /// A document with no thumbnails at all still gets rows — the rows are its pages, and
+    /// §12.3.4's NOTE is why a page without one is still a page.
+    pub(crate) fn fill_visible_pages(&mut self) {
+        if !self.panel.shows_pages() {
             return;
         }
         let Answer::Count(count) = self.viewer.query(Query::PageCount) else {
             return;
         };
-        self.pages = (0..count)
-            .map(|index| {
-                let label = match self.viewer.query(Query::PageLabel(index)) {
-                    Answer::Label(label) => label,
-                    _ => format!("Page {}", index.saturating_add(1)),
-                };
-                let thumbnail = match self.viewer.query(Query::Thumbnail(index)) {
-                    Answer::Thumbnail(thumbnail) => Some(thumbnail.image),
-                    _ => None,
-                };
-                viewer_ui::chrome::Page { label, thumbnail }
-            })
-            .collect();
+        self.page_count = count;
+        let Some((_, height, scale)) = self.window() else {
+            return;
+        };
+        let wanted = self.panel.visible_pages(count, height, scale);
+        let began = std::time::Instant::now();
+        let mut fetched = 0_usize;
+        for index in wanted.clone() {
+            if self.pages.get(index).is_some() {
+                continue;
+            }
+            let entry = viewer_host::page_entry(&self.viewer, index);
+            fetched = fetched.saturating_add(1);
+            drop(self.pages.row(index, || viewer_host::Held {
+                label: entry.label,
+                picture: entry.thumbnail,
+            }));
+        }
+        if fetched > 0 {
+            self.trace.say(
+                crate::trace::Topic::Panel,
+                format_args!(
+                    "§12.3.4: rows {}..{} of {count} on the screen, {fetched} fetched in {:?}, \
+                     {} held",
+                    wanted.start,
+                    wanted.end,
+                    began.elapsed(),
+                    self.pages.len()
+                ),
+            );
+        }
     }
 
     /// What the pointer moving does: the panel's highlight, or the page's §12.5.5 appearance.
@@ -146,7 +186,8 @@ impl App {
                 }),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
-                pages: &self.pages,
+                page_count: self.page_count,
+                pages: Some(&self.pages),
             },
             scale,
         );
@@ -227,7 +268,8 @@ impl App {
                 }),
                 information: &self.information,
                 metadata: self.metadata.as_ref(),
-                pages: &self.pages,
+                page_count: self.page_count,
+                pages: Some(&self.pages),
             },
             scale,
         );
@@ -326,7 +368,8 @@ impl App {
                     }),
                     information: &self.information,
                     metadata: self.metadata.as_ref(),
-                    pages: &self.pages,
+                    page_count: self.page_count,
+                    pages: Some(&self.pages),
                 },
                 height,
                 scale,

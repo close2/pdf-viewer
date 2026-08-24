@@ -8,7 +8,7 @@
 
 use gtk4::gdk;
 use gtk4::glib;
-use pdf_render::{Raster, RasterFormat};
+use pdf_render::{Image, Raster, RasterFormat};
 
 /// Why a raster could not become a texture.
 ///
@@ -49,39 +49,44 @@ pub(crate) fn texture(raster: &Raster) -> Result<gdk::MemoryTexture, PixelError>
     match raster.format {
         RasterFormat::Rgba8 => {}
     }
-    let (Ok(width), Ok(height)) = (i32::try_from(raster.width), i32::try_from(raster.height))
-    else {
-        return Err(PixelError::TooLarge {
-            width: raster.width,
-            height: raster.height,
-        });
+    samples(raster.width, raster.height, &raster.data)
+}
+
+/// ISO 32000-2 §12.3.4's miniature, as a paintable.
+///
+/// The same conversion over a different carrier, which is why it is here rather than in the panel
+/// that draws it: [`pdf_render::Image`] is the row-major straight-alpha RGBA8 a [`Raster`] is —
+/// `pdf_model::thumbnail` decodes a `/Thumb` "into the same RGBA raster every other image in this
+/// tree becomes" — so the two differ in where the pixels came from and in nothing GDK can see.
+pub(crate) fn thumbnail(image: &Image) -> Result<gdk::MemoryTexture, PixelError> {
+    samples(image.width, image.height, &image.data)
+}
+
+/// Row-major RGBA8 with no row padding, as a texture, with GDK's own two limits checked.
+fn samples(width: u32, height: u32, data: &[u8]) -> Result<gdk::MemoryTexture, PixelError> {
+    let (Ok(wide), Ok(tall)) = (i32::try_from(width), i32::try_from(height)) else {
+        return Err(PixelError::TooLarge { width, height });
     };
-    let stride = usize::try_from(raster.width)
+    let stride = usize::try_from(width)
         .ok()
         .and_then(|width| width.checked_mul(4))
-        .ok_or(PixelError::TooLarge {
-            width: raster.width,
-            height: raster.height,
-        })?;
-    let need = usize::try_from(raster.height)
+        .ok_or(PixelError::TooLarge { width, height })?;
+    let need = usize::try_from(height)
         .ok()
         .and_then(|height| height.checked_mul(stride))
-        .ok_or(PixelError::TooLarge {
-            width: raster.width,
-            height: raster.height,
-        })?;
-    if raster.data.len() < need {
+        .ok_or(PixelError::TooLarge { width, height })?;
+    if data.len() < need {
         return Err(PixelError::Short {
-            width: raster.width,
-            height: raster.height,
+            width,
+            height,
             need,
-            have: raster.data.len(),
+            have: data.len(),
         });
     }
-    let bytes = glib::Bytes::from(&raster.data);
+    let bytes = glib::Bytes::from(data);
     Ok(gdk::MemoryTexture::new(
-        width,
-        height,
+        wide,
+        tall,
         gdk::MemoryFormat::R8g8b8a8,
         &bytes,
         stride,

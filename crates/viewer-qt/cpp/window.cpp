@@ -22,6 +22,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListView>
 #include <QListWidget>
 #include <QMouseEvent>
 #include <QPainter>
@@ -55,6 +56,14 @@ QString text(const rust::String& from)
 /// The same bound `viewer-gtk` sets, and for the same reason: ISO 32000-2's own outline is nine
 /// hundred items, so "do what the file asked" has to have an end.
 constexpr int kExpansionLimit = 4096;
+
+/// How large ISO 32000-2 §12.3.4's miniatures are drawn, in logical pixels.
+///
+/// A choice, and the same one the other two hosts make: about 140 pixels of height shows a
+/// portrait page's miniature at roughly the size a producer writes one — Table 87's examples are a
+/// few score samples on a side — with room for the page's label under it.
+constexpr int kMiniatureWidth = 120;
+constexpr int kMiniatureHeight = 140;
 
 /// How far one notch of a wheel moves the page, in logical pixels.
 ///
@@ -300,7 +309,103 @@ Qt::ItemFlags PanelModel::flags(const QModelIndex& index) const
     if (row.action == 2 && index.column() == 0 && !row.locked) {
         flags |= Qt::ItemIsUserCheckable;
     }
+    // `viewer_host::PanelRow::note` — a sentence about the document rather than a thing in it,
+    // such as §14.3.2's heading or "this document states no article threads". Clearing
+    // `ItemIsEnabled` is Qt's own way of saying a row is not a thing to act on, and it draws it in
+    // the disabled palette, which is what the other two hosts dim.
+    if (row.note) {
+        flags &= ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    }
     return flags;
+}
+
+// ---------------------------------------------------------------------------------------------
+// PageModel
+// ---------------------------------------------------------------------------------------------
+
+PageModel::PageModel(Fetch fetch, int kept, QObject* parent)
+    : QAbstractListModel(parent), fetch_(std::move(fetch)), kept_(kept > 0 ? kept : 1)
+{
+}
+
+void PageModel::setCount(int count)
+{
+    beginResetModel();
+    count_ = count > 0 ? count : 0;
+    held_.clear();
+    endResetModel();
+}
+
+int PageModel::rowCount(const QModelIndex& parent) const
+{
+    return parent.isValid() ? 0 : count_;
+}
+
+QVariant PageModel::data(const QModelIndex& index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || index.row() >= count_) {
+        return {};
+    }
+    const Held* row = held(index.row());
+    if (role == Qt::DisplayRole) {
+        // A page whose row could not be asked for is still a page, and a blank cell in a list of
+        // pages is a page a reader cannot navigate to. Its number is what the standard guarantees:
+        // "[e]ach page in a PDF document shall be identified by an integer page index".
+        return row != nullptr ? row->label : QStringLiteral("Page %1").arg(index.row() + 1);
+    }
+    if (role == Qt::DecorationRole && row != nullptr && !row->picture.isNull()) {
+        return row->picture;
+    }
+    return {};
+}
+
+const PageModel::Held* PageModel::held(int row) const
+{
+    const auto found = held_.find(row);
+    if (found != held_.end()) {
+        return &found->second;
+    }
+    const std::optional<QtPage> answered = fetch_(row);
+    if (!answered.has_value()) {
+        return nullptr;
+    }
+    Held made;
+    made.label = QString::fromUtf8(answered->label.data(),
+                                   static_cast<qsizetype>(answered->label.size()));
+    if (answered->width > 0 && answered->height > 0 && !answered->pixels.empty()) {
+        // The same layout a frame's pixels arrive in — row-major RGBA8, top row first, no row
+        // padding — so this is a wrap and a copy, and no conversion at all. The copy is the
+        // `QPixmap`'s: `QImage` here borrows the bridge's `rust::Vec`, which ends at this scope.
+        const QImage borrowed(answered->pixels.data(), static_cast<int>(answered->width),
+                              static_cast<int>(answered->height),
+                              static_cast<qsizetype>(answered->width) * 4,
+                              QImage::Format_RGBA8888);
+        // **Fitted to the box rather than drawn at its own sample size**, which is a documented
+        // choice and the one the other two hosts make: §12.3.4 says nothing about how large a
+        // miniature is shown, and a producer's 76x99 thumbnail beside a `GtkPicture` scaled to the
+        // same box would be two hosts disagreeing about a question the standard does not ask.
+        // §8.9.5.3's `/Interpolate` is where a file gets a say in how that magnification looks.
+        made.picture = QPixmap::fromImage(borrowed)
+                           .scaled(kMiniatureWidth, kMiniatureHeight, Qt::KeepAspectRatio,
+                                   Qt::SmoothTransformation);
+    }
+    const auto placed = held_.emplace(row, std::move(made)).first;
+    while (static_cast<int>(held_.size()) > kept_) {
+        // The two ends of an ordered map are the two candidates for "furthest from here". The same
+        // policy `viewer_host::Miniatures` applies in the two hosts written in Rust, under the
+        // same bound, asked for across the bridge.
+        const int first = held_.begin()->first;
+        const int last = held_.rbegin()->first;
+        const int furthest = (row - first >= 0 ? row - first : first - row)
+                                     >= (row - last >= 0 ? row - last : last - row)
+                                 ? first
+                                 : last;
+        if (furthest == row) {
+            break;
+        }
+        held_.erase(furthest);
+    }
+    return &placed->second;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -519,17 +624,40 @@ MainWindow::MainWindow(rust::Box<Host> host)
         applyUpdates();
     });
 
-    static const char* const kTabs[3] = {"Outline", "Layers", "Files"};
-    for (unsigned char which = 0; which < 3; ++which) {
-        trees_[which] = buildTree(which);
-        tabs_->addTab(trees_[which], QString::fromLatin1(kTabs[which]));
+    // One tab per `viewer_host::Tab`, in that list's own order and with that list's own wording.
+    // The words are asked for across the bridge rather than written here for `notices`' reason —
+    // three hosts naming one panel three ways is three claims about one clause — and the loop ends
+    // where the list does, so a panel added on the Rust side appears here with no line changing.
+    // §12.3.4's is the one that is not a tree: a `QListView` of miniatures fetched a row at a time.
+    // **Down the side rather than across the top**, and the screen is what decided it: six tab
+    // labels do not fit across a sidebar, and a `QTabWidget` that cannot fit its tabs puts the rest
+    // behind scroll arrows — so three of `viewer_host::Tab`'s six panels were reachable only by
+    // pressing an arrow nobody would look for. `viewer-gtk` moved its `GtkNotebook` for the same
+    // reason and in the same round, which is what "all three hosts stay level" costs when the
+    // toolkits agree about a problem.
+    tabs_->setTabPosition(QTabWidget::West);
+    const unsigned char pages = host_->pages_panel();
+    for (unsigned char which = 0;; ++which) {
+        const QString label = text(host_->panel_label(which));
+        if (label.isEmpty()) {
+            break;
+        }
+        if (which == pages) {
+            pageView_ = buildPages();
+            trees_.push_back(nullptr);
+            models_.push_back(nullptr);
+            tabs_->addTab(pageView_, label);
+        } else {
+            QTreeView* view = buildTree(which);
+            tabs_->addTab(view, label);
+        }
     }
 
     auto* split = new QSplitter(Qt::Horizontal);
     split->addWidget(tabs_);
     split->addWidget(page_);
     split->setStretchFactor(1, 1);
-    split->setSizes({300, 700});
+    split->setSizes({380, 620});
     setCentralWidget(split);
 
     status_->setTextInteractionFlags(Qt::TextSelectableByMouse);
@@ -602,7 +730,8 @@ QTreeView* MainWindow::buildTree(unsigned char which)
 {
     auto* view = new QTreeView;
     auto* model = new PanelModel(view);
-    models_[which] = model;
+    trees_.push_back(view);
+    models_.push_back(model);
     view->setModel(model);
     view->setUniformRowHeights(true);
     view->header()->setStretchLastSection(true);
@@ -627,6 +756,50 @@ QTreeView* MainWindow::buildTree(unsigned char which)
         }
         Busy guard(busy_);
         host_->toggle_row(which, static_cast<std::size_t>(flat), on);
+        applyUpdates();
+    });
+    return view;
+}
+
+// ISO 32000-2 §12.3.4's panel. A `QListView` in icon mode flowing top to bottom is one column of
+// miniatures with each page's §12.4.2 label under it, which is the shape the other two hosts draw
+// for themselves — and `setUniformItemSizes` is what lets the view lay out a thousand rows without
+// measuring any of them, which is the half that makes the model's demand-driven `data` worth
+// having.
+QListView* MainWindow::buildPages()
+{
+    auto* view = new QListView;
+    view->setViewMode(QListView::IconMode);
+    view->setFlow(QListView::TopToBottom);
+    view->setWrapping(false);
+    view->setResizeMode(QListView::Adjust);
+    view->setUniformItemSizes(true);
+    view->setIconSize(QSize(kMiniatureWidth, kMiniatureHeight));
+    view->setSpacing(4);
+    view->setSelectionMode(QAbstractItemView::SingleSelection);
+
+    // The fetch is guarded rather than unconditional: `data` can be called from a lay-out that a
+    // call into the host started, and a second borrow of one `rust::Box` is what `busy_` exists to
+    // prevent. A refused row is drawn from its number and asked for again next time.
+    pageModel_ = new PageModel(
+        [this](int row) -> std::optional<QtPage> {
+            if (busy_) {
+                return std::nullopt;
+            }
+            Busy guard(busy_);
+            return host_->page_row(static_cast<std::size_t>(row));
+        },
+        static_cast<int>(host_->kept_miniatures()), view);
+    view->setModel(pageModel_);
+
+    // §12.3.4's own sentence: "allowing the user to navigate to a page by clicking its thumbnail
+    // image". A page index rather than a destination — the thumbnail *is* the page.
+    connect(view, &QListView::clicked, this, [this](const QModelIndex& index) {
+        if (busy_ || !index.isValid()) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->show_page(static_cast<std::size_t>(index.row()));
         applyUpdates();
     });
     return view;
@@ -963,8 +1136,13 @@ void MainWindow::rebuildPanels()
     QElapsedTimer clock;
     clock.start();
     int built = 0;
-    for (unsigned char which = 0; which < 3; ++which) {
-        const rust::Vec<QtRow> rows = host_->rows(which);
+    for (std::size_t which = 0; which < models_.size(); ++which) {
+        // §12.3.4's slot is a `QListView` and holds no rows at all; its page count is set below and
+        // its miniatures are asked for a row at a time.
+        if (models_[which] == nullptr) {
+            continue;
+        }
+        const rust::Vec<QtRow> rows = host_->rows(static_cast<unsigned char>(which));
         models_[which]->setRows(rows);
         // §12.3.3 gives an outline item's `/Count` a sign for it — "[i]f the outline item is open,
         // Count is the sum of the number of visible descendent outline items" — so a tree that
@@ -980,9 +1158,18 @@ void MainWindow::rebuildPanels()
         trees_[which]->resizeColumnToContents(0);
         built += static_cast<int>(rows.size());
     }
-    const QString said = QStringLiteral("%1 tree row(s) into %2 model(s) in %3 µs")
+    // §12.3.4's page count, which is all that is eager about that panel: the rows exist, the
+    // miniatures do not until a row is laid out. `CLAUDE.md` section 2 names thumbnail generation on the
+    // launch path as the thing not to do, and this is the line that keeps this panel off it.
+    int pages = 0;
+    if (pageModel_ != nullptr) {
+        pages = static_cast<int>(host_->page_count());
+        pageModel_->setCount(pages);
+    }
+    const QString said = QStringLiteral("%1 tree row(s) into %2 model(s) and %3 page row(s) in %4 µs")
                              .arg(built)
-                             .arg(3)
+                             .arg(models_.size())
+                             .arg(pages)
                              .arg(clock.nsecsElapsed() / 1000);
     const QByteArray utf8 = said.toUtf8();
     host_->note(rust::Str(utf8.constData(), static_cast<std::size_t>(utf8.size())));

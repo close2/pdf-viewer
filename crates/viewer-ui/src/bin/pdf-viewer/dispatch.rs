@@ -95,18 +95,29 @@ impl App {
     /// Does what one event asks.
     fn react(&mut self, event: Event, queue: &mut VecDeque<Command>) {
         match event {
+            // **Neither of these leaves the process, and both did until the
+            // seven-hundred-and-fourth session.** ADR 0545 made that argument for §7.6.4.1's
+            // prompt one round earlier and deliberately left these two: a window that exits has
+            // told a person who launched it from a desktop nothing at all, and the two native
+            // hosts have said the sentence into a status bar and stayed up since their first
+            // session. The wording is `viewer_host`'s so that the three say one thing.
             Event::Opened { pages, .. } => {
                 println!("{}: {pages} page(s)", self.title);
                 if pages == 0 {
-                    eprintln!("the document has no pages");
-                    std::process::exit(1);
+                    let said = viewer_host::no_pages(&self.title);
+                    eprintln!("{said}");
+                    self.refused.say(said);
+                    self.redraw();
+                    return;
                 }
                 self.asking.opened();
                 self.gather();
             }
             Event::OpenFailed { reason, .. } => {
-                eprintln!("cannot open {}: {reason}", self.title);
-                std::process::exit(1);
+                let said = viewer_host::cannot_open(&self.title, &reason);
+                eprintln!("{said}");
+                self.refused.say(said);
+                self.redraw();
             }
             Event::PasswordRequired { document } => self.ask_again(document, queue),
             Event::Closed(_) => {}

@@ -343,11 +343,16 @@ item last, but it does oblige a round to say what it actually tried.
 one thing for all of them: `viewer-ui` is tier 2 and draws its own chrome, the two native hosts
 place somebody else's widgets, and `viewer-ffi` draws nothing and hands a caller data. Today
 "level" is false in *both* directions — `viewer-ui` is ahead on everything that reads a document
-(six sidebar tabs against three, thumbnails, articles, properties, the collection, popup windows,
-the caret) and behind on everything that changes one (no native controls; **the password prompt came off that
+(§12.3.5's collection, §12.5.6.14's popup windows, the caret) and behind on everything that changes
+one (no native controls; **the password prompt came off that
 list in the six-hundred-and-ninety-fifth**, ADR 0545). **The markup keys, the copy key and the undo
 binding came off that list in the six-hundred-and-eighty-seventh** (ADR 0526): they are rows of one
-key table now, so being ahead or behind on a *binding* is no longer a thing a host can be.
+key table now, so being ahead or behind on a *binding* is no longer a thing a host can be. **And the
+six sidebar tabs came off it in the seven-hundred-and-fourth** (ADR 0564), by the same mechanism one
+panel over: the list of panels is `viewer_host::Tab` and every host matches exhaustively on it, so
+being ahead or behind on a *panel* is no longer a thing a host can be either — which left
+§12.3.5's collection and §12.5.6.14's popups, neither of which is a tab, as the whole of the first
+half of that sentence.
 
 1. ~~**A selection that can leave the program.**~~ **Taken in the six-hundred-and-eighty-third**
    (ADR 0519), and the claim it was ranked on held: **no new message**, checked rather than assumed.
@@ -460,8 +465,45 @@ key table now, so being ahead or behind on a *binding* is no longer a thing a ho
    first two. `App::present` began `let first = pages.first()?;`, so a window with **no page** drew
    no frame at all — and a document that has not authenticated is exactly that window.
    `Surface::without_a_page` draws the chrome over `pdf_render::SURROUND` on both surfaces.
-4. **§12.3.4's thumbnails, §12.4.3's articles and §14.3.3's properties in the two native hosts.**
-   All three queries exist and answer; both hosts state the gap in a comment.
+4. ~~**§12.3.4's thumbnails, §12.4.3's articles and §14.3.3's properties in the two native hosts.**~~
+   **Taken in the seven-hundred-and-fourth** (ADR 0564), and **it needed no message**, which is the
+   tenth time since the six-hundred-and-seventh. `viewer_host::Tab` is the deliverable rather than
+   the three panels: a closed list of the six this program shows, with Table 29's `/PageMode`
+   mapping on it, matched exhaustively in all three hosts — so a seventh panel fails to compile in
+   three places, which is ADR 0526's key mechanism applied to the other thing a window shows.
+   `viewer-ui` lost `chrome::Tab` adopting it, and `article_rows` and `property_rows` with it.
+
+   **§12.3.4 is the one answer that is not a row**, and the split it forced is where this crate's
+   "no widget and no pixel format" line actually falls: `page_entry` and `Miniatures<T>` are shared —
+   the two queries a row needs and the *policy* of decoding on demand, keeping what is near and
+   dropping what is far — while the picture stays a `gdk::Texture`, a `QPixmap` or a
+   `pdf_render::Image`.
+
+   **And the host that was *ahead* held the clause violation.** `viewer-ui` built the whole page
+   list the first time its tab was shown, and Table 29's `/PageMode /UseThumbs` opens that tab as
+   the document opens — so a thousand-page document stating it spent **121 ms of a 156 ms first
+   present** decoding miniatures for rows nobody was looking at, which is `CLAUDE.md` section 2's
+   forbidden thumbnail generation on the launch path reached by a road nobody had checked. Eight
+   rows in 0.3 ms and a 48 ms first present after. The two native hosts never had it, because a
+   `GtkListView` and a `QAbstractListModel` are virtual by construction — **writing the same panel
+   twice in toolkits that are lazy is what showed that the host drawing its own rows was not.**
+
+   **Two things only the screen could say.** GTK binds a row *synchronously* when the list is put
+   into a realised window, which happens inside a call that holds the host borrowed — caught by trap
+   5's own note rather than by a blank panel, and fixed with an idle. And six tab labels do not fit
+   across a sidebar in either toolkit, so both put their tabs down the side; a notebook that cannot
+   fit its tabs hides the rest behind an arrow nobody looks for.
+
+   **What is still `viewer-ui`'s alone is named in ADR 0564 §7**: §12.3.5's collection and
+   §12.5.6.14's popup windows, neither of which is a *tab*. Nothing counts what a window cannot
+   reach, the way `tools/state.sh hosts` counts what a C caller cannot.
+
+   **And the residue item 3 named was taken with it.** `Event::OpenFailed` and a page tree with no
+   leaves both called `std::process::exit(1)` in `viewer-ui`; `viewer_host::cannot_open` and
+   `no_pages` are the two sentences and `viewer_ui::chrome::Refusal` is the card. **Neither native
+   host said anything about a document with no pages either**, which is the half nobody had noticed:
+   §7.7.3.2 states no floor on `/Count`, so such a document is *correctly read* and has nothing to
+   show, and a blank window looks exactly like a broken file.
 5. **The C ABI's other half** — `tools/state.sh hosts` says how many `Query` variants a C caller
    cannot ask for and names them. `Query::Find` is the sharpest: a C caller can run Annex O's
    document-wide search and cannot draw a match. Worth adding with the entry points: the mechanism

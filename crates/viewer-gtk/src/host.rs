@@ -35,10 +35,10 @@ use viewer_core::{
 use crate::controls::{FieldChange, Placed};
 use viewer_host::ControlFit;
 use viewer_host::arrangement::next_layout;
-use viewer_host::panel::{self, RowAction};
+use viewer_host::panel::{self, Miniatures, RowAction, Tab};
 use viewer_host::trace::{Topic, Trace};
 
-use crate::{controls, page, tree};
+use crate::{controls, page, pages, tree};
 
 /// The identity this host gives the one document it opens.
 const DOCUMENT: DocumentId = DocumentId(1);
@@ -86,6 +86,20 @@ struct Chrome {
     scale: f64,
 }
 
+/// What one of [`Tab`]'s panels turned out to hold.
+///
+/// Two shapes rather than one, because §12.3.4's is genuinely not a tree: five of the six panels
+/// are a [`panel::PanelRow`] apiece and the sixth is a page count whose pictures are fetched a row
+/// at a time. Collapsing them would mean either a row type carrying a picture nobody else has or a
+/// list of miniatures decoded before anybody looked at one, and `CLAUDE.md` section 2 forbids the second.
+#[derive(Debug)]
+enum Panel {
+    /// A tree of rows.
+    Rows(Vec<panel::PanelRow>),
+    /// §12.3.4: how many pages there are. The miniatures come from [`Host::page_sink`].
+    Pages(usize),
+}
+
 /// The widgets, held so that the loop can put things in them.
 #[derive(Debug)]
 struct Ui {
@@ -101,13 +115,13 @@ struct Ui {
     pictures: Vec<gtk4::Picture>,
     /// The layer that measures the viewport and draws the interactive chrome.
     chrome: gtk4::DrawingArea,
-    /// Where §12.3.3's tree goes.
-    outline_slot: gtk4::Box,
-    /// Where §8.11.4.3's tree goes.
-    layers_slot: gtk4::Box,
-    /// Where §7.11.4's tree goes.
-    files_slot: gtk4::Box,
-    /// The three trees' notebook — Table 29's "any other window", and what the page mode opens.
+    /// Where each of [`viewer_host::Tab`]'s panels goes, in [`viewer_host::Tab::ALL`]'s order.
+    ///
+    /// A slot apiece rather than six named fields, because the list of panels is
+    /// `viewer_host::Tab` and a second list here would be a second thing to keep level with the
+    /// other two hosts. [`Tab::index`] is what addresses one.
+    slots: Vec<gtk4::Box>,
+    /// The panels' notebook — Table 29's "any other window", and what the page mode opens.
     tabs: gtk4::Notebook,
     /// The splitter it sits in, because full screen takes the notebook *out* rather than hiding
     /// it: a `GtkPaned` keeps a position that was set, and a hidden child would leave the space.
@@ -168,6 +182,12 @@ pub struct Host {
     scale: i32,
     /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that three hosts count alike.
     asking: viewer_host::Asking,
+    /// §12.3.4's miniatures, decoded when a row is drawn and bounded by [`viewer_host::Miniatures`].
+    ///
+    /// Beside the host's own fields rather than among them, because the closure a `GtkListView`
+    /// binds a row with reaches it while the host may itself be borrowed — the same reason
+    /// [`Host::chrome`] is an [`Rc<RefCell<Chrome>>`].
+    miniatures: Rc<RefCell<Miniatures<gtk4::gdk::MemoryTexture>>>,
     /// Whether the document has been opened yet, which waits for the first allocation.
     opened: bool,
     /// Whether anything is unsaved.
@@ -262,11 +282,15 @@ pub struct Host {
 ///
 /// A host's choice and not a clause's: the standard states the six and says nothing about moving
 /// between them, because moving between them is a user interface.
-/// How wide the panel of three trees is, in logical pixels, when it is showing.
+/// How wide the panel is, in logical pixels, when it is showing.
 ///
 /// Named because Table 29's `FullScreen` needs to put the divider back where it was: hiding the
 /// notebook is not enough on its own, since a `GtkPaned` keeps a position that was set.
-const PANEL_WIDTH: i32 = 300;
+///
+/// **Three hundred until `viewer_host::Tab` made it six panels**, and the screen is what raised it:
+/// six tab labels and a tree do not share three hundred logical pixels. The tabs went down the
+/// side at the same time, which is where the rest of the answer is.
+const PANEL_WIDTH: i32 = 380;
 
 /// How far one notch of the wheel moves the page, in logical pixels.
 ///
@@ -334,6 +358,7 @@ impl Host {
                 me: me.clone(),
                 scale: 1,
                 asking: viewer_host::Asking::new(),
+                miniatures: Rc::new(RefCell::new(Miniatures::new())),
                 opened: false,
                 dirty: false,
                 caption: String::new(),
@@ -452,12 +477,18 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                // Trap 5: a page tree with no leaves is a *correctly read* document with nothing
+                // to show, and a blank window is what a broken file looks like too. Said in all
+                // three hosts since the seven-hundred-and-fourth session; it was said in none.
+                if pages == 0 {
+                    self.say(&viewer_host::no_pages(&named(&self.path)));
+                }
                 self.asking.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
-                self.say(&format!("cannot open {}: {reason}", self.path.display()));
+                self.say(&viewer_host::cannot_open(&named(&self.path), &reason));
             }
             // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
             // is a window, and a window is a host's — which is the whole reason this event exists
@@ -824,38 +855,151 @@ impl Host {
         })
     }
 
-    /// Builds the three trees from the three answers.
+    /// What one of [`Tab`]'s panels holds, once its answer has been asked for.
+    ///
+    /// **The match below is exhaustive over [`Tab`] on purpose**, and it is this host's half of
+    /// `doc/todo/30`'s "all three hosts stay level": a panel added to `viewer_host::Tab` fails to
+    /// compile here, in `viewer-qt` and in `viewer-ui` until each supplies a widget for it. It is
+    /// [`viewer_host::Key`]'s mechanism applied to the other thing a window shows (ADR 0526).
+    ///
+    /// [`viewer_host::Key`]: viewer_host::Key
+    fn panel_of(&self, tab: Tab) -> Panel {
+        match tab {
+            Tab::Contents => Panel::Rows(match self.viewer.query(Query::Outline) {
+                Answer::Outline(outline) if !outline.items.is_empty() => {
+                    panel::outline_rows(&outline)
+                }
+                _ => vec![panel::PanelRow::saying("This document states no outline.")],
+            }),
+            // §12.3.4 is a page count and a picture per row rather than a tree — see `crate::pages`
+            // for why the count is all that crosses here.
+            Tab::Pages => Panel::Pages(match self.viewer.query(Query::PageCount) {
+                Answer::Count(count) => count,
+                _ => 0,
+            }),
+            Tab::Layers => Panel::Rows(match self.viewer.query(Query::Layers) {
+                Answer::Layers(layers) if !layers.is_empty() => panel::layer_rows(&layers),
+                _ => vec![panel::PanelRow::saying(
+                    "This document states no optional content.",
+                )],
+            }),
+            Tab::Files => Panel::Rows(match self.viewer.query(Query::Attachments) {
+                Answer::Attachments(files) if !files.is_empty() => panel::attachment_rows(&files),
+                _ => vec![panel::PanelRow::saying("This document embeds no files.")],
+            }),
+            Tab::Articles => Panel::Rows(match self.viewer.query(Query::Articles) {
+                Answer::Articles(threads) => panel::article_rows(&threads),
+                _ => panel::article_rows(&[]),
+            }),
+            Tab::Document => Panel::Rows(match self.viewer.query(Query::Properties) {
+                Answer::Properties {
+                    information,
+                    metadata,
+                } => panel::property_rows(&information, metadata.as_ref()),
+                _ => panel::property_rows(&pdf_model::metadata::Information::default(), None),
+            }),
+        }
+    }
+
+    /// Builds every panel from its own answer.
     fn build_panels(&mut self) {
-        let outline = match self.viewer.query(Query::Outline) {
-            Answer::Outline(outline) => panel::outline_rows(&outline),
-            _ => Vec::new(),
-        };
-        let layers = match self.viewer.query(Query::Layers) {
-            Answer::Layers(layers) => panel::layer_rows(&layers),
-            _ => Vec::new(),
-        };
-        let files = match self.viewer.query(Query::Attachments) {
-            Answer::Attachments(attachments) => panel::attachment_rows(&attachments),
-            _ => Vec::new(),
-        };
-        self.trace.say(
-            Topic::Panel,
-            format_args!(
-                "outline {} row(s), layers {} row(s), files {} row(s)",
-                outline.len(),
-                layers.len(),
-                files.len()
-            ),
-        );
         let act = self.row_sink();
-        fill(
-            &self.ui.outline_slot,
-            &outline,
-            &act,
-            "no outline (§12.3.3)",
-        );
-        fill(&self.ui.layers_slot, &layers, &act, "no layers (§8.11.4.3)");
-        fill(&self.ui.files_slot, &files, &act, "no files (§7.11.4)");
+        let row = self.page_sink();
+        let show = self.show_page_sink();
+        self.miniatures.borrow_mut().clear();
+        for tab in Tab::ALL {
+            let filled = self.panel_of(*tab);
+            let Some(slot) = self.ui.slots.get(tab.index()) else {
+                continue;
+            };
+            while let Some(child) = slot.first_child() {
+                slot.remove(&child);
+            }
+            match &filled {
+                Panel::Rows(rows) => {
+                    self.trace.say(
+                        Topic::Panel,
+                        format_args!("{}: {} row(s)", tab.label(), rows.len()),
+                    );
+                    slot.append(&tree::tree(rows, &act));
+                }
+                Panel::Pages(count) => {
+                    self.trace.say(
+                        Topic::Panel,
+                        format_args!("{}: {count} page(s), miniatures on demand", tab.label()),
+                    );
+                    // **On the idle queue, not here**, and the screen is what said so.
+                    // `GtkListView` binds a row from GTK's layout, and putting the list into a
+                    // realised window starts one *synchronously* — inside this method, which runs
+                    // with the host's `RefCell` borrowed. The first run printed "the host was busy,
+                    // so page 1's row was drawn without its /Thumb" and drew a page list with no
+                    // pictures in it. Deferring lets the command that got here unwind first; it is
+                    // the same move `find.connect_search_mode_enabled_notify` makes below, and
+                    // `viewer-qt` makes with `Busy`.
+                    let (slot, count, row, show) =
+                        (slot.clone(), *count, row.clone(), show.clone());
+                    glib::idle_add_local_once(move || {
+                        slot.append(&pages::page_list(count, &row, &show));
+                    });
+                }
+            }
+        }
+    }
+
+    /// §12.3.4: one page's label and miniature, asked for when the list is about to draw that row.
+    ///
+    /// The decode is here rather than in `build_panels` because that is the whole of `CLAUDE.md`
+    /// §2's rule reaching this panel — a loop over the page count would have moved the eager work
+    /// out of the launch path rather than out of the program. [`viewer_host::Miniatures`] bounds
+    /// what is kept afterwards.
+    ///
+    /// The cache is beside the host rather than in it so that a `GtkListView` binding a row while
+    /// the host is borrowed still gets its picture: `bind` fires from GTK's layout, which a
+    /// `set_start_child` or a `set_current_page` inside a command can start.
+    fn page_sink(&self) -> Rc<dyn Fn(usize) -> Option<pages::Row>> {
+        let me = self.me.clone();
+        let held = Rc::clone(&self.miniatures);
+        Rc::new(move |index| {
+            let host = me.upgrade()?;
+            // Trap 5 rather than a blank row: GTK binds from its own layout, which is not inside
+            // any call into this host — but a toolkit's scheduling is a claim, and a claim that
+            // failed silently would be a page miniature nobody could account for.
+            let host = host
+                .try_borrow()
+                .inspect_err(|_| {
+                    eprintln!(
+                        "note: the host was busy, so page {}'s row was drawn without its /Thumb",
+                        index.saturating_add(1)
+                    );
+                })
+                .ok()?;
+            Some(held.borrow_mut().row(index, || {
+                let entry = viewer_host::page_entry(&host.viewer, index);
+                viewer_host::Held {
+                    label: entry.label,
+                    picture: entry.thumbnail.as_ref().and_then(|image| {
+                        page::thumbnail(image)
+                            .inspect_err(|error| {
+                                eprintln!("note: cannot show page {index}'s /Thumb: {error}");
+                            })
+                            .ok()
+                    }),
+                }
+            }))
+        })
+    }
+
+    /// §12.3.4: "allowing the user to navigate to a page by clicking its thumbnail image".
+    ///
+    /// A page index rather than a destination, because a thumbnail *is* the page and there is
+    /// nothing to resolve.
+    fn show_page_sink(&self) -> Rc<dyn Fn(usize)> {
+        let me = self.me.clone();
+        Rc::new(move |index| {
+            with(&me, |host| {
+                host.dispatch(Command::GoTo(PageTarget::Index(index)));
+            });
+        })
     }
 
     /// What a tree row does when a person acts on it.
@@ -1174,28 +1318,22 @@ impl Host {
     /// "how the document shall be displayed when opened", and full screen ending, where §12.2's
     /// `/NonFullScreenPageMode` states "how to display the document on exiting full-screen mode".
     ///
-    /// `UseThumbs` is the one name this host has no panel for — there is no §12.3.4 tab in these
-    /// three notebooks — and it is said rather than dropped. `FullScreen` cannot arrive from the
-    /// second caller, because `pdf_model` refuses that name for `/NonFullScreenPageMode`.
+    /// Which panel each of Table 29's names opens is [`Tab::of_page_mode`]'s, shared with the
+    /// other two hosts, and **`UseThumbs` is no longer among the names that reach none** — this
+    /// host reported it as a mode it had no panel for until §12.3.4's list was built.
+    /// `FullScreen` cannot arrive from the second caller, because `pdf_model` refuses that name for
+    /// `/NonFullScreenPageMode`.
     fn show_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
         use pdf_model::viewer_preferences::PageMode;
-        match mode {
-            PageMode::UseNone => {}
-            PageMode::UseOutlines => self.ui.tabs.set_current_page(Some(0)),
-            PageMode::UseOptionalContent => self.ui.tabs.set_current_page(Some(1)),
-            PageMode::UseAttachments => self.ui.tabs.set_current_page(Some(2)),
-            PageMode::UseThumbs => {
-                self.say(
-                    "this document asks to open on §12.3.4's thumbnails (§7.7.2), which \
-                          this host has no panel for",
-                );
-            }
-            PageMode::FullScreen => {
-                self.say(
-                    "presenting full screen (§7.7.2's FullScreen page mode) — Escape comes \
-                          back",
-                );
-            }
+        if let Some(tab) = Tab::of_page_mode(mode) {
+            self.ui.tabs.set_current_page(Some(notebook_page(tab)));
+            return;
+        }
+        if matches!(mode, PageMode::FullScreen) {
+            self.say(
+                "presenting full screen (§7.7.2's FullScreen page mode) — Escape comes \
+                      back",
+            );
         }
     }
 
@@ -1780,21 +1918,6 @@ fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
     }
 }
 
-/// A tree in a slot, or the sentence saying the document states none.
-fn fill(slot: &gtk4::Box, rows: &[panel::PanelRow], act: &Rc<dyn Fn(&RowAction)>, empty: &str) {
-    while let Some(child) = slot.first_child() {
-        slot.remove(&child);
-    }
-    if rows.is_empty() {
-        let label = gtk4::Label::new(Some(empty));
-        label.add_css_class("dim-label");
-        label.set_vexpand(true);
-        slot.append(&label);
-        return;
-    }
-    slot.append(&tree::tree(rows, act));
-}
-
 /// The value a field now holds, written back into its control.
 ///
 /// ADR 0201: a host keeps the *point* it clicked and never the text, because §12.7.5.3's
@@ -1957,14 +2080,27 @@ fn build_window(
     overlay.set_hexpand(true);
     overlay.set_vexpand(true);
 
-    let outline_slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    let layers_slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-    let files_slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    // One notebook page per `viewer_host::Tab`, in that list's own order and with that list's own
+    // wording — six panels rather than the three this host drew until `doc/todo/30`'s item 4, and
+    // a seventh added there appears here without a line changing.
     let tabs = gtk4::Notebook::new();
-    tabs.append_page(&outline_slot, Some(&gtk4::Label::new(Some("Outline"))));
-    tabs.append_page(&layers_slot, Some(&gtk4::Label::new(Some("Layers"))));
-    tabs.append_page(&files_slot, Some(&gtk4::Label::new(Some("Files"))));
-    tabs.set_size_request(280, -1);
+    // **Down the side rather than across the top**, and the screen is what decided it: six labels
+    // do not fit across a sidebar, and a `GtkNotebook` that cannot fit its tabs puts the rest
+    // behind scroll arrows — so four of `viewer_host::Tab`'s six panels were reachable only by
+    // pressing an arrow nobody would look for. A vertical strip holds all six at any width this
+    // panel would sensibly have. `set_scrollable` stays on regardless, because a theme with a
+    // taller font is nobody's to predict.
+    tabs.set_tab_pos(gtk4::PositionType::Left);
+    tabs.set_scrollable(true);
+    let slots: Vec<gtk4::Box> = Tab::ALL
+        .iter()
+        .map(|tab| {
+            let slot = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+            tabs.append_page(&slot, Some(&gtk4::Label::new(Some(tab.label()))));
+            slot
+        })
+        .collect();
+    tabs.set_size_request(PANEL_WIDTH - 20, -1);
 
     let split = gtk4::Paned::new(gtk4::Orientation::Horizontal);
     split.set_start_child(Some(&tabs));
@@ -2043,9 +2179,7 @@ fn build_window(
         fixed,
         pictures: Vec::new(),
         chrome,
-        outline_slot,
-        layers_slot,
-        files_slot,
+        slots,
         tabs,
         split,
         tool_buttons,
@@ -2318,10 +2452,29 @@ fn key_pressed(key: gtk4::gdk::Key) -> Option<viewer_host::Key> {
     })
 }
 
+/// Which of this notebook's pages one of [`Tab`]'s panels is.
+///
+/// **Exhaustive over [`Tab`] on purpose, and it is a second statement rather than a wrapper around
+/// [`Tab::index`].** The notebook's pages are appended in [`Tab::ALL`]'s order and a panel is
+/// addressed by its index, so the two ways of naming a panel are two things that can disagree —
+/// which is exactly what `every_panel_the_list_states_has_a_page_of_this_notebook` checks. A panel
+/// added to `viewer_host::Tab` fails to compile here until this host says where it goes.
+const fn notebook_page(tab: Tab) -> u32 {
+    match tab {
+        Tab::Contents => 0,
+        Tab::Pages => 1,
+        Tab::Layers => 2,
+        Tab::Files => 3,
+        Tab::Articles => 4,
+        Tab::Document => 5,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::key_pressed;
     use gtk4::gdk::Key as Gdk;
+    use viewer_host::Tab;
 
     /// Every key the shared table states has a `gdk::Key` in this host.
     ///
@@ -2373,6 +2526,27 @@ mod tests {
                 key_pressed(key),
                 Some(*stated),
                 "{stated:?} is stated by the table and this host does not produce it"
+            );
+        }
+    }
+
+    /// Every panel the shared list states has a page of this notebook, at the same place.
+    ///
+    /// **The instrument `doc/todo/30`'s "all three hosts stay level" never had for a *panel***, and
+    /// the same shape as the key test above (ADR 0526). Two halves: [`super::notebook_page`] is
+    /// exhaustive over [`viewer_host::Tab`], so a panel added there fails to compile in this host
+    /// — and in `Host::panel_of`, which is where its answer has to come from — and the assertion
+    /// then checks that this host's page numbers are the shared list's own order, which is what
+    /// `Ui::slots` is indexed by. `viewer-ui` and `viewer-qt` carry the same test.
+    ///
+    /// It needs no display: nothing here calls into GTK.
+    #[test]
+    fn every_panel_the_list_states_has_a_page_of_this_notebook() {
+        for (place, tab) in Tab::ALL.iter().enumerate() {
+            assert_eq!(
+                u64::from(super::notebook_page(*tab)),
+                place as u64,
+                "{tab:?} is the {place}th panel and this host puts it somewhere else"
             );
         }
     }

@@ -59,7 +59,8 @@ fn only(outline: &Outline) -> Content<'_> {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     }
 }
 
@@ -398,7 +399,8 @@ fn a_layer_switch_throws_unless_the_document_locked_it() {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -452,7 +454,8 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -483,7 +486,8 @@ fn the_file_tab_names_what_is_embedded_and_says_when_nothing_is() {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     assert!(ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40);
     // The row's click is §7.11.4 from a person's side: the bytes are inside the document, and
@@ -576,7 +580,8 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
         }),
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -642,7 +647,8 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
             }),
             information: &NOTHING,
             metadata: None,
-            pages: &[],
+            page_count: 0,
+            pages: None,
         };
         let mut panel = Sidebar::default();
         panel.toggle();
@@ -699,7 +705,8 @@ fn a_collections_initial_document_is_the_row_set_in_bold() {
         }),
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -750,7 +757,8 @@ fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -786,7 +794,8 @@ fn the_read_tab_lists_a_thread_and_a_click_follows_it() {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     assert!(
         ink(&panel.draw(&chrome, listed, HEIGHT, 1.0), 26..46) > 40,
@@ -897,7 +906,8 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
         collection: None,
         information: &information,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let mut panel = Sidebar::default();
     panel.toggle();
@@ -927,7 +937,8 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
     );
     let with_xmp = Content {
         metadata: Some(&packet),
-        pages: &[],
+        page_count: 0,
+        pages: None,
         ..stated
     };
     assert!(
@@ -941,7 +952,8 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
     assert!(refused.is_err(), "the fixture is unbalanced XML");
     let broken = Content {
         metadata: Some(&refused),
-        pages: &[],
+        page_count: 0,
+        pages: None,
         ..stated
     };
     assert!(
@@ -953,7 +965,8 @@ fn the_document_tab_shows_table_349_and_the_xmp_beside_it() {
     let silent = Content {
         information: &NOTHING,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
         ..stated
     };
     assert!(ink(&panel.draw(&chrome, silent, HEIGHT, 1.0), 26..46) > 40);
@@ -986,16 +999,19 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         ),
         interpolate: false,
     };
-    let pages = [
-        viewer_ui::chrome::Page {
-            label: "i".to_owned(),
-            thumbnail: Some(image),
-        },
-        viewer_ui::chrome::Page {
-            label: "ii".to_owned(),
-            thumbnail: None,
-        },
-    ];
+    // **The panel is fetched a row at a time since the seven-hundred-and-fourth session**, so what
+    // a fixture supplies is what a host has *already* fetched — `viewer_host::Miniatures`, filled
+    // for the rows it is about to draw. `page_count` is the document's and is what decides how
+    // many rows there are; a row nobody has fetched still draws its number.
+    let mut pages: viewer_host::Miniatures<pdf_render::Image> = viewer_host::Miniatures::new();
+    drop(pages.row(0, || viewer_host::Held {
+        label: "i".to_owned(),
+        picture: Some(image),
+    }));
+    drop(pages.row(1, || viewer_host::Held {
+        label: "ii".to_owned(),
+        picture: None,
+    }));
     let content = Content {
         outline: &outline,
         layers: &[],
@@ -1004,7 +1020,8 @@ fn the_pages_tab_draws_a_thumbnail_and_a_click_goes_to_its_page() {
         collection: None,
         information: &NOTHING,
         metadata: None,
-        pages: &pages,
+        page_count: 2,
+        pages: Some(&pages),
     };
     let mut panel = Sidebar::default();
     panel.toggle();

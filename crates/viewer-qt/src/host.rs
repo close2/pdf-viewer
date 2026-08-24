@@ -33,10 +33,12 @@ use viewer_core::{
 use viewer_host::ControlFit;
 use viewer_host::arrangement::next_layout;
 use viewer_host::form::{ControlKind, control_kind};
-use viewer_host::panel::{PanelRow, RowAction};
+use viewer_host::panel::{PanelRow, RowAction, Tab};
 use viewer_host::trace::{Topic, Trace};
 
-use crate::bridge::ffi::{QtChrome, QtControl, QtFrame, QtMeasure, QtQuad, QtRow, QtUpdate};
+use crate::bridge::ffi::{
+    QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtQuad, QtRow, QtUpdate,
+};
 use crate::keys;
 use crate::page;
 
@@ -62,12 +64,16 @@ pub enum HostError {
     },
 }
 
-/// Which of the three trees a row belongs to.
+/// How many panels this window has, which is `viewer_host::Tab`'s own count.
 ///
-/// §12.3.3's outline, §8.11.4.3's `/Order` and §7.11.4's embedded files. Three answers of three
-/// different types, which `viewer_host::panel` turns into one row shape — so the only thing left
-/// to distinguish is which tab a row is in, and it crosses the bridge as this.
-const TREES: usize = 3;
+/// §12.3.3's outline, §12.3.4's miniatures, §8.11.4.3's `/Order`, §7.11.4's embedded files,
+/// §12.4.3's threads and §14.3.3's information. Five of the six are answers of five different
+/// types that `viewer_host::panel` turns into one row shape, so the only thing left to distinguish
+/// is which panel a row is in and it crosses the bridge as an index into
+/// [`viewer_host::Tab::ALL`]. The sixth is §12.3.4's and holds no rows at all — its pictures are
+/// asked for a page at a time by [`Host::page_row`] — so its slot here stays empty and the C++
+/// side puts a `QListView` where the other five have a `QTreeView`.
+const PANELS: usize = Tab::ALL.len();
 
 /// One row of a tree as the C++ side sees it, beside what acting on it does.
 ///
@@ -138,7 +144,7 @@ pub struct Host {
     /// The most recent sentence for a person.
     message: String,
     /// The three trees.
-    trees: [Vec<Flat>; TREES],
+    trees: [Vec<Flat>; PANELS],
     /// The fields of the page being shown, as `Query::Fields` last answered.
     fields: Vec<FormField>,
     /// One entry per control, in the order the C++ side placed them.
@@ -258,7 +264,7 @@ impl Host {
             dirty: false,
             caption: String::new(),
             message: String::new(),
-            trees: [Vec::new(), Vec::new(), Vec::new()],
+            trees: std::array::from_fn(|_| Vec::new()),
             fields: Vec::new(),
             placed: Vec::new(),
             update: nothing_changed(),
@@ -704,7 +710,6 @@ impl Host {
     /// nothing while it is not, because §12.2 states no page mode for a window that never left.
     /// `-1` where this host has no panel for the name.
     pub(crate) fn panel_wanted(&self) -> i32 {
-        use pdf_model::viewer_preferences::PageMode;
         let mode = if self.presenting.full_screen() {
             return -1;
         } else if let Some(mode) = self.presenting.on_exit() {
@@ -715,14 +720,13 @@ impl Host {
             };
             opening.mode
         };
-        match mode {
-            PageMode::UseOutlines => 0,
-            PageMode::UseOptionalContent => 1,
-            PageMode::UseAttachments => 2,
-            // `UseThumbs` wants §12.3.4's tab, which these three notebooks do not have;
-            // `UseNone` asks for nothing and `FullScreen` is the window rather than a panel.
-            PageMode::UseNone | PageMode::UseThumbs | PageMode::FullScreen => -1,
-        }
+        // Which panel a page mode opens is `viewer_host::Tab`'s, shared with the other two hosts,
+        // and **`UseThumbs` is no longer among the names that reach none**: this host reported it
+        // as a mode it had no panel for until §12.3.4's list was built. `UseNone` asks for nothing
+        // and `FullScreen` is the window rather than a panel, so those two still answer -1.
+        Tab::of_page_mode(mode)
+            .and_then(|tab| i32::try_from(tab.index()).ok())
+            .unwrap_or(-1)
     }
 
     /// The wheel turned, already in the device pixels the boundary speaks.
@@ -1114,11 +1118,95 @@ impl Host {
         }
     }
 
-    /// One tree's rows, depth first.
+    /// One panel's rows, depth first.
     pub(crate) fn rows(&self, tree: u8) -> Vec<QtRow> {
         self.tree(tree)
             .map(|rows| rows.iter().map(|flat| flat.row.clone()).collect())
             .unwrap_or_default()
+    }
+
+    /// What one of [`viewer_host::Tab`]'s panels is called.
+    ///
+    /// Asked rather than written into the C++ so that the six words are one set of six words: the
+    /// same argument `notices` and `password_prompt` are here for.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so a constant answer is \
+                  still a method — an associated function would need a second declaration"
+    )]
+    pub(crate) fn panel_label(&self, tab: u8) -> String {
+        Tab::at(usize::from(tab)).map_or_else(String::new, |tab| tab.label().to_owned())
+    }
+
+    /// Which of the panels is §12.3.4's, which is the one that is a list of pictures.
+    ///
+    /// Asked rather than written into the C++ so that the *order* of the panels is stated once:
+    /// a panel inserted before this one in `viewer_host::Tab::ALL` moves this number, and a window
+    /// that had the position written down would put a `QListView` where a `QTreeView` belongs.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so a constant answer is \
+                  still a method — an associated function would need a second declaration"
+    )]
+    pub(crate) fn pages_panel(&self) -> u8 {
+        pages_panel_index()
+    }
+
+    /// How many rows §12.3.4's panel has, which is how many pages the document has.
+    pub(crate) fn page_count(&self) -> usize {
+        match self.viewer.query(Query::PageCount) {
+            Answer::Count(count) => count,
+            _ => 0,
+        }
+    }
+
+    /// One row of §12.3.4's panel: the page's label, and its miniature where it states one.
+    ///
+    /// **Asked for one page at a time, when the model is about to draw that row**, which is the
+    /// whole of `CLAUDE.md` section 2's rule reaching this panel — a call per page at build time would
+    /// have moved the eager decode out of the launch path rather than out of the program.
+    ///
+    /// The picture is copied out rather than borrowed, unlike a frame's: a miniature is tens of
+    /// kilobytes against a frame's megabytes, it is asked for once per row rather than once per
+    /// present, and the C++ side keeps a `QPixmap` of it afterwards — so a borrow would buy one
+    /// avoided copy at the price of a second cache on this side of the bridge.
+    pub(crate) fn page_row(&self, index: usize) -> QtPage {
+        let entry = viewer_host::page_entry(&self.viewer, index);
+        match entry.thumbnail {
+            Some(image) => QtPage {
+                label: entry.label,
+                width: image.width,
+                height: image.height,
+                pixels: image.data.to_vec(),
+            },
+            None => QtPage {
+                label: entry.label,
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+            },
+        }
+    }
+
+    /// How many of §12.3.4's miniatures the panel may keep, from the one place that decides it.
+    ///
+    /// The `QPixmap` cache is C++'s, because a `QPixmap` is, and the *bound* is
+    /// [`viewer_host::KEPT_MINIATURES`] — asked for across the bridge rather than written down a
+    /// second time, which is the same reason the panel labels are asked for.
+    #[expect(
+        clippy::unused_self,
+        reason = "the bridge's Rust side is a set of methods on Host, so a constant answer is \
+                  still a method — an associated function would need a second declaration"
+    )]
+    pub(crate) fn kept_miniatures(&self) -> usize {
+        viewer_host::KEPT_MINIATURES
+    }
+
+    /// §12.3.4: "allowing the user to navigate to a page by clicking its thumbnail image".
+    ///
+    /// A page index rather than a destination, because a thumbnail *is* the page.
+    pub(crate) fn show_page(&mut self, index: usize) {
+        self.dispatch(Command::GoTo(PageTarget::Index(index)));
     }
 
     /// Every control the page's form wants.
@@ -1420,12 +1508,16 @@ impl Host {
             Event::Opened { pages, .. } => {
                 self.trace
                     .say(Topic::Launch, format_args!("opened, {pages} page(s)"));
+                // Trap 5, and the same sentence the other two hosts say — see `viewer-gtk`.
+                if pages == 0 {
+                    self.say(&viewer_host::no_pages(&named(&self.path)));
+                }
                 self.asking.opened();
                 self.obey_the_catalog(queue);
                 self.build_panels();
             }
             Event::OpenFailed { reason, .. } => {
-                self.say(&format!("cannot open {}: {reason}", self.path.display()));
+                self.say(&viewer_host::cannot_open(&named(&self.path), &reason));
             }
             // §7.6.4.1: "the interactive PDF processor should prompt for a password". The prompt
             // is a window, and a window is a host's — which is the whole reason this event exists
@@ -1571,30 +1663,61 @@ impl Host {
         self.placed = placed;
     }
 
-    /// Builds the three trees from the three answers.
+    /// The rows of one panel, or none at all for the one panel that has no rows.
+    ///
+    /// **The match is exhaustive over [`viewer_host::Tab`] on purpose**, and it is this host's half
+    /// of `doc/todo/30`'s "all three hosts stay level": a panel added to `viewer_host::Tab` fails
+    /// to compile here, in `viewer-gtk` and in `viewer-ui` until each supplies a widget for it. It
+    /// is `viewer_host::Key`'s mechanism applied to the other thing a window shows (ADR 0526).
+    fn panel_of(&self, tab: Tab) -> Vec<PanelRow> {
+        use viewer_host::panel::{
+            article_rows, attachment_rows, layer_rows, outline_rows, property_rows,
+        };
+        match tab {
+            Tab::Contents => match self.viewer.query(Query::Outline) {
+                Answer::Outline(outline) if !outline.items.is_empty() => outline_rows(&outline),
+                _ => vec![PanelRow::saying("This document states no outline.")],
+            },
+            // §12.3.4 is a page count and a picture per row rather than a tree; the C++ side asks
+            // `page_count` and `page_row` for it, one row at a time.
+            Tab::Pages => Vec::new(),
+            Tab::Layers => match self.viewer.query(Query::Layers) {
+                Answer::Layers(layers) if !layers.is_empty() => layer_rows(&layers),
+                _ => vec![PanelRow::saying(
+                    "This document states no optional content.",
+                )],
+            },
+            Tab::Files => match self.viewer.query(Query::Attachments) {
+                Answer::Attachments(files) if !files.is_empty() => attachment_rows(&files),
+                _ => vec![PanelRow::saying("This document embeds no files.")],
+            },
+            Tab::Articles => match self.viewer.query(Query::Articles) {
+                Answer::Articles(threads) => article_rows(&threads),
+                _ => article_rows(&[]),
+            },
+            Tab::Document => match self.viewer.query(Query::Properties) {
+                Answer::Properties {
+                    information,
+                    metadata,
+                } => property_rows(&information, metadata.as_ref()),
+                _ => property_rows(&pdf_model::metadata::Information::default(), None),
+            },
+        }
+    }
+
+    /// Builds every panel that has rows from its own answer.
     fn build_panels(&mut self) {
-        let outline = match self.viewer.query(Query::Outline) {
-            Answer::Outline(outline) => viewer_host::panel::outline_rows(&outline),
-            _ => Vec::new(),
-        };
-        let layers = match self.viewer.query(Query::Layers) {
-            Answer::Layers(layers) => viewer_host::panel::layer_rows(&layers),
-            _ => Vec::new(),
-        };
-        let files = match self.viewer.query(Query::Attachments) {
-            Answer::Attachments(attachments) => viewer_host::panel::attachment_rows(&attachments),
-            _ => Vec::new(),
-        };
-        self.trace.say(
-            Topic::Panel,
-            format_args!(
-                "outline {} row(s), layers {} row(s), files {} row(s)",
-                outline.len(),
-                layers.len(),
-                files.len()
-            ),
-        );
-        self.trees = [flatten(&outline), flatten(&layers), flatten(&files)];
+        self.trees = std::array::from_fn(|index| {
+            Tab::at(index)
+                .map(|tab| flatten(&self.panel_of(tab)))
+                .unwrap_or_default()
+        });
+        for (tab, rows) in Tab::ALL.iter().zip(&self.trees) {
+            self.trace.say(
+                Topic::Panel,
+                format_args!("{}: {} row(s)", tab.label(), rows.len()),
+            );
+        }
         self.update.panels = true;
     }
 
@@ -1821,6 +1944,15 @@ fn flatten(rows: &[PanelRow]) -> Vec<Flat> {
     flat
 }
 
+/// Which place in [`Tab::ALL`] §12.3.4's panel is, which is the one the C++ builds a list at.
+///
+/// A function rather than a literal in `window.cpp` so that the order of the panels is stated once:
+/// a panel inserted before §12.3.4's moves this number, and a window with it written down would put
+/// a `QListView` where a `QTreeView` belongs.
+fn pages_panel_index() -> u8 {
+    u8::try_from(Tab::Pages.index()).unwrap_or(u8::MAX)
+}
+
 /// One level of the tree and everything under it.
 fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
     for row in rows {
@@ -1839,6 +1971,7 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
                 action,
                 on,
                 locked,
+                note: row.note,
             },
             action: row.action.clone(),
         });
@@ -1914,13 +2047,47 @@ fn named(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Host, describe_kind, flatten};
+    use super::{Host, PANELS, describe_kind, flatten, pages_panel_index};
     use pdf_model::view::WidgetAppearances;
     use pdf_syntax::ObjectId;
     use std::path::{Path, PathBuf};
+    use viewer_host::Tab;
     use viewer_host::form::ControlKind;
     use viewer_host::panel::{PanelRow, RowAction};
     use viewer_host::trace::Trace;
+
+    /// Every panel the shared list states has a widget in this toolkit, and one is not a tree.
+    ///
+    /// **The instrument `doc/todo/30`'s "all three hosts stay level" never had for a *panel***, and
+    /// the same shape as the key test in `crate::keys` (ADR 0526). The match is exhaustive over
+    /// [`viewer_host::Tab`], so a panel added there fails to compile here — and in
+    /// [`Host::panel_of`], which is where its rows have to come from. The runtime half is the
+    /// *place*: `window.cpp` builds a `QListView` at whatever [`pages_panel_index`] answers and a
+    /// `QTreeView` everywhere else, so a panel inserted before §12.3.4's in the list must move
+    /// both, and this is what says they moved together.
+    ///
+    /// It needs no display: nothing here calls into Qt.
+    #[test]
+    fn every_panel_the_list_states_has_a_widget_in_this_toolkit() {
+        let mut lists = 0;
+        for (place, tab) in Tab::ALL.iter().enumerate() {
+            // Exhaustive on purpose. A new panel lands here as a compile error.
+            let tree = match tab {
+                Tab::Contents | Tab::Layers | Tab::Files | Tab::Articles | Tab::Document => true,
+                Tab::Pages => false,
+            };
+            if !tree {
+                assert_eq!(
+                    place,
+                    usize::from(pages_panel_index()),
+                    "the C++ builds its list of miniatures somewhere else"
+                );
+                lists += 1;
+            }
+        }
+        assert_eq!(lists, 1, "exactly one panel is a list of pictures");
+        assert_eq!(PANELS, Tab::ALL.len());
+    }
 
     /// A document committed in `doc/`, which every checkout has once the archive is unpacked.
     fn committed() -> PathBuf {
@@ -1995,14 +2162,29 @@ mod tests {
         assert!(rows.iter().all(|row| row.action == 1));
     }
 
-    /// The two trees this document states nothing for answer nothing rather than something empty.
+    /// The panels this document states nothing for say so rather than showing an empty list.
+    ///
+    /// Trap 5's shape for a panel, and **the assertion changed direction in the
+    /// seven-hundred-and-fourth session**: these two used to answer no rows at all, and an empty
+    /// list is indistinguishable from a list this program failed to fill. The sentence is
+    /// `viewer_host::panel`'s, so all three hosts say the same one.
     #[test]
-    fn a_document_with_no_layers_and_no_files_has_no_rows_for_them() {
+    fn a_document_with_no_layers_and_no_files_says_so_rather_than_showing_nothing() {
         let host = opened(&committed());
-        assert!(host.rows(1).is_empty());
-        assert!(host.rows(2).is_empty());
-        // And a tree number this host does not have answers nothing rather than the first one.
-        assert!(host.rows(9).is_empty());
+        for tab in [Tab::Layers, Tab::Files] {
+            let rows = host.rows(index(tab));
+            assert_eq!(rows.len(), 1, "{tab:?}");
+            assert!(rows[0].note, "{tab:?} says nothing about being empty");
+        }
+        // §12.3.4's panel is the one with no rows at all: its pictures are `page_row`'s.
+        assert!(host.rows(index(Tab::Pages)).is_empty());
+        // And a panel number this host does not have answers nothing rather than the first one.
+        assert!(host.rows(99).is_empty());
+    }
+
+    /// A panel's place in the shared list, as the C++ side spells one.
+    fn index(tab: Tab) -> u8 {
+        u8::try_from(tab.index()).expect("six panels fit in a byte")
     }
 
     /// §12.7's form becomes controls, and the count is the one both native hosts place.
@@ -2103,11 +2285,13 @@ mod tests {
                     on: true,
                     locked: true,
                 },
+                note: false,
                 children: vec![PanelRow {
                     label: "under".to_owned(),
                     detail: Some("said".to_owned()),
                     expanded: false,
                     action: RowAction::Inert,
+                    note: false,
                     children: Vec::new(),
                 }],
             },
@@ -2118,6 +2302,7 @@ mod tests {
                 action: RowAction::Extract {
                     name: "a.txt".to_owned(),
                 },
+                note: false,
                 children: Vec::new(),
             },
         ];
