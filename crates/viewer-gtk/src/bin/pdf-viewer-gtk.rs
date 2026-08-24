@@ -17,8 +17,9 @@ use pdf_model::view::WidgetAppearances;
 
 use gtk4::prelude::*;
 use gtk4::{gio, glib};
+use viewer_core::RestrictionLevel;
 use viewer_gtk::Host;
-use viewer_host::{Topic, Trace, parse_topics};
+use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 
 /// What the command line asked for.
 #[derive(Debug)]
@@ -32,6 +33,15 @@ struct Arguments {
     topics: u8,
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
     widget_appearances: WidgetAppearances,
+    /// What this reader does with the restrictions a document asserts, per
+    /// [`viewer_host::IGNORE_RESTRICTIONS`].
+    ///
+    /// **Not a user interface for them**, which `doc/todo/38` says is not to be built yet: it is
+    /// the one policy value `viewer-core` asks for, supplied the way this host supplies the other
+    /// one it has (§6.3.2.2's widget appearances, one field up). `CLAUDE.md` is why it is here at
+    /// all — "it shall always be possible to turn them off" — and until ADR 0604 this program
+    /// printed the word and then refused it.
+    restrictions: RestrictionLevel,
 }
 
 /// Reads the command line, or says what is wrong with it.
@@ -40,9 +50,12 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut fragment = None;
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
+    let mut restrictions = RestrictionLevel::On;
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
+        } else if word == IGNORE_RESTRICTIONS {
+            restrictions = RestrictionLevel::Off;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -66,13 +79,17 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         }
     }
     let path = path.ok_or_else(|| {
-        "usage: pdf-viewer-gtk [--trace[=topics]] [--draw-widget-appearances] <file.pdf>".to_owned()
+        format!(
+            "usage: pdf-viewer-gtk [--trace[=topics]] [--draw-widget-appearances] \
+             [{IGNORE_RESTRICTIONS}] <file.pdf>"
+        )
     })?;
     Ok(Arguments {
         path,
         fragment,
         topics,
         widget_appearances,
+        restrictions,
     })
 }
 
@@ -109,6 +126,7 @@ fn main() -> glib::ExitCode {
             &arguments.path,
             arguments.fragment.clone(),
             arguments.widget_appearances,
+            arguments.restrictions,
             trace,
         ) {
             Ok(host) => held.borrow_mut().push(host),
@@ -170,5 +188,36 @@ mod tests {
     fn a_run_with_no_document_says_how_to_run_it() {
         let complaint = arguments(std::iter::empty()).expect_err("a document is required");
         assert!(complaint.starts_with("usage:"), "{complaint}");
+    }
+
+    /// The word this window's refusal names has to be a word this program takes.
+    ///
+    /// **Written against the defect rather than for the feature.** `Host::react` answered
+    /// `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions` from this
+    /// host's first session, and `arguments` answered that same word with *"is not an option this
+    /// program has"* and exit 1 — so `CLAUDE.md`'s "it shall always be possible to turn them off"
+    /// was true in one host of three while all three said it was true. The constant is what ties
+    /// the sentence and the parser together; this asserts the parser's end of it and
+    /// `viewer-host`'s `the_refusal_names_the_word_that_turns_the_restrictions_off` the other.
+    /// ADR 0604.
+    #[test]
+    fn the_word_the_refusal_names_turns_the_restrictions_off() {
+        use viewer_core::RestrictionLevel;
+        let asked = arguments(
+            [
+                viewer_host::IGNORE_RESTRICTIONS.to_owned(),
+                "x.pdf".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect("a document");
+        assert_eq!(asked.restrictions, RestrictionLevel::Off);
+        let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
+        assert_eq!(
+            asked.restrictions,
+            RestrictionLevel::On,
+            "obeying is the default, because a reader that ignored a document's restrictions \
+             without being asked would be choosing on the person's behalf in the other direction"
+        );
     }
 }

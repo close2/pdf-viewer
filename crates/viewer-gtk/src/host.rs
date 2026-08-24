@@ -214,6 +214,14 @@ pub struct Host {
     /// duplication ADR 0244 photographed. `--draw-widget-appearances` restores §6.3.2.2's default,
     /// which is what taking the two pictures side by side needs.
     widget_appearances: WidgetAppearances,
+    /// How much of what the document asserts over its reader this window obeys.
+    ///
+    /// The other policy value beside the one above, and the same kind of thing: a fact about what
+    /// *this reader* has been asked to do rather than about the file.
+    /// [`viewer_core::RestrictionLevel::On`] unless [`viewer_host::IGNORE_RESTRICTIONS`] was on the
+    /// command line — which this program refused as an unknown option while telling every person
+    /// who hit a refusal to use it (ADR 0604).
+    restrictions: viewer_core::RestrictionLevel,
     /// The magnification at which every control on this page would fit its `/Rect`, where they do
     /// not fit now.
     ///
@@ -327,6 +335,7 @@ impl Host {
         path: &Path,
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
+        restrictions: viewer_core::RestrictionLevel,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
         let bytes = std::fs::read(path).map_err(|error| HostError::Unreadable {
@@ -367,6 +376,7 @@ impl Host {
                 needle: String::new(),
                 pages_left: 0,
                 widget_appearances,
+                restrictions,
                 fit_magnification: None,
                 // The panel is what this window opens with, and `o` is what takes it away.
                 panel_wanted: true,
@@ -428,10 +438,13 @@ impl Host {
     fn open_document(&mut self, password: Option<viewer_core::Secret>) {
         let bytes = self.bytes.clone();
         let fragment = self.fragment.clone();
-        // §6.3.2.2's instruction goes first, so that page one is interpreted once. It is a
-        // property of *this host* rather than of the document, which is why it is not part of
-        // `Open`: a host that changes its mind sends it again and the page is rebuilt.
+        // Both policy values go before the document, and for one reason: a policy applied halfway
+        // through is not a policy. §6.3.2.2's instruction is a property of *this host* rather than
+        // of the document, which is why it is not part of `Open` — a host that changes its mind
+        // sends it again and the page is rebuilt — and `Restrict` is the reader's answer to what
+        // the *file* asserts, which `CLAUDE.md` says is always the reader's to give.
         self.pump(VecDeque::from([
+            Command::Restrict(self.restrictions),
             Command::Delegate(self.widget_appearances),
             Command::Open {
                 id: DOCUMENT,
@@ -579,12 +592,10 @@ impl Host {
             } => self.searched(found, remaining, wrapped),
             Event::Reported { page, notes, .. } => self.reported(page, &notes),
             // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
-            // be possible to turn them off. This host says which one applied and how to turn it
-            // off; the four levels have no user interface yet and none is to be built now.
-            Event::Refused { notes, .. } => self.say(&format!(
-                "{} — this reader is obeying that; --ignore-restrictions turns it off",
-                notes.join("; ")
-            )),
+            // be possible to turn them off. The sentence is `viewer_host::refused` rather than
+            // this host's own because it names the word the argument parser takes, and this host
+            // wrote its own copy of it for sessions while taking no such word (ADR 0604).
+            Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
         }
     }
 
@@ -1172,6 +1183,12 @@ impl Host {
         }
         println!("note: {what}");
         self.ui.status.set_text(what);
+        // The label ellipsizes at the end, so a long sentence loses its tail — and the longest
+        // sentence this window says is the one that names the way out of a refusal, whose tail is
+        // the way out. Found by photographing the window this round's own fix was made for, which
+        // is trap 1 one layer out from a page. A tooltip is GTK's own idiom for an elided label
+        // and costs nothing when the text fits.
+        self.ui.status.set_tooltip_text(Some(what));
     }
 
     /// Whether anything on the page is selected.

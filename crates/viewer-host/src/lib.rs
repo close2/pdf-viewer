@@ -61,7 +61,10 @@
 //! - [`policy`] — §12.7.6.4's import-data file, under the narrowest policy that still performs
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
-//!   reaches a person.
+//!   reaches a person. **And [`IGNORE_RESTRICTIONS`] with [`refused`] beside it**, which is
+//!   `CLAUDE.md`'s "it shall always be possible to turn them off" as one word and one sentence:
+//!   all three windows wrote the sentence for themselves and two of them named a flag their own
+//!   argument parser rejected.
 //! - [`status`] — what the pages on the screen could not draw, worded for a status bar, and the two
 //!   sentences a window says when there is no document to draw at all. One wording, three widgets:
 //!   `Query::Reports` answers per page since Table 29's arrangements were obeyed, and a note that
@@ -107,7 +110,8 @@ pub use panel::{
 };
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
-    ImportRefusal, may_open_extracted, may_write_extracted, read_import, resolve_import,
+    IGNORE_RESTRICTIONS, ImportRefusal, may_open_extracted, may_write_extracted, read_import,
+    refused, resolve_import,
 };
 pub use presentation::{Chrome, Presenting};
 pub use status::{cannot_open, no_pages, on_screen};

@@ -126,14 +126,13 @@ impl App {
     ///
     /// **This is not a user interface for the levels**, which `CLAUDE.md` says is not to be built
     /// yet. It is the sentence a person needs, in the terminal this program already prints to.
+    ///
+    /// **The wording is `viewer_host::refused`'s since ADR 0604**, and this host wrote it for
+    /// itself until then. The other two wrote it too, identically, naming a flag neither of their
+    /// argument parsers took — so the third copy of a sentence turned out to be where two hosts
+    /// stop agreeing not with each other but with *themselves*.
     pub(crate) fn say_refused(notes: &[String]) {
-        for note in notes {
-            println!("note: {note}");
-        }
-        println!(
-            "note: this reader is obeying that; --ignore-restrictions turns it off \
-             (CLAUDE.md: a document's restrictions are the reader's to set)"
-        );
+        println!("note: {}", viewer_host::refused(notes));
     }
 
     /// §12.7.6.4's file, under the narrowest policy that still performs the action.

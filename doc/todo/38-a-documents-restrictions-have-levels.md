@@ -31,9 +31,20 @@ reader from the document — and nothing here is negotiable in that direction.
 The reading is in `pdf-model` and decides nothing; the policy is one value a host supplies
 (`Command::Restrict(RestrictionLevel)`), asked **once per `Edit`**; the refusal leaves as
 `Event::Refused { document, operation, notes }`, which carries the operation precisely so that it
-can become a question. `viewer-ui` supplies the value with `--ignore-restrictions` and prints the
-reason and the way out. The argument, the corpus measurement and the Table 22 revision finding are
+can become a question. The argument, the corpus measurement and the Table 22 revision finding are
 in ADR 0212.
+
+**All three windows supply the value since the seven-hundred-and-twenty-first session, and this
+paragraph said `viewer-ui` did and stopped there** (ADR 0604). It was true and it was half the
+sentence: `pdf-viewer-gtk` and `pdf-viewer-qt` sent `Command::Restrict` nowhere and could not be in
+any level but `On` — while both answered every refusal with a sentence naming
+`--ignore-restrictions`, and both argument parsers answered that word with *"is not an option this
+program has"* and exit 1. `CLAUDE.md`'s "**it shall always be possible to turn them off**" therefore
+held in one program of three, and the sentence promising otherwise was the thing that made it look
+closed. `viewer_host::IGNORE_RESTRICTIONS` is the word now and `viewer_host::refused` the sentence
+that names it, in one module so that they cannot drift apart again; three tests hold the sentence,
+each parser and the whole chain, because the defect lived exactly between two links that each had
+one.
 
 ## What is left
 
@@ -43,7 +54,9 @@ in ADR 0212.
   Nothing here is `#[non_exhaustive]`, so adding them fails every consumer's compile until it says
   what it does, which is what makes waiting safe rather than lazy.
 - **A user interface**, when the owner asks for one. A menu with four entries and, probably, the
-  per-document override the viewer-wide value does not express today.
+  per-document override the viewer-wide value does not express today. **A command line is not one**,
+  which is worth stating because it is what kept two hosts without any way out for the whole of
+  their lives: nothing in the owner's instruction was blocking the flag, and nobody checked.
 - **Table 22's bit 5, and the copy operation nothing here can name.** The bit is "[c]opy or
   otherwise extract text and graphics from the document", and this crate hands a host a *readback*
   — the same `Query::Selection` that a drag asks sixty times a second in order to draw a

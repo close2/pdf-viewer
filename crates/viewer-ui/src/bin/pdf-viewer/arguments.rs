@@ -189,7 +189,10 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             backend_asked_for = true;
         } else if argument == "--proxy-pages" {
             proxy_pages = retained_pages(arguments.next());
-        } else if argument == "--ignore-restrictions" {
+        } else if argument == viewer_host::IGNORE_RESTRICTIONS {
+            // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
+            // prints has to name a word every host's parser takes — and for two hosts of three it
+            // did not (ADR 0604).
             restrictions = RestrictionLevel::Off;
         } else if argument == "--page" {
             // A page number as the title bar shows it, which is one-based. §12.3.2.1's
@@ -397,7 +400,7 @@ fn usage() {
     eprintln!("                is left out, and a list that starts with one means everything");
     eprintln!("                else: --trace=frames to chase a slow page, --trace=-pointer for");
     eprintln!("                everything but the flood a moving mouse makes.");
-    eprintln!("  --ignore-restrictions");
+    eprintln!("  {}", viewer_host::IGNORE_RESTRICTIONS);
     eprintln!("                perform an operation a document says its reader may not — filling");
     eprintln!("                in a field under §7.6.4.2's permission flags or an author's");
     eprintln!("                §12.8.2.2 certification. The default is to obey and say so.");

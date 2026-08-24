@@ -997,6 +997,11 @@ void MainWindow::applyUpdates()
     }
     if (update.status) {
         status_->setText(text(host_->status()));
+        // A QLabel in a status bar is clipped by the window rather than elided, so the tail of a
+        // long sentence is off the end of it — and the longest sentence this window says is the
+        // refusal whose tail names the way out. The same tooltip `viewer-gtk` sets, for the same
+        // reason and found on the same screenshot.
+        status_->setToolTip(text(host_->status()));
     }
     pumpSearch();
     pumpPresentation();

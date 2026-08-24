@@ -444,3 +444,23 @@ fn a_uris_embedded_file_is_not_written_and_a_persons_is() {
         "and it cites the clause: {refused}"
     );
 }
+
+/// The way out of a refusal is a word, and the sentence that offers it has to name that word.
+///
+/// **This is one half of a two-part check and the weaker half**, which is worth saying: it holds
+/// the *sentence* to the constant, and each host binary holds its own *parser* to the same
+/// constant. Neither alone would have caught what ADR 0604 found — three windows saying
+/// `--ignore-restrictions` while two of them answered "not an option this program has" to exactly
+/// that word — because the sentences agreed with each other perfectly and with nothing else.
+#[test]
+fn the_refusal_names_the_word_that_turns_the_restrictions_off() {
+    let said = viewer_host::refused(&["the document forbids extracting text".to_owned()]);
+    assert!(
+        said.contains("the document forbids extracting text"),
+        "{said}"
+    );
+    assert!(
+        said.contains(viewer_host::IGNORE_RESTRICTIONS),
+        "the way out has to be in the sentence: {said}"
+    );
+}

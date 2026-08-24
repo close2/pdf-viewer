@@ -123,6 +123,14 @@ pub struct Host {
     trace: Trace,
     /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
     widget_appearances: WidgetAppearances,
+    /// How much of what the document asserts over its reader this window obeys.
+    ///
+    /// The other policy value beside the one above, and the same kind of thing: a fact about what
+    /// *this reader* has been asked to do rather than about the file.
+    /// [`viewer_core::RestrictionLevel::On`] unless [`viewer_host::IGNORE_RESTRICTIONS`] was on the
+    /// command line — which this program refused as an unknown option while telling every person
+    /// who hit a refusal to use it (ADR 0604).
+    restrictions: viewer_core::RestrictionLevel,
     /// Device pixels per logical pixel, from the screen Qt put the window on.
     scale: f32,
     /// Whether the reader wants the panel of three trees on the screen.
@@ -236,6 +244,7 @@ impl Host {
         path: &Path,
         fragment: Option<String>,
         widget_appearances: WidgetAppearances,
+        restrictions: viewer_core::RestrictionLevel,
         trace: Trace,
     ) -> Result<Self, HostError> {
         let bytes = std::fs::read(path).map_err(|error| HostError::Unreadable {
@@ -255,6 +264,7 @@ impl Host {
             rasterizer: CpuRasterizer::new(),
             trace,
             widget_appearances,
+            restrictions,
             scale: 1.0,
             // The panel is what this window opens with, and `o` is what takes it away.
             panel_shown: true,
@@ -1461,9 +1471,12 @@ impl Host {
     fn open_document(&mut self, password: Option<viewer_core::Secret>) {
         let bytes = self.bytes.clone();
         let fragment = self.fragment.clone();
-        // §6.3.2.2's instruction goes first, so that page one is interpreted once. It is a
-        // property of *this host* rather than of the document (ADR 0245).
+        // Both policy values go before the document, and for one reason: a policy applied halfway
+        // through is not a policy. §6.3.2.2's instruction is a property of *this host* rather than
+        // of the document (ADR 0245), and `Restrict` is the reader's answer to what the *file*
+        // asserts, which `CLAUDE.md` says is always the reader's to give.
         self.pump(vec![
+            Command::Restrict(self.restrictions),
             Command::Delegate(self.widget_appearances),
             Command::Open {
                 id: DOCUMENT,
@@ -1613,10 +1626,11 @@ impl Host {
             Event::Reported { page, notes, .. } => self.reported(page, &notes),
             // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
             // be possible to turn them off.
-            Event::Refused { notes, .. } => self.say(&format!(
-                "{} — this reader is obeying that; --ignore-restrictions turns it off",
-                notes.join("; ")
-            )),
+            // `CLAUDE.md`: a document's restrictions are the reader's to set, and it shall always
+            // be possible to turn them off. The sentence is `viewer_host::refused` rather than
+            // this host's own because it names the word the argument parser takes, and this host
+            // wrote its own copy of it for sessions while taking no such word (ADR 0604).
+            Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
         }
     }
 
@@ -2109,10 +2123,20 @@ mod tests {
     /// test can build one, drive it and read its answers with no display and no `QApplication`.
     /// That is the ownership inversion paying a dividend rather than costing one (ADR 0246).
     fn opened(path: &Path) -> Host {
+        opened_under(path, viewer_core::RestrictionLevel::On)
+    }
+
+    /// The same, with the reader's answer to what the document asserts stated explicitly.
+    ///
+    /// `CLAUDE.md`'s rule is that turning a document's restrictions off is always possible, and
+    /// this is where a test can see whether the value the command line supplies reaches the core
+    /// at all — no display, no `QApplication`, and a real file asserting a real `/P`.
+    fn opened_under(path: &Path, restrictions: viewer_core::RestrictionLevel) -> Host {
         let mut host = Host::open(
             path,
             None,
             WidgetAppearances::Delegated,
+            restrictions,
             Trace::off(std::time::Instant::now()),
         )
         .expect("the document is readable");
@@ -2206,6 +2230,45 @@ mod tests {
         assert!(controls.iter().all(|control| !control.field.is_empty()));
         // And every kind is one the C++ side has a widget for: 8 kinds, 0 to 7.
         assert!(controls.iter().all(|control| control.kind < 8));
+    }
+
+    /// `CLAUDE.md`: a document's restrictions are the reader's, and turning them off must work.
+    ///
+    /// **The one test in this tree that drives the whole chain a person walks**: a real file
+    /// asserting a real §7.6.4.2 `/P`, a real key press, the sentence the window puts on the
+    /// screen, and the same run again with the command line's answer changed. Everything else
+    /// about this is checked one link at a time — `viewer-core`'s headless harness has the
+    /// refusal, `viewer-host` has the sentence, each binary has its parser — and the defect ADR
+    /// 0604 found lived exactly between two of those links, where nothing looked.
+    ///
+    /// `issue17215.pdf` is one of the corpus's seven witnesses (ADR 0212): it opens with the empty
+    /// user password and withholds both filling in a form and annotating.
+    #[test]
+    fn a_restricted_document_refuses_and_the_reader_can_turn_that_off() {
+        let Some(path) = corpus("issue17215.pdf") else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        // `a` selects the page and `h` is §12.5.6.10's highlight, which is an annotation and is
+        // what this document's `/P` withholds.
+        let mut host = opened_under(&path, viewer_core::RestrictionLevel::On);
+        host.key(0x41, false);
+        host.key(0x48, false);
+        let said = host.status();
+        assert!(
+            said.contains(viewer_host::IGNORE_RESTRICTIONS),
+            "a refusal names the way out: {said}"
+        );
+
+        let mut host = opened_under(&path, viewer_core::RestrictionLevel::Off);
+        host.key(0x41, false);
+        host.key(0x48, false);
+        let said = host.status();
+        assert!(
+            !said.contains(viewer_host::IGNORE_RESTRICTIONS),
+            "the reader said not to obey it, so nothing is refused: {said}"
+        );
+        assert!(host.dirty, "and the annotation is in the edit log: {said}");
     }
 
     /// §12.7.5.4: what a `QListWidget` in `ExtendedSelection` has to say, and where it goes.
