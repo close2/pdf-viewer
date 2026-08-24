@@ -1000,3 +1000,34 @@ same comparison is *required* for the FieldMDP transform and remains the reading
 signature field lock. `covers`'s own comment says
 which is which, because a function whose two callers stand on different footings should not let the
 weaker one be forgotten.
+
+## Table 166's `/ca` default, found in the seven-hundred-and-tenth
+
+`emit` files seventeen annotation objects under §12.5.2, and four more under §12.5.3 that belong
+to it — the page-straddle shape this file has recorded five times, and §12.5.2's ledger row has
+had those four since the four-hundred-and-seventeenth session. **One of the seventeen is named
+nowhere in this tree**, and it is the newest erratum any round here has met: **Issue #577**,
+`D:20260521104207-05'00'`, `/State` `Review`/`Accepted`.
+
+It is a `StrikeOut` over `1.0 ` and a `Caret` saying `the value of CA`, at
+`[263.930 285.359 278.601 297.032]` and `[274.063 283.872 283.139 291.268]` on physical page 484.
+`pdftotext -bbox` puts `Default value: 1.0` at 544.9–556.6 from the top of an 841.92-tall page,
+which is 841.92 − 297.032 = 544.888 — the strikeout's own top edge, to three decimal places — and
+the three lines above it read "nonstroking operations on all visible elements of the annotation in
+its closed state (including its background and border) but not the popup window that appears when
+the annotation is opened." So the row is Table 166's **`/ca`**, not the `/CA` two rows below it,
+and the amended default is *the value of `CA`*.
+
+**A four-word floor is not why `check` missed this one; there is nothing to match.** The struck
+text is a bare `1.0`, so even a tree that quoted the whole `/ca` row verbatim would share no
+sentence with it. That is the third distinct way `check` is blind, beside a caret with no
+strikeout and a strikeout under the floor: **a strikeout whose text is a *value*.**
+
+**The erratum vindicates the code, and does it by settling one row with another's sentence.**
+`annotation::construct` reads `/ca`, falls back to `/CA`, and falls back to 1.0 — written on
+Table 166's `/CA` row, which says "If a ca entry is not present in this dictionary, then the value
+of this CA entry shall also be used for nonstroking operations as well". Under the 2020 printing
+the `/ca` row's own "Default value: 1.0" said the opposite, and this tree had picked the
+neighbouring sentence over the nearer one for its whole life. The amended `/ca` row now says what
+the `/CA` row says. No arithmetic moves; the authority does, which is what a bare caret and a bare
+strikeout have both turned out to be worth. Recorded in §12.5.2's note.

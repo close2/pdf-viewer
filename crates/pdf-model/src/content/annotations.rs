@@ -417,6 +417,22 @@ impl Interpreter<'_> {
             );
             self.unclip_redundant(mark, box_in_page, Transform::IDENTITY, None);
         }
+        // §12.5.5's other transparency sentence, which this path answers by *construction* for
+        // the case it names first and not at all for the case it names second: an appearance
+        // with no `/Group` "shall be treated as a non-isolated, non-knockout transparency
+        // group", which §11.4.4's NOTE 5 makes identical to painting the elements straight onto
+        // the page — and one that states a `/Group` gets "the isolated and knockout values
+        // specified in the group dictionary", which nothing here builds. Asked of the commands
+        // this appearance drew rather than of the entry alone, because both stated values are
+        // visible only under conditions the marks decide; `note_appearance_group` has each.
+        //
+        // A construction (§12.7.4.3) is this program's own bytes and states no `/Group`.
+        if let crate::annotation::Content::Stored(stream) = &appearance.content
+            && let Some(group) = self.transparency_group(&stream.dict)
+        {
+            let drawn = self.list.commands()[mark..].to_vec();
+            self.note_appearance_group(&group, &drawn);
+        }
         self.base = outer_base;
     }
 }
