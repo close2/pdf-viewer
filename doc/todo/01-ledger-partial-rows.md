@@ -3845,6 +3845,44 @@ where to look.
   says so itself. The document now carries the answer beside the quotation.
 
 
+## The third rule's first use, in the seven-hundred-and-twentieth, and it leaves the family
+
+The search was run again on a base one round later. **Its family order did not move** — §12.5, then
+§12.8, then §12.7 — and the third rule sent the round out of all three, which is what that rule is
+for.
+
+ADR 0593 §1 named two pairs stronger than the one it read and left both: **§12.4.4 ~ §12.4.4.1**
+and §10.7.4 ~ §10.7.5. The first is the strongest pair below any clause-level parent in the whole
+ledger, and it is the one this round took. **A rule that only reordered the pairs inside the head
+family could never escape it**, which is the difference between the third rule and a tie-break:
+self-reinforcement is a property of the family, so the cure has to be allowed to leave.
+
+**And the pair was not clean.** Both rows carry the same two sentences about Table 164's twelve
+transition styles — one saying seven are shaped and **four** of the other five reported, `R` being
+the cut the table defines, and one, three lines later, saying the clause is "`partial` for the five
+styles". The two contradict each other, in both rows, and the history is the shape 710 named:
+§12.4's parent row was corrected to four in the three-hundred-and-eighty-eighth session and the
+*middle* sentence of each of the pair in the six-hundred-and-sixty-third, and both times the
+closing tally below was left standing. **A correction that reaches the sentence stating a mechanism and not the
+sentence counting it is one failure; the same string surviving a round whose whole subject was that
+string is another.**
+
+What the pair then bought was the code. `viewer_core::transition::note` asked a `&Style` while
+`frame` asked a `&Transition` — style **and** `/Di` — so a `Wipe`, `Cover`, `Uncover` or `Push` in a
+direction outside the four quarter turns shaped no frame and said nothing: a cut in silence, which
+is the one outcome the function exists to prevent. Two expressions answering one question, which is
+701's shape and 716's, for the third round running; and a *test's* own doc comment had asserted the
+report existed since the three-hundred-and-ninety-third. ADR 0600, with the property test that holds
+`note` and `frame` against each other over every style crossed with every direction.
+
+**`emit` found nothing against the clause and a contradiction two pages above it.** Against §12.4.4
+there is no erratum this tree had not recorded, which is the answer the round wanted. Against Table
+161, two pages earlier, there are two — Issue #432 rewriting *AA to ZZ* as *AA to AZ*, and Issue
+#593 inserting *AAA to ZZZ for the next 26* after it — **both `Review`/`Accepted`, and mutually
+exclusive.** ADR 0601 has the geometry that places them and the rule that comes out of it: **an
+erratum is evidence about the standard, in the way another renderer is evidence about our reading**,
+and where two disagree the published clause and its own arithmetic decide.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

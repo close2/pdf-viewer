@@ -915,7 +915,7 @@ impl Viewer {
             });
         }
         for transition in outcome.transitions {
-            if let Some(note) = crate::transition::note(&transition.style) {
+            if let Some(note) = crate::transition::note(&transition) {
                 events.push(Event::Reported {
                     document: id,
                     page,
@@ -2556,11 +2556,13 @@ impl Viewer {
             return;
         };
         if let Some(transition) = pdf_model::navigation::transition(&open.document, &page.dict) {
-            // A style no frame is shaped for is *named* rather than quietly drawn as a cut,
+            // A transition no frame is shaped for is *named* rather than quietly drawn as a cut,
             // which is trap 5 in the one place a viewer is most tempted to be silent: the page
             // that arrives looks right, and only the file knows it asked for an effect.
-            // `crate::transition` decides which those are, because it is what draws the rest.
-            if let Some(note) = crate::transition::note(&transition.style) {
+            // `crate::transition` decides which those are, because it is what draws the rest —
+            // and it is asked the whole transition, because a style is not the whole of what
+            // decides a frame.
+            if let Some(note) = crate::transition::note(&transition) {
                 let index = self.focused().map(|open| open.page_index);
                 events.push(Event::Reported {
                     document: id,

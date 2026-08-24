@@ -50,6 +50,15 @@
 //! `R` is therefore not reported. The other four are, by name, so that a person watching a slide
 //! show that cuts knows the file asked for something this reader does not draw.
 //!
+//! **A style is not the whole of what decides a frame, and for four of the seven the direction
+//! decides it too.** `Wipe`, `Cover`, `Uncover` and `Push` travel along `/Di`, and every value
+//! Table 164 gives those four is a quarter turn — 0 and 270 for the three that slide, and 90 and
+//! 180 as well for `Wipe`, with 315 belonging to `Glitter` and the name `None` to `Fly`. A file
+//! stating any other direction has asked for an effect no rectangle here sweeps, so [`frame`]
+//! shapes none — and [`note`] therefore asks the *whole* transition rather than its style, since
+//! a report keyed on less than what decides the drawing is a report that fires on the wrong
+//! condition (trap 11).
+//!
 //! # What a host does with this
 //!
 //! Two pages' pixels and a fraction in, one [`pdf_render::DisplayList`] out. The list holds at
@@ -202,8 +211,10 @@ pub fn drawable(raster: &Raster) -> Option<Image> {
 /// document asked to arrive at.
 ///
 /// `None` is the answer for the four styles Table 164 describes with a quantity it does not
-/// state, and for `R`, which the table defines as a cut. See this module's own documentation for
-/// the list and [`note`] for what a person is told.
+/// state, for `R`, which the table defines as a cut, and for one of the four styles that travel
+/// along `/Di` asked for in a direction the table does not give it. See this module's own
+/// documentation for the list and [`note`] for what a person is told — every `None` here but
+/// `R`'s has a sentence there, and that is a property this module tests rather than asserts.
 #[must_use]
 pub fn frame(transition: &Transition, viewport: Rect, progress: f32) -> Option<Frame> {
     let done = if progress.is_finite() {
@@ -329,31 +340,81 @@ fn travelled(transition: &Transition, viewport: Rect, fraction: f32) -> Option<(
     Some((dx * fraction, dy * fraction))
 }
 
-/// What to tell a person about a style no frame is shaped for, or `None` where there is nothing
-/// to say.
+/// What to tell a person about a transition no frame is shaped for, or `None` where there is
+/// nothing to say.
 ///
 /// Trap 5's channel and this tree's rule everywhere else: a named effect that is silently drawn
 /// as a cut is indistinguishable from a file that asked for a cut. `R` is the one style with
 /// nothing to report, because Table 164 defines it as the cut — "[t]he new page simply replaces
 /// the old one with no special transition effect".
-pub(crate) fn note(style: &Style) -> Option<String> {
-    let missing = match style {
+///
+/// **This asks the whole transition rather than its style**, because [`frame`] does: four of the
+/// seven styles it shapes need a direction it can sweep along, and until the
+/// seven-hundred-and-twentieth session a `/Di` outside the four quarter turns produced no frame
+/// and no sentence at all. `note` and `frame` are one decision made in two expressions, which is
+/// why [`the_report_fires_on_exactly_what_is_not_drawn`] holds them against each other over every
+/// style rather than against a list written out by hand.
+///
+/// [`the_report_fires_on_exactly_what_is_not_drawn`]: tests::the_report_fires_on_exactly_what_is_not_drawn
+pub(crate) fn note(transition: &Transition) -> Option<String> {
+    let missing = match &transition.style {
         Style::Blinds => "how many evenly spaced lines it has",
         Style::Glitter => "how wide its band is",
         Style::Dissolve => "what dissolving does to a pixel",
         Style::Fly => "what the changes are that fly",
+        // A name the table does not define, in the file's own spelling — except where the file
+        // wrote the empty name, which is a legal PDF name and reads as a bare `/` in a sentence
+        // a person is meant to understand. It is not a hypothetical: the empty `/S` is the
+        // *only* unrecognised style `examples/presentation_census` finds anywhere in the
+        // `CC-MAIN-2021-31` crawl, on 106 pages of seven documents.
+        Style::Unrecognised(name) if name.as_bytes().is_empty() => {
+            return Some(
+                "transition: an empty /S is not one of Table 164's styles, so the page is shown \
+                 at once"
+                    .to_owned(),
+            );
+        }
         Style::Unrecognised(name) => {
             return Some(format!(
                 "transition: /{} is not one of Table 164's styles, so the page is shown at once",
                 String::from_utf8_lossy(name.as_bytes())
             ));
         }
-        _ => return None,
+        // The four that travel along `/Di`: shaped where the direction is one Table 164 gives
+        // them, and reported where it is not.
+        Style::Wipe | Style::Cover | Style::Uncover | Style::Push => return askew(transition),
+        // The three whose frame needs no direction, and `R`, which is the cut the table defines.
+        Style::Split | Style::Box | Style::Fade | Style::Replace => return None,
     };
     Some(format!(
         "transition: /{} is named but not drawn — ISO 32000-2 Table 164 does not state {missing} \
          — so the page is shown at once",
-        spelling(style)
+        spelling(&transition.style)
+    ))
+}
+
+/// What to tell a person about an effect this module shapes, asked for in a direction it cannot.
+///
+/// Every `/Di` Table 164 gives `Wipe`, `Cover`, `Uncover` and `Push` is a quarter turn: 0 and 270
+/// for all four, 90 and 180 for `Wipe` alone, with 315 reserved to `Glitter` and the name `None`
+/// to `Fly`. [`quarter`] is the expression that says so and is the one [`frame`] refuses on, so
+/// this asks it rather than restating the list — the duplicate that has to agree is the defect
+/// this function was added to close, not one to introduce a second time.
+///
+/// `None` where the direction is one of the four, which is every conforming file: a document has
+/// to state a direction the table does not give the style it stated for this to say anything.
+fn askew(transition: &Transition) -> Option<String> {
+    if quarter(transition.direction).is_some() {
+        return None;
+    }
+    let stated = match transition.direction {
+        Direction::None => "the name /None".to_owned(),
+        Direction::Degrees(degrees) => format!("{degrees} degrees"),
+    };
+    Some(format!(
+        "transition: /{} is named but not drawn — its /Di is {stated}, which ISO 32000-2 \
+         Table 164 does not give that style — so the page is shown at once",
+        spelling(&transition.style)
     ))
 }
 
@@ -858,17 +919,76 @@ mod tests {
                 frame(&of(style.clone()), viewport(), 0.5).is_none(),
                 "{style:?}"
             );
-            let said = note(&style).expect("a sentence naming it");
+            let said = note(&of(style)).expect("a sentence naming it");
             assert!(said.contains("Table 164"), "{said}");
         }
         // `R` is the cut, by the table's own definition, so there is nothing to report.
         assert!(frame(&of(Style::Replace), viewport(), 0.5).is_none());
-        assert_eq!(note(&Style::Replace), None);
+        assert_eq!(note(&of(Style::Replace)), None);
         // And a name the table does not define is reported as the file wrote it.
         let unknown = Style::Unrecognised(pdf_syntax::Name::new(b"Swirl".to_vec()));
         assert!(frame(&of(unknown.clone()), viewport(), 0.5).is_none());
-        let said = note(&unknown).expect("a sentence");
+        let said = note(&of(unknown)).expect("a sentence");
         assert!(said.contains("/Swirl"), "{said}");
+        // And the empty name, which is a legal PDF name and the only unrecognised style the
+        // crawl carries, is described rather than printed as a bare slash.
+        let empty = Style::Unrecognised(pdf_syntax::Name::new(Vec::new()));
+        let said = note(&of(empty)).expect("a sentence");
+        assert!(said.contains("an empty /S"), "{said}");
+    }
+
+    /// A report fires on exactly what is not drawn, over every style and every direction.
+    ///
+    /// Trap 11, and the defect that put this here: [`note`] asked the *style* while [`frame`]
+    /// asked the style **and** `/Di`, so a `Wipe` at an angle Table 164 does not give it produced
+    /// no frame and no sentence — a cut with nothing said, which is the one outcome trap 5
+    /// forbids. Holding the two expressions against each other over the whole cross-product is
+    /// what a list written out by hand cannot do: a style added to either side without the other
+    /// fails here.
+    ///
+    /// `R` is the single exception and it is the table's own: "[t]he new page simply replaces the
+    /// old one with no special transition effect", so a file asking for `R` and getting a cut got
+    /// what it asked for and there is nothing to say.
+    #[test]
+    fn the_report_fires_on_exactly_what_is_not_drawn() {
+        let styles = [
+            Style::Split,
+            Style::Blinds,
+            Style::Box,
+            Style::Wipe,
+            Style::Dissolve,
+            Style::Glitter,
+            Style::Replace,
+            Style::Fly,
+            Style::Push,
+            Style::Cover,
+            Style::Uncover,
+            Style::Fade,
+            Style::Unrecognised(pdf_syntax::Name::new(b"Swirl".to_vec())),
+        ];
+        let directions = [
+            Direction::Degrees(0.0),
+            Direction::Degrees(90.0),
+            Direction::Degrees(180.0),
+            Direction::Degrees(270.0),
+            // Table 164's fifth value, which it gives to `Glitter` alone.
+            Direction::Degrees(315.0),
+            // An angle the table gives to nothing at all.
+            Direction::Degrees(45.0),
+            // "If the value is a name, it shall be None, which is relevant only for the Fly
+            // transition."
+            Direction::None,
+        ];
+        for style in styles {
+            for direction in directions {
+                let mut transition = of(style.clone());
+                transition.direction = direction;
+                let drawn = frame(&transition, viewport(), 0.5).is_some();
+                let said = note(&transition).is_some();
+                let owed = !drawn && style != Style::Replace;
+                assert_eq!(said, owed, "{style:?} at {direction:?}: drawn {drawn}");
+            }
+        }
     }
 
     /// `/Di` is read as an angle, and only the four quarter turns describe a rectangular sweep.
@@ -886,10 +1006,14 @@ mod tests {
         assert_eq!(quarter(Direction::Degrees(f32::NAN)), None);
 
         // And a `Wipe` at an angle no rectangle sweeps is reported rather than drawn at some
-        // nearby angle the file did not ask for.
+        // nearby angle the file did not ask for. **The second half of that sentence was written
+        // in the three-hundred-and-ninety-third session and was false until the
+        // seven-hundred-and-twentieth**: the frame was refused and nothing was reported.
         let mut askew = of(Style::Wipe);
         askew.direction = Direction::Degrees(315.0);
         assert!(frame(&askew, viewport(), 0.5).is_none());
+        let said = note(&askew).expect("a sentence naming the direction");
+        assert!(said.contains("/Wipe") && said.contains("315"), "{said}");
     }
 
     /// A fraction outside the transition, and one that is not a number at all.

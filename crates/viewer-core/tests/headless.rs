@@ -4142,6 +4142,52 @@ fn a_transition_this_reader_does_not_draw_is_named_rather_than_cut() {
     );
 }
 
+/// A style this reader *does* draw, asked for in a direction Table 164 does not give it.
+///
+/// The same trap 5 obligation one step in from the test above, and until the
+/// seven-hundred-and-twentieth session this page arrived as a cut with nothing said: the report
+/// was keyed on the style, which is `Wipe` and is shaped, while the frame was refused for the
+/// direction. Table 164 gives `Wipe` the four quarter turns and reserves 315 to `Glitter`, so a
+/// `Wipe` at 315 is a direction the table does not send that effect in — and `viewer_core::
+/// transition` shapes no frame for it, which is what makes the sentence owed.
+#[test]
+fn a_direction_the_table_does_not_give_a_style_is_named_rather_than_cut() {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Dur 1 >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Trans << /S /Wipe /Di 315 >> >>\nendobj\n";
+    let mut viewer = Viewer::new(200, 100, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: assemble(body),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let advanced: Vec<Event> = viewer.handle(Command::Tick { millis: 1100 }).collect();
+    let said = advanced
+        .iter()
+        .find_map(|event| match event {
+            Event::Reported { notes, page, .. } => Some((notes.join(" "), *page)),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a direction with no frames is reported: {advanced:?}"));
+    assert!(
+        said.0.contains("/Wipe") && said.0.contains("315"),
+        "{said:?}"
+    );
+    assert_eq!(said.1, Some(1), "about the page it was moving to");
+    // And the transition is still raised, because a host that can draw it is not this one.
+    assert!(
+        advanced
+            .iter()
+            .any(|event| matches!(event, Event::Transition { .. })),
+        "{advanced:?}"
+    );
+}
+
 /// Two pages of one flat colour each, the second stating a `/Trans`, both stating a `/Dur`.
 ///
 /// A transition is a picture *between two pages*, so the fixture's whole job is to make the two
