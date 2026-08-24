@@ -52,6 +52,17 @@ same number. Three things have to be true before either is done:
    contradicted. Several hundred of them are `doc/todo/00`'s dense-text population, which is the
    first mechanism anybody has named for why that bucket is the size it is.
 
+## A neighbouring question, asked and answered — it is not this one
+
+**Is a *consensus of two* the same evidence as a consensus of three?** ADR 0575 asks it on the six
+pages ADR 0542 printed, and the answer does not touch this item: two references stay enough,
+because ADR 0005's inference is about a **pair** and a third multiplies the improbability rather
+than creating it. It is worth knowing here for one reason — the *bound* on such a page is derived
+from one pair's spread rather than the maximum of three, so it is trap 12's shape rather than this
+file's, and a page judged on two is held tighter rather than more leniently. The six turned out to
+be about why the third reference could not read the document, which is `doc/oracle-and-corpus.md`
+§3g.
+
 ## What this is not
 
 Not a licence to loosen. If the answer turns out to be that 0.05 is the right consensus threshold

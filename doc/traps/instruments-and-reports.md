@@ -214,6 +214,28 @@ white exchanged, and blamed `hayro-ccitt` feature resolution. `hayro-ccitt` at t
 **has no `[features]` section at all**; `CCITTFaxDecode` goes through the worker; and "black and
 white exchanged" is trap 10's own sentence from the seventh session.
 
+#### And the census can say so now, which is one of the two residues
+
+The seven-hundredth session left "the census counts no reports" as owed, and it is paid (ADR 0573).
+`MarkedSpan::enclosed_a_refusal` attributes an `Unsupported` to the marked-content sequence that
+enclosed it, `AccessibilityNode::enclosed_a_refusal` carries it to the boundary, and the census
+prints how many elements have **both** no place and a refusal inside them, per page, with the
+page's own report sentence. Run against the defect above it names the nine exactly — three pages of
+`issue5481.pdf`, three elements each, under `an image (Im0: starting the sandbox worker failed …)
+was not drawn` — and accounts for the whole of the −9 in *placed by their own marks*.
+
+**Trap 11 decided the condition and is the part to copy.** The reflex condition is *placeless on a
+page that reported*, which fires on every placeless element of a page whose report is about
+something else on the sheet; §14.8.3.3 states **enclosure**, so the refusal is attributed to the
+sequences the element encloses and to no others. And the class claims enclosure rather than
+*cause*: `issue8702.pdf`'s two elements enclose a refusal and still have a place, because they drew
+text as well.
+
+`text_extraction` never had this gap — it prints `{incomplete} incomplete and not gated` and
+excludes a reporting page by name. `selection_census` does not count reports either, and its shape
+means a refusal arrives as a *missed drag* rather than as a smaller number, which is the loud
+direction; attributing a miss to a report is owed and named in ADR 0573.
+
 ### 10a. A cached reference render is a fourth thing that can be stale
 
 The key is built from the invocation itself plus the renderer's version and the document's
@@ -223,6 +245,15 @@ see is a renderer whose output changes while its version string does not. **The 
 319 MB cache in a directory called `on`. **The hit rate is printed and it is the tell**: under 99%
 on an unchanged tree means the corpus or a renderer moved. A remembered *timeout* is the one entry
 whose truth decays, counted separately and expiring after a week.
+
+**And a remembered *failure* carries the wording of the run that stored it.** The key is the format
+tag, the renderer's version, the document's digest, the page, the resolution and the invocation —
+and not the harness's own prose, so a round that improves a failure message leaves every stored
+`.err` entry saying what the previous version said. It is a message rather than a verdict, and
+bumping `FORMAT` to flush it would invalidate tens of thousands of stored *renders* to correct a
+few dozen sentences, so the fix is to delete the `.err` entries and let them re-derive — one
+renderer invocation apiece. Same family as the paragraph above: a cache's key is a claim about what
+makes two answers the same answer, and prose was never in it (ADR 0574).
 
 ### 11. A report is only as good as the condition it fires on
 

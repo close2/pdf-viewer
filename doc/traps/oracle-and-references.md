@@ -24,6 +24,31 @@ that silently changes is a comparison that silently changes. One level up: `gs` 
 that reason alone. **Check what question each reference is being asked before reading its answer
 as a verdict.**
 
+**And the same trap on the way *out*: how a reference's answer is collected, not only how it is
+asked.** Two instances, both found in the seven-hundred-and-seventh session on the six pages ADR
+0542 made visible, and both of them a sentence the harness had written down somewhere else:
+
+- **an empty file passed the test for a file.** `mutool draw` creates its `-o` file *before* it
+  decides it cannot draw the page, so a document whose page tree it cannot recover leaves a
+  zero-byte PNG behind. `output_path.exists()` accepted it, the PNG decoder then failed, and the
+  gate printed `PNG error … unexpected end of file` — the harness's sentence, over a log holding
+  the renderer's. Worse, `HarnessError::Png` is the one failure `cache` refuses to remember, and
+  rightly, so those pages re-ran `mutool` on every run for ever inside a cache at a 99.8% hit rate.
+- **`gs` speaks its diagnosis on stdout, and the harness sent stdout to `/dev/null`.** On a file
+  with no §7.5.2 header it prints `Error: /undefined in obj` and its operand stack to stdout and
+  only `Unrecoverable error, exit code 1` to stderr. `Reference::version` has carried the comment
+  "`gs` prints to stdout; `pdftoppm` and `mutool` print to stderr" since it was written; nothing
+  had joined it to the renderer log.
+
+Both fixed, and the general rule is the one worth keeping: **a renderer's refusal is a message, and
+a message is only as good as the stream it was read from and the file it was judged by.** The tell
+is a failure sentence that names the harness's own machinery — a decoder, a path, a buffer — where
+the renderer had a sentence of its own. ADR 0574.
+
+**And the last non-empty line is the *consequence*, not the reason.** All three of these narrate,
+so their logs end with `cannot draw '<path>'`, `Unrecoverable error, exit code 1` and the signal
+that killed them, under first lines that name the clause the file broke. Take both ends.
+
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
@@ -229,6 +254,21 @@ the ninth is not a mechanism either: it is a reading that was never taken.
   measurement that they did — `ls` the reference cache for the page's panels and re-render with the
   gate's own arguments, which costs a minute. Here all three panels were byte-unchanged since
   2026-07-29 and today's binaries reproduced them. ADR 0542.
+
+  **And the six pages it printed have been read, which answers a question the count cannot** (ADR
+  0575). *Is a consensus of two the same evidence as a consensus of three?* Same kind, one factor
+  less: ADR 0005's inference is about a **pair**, so a third multiplies the improbability rather
+  than creating it, and no rule was changed — none of the six is contradicted. What the six are
+  actually about is ADR 0541's precondition rather than the count: **five of the six lost their
+  third reading because the *document* is outside what ISO 32000-2 describes** — a §7.5.4
+  subsection header with an object number of 2³², a file with no §7.5.2 header, a JP2 with no
+  signature box, two page trees no repair recovers — so part of what the surviving pair agrees
+  about is how to *repair*, which no clause states. The sixth is a reference being **wrong**:
+  `pr6531_2.pdf`'s empty password authenticates against its `/O` under §7.6.4.4.11's Algorithm 12,
+  which `poppler`, `gs` and this tree act on and `mupdf` 1.28 does not. **So the question to ask of
+  a page judged on two is not "how many voted" but "why could the third not read it", and that one
+  has a per-page answer.** `JUDGED_WITHOUT_A_THIRD_READING` carries all six, and the gate now names
+  any page in the population that is on no list.
 
 - **And a note's figures and the gate's figures are usually in different units, which is a
   conversion rather than a difficulty.** `raster_compare` divides by **width × height × four

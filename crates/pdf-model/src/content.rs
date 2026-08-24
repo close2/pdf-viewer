@@ -491,6 +491,7 @@ impl<'a> Interpreter<'a> {
             document,
             list: DisplayList::new(size),
             unsupported: BTreeMap::new(),
+            notes_raised: 0,
             text_operations: 0,
             segments_without_a_current_point: 0,
             glyph_coverage: BTreeMap::new(),
@@ -908,6 +909,15 @@ struct Interpreter<'a> {
     /// Keyed so that a page drawing the same unsupported image a thousand times reports it
     /// once rather than flooding the diagnostics.
     unsupported: BTreeMap<Unsupported, Unsupported>,
+    /// How many times [`Interpreter::note`] has been called, **before** the map deduplicates.
+    ///
+    /// Not a count of reports and never printed as one: [`Self::unsupported`] is keyed so that a
+    /// page refusing the same image a thousand times reports it once, and a *position* in that
+    /// stream is what [`marked::OpenSequence`] needs — a page whose second refusal of `/Im0`
+    /// falls inside a different structure element than its first must attribute one to each, and
+    /// the map's length would have moved only for the first. Monotonic, so a sequence's opening
+    /// value and the value at its `EMC` bracket exactly what it enclosed.
+    notes_raised: usize,
     text_operations: usize,
     /// Segment operators refused for having no current point; see
     /// [`Unsupported::UndefinedCurrentPoint`]. Counted rather than noted per occurrence for the
@@ -1076,7 +1086,7 @@ struct Interpreter<'a> {
     /// marked-content sequence for a structure content item nested within it" — and a file that
     /// does it anyway must not have the inner sequence's marks silently become the outer one's
     /// only extent. A stack costs one allocation on a tagged page and answers both.
-    marking: Vec<Option<Rect>>,
+    marking: Vec<marked::OpenSequence>,
     /// What each clip region of [`Self::list`] admits, indexed by its [`pdf_render::ClipId`].
     ///
     /// [`Interpreter::clip_extent`]'s memo, and empty for every page that never opens a

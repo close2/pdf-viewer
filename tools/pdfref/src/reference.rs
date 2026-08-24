@@ -331,11 +331,33 @@ impl Reference {
         let _ = std::fs::remove_file(&output_path);
         let mut command = self.build_command(pdf, page, dpi, work_dir, &output_path);
 
+        // **Both streams, into one log.** `stdout` went to `null` until the
+        // seven-hundred-and-seventh session, which threw away the only sentence Ghostscript
+        // writes about *why* it stopped: on a file with no §7.5.2 header it prints `Error:
+        // /undefined in obj` and its operand stack to **stdout** and only `Unrecoverable error,
+        // exit code 1` to stderr, so the gate's line named the consequence and discarded the
+        // cause. `Reference::version` has known which stream `gs` speaks on since it was written;
+        // nothing had joined that to this. No renderer here writes its image to stdout — all
+        // three are given an output path — and a healthy `gs` run writes zero bytes there,
+        // measured, so this costs nothing on the pages that work. ADR 0574.
+        //
+        // One file description shared by `try_clone`, rather than two opens: two handles at
+        // offset zero would overwrite each other's lines, and a shared offset is what keeps the
+        // renderer's own interleaving.
         let log_path = work_dir.join(format!("{}.log", self.name()));
         if let Ok(log) = std::fs::File::create(&log_path) {
-            command
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::from(log));
+            match log.try_clone() {
+                Ok(second) => {
+                    command
+                        .stdout(std::process::Stdio::from(log))
+                        .stderr(std::process::Stdio::from(second));
+                }
+                Err(_) => {
+                    command
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::from(log));
+                }
+            }
         }
 
         let status = self.wait_within(&mut command, budget)?;
@@ -344,18 +366,49 @@ impl Reference {
         // zero, so success is judged by whether an image appeared, not by exit status
         // alone. The status is still reported when it is non-zero, because that is the
         // more informative failure.
-        if !output_path.exists() {
+        //
+        // **An empty file is not an image**, and until the seven-hundred-and-seventh session
+        // this condition was `exists()` alone. `mutool draw` creates its `-o` file before it
+        // decides it cannot draw the page, so a document whose page tree it cannot recover
+        // left a *zero-byte* PNG behind — which passed this test, reached the decoder, and
+        // came back as `HarnessError::Png` saying "unexpected end of file". Two things
+        // followed, and both are trap 3's shape one step further in: the gate printed the
+        // *harness's* diagnosis where the renderer's own was sitting in the log beside it
+        // ("argument error: invalid page number: -1", after `format error: malformed page
+        // tree`), and `cache::write_entry` declines to remember a `Png` error — correctly,
+        // since a PNG this harness cannot read is not a property of the document — so those
+        // pages re-ran `mutool` on every run for ever. A renderer that produced no bytes has
+        // produced no output, which is what this now says. ADR 0574.
+        let empty = std::fs::metadata(&output_path).is_ok_and(|file| file.len() == 0);
+        if !output_path.exists() || empty {
             return Err(HarnessError::RendererFailed {
                 reference: self,
                 detail: format!(
                     "produced no output (status {:?}): {}",
                     status.code(),
-                    last_line(&log_path)
+                    diagnosis(&log_path)
                 ),
             });
         }
 
-        png_io::read(&output_path)
+        // And where there *are* bytes and they are not a PNG this harness can read, the
+        // renderer's own last line goes in beside the decoder's: the two answer different
+        // questions — what the file is, and why the renderer says it wrote one — and a
+        // reader of the gate's line needs the second to act on the first. The **variant is
+        // deliberately unchanged**: `cache::write_entry` remembers a `RendererFailed` and
+        // not a `Png`, and a half-written image is the one failure here that can be the
+        // machine's rather than the document's, so it must stay unremembered.
+        png_io::read(&output_path).map_err(|error| match error {
+            HarnessError::Png { path, message } => HarnessError::Png {
+                path,
+                message: format!(
+                    "{message} ({} says: {})",
+                    self.program(),
+                    diagnosis(&log_path)
+                ),
+            },
+            other => other,
+        })
     }
 
     /// Runs a command, killing it if it outlives `budget`.
@@ -575,22 +628,33 @@ impl Reference {
     }
 }
 
-/// The last non-empty line of a renderer's log, for an error message that says why.
+/// What a renderer's log says about why it stopped: its first and last non-empty lines.
 ///
-/// The last rather than the first: these renderers narrate their progress and warn about
-/// recoverable damage, so what finally stopped them is at the end.
-fn last_line(log: &Path) -> String {
-    std::fs::read_to_string(log).map_or_else(
-        |_| "no diagnostics".to_owned(),
-        |text| {
-            text.lines()
-                .rev()
-                .map(str::trim)
-                .find(|line| !line.is_empty())
-                .unwrap_or("no diagnostics")
-                .to_owned()
-        },
-    )
+/// **This was the last line alone**, on the reasoning that "these renderers narrate their
+/// progress and warn about recoverable damage, so what finally stopped them is at the end" —
+/// which is true of the *stopping* and false of the *reason*, and all three of them prove it on
+/// the corpus. `mutool` ends with `cannot draw '<path>'` under a first line of
+/// `format error: non-page object in page tree`; `gs` ends with `Unrecoverable error, exit code
+/// 1` under `Error: /undefined in obj`. Each pair is one sentence naming the clause the file
+/// broke and one naming nothing, and the gate was printing the second.
+///
+/// So both, joined, and only where they differ — a one-line log is one line. It stays two rather
+/// than the whole file because a log is unbounded and this string goes on a gate's own line and
+/// into `cache`'s remembered failure; the two ends are where a refusal's cause and its
+/// consequence sit, and the file is on disk beside the render for anyone who wants the middle.
+/// ADR 0574.
+fn diagnosis(log: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(log) else {
+        return "no diagnostics".to_owned();
+    };
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let Some(first) = lines.next() else {
+        return "no diagnostics".to_owned();
+    };
+    match lines.next_back() {
+        Some(last) if last != first => format!("{first} … {last}"),
+        _ => first.to_owned(),
+    }
 }
 
 impl std::fmt::Display for Reference {

@@ -231,6 +231,35 @@ pub struct AccessibilityNode {
     /// an untagged page, where there are no elements: a page that says nothing about its own
     /// structure keeps saying so, and no rectangle is invented for it.
     pub drawn: Option<[f32; 4]>,
+    /// Whether this program **refused** any of the content this element encloses.
+    ///
+    /// # What it is for
+    ///
+    /// The three place fields above answer *where* an element is, and each of them can be empty.
+    /// This says whether one of the reasons they are empty is that the drawing did not happen:
+    /// §14.8.3.3 derives [`Self::drawn`] "from the shape of the enclosed content", so an element
+    /// whose image, shading or font this program declined arrives with no content rectangle, and
+    /// looks exactly like an element whose producer opened a sequence around nothing.
+    ///
+    /// **A host cannot work this out**, which is `doc/ui-boundary.md`'s test for a field. It has
+    /// [`crate::Query::Reports`], which says what a *page* could not draw, and it has this tree,
+    /// which says what each element is; nothing on the far side joins the two, because the join
+    /// runs through §14.7.5.2's marked-content identifiers and those do not cross. What a host can
+    /// do with it is the thing a person needs — say that an element it cannot point at is one
+    /// whose picture is missing, rather than presenting an unplaceable element with no
+    /// explanation.
+    ///
+    /// # What it does not claim
+    ///
+    /// That the refusal is *why* this element has no place. It says a refusal happened inside the
+    /// element's content, and an element that also drew text carries both a rectangle and this
+    /// flag. The two together are the statement worth making, and they are two fields rather than
+    /// one for the reason [`Self::bounds`] and [`Self::drawn`] are: a consumer that merged them
+    /// could no longer tell which it had.
+    ///
+    /// `false` for every element of an untagged page, where there are no elements, and for the
+    /// great majority of tagged ones. ADR 0573.
+    pub enclosed_a_refusal: bool,
     /// Which of §12.7.5's controls the widget annotation behind this element is, where it names
     /// one.
     ///
@@ -908,7 +937,20 @@ pub(crate) fn finish(
         headers: gathered.headers,
         lines: caret,
         drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
+        enclosed_a_refusal: enclosed_a_refusal(page.marked, &gathered.mcids),
     }
+}
+
+/// Whether any of an element's sequences enclosed content this program refused to draw.
+///
+/// The element's own identifiers **and its descendants'**, which is [`Gathered::mcids`] and is
+/// the same enclosure [`marked_extent`] takes: an element's content is everything it encloses,
+/// so a refusal below it is a refusal inside it.
+fn enclosed_a_refusal(marked: &[MarkedSpan], mcids: &[Sequence]) -> bool {
+    mcids
+        .iter()
+        .flat_map(|sequence| sequence.of(marked))
+        .any(|span| span.enclosed_a_refusal)
 }
 
 /// §14.8.3.3's content rectangle for one element: the union of what its sequences drew.

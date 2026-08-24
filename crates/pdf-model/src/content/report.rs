@@ -815,6 +815,29 @@ pub struct MarkedSpan {
     ///
     /// The same space [`Placed::quad`] is in, so a consumer that maps one maps the other.
     pub drawn: Option<[f32; 4]>,
+    /// Whether any content this sequence enclosed produced an [`Unsupported`] report.
+    ///
+    /// **[`Self::drawn`]'s `None` has three causes and this separates one of them out.** A
+    /// sequence with no rectangle drew nothing, and it can have drawn nothing because the
+    /// producer opened it around no operator, because a clip excluded every command it held, or
+    /// because this program *declined* to draw what it held. §14.8.3.3 derives a structure
+    /// element's content rectangle "from the shape of the enclosed content", so only the first
+    /// two are the page saying something; the third is this program's own shortfall arriving as
+    /// an absence, and it reads exactly like the other two.
+    ///
+    /// The measured instance is the one that made this field: with `pdf-sandbox-worker` absent,
+    /// `issue5481.pdf`'s `JPXDecode` image is refused, and nine of its structure elements lose
+    /// the only place they had. The census counted the loss and could name no cause; four rounds
+    /// then diagnosed the moved count as a build directory, as staleness and as feature
+    /// unification (ADR 0557, `doc/traps/instruments-and-reports.md` trap 16).
+    ///
+    /// **Enclosure is what it claims and nothing more.** It says a refusal happened between this
+    /// sequence's `BDC` and its `EMC` — including inside a sequence nested within it, which is
+    /// the same enclosure [`Self::drawn`] takes — and it does **not** say the refusal is why this
+    /// sequence drew nothing. A page that refuses an image and also draws text inside the same
+    /// sequence has a rectangle and this flag both; that is a true statement about the sequence
+    /// and a consumer that wants the narrower one asks for [`Self::drawn`] as well. ADR 0573.
+    pub enclosed_a_refusal: bool,
 }
 
 impl Interpretation {

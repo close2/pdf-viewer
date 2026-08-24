@@ -34,6 +34,7 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         headers: Vec::new(),
         lines: Vec::new(),
         drawn: None,
+        enclosed_a_refusal: false,
     }
 }
 
