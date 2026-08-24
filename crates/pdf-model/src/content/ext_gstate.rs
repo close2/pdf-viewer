@@ -223,12 +223,13 @@ pub(super) struct TransferState {
 }
 
 impl TransferState {
-    /// The function in force, for a caller that applies it now.
-    pub(super) fn in_force(&self) -> Option<&Transfer> {
-        self.effective.as_deref()
-    }
-
-    /// The same, for a caller that keeps it — a pattern's [`super::pattern::MarkColouring`].
+    /// What the file has stated, for the one caller entitled to ask.
+    ///
+    /// **That caller is [`super::Interpreter::transfer_for_mark`] and no other**, because what a
+    /// mark is painted with is §11.7.5.2's choice between this and the page's default rather than
+    /// this on its own. There used to be a second accessor here — `in_force`, handing out a
+    /// `&Transfer` for a caller that applied it immediately — and every one of its callers was a
+    /// place making that choice by omission.
     pub(super) fn shared(&self) -> Option<&Arc<Transfer>> {
         self.effective.as_ref()
     }

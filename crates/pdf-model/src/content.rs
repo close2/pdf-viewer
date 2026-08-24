@@ -195,6 +195,10 @@ struct GraphicsState {
     /// restore between them. Saved and restored by `q`/`Q` like every other parameter here, and
     /// inherited by a form `XObject` and by a tiling pattern's replay, which is what §8.4's
     /// "graphics state" means.
+    ///
+    /// **This is what the file states, not what a mark is painted with.** §11.7.5.2 chooses
+    /// between it and the page's default per point, and [`Interpreter::transfer_for_mark`] is the
+    /// single place that asks — every other reader of this field takes the answer from there.
     transfer: TransferState,
     /// Table 57's `/SM`, §10.7.3's smoothness tolerance, if the file states one.
     ///
@@ -332,14 +336,20 @@ impl GraphicsState {
     /// back here for the colours a graphics state can answer on its own. A tiling pattern is not
     /// a paint at all: it is drawn by replaying its content stream, so it leaves the colour
     /// alone.
-    fn solid_fill(&self) -> Paint {
+    /// `transfer` is §11.7.5.2's answer for the mark being painted rather than this state's own
+    /// parameter, which is why it arrives as an argument: see [`Interpreter::transfer_for_mark`],
+    /// the one place that decides which of the two a mark gets.
+    fn solid_fill(&self, transfer: Option<&Transfer>) -> Paint {
         // §10.5's transfer function, applied here because here is where a colour becomes the
         // value a device receives: the clause puts it "after performing any needed conversions
         // between colour spaces", and by this point `fill` is already RGB.
-        Paint::Solid(self.transferred(Color {
-            a: self.fill.a * self.fill_alpha,
-            ..self.fill
-        }))
+        Paint::Solid(transferred(
+            Color {
+                a: self.fill.a * self.fill_alpha,
+                ..self.fill
+            },
+            transfer,
+        ))
     }
 
     /// Whether a non-stroking mark under this state puts anything on the page.
@@ -350,13 +360,17 @@ impl GraphicsState {
     /// pattern there is. A shading marks where its own colours say — where it does not is the
     /// rasteriser's question, not a report's — and a tiling pattern is a cell replayed across
     /// the area, which marks whatever the cell marks.
+    /// `None` for the transfer function: §10.5 gives "[e]ach colour component … its own separate
+    /// transfer function" and touches no alpha, and [`path::marks`] asks about alpha alone — so
+    /// the answer is the same whichever function §11.7.5.2 turns out to choose for the mark, and
+    /// resolving that here would ask the question twice.
     fn fill_marks(&self) -> bool {
-        self.fill_pattern.is_some() || path::marks(&self.solid_fill())
+        self.fill_pattern.is_some() || path::marks(&self.solid_fill(None))
     }
 
     /// As [`GraphicsState::fill_marks`], for a stroking mark.
     fn stroke_marks(&self) -> bool {
-        self.stroke_pattern.is_some() || path::marks(&self.solid_stroke())
+        self.stroke_pattern.is_some() || path::marks(&self.solid_stroke(None))
     }
 
     /// Whether painting under this state composites with what is already on the page.
@@ -372,19 +386,20 @@ impl GraphicsState {
     }
 
     /// Returns the stroke colour with the constant alpha applied, as [`GraphicsState::solid_fill`].
-    fn solid_stroke(&self) -> Paint {
-        Paint::Solid(self.transferred(Color {
-            a: self.stroke_colour.a * self.stroke_alpha,
-            ..self.stroke_colour
-        }))
+    fn solid_stroke(&self, transfer: Option<&Transfer>) -> Paint {
+        Paint::Solid(transferred(
+            Color {
+                a: self.stroke_colour.a * self.stroke_alpha,
+                ..self.stroke_colour
+            },
+            transfer,
+        ))
     }
+}
 
-    /// One colour through §10.5's transfer function, or unchanged where none is in effect.
-    fn transferred(&self, colour: Color) -> Color {
-        self.transfer
-            .in_force()
-            .map_or(colour, |transfer| transfer.apply(colour))
-    }
+/// One colour through §10.5's transfer function, or unchanged where the mark is handed none.
+fn transferred(colour: Color, transfer: Option<&Transfer>) -> Color {
+    transfer.map_or(colour, |transfer| transfer.apply(colour))
 }
 
 /// Interprets a page's content into a display list.
@@ -548,7 +563,7 @@ impl<'a> Interpreter<'a> {
             // Nothing encloses the page's own content stream, so §11.7.5.2's fifth and sixth
             // conditions hold vacuously until a `Do` or a pattern fill narrows them.
             opaque_ancestry: true,
-            transfer_painted: false,
+            transfer_painted_opaquely: false,
             nested_space_departed: false,
             presses,
             blending_beyond: beyond,
@@ -1257,15 +1272,19 @@ struct Interpreter<'a> {
     /// [`Self::inside_knockout`]'s reason, since what it guards is a property every enclosing
     /// scope shares. Saved and restored by whoever narrows it.
     opaque_ancestry: bool,
-    /// Whether any mark made on this page so far carried §10.5's transfer function.
+    /// Whether a **fully opaque** mark on this page has carried §10.5's transfer function.
     ///
     /// §11.7.5.2 is a statement about a *point*, and the colour at a point has as many
     /// contributors as there are objects covering it — so the question "was a transfer function
     /// applied to something composited here" outlives the object that applied it. Monotone over
-    /// the page for that reason, and scoped away inside a soft mask's group, whose marks are
-    /// never painted at a point on the page at all (§11.5.3, ADR 0276's argument one clause
-    /// over). See [`Interpreter::note_transfer`].
-    transfer_painted: bool,
+    /// the page for that reason.
+    ///
+    /// **Fully opaque is the whole of the condition since the seven-hundred-and-sixth session**,
+    /// and it narrowed because the code under it did: a mark the clause does not call fully opaque
+    /// is now handed the page's default function, so its colour is one no transfer has touched and
+    /// it can no longer put a wrong colour under anything. See
+    /// [`Interpreter::transfer_for_mark`].
+    transfer_painted_opaquely: bool,
     /// Whether a group changed the blending space in force, with something compositing in
     /// it, while colours were being resolved for a space that is not the device's.
     ///

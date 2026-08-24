@@ -60,11 +60,11 @@ impl Interpreter<'_> {
             {
                 self.tile(&shared, state.transform, rule, &tiling, state);
             } else if let Some(rule) = fill {
-                self.note_transfer(state, Painted::of(state, false));
+                let transfer = self.transfer_for_mark(state, Painted::of(state, false));
                 // A shading pattern's colours are built here rather than read (§11.6.7), so this
                 // is asked once and the answer is used by the command and by §11.6.2's question
                 // below.
-                let paint = self.fill_paint(state);
+                let paint = self.fill_paint(state, transfer);
                 self.draw(Command::Fill {
                     path: Arc::clone(&shared),
                     transform: state.transform,
@@ -86,8 +86,8 @@ impl Interpreter<'_> {
                 });
             }
             if stroke.is_some() {
-                self.note_transfer(state, Painted::of(state, true));
-                let paint = self.stroke_paint(state);
+                let transfer = self.transfer_for_mark(state, Painted::of(state, true));
+                let paint = self.stroke_paint(state, transfer);
                 self.draw(Command::Stroke {
                     path: Arc::clone(&shared),
                     transform: state.transform,

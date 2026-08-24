@@ -550,6 +550,17 @@ its alpha are one number wherever its opacity is 1.0 throughout, which is decida
 stream runs, so the shape channel it priced was the cost of the *other* case only. A price that names
 no condition is a price for the hardest case, charged to every case.
 
+**ADR 0570 is the third shape again with a tell worth having.** §11.7.5.2's per-region transfer
+function was priced as a per-pixel channel and a pass in all three backends, and half of it needed no
+pixel: the clause offers exactly two candidates at any point, the topmost object's function and the
+page's default, so *may this object's function ever be chosen* is answerable from the object alone
+and only *what is the composite here* needs a point. **The tell is that the clause's own sentence
+separates the two and the price did not** — its subject is "the last (topmost) elementary graphics
+object enclosing that point", and the qualifier that makes half of it cheap, "but only if the object
+is fully opaque", attaches to the object rather than to the point. So when re-deriving a price, read
+the clause for the question it is *two* of, and check that the price has as many numbers as the
+clause has subjects.
+
 **And a *negative* claim decays when the population grows**, which is not the same decay as any of the
 others, because nothing in the tree changes. The six-hundred-and-fifty-fifth found the ledger saying
 "no corpus document writes one" of a shading pattern's `/ExtGState`: true when written, and measured
