@@ -41,11 +41,29 @@ impl App {
     /// it (ADR 0425).
     pub(crate) fn click_page(&mut self, at: (f32, f32), element: ElementState) {
         if element == ElementState::Pressed {
+            // **§12.7.5.4's open list claims the press first**, which is the same ordering the
+            // key handler applies to a modal card: a control drawn over the page is between the
+            // pointer and the page, so a press on it is not a press on what is underneath.
+            if self.press_on_choices(at) {
+                return;
+            }
             self.aim_at_field(at);
+            // And the other half of §12.7.5.4, which this host had no way to do at all until the
+            // seven-hundred-and-seventeenth session: a press on a choice field lists its options,
+            // because picking one is what the clause's two controls are *for* and typing a value
+            // is what Table 233 bit 19 permits for one of them.
+            if self.open_choices(at) {
+                return;
+            }
             // And §12.7.5.2's other kind of press, which takes no keyboard: a click on a check
             // box or a radio button is what *gives* it a value. Nothing happens where the press
             // was not on one.
             self.toggle_button(at);
+        } else if !self.dragging {
+            // The press this release pairs with went to §12.7.5.4's list, which is *over* the
+            // page, so the core never saw one. Sending the release alone would be a §12.6.3
+            // mouse-up with no mouse-down under it, ending a selection drag nobody started.
+            return;
         }
         self.dragging = element == ElementState::Pressed;
         self.dispatch(Command::Pointer {
@@ -367,6 +385,16 @@ impl App {
         // `typed` was ever asked. `keys_reach_the_field` presses one of them at a field rather
         // than trusting the order.
         if self.typing.is_some() && self.typed(key) {
+            return;
+        }
+        // **An open list takes the key that dismisses it and nothing else.** It is a control over
+        // the page rather than a modal card, so a person who has opened one has not stopped
+        // reading the document — but Escape has to reach it before the table turns Escape into
+        // "clear the selection", or the only way to close a list would be to press somewhere else.
+        if self.choosing.is_some()
+            && matches!(key, Key::Named(NamedKey::Escape))
+            && self.close_choices()
+        {
             return;
         }
         // **§7.6.4.1's card takes every key while it is up**, and it takes them before the find

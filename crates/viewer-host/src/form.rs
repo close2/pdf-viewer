@@ -56,8 +56,18 @@ pub enum ControlKind {
         /// Which one is selected, where the value names one.
         selected: Option<usize>,
         /// Bit 19: "the combo box shall include an editable text box as well as a drop-down
-        /// list". A `GtkDropDown` is not editable and a `QComboBox` is, which is the one place
-        /// the two hosts differ in what they can obey rather than in how they spell it.
+        /// list; if clear, it shall include only a drop-down list".
+        ///
+        /// **Both halves are `shall`**, which is why this is not a flag a host may report and
+        /// leave: a clear bit forbids the text box as plainly as a set one requires it.
+        /// [`ControlKind::takes_typed_characters`] is where that sentence is stated once for
+        /// every host.
+        ///
+        /// (This comment said a `GtkDropDown` is not editable and a `QComboBox` is, "the one
+        /// place the two hosts differ in what they can obey". The first clause is still true of
+        /// the *widget* and the conclusion was never true of the toolkit: `viewer-gtk` composes
+        /// an entry and a drop-down list since the seven-hundred-and-seventeenth session, and
+        /// nothing about the feature floor moved to allow it.)
         editable: bool,
     },
     /// §12.7.5.4's list box — a `GtkListView` or a `QListWidget` over its items.
@@ -86,6 +96,47 @@ pub enum ControlKind {
     /// out would show a form with a hole in it, and choosing one of the four would be inventing
     /// what the file did not say.
     Unstated,
+}
+
+impl ControlKind {
+    /// Whether a keyboard may put characters into this control at all.
+    ///
+    /// **Here because it is a clause and not a toolkit's manners.** A host that places somebody
+    /// else's widgets answers this by *choosing the widget* — a `GtkEntry` takes characters and a
+    /// `GtkDropDown` has nowhere to put one — so `viewer-gtk` and `viewer-qt` obey by
+    /// construction. A tier-2 host draws the page's own appearance and has no widget to be
+    /// constrained by, so it has to ask; and asking a shared function is what stops the third host
+    /// answering differently from the other two.
+    ///
+    /// ISO 32000-2 §12.7.5.4's Table 233 bit 19 decides it for a combo box, and it is a `shall` in
+    /// both directions: if the bit is set the box "shall include an editable text box as well as a
+    /// drop-down list", and if it is clear it shall include only a drop-down list.
+    ///
+    /// §12.7.5.4 says the same thing as a permission and names what the text box is *for*: "[t]he
+    /// combo box may be accompanied by an editable text box in which the user can type a value
+    /// other than the predefined choices, as directed by the value of the Edit bit in the Ff
+    /// entry". So a value outside Table 234's `/Opt` is exactly what a set bit admits and a clear
+    /// bit excludes.
+    ///
+    /// §12.7.5.4's list box takes none either, and for a reason the clause states rather than by
+    /// analogy: its value "identifies the item or items currently selected", "as given in the
+    /// field dictionary's Opt array".
+    ///
+    /// §12.7.5.2's buttons select an appearance state and §12.7.5.5's signature holds a
+    /// dictionary; neither is text a person types.
+    #[must_use]
+    pub fn takes_typed_characters(&self) -> bool {
+        match self {
+            Self::Entry { .. } => true,
+            Self::Combo { editable, .. } => *editable,
+            Self::Check { .. }
+            | Self::Radio { .. }
+            | Self::Push
+            | Self::List { .. }
+            | Self::Signature
+            | Self::Unstated => false,
+        }
+    }
 }
 
 /// The control a field is, from what `viewer_core::Query::Fields` said about it.

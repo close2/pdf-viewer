@@ -28,3 +28,32 @@ the test document the mirror of a link is another link. ADR 0118.
 Two rules out of it: **flip about the *page's* height, not the raster's** — the raster is rounded
 up to contain the page and the spare fraction of a row is at the bottom — and **when a test needs
 a point, take it from the document rather than from the code under test**.
+
+### 17. A toolkit's widget list is a catalogue, not a statement of what it can do
+
+`doc/todo/30` carried *"Table 233 bit 19's editable combo box in `viewer-gtk` — the one item here
+that is a genuine toolkit floor"* for thirty-nine sessions, and ADR 0509 ranked it last on the
+strength of it. Every sentence in the block was true: `GtkDropDown` has no entry, `GtkComboBox` and
+`GtkComboBoxText` are deprecated in GTK 4.10, and this workspace binds `v4_10` with warnings as
+errors. There is no GTK 4 *widget* that is an editable combo box.
+
+The clause did not ask for a widget. Table 233 bit 19 asks for "an editable text box as well as a
+drop-down list" — two things, named separately — and a `GtkEntry` beside a `GtkMenuButton` over a
+`GtkListBox` in one `linked` box is both of them, with nothing deprecated and the feature floor
+untouched (ADR 0596).
+
+**A block written from a widget list is a claim about a catalogue.** Before writing that a host
+cannot obey a clause, say what the clause asks for in the clause's own nouns and then ask whether
+the toolkit will compose them — which is ADR 0508's rule (*call the API before writing that
+something is blocked on it*) one step further out: the API to call may not be the one the block
+names.
+
+It has now cost this project twice on the same clause. ADR 0508 was Table 234's `/TI` in the same
+host, where the block named `GtkListView::scroll_to`, the floor was raised, the method turned out
+not to answer the question, and the answer was the scrolled window's own adjustment. **Both times
+the capability was one composition away and the block named a symbol.**
+
+The mirror of this trap is worth having beside it: **a flag reads as a permission and half of them
+are prohibitions**. Bit 19's second clause — if clear, the combo box "shall include only a
+drop-down list" — was broken in silence by the host that had no trouble with the first, for the
+whole of that host's life. Read the sentence after the semicolon.

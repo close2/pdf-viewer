@@ -17,7 +17,7 @@ use crate::presentation::Presentation;
 use crate::surface::State;
 use crate::timing::{FrameLog, Launch};
 use crate::trace::Trace;
-use crate::typing::{Drawing, Typing};
+use crate::typing::{Choosing, Drawing, Typing};
 
 #[expect(
     clippy::struct_excessive_bools,
@@ -282,6 +282,14 @@ pub(crate) struct App {
     ///
     /// `None` is a host that is not typing, which is every host until somebody clicks a field.
     pub(crate) typing: Option<Typing>,
+    /// §12.7.5.4's choice field whose options are on the screen, if one is.
+    ///
+    /// **The tier-2 counterpart of a `GtkDropDown` and a `QComboBox`**, and it is state rather
+    /// than a widget for the reason [`Choosing`] gives: what is kept is which field was pressed,
+    /// and where its options go on the screen is derived from `Query::Fields` for every frame. A
+    /// host that draws its own chrome has to hold this; a host that places somebody else's
+    /// widgets has the toolkit hold it. ADR 0596.
+    pub(crate) choosing: Option<Choosing>,
     /// What Ctrl + C and Ctrl + X took out of a field — or `c` took off the page — for Ctrl + V
     /// to put back.
     ///

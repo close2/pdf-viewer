@@ -285,6 +285,76 @@ fn table_233_bit_18_decides_a_drop_down_against_a_list() {
     );
 }
 
+/// Table 233 bit 19 decides whether a keyboard may put characters into a control at all.
+///
+/// ISO 32000-2 §12.7.5.4: if the bit is set the combo box "shall include an editable text box as
+/// well as a drop-down list", and if it is clear it shall include only a drop-down list.
+///
+/// **Every variant is asked, and the arm that answers is exhaustive over the enumeration**, so a
+/// ninth control kind fails to compile in `ControlKind::takes_typed_characters` rather than
+/// silently taking the default of whichever arm it happened to fall into. That is `Key::ALL`'s and
+/// `Tab::ALL`'s mechanism (ADRs 0526, 0564) applied to the third thing a host builds.
+///
+/// It is a *host* question because both halves of the flag are about what the reader is shown:
+/// the two native hosts obey it by choosing a widget, and the tier-2 host — which draws the page's
+/// own appearance and so has no widget to be constrained by — obeys it by asking this. Before ADR
+/// 0596 it asked nothing and a person could type a value into a drop-down that states only three.
+#[test]
+fn table_233_bit_19_decides_whether_a_control_takes_typed_characters() {
+    let options = vec![Choice {
+        export: None,
+        label: "One".to_owned(),
+    }];
+    let combo = |editable: bool| {
+        control_kind(&Control::Choice(ChoiceControl {
+            combo: true,
+            options: options.clone(),
+            editable,
+            ..ChoiceControl::default()
+        }))
+    };
+    assert!(
+        combo(true).takes_typed_characters(),
+        "bit 19 set: \"an editable text box as well as a drop-down list\""
+    );
+    assert!(
+        !combo(false).takes_typed_characters(),
+        "bit 19 clear: \"only a drop-down list\""
+    );
+    // §12.7.5.4's list box, whose value "identifies the item or items currently selected".
+    assert!(
+        !control_kind(&Control::Choice(ChoiceControl {
+            combo: false,
+            options,
+            ..ChoiceControl::default()
+        }))
+        .takes_typed_characters()
+    );
+    // §12.7.5.3, which is the one control that takes characters without a flag saying so.
+    assert!(
+        control_kind(&Control::Text(TextControl::default())).takes_typed_characters(),
+        "§12.7.5.3's text field is what §12.7.4.3 lays a typed value out for"
+    );
+    // §12.7.5.2's three buttons select an appearance state, and §12.7.5.5's signature holds a
+    // dictionary. None of the four is text a person types.
+    for control in [
+        Control::PushButton,
+        Control::CheckBox { on: false },
+        Control::RadioButton {
+            on: false,
+            no_toggle_to_off: false,
+            in_unison: false,
+        },
+        Control::Signature,
+        Control::Unstated,
+    ] {
+        assert!(
+            !control_kind(&control).takes_typed_characters(),
+            "{control:?} has no text to type into"
+        );
+    }
+}
+
 /// Table 234's `/TI` reaches the control a host builds, and it is not the selection.
 ///
 /// "(Optional; PDF 1.5) For scrollable list boxes, the top index (index in the Opt array) of the

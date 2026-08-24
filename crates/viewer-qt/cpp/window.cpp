@@ -1286,9 +1286,12 @@ void MainWindow::rebuildControls()
                 combo->addItem(text(option));
             }
             // Bit 19: "the combo box shall include an editable text box as well as a drop-down
-            // list". **Qt can obey this and GTK4 could not** — `GtkDropDown` is not editable, so
-            // `viewer-gtk` carries the flag and reports it. That is the one place the two hosts
-            // differ in what they can do rather than in how they spell it.
+            // list; if clear, it shall include only a drop-down list". One property here because
+            // Qt has one widget for both halves. (This comment said GTK4 could not obey it and
+            // that `viewer-gtk` carries the flag and reports it — true of the *widget* and never
+            // true of the toolkit: that host composes an entry with a drop-down list since the
+            // seven-hundred-and-seventeenth session. A claim about what another host cannot do
+            // decays exactly like any other.)
             combo->setEditable(control.editable);
             connect(combo, &QComboBox::currentTextChanged, this, [this, index, combo](const QString& chosen) {
                 if (busy_ || writing_) {

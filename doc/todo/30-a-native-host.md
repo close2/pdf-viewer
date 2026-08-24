@@ -569,10 +569,58 @@ half of that sentence.
    whole reason for stating an order. `z` and `y` are rows of `viewer_host::keys`, so the tier-2 host
    got them by adopting the table rather than by a round of its own; it gained `w` the same way, and
    lost Escape-quits.
-7. **Table 233 bit 19's editable combo box in `viewer-gtk`** — the one item here that is a genuine
-   toolkit floor: `GtkDropDown` is not editable and `GtkComboBoxText` is deprecated in the release
-   this crate binds. Written down so the next round does not rediscover it, **and with ADR 0508's
-   rule attached: call the API before writing that something is blocked on it.**
+7. ~~**Table 233 bit 19's editable combo box in `viewer-gtk`** — the one item here that is a genuine
+   toolkit floor.~~ **Taken in the seven-hundred-and-seventeenth** (ADR 0596), and **it was not a
+   floor**, which is ADR 0508's rule paying for the second time on this one clause. The block was
+   read off the *widget list* — `GtkDropDown` has no entry and `GtkComboBoxText` is deprecated in
+   the release this crate binds, both true — and Table 233 bit 19 does not ask for a widget. It
+   asks for "an editable text box as well as a drop-down list", which a `GtkEntry` beside a
+   `GtkMenuButton` over a `GtkListBox` is, in one `linked` box, with nothing deprecated and **the
+   `v4_10` feature floor untouched**. It needed no message, which is the twelfth time since the
+   six-hundred-and-seventh.
+
+   **The half of the flag nobody had read is worth more than the half this entry named**, and the
+   host it caught was the one that is *ahead*. The bit's second clause — if clear, the combo box
+   "shall include only a drop-down list" — is a `shall` in the other direction, and `viewer-ui`
+   broke it: `Answer::Field` answers a combo box with characters whether or not the flag is set,
+   correctly, because the value *is* text and §12.7.4.3 lays it out — and that host read *has a
+   text value* as *takes typed characters*. So a person could type *Purple* into a drop-down whose
+   options are Red and Blue and the file took it. This is Table 229 bit 26's shape one flag over
+   (ADR 0346): a bit reported as unimplemented in its set direction while its clear direction was
+   being broken in silence, because a flag reads as a permission and half of these are
+   prohibitions. `viewer_host::form::ControlKind::takes_typed_characters` is the one statement now,
+   exhaustive over the enumeration.
+
+   **And the tier-2 host could not choose an option at all, in either of §12.7.5.4's two
+   controls.** It sends no `Command::Delegate`, so no `GtkDropDown` was ever placed over its page,
+   and `Entered::Chosen` — the variant `Edit::SetField` grew in the four-hundred-and-twelfth
+   session so that a list box could say which options are selected (ADR 0248) — occurred nowhere in
+   `viewer-ui`. A list box drew its options and no press could select one; a combo box could only be
+   given a value by typing a label, which is the violation above. `viewer_ui::chrome::ChoiceList`
+   is the drop-down *drawn* rather than placed, with one layout answering both where the rows are
+   and which option a press landed on.
+
+   What it deliberately did not do: give that list a keyboard. Up, Down and Enter would be this
+   host's convention and no clause states one.
+
+**That is all seven, and the ordering is spent.** What a next UI round has to choose from is named
+here rather than left to be re-surveyed, and neither item is architecture:
+
+- **`AccessibilityNode::lines` does not cross the C ABI** — the per-character byte counts and boxes
+  AT-SPI's `Text` interface wants, so a C caller building a screen reader has the tree and the
+  extents and not the character offsets. Two accessors and no new decision; named by the
+  seven-hundred-and-ninth in item 5 above.
+- **`tools/state.sh windows` prints eleven queries each native host does not ask, and the list is
+  uninterpreted.** ADR 0577's own note says a zero there is not automatically a debt — no window
+  asks `Query::Dirty` because all three learn about an edit from `Event::Dirty`, a tier-2 host never
+  asks `Query::Frame` because it draws its own pixels, and most of the native hosts' eleven are a
+  *delegation*, because a real `GtkEntry` owns its own caret. Sorting that list into debts and
+  non-debts is what stops a parity claim decaying behind a number nobody reads.
+
+A third thing is worth writing down because this round nearly rediscovered it: **the criterion in
+ADR 0509 outlives its list.** What a reader can do and cannot do here, then what costs no new
+message, then what makes the level-hosts decision checkable — and a toolkit block is a claim to
+check rather than a rank.
 
 **Two places the API forces a host into an awkward shape**, neither an argument for changing the
 vocabulary today. The per-page answers are two shapes — `Reports`, `Readback`, `Accessibility` and
