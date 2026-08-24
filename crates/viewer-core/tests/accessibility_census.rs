@@ -51,6 +51,22 @@
 //! guards a *decision* rather than a capability: an untagged page answers with the honest empty
 //! tree and is never given an invented reading order (ADR 0214).
 //!
+//! # The census counts reports now, and it did not (ADR 0573)
+//!
+//! Until the seven-hundred-and-seventh session every count here was a count of *elements* and
+//! none was a count of what this program **refused**, so a refused image was loud in
+//! [`pdf_model::Unsupported`] and silent in this output. That is not a cosmetic gap: §14.8.3.3
+//! derives an element's rectangle from what its marked content drew, so a refused image drew
+//! nothing and the elements it held lost the only place they had — nine of `issue5481.pdf`'s,
+//! deterministically, whenever `pdf-sandbox-worker` was absent, while the census counted the loss
+//! and named no cause (ADR 0557, `doc/traps/instruments-and-reports.md` trap 16).
+//!
+//! So `placeless` is now printed beside two things: how many elements enclose content this
+//! program refused, and — per page, with the page's own report sentence — how many elements have
+//! **both** no place and a refusal inside them. `Census::placeless_and_refused` carries the
+//! argument for that condition, and trap 11 is why it is the element's enclosure rather than the
+//! page's report list.
+//!
 //! # The denominator
 //!
 //! Page one of every document in `doc/pdf.js/test/pdfs` and in `doc/`, and **every** page of every
@@ -160,6 +176,34 @@ struct Census {
     derived: usize,
     /// Elements with no place by any of the three routes, which is what a client cannot point at.
     placeless: usize,
+    /// Elements enclosing content this program refused to draw (`AccessibilityNode::
+    /// enclosed_a_refusal`).
+    ///
+    /// The denominator for the line below it, and printed for the same reason a report prints
+    /// what it matched: a share is not a count and the two answer different questions.
+    refused: usize,
+    /// Pages carrying an element that has **no place and encloses a refusal**, with how many.
+    ///
+    /// # The condition, and why it is this one
+    ///
+    /// §14.8.3.3 derives an element's content rectangle "from the shape of the enclosed content",
+    /// so an element whose enclosed content was refused has lost the one place it had — and the
+    /// census could not say so, which is what let nine of `issue5481.pdf`'s elements move a
+    /// ratchet while four rounds diagnosed the movement as a build directory, as staleness and as
+    /// Cargo feature unification (ADR 0557, trap 16). The point of the class is that a refused
+    /// image is loud in [`pdf_model::Unsupported`] and was silent here.
+    ///
+    /// **Trap 11 is why the condition is the element's and not the page's.** The reflex condition
+    /// is *placeless on a page that reported something*, and it fires on every placeless element
+    /// of a page whose report is about a font, a transparency group or an annotation somewhere
+    /// else entirely — a condition the clause does not state. What §14.8.3.3 states is
+    /// *enclosure*, so the refusal is attributed to the marked-content sequences the element
+    /// encloses, which is what `MarkedSpan::enclosed_a_refusal` carries.
+    ///
+    /// **And it claims enclosure rather than cause.** An element may enclose a refusal and be
+    /// placeless for an unrelated reason; what the class says is that this program refused part
+    /// of what the element holds, which is the fact nobody could read off the old output.
+    placeless_and_refused: Vec<(String, String)>,
     header_cells: usize,
     header_associations: usize,
     controls: usize,
@@ -216,6 +260,9 @@ impl Census {
         self.placed = self.placed.saturating_add(from.placed);
         self.derived = self.derived.saturating_add(from.derived);
         self.placeless = self.placeless.saturating_add(from.placeless);
+        self.refused = self.refused.saturating_add(from.refused);
+        self.placeless_and_refused
+            .extend(from.placeless_and_refused);
         self.header_cells = self.header_cells.saturating_add(from.header_cells);
         self.header_associations = self
             .header_associations
@@ -233,8 +280,14 @@ impl Census {
     }
 
     /// Adds what one page's answer carries.
-    fn carried(&mut self, nodes: &[AccessibilityNode], where_: &str) {
+    ///
+    /// `reports` is what the same page answered [`Query::Reports`] with, and it is here rather
+    /// than counted elsewhere because the witness this census owes names both halves: how many
+    /// elements lost their §14.8.3.3 place, and the page's own sentence saying what was refused.
+    /// A count with no sentence beside it is the silence this class was added to break.
+    fn carried(&mut self, nodes: &[AccessibilityNode], where_: &str, reports: &[String]) {
         self.nodes = self.nodes.saturating_add(nodes.len());
+        let mut placeless_and_refused = 0usize;
         for node in nodes {
             if node.substituted {
                 self.substituted = self.substituted.saturating_add(1);
@@ -245,11 +298,17 @@ impl Census {
             if node.drawn.is_some() {
                 self.derived = self.derived.saturating_add(1);
             }
+            if node.enclosed_a_refusal {
+                self.refused = self.refused.saturating_add(1);
+            }
             // The three routes `viewer_accessibility::tree::place` asks in order. A node that has
             // none of them implements no `Component` interface on AT-SPI at all, so this is the
             // count of what a magnifier cannot be pointed at.
             if node.bounds.is_none() && node.drawn.is_none() && node.quads.is_empty() {
                 self.placeless = self.placeless.saturating_add(1);
+                if node.enclosed_a_refusal {
+                    placeless_and_refused = placeless_and_refused.saturating_add(1);
+                }
             }
             if !node.headers.is_empty() {
                 self.header_cells = self.header_cells.saturating_add(1);
@@ -284,6 +343,24 @@ impl Census {
                     ));
                 }
             }
+        }
+        if placeless_and_refused > 0 {
+            self.placeless_and_refused.push((
+                where_.to_owned(),
+                format!(
+                    "{placeless_and_refused} element(s) with no place enclose content the page \
+                     could not draw: {}",
+                    if reports.is_empty() {
+                        // Reachable, and worth saying rather than asserting away: an element's
+                        // sequences may enclose a refusal raised while a *form XObject* of
+                        // another page's tree was running, and a page whose reports the boundary
+                        // has not been asked for answers none.
+                        "the page reports nothing, which is itself the thing to look at".to_owned()
+                    } else {
+                        reports.join("; ")
+                    }
+                ),
+            ));
         }
     }
 }
@@ -467,7 +544,19 @@ fn sweep(
             continue;
         };
         census.structured_pages = census.structured_pages.saturating_add(1);
-        census.carried(&nodes, &where_);
+        // The same page's own refusals, taken through the boundary the nodes came through and by
+        // the page's own number for the same reason: under Table 29's default there is one entry,
+        // and taking it by name is what keeps another page's sentence from being read as this
+        // one's.
+        let reports: Vec<String> = match viewer.query(Query::Reports) {
+            Answer::Reports(pages) => pages
+                .into_iter()
+                .filter(|page| page.page == index)
+                .flat_map(|page| page.notes.iter().cloned())
+                .collect(),
+            _ => Vec::new(),
+        };
+        census.carried(&nodes, &where_, &reports);
         if nodes.len() >= ANSWER_BOUND {
             census.at_bound.push((
                 where_.clone(),
@@ -592,6 +681,14 @@ fn report(census: &Census, files: usize, seconds: f64) {
     println!(
         "  with no place by any of the three routes: {}",
         census.placeless
+    );
+    println!(
+        "  enclosing content this program refused to draw: {}",
+        census.refused
+    );
+    print_witnesses(
+        "with no place, and enclosing content this program refused to draw",
+        &census.placeless_and_refused,
     );
     println!(
         "  cells with §14.8.4.8.3's headers resolved: {} ({} associations)",
@@ -822,6 +919,40 @@ fn the_census_reads_a_tagged_document_as_structured_and_answering() {
     assert!(
         census.with_lines > 0 && census.characters > 0,
         "a tagged page that draws text answers with somewhere for a caret to stand"
+    );
+}
+
+/// And a tagged document whose page encloses something this program refused, un-ignored.
+///
+/// The class the ignored census above prints per page, pinned on the one corpus document that
+/// exercises it **without** depending on `pdf-sandbox-worker`: `issue8702.pdf` names an
+/// `/XObject` its own resource dictionary does not define — §7.8.3 obliges it to — so
+/// `Unsupported::MissingResource` is raised inside two of the page's marked-content sequences,
+/// whatever else the build can decode.
+///
+/// Two assertions, and the second is the one trap 11 asks for. The count of elements enclosing a
+/// refusal is not zero, which is the whole chain — the interpreter's note counter, `MarkedSpan::
+/// enclosed_a_refusal`, `AccessibilityNode::enclosed_a_refusal`, this census — working end to
+/// end. And **no** element of this page is both placeless and enclosing a refusal, because both
+/// of these drew text as well: the class claims enclosure rather than cause, and a condition that
+/// fired on "the page reported something" would have named them here.
+#[test]
+fn the_census_names_an_element_that_encloses_something_the_page_refused() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue8702.pdf");
+    if !path.exists() {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    }
+    let census = examine(&path);
+    assert!(
+        census.refused > 0,
+        "§7.8.3's undefined /XObject is refused inside this page's sequences, and the tree says so"
+    );
+    assert!(
+        census.placeless_and_refused.is_empty(),
+        "these elements drew text of their own, so they have a place: {:?}",
+        census.placeless_and_refused
     );
 }
 

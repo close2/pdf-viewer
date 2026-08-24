@@ -23,7 +23,12 @@ use super::{
 };
 
 impl Interpreter<'_> {
+    /// Records one thing this page could not be drawn as.
+    ///
+    /// The counter beside the map is what attributes a refusal to the marked-content sequence
+    /// that enclosed it — see [`Interpreter::notes_raised`] for why it is not the map's length.
     pub(super) fn note(&mut self, item: Unsupported) {
+        self.notes_raised = self.notes_raised.saturating_add(1);
         self.unsupported.insert(item.clone(), item);
     }
 
@@ -997,15 +1002,18 @@ impl Interpreter<'_> {
                         // §14.7.5.2's identifier over the same range, for the same reason and
                         // after the same replacements: this is where a structure element's
                         // content actually is in the readback.
-                        let drawn = self.close_marking(section.mcid);
-                        if let Some(mcid) = section.mcid {
+                        let closed = self.close_marking(section.mcid);
+                        if let Some(mcid) = section.mcid
+                            && let Some(closed) = closed
+                        {
                             self.marked.push(MarkedSpan {
                                 mcid,
                                 // The identifier is unique "within its content stream" and no
                                 // further, so which stream this is is half the key.
                                 stream: self.stream,
                                 range: section.starts_at..self.text.len(),
-                                drawn,
+                                drawn: closed.drawn,
+                                enclosed_a_refusal: closed.enclosed_a_refusal,
                             });
                         }
                         // §14.13.5's files belong to the graphics objects the section enclosed,

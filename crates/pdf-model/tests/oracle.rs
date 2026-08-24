@@ -3922,6 +3922,60 @@ const NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS: [&str; 6] = [
 /// is why this group exists.
 const NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE: [&str; 1] = ["recursiveCompositGlyf.pdf page 1"];
 
+/// The pages judged on **two** readings rather than three, with why the third is missing.
+///
+/// ADR 0542 made the absence visible — `[judged without: …]` on the page's own line, and a count
+/// in the summary — and left the next question, which ADR 0575 asks and answers: *is a consensus
+/// of two the same evidence as a consensus of three?* Two references stay enough, and the short of
+/// the argument is that ADR 0005's inference is about a **pair** — two implementations sharing no
+/// code arriving at one picture — so a third multiplies the improbability rather than creating it.
+/// None of these six is `contradicted`.
+///
+/// **What the six turn out to be about is not the count.** ADR 0541's precondition is that a vote
+/// is evidence only where there is a clause the references are both reading, and `CLAUDE.md` says
+/// the standard "describes *valid* files and says nothing about the rest". Five of the six lost
+/// their third reading because the *document* is outside what ISO 32000-2 describes, so what the
+/// two that drew agree about is partly how to **repair** it — which no clause states, and which is
+/// the first thing to establish if such a page ever contradicts us.
+///
+/// Each was reproduced by hand with `tools/pdfref/src/reference.rs`'s own invocation, trap 3
+/// binding a measurement taken outside the harness exactly as it binds one inside it:
+///
+/// - **`GHOSTSCRIPT-698804-1-fuzzed.pdf`** — its §7.5.4 cross-reference subsection header reads
+///   `00000004294967296 3`, an object number of 2³². `mutool` repairs the file, reports
+///   `non-page object in page tree` and finds **0 pages**; `poppler` and `gs` recover it, and its
+///   one content stream is `/Length 0`, so the page they agree about is blank.
+/// - **`bug1606566.pdf`** — the file begins `%\xe2\xe3\xcf\xd3`, the binary comment line, with no
+///   `%PDF–n.m` header at all (§7.5.2). `gs` stops at file position 14 with `Error: /undefined in
+///   obj`; `mutool` and `poppler` repair it, as does this tree.
+/// - **`bug_jpx.pdf`** — a JPX stream whose first box is not §7.4.9's JP2 signature box.
+///   `pdftoppm` falls back to raw J2K and **dies on a signal**, `opj_int_ceildiv: Assertion 'b'
+///   failed` inside OpenJPEG 2.5.4. A refusal is a reading and a crash is not, which is why this
+///   one is the reference's failure as much as the file's. The page is `ambiguous` because the two
+///   that survive do not agree with each other.
+/// - **`issue18986.pdf`** — `cannot find page tree`, **0 pages**, on a file whose `1 0 obj` is a
+///   `/Pages` node nothing reaches; its content stream is `/Length 0` too.
+/// - **`issue21436.pdf`** — `too many kids in page tree`, **0 pages**.
+/// - **`pr6531_2.pdf`** — **the reference is wrong here, and the standard settles it.** `/V 5 /R 6
+///   /CFM AESV3`, so §7.6.4.4.11's Algorithm 12 over §7.6.4.3.4's Algorithm 2.B decides
+///   authentication; run on this file's own `/O`, `/U` and the empty password it authenticates as
+///   the **owner** and not as the user, and §7.6.4.1 says that "should allow full (owner) access".
+///   `poppler`, `gs` and this tree open it — `pdf-syntax`'s
+///   `encryption.rs::an_empty_password_may_be_the_owner_password` has asserted exactly that since
+///   it was written — and `mutool` accepts only the user password `asdfasdf`.
+///
+/// Printed against the population and **not asserted**, by `doc/todo/05`'s standing rule: a figure
+/// enters a gate once it has held across rounds, and membership here depends on the machine's
+/// installed renderers as well as on the corpus.
+const JUDGED_WITHOUT_A_THIRD_READING: [&str; 6] = [
+    "GHOSTSCRIPT-698804-1-fuzzed.pdf page 1",
+    "bug1606566.pdf page 1",
+    "bug_jpx.pdf page 1",
+    "issue18986.pdf page 1",
+    "issue21436.pdf page 1",
+    "pr6531_2.pdf page 1",
+];
+
 /// Every page fewer than two references produced a comparable picture of, in one list.
 fn not_comparable_expected() -> Vec<&'static str> {
     NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE
@@ -11429,10 +11483,36 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
          pages",
         count(&|e| !e.absent.is_empty())
     );
+    name_the_pages_judged_without_a_third_reading(results);
 
     rank_the_undiagnosed(results);
     rank_the_manufactured_ambiguity(results);
     rank_the_contradicted(results);
+}
+
+/// Which pages were judged on two readings, against the list that says why for each.
+///
+/// **A count beside a list is not the list** (`doc/todo/02` §6): the summary line above says how
+/// many pages lost a reading, and until this the seventh one arriving would have been the number 6
+/// becoming 7. Now it is a name printed under a sentence asking why, which is the same shape every
+/// other population in this file has. See [`JUDGED_WITHOUT_A_THIRD_READING`] for the six and the
+/// reading of each, and ADR 0575 for why the *count* of references is not what the six are about.
+fn name_the_pages_judged_without_a_third_reading(results: &[Examined]) {
+    let unnamed: Vec<&str> = results
+        .iter()
+        .filter(|examined| !examined.absent.is_empty())
+        .map(|examined| examined.name.as_str())
+        .filter(|name| !JUDGED_WITHOUT_A_THIRD_READING.contains(name))
+        .collect();
+    if unnamed.is_empty() {
+        println!("    every one of them is named in JUDGED_WITHOUT_A_THIRD_READING with why");
+    } else {
+        println!(
+            "    and {} of them are on no list, so nobody has asked why the third reading is \
+             missing: {unnamed:?}",
+            unnamed.len()
+        );
+    }
 }
 
 /// The ten contradicted pages we sit furthest from *every* reference on.

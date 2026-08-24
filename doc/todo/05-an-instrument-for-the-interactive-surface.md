@@ -100,7 +100,18 @@ text-domain entry.
    caret to all of them and moved none. A capability has a floor and a defect class a ceiling, the
    population is checked before either, and the line is in `doc/todo/02` §2. Its first run found a
    defect on the page-object join and `doc/todo/31`'s two residues now have numbers — both in ADR
-   0342. **What remains of this item is instrument 2's ratchet**, plus what each item names.
+   0342.
+
+   **And it counts what this program *refused*, since ADR 0573**, which no count here did: a
+   refused image drew nothing, §14.8.3.3 derives an element's rectangle from what its content drew,
+   and the elements that lost their only place were counted with no cause beside them. Two printed
+   counts — elements enclosing a refusal, and elements with **both** no place and a refusal inside
+   them, per page with the page's own report sentence. **Neither is ratcheted**, by the rule at the
+   foot of this file: they are one round old. `placeless_and_refused` is a defect class and wants a
+   ceiling once it has held; `refused` is a denominator and may want no bound at all, and a later
+   round decides which of the two it is putting a bound under.
+
+   **What remains of this item is instrument 2's ratchet**, plus what each item names.
 
 Each instrument's numbers enter `doc/todo/02` §2 only once they have held across rounds, never
 before.

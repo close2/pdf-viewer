@@ -234,6 +234,48 @@ fn a_corrupt_pdf_is_reported_as_a_renderer_failure() {
     );
 }
 
+/// And a renderer that writes an **empty** file has produced no output, with its own reason.
+///
+/// `mutool draw` creates its `-o` file before it decides it cannot draw the page, so a document
+/// it refuses leaves a zero-byte PNG behind. Until the seven-hundred-and-seventh session that
+/// passed the harness's `exists()` test, reached the PNG decoder, and came back as
+/// [`pdfref::HarnessError::Png`] — a variant `cache` deliberately does not remember, since a PNG
+/// this harness cannot read is not a property of the document. So six corpus pages re-ran
+/// `mutool` on every run and the gate printed the *decoder's* sentence where the renderer's own
+/// was sitting in the log beside it (ADR 0574).
+///
+/// Two assertions, and each is one half of that. The variant is `RendererFailed`, which is what
+/// makes the failure remembered; and the detail carries the renderer's **first** line, which is
+/// the one that names what it met — `mutool` ends every such log with `cannot draw '<path>'`,
+/// which names nothing.
+#[test]
+fn a_renderer_that_writes_an_empty_file_has_produced_no_output() {
+    let work_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-empty-output");
+    std::fs::create_dir_all(&work_dir).expect("work directory is writable");
+    let path = work_dir.join("corrupt.pdf");
+    std::fs::write(&path, b"this is not a PDF at all").expect("writable");
+
+    let reference = Reference::MuPdf;
+    assert!(
+        reference.is_available(),
+        "{reference} is required for this test ({})",
+        reference.package_hint()
+    );
+
+    let Err(error) = reference.render(&path, PAGE_ONE, DPI, &work_dir) else {
+        panic!("a file that is not a PDF must be an error");
+    };
+    assert!(
+        matches!(error, pdfref::HarnessError::RendererFailed { .. }),
+        "an empty output is no output, and is the failure a cache may remember: {error}"
+    );
+    let said = error.to_string();
+    assert!(
+        said.contains("cannot find version marker"),
+        "the renderer's own first line is what says why: {said}"
+    );
+}
+
 /// A cached reference render must be the render, not a rendering of it.
 ///
 /// This is the claim `pdfref::cache` has to earn, and it is checked the only way that

@@ -1464,6 +1464,7 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             headers,
             lines,
             drawn,
+            enclosed_a_refusal,
         } = node;
         writer
             .option_usize(*parent)
@@ -1490,6 +1491,10 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
                 writer.u8(0);
             }
         }
+        // Whether the element encloses content this program refused to draw, which is the one
+        // thing a host cannot join for itself: it has `Query::Reports` per page and this tree per
+        // element, and the join runs through §14.7.5.2's identifiers, which do not cross.
+        writer.bool(*enclosed_a_refusal);
         // §12.7's control for the widget behind §14.7.5.3's object reference, where the element
         // names one. `control_kind::NONE` is the absence, so the discriminant carries the option
         // rather than a flag byte in front of it.
@@ -1556,6 +1561,7 @@ pub(super) fn decode_accessibility(
             header_scope: read_scope(reader)?,
             bounds: reader.option_rect("a node's stated bounding box")?,
             drawn: reader.option_rect("a node's drawn extent")?,
+            enclosed_a_refusal: reader.bool("a node's refusal flag")?,
             control: decode_optional_control(reader)?,
             annotation: reader.option_object("a node's annotation")?,
             // §14.8.4.8.3's header cells, checked the same way the parent link is: a header is a

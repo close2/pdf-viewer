@@ -812,6 +812,63 @@ nothing had no operand. The document is on `corpus.rs`'s incomplete list now.
 abstained while two readings survived not one verdict changed. The gate prints that census every
 run, because a rule that refuses a vote owes the count of votes it refused.
 
+### 3g. The pages judged on two readings, and what the missing third was doing
+
+**Taken in the seven-hundred-and-seventh session** (ADR 0575), on the question ADR 0542 printed and
+did not ask. `render_references` tolerates one of
+three references failing as long as two remain; six corpus pages are in that state, and the
+question is whether a consensus of two is the same evidence as a consensus of three.
+
+**Two references stay enough, and no rule was changed.** ADR 0005's inference is about a **pair** —
+two implementations sharing no code arriving at one picture is improbable unless the picture is
+right — so a third multiplies the improbability rather than creating it, and there is no threshold
+in the argument at which a pair stops being evidence. The arithmetic differs in two directions that
+pull against each other (`decide` widens the bound by the *consensus's own* pairs, so a pair is
+held to one spread rather than the maximum of three — tighter, trap 12's shape — while asking two
+comparisons of us rather than three), and neither is measurable here for a reason that is the whole
+answer: **the third reading does not exist.** The reference that is absent is absent because it
+cannot produce a picture of the document at all, so there is no counterfactual to compute. None of
+the six is `contradicted`; four agree and two are ambiguous.
+
+**What the six are about is ADR 0541's precondition, not the count.** A vote is evidence only where
+there is a clause the references are both reading, and `CLAUDE.md` says the standard "describes
+*valid* files and says nothing about the rest". Five of the six lost their third reading because
+the **document** is outside what ISO 32000-2 describes:
+
+| page | absent | what it met | whose failure |
+|---|---|---|---|
+| `GHOSTSCRIPT-698804-1-fuzzed.pdf` p1 | `mupdf` | §7.5.4 subsection header `00000004294967296 3` — an object number of 2³²; `mutool` repairs, then finds **0 pages** | the document's |
+| `bug1606566.pdf` p1 | `ghostscript` | **no `%PDF–n.m` header at all** (§7.5.2); `gs` stops at file position 14, `Error: /undefined in obj` | the document's |
+| `bug_jpx.pdf` p1 | `poppler` | a JPX stream whose first box is not §7.4.9's signature box; `pdftoppm` **dies on a signal** inside OpenJPEG | the document's *and* the reference's |
+| `issue18986.pdf` p1 | `mupdf` | `cannot find page tree`, **0 pages** | the document's |
+| `issue21436.pdf` p1 | `mupdf` | `too many kids in page tree`, **0 pages** | the document's |
+| `pr6531_2.pdf` p1 | `mupdf` | `cannot authenticate password` | **the reference's** |
+
+So on four of them the two that drew agree partly about how to **repair** a file, which no clause
+states — the same ground §2e excludes `format-corpus` from voting on, arriving one file at a time
+inside a population of valid documents. That is not a reason to stop judging them; it is the first
+thing to establish if such a page ever contradicts us.
+
+**The last row is a reference being wrong on a document this tree opens correctly, and the standard
+settles it without a vote.** `pr6531_2.pdf` is `/V 5 /R 6 /CFM AESV3`, so §7.6.4.4.11's Algorithm 12
+over §7.6.4.3.4's Algorithm 2.B decides authentication. Run on the file's own `/O`, `/U` and the
+**empty** password it authenticates as the *owner* and not as the user; on `asdfasdf` it is the
+reverse. §7.6.4.1 says authenticating as the owner "should allow full (owner) access", `poppler`,
+`gs` and this tree do, and `mupdf` 1.28 accepts only the user password. `pdf-syntax`'s
+`encryption.rs::an_empty_password_may_be_the_owner_password` has asserted it since it was written;
+the algorithm run by hand is a second derivation that reads none of our code.
+
+**And `bug_jpx.pdf`'s failure is not a refusal.** `poppler` does not decline the file — OpenJPEG
+2.5.4 aborts on `opj_int_ceildiv: Assertion 'b' failed` and the process dies on a signal. A refusal
+is a reading; a crash is not, and the distinction is the same one `HarnessError::RendererTimedOut`
+is a separate variant for.
+
+`JUDGED_WITHOUT_A_THIRD_READING` in `oracle.rs` carries the six with the reading of each, and the
+gate names any page in that population which is on no list — printed rather than ratcheted, because
+membership depends on the machine's installed renderers as well as on the corpus. What made all of
+this readable is ADR 0574: until it, four of the six lines said `PNG error … unexpected end of
+file`, which is the harness's sentence over a log holding the renderer's.
+
 ### 3c. The bound those thirty-eight fail was never derived, and it is left where it is
 
 **The four-hundred-and-seventh session asked the question §3b's last paragraph raises** — a bound a

@@ -67,6 +67,45 @@ pub(super) enum ClipExtent {
     Known(Option<Rect>),
 }
 
+/// One open marked-content sequence that stated an `/MCID`.
+///
+/// The two fields are the two questions §14.8.3.3 turns out to ask of a sequence, and they are
+/// kept together because the second is only meaningful over the first's lifetime: what the
+/// enclosed content *drew*, and whether any of what it enclosed this program **declined** to
+/// draw. See [`Closed`] for why the second one is worth carrying.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct OpenSequence {
+    /// §14.8.3.3's content rectangle so far, or `None` for a sequence that has drawn nothing.
+    pub(super) extent: Option<Rect>,
+    /// [`Interpreter::notes_raised`] at the moment this sequence opened.
+    ///
+    /// A high-water mark rather than a flag: a note raised anywhere between here and the `EMC`
+    /// was raised *inside* this sequence, and one raised before it was not.
+    notes_at_open: usize,
+}
+
+/// What one marked-content sequence turned out to be, at its `EMC`.
+///
+/// # Why the second field exists
+///
+/// §14.8.3.3 derives a structure element's content rectangle "from the shape of the enclosed
+/// content", so an element whose enclosed content this program refused to draw has **no**
+/// rectangle — not because the producer stated nothing and not because the sequence was empty,
+/// but because the drawing did not happen. Those are three different facts and the extent alone
+/// reports all three as `None`.
+///
+/// It is not a hypothetical distinction: with `pdf-sandbox-worker` absent, `issue5481.pdf`'s
+/// `JPXDecode` image is refused, nine of its structure elements lose the only place they had, and
+/// every instrument that counted them counted a smaller number with nothing able to say why
+/// (ADR 0557, `doc/traps/instruments-and-reports.md` trap 16). ADR 0573.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Closed {
+    /// §14.8.3.3's content rectangle, `[x0, y0, x1, y1]`, or `None` where nothing was drawn.
+    pub(super) drawn: Option<[f32; 4]>,
+    /// Whether any content the sequence enclosed produced an [`super::report::Unsupported`].
+    pub(super) enclosed_a_refusal: bool,
+}
+
 /// §14.9's three spoken-form entries as one section states them.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Accessible {
@@ -148,7 +187,7 @@ impl Interpreter<'_> {
             if let Some(bounds) = bounds
                 && let Some(slot) = self.marking.last_mut()
             {
-                *slot = Some(match *slot {
+                slot.extent = Some(match slot.extent {
                     None => bounds,
                     Some(open) => open.union(bounds),
                 });
@@ -186,7 +225,10 @@ impl Interpreter<'_> {
     /// Opens a sequence's extent, where the sequence stated an `/MCID`.
     pub(super) fn open_marking(&mut self, mcid: Option<i64>) {
         if mcid.is_some() {
-            self.marking.push(None);
+            self.marking.push(OpenSequence {
+                extent: None,
+                notes_at_open: self.notes_raised,
+            });
         }
     }
 
@@ -196,16 +238,27 @@ impl Interpreter<'_> {
     /// enclosed* content, and a sequence that encloses another encloses its marks. §14.7.5.1.1
     /// forbids that nesting between two structure content items, so on a conforming file this
     /// branch never runs; it is what keeps a file that does it anyway from losing the marks.
-    pub(super) fn close_marking(&mut self, mcid: Option<i64>) -> Option<[f32; 4]> {
+    ///
+    /// The refusal travels the same way and needs no propagation of its own: an enclosing
+    /// sequence opened *before* the inner one, so a note raised inside the inner one is already
+    /// past the outer one's mark.
+    pub(super) fn close_marking(&mut self, mcid: Option<i64>) -> Option<Closed> {
         mcid?;
-        let mine = self.marking.pop().flatten()?;
-        if let Some(slot) = self.marking.last_mut() {
-            *slot = Some(match *slot {
-                None => mine,
-                Some(open) => open.union(mine),
+        let mine = self.marking.pop()?;
+        if let Some(extent) = mine.extent
+            && let Some(slot) = self.marking.last_mut()
+        {
+            slot.extent = Some(match slot.extent {
+                None => extent,
+                Some(open) => open.union(extent),
             });
         }
-        Some([mine.min.x, mine.min.y, mine.max.x, mine.max.y])
+        Some(Closed {
+            drawn: mine
+                .extent
+                .map(|rect| [rect.min.x, rect.min.y, rect.max.x, rect.max.y]),
+            enclosed_a_refusal: self.notes_raised > mine.notes_at_open,
+        })
     }
 
     /// Whether the content being interpreted right now belongs to a hidden layer.
