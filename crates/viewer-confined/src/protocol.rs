@@ -161,6 +161,21 @@ pub enum ProtocolError {
         /// How deep this reader goes.
         limit: usize,
     },
+    /// A field whose bytes are there and which this process could not find room for.
+    ///
+    /// **Not a malformed message.** The length was checked against what the message holds before
+    /// this is reached, so the sender told the truth and it is the reader that ran out. It is a
+    /// variant rather than an abort because the confined worker runs under an address-space
+    /// ceiling: an allocation that crosses `RLIMIT_AS` kills the process, and a host learns of
+    /// that as a signal number, which looks exactly like a crash. `try_reserve` turns it into
+    /// this, and this into a refusal naming the field and the size.
+    #[error("{what} needs {bytes} bytes and this process could not find room for them")]
+    NoRoom {
+        /// Which field.
+        what: &'static str,
+        /// How many bytes it needed.
+        bytes: usize,
+    },
 }
 
 /// Appends fields to a message.
@@ -444,11 +459,28 @@ impl<'a> Reader<'a> {
         self.take(claimed, what)
     }
 
-    fn string(&mut self, what: &'static str) -> Result<String, ProtocolError> {
+    /// A length-prefixed byte string, copied out, refusing rather than aborting where there is
+    /// no room for the copy.
+    ///
+    /// **The one shape of allocation on this boundary whose size the *other side* chose**, and
+    /// therefore the one that is a `try_reserve`. Everything else here is sized by the work — a
+    /// display list, a page's pixels — and is bounded where that work is bounded. A document's
+    /// bytes, a saved file, an attachment and a raster all arrive through this.
+    fn owned_bytes(&mut self, what: &'static str) -> Result<Vec<u8>, ProtocolError> {
         let bytes = self.bytes(what)?;
-        std::str::from_utf8(bytes)
-            .map(str::to_owned)
-            .map_err(|_| ProtocolError::NotText { what })
+        let mut out = Vec::new();
+        out.try_reserve_exact(bytes.len())
+            .map_err(|_| ProtocolError::NoRoom {
+                what,
+                bytes: bytes.len(),
+            })?;
+        out.extend_from_slice(bytes);
+        Ok(out)
+    }
+
+    fn string(&mut self, what: &'static str) -> Result<String, ProtocolError> {
+        let bytes = self.owned_bytes(what)?;
+        String::from_utf8(bytes).map_err(|_| ProtocolError::NotText { what })
     }
 
     fn option_string(&mut self, what: &'static str) -> Result<Option<String>, ProtocolError> {
@@ -461,7 +493,7 @@ impl<'a> Reader<'a> {
 
     fn option_bytes(&mut self, what: &'static str) -> Result<Option<Vec<u8>>, ProtocolError> {
         if self.bool(what)? {
-            Ok(Some(self.bytes(what)?.to_vec()))
+            Ok(Some(self.owned_bytes(what)?))
         } else {
             Ok(None)
         }
@@ -921,7 +953,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
     let command = match reader.u8(what)? {
         k::OPEN => Command::Open {
             id: reader.document(what)?,
-            bytes: reader.bytes("a document's bytes")?.to_vec(),
+            bytes: reader.owned_bytes("a document's bytes")?,
             password: reader.option_string("a password")?.map(Into::into),
             fragment: reader.option_string("a fragment identifier")?,
         },
@@ -1062,7 +1094,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
                 }
             },
             bytes: if reader.bool("a supplied file")? {
-                Some(reader.bytes("a supplied file")?.to_vec())
+                Some(reader.owned_bytes("a supplied file")?)
             } else {
                 None
             },
@@ -1552,7 +1584,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         },
         k::SAVED => Event::Saved {
             document: reader.document(what)?,
-            bytes: reader.bytes("a saved file")?.to_vec(),
+            bytes: reader.owned_bytes("a saved file")?,
         },
         k::EXTRACTED => Event::Extracted {
             document: reader.document(what)?,
@@ -1567,7 +1599,7 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
                 }
             },
             name: reader.string("an attachment's name")?,
-            bytes: reader.bytes("an attachment")?.to_vec(),
+            bytes: reader.owned_bytes("an attachment")?,
             fragment: reader.option_string("a fragment identifier")?,
         },
         k::REFUSED => Event::Refused {
@@ -2441,7 +2473,7 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
                         });
                     }
                 };
-                let data = reader.bytes("a raster")?.to_vec();
+                let data = reader.owned_bytes("a raster")?;
                 // The worker is the untrusted side, so its dimensions are checked against the
                 // bytes it actually sent rather than believed — the same rule `pdf_sandbox`'s
                 // parent applies to a decoded image, and for the same reason.

@@ -917,7 +917,7 @@ pub(super) fn encode_thumbnail(writer: &mut Writer, thumbnail: &Thumbnail) {
 pub(super) fn decode_thumbnail(reader: &mut Reader<'_>) -> Result<Thumbnail, ProtocolError> {
     let width = reader.u32("a thumbnail's width")?;
     let height = reader.u32("a thumbnail's height")?;
-    let data = reader.bytes("a thumbnail's samples")?;
+    let data = reader.owned_bytes("a thumbnail's samples")?;
     // The confined side is the untrusted side, so its dimensions are checked against the samples
     // it actually sent — the same rule `Answer::Frame` applies to a page's raster, and for the
     // same reason: a host that indexed a short buffer by a stated width would read whatever

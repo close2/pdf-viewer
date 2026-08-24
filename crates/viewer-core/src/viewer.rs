@@ -39,7 +39,13 @@ use crate::readback::ReadbackCache;
 /// The bounds that are not about allocation stay unconditional, and `TargetSpec::for_page`
 /// applies them to every caller: a dimension over [`pdf_render::MAX_EXTENT`] is an `f32`
 /// precision limit, and a degenerate one is a target that cannot exist.
-const MAX_PIXELS: u64 = 1 << 28;
+///
+/// **Public because a host that confines this crate has to do arithmetic with it.**
+/// `viewer-confined` runs a viewer under an address-space ceiling and has to know how much of
+/// that ceiling a page's pixels may claim before it can say how large a document it can accept.
+/// Copying the number into that crate would be a number that can drift; exporting it is the same
+/// bound read from one place, which is what `pdf_sandbox`'s own ceiling was derived from.
+pub const MAX_PIXELS: u64 = 1 << 28;
 
 /// Why the page is being turned, which ISO 32000-2 §12.4.4 makes two different questions.
 ///

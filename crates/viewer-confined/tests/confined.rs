@@ -1110,6 +1110,137 @@ const ALLOWED: i32 = 18;
 #[cfg(target_os = "linux")]
 const DREW: i32 = 19;
 
+/// The probe that writes one line to standard error after confining itself.
+#[cfg(target_os = "linux")]
+const SAY: &str = "say";
+
+/// The probe that starts a confined viewer whose worker only says something and leaves.
+#[cfg(target_os = "linux")]
+const LAST_WORDS: &str = "lastwords";
+
+/// What the stand-in worker writes, and what the host must therefore be able to repeat.
+#[cfg(target_os = "linux")]
+const SAID: &str = "a stand-in worker with something to say";
+
+/// **`RLIMIT_FSIZE` is 0, so a confined worker whose standard error is a *file* cannot explain
+/// itself — it is killed by `SIGXFSZ` before a character is written.**
+///
+/// The finding that moved the worker's standard error from an inherited descriptor to a pipe
+/// (ADR 0597), and the reason it is a test rather than a sentence: the descriptor a worker
+/// inherits is the *host's*, and a logged deployment's standard error is a file. Measured on the
+/// real worker first — the same 2.1 GB document gives `killed by signal 6` and libstd's
+/// allocation message with a pipe, and `killed by signal 25` and total silence with a file — and
+/// pinned here on the mechanism itself, which is one write and needs no bomb.
+///
+/// A pipe is not a file and `RLIMIT_FSIZE` does not apply to one, which is the whole of the fix
+/// and is the second half of this test.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_worker_cannot_write_a_diagnostic_to_a_file() {
+    use std::os::unix::process::ExitStatusExt as _;
+
+    let path =
+        std::env::temp_dir().join(format!("pdf-view-worker-says-{}.txt", std::process::id()));
+    let file = std::fs::File::create(&path).expect("a place for the worker to write");
+    let to_a_file = std::process::Command::new(
+        std::env::current_exe().expect("a test binary knows where it is"),
+    )
+    // `--nocapture` because the whole subject is a write reaching *file descriptor 2*: the
+    // harness captures a test's standard error into a buffer by default, and a probe writing
+    // into a buffer would prove nothing about a file.
+    .args(["--exact", "confined_probe", "--test-threads=1", "--nocapture"])
+    .env(PROBE_VARIABLE, SAY)
+    .stdout(std::process::Stdio::null())
+    .stderr(file)
+    .status()
+    .expect("the probe runs");
+    let written = std::fs::read(&path).expect("the file is readable");
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(
+        to_a_file.signal(),
+        Some(libc::SIGXFSZ),
+        "a confined process writing a diagnostic to a file was expected to be killed by \
+         RLIMIT_FSIZE, and instead ended {to_a_file:?}"
+    );
+    assert!(
+        written.is_empty(),
+        "it was killed and still wrote {} byte(s)",
+        written.len()
+    );
+
+    // The same probe with a pipe in place of the file, which is what `Confined` now gives it.
+    let to_a_pipe = std::process::Command::new(
+        std::env::current_exe().expect("a test binary knows where it is"),
+    )
+    // `--nocapture` because the whole subject is a write reaching *file descriptor 2*: the
+    // harness captures a test's standard error into a buffer by default, and a probe writing
+    // into a buffer would prove nothing about a file.
+    .args(["--exact", "confined_probe", "--test-threads=1", "--nocapture"])
+    .env(PROBE_VARIABLE, SAY)
+    .output()
+    .expect("the probe runs");
+    assert_eq!(
+        to_a_pipe.status.code(),
+        Some(ALLOWED),
+        "a confined process could not write a diagnostic to a pipe either: {:?}",
+        to_a_pipe.status
+    );
+    assert!(
+        String::from_utf8_lossy(&to_a_pipe.stderr).contains(SAID),
+        "the diagnostic did not arrive: {:?}",
+        String::from_utf8_lossy(&to_a_pipe.stderr)
+    );
+}
+
+/// **A worker that stops with something to say says it to the host, not only to a terminal.**
+///
+/// `doc/todo/15`'s first defect in the case no bound can prevent: an allocation the ceiling
+/// refuses aborts the process, and what the host used to get was a signal number. The worker's own
+/// last line is now carried in [`ConfinedError::WorkerDied`], so a host has a sentence to show.
+///
+/// The stand-in worker is a script rather than the real one because what is being tested is the
+/// *carrying*: a real ceiling breach needs a document larger than the confinement, and a test that
+/// allocated one and a half gibibytes to check a string would be paying for the wrong thing. The
+/// breach itself is measured in ADR 0597.
+///
+/// It runs in a child because [`viewer_confined::WORKER_PATH_VARIABLE`] is read from the process
+/// environment, and setting one of those in a running program is `unsafe` in this edition.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_worker_that_dies_saying_something_says_it_to_the_host() {
+    let script = std::env::temp_dir().join(format!("stand-in-worker-{}.sh", std::process::id()));
+    std::fs::write(&script, format!("#!/bin/sh\necho '{SAID}' >&2\nexit 3\n"))
+        .expect("a stand-in worker is writable");
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755))
+            .expect("a stand-in worker is runnable");
+    }
+
+    let probe = std::process::Command::new(
+        std::env::current_exe().expect("a test binary knows where it is"),
+    )
+    .args([
+        "--exact",
+        "confined_probe",
+        "--test-threads=1",
+        "--nocapture",
+    ])
+    .env(PROBE_VARIABLE, LAST_WORDS)
+    .env(viewer_confined::WORKER_PATH_VARIABLE, &script)
+    .output()
+    .expect("the probe runs");
+    let _ = std::fs::remove_file(&script);
+
+    assert_eq!(
+        probe.status.code(),
+        Some(ALLOWED),
+        "the host did not repeat what its worker said; it printed {:?}",
+        String::from_utf8_lossy(&probe.stdout)
+    );
+}
+
 #[test]
 #[cfg(target_os = "linux")]
 fn a_confined_interpreter_cannot_open_a_file() {
@@ -1318,8 +1449,24 @@ fn confined_probe() {
         warm_then_confine(bytes);
     }
 
-    let (_confinement, strips) =
+    // And one that must run before it for a plainer reason: it *spawns* a worker, which is the
+    // one thing the interpreter profile permits nothing to do.
+    if probe == LAST_WORDS {
+        let said = match Confined::start() {
+            Ok(_) => String::from("the stand-in worker greeted the host, which it cannot do"),
+            Err(error) => error.to_string(),
+        };
+        println!("{said}");
+        std::process::exit(if said.contains(SAID) {
+            ALLOWED
+        } else {
+            REFUSED
+        });
+    }
+
+    let limits =
         viewer_confined::confine().expect("a probe that cannot confine itself proves nothing");
+    let strips = limits.strips;
 
     let permitted = match probe.as_str() {
         // `/proc/self/maps` rather than anything under `/etc`, because it is guaranteed to exist
@@ -1327,6 +1474,13 @@ fn confined_probe() {
         "open" => std::fs::File::open("/proc/self/maps").is_ok(),
         "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
         "spawn" => std::process::Command::new("/bin/true").status().is_ok(),
+        // Writing one line to whatever standard error the parent handed over. With a file it
+        // never returns — `RLIMIT_FSIZE` is 0 and the write raises `SIGXFSZ` — and with a pipe it
+        // does, which is the pair the caller asserts.
+        "say" => {
+            eprintln!("{SAID}");
+            true
+        }
         "draw" => {
             let mut viewer = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
             let mut rasterizer = CpuRasterizer::new().with_strips(strips);

@@ -26,7 +26,8 @@ turn and a magnification; a JBIG2 document decoded *inside* the confinement; a c
 cannot open a file, cannot open a socket and cannot start a program; and `Confinement::shortfall`
 answering `None` because everything was enforced. **Since the four-hundred-and-fourth**: a document
 that will not finish, cancelled from another thread, and a warmed allocator that never asks the
-kernel again. `examples/confined_page` and `examples/confined_cancel` are what a person runs.
+kernel again. `examples/confined_page`, `examples/confined_cancel` and
+`examples/confined_peak` are what a person runs.
 
 ## What the three-hundred-and-eighty-sixth session added
 
@@ -145,6 +146,13 @@ nothing refers to, so that what is timed is the transport and nothing else:
 **The kernel's pipe is four milliseconds of it.** The rest is five passes over the document on our
 side: the encoder's buffer, a header put in front of it by building a third buffer, the two the
 pipe makes, the worker's frame allocation and `decode_command`'s copy into `Command::Open`.
+
+**The last two of those are still both paid, and what changed in the six-hundred-and-nineteenth is
+how long they overlap** (ADR 0597). The worker's frame buffer used to be held across the whole of
+the work, so it was alive beside `Command::Open`'s copy *and* beside the `Arc<[u8]>` `pdf_syntax`
+makes — three copies of the document at the peak, measured as start-up plus exactly 3× its length.
+It is dropped the moment the message is decoded now, which is two. That is address space rather
+than time: the passes are unchanged and so are the figures above.
 
 **One of those was free to remove and is gone**: both ends write the nine-byte header and the
 payload in two calls instead of concatenating. Nine runs each way — the 4.1 MB raster falls from

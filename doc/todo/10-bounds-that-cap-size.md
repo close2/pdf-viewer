@@ -200,8 +200,13 @@ They were not architecture and did not wait for a decision, which is why they we
   `decode_with_parms`, so an image whose decode passes the bound is refused loudly as an image this
   reader could not decode rather than as one it declined to. One call site and a variant of
   `ImageStream`'s error; nothing about it is hard and no document exercises it.
-- **A ceiling breach in the confined worker is still `WorkerDied { detail: "killed by signal 6" }`**,
-  indistinguishable from a crash. That is §5 B's item and not this one's.
+- ~~**A ceiling breach in the confined worker is still `WorkerDied { detail: "killed by signal 6" }`**,
+  indistinguishable from a crash.~~ **Carried out in §5 B's item** (ADR 0597), and it was worse than
+  this line said: `RLIMIT_FSIZE` is 0 in the confinement and the worker's standard error was the
+  host's own, so a host logging to a *file* got `killed by signal 25` — `SIGXFSZ`, the wrong cause —
+  and not one word of the worker's own explanation. A document the ceiling cannot hold is now
+  refused by name before an allocation is attempted, and a breach that still kills arrives with the
+  worker's last line attached.
 - **`image::RasterCache`'s probe is still linear in its entries**, and after ADR 0399 those entries
   are the *distinct* images a page draws rather than the draws — which is the property a resource
   image always had, and it is what took the two witnesses from 330.5 G and 71.9 G instructions to
@@ -257,7 +262,7 @@ argument and the table is the arithmetic.
 | road | what it removes | what it costs, in today's code | moved by 508 / 519? |
 |---|---|---|---|
 | **A** deadline + callback | unbounded *time* | one parameter on `interpret`, one check at `run.rs`'s existing increment site, two boundary messages, and a rule pinning the gates | **no** — the check point is where 471 left it |
-| **B** ship the confinement | unbounded *anything*, by killing | a tier change (`doc/todo/34`), a `try_reserve`/`Refused` path for the ceiling breach, worker restart, Linux-only | **cheaper** — see below |
+| **B** ship the confinement | unbounded *anything*, by killing | **a tier change (`doc/todo/34` §2) and nothing else**: the `try_reserve`/`Refused` path is built and the restart it needed turned out not to be owed (ADR 0597). Linux-only | **cheaper twice** — see below, and `doc/todo/15` |
 | **C** resumable interpretation | unbounded *latency* | a state-machine rewrite of `Interpreter::run`, against an oracle of 1794 pages | **no** |
 | **D** stream the decompression | the *allocation* | **shipped, all five of the content streams §7.8.2 names** — a page's `/Contents` in 530 (ADR 0365), the three beside it in 592 (ADR 0427), the LZW pump in 594 (ADR 0429) and §8.7.3.1's tiling cell in 595, once the cell was drawn once and its marks copied (ADR 0430) | **done and measured: Bomb B costs 8.4 MB against 1032 in `/Contents`, 10.7 against 1032 in a form and 9.4 against 1055 in a pattern cell; the witness 194 MB against 381; every gate identical, +5.74% then +0.089% instructions on an ordinary page and −94% on a tiling one** |
 

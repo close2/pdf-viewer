@@ -1,21 +1,23 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
-Status: **chosen, second of three** — the project owner ordered the roads D → B → C, so this one
-follows [`14`](14-stream-the-decompression.md). The machinery exists and is verified against the
-kernel (ADRs 0218, 0223, 0235, 0241); what is missing is the *tier change* and two defects named
-below. Nothing here is built.
+Status: **open, and one of its two defects is carried out** (ADR 0597). The machinery exists and is
+verified against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash,
+and the tier change is priced but not made.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
-Witness: Bomb B, rebuildable from `doc/todo/10` §2's description (session 519 rebuilt it to the
-byte); `tmp/Entwurf.pdf` for the ordinary-document side, which is **not in the repository**
+Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
+with a stream nothing refers to, which is the shape `examples/confined_page` builds in memory.
+Bomb B, rebuildable from `doc/todo/10` §2's description, is what the ceiling *used* to be for and
+no longer is; `tmp/Entwurf.pdf` for the ordinary-document side is **not in the repository**.
 Instrument: `VmPeak` from `/proc` against `INTERPRETER_ADDRESS_SPACE_LIMIT` — the counter
-`RLIMIT_AS` actually compares against, which no round reported before session 519
+`RLIMIT_AS` actually compares against. `cargo run --release -p viewer-confined --example
+confined_peak -- <file.pdf>…` is that instrument, and it is load-immune.
 Clauses: none — this is an architecture decision, not a clause reading. `CLAUDE.md` principle 3 is
 the standard it answers to.
-Code: `crates/viewer-confined/src/lib.rs`, `crates/pdf-sandbox/src/lockdown_linux.rs`,
-`crates/viewer-core/src/viewer.rs`, and whatever host takes the tier change
-Blocked on: nothing technical — but see [`34`](34-sandbox-the-interpreter.md), which is written
-for exactly this move, and [`35`](35-confinement-off-linux.md), which is why it is Linux-only
+Code: `crates/viewer-confined/src/{lib,worker,protocol}.rs`,
+`crates/pdf-sandbox/src/lockdown_linux.rs`, and whatever host takes the tier change
+Blocked on: nothing technical — but see [`34`](34-sandbox-the-interpreter.md) §2, which is the tier
+question, and [`35`](35-confinement-off-linux.md), which is why it is Linux-only
 
 ## Why second rather than first
 
@@ -24,6 +26,12 @@ kernel. Taken in the other order, this road's ceiling would still be the thing s
 1.85 MB file and the machine — and a ceiling breach is a kill, which is the bluntest answer in
 `doc/todo/10`. Taken after it, the ceiling becomes a backstop for what streaming does not cover
 (the font, image and profile paths that are read whole by design) rather than the primary defence.
+
+**That prediction is now measured rather than argued** (ADR 0597). Bomb A and Bomb B, in the
+confined worker, move `VmPeak` by **nothing at all** — the peak is reached during start-up, at 3.5%
+of the ceiling, and neither bomb passes it. So what the ceiling is for has moved from *catches the
+bomb* to *catches what we have not thought of*, which is a different and still-good argument, and
+it is the one to make when this item is next picked up.
 
 ---
 
@@ -37,30 +45,47 @@ while — stop?" backed by a kill the document cannot decline.
 
 - **For**: it is the owner's "maybe that's now up to the OS", answered *by* the OS. Already built,
   already verified against the kernel rather than the source. Cancel measured at about a
-  millisecond. Bomb B is genuinely stopped — measured, not argued. Principle 3's other half
-  finally reaches the program.
+  millisecond. Principle 3's other half finally reaches the program.
 - **Against**: it is a **tier change**, and `doc/ui-boundary.md` calls putting `viewer-ui` on this
   boundary "a decision with a number attached rather than a switch" — page one would go through a
-  pipe. Today a ceiling breach arrives as `WorkerDied { detail: "killed by signal 6" }`,
-  **indistinguishable from a crash**, and the document dies with it; both need fixing (a
-  `try_reserve`/`Refused` path, and worker restart plus document re-open). Linux-only
-  (`doc/todo/35`).
+  pipe. Linux-only (`doc/todo/35`).
 
-**One of those objections has since been answered, and by a different round.** The last sentence
-of the original read "and the 4 GiB ceiling is currently *smaller than* what one 2 GiB stream can
-demand" — true while `filter::inflate` doubled past its own bound. ADR 0354 made the bound obey its
-arithmetic: Bomb B's measured `VmPeak` is **1041 MB against a 4 GiB ceiling**, where it was
-1821 MB. So this road's remaining costs are the tier change, the two defects, and Linux — the
-arithmetic objection is gone.
+**Two of those objections have since been answered, each by a different round.** The original ended
+"and the 4 GiB ceiling is currently *smaller than* what one 2 GiB stream can demand" — true while
+`filter::inflate` doubled past its own bound, and answered by ADR 0354. And "a ceiling breach
+arrives as `WorkerDied { detail: "killed by signal 6" }`, indistinguishable from a crash" was
+answered by ADR 0597, which found it was in fact *worse* than that: see below.
 
-## What a round taking this owes
+## What ADR 0597 carried out, so that a round taking this does not redo it
 
-- **The number the tier change costs.** `doc/ui-boundary.md` says a decision with a number
-  attached; the number is page one through a pipe, measured against `doc/performance.md`'s
-  launch-path figures, not estimated.
-- **A ceiling breach that is not a crash.** `try_reserve` where the ceiling is reachable, a typed
-  `Refused` crossing the pipe, worker restart and document re-open — a person whose document hit
-  the ceiling must get a sentence, not a dead window.
+- **A ceiling breach is not a crash.** The worker derives a message budget from its own ceiling —
+  every term read or measured, `doc/todo/10` §6's first rule — and refuses a document it cannot
+  hold *before* the first byte is read, in a sentence naming the size, the ceiling and the budget.
+  It reads past the message rather than closing, so **the worker survives the refusal with whatever
+  it had open**, which is why the "worker restart plus document re-open" this item used to ask for
+  is not owed for that population.
+- **The open path held three copies of the document** and now holds two, because the frame buffer
+  was alive across the work for no reason. `VmPeak` was the worker's start-up size plus exactly
+  three times the document's length; it is now plus twice.
+- **The worker's own last words reach the host.** Its standard error was *inherited*, and
+  `RLIMIT_FSIZE` is 0 — so on any host that logs to a file the worker was killed by `SIGXFSZ`
+  before it could print the one line explaining itself, and the host was told the wrong cause. It
+  is a pipe now, drained on a thread, echoed onward and carried in `WorkerDied`.
+- **The tier change has its number**: page one through a pipe, both arms in one sitting, in ADR
+  0597's last table.
+
+## What a round taking this still owes
+
+- **The tier change itself**, which is [`34`](34-sandbox-the-interpreter.md) §2's unargued
+  question and not a transport problem: `viewer-ui` hands back `Rendered::Presented` and draws on
+  the graphics device, a confined process draws on the processor. Either display lists cross
+  instead of pixels, or `wgpu` goes inside the confinement. **Neither has been argued**, and
+  `CLAUDE.md`'s "page one goes to the graphics device" is what makes it a decision rather than a
+  port.
 - **The cancel path proven from the host**, not only from a test: the owner's brief says the
   callback may not block, and the `Canceller` is already about a millisecond.
+- **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the
+  work rather than declared by a sender. It still ends the worker; what it now does is arrive with
+  the worker's own sentence attached rather than as a bare signal number. Making it a *refusal*
+  needs a fallible allocation on a path this crate does not own.
 - `doc/todo/10` §6's four rules, which bind every road.

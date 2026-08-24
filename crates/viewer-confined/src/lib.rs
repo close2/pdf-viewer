@@ -75,7 +75,7 @@ mod protocol;
 mod worker;
 
 pub use protocol::{ProtocolError, Uncarried};
-pub use worker::{confine, serve};
+pub use worker::{WorkerLimits, confine, serve};
 
 /// The decoders on their own, without the process that produced the bytes.
 ///
@@ -226,6 +226,18 @@ pub enum ConfinedError {
         /// The worker's own sentence.
         detail: String,
     },
+    /// The worker sent a message this process could not find room for.
+    ///
+    /// **The mirror of the worker's own refusal, and it is here because the worker is the
+    /// untrusted side of this boundary**: a length it states is a claim, and a host that believed
+    /// a two-gibibyte claim would abort on the allocation instead of refusing it. The frame's
+    /// bytes are read and thrown away, so the worker and its document survive the refusal —
+    /// which is the same reason its side reads past a message it will not hold.
+    #[error("the confined viewer sent {bytes} bytes and this process could not find room for them")]
+    NoRoom {
+        /// What the frame header claimed.
+        bytes: usize,
+    },
     /// A [`Canceller`] ended the worker, so this viewer has nothing left to ask.
     ///
     /// Distinct from [`Self::WorkerDied`] on purpose: a worker that died is a fault to report,
@@ -279,6 +291,8 @@ impl Canceller {
         Self(Arc::new(Cancellation {
             cancelled: AtomicBool::new(false),
             worker: Mutex::new(None),
+            said: Arc::default(),
+            listener: Mutex::new(None),
         }))
     }
 
@@ -317,6 +331,107 @@ struct Cancellation {
     cancelled: AtomicBool,
     /// The worker, from the moment it is spawned until it has been waited for.
     worker: Mutex<Option<Child>>,
+    /// What the worker wrote to its standard error, and the thread collecting it.
+    said: Arc<LastWords>,
+    /// That thread, until it has been joined.
+    listener: Mutex<Option<std::thread::JoinHandle<()>>>,
+}
+
+/// The last thing the worker said before it stopped.
+///
+/// # Why the host keeps this at all
+///
+/// **A worker that is killed cannot report why**, and the two ways it is killed are the two this
+/// crate most has to explain: the seccomp filter, which is a signal number the host can name, and
+/// the address-space ceiling, which is not. `RLIMIT_AS` makes an allocation fail; the standard
+/// library prints one line and aborts; the host sees `SIGABRT` and has no way to tell that from
+/// any other abort. The line is the diagnosis, and it was going to the operator's terminal rather
+/// than to the program that has to say something to a person.
+///
+/// # Why the pipe replaced an inherited descriptor, which is a finding rather than a preference
+///
+/// The worker's standard error used to be inherited, on the reasoning that a worker that dies
+/// should say so where an operator can see it. **`RLIMIT_FSIZE` is 0 in the confinement, and that
+/// makes the reasoning false exactly where an operator would be looking**: where the host's own
+/// standard error is a *file* — every logged deployment — the worker's first write to it raises
+/// `SIGXFSZ` and kills it before a character is printed. Measured (ADR 0597): the same document,
+/// the same worker, stderr a pipe gives `killed by signal 6` and the allocation message; stderr a
+/// file gives `killed by signal 25` and total silence, which names the wrong cause and explains
+/// nothing. A pipe is not a file, so `RLIMIT_FSIZE` does not apply to it and the worker can always
+/// speak.
+///
+/// Everything read here is still written on to this process's own standard error, so an operator
+/// watching a terminal sees exactly what they saw before. What is new is that the host keeps a
+/// copy.
+#[derive(Debug, Default)]
+struct LastWords {
+    /// The tail of what was written, bounded so that a chatty worker cannot cost the host memory.
+    tail: Mutex<String>,
+}
+
+impl LastWords {
+    /// How much of the worker's diagnostics to keep, in bytes.
+    ///
+    /// The interesting message is one line and libstd's allocation failure is two. Four kilobytes
+    /// is far past both and is a bound rather than a budget: what a host prints to a person is a
+    /// sentence, not a log.
+    const KEPT: usize = 4096;
+
+    /// Adds what the worker just said, keeping the end of it.
+    fn push(&self, said: &str) {
+        let mut tail = self.tail.lock().unwrap_or_else(PoisonError::into_inner);
+        tail.push_str(said);
+        if tail.len() > Self::KEPT {
+            // On a character boundary, because the tail is a `String` and half a code point is
+            // not one. `drain` on a range that splits one would panic.
+            let wanted = tail.len().saturating_sub(Self::KEPT);
+            let cut = tail
+                .char_indices()
+                .find(|(index, _)| *index >= wanted)
+                .map_or(tail.len(), |(index, _)| index);
+            drop(tail.drain(..cut));
+        }
+    }
+
+    /// What was said, as one line, or `None` where the worker said nothing.
+    ///
+    /// Newlines become `; ` because this is appended to a sentence a host prints, and a
+    /// diagnosis that arrives as three lines in the middle of one is harder to read than the
+    /// same words in a row.
+    fn take(&self) -> Option<String> {
+        let mut tail = self.tail.lock().unwrap_or_else(PoisonError::into_inner);
+        let said = std::mem::take(&mut *tail);
+        let joined = said
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ");
+        (!joined.is_empty()).then_some(joined)
+    }
+}
+
+/// Reads the worker's standard error to its end, echoing it and keeping the tail.
+///
+/// Its own thread because the alternative is a deadlock: a host that read the worker's diagnostics
+/// only when it had already stopped would leave them in a pipe, and a worker blocked writing to a
+/// full pipe is a worker that never answers the frame the host is blocked reading.
+fn listen(mut stderr: std::process::ChildStderr, said: &Arc<LastWords>) {
+    let mut buffer = [0u8; 4096];
+    loop {
+        match stderr.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(read) => {
+                let Some(chunk) = buffer.get(..read) else {
+                    break;
+                };
+                // Still the operator's. Losing the terminal copy would trade one silence for
+                // another.
+                let _ = std::io::stderr().write_all(chunk);
+                said.push(&String::from_utf8_lossy(chunk));
+            }
+        }
+    }
 }
 
 impl Cancellation {
@@ -355,14 +470,35 @@ impl Cancellation {
     /// Called only where the worker's output has closed or it has been signalled, so the wait is
     /// the moment it takes a dead process to be reaped rather than the length of a render. That
     /// matters because the lock is held across it, and [`Self::kill`] wants the same lock.
+    ///
+    /// **What the worker said comes after the wait and after the listening thread has ended**, and
+    /// both orders matter: a diagnostic written on the way out is still in the pipe while the
+    /// process is dying, and reading the tail before the thread has seen the end of it would
+    /// report whatever had arrived by then. See [`LastWords`] for why the host keeps it at all.
     fn reap(&self) -> String {
-        let mut worker = self.worker();
-        match worker.take() {
-            Some(mut child) => match child.wait() {
-                Ok(status) => describe_exit(status),
-                Err(error) => format!("and its status could not be read: {error}"),
-            },
-            None => "and it had already been waited for".to_owned(),
+        let ended = {
+            let mut worker = self.worker();
+            match worker.take() {
+                Some(mut child) => match child.wait() {
+                    Ok(status) => describe_exit(status),
+                    Err(error) => format!("and its status could not be read: {error}"),
+                },
+                None => "and it had already been waited for".to_owned(),
+            }
+        };
+        // The worker's standard error closes when the worker does, so this thread has already
+        // ended or is about to; joining it is what makes the tail complete rather than partial.
+        let listener = self
+            .listener
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(handle) = listener {
+            let _ = handle.join();
+        }
+        match self.said.take() {
+            Some(said) => format!("{ended}, saying: {said}"),
+            None => ended,
         }
     }
 
@@ -680,11 +816,34 @@ impl Confined {
         let mut child = OsCommand::new(&program)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            // Inherited, so that a worker that dies says so where the operator can see it. It is
-            // the one descriptor it keeps that points outside itself, and it is write-only.
-            .stderr(Stdio::inherit())
+            // A pipe rather than the inherited descriptor, and [`LastWords`] has the measurement
+            // that changed it: `RLIMIT_FSIZE` is 0 in the confinement, so a worker whose standard
+            // error is a *file* — every logged deployment — is killed by `SIGXFSZ` the moment it
+            // tries to explain itself. It is still written on to this process's standard error,
+            // so an operator sees what they saw before.
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(ConfinedError::Spawn)?;
+
+        if let Some(stderr) = child.stderr.take() {
+            let said = Arc::clone(&cancellation.said);
+            match std::thread::Builder::new()
+                .name("pdf-view-worker diagnostics".to_owned())
+                .spawn(move || listen(stderr, &said))
+            {
+                Ok(handle) => {
+                    *cancellation
+                        .listener
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = Some(handle);
+                }
+                // A host that cannot start a thread still gets a worker: what it loses is the
+                // worker's own words, not the viewer. Said out loud rather than swallowed.
+                Err(error) => {
+                    eprintln!("{WORKER_PROGRAM}: its diagnostics will not be collected: {error}");
+                }
+            }
+        }
 
         let (Some(to_worker), Some(from_worker)) = (child.stdin.take(), child.stdout.take()) else {
             let _ = child.kill();
@@ -814,14 +973,45 @@ impl Confined {
     }
 
     /// Reads one whole frame.
+    ///
+    /// **The buffer is asked for rather than demanded**, because its size is a number the *worker*
+    /// wrote into the header and the worker is the untrusted side here. `protocol`'s own list
+    /// reader already reasons this way one layer down — a count on the wire is a claim, and the
+    /// claim's reservation is a separate cost from its length — and the payload itself was the one
+    /// allocation on this side that still believed the claim outright.
     fn read_frame(&mut self) -> Result<(u8, Vec<u8>), ConfinedError> {
         let mut header = [0u8; protocol::FRAME_HEADER_LEN];
         self.read_exactly(&mut header)?;
         let (kind, length) =
             protocol::parse_frame_header(header).ok_or(ConfinedError::UnrecognisedFrame)?;
-        let mut payload = vec![0u8; length];
+        let mut payload = Vec::new();
+        if payload.try_reserve_exact(length).is_err() {
+            // Read past it rather than giving up on the pipe: the worker has written these bytes
+            // already, and leaving them there would make the next frame start in the middle of
+            // this one. Refusing this way costs the answer and keeps the viewer.
+            self.discard(length)?;
+            return Err(ConfinedError::NoRoom { bytes: length });
+        }
+        payload.resize(length, 0);
         self.read_exactly(&mut payload)?;
         Ok((kind, payload))
+    }
+
+    /// Reads and throws away a stated number of bytes, in a buffer whose size is this side's.
+    fn discard(&mut self, mut bytes: usize) -> Result<(), ConfinedError> {
+        /// Enough to empty a pipe quickly and small enough to be nobody's memory problem.
+        const SCRATCH: usize = 64 * 1024;
+
+        let mut scratch = vec![0u8; SCRATCH.min(bytes.max(1))];
+        while bytes > 0 {
+            let take = bytes.min(scratch.len());
+            let Some(slice) = scratch.get_mut(..take) else {
+                break;
+            };
+            self.read_exactly(slice)?;
+            bytes = bytes.saturating_sub(take);
+        }
+        Ok(())
     }
 
     /// Fills `buffer` from the worker.
@@ -906,6 +1096,11 @@ fn refusal(payload: &[u8]) -> ConfinedError {
 /// `SIGSYS` is the interesting one and it is the seccomp filter firing: the confined viewer
 /// attempted something no page needs. A platform with no filter cannot produce that diagnosis and
 /// does not pretend to.
+///
+/// **A number is not a diagnosis, which is why [`LastWords`] exists beside this.** The two ways a
+/// confinement ends a worker that is not the filter both arrive here as numbers that name the
+/// mechanism rather than the cause: `SIGABRT` for an allocation `RLIMIT_AS` refused, and — before
+/// the worker's standard error became a pipe — `SIGXFSZ` for the worker's attempt to *say* so.
 fn describe_exit(status: std::process::ExitStatus) -> String {
     #[cfg(unix)]
     if let Some(signal) = {

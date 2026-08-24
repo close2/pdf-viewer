@@ -122,4 +122,4 @@ pub use query::{
 };
 pub use readback::ReadbackCache;
 pub use secret::Secret;
-pub use viewer::{DocumentId, RenderToken, Viewer};
+pub use viewer::{DocumentId, MAX_PIXELS, RenderToken, Viewer};

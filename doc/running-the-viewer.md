@@ -134,6 +134,19 @@ process, and **3.4 to 4.8 ms** for the 4.1 MB of pixels to cross the pipe. On
 `doc/ISO_32000-2_sponsored_EC3.pdf`, 19.2 MB, page one costs 66.9 and 82.6 ms, most of it the
 document crossing once. ADR 0218.
 
+**And what a document costs the confinement in *address space*, which is a different question and
+a different counter**:
+
+```sh
+cargo run --release -p viewer-confined --example confined_peak -- doc/PDF20_AN001-BPC.pdf
+```
+
+`VmPeak` off the live worker, against the ceiling `RLIMIT_AS` compares it to — the two are the same
+counter, which is why this reads `VmPeak` and not `VmRSS`. It takes any number of documents in a
+row on one worker, and it prints what the *host* was told for one it could not open, which is the
+interesting case: a document past the worker's message budget comes back as a sentence and leaves
+the worker running. ADR 0597.
+
 **And a sidebar's worth of a document read out of the same confinement**, which is what the
 three-hundred-and-eighty-sixth added:
 

@@ -149,8 +149,12 @@ pass.
   native controls rather than take a form as pixels — and a hostile document's draw is stoppable,
   because a cancel a hostile document can decline is not one. **The window does not use it**,
   deliberately: `viewer-ui` is a tier-2 host and this boundary is tier 1, so putting it there is a
-  change of tier and a decision with a number attached rather than a switch. ADRs 0218, 0223,
-  0235, 0241; `doc/todo/34`.
+  change of tier and a decision with a number attached rather than a switch — **and the number
+  exists now** (ADR 0597), so what is left is the tier question rather than the measurement. **A
+  document too large for the ceiling is refused by name instead of killing the worker**, on a budget
+  the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
+  own last line to the host rather than a bare signal number. ADRs 0218, 0223,
+  0235, 0241, 0597; `doc/todo/34`, `doc/todo/15`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the two

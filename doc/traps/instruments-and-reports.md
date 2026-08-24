@@ -331,6 +331,36 @@ different populations and a row that quotes one for the other is stale the day i
 **a census that reaches for the clause when the interpreter is one call away has chosen the weaker
 instrument**, since a report the code already raises can be counted directly.
 
+### 18. A limit a process is under can destroy the channel it reports through
+
+`viewer-confined`'s worker inherited the host's standard error, with a comment saying why: "so that
+a worker that dies says so where the operator can see it". Its confinement sets `RLIMIT_FSIZE` to 0.
+Those two sentences are fine apart and contradictory together — **a limit on writing to files
+applies to whatever the inherited descriptor happens to point at**, and on any host that logs to a
+file that is the worker's own diagnostics.
+
+What it looked like: the same document, the same worker, the same defect.
+
+| the host's standard error is | the host is told | the worker said |
+|---|---|---|
+| a **pipe** | `killed by signal 6` | `memory allocation of 1899996152 bytes failed` |
+| a **file** | `killed by signal 25` | nothing |
+
+Signal 25 is `SIGXFSZ`, so the report names a *file-size* failure for an out-of-memory abort — and
+the round measuring it first read that as a defect in the code it was measuring. Both arms had to be
+run before the pattern was visible at all, and the two arms differ only in how the *measuring
+harness* was invoked (ADR 0597).
+
+Two things generalise, and the second is the one worth carrying:
+
+- **A pipe is not a file**, so `RLIMIT_FSIZE` does not reach it. That is the fix here and it is
+  cheap: pipe the channel, drain it, echo it onward.
+- **Whenever a process is put under a limit, ask what the limit does to the channel that reports
+  the limit being hit.** `RLIMIT_NOFILE` and a seccomp filter have the same shape — a diagnostic
+  path that needs a descriptor or a system call the confinement took away is a diagnosis that
+  arrives as silence, and silence is read as a different failure. `tests/confined.rs`'s
+  `a_confined_worker_cannot_write_a_diagnostic_to_a_file` pins this one on a single write.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
