@@ -1371,11 +1371,36 @@ impl Document {
             .map(|(index, filter)| (filter, self.decode_parms(&stream.dict, index)))
             .collect();
 
-        if let Some(held) = write(&self.decoded).get(&stream.data, &chain, limits.max_stream_len) {
+        self.chain_over(&stream.data, chain, limits)
+    }
+
+    /// Runs one filter chain over one buffer, through [`DecodedStreams`].
+    ///
+    /// **The one place a chain is run, so that the two callers cannot memoise it differently.**
+    /// [`Self::decoded_under`] asks for a stream's whole `/Filter`; [`Self::image_stream`] asks
+    /// for the part of it in front of an image codec, which is the same kind of work over the
+    /// same bytes and was the one filter chain in this crate with no memo at all (ADR 0585).
+    ///
+    /// The chain is passed by value because the memo keeps it: it is half of what identifies a
+    /// decode, and [`DecodedEntry::chain`] compares it on every hit.
+    ///
+    /// **One entry per allocation, and a second chain over the same buffer replaces the first.**
+    /// That is [`DecodedStreams::held`]'s key rather than a decision made here, and no shipped
+    /// path asks both of one stream: an image `XObject`'s bytes reach this by the image route
+    /// and a font program's, an `ICCBased` profile's and a content stream's by the other.
+    /// `pdf_model::thumbnail::significant` builds the one second `Stream` over another's `data`
+    /// and leaves `/Filter` untouched, so its chain is equal and it *shares* the entry.
+    fn chain_over(
+        &self,
+        encoded: &Arc<[u8]>,
+        chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+        limits: Limits,
+    ) -> Result<Decoded, StreamRefusal> {
+        if let Some(held) = write(&self.decoded).get(encoded, &chain, limits.max_stream_len) {
             return held;
         }
 
-        let mut data: Arc<[u8]> = Arc::clone(&stream.data);
+        let mut data: Arc<[u8]> = Arc::clone(encoded);
         // The *first* damage in the chain is the one kept, because it is the one that caused
         // the rest: a stage fed a truncated prefix has no way to end well either, and naming
         // the last stage's complaint would describe the symptom rather than the file.
@@ -1401,11 +1426,11 @@ impl Document {
         // inflating to the bound, so a stream refused on page one is a gibibyte per page
         // without this. ADR 0437.
         if let Some(why) = refused {
-            write(&self.decoded).refuse(&stream.data, chain, &why, limits.max_stream_len);
+            write(&self.decoded).refuse(encoded, chain, &why, limits.max_stream_len);
             return Err(why);
         }
         let decoded = Decoded { data, damage };
-        write(&self.decoded).put(&stream.data, chain, &decoded);
+        write(&self.decoded).put(encoded, chain, &decoded);
         Ok(decoded)
     }
 
@@ -1466,6 +1491,13 @@ impl Document {
     /// has to run first, and a codec handed still-compressed bytes fails in a way that
     /// reads as a broken image rather than as a missing step.
     ///
+    /// **Memoised, through the same table [`Self::decoded_stream_data`] uses**, because this call
+    /// is not made once per image. `pdf_model::content::image` asks it of every `Do` — once for
+    /// each of §7.4.8's, §7.3.8.2's and §7.4.6's three reports, and once more for the samples on a
+    /// raster-cache miss — and a raster cache dies with the page's display list while an image
+    /// drawn on forty pages is one stream. Over the 964-document pdf.js corpus 2420 of 2997 image
+    /// `XObject`s run a filter here, producing 467.7 MB per pass; ADR 0585 has the A/B.
+    ///
     /// # Errors
     ///
     /// Returns `None` when a filter before the codec is unsupported, for the same reason
@@ -1476,25 +1508,60 @@ impl Document {
             return None;
         }
         let filters = self.filter_chain(&stream.dict);
-        let codec_at = filters.len().checked_sub(1).filter(|last| {
-            filters
-                .get(*last)
-                .is_some_and(|name| crate::filter::is_image_codec(name))
-        });
+        let codec_at = Self::codec_position(&filters);
 
-        let mut data: Arc<[u8]> = Arc::clone(&stream.data);
-        for (index, filter) in filters.iter().enumerate() {
-            if Some(index) == codec_at {
-                break;
-            }
-            let parms = self.decode_parms(&stream.dict, index);
-            data = crate::filter::decode_with_parms(filter, &data, parms.as_ref(), self.limits)?;
-        }
+        // The chain in front of the codec, with each stage's own parameters, which is what
+        // identifies this decode to the memo — the same construction `decoded_under` makes,
+        // over a prefix rather than over the whole of `/Filter`.
+        let prefix: Vec<(Vec<u8>, Option<Dictionary>)> = filters
+            .iter()
+            .enumerate()
+            .take(codec_at.unwrap_or(filters.len()))
+            .map(|(index, filter)| (filter.clone(), self.decode_parms(&stream.dict, index)))
+            .collect();
+        // An empty chain is not memoised, for the reason `decoded_under` returns early on one:
+        // there is nothing to remember, and an entry holding a second `Arc` to the bytes it is
+        // keyed by would charge the budget twice for a decode that never ran.
+        let data = if prefix.is_empty() {
+            Arc::clone(&stream.data)
+        } else {
+            self.chain_over(&stream.data, prefix, self.limits)
+                .ok()?
+                .data
+        };
 
         Some(ImageStream {
             codec: codec_at.and_then(|index| filters.get(index).cloned()),
             parms: codec_at.and_then(|index| self.decode_parms(&stream.dict, index)),
             data,
+        })
+    }
+
+    /// Which image codec this stream's `/Filter` ends in, decoding nothing.
+    ///
+    /// [`Self::image_stream`] answers the same question and runs the chain to do it. A caller
+    /// that only wants to know *whether* this is a `DCTDecode` — §7.4.8's frame-dimension report
+    /// is one, §7.4.6's `/Rows` report another — asks this instead and declines before spending
+    /// the decode, which is Table 5 read rather than run.
+    ///
+    /// `None` for a stream whose chain is empty or does not end in one of §7.4's image codecs, in
+    /// which case the decoded bytes *are* the samples.
+    #[must_use]
+    pub fn image_codec(&self, stream: &Stream) -> Option<Vec<u8>> {
+        let filters = self.filter_chain(&stream.dict);
+        Self::codec_position(&filters).and_then(|index| filters.get(index).cloned())
+    }
+
+    /// Where §7.4's image codec sits in a filter chain, which can only be its last entry.
+    ///
+    /// Everything before it is a byte-to-byte transformation that has to run first; a codec
+    /// handed still-compressed bytes fails in a way that reads as a broken image rather than as
+    /// a missing step.
+    fn codec_position(filters: &[Vec<u8>]) -> Option<usize> {
+        filters.len().checked_sub(1).filter(|last| {
+            filters
+                .get(*last)
+                .is_some_and(|name| crate::filter::is_image_codec(name))
         })
     }
 
@@ -2488,6 +2555,99 @@ mod tests {
             "a hit on the address alone would have answered with the first chain's bytes"
         );
         assert_eq!(document.decoded_streams().hits, 0, "neither is the other");
+    }
+
+    /// §7.4's chain in front of an image codec runs once, however often the image is asked for.
+    ///
+    /// `pdf_model::content::image` asks [`Document::image_stream`] several times per `Do` — once
+    /// for each report that is about a codec, and once for the samples — and an image drawn on
+    /// forty pages is one stream. ADR 0585.
+    #[test]
+    fn an_images_chain_in_front_of_its_codec_is_decoded_once() {
+        let document = Document::empty();
+        let encoded: Arc<[u8]> = Arc::from(b"414243>".as_slice());
+        let stream = hex_stream(&encoded, &["ASCIIHexDecode", "DCTDecode"]);
+
+        let first = document.image_stream(&stream).expect("the hex stage runs");
+        let second = document.image_stream(&stream).expect("and again");
+        assert_eq!(&*first.data, b"ABC", "the codec's own bytes, undecoded");
+        assert_eq!(first.codec.as_deref(), Some(&b"DCTDecode"[..]));
+        assert_eq!(first.data, second.data);
+
+        let held = document.decoded_streams();
+        assert_eq!((held.hits, held.misses), (1, 1));
+    }
+
+    /// An image whose codec is its whole `/Filter` puts nothing in the memo.
+    ///
+    /// There is no chain in front of the codec, so nothing ran and there is nothing to remember;
+    /// an entry would hold a second `Arc` to the bytes it is keyed by and charge the budget twice.
+    #[test]
+    fn an_image_with_nothing_in_front_of_its_codec_holds_nothing() {
+        let document = Document::empty();
+        let encoded: Arc<[u8]> = Arc::from(b"\xff\xd8\xff".as_slice());
+        let stream = hex_stream(&encoded, &["DCTDecode"]);
+
+        for _ in 0..3 {
+            let image = document.image_stream(&stream).expect("no stage to refuse");
+            assert_eq!(&*image.data, b"\xff\xd8\xff");
+        }
+
+        let held = document.decoded_streams();
+        assert_eq!((held.hits, held.misses, held.bytes), (0, 0, 0));
+    }
+
+    /// One buffer read as an image and as an ordinary stream is two decodes, not one.
+    ///
+    /// The image route runs `/Filter` up to the codec and the other route runs all of it, so the
+    /// chains differ and [`DecodedStreams::get`] must miss. Answering either from the other's
+    /// entry would hand a caller the wrong bytes — a codec's input where its output was asked
+    /// for, or the reverse.
+    #[test]
+    fn an_images_prefix_is_not_the_whole_chains_answer() {
+        let document = Document::empty();
+        let encoded: Arc<[u8]> = Arc::from(b"414243>".as_slice());
+        let stream = hex_stream(&encoded, &["ASCIIHexDecode", "DCTDecode"]);
+
+        assert_eq!(
+            &*document.image_stream(&stream).expect("the hex stage").data,
+            b"ABC"
+        );
+        // §7.4 has no `DCTDecode` outside an image, so the whole chain refuses rather than
+        // answering with the image route's bytes.
+        assert!(matches!(
+            document.decoded_stream_data_reported(&stream),
+            Err(StreamRefusal::Filter { .. })
+        ));
+        assert_eq!(document.decoded_streams().hits, 0, "neither is the other");
+    }
+
+    /// Table 5's codec is readable without running a filter, which is what makes the three
+    /// reports that are about one codec cost nothing on every other image.
+    #[test]
+    fn an_images_codec_is_read_rather_than_run() {
+        let document = Document::empty();
+        let encoded: Arc<[u8]> = Arc::from(b"414243>".as_slice());
+
+        let coded = hex_stream(&encoded, &["ASCIIHexDecode", "DCTDecode"]);
+        assert_eq!(
+            document.image_codec(&coded).as_deref(),
+            Some(&b"DCTDecode"[..])
+        );
+
+        let plain = hex_stream(&encoded, &["ASCIIHexDecode"]);
+        assert_eq!(
+            document.image_codec(&plain),
+            None,
+            "the samples are the bytes"
+        );
+
+        let held = document.decoded_streams();
+        assert_eq!(
+            (held.hits, held.misses),
+            (0, 0),
+            "asking which codec must not decode anything"
+        );
     }
 
     /// The key is an address, and an entry holds the allocation that address names.

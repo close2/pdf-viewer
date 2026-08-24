@@ -75,14 +75,43 @@ The witness this file asked for is that shape: Bomb B inside a form `XObject` th
 draw, hex-wrapped so no window can take it. One cold sweep of it went from **5.92–6.12 s to
 2.76–3.23 ms**, three runs an arm, alternating.
 
-## What is left, and it is a bound rather than a design
+## The image route joined it, and the reason it was outside was half right
+
+**Taken in the seven-hundred-and-twelfth session; ADR 0585 has the measurement and the argument.**
+This file used to say `image_stream` decoded "outside this one by construction (a codec's bytes are
+not a filter chain's)". That is true about the codec and false about everything Table 5 lets
+`/Filter` put in *front* of it — and for a codec-less image, which is most of them, "in front of it"
+is the whole chain over the samples themselves. 2420 of the pdf.js corpus's 2997 image `XObject`s
+run a filter there (`crates/pdf-model/examples/image_prefix_census.rs` is the instrument).
+
+`Document::chain_over` is now the one place a §7.4 chain is run and both routes take it, so the
+image route gained no key, no budget and no constant of its own. What it did gain, and what the
+price re-derivation found by reading rather than profiling, is that **one `Do` asked `image_stream`
+four times** — three reports that are each about one codec, decoding the chain before asking which
+codec it was, plus the samples. `Document::image_codec` reads Table 5 instead, and the three decline
+before spending anything.
+
+The lesson this file keeps from it: **a memo and the redundant calls it hides are two different
+defects, and the second is the cheaper one to find.** −60.5% on twenty pages that repeat one image;
+−2.35% of a thousand-page sweep from the reordering alone, against −2.06% from the memo alone,
+because a document that repeats no image pays the memo's displacement and collects nothing.
+
+## What is left, and it belongs to `doc/todo/14` rather than here
 
 **A refusal whose *encoded* bytes do not fit the budget is still re-run per read**, because the
 entry pins them and the cache declines what it cannot hold. At `DECODED_BUDGET` that is a stream
-above 4 MiB of encoded data — for `FlateDecode` a bomb far larger than one needs to be, since 2.5 MB
-of file already commands the gibibyte. Whoever wants it owes a document that reaches it and a reason
-the budget should hold what it holds.
+above 4 MiB of encoded data.
 
-**And `image_stream` has no memo at all**, decoding outside this one by construction (a codec's
-bytes are not a filter chain's), so an image bomb is refused once per read of the image. That is a
-different cache with a different key and is not this item.
+**The document that reaches it exists and is one hex digit away from ADR 0437's own witness**:
+`ASCIIHexDecode` costs an author two bytes per one, so a bomb large enough to command the gibibyte
+`max_stream_len` allows is already within a factor of two of the budget, and padding is free. Twenty
+pages drawing one such form `XObject`: **257 µs under the budget, 6.93 s over it — about 25 000×**.
+The generator is in `doc/history/712-…`.
+
+**ADR 0586 declined the construction this file asked for and says why**: charging a refusal nothing
+loses the ceiling that is this cache's whole shape, letting one entry exceed the budget makes the
+bomb evict everything around it, and keying on a digest trades a decode for a hash and a collision
+for content dropped in silence. The cost is better removed than remembered — a `Pump` that accepts a
+*chain* whose every stage is pumpable spends kilobytes on every read rather than on every read after
+the first, and §7.4.2's `ASCIIHexDecode` "produces one byte per two" so it cannot inflate at all.
+**That is `doc/todo/14`, and this line is now a reason to rank it rather than an item here.**

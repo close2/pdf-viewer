@@ -2779,10 +2779,16 @@ pub fn unapplied_mask(
 pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String> {
     let width = positive_integer(document, &stream.dict, "Width").ok()?;
     let height = positive_integer(document, &stream.dict, "Height").ok()?;
-    let source = document.image_stream(stream)?;
-    if !matches!(source.codec.as_deref(), Some(b"DCTDecode" | b"DCT")) {
+    // Table 5 rather than the decode: this report is about `DCTDecode` alone, and asking
+    // `image_stream` first would run every filter in front of the codec for the sole purpose of
+    // discovering that the codec is somebody else's. ADR 0585.
+    if !matches!(
+        document.image_codec(stream).as_deref(),
+        Some(b"DCTDecode" | b"DCT")
+    ) {
         return None;
     }
+    let source = document.image_stream(stream)?;
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
         zune_jpeg::zune_core::bytestream::ZCursor::new(&*source.data),
         jpeg_options(),
@@ -2831,10 +2837,12 @@ pub fn short_of_its_grid(
     let dict = &stream.dict;
     let width = positive_integer(document, dict, "Width").ok()? as usize;
     let height = positive_integer(document, dict, "Height").ok()? as usize;
-    let source = document.image_stream(stream)?;
-    if source.codec.is_some() {
+    // The codec first, out of Table 5, because this arithmetic applies to no stream that has
+    // one — and where there is one the decode below would be spent only to find that out.
+    if document.image_codec(stream).is_some() {
         return None;
     }
+    let source = document.image_stream(stream)?;
 
     // §8.9.6.2: a stencil mask is one bit per sample and carries no colour space, so its
     // arithmetic is fixed rather than read.
@@ -2905,10 +2913,15 @@ pub fn short_of_its_grid(
 #[must_use]
 pub fn ccitt_bound_below_its_height(document: &Document, stream: &Stream) -> Option<String> {
     let height = positive_integer(document, &stream.dict, "Height").ok()?;
-    let source = document.image_stream(stream)?;
-    if !matches!(source.codec.as_deref(), Some(b"CCITTFaxDecode" | b"CCF")) {
+    // Table 5 rather than the decode, for [`contradicted_frame`]'s reason: this report is about
+    // `CCITTFaxDecode` and nothing else.
+    if !matches!(
+        document.image_codec(stream).as_deref(),
+        Some(b"CCITTFaxDecode" | b"CCF")
+    ) {
         return None;
     }
+    let source = document.image_stream(stream)?;
     let parms = source.parms.as_ref()?;
     if !matches!(
         document.get_key(parms, "EndOfBlock"),
