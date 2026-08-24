@@ -18,6 +18,21 @@ can and cannot open a window on, and where the build lands.
   opaque for them where every neighbour explains itself. The argument survives in the ADR, but a
   reader of the log should not need to know that. Before pushing a pick, `git log -1 --format=%b`
   must print the body you expect.
+- **The *process table* is shared between parallel rounds, and `pkill -f` matches on the path.**
+  Every worktree lives under `…/pdf-viewer/.claude/worktrees/rNNN`, so a round running
+  `pkill -f pdf-viewer` to clean up its own windows matches **its own shell, and its neighbours'** —
+  every command line a sibling round is running contains the project's name because its working
+  directory does. The six-hundred-and-fourth session lost four commands to this before it saw the
+  pattern; the six-hundred-and-fifth saw three `cargo build --release` invocations return **exit
+  144** while producing every artifact correctly and recorded it as a harness artefact under load,
+  which was reasonable and wrong; and two of a third round's wait-loops died the same way.
+
+  **`pkill -x <exact-name>`**, or `pkill -f` against a pattern that cannot appear in a path — and if
+  a command returns 144 with its output intact, suspect a neighbour before suspecting the harness.
+  It is the same shape as the stash and the scratchpad below: **a namespace the machine gives every
+  round by one name is a namespace two rounds will collide in.** This one is worse than those two
+  because the victim is a *sibling*, so the round that pays is not the round that erred.
+
 - **The scratchpad directory is shared between parallel rounds too, and it is not per-session.**
   A round writing `gates.log` there has it overwritten by a neighbour writing the same name, mid-run
   — which happened in the six-hundred-and-fifty-sixth and cost three gates a re-run under a
