@@ -99,16 +99,22 @@ fn keep_anti_alias(anti_alias: bool, expressible: bool) -> bool {
 /// and to which rectangles, and it is the shared crate's answer rather than this backend's: trap
 /// 2's rule is that a decision either backend can make alone is a decision neither has made.
 ///
-/// # Why [`Exact::Several`] carries an invariant rather than merely a list
+/// # Why the two multi-rectangle variants are different types rather than one list
 ///
 /// §11.6.2 makes a path's subpaths portions of **one object** and forbids compositing portions
 /// with one another. Drawing them one at a time composites nothing only while no device pixel
-/// receives two of them, which is `pdf_render::share_a_device_pixel`'s question — so this variant
-/// may be built only from rectangles that answer it `false`, and every consumer here is written on
-/// that basis: [`mask_rectangle`] takes the larger of what it writes and what is there, which is
-/// the covered area only where no pixel is written twice. Where two portions *do* share a pixel
-/// the mark keeps the one supersampled conversion that accumulates the whole path, which honours
-/// the clause already and only measures it to a quarter. ADR 0583.
+/// receives two of them, which is `pdf_render::share_a_device_pixel`'s question — so
+/// [`Exact::Several`] may be built only from rectangles that answer it `false`, and every consumer
+/// here is written on that basis: [`mask_rectangle`] takes the larger of what it writes and what is
+/// there, which is the covered area only where no pixel is written twice. ADR 0583.
+///
+/// [`Exact::Shared`] is the other half, and it is a variant rather than a flag because the two
+/// admit *different constructions* rather than the same one under a condition. Its portions may not
+/// be composited with the backdrop separately at all, so it is drawn by summing their areas into
+/// one coverage buffer and blitting the paint through it once — [`intersected`], which every
+/// consumer reaches through, and never [`tiny_skia::PixmapMut::fill_rect`] per rectangle. Where
+/// that construction declines the mark falls back to the single supersampled conversion, which
+/// honours the clause already and only measures it to a quarter. ADR 0590.
 #[derive(Debug, Default, Clone)]
 pub(crate) enum Exact {
     /// The mark is not a rectangle, or nobody asked.
@@ -118,6 +124,9 @@ pub(crate) enum Exact {
     One(tiny_skia::Rect),
     /// Several, whose device pixel footprints are pairwise disjoint — see the type's comment.
     Several(Vec<tiny_skia::Rect>),
+    /// Several with disjoint interiors, two of which fall in one device pixel — see the type's
+    /// comment.
+    Shared(Vec<tiny_skia::Rect>),
 }
 
 impl Exact {
@@ -126,7 +135,7 @@ impl Exact {
         let (one, several) = match self {
             Self::Unknown => (None, [].as_slice()),
             Self::One(rect) => (Some(*rect), [].as_slice()),
-            Self::Several(rects) => (None, rects.as_slice()),
+            Self::Several(rects) | Self::Shared(rects) => (None, rects.as_slice()),
         };
         one.into_iter().chain(several.iter().copied())
     }
@@ -134,6 +143,14 @@ impl Exact {
     /// Whether `pdf_render::edge` answered at all for this mark.
     pub(crate) fn is_some(&self) -> bool {
         !matches!(self, Self::Unknown)
+    }
+
+    /// Whether two portions of this mark fall in one device pixel — ISO 32000-2 §11.6.2.
+    ///
+    /// The condition under which the portions may not be composited with the backdrop one at a
+    /// time, so that the whole mark is one composition however it is clipped.
+    fn portions_share_a_pixel(&self) -> bool {
+        matches!(self, Self::Shared(_))
     }
 
     /// Whether the closed form applies here at all: rectangles were found and every one of them
@@ -168,10 +185,18 @@ impl Exact {
 /// [`mask_intersect`] is the same distinction one step earlier, where two clips meet each other;
 /// this one is where a clip meets the mark. ADR 0280 took the first, ADR 0355 the second for a
 /// clip alone, and ADR 0363 the second for a clip beside a soft mask.
+/// **Every variant carries the scratch buffer**, including the two that mask nothing at all, and
+/// that is §11.6.2 rather than untidiness: a mark whose own portions share a device pixel is
+/// composed in a buffer whether or not anything clips it, so the buffer cannot belong to the
+/// clip's presence. [`Clip::scratch`] is what the composition asks, and the variant is what says
+/// which factors it has to fold in.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Clip<'a> {
     /// Nothing masks the mark.
-    Unclipped,
+    Unclipped {
+        /// Where a mark's own coverage is built when [`Exact::Shared`] asks for one.
+        scratch: &'a Scratch,
+    },
     /// §10.7.4's clipping region, on its own, with the buffer the composition needs.
     Region {
         /// The region's coverage.
@@ -181,7 +206,12 @@ pub(crate) enum Clip<'a> {
     },
     /// A coverage that multiplies the mark's: §11.6.5's soft mask on its own, where there is
     /// no set to intersect and Table 136's `fₘ` is the whole of what masks the mark.
-    Value(&'a tiny_skia::Mask),
+    Value {
+        /// The soft mask's own values.
+        value: &'a tiny_skia::Mask,
+        /// Where a mark's own coverage is built when [`Exact::Shared`] asks for one.
+        scratch: &'a Scratch,
+    },
     /// §10.7.4's set and §11.6.5's value together, the product kept beside the value it was
     /// made from so that the mark can meet each as what it is.
     Both {
@@ -199,21 +229,44 @@ impl<'a> Clip<'a> {
     /// The mask itself, for the callers that hand one to `tiny-skia` unexamined.
     pub(crate) fn mask(self) -> Option<&'a tiny_skia::Mask> {
         match self {
-            Clip::Unclipped => None,
-            Clip::Region { mask, .. } | Clip::Value(mask) | Clip::Both { product: mask, .. } => {
-                Some(mask)
-            }
+            Clip::Unclipped { .. } => None,
+            Clip::Region { mask, .. }
+            | Clip::Value { value: mask, .. }
+            | Clip::Both { product: mask, .. } => Some(mask),
+        }
+    }
+
+    /// Where a mark's own coverage is built before it meets anything.
+    fn scratch(self) -> &'a Scratch {
+        match self {
+            Clip::Unclipped { scratch }
+            | Clip::Region { scratch, .. }
+            | Clip::Value { scratch, .. }
+            | Clip::Both { scratch, .. } => scratch,
+        }
+    }
+
+    /// The two factors a mark's own coverage is composed with: §10.7.4's set `C · S`, which is
+    /// met by `min`, and §11.6.5's value `S` alone, which multiplies.
+    ///
+    /// [`Clip::Region`] is the case `S ≡ 1`: a clip with no soft mask beside it, where the
+    /// value that multiplies the intersection is one everywhere and the arithmetic below
+    /// reduces to `min(M, C)`. [`Clip::Value`] is the reverse — a value with no set to
+    /// intersect — and it is the one an ordinary mark can leave to the library, because a
+    /// product is what §11.3.7.2 asks for there.
+    fn factors(self) -> (Option<&'a tiny_skia::Mask>, Option<&'a [u8]>) {
+        match self {
+            Clip::Unclipped { .. } => (None, None),
+            Clip::Region { mask, .. } => (Some(mask), None),
+            Clip::Value { value, .. } => (None, Some(value.data())),
+            Clip::Both { product, value, .. } => (Some(product), Some(value)),
         }
     }
 
     /// The composition's three inputs, or `None` where there is no set to intersect with.
-    ///
-    /// [`Clip::Region`] is the case `S ≡ 1`: a clip with no soft mask beside it, where the
-    /// value that multiplies the intersection is one everywhere and the arithmetic below
-    /// reduces to `min(M, C)`.
     fn composable(self) -> Option<(&'a tiny_skia::Mask, Option<&'a [u8]>, &'a Scratch)> {
         match self {
-            Clip::Unclipped | Clip::Value(_) => None,
+            Clip::Unclipped { .. } | Clip::Value { .. } => None,
             Clip::Region { mask, scratch } => Some((mask, None, scratch)),
             Clip::Both {
                 product,
@@ -254,16 +307,11 @@ pub(crate) fn fill(
 ) {
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
-    if let Some(inputs) = clip.composable()
-        && intersected(
-            pixmap,
-            path,
-            &paint,
-            fill_rule,
-            (at, &Exact::Unknown),
-            inputs,
-        )
-    {
+    // No guard in front of the call, and that is measured rather than assumed: `composable().is_some()`
+    // here is exactly [`intersected`]'s own first two declines for an [`Exact::Unknown`] mark, and
+    // adding it costs 13 000 instructions on ISO 32000-2's page 101 rather than saving any. One
+    // call frame per fill is below what a page of text can measure.
+    if intersected(pixmap, path, &paint, fill_rule, (at, &Exact::Unknown), clip) {
         return;
     }
     pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
@@ -287,6 +335,16 @@ pub(crate) fn fill(
 /// instead of to a quarter. The fill rule stops mattering for the same reason the rectangles are
 /// disjoint: every point lies in at most one of them, so `Winding` and `EvenOdd` select one set.
 /// ADR 0583.
+///
+/// # And where they *do* share a pixel, the loop is the thing the clause forbids
+///
+/// [`Exact::Shared`] never reaches that loop. Its portions' areas are summed into one coverage
+/// buffer by [`mask_shared_rectangles`] and the paint is blitted through it once, which is
+/// [`intersected`] — one composition with the backdrop for the whole object, at each portion's own
+/// exact area. The two requirements are independent and both are met there: §11.6.2 by the single
+/// blit, §10.7.4's third sentence by the closed form. Where [`intersected`] declines, the mark
+/// falls back to the one supersampled conversion rather than to the loop, because the loop would
+/// composite the portions with one another. ADR 0590.
 ///
 /// # Why a rectangle gets its own call, when `fill_path` would draw it
 ///
@@ -341,19 +399,17 @@ pub(crate) fn fill_rectangles(
 ) {
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, exact.usable());
-    if let Some(inputs) = clip.composable()
-        && intersected(
-            pixmap,
-            path,
-            &paint,
-            tiny_skia::FillRule::Winding,
-            (at, exact),
-            inputs,
-        )
-    {
+    if intersected(
+        pixmap,
+        path,
+        &paint,
+        tiny_skia::FillRule::Winding,
+        (at, exact),
+        clip,
+    ) {
         return;
     }
-    if !paint.anti_alias {
+    if !paint.anti_alias || exact.portions_share_a_pixel() {
         pixmap.fill_path(path, &paint, tiny_skia::FillRule::Winding, at, clip.mask());
         return;
     }
@@ -368,15 +424,32 @@ pub(crate) fn fill_rectangles(
     }
 }
 
-/// Draws `path` with its own coverage meeting `admitted` by `min`, ISO 32000-2 §10.7.4.
+/// Draws `path` through a coverage buffer of this backend's own, ISO 32000-2 §10.7.4 and §11.6.2.
 ///
-/// `admitted` is `C · S` — the clipping region times whatever soft mask stands beside it — and
-/// `value` is that `S` alone, or `None` where there is none and `S ≡ 1`. What is composed is
-/// §8.5.4's effective shape times §11.3.7.2's mask shape.
+/// Its coverage meets the clip's `C · S` by `min` and is multiplied by `S` alone, where those
+/// exist: what is composed is §8.5.4's effective shape times §11.3.7.2's mask shape.
 ///
 /// Returns `false` where it declined, which leaves the caller's ordinary draw to run: this is a
 /// substitution for one composition rather than a second scan converter, and everything it
 /// cannot state it hands back rather than approximating.
+///
+/// # Two clauses ask for this and either one on its own is enough
+///
+/// **§8.5.4's clip meeting a mark**, which is what it was built for (ADR 0355): the library
+/// multiplies the mask into the mark's coverage where the clause intersects two sets, so the mark's
+/// own coverage has to exist somewhere the composition can reach before the paint is laid down.
+/// That reason needs a clipping *region* — [`Clip::Region`] or [`Clip::Both`] — and it is declined
+/// wherever the product already is the intersection.
+///
+/// **§11.6.2's portions of one object**, which is [`Exact::Shared`] (ADR 0590): a path stating
+/// several rectangles two of which fall in one device pixel may not have those portions composited
+/// with one another, so the whole object is one blit whatever masks it. That reason needs no clip
+/// at all — an unclipped mark of this shape comes here too — and it is **not** declined by
+/// [`is_a_set`], because the buffer is what the mark itself needs rather than what the clip's
+/// arithmetic needs.
+///
+/// Where both hold, one buffer answers both: the portions are summed into it and the clip is
+/// composed with the sum.
 ///
 /// # Why a mark needs this and `tiny_skia::PixmapMut::fill_path` cannot give it
 ///
@@ -434,19 +507,30 @@ fn intersected(
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
     (at, exact): (tiny_skia::Transform, &Exact),
-    (admitted, value, scratch): (&tiny_skia::Mask, Option<&[u8]>, &Scratch),
+    clip: Clip<'_>,
 ) -> bool {
     if !crate::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
         return false;
     }
-    // `tiny-skia` draws nothing at all through a mask of another size, so a mismatch is left to
-    // the ordinary call, which answers it the same way it does today.
-    if admitted.width() != pixmap.width() || admitted.height() != pixmap.height() {
+    let portions = exact.portions_share_a_pixel();
+    let (admitted, value) = clip.factors();
+    // Neither clause is asking: there is no set to intersect and the mark is not several portions
+    // in one pixel. A soft mask alone is in here, and correctly — §11.3.7.2 asks for the product
+    // the library already applies.
+    if admitted.is_none() && !portions {
         return false;
     }
-    // The soft mask's rows are laid out over the product's, so a length that disagrees is a
+    // `tiny-skia` draws nothing at all through a mask of another size, so a mismatch is left to
+    // the ordinary call, which answers it the same way it does today.
+    if admitted.is_some_and(|admitted| {
+        admitted.width() != pixmap.width() || admitted.height() != pixmap.height()
+    }) {
+        return false;
+    }
+    // A soft mask's rows are laid out over the surface's, so a length that disagrees is a
     // pairing this cannot make; declining draws the mark the way it was drawn before.
-    if value.is_some_and(|value| value.len() != admitted.data().len()) {
+    let samples = (pixmap.width() as usize).saturating_mul(pixmap.height() as usize);
+    if value.is_some_and(|value| value.len() != samples) {
         return false;
     }
     let Some(reach) = reached_pixels(path, at, pixmap.width(), pixmap.height()) else {
@@ -455,9 +539,15 @@ fn intersected(
     let Some(rect) = reach.rect() else {
         return false;
     };
-    if is_a_set(admitted, value, reach, pixmap.width()) {
+    // Where the clip is already a set of pixels the product *is* the intersection, so the ordinary
+    // draw carries the clause out and the cheaper path is also the correct one — unless §11.6.2 is
+    // what wants the buffer, in which case no property of the clip can answer for it.
+    if !portions
+        && admitted.is_some_and(|admitted| is_a_set(admitted, value, reach, pixmap.width()))
+    {
         return false;
     }
+    let scratch = clip.scratch();
     let Ok(mut held) = scratch.coverage.try_borrow_mut() else {
         // A fill cannot nest inside another fill, so this is unreachable; declining is the
         // answer that draws the mark anyway if it ever stops being.
@@ -484,30 +574,46 @@ fn intersected(
         }
     }
     mask_fill(coverage, path, fill_rule, paint.anti_alias, (at, exact));
-    let bound = admitted.data();
+    let bound = admitted.map(tiny_skia::Mask::data);
     let mark = coverage.data_mut();
     for row in reach.rows() {
         let (from, until) = reach.span(row, stride);
-        let (Some(mark), Some(bound)) = (mark.get_mut(from..until), bound.get(from..until)) else {
+        let Some(mark) = mark.get_mut(from..until) else {
             continue;
+        };
+        // Unreachable for either factor: both were checked against the surface's own dimensions
+        // above and this span was taken from those. Skipping the row rather than composing
+        // without a factor keeps the mark from being painted at more than the mask admits.
+        let bound = match bound {
+            None => None,
+            Some(bound) => match bound.get(from..until) {
+                Some(row) => Some(row),
+                None => continue,
+            },
         };
         let value = match value {
             None => None,
-            // Unreachable: `value` is `admitted`'s own length, checked above, and this span
-            // was just taken from that. Skipping the row rather than composing without the
-            // value keeps the mark from being painted at more than the mask admits.
             Some(value) => match value.get(from..until) {
                 Some(row) => Some(row),
                 None => continue,
             },
         };
-        match value {
-            None => {
+        // Four arms rather than a pair of `unwrap_or(255)`s per pixel, because the composition is
+        // one byte of arithmetic and a branch inside the loop would be most of it. The mark alone
+        // is §11.6.2's case: its portions were summed in the buffer above and nothing masks them.
+        match (bound, value) {
+            (None, None) => {}
+            (Some(bound), None) => {
                 for (mark, &bound) in mark.iter_mut().zip(bound) {
                     *mark = (*mark).min(bound);
                 }
             }
-            Some(value) => {
+            (None, Some(value)) => {
+                for (mark, &value) in mark.iter_mut().zip(value) {
+                    *mark = scaled(*mark, value);
+                }
+            }
+            (Some(bound), Some(value)) => {
                 for ((mark, &bound), &value) in mark.iter_mut().zip(bound).zip(value) {
                     *mark = scaled(*mark, value).min(bound);
                 }
@@ -793,6 +899,9 @@ pub(crate) fn stroke(
 /// the identity `S ∩ C = S` breaks**: a mark painted at its exact area under a region measured to a
 /// quarter is drawn at the quarter, which is 26 levels of 255 at a boundary pixel and is what
 /// `render-cpu/tests/clip_intersection.rs` measures. ADR 0476.
+///
+/// [`Exact::Shared`] goes to [`mask_shared_rectangles`] instead, because a pixel two portions reach
+/// is covered by their *sum* and taking the larger of the two would understate it.
 pub(crate) fn mask_fill(
     mask: &mut tiny_skia::Mask,
     path: &tiny_skia::Path,
@@ -802,12 +911,108 @@ pub(crate) fn mask_fill(
 ) {
     let anti_alias = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
     if anti_alias && exact.usable() {
-        for rect in exact.iter() {
-            mask_rectangle(mask, rect);
+        match exact {
+            Exact::Shared(rectangles) => mask_shared_rectangles(mask, rectangles),
+            _ => {
+                for rect in exact.iter() {
+                    mask_rectangle(mask, rect);
+                }
+            }
         }
         return;
     }
     mask.fill_path(path, fill_rule, anti_alias, at);
+}
+
+/// Writes the coverage of portions two of which fall in one device pixel — ISO 32000-2 §11.6.2
+/// and §10.7.4.
+///
+/// # What a shared pixel is covered by, and why it is a sum
+///
+/// The rectangles are portions of **one** object, so the mark covers a pixel by the area of their
+/// union there — not by the union function §11.3.7.3 applies to two *objects*, which is what
+/// compositing them one at a time would perform and what §11.6.2 forbids. `pdf_render::edge`
+/// guarantees their interiors are pairwise disjoint, so the area of the union is the **sum** of the
+/// areas and no inclusion-exclusion term survives. It is capped at the whole pixel, which the
+/// disjointness makes arithmetic rather than a clamp against a mistake.
+///
+/// # Two passes, because a sum of two roundings is not the rounding of a sum
+///
+/// The first pass writes each portion at its own exact area, which is the whole answer for every
+/// pixel only one of them reaches — the great majority, since two portions meet along a boundary
+/// and part everywhere else — and it keeps [`mask_rectangle`]'s interior *run*, without which
+/// asking the closed form per pixel costs a third of a page's rasterisation (ADR 0476).
+///
+/// The second pass revisits exactly the pixels two footprints have in common and writes the sum
+/// there, computed in one addition and rounded once. Accumulating the first pass's rounded levels
+/// instead would be a level or two out per pixel, and the whole subject of this construction is a
+/// coverage that is not rounded away; the pixels it costs anything on are bounded by the portions'
+/// shared boundary rather than by their area.
+///
+/// The pairwise walk is `pdf_render::share_a_device_pixel`'s own question asked a second time, and
+/// it is quadratic in a count `pdf_render::RECTANGLES_PER_PATH` bounds.
+fn mask_shared_rectangles(mask: &mut tiny_skia::Mask, rectangles: &[tiny_skia::Rect]) {
+    for rect in rectangles {
+        mask_rectangle(mask, *rect);
+    }
+    for (index, rect) in rectangles.iter().enumerate() {
+        for other in rectangles
+            .get(index.saturating_add(1)..)
+            .unwrap_or_default()
+        {
+            mask_summed_pixels(mask, rectangles, (*rect, *other));
+        }
+    }
+}
+
+/// Writes every portion's total coverage into the whole device pixels `a` and `b` both reach.
+///
+/// Every portion's and not only these two: a third can reach the same pixel, and the sum is the
+/// answer for all of them at once. Writing it rather than adding to what is there is what makes it
+/// one rounding, and taking the larger of the two keeps [`mask_rectangle`]'s "on top of existing
+/// data" contract — the sum is at least as large as any single portion's, so the two agree.
+fn mask_summed_pixels(
+    mask: &mut tiny_skia::Mask,
+    rectangles: &[tiny_skia::Rect],
+    (a, b): (tiny_skia::Rect, tiny_skia::Rect),
+) {
+    let (width, height) = (mask.width(), mask.height());
+    let stride = width as usize;
+    let left = clamped(a.left().floor().max(b.left().floor()), width) as usize;
+    let right = clamped(a.right().ceil().min(b.right().ceil()), width) as usize;
+    let top = clamped(a.top().floor().max(b.top().floor()), height) as usize;
+    let bottom = clamped(a.bottom().ceil().min(b.bottom().ceil()), height) as usize;
+    if left >= right || top >= bottom {
+        return;
+    }
+    for row in top..bottom {
+        for column in left..right {
+            let covered: f32 = rectangles
+                .iter()
+                .map(|rect| {
+                    pdf_render::rectangle_coverage(area_of(*rect), f32_of(column), f32_of(row))
+                })
+                .sum();
+            if covered <= 0.0 {
+                continue;
+            }
+            let level = level_of(pdf_render::expressible_coverage(covered.min(1.0)));
+            if let Some(byte) = mask
+                .data_mut()
+                .get_mut(row.saturating_mul(stride).saturating_add(column))
+            {
+                *byte = (*byte).max(level);
+            }
+        }
+    }
+}
+
+/// The same rectangle as `pdf_render::edge` states one, which is what the closed form takes.
+fn area_of(rect: tiny_skia::Rect) -> pdf_render::Rect {
+    pdf_render::Rect::from_corners(
+        pdf_render::Point::new(rect.left(), rect.top()),
+        pdf_render::Point::new(rect.right(), rect.bottom()),
+    )
 }
 
 /// Writes an axis-aligned rectangle's own coverage into `mask` — ISO 32000-2 §10.7.4.
@@ -846,10 +1051,7 @@ fn mask_rectangle(mask: &mut tiny_skia::Mask, rect: tiny_skia::Rect) {
     if left >= right || top >= bottom {
         return;
     }
-    let area = pdf_render::Rect::from_corners(
-        pdf_render::Point::new(rect.left(), rect.top()),
-        pdf_render::Point::new(rect.right(), rect.bottom()),
-    );
+    let area = area_of(rect);
     // The columns whose overlap is a whole pixel, which is where the run goes. Both boundary
     // columns are outside it, whether or not their own overlap happens to be whole.
     let inner =
@@ -1048,6 +1250,138 @@ mod tests {
         );
     }
 
+    /// The mask two portions of one path state, through [`Exact::Shared`]'s construction.
+    fn shared(portions: [(f32, f32, f32, f32); 2]) -> Vec<u8> {
+        let mut builder = tiny_skia::PathBuilder::new();
+        let mut exact = Vec::new();
+        for (left, top, right, bottom) in portions {
+            let rect = tiny_skia::Rect::from_ltrb(left, top, right, bottom)
+                .expect("a rectangle with area");
+            builder.push_rect(rect);
+            exact.push(rect);
+        }
+        let path = builder.finish().expect("two rectangles");
+        let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
+        super::mask_fill(
+            &mut mask,
+            &path,
+            tiny_skia::FillRule::Winding,
+            true,
+            (
+                tiny_skia::Transform::identity(),
+                &Exact::Shared(std::mem::take(&mut exact)),
+            ),
+        );
+        mask.data().to_vec()
+    }
+
+    /// A pixel two portions of one object reach is covered by their **sum** — ISO 32000-2 §11.6.2.
+    ///
+    /// The two are portions of one object, so what covers the pixel is the area of their union;
+    /// `pdf_render::edge` makes their interiors disjoint, so that area adds. Compositing them one
+    /// at a time would apply §11.3.7.3's union function instead — the clause the same sentence
+    /// forbids reaching for here — and taking the larger of the two would simply lose one.
+    ///
+    /// **The expected value discriminates all three constructions and the rounding as well.** Each
+    /// portion covers device row 0 by 0.3 and the object covers it by 0.6: `0.6 × 255` is 153,
+    /// where the two portions' own rounded levels sum to `77 + 77 = 154`, the larger of them is 77,
+    /// and §11.3.7.3's union of the two would be `1 − 0.7 · 0.7 = 0.51`, or 130.
+    #[test]
+    fn two_portions_in_one_pixel_are_summed_and_rounded_once() {
+        let mask = shared([(1.0, 0.0, 5.0, 0.3), (1.0, 0.3, 5.0, 0.6)]);
+        assert_eq!(
+            mask.get(2).copied(),
+            Some(153),
+            "device row 0 of an object covering it 0.6: {mask:?}"
+        );
+    }
+
+    /// A pixel only one portion reaches keeps that portion's own area, which is the first pass on
+    /// its own — ISO 32000-2 §10.7.4.
+    ///
+    /// The two portions share device column 3, where the seam at x = 3.4 falls, and no other: the
+    /// left one covers column 1 whole and 0.4 of column 3, the right one 0.6 of column 3 and column
+    /// 5 whole. So the shared column is the object's own whole pixel and the two ends are ordinary
+    /// edges, in one raster.
+    #[test]
+    fn a_pixel_one_portion_reaches_keeps_that_portions_area() {
+        let mask = shared([(1.0, 0.0, 3.4, 1.0), (3.4, 0.0, 6.25, 1.0)]);
+        assert_eq!(
+            mask.get(1).copied(),
+            Some(255),
+            "the left portion's interior"
+        );
+        assert_eq!(mask.get(3).copied(), Some(255), "the seam, covered whole");
+        assert_eq!(
+            mask.get(6).copied(),
+            Some(64),
+            "the right portion's own edge, 0.25 of its pixel: {mask:?}"
+        );
+    }
+
+    /// The alpha of the first row of a pixmap two portions of one path were filled onto.
+    fn shared_fill(portions: [(f32, f32, f32, f32); 2], clip: super::Clip<'_>) -> Vec<u8> {
+        let mut builder = tiny_skia::PathBuilder::new();
+        let mut exact = Vec::new();
+        for (left, top, right, bottom) in portions {
+            let rect = tiny_skia::Rect::from_ltrb(left, top, right, bottom)
+                .expect("a rectangle with area");
+            builder.push_rect(rect);
+            exact.push(rect);
+        }
+        let path = builder.finish().expect("two rectangles");
+        let mut pixmap = tiny_skia::Pixmap::new(8, 4).expect("a pixmap");
+        let paint = tiny_skia::Paint {
+            anti_alias: true,
+            ..tiny_skia::Paint::default()
+        };
+        super::fill_rectangles(
+            &mut pixmap.as_mut(),
+            (&path, &Exact::Shared(exact)),
+            &paint,
+            tiny_skia::Transform::identity(),
+            clip,
+        );
+        pixmap
+            .pixels()
+            .iter()
+            .take(8)
+            .map(|pixel| pixel.alpha())
+            .collect()
+    }
+
+    /// A mark whose portions share a pixel still meets whatever masks it — ISO 32000-2 §11.3.7.2.
+    ///
+    /// `tiny-skia` takes one mask per draw and the composed coverage **is** that mask here, so a
+    /// soft mask standing beside no clipping region at all has to be multiplied in by this
+    /// construction or it is simply dropped. Table 136's `fₘ` is a value that multiplies rather
+    /// than a set that intersects, so the row carries the product: 0.6 of a pixel under a mask of
+    /// 128 is `round(153 · 128 / 255)` = 77, where losing the mask would leave the bare 153.
+    #[test]
+    fn a_shared_mark_composes_its_coverage_with_whatever_masks_it() {
+        let portions = [(1.0, 0.0, 5.0, 0.3), (1.0, 0.3, 5.0, 0.6)];
+        let scratch = super::Scratch::default();
+        let bare = shared_fill(portions, super::Clip::Unclipped { scratch: &scratch });
+        assert_eq!(
+            bare.get(2).copied(),
+            Some(153),
+            "the object's own coverage, unmasked: {bare:?}"
+        );
+        let soft = flat(128);
+        let masked = shared_fill(
+            portions,
+            super::Clip::Value {
+                value: &soft,
+                scratch: &scratch,
+            },
+        );
+        assert_eq!(
+            masked.get(2).copied(),
+            Some(77),
+            "the same coverage under a soft mask of 128: {masked:?}"
+        );
+    }
+
     /// The mask a half-plane at `x` states, page-sized, the way a clip chain's root is built.
     fn region(x: f32) -> tiny_skia::Mask {
         let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
@@ -1103,7 +1437,7 @@ mod tests {
     /// 255, where `min` and a product are the same function and this would pass against either.
     #[test]
     fn a_clip_that_contains_the_mark_leaves_its_coverage_alone() {
-        let unclipped = painted(2.25, |_, _| super::Clip::Unclipped);
+        let unclipped = painted(2.25, |_, scratch| super::Clip::Unclipped { scratch });
         let boundary = 2;
         assert!(
             (1..255).contains(&unclipped[boundary]),
@@ -1124,7 +1458,10 @@ mod tests {
     #[test]
     fn a_value_multiplies_where_a_region_intersects() {
         let region = painted(2.25, |mask, scratch| super::Clip::Region { mask, scratch });
-        let value = painted(2.25, |mask, _| super::Clip::Value(mask));
+        let value = painted(2.25, |mask, scratch| super::Clip::Value {
+            value: mask,
+            scratch,
+        });
         let boundary = 2;
         assert!(
             u32::from(region[boundary]) > u32::from(value[boundary]) + 32,
@@ -1199,7 +1536,13 @@ mod tests {
     #[test]
     fn a_clip_folded_into_a_soft_mask_still_takes_nothing_from_the_mark() {
         let soft = 128;
-        let unclipped = filled(2.25, super::Clip::Value(&flat(soft)));
+        let unclipped = filled(
+            2.25,
+            super::Clip::Value {
+                value: &flat(soft),
+                scratch: &super::Scratch::default(),
+            },
+        );
         let boundary = 2;
         assert!(
             (1..255).contains(&unclipped[boundary]),
@@ -1233,7 +1576,13 @@ mod tests {
     fn folding_the_clip_into_the_value_would_square_the_boundary() {
         let soft = 128;
         let (product, values) = folded(2.25, soft);
-        let squared = filled(2.25, super::Clip::Value(&product));
+        let squared = filled(
+            2.25,
+            super::Clip::Value {
+                value: &product,
+                scratch: &super::Scratch::default(),
+            },
+        );
         let scratch = super::Scratch::default();
         let composed = filled(
             2.25,
@@ -1274,7 +1623,13 @@ mod tests {
     #[test]
     fn a_clip_that_contains_the_mark_takes_nothing_from_it_under_a_soft_mask() {
         let soft = 128;
-        let alone = filled(2.75, super::Clip::Value(&flat(soft)));
+        let alone = filled(
+            2.75,
+            super::Clip::Value {
+                value: &flat(soft),
+                scratch: &super::Scratch::default(),
+            },
+        );
         let boundary = 2;
         assert!(
             (1..255).contains(&alone[boundary]),
@@ -1405,7 +1760,9 @@ mod tests {
             &paint,
             tiny_skia::FillRule::Winding,
             at,
-            super::Clip::Unclipped,
+            super::Clip::Unclipped {
+                scratch: &super::Scratch::default(),
+            },
         );
         assert!(
             pixmap.data().iter().any(|&byte| byte != 0),

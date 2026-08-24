@@ -6717,8 +6717,8 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// `issue14297.pdf` page 1 is an A3 financial statement — two consolidated tables of five-point
 /// type and nothing else — and it reached this bucket by being *drawn*: it reported a soft mask
 /// group compositing more than one unit of ink until ADR 0220, so the oracle had never judged it
-/// at all. Its verdict is the text tolerance's (mean 4.34 against a bound of 5.00, similarity
-/// 0.9135 against 0.9000), and its ink at the page's own scale is 1.15 of 255 *below* the
+/// at all. Its verdict is the text tolerance's (mean 4.33 against a bound of 5.00, similarity
+/// 0.9135 against 0.9000), and its ink at the page's own scale is 1.14 of 255 *below* the
 /// lightest reference, which is the shape that looks like missing marks.
 ///
 /// It is not. Two ladders and ours beside them:
@@ -6727,16 +6727,28 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 ///              72 dpi   288 dpi   576 dpi
 /// poppler     10.1206   8.73678   8.75421
 /// mupdf        9.83978  8.99105   8.87480
-/// ours         8.69405  8.74804   8.82076
+/// ours         8.70517  8.75412   8.79450
 /// ```
 ///
 /// The references' 72-dpi ink is what their scan conversion adds to type this small, and it falls
 /// away as the pixels do: `poppler` loses 1.37 of 255 between 72 and 576 dpi and `mupdf` 0.96,
-/// while ours *rises* 0.13 and is within 0.06 of `poppler`'s limit at the page's own scale.
-/// At eight times ours is 8.821, between `poppler`'s 8.754 and `mupdf`'s 8.875 — this group's
+/// while ours *rises* 0.09 and is within 0.05 of `poppler`'s limit at the page's own scale.
+/// At eight times ours is 8.794, between `poppler`'s 8.754 and `mupdf`'s 8.875 — this group's
 /// premise exactly, one axis over: on five-point type five glyph rasterisers cannot agree more
 /// closely than the tolerance allows, and here they cannot even agree with *themselves* until the
 /// resolution is eight times the page's.
+///
+/// **Our column was re-measured in the seven-hundred-and-fifteenth and the paragraph's argument
+/// survived it unchanged** (ADR 0590). This page states 45 fills whose axis-aligned rectangles
+/// share a device pixel, so it is in that decision's population and its ink moved — but the mean
+/// moved by 0.01 and the ladder in its third decimal, and every relation the paragraph rests on
+/// still holds. The stale digits were mostly *not* that round's: `cargo run --release -p
+/// conformance --bin quoted` caught the mean this paragraph used to quote, and the ladder had
+/// drifted 0.01 to 0.03 across the
+/// rounds since the three-hundred-and-eighty-third, unpointed-at. Trap 1's third shape, found by
+/// the instrument built for it. (The superseded figures are deliberately not spelled here: a note
+/// narrating its own correction in the gate's vocabulary is that sweep's own documented noise, and
+/// `git log -p` is where a retired number belongs.)
 ///
 /// # And two that left this group in the five-hundred-and-twenty-fourth, by being *reported*
 ///

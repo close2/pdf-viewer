@@ -2187,26 +2187,31 @@ fn draw_rule_at_one_pixel(
 ///
 /// **The second half is `DeviceRectangles::share_a_device_pixel`**: §11.6.2 makes a path's subpaths
 /// portions of one object and forbids compositing portions with one another, so a pixel reached by
-/// two of them would be composited twice and the whole path is left to the one supersampled
-/// conversion that accumulates it. Both questions live in the shared crate because both are
-/// decisions about the device, which is trap 2's rule and [`scan::Exact`]'s own comment. ADR 0583.
+/// two of them may not receive two compositing steps. That question decides which of the two
+/// multi-rectangle variants the mark is rather than whether it is one at all — the portions'
+/// coverages are summed into one buffer and blitted once (ADR 0590) where they may not be drawn
+/// separately. Both questions live in the shared crate because both are decisions about the device,
+/// which is trap 2's rule and [`scan::Exact`]'s own comment. ADR 0583.
 fn rectangular_mark(path: &Path, at: Transform) -> scan::Exact {
     let Some(rectangles) = pdf_render::device_rectangles(path, at) else {
         return scan::Exact::Unknown;
     };
+    let shared = rectangles.share_a_device_pixel();
     match rectangles {
         pdf_render::DeviceRectangles::One(rect) => {
             convert::to_skia_rect(rect).map_or(scan::Exact::Unknown, scan::Exact::One)
         }
-        // §11.6.2 admits drawing the portions one at a time only while no device pixel receives
-        // two of them; where one does, the whole path keeps the single supersampled conversion
-        // that accumulates it, which honours the clause and measures it to a quarter.
-        ref several if several.share_a_device_pixel() => scan::Exact::Unknown,
         pdf_render::DeviceRectangles::Several(rects) => rects
             .into_iter()
             .map(convert::to_skia_rect)
             .collect::<Option<Vec<_>>>()
-            .map_or(scan::Exact::Unknown, scan::Exact::Several),
+            .map_or(scan::Exact::Unknown, |rects| {
+                if shared {
+                    scan::Exact::Shared(rects)
+                } else {
+                    scan::Exact::Several(rects)
+                }
+            }),
     }
 }
 
@@ -3153,9 +3158,13 @@ impl MaskCache {
         mask: Option<SoftMaskId>,
     ) -> Result<Option<Admitted<'_>>, CpuRasterError> {
         match (clip, mask) {
+            // Unmasked, and still carrying the scratch buffer: a mark whose own portions share a
+            // device pixel is composed in one whether or not anything clips it (§11.6.2, ADR 0590).
             (None, None) => Ok(Some(Admitted {
                 band: self.surface.rows,
-                mask: scan::Clip::Unclipped,
+                mask: scan::Clip::Unclipped {
+                    scratch: &self.scratch,
+                },
                 admits: None,
             })),
             // A clip on its own is §10.7.4's set of pixels, which is the one case a mark's
@@ -3189,7 +3198,10 @@ impl MaskCache {
                 let entry = self.soft_mask(mask)?;
                 Ok(Some(Admitted {
                     band: entry.band,
-                    mask: scan::Clip::Value(&entry.mask),
+                    mask: scan::Clip::Value {
+                        value: &entry.mask,
+                        scratch: &self.scratch,
+                    },
                     admits: entry.admits,
                 }))
             }
@@ -3215,7 +3227,10 @@ impl MaskCache {
                         // Only `combine` builds this key and it always stores the soft mask's
                         // rows, so this is unreachable; taking the product alone is what this
                         // backend did before ADR 0363 and is coarser rather than wrong.
-                        None => scan::Clip::Value(&built.mask),
+                        None => scan::Clip::Value {
+                            value: &built.mask,
+                            scratch,
+                        },
                     },
                     admits: built.admits,
                 }))
