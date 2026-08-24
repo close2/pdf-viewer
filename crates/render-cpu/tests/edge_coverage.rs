@@ -35,8 +35,8 @@
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Raster,
-    Rasterizer, Size, TargetSpec, Transform,
+    BlendMode, Clip, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point,
+    Raster, Rasterizer, Size, TargetSpec, Transform,
 };
 use render_cpu::CpuRasterizer;
 
@@ -68,7 +68,7 @@ fn rectangle(x0: f32, y0: f32, x1: f32, y1: f32) -> Path {
     path
 }
 
-/// One black rectangle on a white page, and nothing else.
+/// One black fill of `path` on a white page, and nothing else.
 fn scene(path: Path) -> DisplayList {
     let mut list = DisplayList::new(PAGE);
     list.push(Command::Fill {
@@ -94,21 +94,39 @@ fn coverage(raster: &Raster, x: u32, y: u32) -> f32 {
     f32::from(255 - raster.data[at]) / 255.0
 }
 
-/// Renders one rectangle and checks **every** pixel against the area the clause gives it.
+/// The area §10.7.4 gives pixel `(x, y)` of a path stated as disjoint rectangles.
+///
+/// A sum rather than a union, and that is §11.6.2 rather than arithmetic taste: the rectangles are
+/// portions of one object, which "shall not be composited with one another", so what the pixel is
+/// covered by is the area of their union — and their interiors are disjoint, so that area adds.
+fn clauses_area(device: &pdf_render::DeviceRectangles, x: u32, y: u32) -> f32 {
+    device
+        .iter()
+        .map(|rect| pdf_render::rectangle_coverage(rect, x as f32, y as f32))
+        .sum::<f32>()
+        .min(1.0)
+}
+
+/// Renders one path and checks **every** pixel against the area the clause gives it.
 fn assert_every_pixel_is_the_clauses_area(what: &str, path: &Path, scale: f32) {
     let list = scene(path.clone());
-    let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+    assert_raster_is_the_clauses_area(what, &list, path, scale);
+}
+
+/// As [`assert_every_pixel_is_the_clauses_area`], for a scene the caller built.
+fn assert_raster_is_the_clauses_area(what: &str, list: &DisplayList, path: &Path, scale: f32) {
+    let target = TargetSpec::for_page(list, scale, GENEROUS).expect("valid target");
     let raster = CpuRasterizer::new()
-        .rasterize(&list, target)
+        .rasterize(list, target)
         .expect("a solid fill is supported");
 
-    let device = pdf_render::device_rectangle(path, to_device(scale))
-        .expect("one axis-aligned rectangle under an axis-preserving transform");
+    let device = pdf_render::device_rectangles(path, to_device(scale))
+        .expect("axis-aligned rectangles under an axis-preserving transform");
     let mut worst = 0.0f32;
     let mut worst_at = (0u32, 0u32);
     for y in 0..raster.height {
         for x in 0..raster.width {
-            let wanted = pdf_render::rectangle_coverage(device, x as f32, y as f32);
+            let wanted = clauses_area(&device, x, y);
             let difference = (coverage(&raster, x, y) - wanted).abs();
             if difference > worst {
                 worst = difference;
@@ -195,5 +213,95 @@ fn an_edge_under_the_old_quantum_is_painted_rather_than_dropped() {
     assert!(
         (painted - 0.05).abs() <= TOLERANCE,
         "an edge covering 0.05 of its pixel painted {painted}"
+    );
+}
+
+/// A path stating *several* rectangles, at every twentieth of a pixel — ISO 32000-2 §11.6.2.
+///
+/// Three portions of one object, far enough apart that no device pixel receives two of them, so
+/// §11.6.2's "[p]ortions of an object shall not be composited with one another" is satisfied by
+/// drawing each and the exact closed form applies to all three. Before ADR 0583 the whole path
+/// went to the supersampled converter and every one of its six vertical edges answered to a
+/// quarter.
+///
+/// The sweep is over the fractional part of *every* boundary at once, which is what makes the
+/// twenty-one rungs discriminate: four of them are multiples of a quarter and the other seventeen
+/// are not.
+#[test]
+fn several_rectangles_in_one_path_are_each_painted_at_their_own_area() {
+    for rung in 0_i16..=20 {
+        let fraction = f32::from(rung) / 20.0;
+        let mut path = rectangle(2.0, 3.0, 6.0 + fraction, 11.0 + fraction);
+        path.extend(rectangle(9.0, 3.0, 13.0 + fraction, 11.0 + fraction).commands());
+        path.extend(rectangle(16.0, 3.0, 20.0 + fraction, 11.0 + fraction).commands());
+        assert_every_pixel_is_the_clauses_area(
+            &format!("three rectangles, each an edge {fraction} of a pixel across"),
+            &path,
+            1.0,
+        );
+    }
+}
+
+/// The same path used as a **clipping region** — ISO 32000-2 §10.7.4's clipping paragraph.
+///
+/// The region "consists of the set of pixels that would be included by a fill operation", so it is
+/// measured by the rule the fill is. Measuring only one of the two is what breaks §10.7.4's own
+/// set identity `S ∩ C = S`, which `clip_intersection.rs` is the whole of; here the whole page is
+/// filled through the region, so what the raster carries *is* the region's own coverage.
+#[test]
+fn several_rectangles_as_a_clipping_region_are_measured_the_same_way() {
+    let mut path = rectangle(2.0, 3.35, 6.7, 11.15);
+    path.extend(rectangle(9.0, 3.35, 13.7, 11.15).commands());
+    let mut list = DisplayList::new(PAGE);
+    let clip = list
+        .add_clip(Clip {
+            path: path.clone(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            parent: None,
+        })
+        .expect("a clip");
+    list.push(Command::Fill {
+        path: Arc::new(rectangle(-10.0, -10.0, 40.0, 40.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(Color::BLACK),
+        clip: Some(clip),
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    assert_raster_is_the_clauses_area(
+        "two rectangles stated as a clipping region",
+        &list,
+        &path,
+        1.0,
+    );
+}
+
+/// Two portions of one object that *abut inside a device pixel* stay one scan conversion —
+/// ISO 32000-2 §11.6.2.
+///
+/// This is the guard rather than the fix, and it is the scene that would catch the construction
+/// above being applied where the clause forbids it. The two rectangles share the edge x = 10.4, so
+/// device column 10 is covered 0.4 by one and 0.6 by the other and the object covers it **whole**.
+/// Drawing them as two marks would composite them by §11.3.7.3's union — `1 − 0.6 · 0.4` = 0.76,
+/// twenty-four levels of 255 light — which is precisely what "[p]ortions of an object shall not be
+/// composited with one another" forbids. `pdf_render::share_a_device_pixel` is what keeps this
+/// path on the one conversion that accumulates it, and deleting that test fails this.
+#[test]
+fn two_portions_sharing_a_pixel_are_not_composited_with_one_another() {
+    let mut path = rectangle(3.0, 3.0, 10.4, 11.0);
+    path.extend(rectangle(10.4, 3.0, 17.0, 11.0).commands());
+    let list = scene(path);
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .rasterize(&list, target)
+        .expect("a solid fill is supported");
+    // Device y = PAGE.height - 7 = 9 is inside both rectangles; column 10 is the shared edge's.
+    let seam = coverage(&raster, 10, 9);
+    assert!(
+        (seam - 1.0).abs() <= TOLERANCE,
+        "the shared column of one object's two portions carries {seam} where the object covers it \
+         whole; §11.3.7.3's union of the two would give 0.76"
     );
 }

@@ -90,6 +90,59 @@ fn keep_anti_alias(anti_alias: bool, expressible: bool) -> bool {
     anti_alias && expressible
 }
 
+/// The device rectangles a mark **is**, where `pdf_render::edge` says it is rectangles at all —
+/// ISO 32000-2 §10.7.4 and §11.6.2.
+///
+/// A rectangle's coverage of a pixel is the product of two one-dimensional overlaps, exactly, at
+/// every placement (`pdf_render::rectangle_coverage`), where the supersampled path converter
+/// rounds an axis-aligned edge to a quarter. This is what says whether that closed form applies
+/// and to which rectangles, and it is the shared crate's answer rather than this backend's: trap
+/// 2's rule is that a decision either backend can make alone is a decision neither has made.
+///
+/// # Why [`Exact::Several`] carries an invariant rather than merely a list
+///
+/// §11.6.2 makes a path's subpaths portions of **one object** and forbids compositing portions
+/// with one another. Drawing them one at a time composites nothing only while no device pixel
+/// receives two of them, which is `pdf_render::share_a_device_pixel`'s question — so this variant
+/// may be built only from rectangles that answer it `false`, and every consumer here is written on
+/// that basis: [`mask_rectangle`] takes the larger of what it writes and what is there, which is
+/// the covered area only where no pixel is written twice. Where two portions *do* share a pixel
+/// the mark keeps the one supersampled conversion that accumulates the whole path, which honours
+/// the clause already and only measures it to a quarter. ADR 0583.
+#[derive(Debug, Default, Clone)]
+pub(crate) enum Exact {
+    /// The mark is not a rectangle, or nobody asked.
+    #[default]
+    Unknown,
+    /// One rectangle, which is the common case and allocates nothing.
+    One(tiny_skia::Rect),
+    /// Several, whose device pixel footprints are pairwise disjoint — see the type's comment.
+    Several(Vec<tiny_skia::Rect>),
+}
+
+impl Exact {
+    /// The rectangles, in the path's own order. Empty for [`Exact::Unknown`].
+    fn iter(&self) -> impl Iterator<Item = tiny_skia::Rect> + '_ {
+        let (one, several) = match self {
+            Self::Unknown => (None, [].as_slice()),
+            Self::One(rect) => (Some(*rect), [].as_slice()),
+            Self::Several(rects) => (None, rects.as_slice()),
+        };
+        one.into_iter().chain(several.iter().copied())
+    }
+
+    /// Whether `pdf_render::edge` answered at all for this mark.
+    pub(crate) fn is_some(&self) -> bool {
+        !matches!(self, Self::Unknown)
+    }
+
+    /// Whether the closed form applies here at all: rectangles were found and every one of them
+    /// lies inside the range this converter's arithmetic reaches.
+    fn usable(&self) -> bool {
+        self.is_some() && self.iter().all(|rect| within(Some(rect)))
+    }
+}
+
 /// What the mask a mark is drawn through **is**, which is what decides how the two compose.
 ///
 /// The two are different mechanisms in ISO 32000-2 and the standard states them with different
@@ -202,20 +255,38 @@ pub(crate) fn fill(
     let mut paint = paint.clone();
     paint.anti_alias = keep_anti_alias(paint.anti_alias, expressible(path, at, 0.0));
     if let Some(inputs) = clip.composable()
-        && intersected(pixmap, path, &paint, fill_rule, (at, None), inputs)
+        && intersected(
+            pixmap,
+            path,
+            &paint,
+            fill_rule,
+            (at, &Exact::Unknown),
+            inputs,
+        )
     {
         return;
     }
     pixmap.fill_path(path, &paint, fill_rule, at, clip.mask());
 }
 
-/// [`fill`], for a mark `pdf_render::device_rectangle` says is one axis-aligned rectangle on the
-/// device's own grid — ISO 32000-2 §10.7.4.
+/// [`fill`], for a mark `pdf_render::edge` says is axis-aligned rectangles on the device's own
+/// grid — ISO 32000-2 §10.7.4 and §11.6.2.
 ///
-/// `rect` is that rectangle, already in device space; `path` is the same shape in the space `at`
-/// maps from, and is what every branch below that is not the rectangle scan converter falls back
-/// to. The two are the same mark stated twice, which is what lets this decline without the caller
-/// having to know it did.
+/// `exact` is those rectangles, already in device space; `path` is the same shape in the space
+/// `at` maps from, and is what every branch below that is not the rectangle scan converter falls
+/// back to. The two are the same mark stated twice, which is what lets this decline without the
+/// caller having to know it did.
+///
+/// # Several rectangles are one object, and that is why they are one call
+///
+/// A path's subpaths are portions of one graphics object, and §11.6.2 says "[p]ortions of an
+/// object shall not be composited with one another". [`Exact::Several`] therefore carries the
+/// invariant its own comment states — no two of its rectangles fall in one device pixel — so the
+/// loop below composites each portion with the backdrop and none of them with each other, and the
+/// result is the same mark the supersampled converter would have accumulated, measured exactly
+/// instead of to a quarter. The fill rule stops mattering for the same reason the rectangles are
+/// disjoint: every point lies in at most one of them, so `Winding` and `EvenOdd` select one set.
+/// ADR 0583.
 ///
 /// # Why a rectangle gets its own call, when `fill_path` would draw it
 ///
@@ -261,22 +332,22 @@ pub(crate) fn fill(
 ///   one-pixel masks — so the composition each pixel receives is the same function of its
 ///   coverage. That is why this does not carry [`crate::carries_coverage_as_alpha`]'s condition,
 ///   which is about a construction that delivers coverage some other way.
-pub(crate) fn fill_rectangle(
+pub(crate) fn fill_rectangles(
     pixmap: &mut tiny_skia::PixmapMut<'_>,
-    (path, rect): (&tiny_skia::Path, tiny_skia::Rect),
+    (path, exact): (&tiny_skia::Path, &Exact),
     paint: &tiny_skia::Paint<'_>,
     at: tiny_skia::Transform,
     clip: Clip<'_>,
 ) {
     let mut paint = paint.clone();
-    paint.anti_alias = keep_anti_alias(paint.anti_alias, within(Some(rect)));
+    paint.anti_alias = keep_anti_alias(paint.anti_alias, exact.usable());
     if let Some(inputs) = clip.composable()
         && intersected(
             pixmap,
             path,
             &paint,
             tiny_skia::FillRule::Winding,
-            (at, Some(rect)),
+            (at, exact),
             inputs,
         )
     {
@@ -292,7 +363,9 @@ pub(crate) fn fill_rectangle(
     // shader is moved there one call earlier, which is what [`intersected`] does for the same
     // reason. Trap 2 is what this costs to get wrong.
     paint.shader.transform(at);
-    pixmap.fill_rect(rect, &paint, tiny_skia::Transform::identity(), clip.mask());
+    for rect in exact.iter() {
+        pixmap.fill_rect(rect, &paint, tiny_skia::Transform::identity(), clip.mask());
+    }
 }
 
 /// Draws `path` with its own coverage meeting `admitted` by `min`, ISO 32000-2 §10.7.4.
@@ -360,7 +433,7 @@ fn intersected(
     path: &tiny_skia::Path,
     paint: &tiny_skia::Paint<'_>,
     fill_rule: tiny_skia::FillRule,
-    (at, exact): (tiny_skia::Transform, Option<tiny_skia::Rect>),
+    (at, exact): (tiny_skia::Transform, &Exact),
     (admitted, value, scratch): (&tiny_skia::Mask, Option<&[u8]>, &Scratch),
 ) -> bool {
     if !crate::carries_coverage_as_alpha(paint.anti_alias, paint.blend_mode) {
@@ -725,14 +798,13 @@ pub(crate) fn mask_fill(
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
-    (at, exact): (tiny_skia::Transform, Option<tiny_skia::Rect>),
+    (at, exact): (tiny_skia::Transform, &Exact),
 ) {
     let anti_alias = keep_anti_alias(anti_alias, expressible(path, at, 0.0));
-    if anti_alias
-        && let Some(rect) = exact
-        && within(Some(rect))
-    {
-        mask_rectangle(mask, rect);
+    if anti_alias && exact.usable() {
+        for rect in exact.iter() {
+            mask_rectangle(mask, rect);
+        }
         return;
     }
     mask.fill_path(path, fill_rule, anti_alias, at);
@@ -887,7 +959,7 @@ pub(crate) fn mask_intersect(
     path: &tiny_skia::Path,
     fill_rule: tiny_skia::FillRule,
     anti_alias: bool,
-    (at, exact): (tiny_skia::Transform, Option<tiny_skia::Rect>),
+    (at, exact): (tiny_skia::Transform, &Exact),
 ) {
     scratch.clear();
     mask_fill(scratch, path, fill_rule, anti_alias, (at, exact));
@@ -898,7 +970,7 @@ pub(crate) fn mask_intersect(
 
 #[cfg(test)]
 mod tests {
-    use super::{SUPERSAMPLED_LIMIT, expressible};
+    use super::{Exact, SUPERSAMPLED_LIMIT, expressible};
 
     /// A half-plane whose vertical edge falls at `x`, covering the rest of a 4-row mask.
     fn half_plane(x: f32) -> tiny_skia::Path {
@@ -921,7 +993,7 @@ mod tests {
             &half_plane(*root),
             tiny_skia::FillRule::Winding,
             true,
-            (tiny_skia::Transform::identity(), None),
+            (tiny_skia::Transform::identity(), &Exact::Unknown),
         );
         for edge in nested {
             super::mask_intersect(
@@ -930,7 +1002,7 @@ mod tests {
                 &half_plane(*edge),
                 tiny_skia::FillRule::Winding,
                 true,
-                (tiny_skia::Transform::identity(), None),
+                (tiny_skia::Transform::identity(), &Exact::Unknown),
             );
         }
         mask.data().to_vec()
@@ -984,7 +1056,7 @@ mod tests {
             &half_plane(x),
             tiny_skia::FillRule::Winding,
             true,
-            (tiny_skia::Transform::identity(), None),
+            (tiny_skia::Transform::identity(), &Exact::Unknown),
         );
         mask
     }

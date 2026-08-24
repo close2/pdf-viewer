@@ -51,7 +51,9 @@ pub use degenerate::{
     split_degenerate,
 };
 pub use display_list::{Clip, ClipId, Command, DisplayList, DisplayListError, GroupBlending};
-pub use edge::{device_rectangle, rectangle_coverage};
+pub use edge::{
+    DeviceRectangles, RECTANGLES_PER_PATH, device_rectangle, device_rectangles, rectangle_coverage,
+};
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
 pub use medium::{
     Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, page_area,
