@@ -56,8 +56,18 @@ the first three all in one direction:
    two portions fall in one pixel; where none do, each is drawn as its own mark at the exact area,
    for a fill and for a clipping region alike. 3419 fills over 151 first pages of the pdf.js
    corpus, +0.074% of the rasteriser on a page of text against −0.53% on a page that states them.
-   What is left is the 505 that *do* share a pixel, whose construction is one coverage buffer per
-   mark rather than item 5's rasteriser.
+   **And the 505 that *do* share a pixel left it in the seven-hundred-and-fifteenth** (ADR 0590):
+   their portions' exact areas are **summed** into one coverage buffer and the paint blitted through
+   it once, which is one composition with the backdrop for the whole object and each portion's own
+   area within it. The two requirements are independent — §11.6.2 by the single blit, this
+   subclause's third sentence by the closed form — and the buffer is `scan::intersected`'s, which
+   ADR 0355 built for a clip and which now answers to either clause on its own. Interiors are
+   pairwise disjoint by construction, so the area of a shared pixel's union is a plain sum; it is
+   written in one rounding rather than accumulated, because a sum of roundings is a level or two out
+   and a coverage rounded away is what this departure is a departure *from*. 22 of 958 first pages
+   move, every one of them the census's own, at +0.063% of the rasteriser on a page of text and
+   −32.3% on a barcode. **So departure (1)'s multi-rectangle population is closed**; what still
+   carries the quantum is every shape that is not axis-aligned rectangles at all.
 2. Therefore the painted area is *not* always at least the shape's. **This one had no witness for
    four hundred and seventy-two sessions and now has a large one** (ADR 0308): where a document
    states one region as *many* opaque fills, every internal boundary falls inside some device

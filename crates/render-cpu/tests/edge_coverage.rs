@@ -278,16 +278,82 @@ fn several_rectangles_as_a_clipping_region_are_measured_the_same_way() {
     );
 }
 
-/// Two portions of one object that *abut inside a device pixel* stay one scan conversion —
-/// ISO 32000-2 §11.6.2.
+/// A path whose portions **do** share a device pixel, at every twentieth of a pixel —
+/// ISO 32000-2 §11.6.2 and §10.7.4.
 ///
-/// This is the guard rather than the fix, and it is the scene that would catch the construction
-/// above being applied where the clause forbids it. The two rectangles share the edge x = 10.4, so
-/// device column 10 is covered 0.4 by one and 0.6 by the other and the object covers it **whole**.
-/// Drawing them as two marks would composite them by §11.3.7.3's union — `1 − 0.6 · 0.4` = 0.76,
-/// twenty-four levels of 255 light — which is precisely what "[p]ortions of an object shall not be
-/// composited with one another" forbids. `pdf_render::share_a_device_pixel` is what keeps this
-/// path on the one conversion that accumulates it, and deleting that test fails this.
+/// The two rectangles meet at x = 10.4, so device column 10 receives a portion of each and the
+/// clause forbids compositing them with one another. What §10.7.4 asks of the *other* boundaries is
+/// unchanged by that: an edge covering a twentieth of its pixel is painted at a twentieth, and the
+/// supersampled path converter rounds every one of them to a quarter. Both requirements are met by
+/// summing the portions' own areas into one coverage buffer and blitting the paint once, which is
+/// what this sweep measures — the seam at its whole 1.0 and the outer edges at their own fractions,
+/// in one raster.
+///
+/// The expected value is `clauses_area`'s sum over the portions, capped at the whole pixel; no
+/// renderer enters it.
+#[test]
+fn portions_that_share_a_pixel_are_still_painted_at_their_own_area() {
+    for rung in 0_i16..=20 {
+        let fraction = f32::from(rung) / 20.0;
+        let mut path = rectangle(2.0 + fraction, 3.0, 10.4, 11.0 + fraction);
+        path.extend(rectangle(10.4, 3.0, 18.0 + fraction, 11.0 + fraction).commands());
+        assert_every_pixel_is_the_clauses_area(
+            &format!("two portions meeting inside a pixel, edges {fraction} across"),
+            &path,
+            1.0,
+        );
+    }
+}
+
+/// The same path used as a **clipping region** — ISO 32000-2 §10.7.4's clipping paragraph.
+///
+/// The region "consists of the set of pixels that would be included by a fill operation", so the
+/// two have to be one rule here as well: a mark measured exactly under a region whose portions were
+/// measured to a quarter breaks the identity `S ∩ C = S` exactly as
+/// `several_rectangles_as_a_clipping_region_are_measured_the_same_way` measures it for portions
+/// that do not share a pixel.
+#[test]
+fn portions_that_share_a_pixel_are_measured_the_same_way_as_a_clipping_region() {
+    let mut path = rectangle(2.35, 3.35, 10.4, 11.15);
+    path.extend(rectangle(10.4, 3.35, 17.65, 11.15).commands());
+    let mut list = DisplayList::new(PAGE);
+    let clip = list
+        .add_clip(Clip {
+            path: path.clone(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            parent: None,
+        })
+        .expect("a clip");
+    list.push(Command::Fill {
+        path: Arc::new(rectangle(-10.0, -10.0, 40.0, 40.0)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(Color::BLACK),
+        clip: Some(clip),
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    assert_raster_is_the_clauses_area(
+        "two portions meeting inside a pixel, as a clipping region",
+        &list,
+        &path,
+        1.0,
+    );
+}
+
+/// Two portions of one object that *abut inside a device pixel* are not composited with one
+/// another — ISO 32000-2 §11.6.2.
+///
+/// The two rectangles share the edge x = 10.4, so device column 10 is covered 0.4 by one and 0.6 by
+/// the other and the object covers it **whole**. Drawing them as two marks would composite them by
+/// §11.3.7.3's union — `1 − 0.6 · 0.4` = 0.76, twenty-four levels of 255 light — which is precisely
+/// what "[p]ortions of an object shall not be composited with one another" forbids, and taking the
+/// *larger* of the two portions' areas instead of their sum would read 0.6.
+///
+/// It is the discriminator between the two constructions and it passes under either correct one:
+/// before ADR 0590 the whole path went to the single supersampled conversion, and since then its
+/// portions' areas are summed into one buffer through which the paint is blitted once.
 #[test]
 fn two_portions_sharing_a_pixel_are_not_composited_with_one_another() {
     let mut path = rectangle(3.0, 3.0, 10.4, 11.0);

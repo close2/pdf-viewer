@@ -61,8 +61,9 @@ with a mark, and what a page's own marks are),
 `crates/render-quorra/tests/abutting_marks.rs` and `crates/pdf-model/examples/uncovered_share.rs`
 (item 5's gate and its instrument — the gate's fourth scene is §11.6.2's discriminator),
 `crates/pdf-render/src/edge.rs`'s `device_rectangles` and `DeviceRectangles::share_a_device_pixel`,
-`crates/render-cpu/src/lib.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact` and
-`fill_rectangles`, `crates/render-cpu/tests/edge_coverage.rs` and
+`crates/render-cpu/src/lib.rs`'s `rectangular_mark`, `crates/render-cpu/src/scan.rs`'s `Exact`,
+`fill_rectangles`, `intersected` and `mask_shared_rectangles`,
+`crates/render-cpu/tests/edge_coverage.rs` and
 `crates/pdf-model/examples/rectangular_path_census.rs` (item 7's remainder, its gate and its
 instrument),
 `crates/render-quorra/examples/edge_coverage_ladder.rs` and
@@ -847,10 +848,38 @@ question was which converter, not how many calls.
   135 of 974 first pages move pixels, and **a share of them is text**, because a glyph whose outline
   is two axis-aligned rectangles — an `i`, a `"`, an `=` — is a two-subpath fill like any other.
 
-  **What is left is the sharing half**, 505 of 3924 in that corpus, and its price is *not* item 5's
+  ~~**What is left is the sharing half**, 505 of 3924 in that corpus, and its price is *not* item 5's
   rasteriser: it is one coverage buffer per mark with the portions' areas **summed** into it and the
   paint blitted once, which is `scan::intersected`'s shape already (ADR 0355) and would cost about
-  what that cost. Overlapping rectangles stay declined on the clause's own grounds — §11.6.2's
+  what that cost.~~ **Paid in the seven-hundred-and-fifteenth session, and 711's price was right to
+  the buffer** (ADR 0590). `scan::Exact::Shared` is that population as a type, `scan::intersected`
+  is the buffer, and what had to change about it is one sentence: it declined wherever there was no
+  clipping region to intersect, and §11.6.2 asks for the same buffer with *no clip at all*. So two
+  clauses now ask for it and either is enough — which is also why `is_a_set`'s cost decline is not
+  applied to a mark of this shape, that test being about the clip's arithmetic and not the mark's.
+
+  **The summing is where the round found something 711 had not priced.** Adding each portion's
+  *rounded* level is a level or two out per shared pixel, and a coverage rounded away is the whole
+  subject of this item — so `scan::mask_shared_rectangles` writes each portion at its own area first,
+  keeping ADR 0476's interior run, and then revisits only the pixels two footprints have in common
+  and writes the total there in one addition rounded once. The pixels that costs anything on are
+  bounded by the portions' shared *boundary* rather than by their area.
+  `two_portions_in_one_pixel_are_summed_and_rounded_once` separates all three candidate
+  constructions and the rounding with them: 153 of 255 where §11.3.7.3's union would give 130, the
+  larger of the two portions 77, and the sum of their two roundings 154.
+
+  **What it moved, and it is exactly what the census named.** `raster_digest` over the pdf.js
+  corpus: **22 of 958 first pages**, every one of them a page the census had listed and no other —
+  the single listed page that did not move is `issue12963.pdf`, whose three such fills land where the
+  quarter and the area agree. `callgrind_rasterise`, `RAYON_NUM_THREADS=1`, twenty rasterisations:
+  **+0.063%** on ISO 32000-2's page 101, which states none of the population, **−32.3%** on
+  `issue8187.pdf` (a barcode, fourteen fills of which six share a pixel), **+0.95%** on
+  `issue840.pdf` at 97 such fills, **−0.27%** on `issue11913.pdf` at 96 and **+0.38%** on
+  `160F-2019.pdf` at 45. The +0.95% is the buffer's clear, compose and blit per fill — ADR 0355's
+  own cost on the pages that ask for it — and it is written down rather than optimised, because the
+  page carrying it is one of twenty-two.
+
+  Overlapping rectangles stay declined on the clause's own grounds — §11.6.2's
   sentence names that case and the two fill rules answer it differently, so the decomposition would
   have to carry a winding number per cell.
 - **A rectangle is measured exactly and then still *multiplied* into its clip** for an image's edge
