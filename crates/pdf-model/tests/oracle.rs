@@ -2610,7 +2610,7 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 ///   issue9243.pdf p1           all three       structural similarity alone, .8907/.9000
 ///   bug850854.pdf p1           poppler+mupdf   the differing fraction alone, 5.38%/5.00%
 ///   issue11403_reduced.pdf p1  poppler+mupdf   differing alone, 6.25%/5.00%
-///   issue6069.pdf p1           poppler+mupdf   differing alone, 6.62%/6.55%
+///   issue6069.pdf p1           poppler+mupdf   differing alone, 6.5550%/6.5475%
 ///   issue6108.pdf p1           poppler+mupdf   differing alone, 6.55%/5.75%
 ///   issue7580.pdf p1           poppler+mupdf   differing alone, 6.92%/5.00%
 /// ```
@@ -2663,6 +2663,23 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// `issue7580.pdf` clears its bound by **0.0125 of a percentage point**, stated at the precision
 /// it was measured. Five of these pages sit within a point of a bound in one direction or the
 /// other, which is what a 200 × 50 line of text does to a metric that counts channels.
+///
+/// **And `issue6069.pdf` is now the tightest verdict in the whole contradicted pool: six channels
+/// of eighty thousand.** The seven-hundred-and-twenty-second session found it by asking every
+/// contradicted page which of the four bounds it fails on and getting *none* for this one — the
+/// gate prints `differing 6.55%` against `bound … differing 6.55%`, identical at the two decimals
+/// it writes, so its own line can no longer say what the verdict rests on (`--bin unpriced`,
+/// ADR 0606). Taken from this run's artefacts at the precision `examples/compare_rasters` prints:
+/// `poppler` against `mupdf` is **3.2738%** of channels, so the bound is **6.5475%**, and ours
+/// against `poppler` is **6.5550%**. The raster is 400 × 50, which is 80 000 channels, so that is
+/// **5244 differing against an allowance of 5238** — the six channels being 0.11% of the bound.
+/// The note's own row above read 6.62% until this session, and ours moved to 6.55% somewhere in
+/// the forty rounds after ADR 0510 measured it; what did not move is the ablation's answer, since
+/// the embedded face takes the page to 5.97% against the same 6.55% and inside it. **A page held
+/// contradicted by six channels is still contradicted** — the arithmetic is the arithmetic, and
+/// trap 12 is about reading such a margin as a statement about the page rather than about the
+/// pair. It is recorded here so that the next round to open this row is not looking for a figure
+/// the printed line no longer distinguishes.
 ///
 /// # Four more from a second corpus, and the cap-height constant predicted them
 ///
@@ -3432,6 +3449,53 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// twice their mutual distance is a bound no analytic-coverage renderer meets on a page that is
 /// nothing but edges. That is this group's sentence, arrived at from the document rather than
 /// from a ranking.
+///
+/// # Those eight numbers are **structural similarity**, which this note did not say for sixty
+/// sessions
+///
+/// The table above is the only account either `colors.pdf` page has of the bound it fails, and it
+/// carries no unit: four figures at four decimals under the words *bound* and *ours*. The
+/// seven-hundred-and-twenty-second session found it by asking the whole contradicted pool a
+/// question nothing could ask before — *which of the gate's four measures does this page fail on,
+/// and does the note holding it name that measure* — and this note names exactly one measure in
+/// a hundred and sixty lines, the **worst tile at 6.73 against 6.04**, which is
+/// `issue7891_bc1.pdf`'s and not either `colors.pdf` page's. `doc/todo/01`'s twenty-first sweep
+/// is the question, `--bin unpriced` is the command, and ADR 0606 has the argument.
+///
+/// So, in the gate's own words: **both `colors.pdf` pages fail on structural similarity and on
+/// nothing else.** Page 1 prints mean 0.21 of 1.00, worst tile 2.63 of 5.00 and differing 0.50%
+/// of 1.00%; page 2 prints 0.19, 3.17 and 0.54%. Three of four bounds are met with room to spare
+/// on both, and the fourth is the whole verdict.
+///
+/// # And the sentence above is now measured in that metric, with two renderers that are not us
+///
+/// *"A bound no analytic-coverage renderer meets"* was an argument about mean distances from a
+/// closed form; it is a claim about the failing metric, so it is checked in the failing metric.
+/// [`Tolerance::widened_to`] scales the *distance from 1.0*, so the bound is
+/// `1 − 2 × (1 − ssim(poppler, ghostscript))` — 0.99431 and 0.99201 between the pair give 0.98862
+/// and 0.98402 exactly, which is where those two figures come from. Every pair on the page, from
+/// this run's own artefacts through `examples/compare_rasters`:
+///
+/// ```text
+///                              page 1     page 2      against the bound
+///   poppler <-> ghostscript    0.99431    0.99201     the pair: it sets it
+///   ours                       0.98786    0.98024     fails by 0.00076 / 0.00378
+///   hayro                      0.98772    0.98011     fails, and by more than ours
+///   mupdf                      0.98739    0.97943     fails, and by more than either
+/// ```
+///
+/// The lower three are each that renderer's worst against the two that vote, which is `poppler`
+/// on all three and on both pages. **`mupdf` and `hayro` are outside this page's bound as well,
+/// and both are further outside it than we are** — one an independent C interpreter, the other a
+/// separate Rust one, neither of them us and neither of them a party to how we round an edge. The
+/// ranking of the four is the ranking of how much anti-aliasing each does: `ours ↔ hayro` is ssim
+/// 0.99999 with a worst pixel of two levels and `ours ↔ mupdf` 0.99989, so three renderers
+/// converge on the geometry and are held to twice the distance between the two that do not.
+///
+/// That is ADR 0497's sixth criterion answered for these two pages in the units the gate uses:
+/// the mechanism does not merely explain the picture, it accounts for the failing bound — and
+/// the control is that taking *us* out of the room does not rescue the bound, because two other
+/// renderers fail it too.
 const CONTRADICTED_TIGHT_CONSENSUS: [&str; 3] = [
     "issue7891_bc1.pdf page 1",
     "colors.pdf page 1",

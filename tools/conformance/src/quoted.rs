@@ -133,7 +133,13 @@ impl Measure {
     /// Longest first because `structural similarity` contains `similarity`; both find the same
     /// number, and a quotation is keyed by where its *number* sits, so the overlap costs a
     /// duplicate key rather than a second finding.
-    const fn words(self) -> &'static [&'static str] {
+    ///
+    /// Public because [`crate::unpriced`] asks the mirror question of the same vocabulary —
+    /// whether a note names a measure at all rather than whether the figure beside it is
+    /// current — and two sweeps disagreeing about how this tree spells a measure would be two
+    /// answers to one question.
+    #[must_use]
+    pub const fn words(self) -> &'static [&'static str] {
         match self {
             Self::Mean => &["mean"],
             Self::WorstTile => &["worst tile"],

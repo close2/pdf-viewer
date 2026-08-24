@@ -64,6 +64,7 @@ pub mod quoted;
 pub mod retired;
 pub mod tables;
 pub mod toml_subset;
+pub mod unpriced;
 pub mod unread;
 
 use std::path::{Path, PathBuf};
