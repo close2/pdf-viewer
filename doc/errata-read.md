@@ -952,3 +952,51 @@ row, which is `implemented` on that reading and on the one requirement the claus
 *Tag* where every other row of the table states *tag*. The tag is compared as bytes here — §7.3.5
 makes a name's comparison "an exact binary match" — and the table's own prose is what names the
 operand, so nothing moves.
+
+## The two carets Table 259's `/Fields` row gained, found in the seven-hundred-and-fifth
+
+`emit` over all fourteen documents while reading §12.8.3's fifteen `partial` and `reported` rows.
+Five annotations land inside that subclause. Three of them ask nothing of a reader: Issue #4's
+footnote marker on Table 260, an editor note about that table's inconsistent italics, and Issue
+#649's placeholder NOTE 1 under §12.8.3.4.4, which exists so that the subclause's NOTE 2 and NOTE 3
+keep the numbers they are printed with. **The other two are a requirement, and they are filed under
+§12.8.3.1 while belonging one subclause back** — the attribution shape the six-hundred-and-ninety-
+seventh session recorded above: `emit` files an annotation by the page the outline puts in a clause,
+and §12.8.3's heading sits at the **foot** of page 592 while the top of that page is Table 259,
+which is §12.8.2.4's.
+
+**Issue #33, `Review/Completed`, requires the `FieldMDP` transform's field names to be fully
+qualified.** Two carets, both an insertion with nothing struck out — the shape `check` cannot see —
+with `/Rect [249.018 594.369 256.952 600.833]` and `[298.23 594.369 306.163 600.833]`, which are
+241.1 to 247.6 from the top of an 841.92-tall page. `pdftotext -bbox` puts the line `containing
+field names.` at yMin 235.4 and yMax 247.1 with `field` starting at x 253.0 and `names.` ending at
+x 304.1, so the first caret is immediately before `field` and the second immediately after `names`.
+Their contents are
+
+> fully qualified
+
+and
+
+>  (see 12.7.4.2 "Field names")
+
+so Table 259's `/Fields` row — "(Required if Action is Include or Exclude) An array of text strings
+containing field names." — requires an array of text strings containing **fully qualified** field
+names, with §12.7.4.2 named as where that term is defined.
+
+**This tree has read it that way since `FieldSelection` was written, on an argument and a producer's
+file rather than on the standard.** §12.8.2.4's row says so in as many words: the transform in
+`xfa_filled_imm1344e.pdf` names `form1[0].SignatureField3[0]`, which `form::fields` independently
+derives as §12.7.4.2's fully qualified name for that document's one field, "so the fully-qualified
+reading in `FieldSelection::covers` has a producer's file behind it and not only an argument". It
+has the clause's now, which is again what a bare caret has turned out to be worth: an erratum that
+only inserts states the authority for something this reader was already doing, and the instrument
+that would have found it is blind to insertions by construction.
+
+**One half of it stays an argument, and the difference is worth keeping.** `FieldSelection` serves
+two tables: §12.8.2.4's Table 259 and §12.7.5.5's Table 236, whose `/Fields` row is worded
+identically. Only Table 259 gains the insertion — `emit` files eighteen annotations under
+§12.7.5.5, over five pages and seven issue numbers, and not one of them touches that row — so the
+same comparison is *required* for the FieldMDP transform and remains the reading argued for the
+signature field lock. `covers`'s own comment says
+which is which, because a function whose two callers stand on different footings should not let the
+weaker one be forgotten.

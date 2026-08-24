@@ -707,7 +707,17 @@ impl Signature {
     /// 3. digests whatever RFC 5652 section 5.4 says the signature is over ([`Signed`]);
     /// 4. verifies with the construction the `signatureAlgorithm` states — RFC 8017 section
     ///    8.2.2's encode-and-compare ([`crate::pkcs1`]), its section 9.1.2's `EMSA-PSS-VERIFY`
-    ///    ([`crate::pss`]), or FIPS 186-4 section 4.7 ([`crate::dsa`]).
+    ///    ([`crate::pss`]), FIPS 186-4 section 4.7 ([`crate::dsa`]), ANSI X9.62's over the curve
+    ///    RFC 5480's `namedCurve` states ([`crate::ecdsa`]), or RFC 8032's over the message itself
+    ///    ([`crate::eddsa`]).
+    ///
+    /// **Step 4 listed the first three alone until the seven-hundred-and-fifth session**, four
+    /// rounds after ADR 0532 added the last two — while the module comment twelve lines above it
+    /// said "for all four" and named both modules. Nothing about a `/SubFilter` narrows any of
+    /// this: the pair matched below is the `signatureAlgorithm` and the certificate's key, so a
+    /// §12.8.3.4 `PAdES` signature reaches the same five arms as an `adbe.pkcs7.detached` one,
+    /// which is what ISO/TS 32002 sections 5.1.2 and 5.1.3 require by naming
+    /// `ETSI.CAdES.detached` in the applicability sentence of each of their curve tables.
     ///
     /// Read [`Authenticity`] before reading a result. [`Authenticity::Verified`] is not "valid":
     /// the certificate it verified against arrived in the same file as the signature.
@@ -1450,10 +1460,21 @@ pub enum FieldSelection {
 impl FieldSelection {
     /// Whether this selection names the field with this fully qualified name (§12.7.4.2).
     ///
-    /// Both tables say only "[a]n array of text strings containing field names", and §12.7.4.2's
-    /// fully qualified name is the only name in the clause that identifies a field uniquely —
-    /// a partial name repeats across the tree, and covering every `Total` in a document because
-    /// one was named would refuse edits the file never asked to refuse.
+    /// Both tables printed only "[a]n array of text strings containing field names", and
+    /// §12.7.4.2's fully qualified name is the only name in the clause that identifies a field
+    /// uniquely — a partial name repeats across the tree, and covering every `Total` in a document
+    /// because one was named would refuse edits the file never asked to refuse.
+    ///
+    /// **For Table 259 that is no longer an argument but the entry's own words, and this tree had
+    /// never read the erratum that says so.** Errata Collection 3's Issue #33 inserts "fully
+    /// qualified" and a reference to §12.7.4.2 into the `/Fields` row of the `FieldMDP` transform
+    /// parameters dictionary, so what §12.8.2.4 requires is an array of text strings containing
+    /// fully qualified field names. Table 236's identically worded row in §12.7.5.5 gains no such
+    /// insertion, so this reading is *required* for the transform and remains the argument above
+    /// for the lock — one function, two footings, and the weaker of them is the one to keep
+    /// reasoning from. `spec-errata check` cannot see either caret, both being an insertion with
+    /// nothing struck out; `emit` files them under §12.8.3.1, which is the heading at the foot of
+    /// Table 259's page.
     ///
     /// **The corpus agrees with the argument**, which it did not have to: the transform in
     /// `xfa_filled_imm1344e.pdf` states `form1[0].SignatureField3[0]`, and `crate::form::fields`
@@ -3076,6 +3097,59 @@ mod tests {
             other_signature
                 .pades_departures(&other_cms, other.len() as u64 + 1)
                 .is_empty()
+        );
+    }
+
+    /// **§12.8.3.4.5 step (a)'s second half, under the `/SubFilter` that subclause is scoped to.**
+    ///
+    /// The step requires a handler to "use the public key contained in the signer's certificate to
+    /// verify that the document digest found in the signature is correctly signed", and
+    /// [`Signature::authenticity`] matches the `signatureAlgorithm` against the certificate's key
+    /// rather than against `/SubFilter` — so every family reaches a `PAdES` signature the same way
+    /// it reaches an `adbe.pkcs7.detached` one. **By construction is exactly what a test is for
+    /// here**: §12.8.3.4's row and §12.8.3.4.5's both recorded that half of the step as answered
+    /// for RSA and DSA alone, four rounds after ADR 0532 added the two elliptic-curve families,
+    /// and nothing in this tree contradicted them.
+    ///
+    /// The curves are this subclause's by the standard's own words rather than by inference: the
+    /// applicability sentence above ISO/TS 32002 section 5.1.3's Table 3 and the one above section
+    /// 5.1.2's Table 4 each name `ETSI.CAdES.detached` among the `/SubFilter` values they cover.
+    /// One curve is enough for that question — `an_ecdsa_signature_verifies_through_the_whole_path_a_document_takes`
+    /// is where all three are exercised, and what this adds is the `/SubFilter` around them.
+    #[test]
+    fn a_pades_signature_verifies_under_an_elliptic_curve_key() {
+        use crate::ecdsa::fixtures as ec;
+        let file = b"the signed bytes";
+        let certificate = ec::hex(ec::P256_CERTIFICATE);
+        let parsed = crate::x509::parse(&certificate).expect("a certificate");
+        let mut signature = curve_signature(fixtures::detached_curve(
+            &certificate,
+            parsed.issuer,
+            parsed.serial_number,
+            Digest::Sha256,
+            const_oid::db::rfc5912::ECDSA_WITH_SHA_256.as_bytes(),
+            &ec::hex(ec::P256_SIGNATURE),
+        ));
+        signature.sub_filter = Some("ETSI.CAdES.detached".to_owned());
+        assert_eq!(
+            signature.authenticity(file),
+            Authenticity::Verified {
+                digest: Digest::Sha256,
+                family: Family::Ecdsa(crate::ecdsa::Curve::P256),
+                key_bits: crate::ecdsa::Curve::P256.bits(),
+                over: Signed::TheDocumentsBytes,
+            },
+            "ISO/TS 32002 Table 3 covers ETSI.CAdES.detached by name"
+        );
+        assert_eq!(
+            signature.authenticity(b"the signed byteS"),
+            Authenticity::NotUnderThatKey {
+                digest: Digest::Sha256,
+                family: Family::Ecdsa(crate::ecdsa::Curve::P256),
+                key_bits: crate::ecdsa::Curve::P256.bits(),
+                over: Signed::TheDocumentsBytes,
+            },
+            "and the step's verdict is decisive in the other direction too"
         );
     }
 }
