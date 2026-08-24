@@ -1714,64 +1714,70 @@ impl Document {
         }
     }
 
-    /// Which of §7.4's filters a [`crate::filter::Pump`] would run over this stream, if any.
+    /// Which chain of §7.4's filters a [`crate::filter::Pump`] would run over this stream, if
+    /// any.
     ///
     /// **The one place the route is decided**, so that a page's `/Contents` and §7.8.2's other
     /// four cannot answer it differently, and so that a filter gaining a pump is one edit.
     ///
-    /// A single `FlateDecode` or `LZWDecode`, with no predictor. A predictor is part of decoding
-    /// (see [`crate::filter::decode_with_parms`]) and reverses rows against their predecessors,
-    /// which is not a transformation a window can apply to a few thousand bytes at a time; it
-    /// occurs on cross-reference streams and images rather than on content streams.
+    /// **All five of §7.4's byte-to-byte filters pump, and the chain pumps when every one of its
+    /// stages does** — which since ADR 0587 includes §7.4.1's own two cascades, EXAMPLE 2's
+    /// `/Filter [/ASCII85Decode /LZWDecode]` and EXAMPLE 3's `[/ASCII85Decode /FlateDecode]`
+    /// over a page's marking instructions. Before that a chain of any length came back whole, so
+    /// an author defeated the whole of road D by wrapping a bomb in a second filter, at 25 000×
+    /// the cost of the same bomb unwrapped (ADR 0586).
     ///
-    /// **The three §7.4 filters left out are left out on their own expansion ratio**, which is
-    /// what road D is about — a bomb is a small file that names a large allocation, and a filter
-    /// that cannot name one has nothing for a window to save:
+    /// Each stage's evidence is its clause's own arithmetic, and the point of writing them down
+    /// is that a stage's output length has to be a *function of its input* for a window over it
+    /// to mean anything:
     ///
-    /// - `ASCIIHexDecode` produces **one byte per two** of §7.4.2's hexadecimal digits, so its
-    ///   output is smaller than its input and no file can inflate through it at all.
-    /// - `ASCII85Decode` produces four bytes per five characters, or four per `z` — **4:1 at the
-    ///   very most**, and only from a stream that is nothing but `z`. §7.4.3 also makes a
-    ///   character outside its grammar one that "shall cause an error", which discards the whole
-    ///   decode; a window has already handed its bytes to a lexer and cannot.
-    /// - `RunLengthDecode` produces at most 128 bytes per two, so **64:1**.
+    /// - `ASCIIHexDecode` "shall produce one byte of binary data for each pair of ASCII
+    ///   hexadecimal digits" (§7.4.2) — **1:2**, and the state between two bytes is one nibble.
+    /// - `ASCII85Decode` "shall produce 5 ASCII characters for every 4 bytes of binary data"
+    ///   (§7.4.3), read backwards, or four bytes for one `z`: **4:1 at the very most**, and the
+    ///   state is one group of at most five digits.
+    /// - `RunLengthDecode` copies "1 to 128 bytes" per length byte (§7.4.5) — **64:1** at best,
+    ///   and the state is one run.
+    /// - `LZWDecode` is §7.4.4.2's table, its bit accumulator and its cursor (ADR 0429), and
+    ///   §7.4.4.1 NOTE 2 gives it "a compression approaching 1365:1 for long files".
+    /// - `FlateDecode` is `flate2::Decompress` held across turns (ADR 0343), measured at 1032:1
+    ///   on `doc/todo/10` §2's Bomb B.
     ///
-    /// `LZWDecode` reaches about **1365:1** on a long run of one byte and `FlateDecode` was
-    /// measured at 1032:1 on `doc/todo/10` §2's Bomb B. Those two are the bombs and those two are
-    /// pumped. `doc/todo/14` carries the ratios and what the remaining three would still need.
+    /// The last two are the ones that can name a bomb and the first three cannot; **the reason
+    /// the first three are pumped anyway is that a chain is only as windowed as its worst
+    /// stage**, and every arrangement that hides a bomb puts one of them in front of one of the
+    /// others.
+    ///
+    /// **A predictor refuses the whole chain a window.** A predictor is part of decoding (see
+    /// [`crate::filter::decode_with_parms`]) and §7.4.4.4 reverses each row against its
+    /// predecessor, which is not a transformation a window can apply to a few thousand bytes at
+    /// a time; it occurs on cross-reference streams and images rather than on content streams.
+    ///
+    /// **What bounds a pumped chain is not here, and that is the road's whole argument.** A
+    /// window has no allocation to bound, so it makes no `TooLarge`: the aggregate bound is the
+    /// reader's, §7.7.3.3's, applied over the whole content by `pdf_model::content::reader`, and
+    /// what stops a bomb is `MAX_OPERATIONS` over the program it decodes to. The memory a chain
+    /// costs is `LINK` bytes per stage regardless of what it names.
     fn pumping(&self, stream: &Stream) -> Option<crate::filter::Pumping> {
         if self.states_no_data(stream) {
             return None;
         }
         let filters = self.filter_chain(&stream.dict);
-        let [only] = filters.as_slice() else {
-            return None;
-        };
-        // The stage's own parameters, read exactly as `decoded_stream_data_reported` reads them,
-        // so that the two routes cannot disagree about what the stream says.
-        let parms = self.decode_parms(&stream.dict, 0);
-        let predicted = parms
-            .as_ref()
-            .and_then(|parms| parms.get("Predictor").and_then(Object::as_integer))
-            .is_some_and(|predictor| predictor > 1);
-        if predicted {
-            return None;
-        }
-        match only.as_slice() {
-            b"FlateDecode" | b"Fl" => Some(crate::filter::Pumping::Inflate),
-            b"LZWDecode" | b"LZW" => {
-                // Table 8's default is 1, and `filter::decode_reported` says why that is the
-                // *incorrect* behaviour of a widely-copied encoder and therefore the one almost
-                // every file needs.
-                let early = parms
-                    .and_then(|parms| parms.get("EarlyChange").and_then(Object::as_integer))
-                    .unwrap_or(1);
-                Some(crate::filter::Pumping::Lzw {
-                    early_change: early != 0,
-                })
+        let mut stages = Vec::with_capacity(filters.len());
+        for (index, filter) in filters.iter().enumerate() {
+            // The stage's own parameters, read exactly as `decoded_stream_data_reported` reads
+            // them, so that the two routes cannot disagree about what the stream says.
+            let parms = self.decode_parms(&stream.dict, index);
+            let predicted = parms
+                .as_ref()
+                .and_then(|parms| parms.get("Predictor").and_then(Object::as_integer))
+                .is_some_and(|predictor| predictor > 1);
+            if predicted {
+                return None;
             }
-            _ => None,
+            stages.push(crate::filter::stage(filter, parms.as_ref())?);
         }
+        crate::filter::Pumping::of(stages)
     }
 
     /// Where the encoded data `dict` describes ends inside `data`, on its first filter's own
@@ -1845,16 +1851,10 @@ impl Document {
 /// both is belt and braces rather than a second reading of Table 92.
 fn delimiting(filter: &[u8], parms: Option<&Dictionary>) -> Option<crate::Delimiting> {
     Some(match filter {
-        b"FlateDecode" | b"Fl" => crate::Delimiting::Decoded(crate::filter::Pumping::Inflate),
-        b"LZWDecode" | b"LZW" => {
-            // Table 8's default is 1, read exactly as `Document::pumping` reads it so that the
-            // two cannot build different decoders over the same bytes.
-            let early = parms
-                .and_then(|parms| parms.get("EarlyChange").and_then(Object::as_integer))
-                .unwrap_or(1);
-            crate::Delimiting::Decoded(crate::filter::Pumping::Lzw {
-                early_change: early != 0,
-            })
+        // Table 8's `/EarlyChange` is read by `filter::stage`, which is what `Document::pumping`
+        // asks as well, so the two cannot build different decoders over the same bytes.
+        b"FlateDecode" | b"Fl" | b"LZWDecode" | b"LZW" => {
+            crate::Delimiting::Decoded(crate::filter::stage(filter, parms)?)
         }
         b"ASCIIHexDecode" | b"AHx" => crate::Delimiting::Marker(b">"),
         b"ASCII85Decode" | b"A85" => crate::Delimiting::Marker(b"~>"),

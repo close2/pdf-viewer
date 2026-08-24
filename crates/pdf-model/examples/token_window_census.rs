@@ -455,8 +455,8 @@ fn delimiting_of(document: &Document, stream: &pdf_syntax::Stream) -> Option<Del
             .unwrap_or(fallback)
     };
     Some(match first_filter(document, stream).as_str() {
-        "FlateDecode" | "Fl" => Delimiting::Decoded(pdf_syntax::Pumping::Inflate),
-        "LZWDecode" | "LZW" => Delimiting::Decoded(pdf_syntax::Pumping::Lzw {
+        "FlateDecode" | "Fl" => Delimiting::Decoded(pdf_syntax::Stage::Inflate),
+        "LZWDecode" | "LZW" => Delimiting::Decoded(pdf_syntax::Stage::Lzw {
             early_change: integer("EarlyChange", 1) != 0,
         }),
         "ASCIIHexDecode" | "AHx" => Delimiting::Marker(b">"),

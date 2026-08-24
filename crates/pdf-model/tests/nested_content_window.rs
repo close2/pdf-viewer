@@ -58,6 +58,9 @@ enum Coding {
     Flate,
     /// `/LZWDecode`, at Table 8's default `/EarlyChange`.
     Lzw,
+    /// `[/ASCIIHexDecode /FlateDecode]` — a *chain*, and the one §7.4.1's EXAMPLE 3 writes
+    /// (with base-85 in place of hexadecimal) for a page's own marking instructions.
+    HexFlate,
 }
 
 /// Encodes `content` as §7.4.4.2 codes, one literal code per byte, then EOD.
@@ -119,6 +122,18 @@ fn document_with_form(content: &[u8], coding: Coding) -> Document {
             (encoder.finish().expect("finish"), " /Filter /FlateDecode")
         }
         Coding::Lzw => (lzw_literals(content), " /Filter /LZWDecode"),
+        Coding::HexFlate => {
+            let mut encoder =
+                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::best());
+            encoder.write_all(content).expect("in-memory write");
+            let deflated = encoder.finish().expect("finish");
+            let mut hexed = Vec::with_capacity(deflated.len() * 2 + 1);
+            for byte in deflated {
+                let _ = write!(hexed_string(&mut hexed), "{byte:02X}");
+            }
+            hexed.push(b'>');
+            (hexed, " /Filter [/ASCIIHexDecode /FlateDecode]")
+        }
     };
 
     let mut objects: Vec<Vec<u8>> = vec![
@@ -159,6 +174,21 @@ fn document_with_form(content: &[u8], coding: Coding) -> Document {
     );
     out.extend_from_slice(tail.as_bytes());
     Document::open_with_limits(out, Limits::DEFAULT).expect("the fixture opens")
+}
+
+/// A `fmt::Write` over a byte buffer, so that the hexadecimal armour is written where it goes.
+struct Hexed<'a>(&'a mut Vec<u8>);
+
+impl std::fmt::Write for Hexed<'_> {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        self.0.extend_from_slice(text.as_bytes());
+        Ok(())
+    }
+}
+
+/// See [`Hexed`].
+fn hexed_string(out: &mut Vec<u8>) -> Hexed<'_> {
+    Hexed(out)
 }
 
 /// Page one's display list, as the digest example compares them.
@@ -243,6 +273,37 @@ fn an_lzw_form_is_read_through_the_window_and_draws_what_the_whole_decode_draws(
         through_the_window,
         commands(&whole),
         "the window changed what the LZW form draws"
+    );
+}
+
+/// The same, for a **chain** — which is the arrangement that escaped road D entirely.
+///
+/// `Document::pumping` used to grant a window to a single `FlateDecode` or `LZWDecode` and hand
+/// every chain back whole, so an author defeated the road by wrapping the bomb in a second
+/// filter: ADR 0586 measured the same bomb at 257 µs under the decoded-stream budget and 6.93 s
+/// over it, about 25 000×, bought with padding. §7.4.1's own EXAMPLE 3 writes that arrangement
+/// for a page's marking instructions, which is why it cannot be dismissed as hostile-only.
+/// ADR 0587.
+#[test]
+fn a_chained_form_is_read_through_the_window_and_draws_what_the_whole_decode_draws() {
+    let content = long_form_content();
+    let windowed = document_with_form(&content, Coding::HexFlate);
+    let whole = document_with_form(&content, Coding::Plain);
+
+    assert!(
+        matches!(route(&windowed), StreamSource::Pumped(_)),
+        "a chain whose every stage pumps is read through the window"
+    );
+
+    let through_the_window = commands(&windowed);
+    assert!(
+        through_the_window.contains("Fill"),
+        "the fixture has to draw something for this to be a comparison"
+    );
+    assert_eq!(
+        through_the_window,
+        commands(&whole),
+        "the window changed what the chained form draws"
     );
 }
 

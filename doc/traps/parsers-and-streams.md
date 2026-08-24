@@ -94,6 +94,22 @@ quoted, and found the argument stronger for a Type 3 glyph description than for 
 makes `d0`/`d1` the first operator, so a prefix cannot lose the glyph's own declaration, and
 `/Widths` rather than the description carries the advance.
 
+**And the answer can differ between two *routes* over one clause, which is not the drift it looks
+like.** ISO 32000-2 §7.4.3 makes a character outside base-85's alphabet one that "shall cause an
+error", and this crate answers it twice: `filter::ascii85`, which every consumer but one reaches,
+refuses the whole stream; `filter::Ascii85`, the same clause driven a window at a time, reports
+`Damage::Corrupt` over the groups it has already handed to a lexer. The seven-hundred-and-fourteenth
+session made them agree — on the reasoning above, that the groups before the character are the
+producer's own — and `display_list_digest` moved exactly one corpus document:
+`PDFBOX-3148-2-fuzzed.pdf` states its **cross-reference stream** as `/Filter [/ASCII85Decode]` with
+a bad byte eight bytes in, and eight bytes handed back as a decode are a cross-reference *section*
+with almost every entry missing, so the file's only page disappears in silence where refusing sends
+the parser to its header scan and finds it. The test above is what decides it, applied to the route
+rather than to the filter: **a window is only ever run over §7.8.2's "sequence of instructions",
+where a prefix is a shorter one of the same kind, and the buffered route serves the tables, the
+font programs and the profiles, where it is not.** Two answers, one clause, two populations. ADR
+0587.
+
 **ADR 0356 found a better question one clause along, and a sharper form of the test.** Ask first
 whether the standard states the thing's *extent*: §7.3.8.2 infers an image's length from its own
 dictionary and §7.10.2 states a sample array's outright, so both are decidable without knowing
