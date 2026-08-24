@@ -284,6 +284,17 @@ down which question it answers, because a second question arriving later will in
 and **a report built out of a count inherits every one of that count's exclusions**, so a count's
 doc comment naming two of its three is a defect in the report and not only in the prose.
 
+**And a sixth instance, in a *count* rather than a report, where the condition was source text.**
+`tools/state.sh windows` asks which of the boundary's questions each window reaches, by looking for
+`Query::X` in the host's crate — and its first run said both native hosts reached §12.3.5's
+collection. They do not. The evidence was one line of `viewer-host/src/panel.rs` reading *"a
+different answer ([`viewer_core::Query::Collection`]) that **this host does not yet ask**"*, so the
+count reported the opposite of what the sentence said, four words later. **A count over source text
+is a claim about what the text *is*, and a comment is text**; `state.sh hosts` had carried the same
+condition since ADR 0509 and had simply not been bitten. Both strip `//` to end of line now. The
+general form is the one that generalises past greps: whenever a condition is *presence of a name*,
+ask what else in the population can carry that name without meaning it (ADR 0577).
+
 ### 13. A sweep for a defect must be run against the defect before it is believed
 
 A round told to look for a class of defect writes a grep, gets a handful of hits, reads them and

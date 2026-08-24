@@ -178,8 +178,12 @@ pass.
   `Command` is a symbol and only an `Event` is a number. **What that round could then claim — that
   the entry points *are* the whole vocabulary — has decayed and is counted rather than repeated**:
   `tools/state.sh hosts` says how much of `Command` and `Query` a C caller reaches and names what
-  it does not, which is the instrument ADR 0509 added when the claim was found stale. ADRs 0247,
-  0509.
+  it does not, which is the instrument ADR 0509 added when the claim was found stale. **Every `Query`
+  reaches a symbol again since the seven-hundred-and-ninth**, and the sentence is now held up by a
+  test rather than by a round's care: `every_query_reaches_the_abi.rs` matches exhaustively over the
+  enum, so a question added to the boundary fails to compile in this crate (ADR 0576). **And
+  `tools/state.sh windows` asks the same question of each window** — the parity instrument
+  "all three hosts stay level" had never had (ADR 0577). ADRs 0247, 0509.
 
 **The freeze's three amendments came first and one of them was a bug.** `Answer::Field`'s password
 value was supposed to be a sentence in a doc comment; reading Table 231 bit 14 for it found a

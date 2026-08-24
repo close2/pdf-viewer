@@ -188,6 +188,237 @@ static void say_panel(const char *what, pdfv_panel *panel)
     }
 }
 
+
+/*
+ * THE OTHER HALF OF THE QUERIES (ADR 0576).
+ *
+ * Eleven of the boundary's questions reached no symbol at all before this round. Every one of them
+ * is asked here, on whatever document the first argument names — most will answer PDFV_NO_ANSWER,
+ * which is not a failure: a document that states no collection has none, and a page with no /Thumb
+ * is most pages of most documents. What is being demonstrated is that a C caller can ASK.
+ *
+ * Nothing here is fatal, deliberately: this function reports and returns, because the shape of
+ * these calls is what is under test and the corpus decides what they answer.
+ */
+static void exercise_the_other_half(pdfv_viewer *viewer)
+{
+    /* Table 29's two display entries. A caller that could set the arrangement could not ask what
+     * the catalogue opens in. */
+    uint32_t mode = 0;
+    uint32_t layout = 0;
+    if (pdfv_opening(viewer, &mode, &layout) == PDFV_OK) {
+        printf("§7.7.2: /PageMode %s, /PageLayout %u\n", pdfv_page_mode_name(mode), layout);
+    }
+
+    /* §12.2's Table 147, key by key, including the ones the document leaves open. */
+    size_t stated = 0;
+    for (uint32_t key = 0; key < pdfv_preference_key_count(); ++key) {
+        int64_t value = 0;
+        int32_t asked = pdfv_preference(viewer, key, &value);
+        if (asked == PDFV_OK) {
+            ++stated;
+            if (stated <= 3) {
+                printf("  Table 147 /%s = %lld\n", pdfv_preference_key_name(key),
+                       (long long)value);
+            }
+        }
+    }
+    size_t ranges = 0;
+    (void)pdfv_preference_ranges(viewer, &ranges);
+    printf("§12.2: %zu of %u entries answered, /PrintPageRange has %zu sub-range(s)\n", stated,
+           pdfv_preference_key_count(), ranges);
+    /* The one entry that is a list refuses the scalar accessor BY NAME rather than answering
+     * something plausible, which is trap 5 in the small. */
+    int64_t refused = 0;
+    if (pdfv_preference(viewer, PDFV_PREF_PRINT_PAGE_RANGE, &refused) != PDFV_WRONG_KIND) {
+        printf("  (a list answered the scalar accessor, which it should not)\n");
+    }
+
+    /* §14.3.3 and §12.4.3, both as panels — the shape this ABI already had. */
+    pdfv_panel *panel = NULL;
+    if (pdfv_properties_read(viewer, &panel) == PDFV_OK) {
+        say_panel("§14.3.3 properties", panel);
+        pdfv_panel_free(panel);
+    }
+    if (pdfv_articles_read(viewer, &panel) == PDFV_OK) {
+        say_panel("§12.4.3 articles", panel);
+        pdfv_panel_free(panel);
+    }
+
+    /* §12.4.2's label and §12.3.4's miniature, asked SEPARATELY for one page — which is the whole
+     * of how this ABI keeps thumbnails off a launch path. */
+    size_t needed = 0;
+    int32_t labelled = pdfv_page_label(viewer, 0, NULL, 0, &needed);
+    if (labelled == PDFV_BUFFER_TOO_SMALL) {
+        char *label = malloc(needed);
+        if (label != NULL && pdfv_page_label(viewer, 0, label, needed, &needed) == PDFV_OK) {
+            printf("§12.4.2: page one is called %s\n", label);
+        }
+        free(label);
+    } else {
+        printf("§12.4.2: this document labels no page, so page one is page 1\n");
+    }
+    pdfv_thumbnail *thumbnail = NULL;
+    if (pdfv_thumbnail_read(viewer, 0, &thumbnail) == PDFV_OK) {
+        uint32_t width = 0;
+        uint32_t height = 0;
+        uint32_t format = 0;
+        size_t bytes = 0;
+        uint32_t permitted = 0;
+        if (pdfv_thumbnail_info(thumbnail, &width, &height, &format, &bytes, &permitted)
+            == PDFV_OK) {
+            uint8_t *samples = malloc(bytes);
+            size_t written = 0;
+            if (samples != NULL
+                && pdfv_thumbnail_copy(thumbnail, samples, bytes, &written) == PDFV_OK) {
+                printf("§12.3.4: page one's /Thumb is %ux%u, %zu byte(s) copied, flags %u\n",
+                       width, height, written, permitted);
+            }
+            free(samples);
+        }
+        pdfv_thumbnail_free(thumbnail);
+    } else {
+        printf("§12.3.4: page one states no /Thumb, which is most pages of most documents\n");
+    }
+
+    /* §9.10.2's counts, per page on the screen. Not reports — the clause says outright that
+     * "there is no way to determine what the character code represents". */
+    size_t readback = pdfv_readback_pages(viewer);
+    printf("§9.10.2: %zu page(s) answer\n", readback);
+    for (size_t entry = 0; entry < readback && entry < 2; ++entry) {
+        size_t page = 0;
+        (void)pdfv_readback_page(viewer, entry, &page);
+        printf("  page %zu:", page);
+        for (uint32_t which = 0; which < pdfv_shortfall_kind_count(); ++which) {
+            size_t count = 0;
+            if (pdfv_readback_count(viewer, entry, which, &count) == PDFV_OK && count > 0) {
+                printf(" %s=%zu", pdfv_shortfall_kind_name(which), count);
+            }
+        }
+        printf("\n");
+    }
+
+    /* Every occurrence of a term on the page in front of the reader — the half a caller running
+     * Annex O's document-wide search did not have. */
+    pdfv_matches *matches = NULL;
+    if (pdfv_find_matches(viewer, "the", &matches) == PDFV_OK) {
+        size_t found = pdfv_matches_len(matches);
+        size_t shapes = 0;
+        for (size_t index = 0; index < found; ++index) {
+            pdfv_quads *quads = NULL;
+            if (pdfv_matches_quads(matches, index, &quads) == PDFV_OK) {
+                shapes += pdfv_quads_len(quads);
+                pdfv_quads_free(quads);
+            }
+        }
+        printf("find on this page: %zu occurrence(s) of \"the\" in %zu shape(s)\n", found, shapes);
+        pdfv_matches_free(matches);
+    }
+
+    /* §12.5.6.14's popup windows, which no host but the tier-2 one could draw before. */
+    pdfv_popups *popups = NULL;
+    if (pdfv_popups_read(viewer, &popups) == PDFV_OK) {
+        size_t windows = pdfv_popups_len(popups);
+        printf("§12.5.6.14: %zu open popup window(s)\n", windows);
+        for (size_t index = 0; index < windows && index < 2; ++index) {
+            uint32_t number = 0;
+            uint16_t generation = 0;
+            bool has_parent = false;
+            uint32_t parent_number = 0;
+            uint16_t parent_generation = 0;
+            float quad[8] = {0};
+            (void)pdfv_popup_object(popups, index, &number, &generation, &has_parent,
+                                    &parent_number, &parent_generation);
+            (void)pdfv_popup_quad(popups, index, quad);
+            size_t said = 0;
+            (void)pdfv_popup_text(popups, index, PDFV_NOTE_CONTENTS, NULL, 0, &said);
+            printf("  [%zu] object %u %u, parent %d (%u), at %.1f,%.1f, %zu byte(s) of text\n",
+                   index, number, generation, has_parent ? 1 : 0, parent_number, (double)quad[0],
+                   (double)quad[1], said);
+        }
+        pdfv_popups_free(popups);
+    }
+
+    /* §14.7's structure, one tree per page the arrangement is showing. */
+    pdfv_structure *structure = NULL;
+    if (pdfv_structure_read(viewer, &structure) == PDFV_OK) {
+        size_t pages = pdfv_structure_pages(structure);
+        printf("§14.7: %zu page(s) of structure\n", pages);
+        for (size_t entry = 0; entry < pages && entry < 2; ++entry) {
+            size_t page = 0;
+            size_t nodes = 0;
+            (void)pdfv_structure_page(structure, entry, &page, &nodes);
+            printf("  page %zu: %zu node(s)", page, nodes);
+            if (nodes > 0) {
+                size_t parent = 0;
+                bool has_parent = false;
+                bool substituted = false;
+                uint32_t scope = 0;
+                bool has_scope = false;
+                (void)pdfv_structure_node(structure, entry, 0, &parent, &has_parent, &substituted,
+                                          &scope, &has_scope);
+                size_t said = 0;
+                int32_t asked =
+                    pdfv_structure_text(structure, entry, 0, PDFV_ELEMENT_ROLE, NULL, 0, &said);
+                char *role = NULL;
+                if (asked == PDFV_BUFFER_TOO_SMALL) {
+                    role = malloc(said);
+                    if (role != NULL) {
+                        (void)pdfv_structure_text(structure, entry, 0, PDFV_ELEMENT_ROLE, role,
+                                                  said, &said);
+                    }
+                }
+                float box[4] = {0};
+                int32_t bounded =
+                    pdfv_structure_box(structure, entry, 0, PDFV_BOX_STATED, box);
+                size_t headers = 0;
+                (void)pdfv_structure_headers(structure, entry, 0, &headers);
+                printf(", root is %s, root has a parent %d, /BBox %s, %zu header(s)",
+                       role == NULL ? "(unnamed)" : role, has_parent ? 1 : 0,
+                       bounded == PDFV_OK ? "yes" : "no", headers);
+                free(role);
+            }
+            printf("\n");
+        }
+        pdfv_structure_free(structure);
+    } else {
+        printf("§14.7: this document states no structure, which §14.7 leaves it free to do\n");
+    }
+
+    /* §12.3.5's collection. Almost no document has one, so what is exercised on most files is the
+     * refusal — and the key grammar below, which takes no viewer at all. */
+    pdfv_collection *collection = NULL;
+    if (pdfv_collection_read(viewer, &collection) == PDFV_OK) {
+        uint32_t view = 0;
+        uint32_t initial = 0;
+        size_t columns = 0;
+        size_t folders = 0;
+        (void)pdfv_collection_view(collection, &view);
+        size_t said = 0;
+        (void)pdfv_collection_initial(collection, &initial, NULL, 0, &said);
+        (void)pdfv_collection_columns(collection, &columns);
+        (void)pdfv_collection_folders(collection, &folders);
+        printf("§12.3.5: view %u, initial %u, %zu column(s), %zu folder(s)\n", view, initial,
+               columns, folders);
+        pdfv_collection_free(collection);
+    } else {
+        printf("§12.3.5: this document states no collection\n");
+    }
+    /* §12.3.5.2's own grammar for an /EmbeddedFiles key, which is the one piece of that clause a
+     * caller could not work out for itself: a folder number in angle brackets, then the name. */
+    uint32_t folder = 0;
+    size_t said = 0;
+    char inside[64];
+    if (pdfv_collection_folder_of("<7>report.pdf", &folder, inside, sizeof inside, &said)
+        == PDFV_OK) {
+        printf("§12.3.5.2: <7>report.pdf is %s in folder %u\n", inside, folder);
+    }
+    if (pdfv_collection_folder_of("loose.pdf", &folder, inside, sizeof inside, &said)
+        != PDFV_NO_ANSWER) {
+        printf("  (a key naming no folder should say so)\n");
+    }
+}
+
 /* One of a field's strings, printed inline. Returns 1 when there was one. */
 static int say_field_string(const pdfv_fields *fields, size_t field, uint32_t which,
                             const char *label)
@@ -771,6 +1002,9 @@ int main(int argc, char **argv)
         return 1;
     }
     printf("an undefined pointer action: %s\n", pdfv_status_message(PDFV_WRONG_KIND));
+
+    /* And the other half of the queries, every one of which reached no symbol before ADR 0576. */
+    exercise_the_other_half(viewer);
 
     /* §12.7's form, on the document that has one. */
     if (argc == 3 && !exercise_the_form(viewer, argv[2])) {

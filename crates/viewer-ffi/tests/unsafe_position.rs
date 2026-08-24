@@ -144,8 +144,14 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // `pdfv_selection_copy_text` answers with §14.8.2.5's logical content order where the
     // document's structure tree gives one, which is what a caller needs in order to put a
     // selection on a clipboard this ABI knows nothing about (ADR 0519).
-    assert_eq!(no_mangle, 117, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 109, "107 `unsafe` entry points and two helpers");
+    // **And fifty-two in the seven-hundred-and-ninth**, which is the rest of that same sentence:
+    // eleven `Query` variants reached no symbol at all and now every one does (ADR 0576). The
+    // shapes are handles, keyed accessors and out-parameters and **not one struct passed by
+    // value**, which is why `PDFV_ABI_VERSION` did not move for the largest addition this ABI has
+    // had. Six of the fifty-two take no pointer and are therefore not `unsafe` — the three
+    // `_count`/`_name` pairs that let a caller print a number this build does not define.
+    assert_eq!(no_mangle, 169, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 155, "153 `unsafe` entry points and two helpers");
 }
 
 #[test]

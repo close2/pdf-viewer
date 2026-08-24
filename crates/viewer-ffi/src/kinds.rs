@@ -31,6 +31,7 @@
 //! chosen against.
 
 use pdf_model::view::{Markup, WidgetAppearances};
+use pdf_model::viewer_preferences::PageMode;
 use viewer_core::{
     Event, FocusMove, PageTarget, PointerAction, PresentationMode, Purpose, RestrictionLevel,
     Selection, Zoom,
@@ -501,6 +502,24 @@ impl LayoutKind {
             Self::TwoPageRight => PageLayout::TwoPageRight,
         }
     }
+
+    /// The arrangement `pdf-model` read, which is what `pdfv_opening` answers with.
+    ///
+    /// The inverse of [`Self::layout`], and it arrived with the other half of the queries: a
+    /// caller could *set* Table 29's arrangement with `pdfv_layout` and could not ask what the
+    /// catalogue opens in, which is the entry §7.7.2 states as an instruction to the window.
+    #[must_use]
+    pub const fn of(layout: pdf_model::viewer_preferences::PageLayout) -> Self {
+        use pdf_model::viewer_preferences::PageLayout;
+        match layout {
+            PageLayout::SinglePage => Self::SinglePage,
+            PageLayout::OneColumn => Self::OneColumn,
+            PageLayout::TwoColumnLeft => Self::TwoColumnLeft,
+            PageLayout::TwoColumnRight => Self::TwoColumnRight,
+            PageLayout::TwoPageLeft => Self::TwoPageLeft,
+            PageLayout::TwoPageRight => Self::TwoPageRight,
+        }
+    }
 }
 
 /// Which of ISO 32000-2 §14.8.2.5's two content orders a copy's text came back in.
@@ -875,6 +894,680 @@ impl TextKind {
             4 => Self::Export,
             _ => return None,
         })
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The enumerations the seven-hundred-and-ninth session added with the other half of the queries.
+//
+// Every one of them is *answered with* rather than taken, except `PreferenceKey`, `ShortfallKind`
+// and the four `which` selectors, which are taken and refuse a number they do not define. The
+// division is the module comment's and is not restated on each.
+// ---------------------------------------------------------------------------------------------
+
+/// Table 29's `/PageMode`: "how the document shall be displayed when opened".
+///
+/// Answered by `pdfv_opening` beside [`LayoutKind`], because §7.7.2 states the two entries
+/// separately and a host obeys them separately — one chooses a panel and the other an arrangement.
+/// **Counted**, unlike the two-valued enumerations beside it: this table gained `/UseOC` in PDF 1.5
+/// and `/UseAttachments` in PDF 1.6, so a caller compiled today may meet a seventh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PageModeKind {
+    /// `UseNone`: "neither document outline nor thumbnail images visible". Table 29's default.
+    UseNone = 0,
+    /// `UseOutlines`: "document outline visible".
+    UseOutlines = 1,
+    /// `UseThumbs`: "thumbnail images visible".
+    UseThumbs = 2,
+    /// `FullScreen`: "full-screen mode, with no menu bar, window controls, or any other window
+    /// visible".
+    FullScreen = 3,
+    /// `UseOC`: "optional content group panel visible".
+    UseOptionalContent = 4,
+    /// `UseAttachments`: "attachments panel visible".
+    UseAttachments = 5,
+}
+
+impl PageModeKind {
+    /// How many modes this build has.
+    pub const COUNT: u32 = 6;
+
+    /// The mode `pdf-model` read, which is exhaustive over Table 29's own list.
+    #[must_use]
+    pub const fn of(mode: PageMode) -> Self {
+        match mode {
+            PageMode::UseNone => Self::UseNone,
+            PageMode::UseOutlines => Self::UseOutlines,
+            PageMode::UseThumbs => Self::UseThumbs,
+            PageMode::FullScreen => Self::FullScreen,
+            PageMode::UseOptionalContent => Self::UseOptionalContent,
+            PageMode::UseAttachments => Self::UseAttachments,
+        }
+    }
+
+    /// The mode for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::UseNone,
+            1 => Self::UseOutlines,
+            2 => Self::UseThumbs,
+            3 => Self::FullScreen,
+            4 => Self::UseOptionalContent,
+            5 => Self::UseAttachments,
+            _ => return None,
+        })
+    }
+
+    /// The name, NUL-terminated for `const char *`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::UseNone => "UseNone\0",
+            Self::UseOutlines => "UseOutlines\0",
+            Self::UseThumbs => "UseThumbs\0",
+            Self::FullScreen => "FullScreen\0",
+            Self::UseOptionalContent => "UseOC\0",
+            Self::UseAttachments => "UseAttachments\0",
+        }
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Table 147's `/Direction`: "[t]he predominant reading order for text".
+///
+/// Two values and no count, for [`OrderKind`]'s reason: the entry states exactly two names and a
+/// third would be a different clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum DirectionKind {
+    /// `L2R`: "left to right reading order". Table 147's default.
+    LeftToRight = 0,
+    /// `R2L`: "right to left … including vertical writing systems".
+    RightToLeft = 1,
+}
+
+/// Table 147's four page-boundary entries, as one of Table 31's five boxes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum BoundaryKind {
+    /// `/MediaBox`.
+    Media = 0,
+    /// `/CropBox`, which is the default of all four entries.
+    Crop = 1,
+    /// `/BleedBox`.
+    Bleed = 2,
+    /// `/TrimBox`.
+    Trim = 3,
+    /// `/ArtBox`.
+    Art = 4,
+}
+
+/// Table 147's `/PrintScaling`: "[t]he page scaling option that shall be selected".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PrintScalingKind {
+    /// `AppDefault`: "the interactive PDF processor's default print scaling". The default.
+    AppDefault = 0,
+    /// `None`: "no page scaling".
+    NoScaling = 1,
+}
+
+/// Table 147's `/Duplex`: "[t]he paper handling option that shall be used when printing".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum DuplexKind {
+    /// `Simplex`: "print single-sided".
+    Simplex = 0,
+    /// `DuplexFlipShortEdge`: "duplex and flip on the short edge of the sheet".
+    FlipShortEdge = 1,
+    /// `DuplexFlipLongEdge`: "duplex and flip on the long edge of the sheet".
+    FlipLongEdge = 2,
+}
+
+/// Which entry of §12.2's Table 147 `pdfv_preference` is being asked for.
+///
+/// **One keyed accessor rather than nineteen symbols or one struct**, and the argument is
+/// [`crate::abi`]'s own, transposed from a command to a table. A struct passed by value would put
+/// Table 147's *size* in the ABI, so an entry added by a later part of ISO 32000 would change a
+/// type every caller has already compiled — the hazard [`crate::abi::PDFV_ABI_VERSION`] exists to
+/// catch and the one this header has only two instances of. A symbol apiece would be nineteen
+/// exports for one table. A key is a **number**: an entry added later is a new constant beside a
+/// function every caller already links, and a caller that meets a key it does not know prints it
+/// with `pdfv_preference_key_name`.
+///
+/// Every value answers as an `int64_t`, which is what makes one accessor possible: a boolean is
+/// zero or one, an enumerated name is its own `PDFV_…` number, and a count is itself. The three
+/// entries Table 147 leaves genuinely optional answer [`crate::Status::NoAnswer`] where the
+/// document states none, which is a different fact from a default and is why they are not given
+/// one here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum PreferenceKey {
+    /// `/HideToolbar`, a boolean.
+    HideToolbar = 0,
+    /// `/HideMenubar`, a boolean.
+    HideMenubar = 1,
+    /// `/HideWindowUI`, a boolean.
+    HideWindowUi = 2,
+    /// `/FitWindow`, a boolean.
+    FitWindow = 3,
+    /// `/CenterWindow`, a boolean.
+    CenterWindow = 4,
+    /// `/DisplayDocTitle`, a boolean.
+    DisplayDocTitle = 5,
+    /// `/NonFullScreenPageMode`, a `PDFV_PAGE_MODE_…`.
+    NonFullScreenPageMode = 6,
+    /// `/Direction`, a `PDFV_DIRECTION_…`.
+    Direction = 7,
+    /// `/ViewArea`, a `PDFV_BOUNDARY_…`.
+    ViewArea = 8,
+    /// `/ViewClip`, a `PDFV_BOUNDARY_…`.
+    ViewClip = 9,
+    /// `/PrintArea`, a `PDFV_BOUNDARY_…`.
+    PrintArea = 10,
+    /// `/PrintClip`, a `PDFV_BOUNDARY_…`.
+    PrintClip = 11,
+    /// `/PrintScaling`, a `PDFV_PRINT_SCALING_…`.
+    PrintScaling = 12,
+    /// `/Duplex`, a `PDFV_DUPLEX_…`. Optional: no default is stated.
+    Duplex = 13,
+    /// `/PickTrayByPDFSize`, a boolean. Optional: "the value shall be … [dependent] on the
+    /// interactive PDF processor" where the document states none.
+    PickTrayByPdfSize = 14,
+    /// `/NumCopies`, a count. Optional, and the entry's own note makes an absent value the
+    /// processor's default rather than one.
+    NumCopies = 15,
+    /// `/EnforcePrintScaling`, a boolean.
+    EnforcePrintScaling = 16,
+    /// `/PrintPageRange`, which is a *list* and so is refused here.
+    ///
+    /// Named rather than absent, and answering [`crate::Status::WrongKind`] rather than nothing:
+    /// a key that simply did not exist would look to a caller like a table this build had not
+    /// read, and this one says *ask the other function*. `pdfv_preference_ranges` and
+    /// `pdfv_preference_range` are that function. Trap 5 in the small.
+    PrintPageRange = 17,
+}
+
+impl PreferenceKey {
+    /// How many entries of Table 147 this build answers for.
+    pub const COUNT: u32 = 18;
+
+    /// The key for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::HideToolbar,
+            1 => Self::HideMenubar,
+            2 => Self::HideWindowUi,
+            3 => Self::FitWindow,
+            4 => Self::CenterWindow,
+            5 => Self::DisplayDocTitle,
+            6 => Self::NonFullScreenPageMode,
+            7 => Self::Direction,
+            8 => Self::ViewArea,
+            9 => Self::ViewClip,
+            10 => Self::PrintArea,
+            11 => Self::PrintClip,
+            12 => Self::PrintScaling,
+            13 => Self::Duplex,
+            14 => Self::PickTrayByPdfSize,
+            15 => Self::NumCopies,
+            16 => Self::EnforcePrintScaling,
+            17 => Self::PrintPageRange,
+            _ => return None,
+        })
+    }
+
+    /// The entry's own key in Table 147, NUL-terminated for `const char *`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::HideToolbar => "HideToolbar\0",
+            Self::HideMenubar => "HideMenubar\0",
+            Self::HideWindowUi => "HideWindowUI\0",
+            Self::FitWindow => "FitWindow\0",
+            Self::CenterWindow => "CenterWindow\0",
+            Self::DisplayDocTitle => "DisplayDocTitle\0",
+            Self::NonFullScreenPageMode => "NonFullScreenPageMode\0",
+            Self::Direction => "Direction\0",
+            Self::ViewArea => "ViewArea\0",
+            Self::ViewClip => "ViewClip\0",
+            Self::PrintArea => "PrintArea\0",
+            Self::PrintClip => "PrintClip\0",
+            Self::PrintScaling => "PrintScaling\0",
+            Self::Duplex => "Duplex\0",
+            Self::PickTrayByPdfSize => "PickTrayByPDFSize\0",
+            Self::NumCopies => "NumCopies\0",
+            Self::EnforcePrintScaling => "EnforcePrintScaling\0",
+            Self::PrintPageRange => "PrintPageRange\0",
+        }
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+}
+
+/// Which of §9.10.2's shortfalls `pdfv_readback_count` is being asked for.
+///
+/// **Not a report**, and [`viewer_core::Query::Readback`] says why at length: a code the standard
+/// itself says "there is no way to determine what the character code represents" is an answer
+/// rather than a failure of this program. Counted, because the causes are
+/// `pdf_font::NamingGap`'s and that list has grown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ShortfallKind {
+    /// A mapping whose answer is no characters.
+    EmptyMapping = 0,
+    /// A `/ToUnicode` that omits the code.
+    IncompleteToUnicode = 1,
+    /// A glyph name neither published list holds.
+    UnlistedName = 2,
+    /// A registered collection with nothing for the CID.
+    UnnamedCid = 3,
+    /// An `Identity` ordering and no `/ToUnicode`.
+    UnaddressableCid = 4,
+    /// A glyph selected by code that nothing names.
+    UnnamedGlyph = 5,
+    /// Every code the six above counted, which is what a status bar shows.
+    UnnamedTotal = 6,
+    /// Codes the font had no glyph for: drawn as nothing, and read back as nothing.
+    WithoutAGlyph = 7,
+    /// Codes whose glyph is blank, which is a space in most fonts and a defect in some.
+    ReachingABlankGlyph = 8,
+}
+
+impl ShortfallKind {
+    /// How many counts this build answers for.
+    pub const COUNT: u32 = 9;
+
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::EmptyMapping,
+            1 => Self::IncompleteToUnicode,
+            2 => Self::UnlistedName,
+            3 => Self::UnnamedCid,
+            4 => Self::UnaddressableCid,
+            5 => Self::UnnamedGlyph,
+            6 => Self::UnnamedTotal,
+            7 => Self::WithoutAGlyph,
+            8 => Self::ReachingABlankGlyph,
+            _ => return None,
+        })
+    }
+
+    /// The name, NUL-terminated for `const char *`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::EmptyMapping => "EmptyMapping\0",
+            Self::IncompleteToUnicode => "IncompleteToUnicode\0",
+            Self::UnlistedName => "UnlistedName\0",
+            Self::UnnamedCid => "UnnamedCid\0",
+            Self::UnaddressableCid => "UnaddressableCid\0",
+            Self::UnnamedGlyph => "UnnamedGlyph\0",
+            Self::UnnamedTotal => "UnnamedTotal\0",
+            Self::WithoutAGlyph => "WithoutAGlyph\0",
+            Self::ReachingABlankGlyph => "ReachingABlankGlyph\0",
+        }
+    }
+
+    /// The number, as C sees it.
+    #[must_use]
+    pub const fn code(self) -> u32 {
+        self as u32
+    }
+
+    /// This count out of one page's shortfall.
+    #[must_use]
+    pub const fn of(self, shortfall: &pdf_model::content::Shortfall) -> usize {
+        match self {
+            Self::EmptyMapping => shortfall.unnamed.empty_mapping,
+            Self::IncompleteToUnicode => shortfall.unnamed.incomplete_to_unicode,
+            Self::UnlistedName => shortfall.unnamed.unlisted_name,
+            Self::UnnamedCid => shortfall.unnamed.unnamed_cid,
+            Self::UnaddressableCid => shortfall.unnamed.unaddressable_cid,
+            Self::UnnamedGlyph => shortfall.unnamed.unnamed_glyph,
+            Self::UnnamedTotal => shortfall.unnamed.total(),
+            Self::WithoutAGlyph => shortfall.without_a_glyph,
+            Self::ReachingABlankGlyph => shortfall.reaching_a_blank_glyph,
+        }
+    }
+}
+
+/// Which of a §12.5.6.14 popup window's three strings a caller is asking for.
+///
+/// The [`TextKind`] idiom one handle over: three strings of one row, so one `which` argument
+/// rather than three symbols saying one thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum NoteKind {
+    /// §12.5.6.2's `/T`: "[t]he text label that shall be displayed in the title bar".
+    Title = 0,
+    /// Table 166's `/Contents`: the text in the window.
+    Contents = 1,
+    /// Table 166's `/M`, as the file spells it — the table makes displaying it in *any* format a
+    /// `shall`, so it is not narrowed to §7.9.4's dates on the way out.
+    Modified = 2,
+}
+
+impl NoteKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Title,
+            1 => Self::Contents,
+            2 => Self::Modified,
+            _ => return None,
+        })
+    }
+}
+
+/// Which of a §14.7 structure element's three strings a caller is asking for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ElementKind {
+    /// §14.7.4's `/S`, after §14.7.3's and §14.8.6.2's role mapping.
+    Role = 0,
+    /// What a text-to-speech engine would say for this element and no other: §14.9.3's `/Alt`,
+    /// else §14.9.5's `/E`, else the text the element's own marked-content sequences produced.
+    Name = 1,
+    /// §14.9.2's language, where the element or an enclosing one states one.
+    Language = 2,
+}
+
+impl ElementKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Role,
+            1 => Self::Name,
+            2 => Self::Language,
+            _ => return None,
+        })
+    }
+}
+
+/// Which of a structure element's two rectangles a caller is asking for.
+///
+/// They are two different kinds of statement and [`viewer_core::AccessibilityNode`] keeps them
+/// apart for that reason: one is what the **document says** the element's extent is, and the other
+/// is where **this program drew** its text. An element whose content is a picture has the first
+/// and not the second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum BoxKind {
+    /// Table 379's `/BBox` where the element states one, else what §14.8.5.4.3's fallback gives.
+    Stated = 0,
+    /// The extent of the text this program actually drew for the element.
+    Drawn = 1,
+}
+
+impl BoxKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Stated,
+            1 => Self::Drawn,
+            _ => return None,
+        })
+    }
+}
+
+/// Table 384's `/Scope`: which of a table's axes a header cell describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ScopeKind {
+    /// `Row`: the cell describes the row it is in.
+    Row = 0,
+    /// `Column`: the cell describes the column it is in.
+    Column = 1,
+    /// `Both`.
+    Both = 2,
+}
+
+/// Table 153's `/View`: how §12.3.5's collection is first presented.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum CollectionViewKind {
+    /// `D` — "details mode, with all information in the Schema dictionary presented in a
+    /// multi-column format". Table 153's default.
+    #[default]
+    Details = 0,
+    /// `T` — "tile mode, with each file in the collection denoted by a small icon".
+    Tile = 1,
+    /// `H` — "initially hidden", which §7.6.7's unencrypted wrapper requires.
+    Hidden = 2,
+    /// `C` — present with `/Navigator`'s layout. "[V]alid only when Navigator is present".
+    Navigator = 3,
+}
+
+/// §12.3.5.1's four outcomes for `/D`, resolved against the `/EmbeddedFiles` tree.
+///
+/// A *resolved* answer rather than the entry, because the tree is the document's and a host
+/// holding only the dictionary cannot make the decision — see [`viewer_core::Answer::Collection`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum InitialKind {
+    /// "[I]f the D entry is missing or is not a valid byte string, the initial document shall be
+    /// the one that contains the collection dictionary."
+    #[default]
+    Container = 0,
+    /// The named embedded file. `pdfv_collection_initial` answers the `/EmbeddedFiles` key beside
+    /// it, which is what `pdfv_extract` takes.
+    Embedded = 1,
+    /// "[T]he first item from the list of files": `/D` named something the tree does not have.
+    FirstFile = 2,
+    /// "[A]n empty preview window": the tree is empty.
+    Empty = 3,
+}
+
+/// Table 155's `/Subtype`, which decides both a column's type and where its value comes from.
+///
+/// The clause's own two groups: the first three "identify the types of fields in the collection
+/// item … dictionary", and the rest "identify the types of file-related fields", whose data is
+/// already in the file specification. A caller filling a column asks this to know where to look —
+/// which is `pdfv_collection_column`'s `in_the_item` out-parameter, stated rather than left to the
+/// caller to derive from the number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ColumnKind {
+    /// `S` — a text field, "stored as a PDF text string".
+    Text = 0,
+    /// `D` — a date field, "stored as a PDF date string (see 7.9.4)".
+    Date = 1,
+    /// `N` — a number field, "stored as a PDF number".
+    Number = 2,
+    /// `F` — the file name, from the file specification's `/UF` or `/F`.
+    FileName = 3,
+    /// `Desc` — the description, from the file specification's `/Desc`.
+    Description = 4,
+    /// `ModDate` — from the embedded file parameter dictionary's `/ModDate`.
+    ModificationDate = 5,
+    /// `CreationDate` — from the same dictionary.
+    CreationDate = 6,
+    /// `Size` — from the same dictionary.
+    Size = 7,
+    /// `CompressedSize` — PDF 2.0, from the embedded file stream's `/Length`.
+    CompressedSize = 8,
+    /// A subtype this standard does not define.
+    ///
+    /// The name the file wrote is still reachable: `pdfv_collection_column_text` answers it under
+    /// `PDFV_COLUMN_SUBTYPE`. A number this build cannot name and a name a caller cannot read
+    /// would be trap 5's silent fallback in a header.
+    Other = 9,
+}
+
+/// Which of a collection column's three strings a caller is asking for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum ColumnTextKind {
+    /// Table 155's `/N`, "[t]he textual field name that shall be presented to the user".
+    Name = 0,
+    /// The `/Schema` key this column is under, which is what §7.11.6's collection item addresses
+    /// its values by.
+    Key = 1,
+    /// Table 155's `/Subtype` as the file spells it, which is the whole of what
+    /// [`ColumnKind::Other`] leaves to say.
+    Subtype = 2,
+}
+
+impl ColumnTextKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Name,
+            1 => Self::Key,
+            2 => Self::Subtype,
+            _ => return None,
+        })
+    }
+}
+
+/// Which of a §12.3.5.2 folder's two strings a caller is asking for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum FolderTextKind {
+    /// `/Name`, the folder's name.
+    Name = 0,
+    /// `/Desc`, "[a] text description associated with this folder".
+    Description = 1,
+}
+
+impl FolderTextKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Name,
+            1 => Self::Description,
+            _ => return None,
+        })
+    }
+}
+
+impl DirectionKind {
+    /// The direction `pdf-model` read.
+    #[must_use]
+    pub const fn of(direction: pdf_model::viewer_preferences::Direction) -> Self {
+        match direction {
+            pdf_model::viewer_preferences::Direction::LeftToRight => Self::LeftToRight,
+            pdf_model::viewer_preferences::Direction::RightToLeft => Self::RightToLeft,
+        }
+    }
+}
+
+impl BoundaryKind {
+    /// The boundary `pdf-model` read.
+    #[must_use]
+    pub const fn of(boundary: pdf_model::page::Boundary) -> Self {
+        match boundary {
+            pdf_model::page::Boundary::Media => Self::Media,
+            pdf_model::page::Boundary::Crop => Self::Crop,
+            pdf_model::page::Boundary::Bleed => Self::Bleed,
+            pdf_model::page::Boundary::Trim => Self::Trim,
+            pdf_model::page::Boundary::Art => Self::Art,
+        }
+    }
+}
+
+impl PrintScalingKind {
+    /// The option `pdf-model` read.
+    #[must_use]
+    pub const fn of(scaling: pdf_model::viewer_preferences::PrintScaling) -> Self {
+        match scaling {
+            pdf_model::viewer_preferences::PrintScaling::AppDefault => Self::AppDefault,
+            pdf_model::viewer_preferences::PrintScaling::NoScaling => Self::NoScaling,
+        }
+    }
+}
+
+impl DuplexKind {
+    /// The option `pdf-model` read.
+    #[must_use]
+    pub const fn of(duplex: pdf_model::viewer_preferences::Duplex) -> Self {
+        match duplex {
+            pdf_model::viewer_preferences::Duplex::Simplex => Self::Simplex,
+            pdf_model::viewer_preferences::Duplex::FlipShortEdge => Self::FlipShortEdge,
+            pdf_model::viewer_preferences::Duplex::FlipLongEdge => Self::FlipLongEdge,
+        }
+    }
+}
+
+impl ScopeKind {
+    /// The scope `pdf-model` read.
+    #[must_use]
+    pub const fn of(scope: pdf_model::structure::HeaderScope) -> Self {
+        match scope {
+            pdf_model::structure::HeaderScope::Row => Self::Row,
+            pdf_model::structure::HeaderScope::Column => Self::Column,
+            pdf_model::structure::HeaderScope::Both => Self::Both,
+        }
+    }
+}
+
+impl CollectionViewKind {
+    /// The view `pdf-model` read.
+    #[must_use]
+    pub const fn of(view: pdf_model::collection::View) -> Self {
+        match view {
+            pdf_model::collection::View::Details => Self::Details,
+            pdf_model::collection::View::Tile => Self::Tile,
+            pdf_model::collection::View::Hidden => Self::Hidden,
+            pdf_model::collection::View::Navigator => Self::Navigator,
+        }
+    }
+}
+
+impl InitialKind {
+    /// Which of §12.3.5.1's four outcomes `viewer-core` resolved, and the key where there is one.
+    #[must_use]
+    pub fn of(initial: &pdf_model::collection::Initial) -> (Self, &str) {
+        match initial {
+            pdf_model::collection::Initial::Container => (Self::Container, ""),
+            pdf_model::collection::Initial::Embedded(name) => (Self::Embedded, name.as_str()),
+            pdf_model::collection::Initial::FirstFile => (Self::FirstFile, ""),
+            pdf_model::collection::Initial::Empty => (Self::Empty, ""),
+        }
+    }
+}
+
+impl ColumnKind {
+    /// Which of Table 155's subtypes this is, and the name the file wrote for one it does not
+    /// define.
+    #[must_use]
+    pub fn of(kind: &pdf_model::collection::FieldKind) -> (Self, &str) {
+        match kind {
+            pdf_model::collection::FieldKind::Text => (Self::Text, "S"),
+            pdf_model::collection::FieldKind::Date => (Self::Date, "D"),
+            pdf_model::collection::FieldKind::Number => (Self::Number, "N"),
+            pdf_model::collection::FieldKind::FileName => (Self::FileName, "F"),
+            pdf_model::collection::FieldKind::Description => (Self::Description, "Desc"),
+            pdf_model::collection::FieldKind::ModificationDate => {
+                (Self::ModificationDate, "ModDate")
+            }
+            pdf_model::collection::FieldKind::CreationDate => (Self::CreationDate, "CreationDate"),
+            pdf_model::collection::FieldKind::Size => (Self::Size, "Size"),
+            pdf_model::collection::FieldKind::CompressedSize => {
+                (Self::CompressedSize, "CompressedSize")
+            }
+            pdf_model::collection::FieldKind::Other(name) => (Self::Other, name.as_str()),
+        }
     }
 }
 

@@ -9,7 +9,9 @@ was taken in the five-hundred-and-eleventh** (ADR 0346): the ABI's entry points 
 vocabulary *then*, Table 229 bit 26 is obeyed, and ADR 0245's scale question is answered with the
 messages that already existed. **"The whole vocabulary" has since decayed and is now counted rather
 than claimed** — `tools/state.sh hosts` prints how much of `Command` and `Query` a C caller can
-reach and names what it cannot (ADR 0509).
+reach and names what it cannot (ADR 0509), and **`tools/state.sh windows` prints the same for each
+window** (ADR 0577). **Item 5 closed in the seven-hundred-and-ninth**: every `Query` variant reaches
+a symbol, and a test that matches exhaustively over the enum is what keeps it that way (ADR 0576).
 Priority: 30 — what is left is *surface* rather than architecture, and the file says which
 Code: `crates/viewer-gtk`, `crates/viewer-qt`, `crates/viewer-host`, `crates/viewer-ffi`
 
@@ -495,8 +497,23 @@ half of that sentence.
    fit its tabs hides the rest behind an arrow nobody looks for.
 
    **What is still `viewer-ui`'s alone is named in ADR 0564 §7**: §12.3.5's collection and
-   §12.5.6.14's popup windows, neither of which is a *tab*. Nothing counts what a window cannot
-   reach, the way `tools/state.sh hosts` counts what a C caller cannot.
+   §12.5.6.14's popup windows, neither of which is a *tab*. ~~Nothing counts what a window cannot
+   reach, the way `tools/state.sh hosts` counts what a C caller cannot.~~ **`tools/state.sh windows`
+   counts it since the seven-hundred-and-ninth** (ADR 0577), per host and for both enums, and names
+   any variant no window reaches at all.
+
+   **Its first run was wrong, and how it was wrong is worth more than the section.** It reported both
+   native hosts reaching §12.3.5's collection, on the evidence of one doc comment in
+   `viewer-host/src/panel.rs` that says in so many words *"a different answer … that this host does
+   not yet ask"*. A count whose condition was "the name occurs in the crate" reported the opposite of
+   what the sentence said, four words later — trap 11 caught in the act. Both sections strip comments
+   before matching now, through one shared helper, and `state.sh hosts` had the same latent flaw.
+
+   **And a zero is not automatically a debt**, which the section's own note says: all three windows
+   learn about an edit from `Event::Dirty` and none asks `Query::Dirty`; a tier-2 host never asks
+   `Query::Frame` because it draws its own pixels; and most of what the native hosts do not ask is a
+   *delegation* — a real `GtkEntry` owns its own caret. What is left after that reading is the short
+   list the section exists to keep visible.
 
    **And the residue item 3 named was taken with it.** `Event::OpenFailed` and a page tree with no
    leaves both called `std::process::exit(1)` in `viewer-ui`; `viewer_host::cannot_open` and
@@ -504,11 +521,40 @@ half of that sentence.
    host said anything about a document with no pages either**, which is the half nobody had noticed:
    §7.7.3.2 states no floor on `/Count`, so such a document is *correctly read* and has nothing to
    show, and a blank window looks exactly like a broken file.
-5. **The C ABI's other half** — `tools/state.sh hosts` says how many `Query` variants a C caller
-   cannot ask for and names them. `Query::Find` is the sharpest: a C caller can run Annex O's
-   document-wide search and cannot draw a match. Worth adding with the entry points: the mechanism
-   that would have caught the drift, a test enumerating `Query` against the symbols, which is what
-   `PDFV_EVENT_KIND_COUNT` already is for events.
+5. ~~**The C ABI's other half**~~ — **taken in the seven-hundred-and-ninth** (ADR 0576), and **it
+   needed no message**, which is the eleventh time since the six-hundred-and-seventh. Every one of
+   `Query`'s variants reaches a symbol now, and `PDFV_ABI_VERSION` did **not** move for the largest
+   addition this ABI has had: not one of the entry points takes or returns a struct by value, which
+   is the one kind of change that constant exists to catch.
+
+   **The deliverable is the instrument rather than the eleven**, and the round's own reasoning turns
+   on it: `PDFV_EVENT_KIND_COUNT` is the right protection for a message that *arrives* and no
+   protection at all for a *question*, which is exactly how eleven accumulated in silence.
+   `tests/every_query_reaches_the_abi.rs` matches exhaustively over `Query`, so a question added to
+   the boundary fails to compile in a test whose name says what it is for — and it has **no
+   allow-list**, which is why all eleven had to land at once: a test that permits "this variant
+   reaches nothing" is the drift it was built against, wearing a comment. The enumeration's size is
+   counted out of `viewer-core`'s own source rather than written down, and all three of its
+   assertions were run against injected defects before being believed (trap 13).
+
+   **Six of the eleven needed no new shape and two cost one `pub` between them**: §12.4.3's threads
+   and §14.3.3's properties are `viewer_host::article_rows` and `property_rows` already, so they
+   cross as the panel handle this ABI has had since ADR 0346 — ADR 0246 decision 3 holding for a
+   third kind of host. The five that needed a handle are in `crates/viewer-ffi/src/answers.rs` with
+   the argument for each shape on the type, because a C entry point cannot change shape once a
+   caller exists. Table 147 is a **keyed accessor** rather than a struct or nineteen symbols, for
+   the reason the header gives: a struct by value would put that table's *size* in the ABI.
+
+   **§12.3.4 is the one that had to be designed against a defect rather than for a feature.** There
+   is deliberately no `pdfv_thumbnails_read`, and `pdfv_page_label` is a separate call, so that the
+   seven-hundred-and-fourth session's launch-path defect has no road into a C host. Measured from a
+   C program outside this tree against the installed `libviewer_ffi.so`, on a 233-page document
+   carrying 231 miniatures: eight rows cost 0.81 ms and 210 KiB, every page 21.6 ms and 6.95 MiB.
+
+   **What it did not carry, named rather than left silent**: `AccessibilityNode::lines` — the
+   per-character byte counts and boxes AT-SPI's `Text` interface wants. An element's own text is its
+   `PDFV_ELEMENT_NAME`, so a C caller building a screen reader has the tree and the extents and not
+   the character offsets. Two accessors and no new decision.
 
    **And one addition item 2 declined to make here, written down so it is decided rather than
    rediscovered**: `viewer_host::keys` is a *table*, and a C host that wants the keys this program

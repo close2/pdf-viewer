@@ -25,9 +25,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    ControlKind, DelegateKind, EventKind, FocusKind, MarkupKind, OrderKind, PageTargetKind,
-    PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind, SelectKind, Status,
-    TextKind,
+    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind, FolderTextKind,
+    InitialKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind, PixelFormat,
+    PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind,
+    ScopeKind, SelectKind, ShortfallKind, Status, TextKind,
 };
 
 /// The header, with every comment removed.
@@ -129,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        117,
+        169,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -159,6 +161,7 @@ fn every_constant_in_the_header_is_the_number_the_library_gives_it() {
     the_argument_enumerations(&mut expected);
     the_answered_enumerations(&mut expected);
     the_field_flags(&mut expected);
+    the_other_half_of_the_queries(&mut expected);
 
     assert_eq!(
         defined, expected,
@@ -434,5 +437,225 @@ fn the_field_flags(expected: &mut BTreeMap<String, i64>) {
         ("PDFV_FIELD_OBSCURED", viewer_ffi::form::FLAG_OBSCURED),
     ] {
         expected.insert(name.to_owned(), i64::from(bit));
+    }
+}
+
+/// The constants the other half of the queries brought with it (ADR 0576).
+///
+/// Eleven `Query` variants reached no symbol at all until the seven-hundred-and-ninth session, and
+/// what came with them is sixteen small enumerations. Every one is read off its own discriminant
+/// here rather than written twice — except the two flag words, which are literals for
+/// [`the_field_flags`]'s reason: a bit that moved would be a caller acting on the wrong flag, and
+/// a loop over `1 << n` would agree with whatever the source said rather than with what was
+/// published.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one block per enumeration, and the count is the ABI's. Splitting it would put half \
+              of one round's constants in another function and lose what this hand-written map is \
+              for: a second statement of every number, made independently"
+)]
+fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
+    for (name, kind) in [
+        ("PDFV_PAGE_MODE_USE_NONE", PageModeKind::UseNone),
+        ("PDFV_PAGE_MODE_USE_OUTLINES", PageModeKind::UseOutlines),
+        ("PDFV_PAGE_MODE_USE_THUMBS", PageModeKind::UseThumbs),
+        ("PDFV_PAGE_MODE_FULL_SCREEN", PageModeKind::FullScreen),
+        ("PDFV_PAGE_MODE_USE_OC", PageModeKind::UseOptionalContent),
+        (
+            "PDFV_PAGE_MODE_USE_ATTACHMENTS",
+            PageModeKind::UseAttachments,
+        ),
+    ] {
+        expected.insert(name.to_owned(), i64::from(kind.code()));
+    }
+    expected.insert(
+        "PDFV_PAGE_MODE_COUNT".to_owned(),
+        i64::from(PageModeKind::COUNT),
+    );
+    for (name, key) in [
+        ("PDFV_PREF_HIDE_TOOLBAR", PreferenceKey::HideToolbar),
+        ("PDFV_PREF_HIDE_MENUBAR", PreferenceKey::HideMenubar),
+        ("PDFV_PREF_HIDE_WINDOW_UI", PreferenceKey::HideWindowUi),
+        ("PDFV_PREF_FIT_WINDOW", PreferenceKey::FitWindow),
+        ("PDFV_PREF_CENTER_WINDOW", PreferenceKey::CenterWindow),
+        (
+            "PDFV_PREF_DISPLAY_DOC_TITLE",
+            PreferenceKey::DisplayDocTitle,
+        ),
+        (
+            "PDFV_PREF_NON_FULL_SCREEN_PAGE_MODE",
+            PreferenceKey::NonFullScreenPageMode,
+        ),
+        ("PDFV_PREF_DIRECTION", PreferenceKey::Direction),
+        ("PDFV_PREF_VIEW_AREA", PreferenceKey::ViewArea),
+        ("PDFV_PREF_VIEW_CLIP", PreferenceKey::ViewClip),
+        ("PDFV_PREF_PRINT_AREA", PreferenceKey::PrintArea),
+        ("PDFV_PREF_PRINT_CLIP", PreferenceKey::PrintClip),
+        ("PDFV_PREF_PRINT_SCALING", PreferenceKey::PrintScaling),
+        ("PDFV_PREF_DUPLEX", PreferenceKey::Duplex),
+        (
+            "PDFV_PREF_PICK_TRAY_BY_PDF_SIZE",
+            PreferenceKey::PickTrayByPdfSize,
+        ),
+        ("PDFV_PREF_NUM_COPIES", PreferenceKey::NumCopies),
+        (
+            "PDFV_PREF_ENFORCE_PRINT_SCALING",
+            PreferenceKey::EnforcePrintScaling,
+        ),
+        ("PDFV_PREF_PRINT_PAGE_RANGE", PreferenceKey::PrintPageRange),
+    ] {
+        expected.insert(name.to_owned(), i64::from(key.code()));
+    }
+    expected.insert(
+        "PDFV_PREF_KEY_COUNT".to_owned(),
+        i64::from(PreferenceKey::COUNT),
+    );
+    for (name, kind) in [
+        ("PDFV_DIRECTION_L2R", DirectionKind::LeftToRight),
+        ("PDFV_DIRECTION_R2L", DirectionKind::RightToLeft),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_BOUNDARY_MEDIA", BoundaryKind::Media),
+        ("PDFV_BOUNDARY_CROP", BoundaryKind::Crop),
+        ("PDFV_BOUNDARY_BLEED", BoundaryKind::Bleed),
+        ("PDFV_BOUNDARY_TRIM", BoundaryKind::Trim),
+        ("PDFV_BOUNDARY_ART", BoundaryKind::Art),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        (
+            "PDFV_PRINT_SCALING_APP_DEFAULT",
+            PrintScalingKind::AppDefault,
+        ),
+        ("PDFV_PRINT_SCALING_NONE", PrintScalingKind::NoScaling),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_DUPLEX_SIMPLEX", DuplexKind::Simplex),
+        ("PDFV_DUPLEX_FLIP_SHORT_EDGE", DuplexKind::FlipShortEdge),
+        ("PDFV_DUPLEX_FLIP_LONG_EDGE", DuplexKind::FlipLongEdge),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_SHORTFALL_EMPTY_MAPPING", ShortfallKind::EmptyMapping),
+        (
+            "PDFV_SHORTFALL_INCOMPLETE_TO_UNICODE",
+            ShortfallKind::IncompleteToUnicode,
+        ),
+        ("PDFV_SHORTFALL_UNLISTED_NAME", ShortfallKind::UnlistedName),
+        ("PDFV_SHORTFALL_UNNAMED_CID", ShortfallKind::UnnamedCid),
+        (
+            "PDFV_SHORTFALL_UNADDRESSABLE_CID",
+            ShortfallKind::UnaddressableCid,
+        ),
+        ("PDFV_SHORTFALL_UNNAMED_GLYPH", ShortfallKind::UnnamedGlyph),
+        ("PDFV_SHORTFALL_UNNAMED_TOTAL", ShortfallKind::UnnamedTotal),
+        (
+            "PDFV_SHORTFALL_WITHOUT_A_GLYPH",
+            ShortfallKind::WithoutAGlyph,
+        ),
+        (
+            "PDFV_SHORTFALL_BLANK_GLYPH",
+            ShortfallKind::ReachingABlankGlyph,
+        ),
+    ] {
+        expected.insert(name.to_owned(), i64::from(kind.code()));
+    }
+    expected.insert(
+        "PDFV_SHORTFALL_KIND_COUNT".to_owned(),
+        i64::from(ShortfallKind::COUNT),
+    );
+    for (name, kind) in [
+        ("PDFV_NOTE_TITLE", NoteKind::Title),
+        ("PDFV_NOTE_CONTENTS", NoteKind::Contents),
+        ("PDFV_NOTE_MODIFIED", NoteKind::Modified),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_ELEMENT_ROLE", ElementKind::Role),
+        ("PDFV_ELEMENT_NAME", ElementKind::Name),
+        ("PDFV_ELEMENT_LANGUAGE", ElementKind::Language),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_BOX_STATED", BoxKind::Stated),
+        ("PDFV_BOX_DRAWN", BoxKind::Drawn),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_SCOPE_ROW", ScopeKind::Row),
+        ("PDFV_SCOPE_COLUMN", ScopeKind::Column),
+        ("PDFV_SCOPE_BOTH", ScopeKind::Both),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_COLLECTION_DETAILS", CollectionViewKind::Details),
+        ("PDFV_COLLECTION_TILE", CollectionViewKind::Tile),
+        ("PDFV_COLLECTION_HIDDEN", CollectionViewKind::Hidden),
+        ("PDFV_COLLECTION_NAVIGATOR", CollectionViewKind::Navigator),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_INITIAL_CONTAINER", InitialKind::Container),
+        ("PDFV_INITIAL_EMBEDDED", InitialKind::Embedded),
+        ("PDFV_INITIAL_FIRST_FILE", InitialKind::FirstFile),
+        ("PDFV_INITIAL_EMPTY", InitialKind::Empty),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_COLLECTION_FIELD_TEXT", ColumnKind::Text),
+        ("PDFV_COLLECTION_FIELD_DATE", ColumnKind::Date),
+        ("PDFV_COLLECTION_FIELD_NUMBER", ColumnKind::Number),
+        ("PDFV_COLLECTION_FIELD_FILE_NAME", ColumnKind::FileName),
+        ("PDFV_COLLECTION_FIELD_DESCRIPTION", ColumnKind::Description),
+        (
+            "PDFV_COLLECTION_FIELD_MODIFICATION_DATE",
+            ColumnKind::ModificationDate,
+        ),
+        (
+            "PDFV_COLLECTION_FIELD_CREATION_DATE",
+            ColumnKind::CreationDate,
+        ),
+        ("PDFV_COLLECTION_FIELD_SIZE", ColumnKind::Size),
+        (
+            "PDFV_COLLECTION_FIELD_COMPRESSED_SIZE",
+            ColumnKind::CompressedSize,
+        ),
+        ("PDFV_COLLECTION_FIELD_OTHER", ColumnKind::Other),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_COLUMN_NAME", ColumnTextKind::Name),
+        ("PDFV_COLUMN_KEY", ColumnTextKind::Key),
+        ("PDFV_COLUMN_SUBTYPE", ColumnTextKind::Subtype),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    for (name, kind) in [
+        ("PDFV_FOLDER_NAME", FolderTextKind::Name),
+        ("PDFV_FOLDER_DESCRIPTION", FolderTextKind::Description),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    // The two flag words, written out for `the_field_flags`'s reason: the numbers *are* the ABI.
+    for (name, bit) in [
+        ("PDFV_THUMBNAIL_COLOUR_SPACE_UNPERMITTED", 1),
+        ("PDFV_THUMBNAIL_SUBTYPE_UNPERMITTED", 2),
+        ("PDFV_COLUMN_VISIBLE", 1),
+        ("PDFV_COLUMN_EDITABLE", 2),
+    ] {
+        expected.insert(name.to_owned(), bit);
     }
 }

@@ -192,14 +192,32 @@ section_counts() {
 # offering it. `viewer-ui` names all of them in `trace.rs` and `viewer-confined` in its
 # protocol, so the same grep over those two would answer 100% and mean nothing — trap 11's
 # shape, a count whose condition is not the question.
+# The `Kind::Variant` names a set of crates uses **in code**, with comments removed first.
+#
+# **The strip is not fussiness; it is trap 11 caught in the act.** The first run of
+# `section_windows` reported both native hosts reaching §12.3.5's collection, on the evidence of
+# one line in `viewer-host/src/panel.rs` that reads *"a different answer ([`Query::Collection`])
+# that this host does not yet ask"*. A rustdoc link is a sentence about a question, not a call —
+# so a count whose condition is "the name appears" reported the exact opposite of what the
+# sentence said. Both sections below strip `//` to end of line before matching.
+names_in_code() {
+    local kind=$1
+    shift
+    find "$@" -name '*.rs' -exec cat {} + \
+        | sed 's|//.*||' \
+        | grep -oE "$kind::[A-Za-z]+" \
+        | sed "s/$kind:://" \
+        | sort -u
+}
+
 section_hosts() {
     heading "viewer-core's vocabulary, and how much of it the C ABI offers" \
-        "grep -oE '(Command|Query)::[A-Za-z]+' crates/viewer-ffi/src, against the two enums"
+        "Command:: and Query:: named in crates/viewer-ffi/src code (comments stripped), against the two enums"
     local kind file all named missing
     for kind in Command Query; do
         file=crates/viewer-core/src/$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]').rs
         all=$(sed -n "/^pub enum $kind/,/^}/p" "$file" | grep -oE '^    [A-Z][A-Za-z]*' | tr -d ' ' | sort -u)
-        named=$(grep -rhoE "$kind::[A-Za-z]+" crates/viewer-ffi/src | sed "s/$kind:://" | sort -u)
+        named=$(names_in_code "$kind" crates/viewer-ffi/src)
         missing=$(comm -23 <(printf '%s\n' "$all") <(printf '%s\n' "$named" | grep -Fx -f <(printf '%s\n' "$all")))
         printf '%-8s %s of %s reach the ABI\n' "$kind:" \
             "$(($(printf '%s\n' "$all" | grep -c .) - $(printf '%s\n' "$missing" | grep -c .)))" \
@@ -209,6 +227,55 @@ section_hosts() {
         fi
     done
     printf '%-8s %s\n' "symbols:" "$(grep -c 'unsafe(no_mangle)' crates/viewer-ffi/src/abi.rs) entry points in abi.rs"
+}
+
+
+# What a *window* reaches, which is the other half of the question `hosts` asks.
+#
+# **This section exists because a round found the gap by reading rather than by counting.** The
+# seven-hundred-and-fourth session took the last three panels into the two native hosts and wrote
+# down that §12.3.5's collection and §12.5.6.14's popup windows were still `viewer-ui`'s alone —
+# and then that *nothing counted it*, the way this script counts what a C caller cannot ask. A
+# parity claim with no instrument decays exactly the way a ledger row does, which is the whole
+# argument of ADR 0509's third criterion.
+#
+# The population is the three hosts that put something on a screen, and **`viewer-host` is added
+# to each of them** rather than counted on its own: it is the crate all three depend on precisely
+# because a host's non-toolkit half lives there, so a window that calls `viewer_host::page_entry`
+# reaches §12.3.4 and §12.4.2 without naming either. Counting the host crates alone would report
+# three windows blind to a panel all three draw — trap 11's shape.
+#
+# `viewer-confined` is deliberately **not** here, for the reason `hosts` gives about `trace.rs`: it
+# puts every variant on a wire, so the same grep would answer 100% and mean nothing.
+section_windows() {
+    heading "viewer-core's vocabulary, and how much of it each window reaches" \
+        "Command:: and Query:: named in each host's code and viewer-host's (comments stripped)"
+    local kind file all host named missing everywhere total
+    for kind in Command Query; do
+        file=crates/viewer-core/src/$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]').rs
+        all=$(sed -n "/^pub enum $kind/,/^}/p" "$file" | grep -oE '^    [A-Z][A-Za-z]*' | tr -d ' ' | sort -u)
+        total=$(printf '%s\n' "$all" | grep -c .)
+        everywhere=""
+        for host in viewer-ui viewer-gtk viewer-qt; do
+            named=$(names_in_code "$kind" "crates/$host/src" crates/viewer-host/src)
+            missing=$(comm -23 <(printf '%s\n' "$all") <(printf '%s\n' "$named" | grep -Fx -f <(printf '%s\n' "$all")))
+            printf '%-12s %s reaches %s of %s\n' "$kind:" "$host" \
+                "$((total - $(printf '%s\n' "$missing" | grep -c .)))" "$total"
+            if [ -n "$missing" ]; then
+                printf '             it does not ask for: %s\n' "$(printf '%s\n' "$missing" | paste -sd' ')"
+            fi
+            everywhere="$everywhere$missing
+"
+        done
+        # A variant missing from all three is the one this section was built to name: a question
+        # the boundary answers and no window on any toolkit puts in front of a reader.
+        missing=$(printf '%s' "$everywhere" | grep -v '^$' | sort | uniq -c | awk '$1 == 3 {print $2}')
+        if [ -n "$missing" ]; then
+            printf '             NO WINDOW asks for: %s\n' "$(printf '%s\n' "$missing" | paste -sd' ')"
+        else
+            printf '             every %s reaches at least one window\n' "$kind"
+        fi
+    done
 }
 
 # What a person can actually run, and how old it is. `doc/todo/02` §5 is what refreshes it.
@@ -223,8 +290,8 @@ section_disk() {
     du -sh /home/AI/cargo-target/pdf-viewer/tmp/pdfref-cache 2>/dev/null
 }
 
-all="ledger conformance annex-o counts hosts binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
-quick="ledger conformance annex-o counts hosts binaries disk"
+all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
+quick="ledger conformance annex-o counts hosts windows binaries disk"
 
 case ${1-} in
 --list) printf '%s\n' $all; exit 0 ;;
@@ -254,6 +321,7 @@ for section in $sections; do
     annex-o) section_annex_o ;;
     counts) section_counts ;;
     hosts) section_hosts ;;
+    windows) section_windows ;;
     binaries) section_binaries ;;
     disk) section_disk ;;
     *)

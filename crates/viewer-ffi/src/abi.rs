@@ -55,12 +55,14 @@ use core::ffi::{c_char, c_int};
 use pdf_render::Raster;
 use viewer_core::RenderRequest;
 
+use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
 use crate::kinds::{
-    ControlKind, DelegateKind, EventKind, FocusKind, LayoutKind, MarkupKind, OrderKind,
-    PageTargetKind, PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind,
-    SelectKind, TextKind, ZoomKind,
+    BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind, EventKind, FocusKind,
+    FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind,
+    PixelFormat, PointerKind, PreferenceKey, PresentKind, PurposeKind, RestrictKind, RowKind,
+    SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -3091,6 +3093,1305 @@ pub extern "C" fn pdfv_row_kind_count() -> u32 {
 pub extern "C" fn pdfv_row_kind_name(kind: u32) -> *const c_char {
     let name = RowKind::from_code(kind).map_or("unknown\0", RowKind::name);
     name.as_ptr().cast::<c_char>()
+}
+
+// ---------------------------------------------------------------------------------------------
+// The other half of the queries — `doc/todo/30` item 5, ADR 0576.
+//
+// Eleven of `viewer_core::Query`'s variants reached no symbol at all, and nothing counted them
+// until `tools/state.sh hosts` did. Every one of them is below, and
+// `tests/every_query_reaches_the_abi.rs` is what keeps the list closed: it matches exhaustively
+// over `Query`, so a variant added to `viewer-core` fails to compile there rather than arriving
+// with no symbol and no signal — which is exactly how eleven accumulated.
+//
+// No entry point below takes or returns a struct by value. `PDFV_ABI_VERSION` therefore does not
+// move, which is the whole reason the shapes are handles and out-parameters.
+// ---------------------------------------------------------------------------------------------
+
+/// Every occurrence of a string on the page being shown, as shapes to draw over it.
+///
+/// `pdfv_find_start` searches the *document* one page per step; this answers for the page in front
+/// of the reader, out of a readback that already exists, so a find bar may ask it on every repaint.
+/// A caller had the first and not the second until ADR 0576.
+///
+/// # Safety
+///
+/// See the module documentation. `needle` is NUL-terminated and UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_find_matches(
+    viewer: *const Session,
+    needle: *const c_char,
+    matches: *mut *mut Matches,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), matches.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(needle)) = owned_text(needle) else {
+        return Status::NotUtf8.code();
+    };
+    match viewer.find(&needle) {
+        Ok(found) => {
+            *out = Box::into_raw(Box::new(found));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Releases what `pdfv_find_matches` produced. Null is a no-op.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_matches_free(matches: *mut Matches) {
+    if !matches.is_null() {
+        drop(Box::from_raw(matches));
+    }
+}
+
+/// How many occurrences there are. Zero for a null pointer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_matches_len(matches: *const Matches) -> usize {
+    matches.as_ref().map_or(0, Matches::len)
+}
+
+/// The shapes covering one occurrence, as a `pdfv_quads *` the caller frees.
+///
+/// **One occurrence is several quadrilaterals**, because a term wrapped across a line is merged
+/// per run of a line — so *next match* is this index and never the next shape.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_matches_quads(
+    matches: *const Matches,
+    index: usize,
+    quads: *mut *mut Quads,
+) -> c_int {
+    let (Some(matches), Some(out)) = (matches.as_ref(), quads.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match matches.quads(index) {
+        Ok(shapes) => {
+            *out = Box::into_raw(Box::new(Quads::new(shapes)));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Table 29's `/PageMode` and `/PageLayout`: what the catalogue asks of the window opening it.
+///
+/// `pdfv_layout` sets the arrangement a *reader* chose; this is the one the *document* opens in,
+/// and a caller had no way to ask for it. Both native hosts obey the catalogue on open.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_opening(
+    viewer: *const Session,
+    mode: *mut u32,
+    layout: *mut u32,
+) -> c_int {
+    let (Some(viewer), Some(mode), Some(layout)) =
+        (viewer.as_ref(), mode.as_mut(), layout.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    match viewer.opening() {
+        Ok((page_mode, arrangement)) => {
+            *mode = page_mode.code();
+            *layout = arrangement as u32;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many of Table 29's page modes this library defines, and the name of one.
+///
+/// The pair `pdfv_control_kind_count` and `pdfv_control_kind_name` make, for the same reason and
+/// deliberately not in `pdfv_abi_check`: this is the answer to a call the caller wrote. Table 29
+/// gained `/UseOC` in PDF 1.5 and `/UseAttachments` in PDF 1.6, which is why it is counted at all.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfv_page_mode_count() -> u32 {
+    PageModeKind::COUNT
+}
+
+/// The name of a page mode, NUL-terminated and never freed.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfv_page_mode_name(mode: u32) -> *const c_char {
+    let name = PageModeKind::from_code(mode).map_or("unknown\0", PageModeKind::name);
+    name.as_ptr().cast::<c_char>()
+}
+
+/// One entry of §12.2's Table 147, as a number.
+///
+/// **One keyed accessor rather than nineteen symbols or a struct**, and the argument is this
+/// module's own transposed from a command to a table: a struct passed by value would put Table
+/// 147's size in the ABI, and a symbol apiece would be nineteen exports for one table. An entry
+/// added by a later part of ISO 32000 is a new `PDFV_PREF_…` constant beside a function every
+/// compiled caller already links.
+///
+/// A boolean answers zero or one, an enumerated name answers its own `PDFV_…` number, and a count
+/// answers itself. `PDFV_NO_ANSWER` is the three entries Table 147 leaves genuinely open —
+/// `/Duplex`, `/PickTrayByPDFSize` and `/NumCopies` — where the document states none, because
+/// "the document says nothing" and "the document says the default" are different facts.
+/// `PDFV_WRONG_KIND` is `PDFV_PREF_PRINT_PAGE_RANGE`, which is a list: see
+/// `pdfv_preference_ranges`.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_preference(
+    viewer: *const Session,
+    key: u32,
+    value: *mut i64,
+) -> c_int {
+    let (Some(viewer), Some(value)) = (viewer.as_ref(), value.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(key) = PreferenceKey::from_code(key) else {
+        return Status::OutOfRange.code();
+    };
+    match viewer.preference(key) {
+        Ok(number) => {
+            *value = number;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many sub-ranges Table 147's `/PrintPageRange` states.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_preference_ranges(
+    viewer: *const Session,
+    count: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(count)) = (viewer.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.preference_ranges() {
+        Ok(ranges) => {
+            *count = ranges.len();
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One sub-range: "[t]he first and last pages in a sub-range", one-based as the entry states them.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_preference_range(
+    viewer: *const Session,
+    index: usize,
+    first: *mut i64,
+    last: *mut i64,
+) -> c_int {
+    let (Some(viewer), Some(first), Some(last)) = (viewer.as_ref(), first.as_mut(), last.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    let ranges = match viewer.preference_ranges() {
+        Ok(ranges) => ranges,
+        Err(status) => return status.code(),
+    };
+    match ranges.get(index) {
+        Some(&(from, to)) => {
+            *first = from;
+            *last = to;
+            Status::Ok.code()
+        }
+        None => Status::OutOfRange.code(),
+    }
+}
+
+/// How many entries of Table 147 this library answers for.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfv_preference_key_count() -> u32 {
+    PreferenceKey::COUNT
+}
+
+/// The Table 147 key a number names, NUL-terminated and never freed.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfv_preference_key_name(key: u32) -> *const c_char {
+    let name = PreferenceKey::from_code(key).map_or("unknown\0", PreferenceKey::name);
+    name.as_ptr().cast::<c_char>()
+}
+
+/// §14.3.3's Table 349 and §14.3.2's metadata stream, as a `pdfv_panel *` the caller frees.
+///
+/// Both tables, shown rather than merged: §14.3.4 leaves a disagreement between them "at the
+/// discretion of the PDF processor", and a panel that merged them would hide one rather than
+/// resolve it. Read with the `pdfv_panel_…` accessors and released with `pdfv_panel_free`.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_properties_read(
+    viewer: *const Session,
+    panel: *mut *mut Panel,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.properties() {
+        Ok(rows) => {
+            *out = Box::into_raw(Box::new(rows));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.4.3's article threads, as a `pdfv_panel *` the caller frees.
+///
+/// Every row is a `PDFV_ROW_ACTIVATE`, which is the same message an outline row sends: the
+/// *document* decides what activating a thread means, and following one lands on Table 163's `/R`
+/// rather than on the page its first bead sits on.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_articles_read(
+    viewer: *const Session,
+    panel: *mut *mut Panel,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), panel.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.articles() {
+        Ok(rows) => {
+            *out = Box::into_raw(Box::new(rows));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.4.2's label for one page, where the document states one.
+///
+/// `PDFV_NO_ANSWER` for a page that states none, which is most pages of most documents: §12.4.2
+/// makes the integer index what identifies a page and the label an addition, so a caller falls
+/// back to the number rather than to nothing.
+///
+/// **Separate from `pdfv_thumbnail_read` on purpose.** A caller drawing a page list needs a name
+/// per row and a picture only for the rows it is showing; one call answering both would make
+/// listing a thousand pages decode a thousand images.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_page_label(
+    viewer: *const Session,
+    page: usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(viewer) = viewer.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    match viewer.page_label(page) {
+        Ok(label) => copy_out(&label, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.3.4's thumbnail for one page, decoded, as a handle the caller frees.
+///
+/// **One page at a time and no list-valued form of this call exists**, which is `CLAUDE.md`
+/// section 2 obeyed by construction rather than by advice: §12.3.4's NOTE says thumbnails "are not
+/// required, and can be included for some pages and not for others", a thousand-page document
+/// stating one for every page would decode a thousand images to draw eight, and Table 29's
+/// `/PageMode /UseThumbs` opens that panel *as the document opens*. A caller asks for the rows it
+/// is about to draw.
+///
+/// `PDFV_NO_ANSWER` for a page with no `/Thumb`, and for one this reader could not decode.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_thumbnail_read(
+    viewer: *const Session,
+    page: usize,
+    thumbnail: *mut *mut Miniature,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), thumbnail.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.thumbnail(page) {
+        Ok(miniature) => {
+            *out = Box::into_raw(Box::new(miniature));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Releases what `pdfv_thumbnail_read` produced. Null is a no-op.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_thumbnail_free(thumbnail: *mut Miniature) {
+    if !thumbnail.is_null() {
+        drop(Box::from_raw(thumbnail));
+    }
+}
+
+/// The miniature's size, how many bytes `pdfv_thumbnail_copy` writes, and §12.3.4's two
+/// producer-side constraints.
+///
+/// The format is always `PDFV_FORMAT_RGBA8`, like every other picture this boundary hands over.
+/// `permitted_colour_space` and `permitted_subtype` are the clause's constraints **carried rather
+/// than enforced**: a file breaking either is wrong and its picture is still what the file says,
+/// so the image is decoded either way and a caller with somewhere to put a note can say so.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_thumbnail_info(
+    thumbnail: *const Miniature,
+    width: *mut u32,
+    height: *mut u32,
+    format: *mut u32,
+    bytes: *mut usize,
+    permitted: *mut u32,
+) -> c_int {
+    let (Some(thumbnail), Some(width), Some(height), Some(bytes)) = (
+        thumbnail.as_ref(),
+        width.as_mut(),
+        height.as_mut(),
+        bytes.as_mut(),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    let (across, down, len, colour_space, subtype) = thumbnail.info();
+    *width = across;
+    *height = down;
+    *bytes = len;
+    if let Some(format) = format.as_mut() {
+        *format = PixelFormat::Rgba8.code();
+    }
+    if let Some(permitted) = permitted.as_mut() {
+        // Two bits rather than two booleans, because they are two answers to one question — "is
+        // this file's thumbnail dictionary the one §12.3.4 describes" — and a caller that cares
+        // about neither tests the word against zero.
+        *permitted = u32::from(!colour_space) | (u32::from(!subtype) << 1_u32);
+    }
+    Status::Ok.code()
+}
+
+/// Copies the miniature's samples into the caller's buffer, RGBA8 and row-major with no padding.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_thumbnail_copy(
+    thumbnail: *const Miniature,
+    into: *mut u8,
+    cap: usize,
+    written: *mut usize,
+) -> c_int {
+    let Some(thumbnail) = thumbnail.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (_, _, bytes, _, _) = thumbnail.info();
+    if let Some(written) = written.as_mut() {
+        *written = bytes;
+    }
+    if into.is_null() || cap < bytes {
+        return Status::BufferTooSmall.code();
+    }
+    let room = core::slice::from_raw_parts_mut(into, cap);
+    match thumbnail.copy(room) {
+        Ok(_) => Status::Ok.code(),
+        Err(status) => status.code(),
+    }
+}
+
+/// How many pages on the screen have §9.10.2's counts to report. Zero for a null pointer.
+///
+/// `pdfv_reported_pages`'s counterpart, and one entry per page for the same reason: a column shows
+/// several pages, and a caller given one page's counts for four would be silent about three.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_readback_pages(viewer: *const Session) -> usize {
+    viewer.as_ref().map_or(0, Session::readback_pages)
+}
+
+/// Which page one of those entries is about, zero-based.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_readback_page(
+    viewer: *const Session,
+    entry: usize,
+    page: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(page)) = (viewer.as_ref(), page.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.readback_page(entry) {
+        Ok(index) => {
+            *page = index;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of §9.10.2's counts for one page on the screen.
+///
+/// **Deliberately not a report.** §9.10.2's own closing sentence is "there is no way to determine
+/// what the character code represents", so a code that route ends at is an answer the standard
+/// states rather than something this program failed to do — and folding these into
+/// `pdfv_report` would say the opposite. What a caller does with them is what a person needs: say
+/// that a search found nothing on a page whose text cannot be read, or that a copied selection is
+/// short.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_readback_count(
+    viewer: *const Session,
+    entry: usize,
+    which: u32,
+    count: *mut usize,
+) -> c_int {
+    let (Some(viewer), Some(count)) = (viewer.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = ShortfallKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    match viewer.readback_count(entry, which) {
+        Ok(number) => {
+            *count = number;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many of §9.10.2's counts this library distinguishes.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfv_shortfall_kind_count() -> u32 {
+    ShortfallKind::COUNT
+}
+
+/// The name of one of those counts, NUL-terminated and never freed.
+#[unsafe(no_mangle)]
+pub extern "C" fn pdfv_shortfall_kind_name(which: u32) -> *const c_char {
+    let name = ShortfallKind::from_code(which).map_or("unknown\0", ShortfallKind::name);
+    name.as_ptr().cast::<c_char>()
+}
+
+/// §12.5.6.14's open popup windows on the page being shown, as a handle the caller frees.
+///
+/// The clause makes a popup "a window … for entry and editing" with "no appearance stream", so it
+/// is the one annotation subtype whose picture is *not* the page's: a caller draws it as chrome,
+/// in its platform's own window furniture. Only the open ones — Table 186's `/Open` says which
+/// start that way and `pdfv_activate` on the parent annotation changes it.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popups_read(
+    viewer: *const Session,
+    popups: *mut *mut Popups,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), popups.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.popups() {
+        Ok(windows) => {
+            *out = Box::into_raw(Box::new(windows));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Releases what `pdfv_popups_read` produced. Null is a no-op.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popups_free(popups: *mut Popups) {
+    if !popups.is_null() {
+        drop(Box::from_raw(popups));
+    }
+}
+
+/// How many windows are open. Zero for a null pointer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popups_len(popups: *const Popups) -> usize {
+    popups.as_ref().map_or(0, Popups::len)
+}
+
+/// The popup annotation, and Table 186's `/Parent` where it names one.
+///
+/// Two objects because they answer two questions: the first is what `pdfv_activate` closes the
+/// window with, and the second is the markup annotation the note belongs to — which is what a
+/// caller highlights when the pointer is over the window. `has_parent` is false for a popup the
+/// file left unattached, which Table 186 permits.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popup_object(
+    popups: *const Popups,
+    index: usize,
+    number: *mut u32,
+    generation: *mut u16,
+    has_parent: *mut bool,
+    parent_number: *mut u32,
+    parent_generation: *mut u16,
+) -> c_int {
+    let (Some(popups), Some(number), Some(generation)) =
+        (popups.as_ref(), number.as_mut(), generation.as_mut())
+    else {
+        return Status::NullArgument.code();
+    };
+    let (annotation, parent) = match popups.objects(index) {
+        Ok(objects) => objects,
+        Err(status) => return status.code(),
+    };
+    *number = annotation.0;
+    *generation = annotation.1;
+    if let Some(has_parent) = has_parent.as_mut() {
+        *has_parent = parent.is_some();
+    }
+    let (parent_id, parent_generation_number) = parent.unwrap_or((0, 0));
+    if let Some(parent_number) = parent_number.as_mut() {
+        *parent_number = parent_id;
+    }
+    if let Some(parent_generation) = parent_generation.as_mut() {
+        *parent_generation = parent_generation_number;
+    }
+    Status::Ok.code()
+}
+
+/// The window's rectangle on the screen: `[x0, y0, … x3, y3]`, y downwards, eight floats.
+///
+/// The same form `pdfv_quads_get`, `pdfv_focused_annotation` and `pdfv_field_widget` take, in
+/// device pixels of the viewport — one arithmetic in one place.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for eight floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popup_quad(
+    popups: *const Popups,
+    index: usize,
+    into: *mut f32,
+) -> c_int {
+    let Some(popups) = popups.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    match popups.quad(index) {
+        Ok(quad) => {
+            core::slice::from_raw_parts_mut(into, quad.len()).copy_from_slice(&quad);
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of the window's three strings: `PDFV_NOTE_TITLE`, `PDFV_NOTE_CONTENTS`, `PDFV_NOTE_MODIFIED`.
+///
+/// An empty string for one the annotation does not state, because Table 166 makes none of the
+/// three required and a note with no title is a note a caller draws with no title.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popup_text(
+    popups: *const Popups,
+    index: usize,
+    which: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(popups) = popups.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = NoteKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    match popups.text(index, which) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// Table 166's `/C`, "[t]he title bar of the annotation's popup window", as three `DeviceRGB`
+/// components.
+///
+/// `PDFV_NO_ANSWER` where the annotation states no colour, which is a different thing from black.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for three floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_popup_colour(
+    popups: *const Popups,
+    index: usize,
+    into: *mut f32,
+) -> c_int {
+    let Some(popups) = popups.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    match popups.colour(index) {
+        Ok(colour) => {
+            core::slice::from_raw_parts_mut(into, colour.len()).copy_from_slice(&colour);
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// §14.7's logical structure for every page the arrangement is showing, as a handle the caller
+/// frees.
+///
+/// **Two indices, and the standard is why.** §14.7.5.2's marked-content identifier "uniquely
+/// identifies the marked-content sequence within its content stream" and §14.7.5.4 keys the route
+/// in from that page's `/StructParents`, so two pages' trees share no numbering and there is no
+/// order between them to renumber by. A caller walks pages with `pdfv_structure_page`, then nodes;
+/// every index a node carries is into **that page's** list.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_read(
+    viewer: *const Session,
+    structure: *mut *mut Structure,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), structure.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.structure() {
+        Ok(tree) => {
+            *out = Box::into_raw(Box::new(tree));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Releases what `pdfv_structure_read` produced. Null is a no-op.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_free(structure: *mut Structure) {
+    if !structure.is_null() {
+        drop(Box::from_raw(structure));
+    }
+}
+
+/// How many pages the arrangement is showing. Zero for a null pointer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_pages(structure: *const Structure) -> usize {
+    structure.as_ref().map_or(0, Structure::len)
+}
+
+/// Which page an entry is about, and how many nodes its tree has.
+///
+/// Zero nodes is an answer rather than a silence: §14.7 leaves a producer free to state no
+/// structure, and a reader that invented a reading order for an untagged page would be presenting
+/// a guess where a person is entitled to the author's answer.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_page(
+    structure: *const Structure,
+    entry: usize,
+    page: *mut usize,
+    nodes: *mut usize,
+) -> c_int {
+    let Some(structure) = structure.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (index, count) = match structure.page(entry) {
+        Ok(answer) => answer,
+        Err(status) => return status.code(),
+    };
+    if let Some(page) = page.as_mut() {
+        *page = index;
+    }
+    if let Some(nodes) = nodes.as_mut() {
+        *nodes = count;
+    }
+    Status::Ok.code()
+}
+
+/// A node's parent, §14.9.3's substitution, and Table 384's `/Scope` for a header cell.
+///
+/// `has_parent` is false for a root. `substituted` is the one a client acts on rather than
+/// displays: §14.9.3 makes `/Alt` "a complete (or whole) word or phrase substitution for the
+/// current element" and §14.9.5 says the same of `/E`, so an element stating one has said what to
+/// speak *instead of* its content and a client stops there rather than descending — descending
+/// anyway reads the element twice. `has_scope` is false for every element that is not a `TH` and
+/// for a `TH` this reader could place in no grid, which is a caller being told we do not know.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_node(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    parent: *mut usize,
+    has_parent: *mut bool,
+    substituted: *mut bool,
+    scope: *mut u32,
+    has_scope: *mut bool,
+) -> c_int {
+    let Some(structure) = structure.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (encloser, substitution, header_scope) = match structure.shape(entry, node) {
+        Ok(facts) => facts,
+        Err(status) => return status.code(),
+    };
+    if let Some(parent) = parent.as_mut() {
+        *parent = encloser.unwrap_or_default();
+    }
+    if let Some(has_parent) = has_parent.as_mut() {
+        *has_parent = encloser.is_some();
+    }
+    if let Some(substituted) = substituted.as_mut() {
+        *substituted = substitution;
+    }
+    if let Some(scope) = scope.as_mut() {
+        *scope = header_scope.map_or(0, |scope| scope as u32);
+    }
+    if let Some(has_scope) = has_scope.as_mut() {
+        *has_scope = header_scope.is_some();
+    }
+    Status::Ok.code()
+}
+
+/// One of a node's three strings: `PDFV_ELEMENT_ROLE`, `PDFV_ELEMENT_NAME`,
+/// `PDFV_ELEMENT_LANGUAGE`.
+///
+/// The role is §14.7.4's `/S` **after §14.7.3's role map**, which is the file's own statement
+/// about its own names and a `shall`: "[a] structure type shall always be mapped to its
+/// corresponding name in the role map, if there is one, even if the original name is one of the
+/// standard types." Mapping it onto a *platform's* vocabulary is the caller's, and is a different
+/// mapping.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_text(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    which: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(structure) = structure.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = ElementKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    match structure.text(entry, node, which) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// Where the element's own text was drawn, as a `pdfv_quads *` the caller frees.
+///
+/// Empty for an element whose content drew no text — a figure, a table cell holding an image —
+/// which is a statement about this program's text layer rather than about the element, and is why
+/// `pdfv_structure_box` exists beside it.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_quads(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    quads: *mut *mut Quads,
+) -> c_int {
+    let (Some(structure), Some(out)) = (structure.as_ref(), quads.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match structure.quads(entry, node) {
+        Ok(shapes) => {
+            *out = Box::into_raw(Box::new(Quads::new(shapes)));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of a node's two rectangles: `[x0, y0, x1, y1]` in device pixels of the viewport.
+///
+/// `PDFV_BOX_STATED` is what the **document** says the element's extent is — Table 379's `/BBox`,
+/// which §14.8.5.4.3 makes "the rectangle that completely encloses its visible content" — and
+/// `PDFV_BOX_DRAWN` is where **this program** drew its text. Two kinds of statement, carried side
+/// by side rather than merged, because an element whose content is a picture has the first and not
+/// the second. `PDFV_NO_ANSWER` where the node has no rectangle of that kind.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for four floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_box(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    which: u32,
+    into: *mut f32,
+) -> c_int {
+    let Some(structure) = structure.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = BoxKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    match structure.rectangle(entry, node, which) {
+        Ok(rectangle) => {
+            core::slice::from_raw_parts_mut(into, rectangle.len()).copy_from_slice(&rectangle);
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// How many header cells §14.8.4.8.3 associates with this element.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_headers(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    count: *mut usize,
+) -> c_int {
+    let (Some(structure), Some(count)) = (structure.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match structure.headers(entry, node) {
+        Ok(number) => {
+            *count = number;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One of those header cells, as an index into **this page's** node list.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_header(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    header: usize,
+    cell: *mut usize,
+) -> c_int {
+    let (Some(structure), Some(cell)) = (structure.as_ref(), cell.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match structure.header(entry, node, header) {
+        Ok(index) => {
+            *cell = index;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// §12.3.5's portable collection, as a handle the caller frees.
+///
+/// The clause is a `shall` on a viewer — "[i]f this dictionary is present in a PDF document, the
+/// interactive PDF processor shall present the document as a portable collection" — so what
+/// crosses is everything needed to *arrange* the files `pdfv_attachments_read` already lists:
+/// Table 153's `/View`, §12.3.5.1's resolved initial document, Table 155's columns in `/O` order,
+/// and §12.3.5.2's folder tree flattened depth first. `pdfv_collection_folder_of` is the fifth
+/// piece and the one a caller could not compute for itself.
+///
+/// `PDFV_NO_ANSWER` where the catalogue states no collection, which is every document in this
+/// project's corpora.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_read(
+    viewer: *const Session,
+    collection: *mut *mut Collection,
+) -> c_int {
+    let (Some(viewer), Some(out)) = (viewer.as_ref(), collection.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.collection() {
+        Ok(read) => {
+            *out = Box::into_raw(Box::new(read));
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Releases what `pdfv_collection_read` produced. Null is a no-op.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_free(collection: *mut Collection) {
+    if !collection.is_null() {
+        drop(Box::from_raw(collection));
+    }
+}
+
+/// Table 153's `/View`: how the collection is first presented.
+///
+/// `PDFV_COLLECTION_HIDDEN` is the one value that is load-bearing rather than a preference:
+/// §7.6.7's unencrypted wrapper document requires it, because the wrapper's own page says the
+/// payload is encrypted and showing a file browser over it would hide that.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_view(
+    collection: *const Collection,
+    view: *mut u32,
+) -> c_int {
+    let (Some(collection), Some(view)) = (collection.as_ref(), view.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *view = collection.view() as u32;
+    Status::Ok.code()
+}
+
+/// §12.3.5.1's outcome for `/D`, resolved, and the `/EmbeddedFiles` key where it names a file.
+///
+/// A *resolved* answer rather than the entry: Table 153's `/D` "identifies an entry in the
+/// `EmbeddedFiles` name tree, determining the document that shall be initially presented in the
+/// user interface", the tree is the document's, and turning a byte string into one of four
+/// outcomes is therefore not a caller's to do. The key is empty for the three outcomes that name
+/// no file, and is what `pdfv_extract` takes for the one that does.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_initial(
+    collection: *const Collection,
+    kind: *mut u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (outcome, name) = collection.initial();
+    if let Some(kind) = kind.as_mut() {
+        *kind = outcome as u32;
+    }
+    copy_out(name, out, cap, needed)
+}
+
+/// How many columns Table 153's `/Schema` states.
+///
+/// Zero is a permission rather than a gap: the table says an absent schema lets a processor
+/// "choose useful defaults that are known to exist in a file specification dictionary, such as the
+/// file name, file size, and modified date", so an empty list is the document declining to choose.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_columns(
+    collection: *const Collection,
+    count: *mut usize,
+) -> c_int {
+    let (Some(collection), Some(count)) = (collection.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *count = collection.columns();
+    Status::Ok.code()
+}
+
+/// One column's subtype, where its value lives, Table 155's `/O`, `/V` and `/E`.
+///
+/// The columns are already in `/O` order — "[t]he relative order of the field name in the user
+/// interface" — with a field stating none after every field that states one, which is the only
+/// order left when the file says nothing. `in_the_item` is the clause's own division stated rather
+/// than left to be derived: the first three subtypes "identify the types of fields in the
+/// collection item … dictionary" and the rest "identify the types of file-related fields", so it
+/// says whether a caller reads §7.11.6's `/CI` or the file specification it already has.
+/// `has_order` is false where the field states no `/O`.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_column(
+    collection: *const Collection,
+    index: usize,
+    kind: *mut u32,
+    in_the_item: *mut bool,
+    order: *mut i64,
+    has_order: *mut bool,
+    flags: *mut u32,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (subtype, item, stated_order, visible, editable) = match collection.column(index) {
+        Ok(facts) => facts,
+        Err(status) => return status.code(),
+    };
+    if let Some(kind) = kind.as_mut() {
+        *kind = subtype as u32;
+    }
+    if let Some(in_the_item) = in_the_item.as_mut() {
+        *in_the_item = item;
+    }
+    if let Some(order) = order.as_mut() {
+        *order = stated_order.unwrap_or_default();
+    }
+    if let Some(has_order) = has_order.as_mut() {
+        *has_order = stated_order.is_some();
+    }
+    if let Some(flags) = flags.as_mut() {
+        *flags = u32::from(visible) | (u32::from(editable) << 1_u32);
+    }
+    Status::Ok.code()
+}
+
+/// One of a column's three strings: `PDFV_COLUMN_NAME`, `PDFV_COLUMN_KEY`, `PDFV_COLUMN_SUBTYPE`.
+///
+/// The third is the whole of what `PDFV_COLLECTION_FIELD_OTHER` leaves to say: a subtype this
+/// standard does not define is still a name the file wrote, and a number a caller cannot resolve
+/// beside a name it cannot read would be a silent fallback in a header.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_column_text(
+    collection: *const Collection,
+    index: usize,
+    which: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = ColumnTextKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    match collection.column_text(index, which) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// How many folders §12.3.5.2's tree holds, counting every level.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_folders(
+    collection: *const Collection,
+    count: *mut usize,
+) -> c_int {
+    let (Some(collection), Some(count)) = (collection.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *count = collection.folders();
+    Status::Ok.code()
+}
+
+/// One folder's `/ID`, its depth in the tree, and whether it states a `/Thumb`.
+///
+/// Depth first with a depth on each row, exactly as §12.3.3's outline crosses and for the same
+/// reason: a tree is the one shape a C ABI cannot hand over as itself. The `/ID` is "a
+/// non-negative integer value representing the unique folder identification number", and it is
+/// what `pdfv_collection_folder_of` answers with.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_folder(
+    collection: *const Collection,
+    index: usize,
+    id: *mut u32,
+    depth: *mut u32,
+    has_thumbnail: *mut bool,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let (number, level, thumbnail) = match collection.folder(index) {
+        Ok(facts) => facts,
+        Err(status) => return status.code(),
+    };
+    if let Some(id) = id.as_mut() {
+        *id = number;
+    }
+    if let Some(depth) = depth.as_mut() {
+        *depth = level;
+    }
+    if let Some(has_thumbnail) = has_thumbnail.as_mut() {
+        *has_thumbnail = thumbnail;
+    }
+    Status::Ok.code()
+}
+
+/// One of a folder's two strings: `PDFV_FOLDER_NAME`, `PDFV_FOLDER_DESCRIPTION`.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_folder_text(
+    collection: *const Collection,
+    index: usize,
+    which: u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let Some(collection) = collection.as_ref() else {
+        return Status::NullArgument.code();
+    };
+    let Some(which) = FolderTextKind::from_code(which) else {
+        return Status::WrongKind.code();
+    };
+    match collection.folder_text(index, which) {
+        Ok(text) => copy_out(text, out, cap, needed),
+        Err(status) => status.code(),
+    }
+}
+
+/// Which folder an `/EmbeddedFiles` key names, and the file name inside it.
+///
+/// **The one piece of §12.3.5 a caller could not compute**, and the reason this is a function
+/// rather than a note in the header. §12.3.5.2 gives the key of a file in a folder as the folder's
+/// identification number in angle brackets followed by the file name; a caller holding a folder
+/// tree and a file list has no way to put one inside the other without that grammar. A key with no
+/// such prefix is a file at the root, which answers `PDFV_NO_ANSWER` and copies the key unchanged.
+///
+/// It takes no viewer, because it is a fact about a string rather than about a document.
+///
+/// # Safety
+///
+/// See the module documentation. `key` is NUL-terminated and UTF-8; `out` is writable for `cap`
+/// bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_collection_folder_of(
+    key: *const c_char,
+    id: *mut u32,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    if key.is_null() {
+        return Status::NullArgument.code();
+    }
+    let Ok(key) = core::ffi::CStr::from_ptr(key).to_str() else {
+        return Status::NotUtf8.code();
+    };
+    let Some((folder, name)) = pdf_model::collection::folder_of(key) else {
+        // The key names no folder, so the file is at the root. The name is still copied — it is
+        // the key itself — so that a caller may write one loop rather than two.
+        let written = copy_out(key, out, cap, needed);
+        return if written == Status::Ok.code() {
+            Status::NoAnswer.code()
+        } else {
+            written
+        };
+    };
+    if let Some(id) = id.as_mut() {
+        *id = folder;
+    }
+    copy_out(name, out, cap, needed)
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -16,8 +16,13 @@ use viewer_core::{
     Query, RenderRequest, Rendered, Selection, Viewer, Zoom,
 };
 
+use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
+use crate::kinds::{
+    BoundaryKind, DirectionKind, DuplexKind, LayoutKind, PageModeKind, PreferenceKey,
+    PrintScalingKind, ShortfallKind,
+};
 use crate::panels::{Outline, Panel};
 use crate::shapes::Quads;
 use crate::status::Status;
@@ -714,6 +719,302 @@ impl Session {
             .get(entry)
             .map(|page| page.notes.to_vec())
             .ok_or(Status::OutOfRange)
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // The other half of the queries — `doc/todo/30` item 5, the seven-hundred-and-ninth session.
+    //
+    // Eleven `Query` variants reached no symbol at all. Every one of them is below, and
+    // `tests/every_query_reaches_the_abi.rs` is what keeps that true: a variant added to
+    // `viewer-core` fails to compile in a `match` there, which is the mechanism
+    // `PDFV_EVENT_KIND_COUNT` already is for events and which nothing was for a question.
+    // ---------------------------------------------------------------------------------------
+
+    /// Every occurrence of a string on the page being shown, as shapes to draw over it.
+    ///
+    /// **This page, and [`Self::find_start`] is the document.** The two are one search asked
+    /// twice: this answers from a readback that already exists, in microseconds, so a find bar may
+    /// ask it on every repaint; the other interprets pages nobody is looking at and takes one step
+    /// at a time. A caller that had only the second could run a search and not draw a match, which
+    /// is what this ABI was until now.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn find(&self, needle: &str) -> Result<Matches, Status> {
+        match self.viewer.query(Query::Find(needle)) {
+            Answer::Found(occurrences) => Ok(Matches::new(occurrences)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// Table 29's `/PageMode` and `/PageLayout`: what the catalogue asks of the window opening it.
+    ///
+    /// Both, in one call, because §7.7.2 states them as one instruction to a window and a caller
+    /// obeys them together — one chooses which panel is open and the other how the pages are laid
+    /// out. [`Self::preferences`] is Table 147, which is a different table and a separate call for
+    /// that reason.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn opening(&self) -> Result<(PageModeKind, LayoutKind), Status> {
+        match self.viewer.query(Query::Opening) {
+            Answer::Opening(opening) => Ok((
+                PageModeKind::of(opening.mode),
+                LayoutKind::of(opening.layout),
+            )),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// One entry of §12.2's Table 147, as a number.
+    ///
+    /// See [`PreferenceKey`] for why this is one keyed accessor rather than nineteen symbols or a
+    /// struct. Every entry Table 147 gives a default answers that default; the three it leaves
+    /// genuinely open answer [`Status::NoAnswer`], because "the document says nothing" and "the
+    /// document says the default" are different facts and only the first leaves the choice to the
+    /// caller.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused or the entry is one Table 147 leaves
+    /// open and the document states none; [`Status::WrongKind`] for `/PrintPageRange`, which is a
+    /// list and is read with [`Self::preference_ranges`].
+    pub fn preference(&self, key: PreferenceKey) -> Result<i64, Status> {
+        let Answer::Preferences(preferences) = self.viewer.query(Query::Preferences) else {
+            return Err(Status::NoAnswer);
+        };
+        let boolean = |value: bool| Ok(i64::from(value));
+        match key {
+            PreferenceKey::HideToolbar => boolean(preferences.hide_toolbar),
+            PreferenceKey::HideMenubar => boolean(preferences.hide_menubar),
+            PreferenceKey::HideWindowUi => boolean(preferences.hide_window_ui),
+            PreferenceKey::FitWindow => boolean(preferences.fit_window),
+            PreferenceKey::CenterWindow => boolean(preferences.center_window),
+            PreferenceKey::DisplayDocTitle => boolean(preferences.display_doc_title),
+            PreferenceKey::EnforcePrintScaling => boolean(preferences.enforce_print_scaling),
+            PreferenceKey::NonFullScreenPageMode => Ok(i64::from(
+                PageModeKind::of(preferences.non_full_screen_page_mode).code(),
+            )),
+            PreferenceKey::Direction => {
+                Ok(i64::from(DirectionKind::of(preferences.direction) as u32))
+            }
+            PreferenceKey::ViewArea => {
+                Ok(i64::from(BoundaryKind::of(preferences.view_area) as u32))
+            }
+            PreferenceKey::ViewClip => {
+                Ok(i64::from(BoundaryKind::of(preferences.view_clip) as u32))
+            }
+            PreferenceKey::PrintArea => {
+                Ok(i64::from(BoundaryKind::of(preferences.print_area) as u32))
+            }
+            PreferenceKey::PrintClip => {
+                Ok(i64::from(BoundaryKind::of(preferences.print_clip) as u32))
+            }
+            PreferenceKey::PrintScaling => Ok(i64::from(PrintScalingKind::of(
+                preferences.print_scaling,
+            ) as u32)),
+            PreferenceKey::Duplex => preferences
+                .duplex
+                .map(|duplex| i64::from(DuplexKind::of(duplex) as u32))
+                .ok_or(Status::NoAnswer),
+            PreferenceKey::PickTrayByPdfSize => preferences
+                .pick_tray_by_pdf_size
+                .map(i64::from)
+                .ok_or(Status::NoAnswer),
+            PreferenceKey::NumCopies => preferences.num_copies.ok_or(Status::NoAnswer),
+            // Named and refused rather than absent, which is trap 5 in the small: a key that did
+            // not exist would look like a table this build had not read, and this one says which
+            // function to ask instead.
+            PreferenceKey::PrintPageRange => Err(Status::WrongKind),
+        }
+    }
+
+    /// Table 147's `/PrintPageRange`: "the page numbers used to initialize the print dialog box".
+    ///
+    /// The one entry of that table that is a list, which is why it is not [`Self::preference`]'s.
+    /// Pairs, because the entry is "an array of integers … [t]he first and last pages in a
+    /// sub-range", and an empty list is a document that states none.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn preference_ranges(&self) -> Result<Vec<(i64, i64)>, Status> {
+        match self.viewer.query(Query::Preferences) {
+            Answer::Preferences(preferences) => Ok(preferences.print_page_range),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §14.3.3's Table 349 and §14.3.2's metadata stream, as a panel would show them.
+    ///
+    /// **`viewer_host::property_rows`, unchanged**, which is what makes this two lines rather than
+    /// a second reading of two tables: both are shown rather than merged, because Table 349's text
+    /// entries each carry a NOTE pointing at an XMP counterpart, §12.2 ranks `dc:title` above
+    /// `/Title` and nothing ranks the rest, and §14.3.4 leaves the disagreement "at the discretion
+    /// of the PDF processor". A panel that merged them would hide a disagreement rather than
+    /// resolve one, and this ABI is not the place that decision changes.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn properties(&self) -> Result<Panel, Status> {
+        match self.viewer.query(Query::Properties) {
+            Answer::Properties {
+                information,
+                metadata,
+            } => Ok(Panel::of_rows(&viewer_host::property_rows(
+                &information,
+                metadata.as_ref(),
+            ))),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §12.4.3's article threads, as a panel would list them.
+    ///
+    /// Each row acts through `pdfv_activate` on the thread's object, which is the same message an
+    /// outline row sends and for the same reason: the *document* decides what activating a thing
+    /// means, and `viewer_core::interact` composes §12.6.4.7's thread action out of it so that
+    /// following a thread lands on Table 163's `/R` rather than on the page the first bead sits on.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused.
+    pub fn articles(&self) -> Result<Panel, Status> {
+        match self.viewer.query(Query::Articles) {
+            Answer::Articles(threads) => Ok(Panel::of_rows(&viewer_host::article_rows(&threads))),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §12.4.2's label for one page, where the document states one.
+    ///
+    /// **A page at a time, and separate from [`Self::thumbnail`] on purpose.** A caller drawing a
+    /// page list needs a name per row and a picture only for the rows it is showing; folding the
+    /// two into one call would make listing a thousand pages decode a thousand images, which is
+    /// exactly the launch-path defect the seven-hundred-and-fourth session found in the host that
+    /// drew its own rows.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused or the page states no label, which is
+    /// most pages of most documents — the clause makes the index what identifies a page and the
+    /// label an addition, so a caller falls back to the number rather than to nothing.
+    pub fn page_label(&self, index: usize) -> Result<String, Status> {
+        match self.viewer.query(Query::PageLabel(index)) {
+            Answer::Label(label) => Ok(label),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §12.3.4's thumbnail for one page, decoded.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, where the page states no `/Thumb` — the
+    /// clause's own NOTE says they "are not required, and can be included for some pages and not
+    /// for others" — or where this reader could not decode the one it states, which is reported
+    /// through the same channel any other undecodable image is.
+    pub fn thumbnail(&self, index: usize) -> Result<Miniature, Status> {
+        match self.viewer.query(Query::Thumbnail(index)) {
+            Answer::Thumbnail(thumbnail) => Ok(Miniature::new(thumbnail)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// How many pages on the screen have a readback shortfall to report.
+    ///
+    /// [`Self::reported_pages`]'s counterpart, and one entry per page for the same reason: a
+    /// column shows several pages and a caller given one page's counts for four would be silent
+    /// about three of them.
+    #[must_use]
+    pub fn readback_pages(&self) -> usize {
+        match self.viewer.query(Query::Readback) {
+            Answer::Readback(pages) => pages.len(),
+            _ => 0,
+        }
+    }
+
+    /// Which page one of those entries is about, zero-based.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, [`Status::OutOfRange`] for an entry past
+    /// [`Self::readback_pages`].
+    pub fn readback_page(&self, entry: usize) -> Result<usize, Status> {
+        let Answer::Readback(pages) = self.viewer.query(Query::Readback) else {
+            return Err(Status::NoAnswer);
+        };
+        pages
+            .get(entry)
+            .map(|page| page.page)
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One of §9.10.2's counts for one page on the screen.
+    ///
+    /// **Not a report, and [`viewer_core::Query::Readback`] states the reading**: §9.10.2's own
+    /// closing sentence is "there is no way to determine what the character code represents", so a
+    /// code that route ends at is an answer the standard states rather than something this program
+    /// failed to do. What a caller does with it is the thing a person needs — say that a search
+    /// found nothing on a page whose text cannot be read, or that a copied selection is short.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused, [`Status::OutOfRange`] for an entry past
+    /// [`Self::readback_pages`].
+    pub fn readback_count(&self, entry: usize, which: ShortfallKind) -> Result<usize, Status> {
+        let Answer::Readback(pages) = self.viewer.query(Query::Readback) else {
+            return Err(Status::NoAnswer);
+        };
+        pages
+            .get(entry)
+            .map(|page| which.of(&page.shortfall))
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// §12.5.6.14's open popup windows on the page being shown.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused. An **empty list** where the page has
+    /// none open, which is a different answer and is why the two are told apart.
+    pub fn popups(&self) -> Result<Popups, Status> {
+        match self.viewer.query(Query::Popups) {
+            Answer::Popups(windows) => Ok(Popups::new(&windows)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §14.7's logical structure for every page the arrangement is showing.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused. A page with an **empty** node list is an
+    /// untagged page, which is an answer rather than a silence.
+    pub fn structure(&self) -> Result<Structure, Status> {
+        match self.viewer.query(Query::AccessibilityTree) {
+            Answer::Accessibility(pages) => Ok(Structure::new(pages)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// §12.3.5's portable collection, where the catalogue states one.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] where no document is focused or it states no collection, which is
+    /// every document in this project's corpora.
+    pub fn collection(&self) -> Result<Collection, Status> {
+        match self.viewer.query(Query::Collection) {
+            Answer::Collection {
+                collection,
+                initial,
+            } => Ok(Collection::new(&collection, &initial)),
+            _ => Err(Status::NoAnswer),
+        }
     }
 }
 

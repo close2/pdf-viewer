@@ -133,6 +133,7 @@
 #[allow(unsafe_code)]
 pub mod abi;
 
+pub mod answers;
 mod events;
 pub mod form;
 mod kinds;
@@ -141,12 +142,17 @@ mod session;
 mod shapes;
 mod status;
 
+pub use answers::{
+    Collection, ColumnFacts, Matches, Miniature, NodeFacts, ObjectRef, Popups, Structure,
+};
 pub use events::{Events, Searched, TransitionNumbers};
 pub use form::Form;
 pub use kinds::{
-    ControlKind, DelegateKind, EventKind, FocusKind, LayoutKind, MarkupKind, OrderKind,
-    PageTargetKind, PixelFormat, PointerKind, PresentKind, PurposeKind, RestrictKind, RowKind,
-    SelectKind, TextKind, ZoomKind,
+    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind, FolderTextKind,
+    InitialKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind,
+    PixelFormat, PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind,
+    RestrictKind, RowKind, ScopeKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 pub use panels::{Outline, Panel};
 pub use session::{FrameInfo, Session, rasterise};

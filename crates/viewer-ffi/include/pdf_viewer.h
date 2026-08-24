@@ -176,6 +176,177 @@ extern "C" {
 #define PDFV_TEXT_LABEL      3u
 #define PDFV_TEXT_EXPORT     4u
 
+/* --------------------------------------------------------------------------------------------
+ * The numbers the OTHER HALF OF THE QUERIES answers with (ADR 0576).
+ *
+ * Eleven of `viewer_core::Query`'s variants reached no symbol here at all until the
+ * seven-hundred-and-ninth session, and nothing counted them: `PDFV_EVENT_KIND_COUNT` is the right
+ * instrument for a message that ARRIVES and no instrument at all for a QUESTION. What replaces it
+ * is a test on the library side that matches exhaustively over `Query`, so a question added to the
+ * boundary fails to compile there rather than leaving a caller with no symbol and no signal.
+ * -------------------------------------------------------------------------------------------- */
+
+/* Table 29's /PageMode: "how the document shall be displayed when opened". `pdfv_opening` answers
+ * this beside a PDFV_LAYOUT_*, because §7.7.2 states the two entries separately and a window obeys
+ * them separately. COUNTED, unlike the two-valued enumerations below: the table gained /UseOC in
+ * PDF 1.5 and /UseAttachments in PDF 1.6. `pdfv_page_mode_name` answers for any number. */
+#define PDFV_PAGE_MODE_USE_NONE         0u
+#define PDFV_PAGE_MODE_USE_OUTLINES     1u
+#define PDFV_PAGE_MODE_USE_THUMBS       2u
+#define PDFV_PAGE_MODE_FULL_SCREEN      3u
+#define PDFV_PAGE_MODE_USE_OC           4u
+#define PDFV_PAGE_MODE_USE_ATTACHMENTS  5u
+#define PDFV_PAGE_MODE_COUNT            6u
+
+/*
+ * §12.2's Table 147, as keys rather than as a struct or as nineteen symbols.
+ *
+ * A struct passed by value would put Table 147's SIZE in this ABI, so an entry added by a later
+ * part of ISO 32000 would change a type every caller has already compiled — the one hazard
+ * PDFV_ABI_VERSION exists for, and this header has exactly two instances of it. A key is a number:
+ * an entry added later is a new constant beside `pdfv_preference`, which every compiled caller
+ * already links, and `pdfv_preference_key_name` prints a key this build did not have.
+ *
+ * Every value answers as an int64_t: a boolean is 0 or 1, an enumerated name is its own PDFV_*
+ * number, and a count is itself. PDFV_NO_ANSWER is the three entries Table 147 leaves genuinely
+ * open — /Duplex, /PickTrayByPDFSize and /NumCopies — where the document states none, because "the
+ * document says nothing" and "the document says the default" are different facts and only the
+ * first leaves the choice to you. PDFV_PREF_PRINT_PAGE_RANGE is a LIST and answers
+ * PDFV_WRONG_KIND: `pdfv_preference_ranges` and `pdfv_preference_range` read it.
+ */
+#define PDFV_PREF_HIDE_TOOLBAR               0u  /* boolean */
+#define PDFV_PREF_HIDE_MENUBAR               1u  /* boolean */
+#define PDFV_PREF_HIDE_WINDOW_UI             2u  /* boolean */
+#define PDFV_PREF_FIT_WINDOW                 3u  /* boolean */
+#define PDFV_PREF_CENTER_WINDOW              4u  /* boolean */
+#define PDFV_PREF_DISPLAY_DOC_TITLE          5u  /* boolean */
+#define PDFV_PREF_NON_FULL_SCREEN_PAGE_MODE  6u  /* PDFV_PAGE_MODE_* */
+#define PDFV_PREF_DIRECTION                  7u  /* PDFV_DIRECTION_* */
+#define PDFV_PREF_VIEW_AREA                  8u  /* PDFV_BOUNDARY_* */
+#define PDFV_PREF_VIEW_CLIP                  9u  /* PDFV_BOUNDARY_* */
+#define PDFV_PREF_PRINT_AREA                10u  /* PDFV_BOUNDARY_* */
+#define PDFV_PREF_PRINT_CLIP                11u  /* PDFV_BOUNDARY_* */
+#define PDFV_PREF_PRINT_SCALING             12u  /* PDFV_PRINT_SCALING_* */
+#define PDFV_PREF_DUPLEX                    13u  /* PDFV_DUPLEX_*, optional */
+#define PDFV_PREF_PICK_TRAY_BY_PDF_SIZE     14u  /* boolean, optional */
+#define PDFV_PREF_NUM_COPIES                15u  /* a count, optional */
+#define PDFV_PREF_ENFORCE_PRINT_SCALING     16u  /* boolean */
+#define PDFV_PREF_PRINT_PAGE_RANGE          17u  /* a list — see pdfv_preference_ranges */
+#define PDFV_PREF_KEY_COUNT                 18u
+
+/* Table 147's /Direction, "[t]he predominant reading order for text". Two values and no _COUNT,
+ * for PDFV_ORDER_*'s reason: the entry states exactly these two names. */
+#define PDFV_DIRECTION_L2R  0u
+#define PDFV_DIRECTION_R2L  1u
+
+/* Table 147's four page-boundary entries, as one of Table 31's five boxes. /CropBox is the
+ * default of all four. */
+#define PDFV_BOUNDARY_MEDIA  0u
+#define PDFV_BOUNDARY_CROP   1u
+#define PDFV_BOUNDARY_BLEED  2u
+#define PDFV_BOUNDARY_TRIM   3u
+#define PDFV_BOUNDARY_ART    4u
+
+/* Table 147's /PrintScaling and /Duplex. */
+#define PDFV_PRINT_SCALING_APP_DEFAULT  0u
+#define PDFV_PRINT_SCALING_NONE         1u
+#define PDFV_DUPLEX_SIMPLEX             0u
+#define PDFV_DUPLEX_FLIP_SHORT_EDGE     1u
+#define PDFV_DUPLEX_FLIP_LONG_EDGE      2u
+
+/*
+ * §9.10.2's counts, which `pdfv_readback_count` answers and which are DELIBERATELY NOT REPORTS.
+ *
+ * That clause's own closing sentence is "there is no way to determine what the character code
+ * represents", so a code this route ends at is an answer the standard states rather than something
+ * this program failed to do — and folding them into `pdfv_report` would say the opposite. What
+ * they are for is the thing a person needs: saying that a search found nothing on a page whose
+ * text cannot be read, or that a copied selection is short.
+ */
+#define PDFV_SHORTFALL_EMPTY_MAPPING         0u
+#define PDFV_SHORTFALL_INCOMPLETE_TO_UNICODE 1u
+#define PDFV_SHORTFALL_UNLISTED_NAME         2u
+#define PDFV_SHORTFALL_UNNAMED_CID           3u
+#define PDFV_SHORTFALL_UNADDRESSABLE_CID     4u
+#define PDFV_SHORTFALL_UNNAMED_GLYPH         5u
+#define PDFV_SHORTFALL_UNNAMED_TOTAL         6u  /* the six above, which is what a status bar shows */
+#define PDFV_SHORTFALL_WITHOUT_A_GLYPH       7u
+#define PDFV_SHORTFALL_BLANK_GLYPH           8u
+#define PDFV_SHORTFALL_KIND_COUNT            9u
+
+/* §12.3.4's two producer-side constraints, as bits `pdfv_thumbnail_info` sets when the FILE breaks
+ * one. Carried rather than enforced: such a file is wrong and its picture is still what the file
+ * says, so the image is decoded either way. Zero is a conformant thumbnail. */
+#define PDFV_THUMBNAIL_COLOUR_SPACE_UNPERMITTED  1u
+#define PDFV_THUMBNAIL_SUBTYPE_UNPERMITTED       2u
+
+/* Which of a §12.5.6.14 popup window's three strings `pdfv_popup_text` answers. Table 166 makes
+ * none of them required, and one the annotation does not state is an empty string. */
+#define PDFV_NOTE_TITLE     0u  /* §12.5.6.2's /T, "displayed in the title bar" */
+#define PDFV_NOTE_CONTENTS  1u  /* Table 166's /Contents */
+#define PDFV_NOTE_MODIFIED  2u  /* Table 166's /M, as the file spells it */
+
+/* Which of a §14.7 structure element's three strings `pdfv_structure_text` answers. ROLE is
+ * §14.7.4's /S AFTER §14.7.3's role map, which is a `shall` on us; mapping it onto YOUR platform's
+ * vocabulary is a different mapping and is yours. */
+#define PDFV_ELEMENT_ROLE      0u
+#define PDFV_ELEMENT_NAME      1u
+#define PDFV_ELEMENT_LANGUAGE  2u
+
+/* Which of an element's two rectangles `pdfv_structure_box` answers. STATED is what the DOCUMENT
+ * says the extent is; DRAWN is where this program drew the element's text. An element whose
+ * content is a picture has the first and not the second. */
+#define PDFV_BOX_STATED  0u
+#define PDFV_BOX_DRAWN   1u
+
+/* Table 384's /Scope: which of a table's axes a header cell describes. */
+#define PDFV_SCOPE_ROW     0u
+#define PDFV_SCOPE_COLUMN  1u
+#define PDFV_SCOPE_BOTH    2u
+
+/* Table 153's /View: how §12.3.5's collection is first presented. HIDDEN is the one value that is
+ * load-bearing rather than a preference — §7.6.7's unencrypted wrapper requires it, because the
+ * wrapper's own page says the payload is encrypted and a file browser over it would hide that. */
+#define PDFV_COLLECTION_DETAILS    0u
+#define PDFV_COLLECTION_TILE       1u
+#define PDFV_COLLECTION_HIDDEN     2u
+#define PDFV_COLLECTION_NAVIGATOR  3u
+
+/* §12.3.5.1's four outcomes for /D, RESOLVED against the /EmbeddedFiles tree — the tree is the
+ * document's, so turning a byte string into one of these is not yours to do. EMBEDDED is the only
+ * one that names a file, and `pdfv_collection_initial` answers its key beside the number. */
+#define PDFV_INITIAL_CONTAINER   0u
+#define PDFV_INITIAL_EMBEDDED    1u
+#define PDFV_INITIAL_FIRST_FILE  2u
+#define PDFV_INITIAL_EMPTY       3u
+
+/* Table 155's /Subtype. The first three "identify the types of fields in the collection item …
+ * dictionary" and the rest "identify the types of file-related fields" — which is what
+ * `pdfv_collection_column`'s `in_the_item` says, so you do not have to derive it from the number.
+ * OTHER is a subtype this standard does not define, and PDFV_COLUMN_SUBTYPE is its name. */
+#define PDFV_COLLECTION_FIELD_TEXT             0u
+#define PDFV_COLLECTION_FIELD_DATE             1u
+#define PDFV_COLLECTION_FIELD_NUMBER           2u
+#define PDFV_COLLECTION_FIELD_FILE_NAME        3u
+#define PDFV_COLLECTION_FIELD_DESCRIPTION      4u
+#define PDFV_COLLECTION_FIELD_MODIFICATION_DATE 5u
+#define PDFV_COLLECTION_FIELD_CREATION_DATE    6u
+#define PDFV_COLLECTION_FIELD_SIZE             7u
+#define PDFV_COLLECTION_FIELD_COMPRESSED_SIZE  8u
+#define PDFV_COLLECTION_FIELD_OTHER            9u
+
+/* Which of a collection column's three strings `pdfv_collection_column_text` answers, and the two
+ * booleans `pdfv_collection_column` packs into its flag word. */
+#define PDFV_COLUMN_NAME      0u  /* Table 155's /N, shown to a person */
+#define PDFV_COLUMN_KEY       1u  /* the /Schema key §7.11.6's item addresses values by */
+#define PDFV_COLUMN_SUBTYPE   2u  /* Table 155's /Subtype as the file spells it */
+#define PDFV_COLUMN_VISIBLE   1u  /* Table 155's /V, "[t]he initial visibility of the field" */
+#define PDFV_COLUMN_EDITABLE  2u  /* Table 155's /E */
+
+/* Which of a §12.3.5.2 folder's two strings `pdfv_collection_folder_text` answers. */
+#define PDFV_FOLDER_NAME         0u
+#define PDFV_FOLDER_DESCRIPTION  1u
+
 /*
  * `pdfv_field_control`'s flags: one bit per boolean Tables 227, 229, 231 and 233 state.
  *
@@ -247,6 +418,31 @@ typedef struct pdfv_panel pdfv_panel;
 typedef struct pdfv_fields pdfv_fields;
 /* A list of quadrilaterals in device pixels: a selection, a field's selection. */
 typedef struct pdfv_quads pdfv_quads;
+/* Every occurrence of a search term on the page being shown. A LIST OF LISTS: one occurrence is
+ * several quadrilaterals, because a term wrapped across a line is merged per run of a line — so
+ * "next match" is an index into this and never the next shape. `pdfv_matches_quads` hands each
+ * occurrence over as a pdfv_quads you free. */
+typedef struct pdfv_matches pdfv_matches;
+/* §12.3.4's miniature for ONE page, decoded. There is deliberately no list-valued form of this:
+ * the clause's NOTE says thumbnails "are not required, and can be included for some pages and not
+ * for others", Table 29's /PageMode /UseThumbs opens that panel AS THE DOCUMENT OPENS, and a
+ * thousand-page document stating one per page would decode a thousand images to draw eight. Ask
+ * for the rows you are about to draw. */
+typedef struct pdfv_thumbnail pdfv_thumbnail;
+/* §12.5.6.14's open popup windows. The one annotation subtype whose picture is NOT the page's:
+ * the clause makes a popup "a window … for entry and editing" with "no appearance stream", so you
+ * draw it as chrome in your platform's own window furniture. */
+typedef struct pdfv_popups pdfv_popups;
+/* §14.7's logical structure, ONE TREE PER PAGE the arrangement is showing. Two indices, and the
+ * standard is why: §14.7.5.2's marked-content identifier is unique "within its content stream"
+ * and §14.7.5.4 keys the route in from that page's /StructParents, so two pages' trees share no
+ * numbering and there is no order between them to renumber by. Every index a node carries — its
+ * parent, its header cells — is into THAT PAGE's list. */
+typedef struct pdfv_structure pdfv_structure;
+/* §12.3.5's portable collection: Table 153's view, §12.3.5.1's resolved initial document, Table
+ * 155's columns in /O order and §12.3.5.2's folder tree. The files themselves are
+ * `pdfv_attachments_read`'s, and `pdfv_collection_folder_of` is what puts one inside the other. */
+typedef struct pdfv_collection pdfv_collection;
 
 /* ------------------------------------------------------------------------------------------- */
 /* The two structs passed by value.                                                              */
@@ -630,6 +826,169 @@ int32_t pdfv_outline_depth(const pdfv_outline *outline, size_t row, uint32_t *de
 /* §7.3.10's two numbers, which pdfv_activate takes. */
 int32_t pdfv_outline_object(const pdfv_outline *outline, size_t row, uint32_t *number,
                             uint16_t *generation);
+
+/* ------------------------------------------------------------------------------------------- */
+/* THE OTHER HALF OF THE QUERIES (ADR 0576).                                                     */
+/*                                                                                               */
+/* Everything below answers a question `viewer_core::Query` had and this header did not. None of  */
+/* it takes or returns a struct by value, so PDFV_ABI_VERSION did not move.                      */
+/* ------------------------------------------------------------------------------------------- */
+
+/* Every occurrence of a string on the page in front of the reader, out of a readback that already
+ * exists — microseconds, so a find bar may ask on every repaint. `pdfv_find_start` is the other
+ * half and searches the DOCUMENT one page per step; a caller had that one and not this, so it
+ * could run Annex O's search and not draw a single match. */
+int32_t pdfv_find_matches(const pdfv_viewer *viewer, const char *needle, pdfv_matches **matches);
+void    pdfv_matches_free(pdfv_matches *matches);
+size_t  pdfv_matches_len(const pdfv_matches *matches);
+/* One occurrence's shapes, as a pdfv_quads you free with pdfv_quads_free. */
+int32_t pdfv_matches_quads(const pdfv_matches *matches, size_t index, pdfv_quads **quads);
+
+/* Table 29's /PageMode and /PageLayout: what the CATALOGUE asks of the window opening it.
+ * `pdfv_layout` sets the arrangement a reader chose; this is the one the document opens in. */
+int32_t pdfv_opening(const pdfv_viewer *viewer, uint32_t *mode, uint32_t *layout);
+uint32_t    pdfv_page_mode_count(void);
+const char *pdfv_page_mode_name(uint32_t mode);
+
+/* §12.2's Table 147, one entry at a time. See PDFV_PREF_* above for what each answers with and
+ * for why this is a key rather than a struct. */
+int32_t pdfv_preference(const pdfv_viewer *viewer, uint32_t key, int64_t *value);
+/* /PrintPageRange, the one entry of that table that is a list: "[t]he first and last pages in a
+ * sub-range", one-based as the entry states them. */
+int32_t pdfv_preference_ranges(const pdfv_viewer *viewer, size_t *count);
+int32_t pdfv_preference_range(const pdfv_viewer *viewer, size_t index, int64_t *first,
+                              int64_t *last);
+uint32_t    pdfv_preference_key_count(void);
+const char *pdfv_preference_key_name(uint32_t key);
+
+/* §14.3.3's Table 349 with §14.3.2's metadata stream under it, and §12.4.3's article threads —
+ * both as pdfv_panel, read with the pdfv_panel_* accessors and released with pdfv_panel_free.
+ * Both tables of the first are shown rather than merged: §14.3.4 leaves a disagreement between
+ * them "at the discretion of the PDF processor", so merging would hide one rather than resolve
+ * it. Every article row is a PDFV_ROW_ACTIVATE, which is the same message an outline row sends —
+ * the DOCUMENT decides what activating a thread means, and following one lands on Table 163's /R
+ * rather than on the page its first bead sits on. */
+int32_t pdfv_properties_read(const pdfv_viewer *viewer, pdfv_panel **panel);
+int32_t pdfv_articles_read(const pdfv_viewer *viewer, pdfv_panel **panel);
+
+/* §12.4.2's label for one page. PDFV_NO_ANSWER for a page that states none, which is most pages
+ * of most documents: the clause makes the integer index what identifies a page and the label an
+ * addition, so fall back to the number rather than to nothing.
+ *
+ * SEPARATE from the thumbnail on purpose. A page list needs a name per row and a picture only for
+ * the rows it is showing; one call answering both would make listing a thousand pages decode a
+ * thousand images — which is the launch-path defect the host that drew its own rows had. */
+int32_t pdfv_page_label(const pdfv_viewer *viewer, size_t page, char *out, size_t cap,
+                        size_t *needed);
+
+/* §12.3.4's miniature for one page. PDFV_NO_ANSWER for a page with no /Thumb and for one this
+ * reader could not decode. `permitted` is a word of PDFV_THUMBNAIL_* bits, zero for a conformant
+ * one; `format` is PDFV_FORMAT_RGBA8. Size `into` from `bytes`. */
+int32_t pdfv_thumbnail_read(const pdfv_viewer *viewer, size_t page, pdfv_thumbnail **thumbnail);
+void    pdfv_thumbnail_free(pdfv_thumbnail *thumbnail);
+int32_t pdfv_thumbnail_info(const pdfv_thumbnail *thumbnail, uint32_t *width, uint32_t *height,
+                            uint32_t *format, size_t *bytes, uint32_t *permitted);
+int32_t pdfv_thumbnail_copy(const pdfv_thumbnail *thumbnail, uint8_t *into, size_t cap,
+                            size_t *written);
+
+/* §9.10.2's counts, ONE ENTRY PER PAGE the arrangement is showing, exactly as the reports above
+ * are. `entry` indexes this and pdfv_readback_page says which page an entry is about. */
+size_t  pdfv_readback_pages(const pdfv_viewer *viewer);
+int32_t pdfv_readback_page(const pdfv_viewer *viewer, size_t entry, size_t *page);
+int32_t pdfv_readback_count(const pdfv_viewer *viewer, size_t entry, uint32_t which,
+                            size_t *count);
+uint32_t    pdfv_shortfall_kind_count(void);
+const char *pdfv_shortfall_kind_name(uint32_t which);
+
+/* §12.5.6.14's open popup windows on the page being shown, in /Annots order. Only the OPEN ones:
+ * Table 186's /Open says which start that way, and pdfv_activate on the parent annotation changes
+ * it — §12.5.1's "[w]hen the user activates the annotation by clicking it, it exhibits its
+ * associated object, such as by opening a popup window displaying a text note". */
+int32_t pdfv_popups_read(const pdfv_viewer *viewer, pdfv_popups **popups);
+void    pdfv_popups_free(pdfv_popups *popups);
+size_t  pdfv_popups_len(const pdfv_popups *popups);
+/* The popup, and Table 186's /Parent where it names one — the first is what pdfv_activate closes
+ * the window with, the second is the markup annotation the note belongs to. */
+int32_t pdfv_popup_object(const pdfv_popups *popups, size_t index, uint32_t *number,
+                          uint16_t *generation, bool *has_parent, uint32_t *parent_number,
+                          uint16_t *parent_generation);
+/* Eight floats, [x0, y0, … x3, y3], y downwards, in device pixels of the viewport. */
+int32_t pdfv_popup_quad(const pdfv_popups *popups, size_t index, float *into);
+int32_t pdfv_popup_text(const pdfv_popups *popups, size_t index, uint32_t which, char *out,
+                        size_t cap, size_t *needed);
+/* Table 166's /C, "[t]he title bar of the annotation's popup window", as three DeviceRGB
+ * components. PDFV_NO_ANSWER where none is stated, which is not the same as black. */
+int32_t pdfv_popup_colour(const pdfv_popups *popups, size_t index, float *into);
+
+/* §14.7's logical structure for every page the arrangement is showing. Zero nodes for an untagged
+ * page is an ANSWER rather than a silence: §14.7 leaves a producer free to state no structure, and
+ * inventing a reading order for one would be a guess where a person is entitled to the author's
+ * answer. */
+int32_t pdfv_structure_read(const pdfv_viewer *viewer, pdfv_structure **structure);
+void    pdfv_structure_free(pdfv_structure *structure);
+size_t  pdfv_structure_pages(const pdfv_structure *structure);
+int32_t pdfv_structure_page(const pdfv_structure *structure, size_t entry, size_t *page,
+                            size_t *nodes);
+/* `has_parent` is false for a root. `substituted` is the one to ACT on rather than display:
+ * §14.9.3 makes /Alt "a complete (or whole) word or phrase substitution for the current element"
+ * and §14.9.5 says the same of /E, so an element stating one has said what to speak INSTEAD of its
+ * content — descend anyway and it is read twice. `has_scope` is false for everything that is not a
+ * TH, and for a TH this reader could place in no grid, which is us saying we do not know. */
+int32_t pdfv_structure_node(const pdfv_structure *structure, size_t entry, size_t node,
+                            size_t *parent, bool *has_parent, bool *substituted, uint32_t *scope,
+                            bool *has_scope);
+int32_t pdfv_structure_text(const pdfv_structure *structure, size_t entry, size_t node,
+                            uint32_t which, char *out, size_t cap, size_t *needed);
+/* Where the element's own text was drawn, as a pdfv_quads you free. Empty for an element whose
+ * content drew no text — a figure, a table cell holding an image — which is a statement about our
+ * text layer rather than about the element, and is why pdfv_structure_box is beside it. */
+int32_t pdfv_structure_quads(const pdfv_structure *structure, size_t entry, size_t node,
+                             pdfv_quads **quads);
+/* Four floats, [x0, y0, x1, y1]. PDFV_NO_ANSWER where the node has no rectangle of that kind. */
+int32_t pdfv_structure_box(const pdfv_structure *structure, size_t entry, size_t node,
+                           uint32_t which, float *into);
+/* §14.8.4.8.3's header cells for this element, as indices into THIS PAGE's node list. */
+int32_t pdfv_structure_headers(const pdfv_structure *structure, size_t entry, size_t node,
+                               size_t *count);
+int32_t pdfv_structure_header(const pdfv_structure *structure, size_t entry, size_t node,
+                              size_t header, size_t *cell);
+
+/* §12.3.5's portable collection, where the catalogue states one — PDFV_NO_ANSWER otherwise, which
+ * is every document in this project's corpora. The clause is a `shall` on a viewer: "[i]f this
+ * dictionary is present in a PDF document, the interactive PDF processor shall present the
+ * document as a portable collection." */
+int32_t pdfv_collection_read(const pdfv_viewer *viewer, pdfv_collection **collection);
+void    pdfv_collection_free(pdfv_collection *collection);
+int32_t pdfv_collection_view(const pdfv_collection *collection, uint32_t *view);
+/* §12.3.5.1's outcome, and the /EmbeddedFiles key for PDFV_INITIAL_EMBEDDED — which is what
+ * pdfv_extract takes. Empty for the three outcomes that name no file. */
+int32_t pdfv_collection_initial(const pdfv_collection *collection, uint32_t *kind, char *out,
+                                size_t cap, size_t *needed);
+/* Table 155's columns, already in /O order — "[t]he relative order of the field name in the user
+ * interface" — with a field stating none after every field that states one. Zero columns is a
+ * PERMISSION rather than a gap: Table 153 says an absent schema lets a processor "choose useful
+ * defaults that are known to exist in a file specification dictionary". */
+int32_t pdfv_collection_columns(const pdfv_collection *collection, size_t *count);
+int32_t pdfv_collection_column(const pdfv_collection *collection, size_t index, uint32_t *kind,
+                               bool *in_the_item, int64_t *order, bool *has_order,
+                               uint32_t *flags);
+int32_t pdfv_collection_column_text(const pdfv_collection *collection, size_t index,
+                                    uint32_t which, char *out, size_t cap, size_t *needed);
+/* §12.3.5.2's folder tree, flattened depth first with a depth on each row, exactly as the outline
+ * is. The /ID is "a non-negative integer value representing the unique folder identification
+ * number". */
+int32_t pdfv_collection_folders(const pdfv_collection *collection, size_t *count);
+int32_t pdfv_collection_folder(const pdfv_collection *collection, size_t index, uint32_t *id,
+                               uint32_t *depth, bool *has_thumbnail);
+int32_t pdfv_collection_folder_text(const pdfv_collection *collection, size_t index,
+                                    uint32_t which, char *out, size_t cap, size_t *needed);
+/* Which folder an /EmbeddedFiles key names, and the file name inside it — §12.3.5.2's own grammar,
+ * and the one piece of the clause you could not compute for yourself: holding a folder tree and a
+ * file list is no use without it. A key naming no folder is a file at the root: PDFV_NO_ANSWER,
+ * with the key copied out unchanged so that one loop does for both. Takes no viewer, because it is
+ * a fact about a string. */
+int32_t pdfv_collection_folder_of(const char *key, uint32_t *id, char *out, size_t cap,
+                                  size_t *needed);
 
 #ifdef __cplusplus
 }

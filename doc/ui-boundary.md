@@ -411,6 +411,12 @@ is set in the same Helvetica on a machine with no fonts installed.
   `doc/todo/30` names. **Its entry points are counted by `tools/state.sh hosts` rather than stated
   here, and so is how much of this vocabulary they cover** — "the whole of it" was true when ADR
   0346 wrote it and decayed as the vocabulary grew, which is a claim ADR 0509 turned into a command.
+  **Every `Query` variant reaches a symbol again since the seven-hundred-and-ninth** (ADR 0576), and
+  this time the claim comes with the thing that keeps it true rather than with a sentence:
+  `tests/every_query_reaches_the_abi.rs` matches exhaustively over the enum, so a question added here
+  fails to compile there. `PDFV_EVENT_KIND_COUNT` is the right protection for a message that arrives
+  unasked and is none at all for a question, which is how eleven queries came to reach no symbol with
+  nothing saying so.
   What ADR 0346 added is the pointer and the selection, §12.7's form and the four edits,
   save and extract, the other two panels, §12.4.4's clock and the three policy values. Beside them,
   a hand-written `include/pdf_viewer.h`, and

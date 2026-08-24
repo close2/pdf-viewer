@@ -158,17 +158,25 @@ impl Panel {
     /// §8.11.4.3's `/Order`, flattened.
     #[must_use]
     pub fn of_layers(layers: &[viewer_core::Layer]) -> Self {
-        Self::of(&layer_rows(layers))
+        Self::of_rows(&layer_rows(layers))
     }
 
     /// §7.11.4's embedded files, flattened. Flat already, because a name tree is a mapping.
     #[must_use]
     pub fn of_attachments(attachments: &[pdf_model::attachment::Attachment]) -> Self {
-        Self::of(&attachment_rows(attachments))
+        Self::of_rows(&attachment_rows(attachments))
     }
 
     /// Flattens rows `viewer_host::panel` built.
-    fn of(rows: &[PanelRow]) -> Self {
+    ///
+    /// **Public since the seven-hundred-and-ninth session, and that is the finding rather than a
+    /// convenience.** §12.4.3's article threads and §14.3.3's properties reached no symbol at all
+    /// until that round, and neither needed a shape of its own: `viewer_host::article_rows` and
+    /// `viewer_host::property_rows` already produce exactly this, because the two native hosts
+    /// wanted them as rows and a C caller is a native host (ADR 0246 decision 3). Two of the
+    /// eleven queries that round added cost one `pub` between them.
+    #[must_use]
+    pub fn of_rows(rows: &[PanelRow]) -> Self {
         let mut out = Vec::new();
         push_panel(rows, 0, &mut out);
         Self { rows: out }
