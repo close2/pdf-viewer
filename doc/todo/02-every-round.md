@@ -368,6 +368,16 @@ share and the two that break it:
   one that keeps it useful: a round that quotes a gate figure in a note quotes it to the precision
   the gate prints**, because a figure written finer is another instrument's and this sweep can
   only rank it.
+- **One asks that sweep's mirror question, and it is the newest**: `--bin unpriced`, the
+  twenty-first sweep (ADR 0606), over the same two sides and taking the same argument. `quoted`
+  can only check a figure a note *wrote*; this asks for one it **owes** — which of the gate's four
+  bounds each contradicted page actually fails, and whether the note holding it names that
+  measure. It is ADR 0497's sixth criterion made mechanical, because a contradicted page is an
+  exemption from a *specific* bound and a note pricing its mechanism in ink or in cap rows has
+  explained the picture rather than the verdict. **The rule it comes with: a round that writes or
+  rewrites a group note names the bound its pages fail on, in the gate's own words.** Five rounds
+  had recorded this as owed and each of their thirteen diagnoses began by reading the failing
+  bound off a log by hand.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in

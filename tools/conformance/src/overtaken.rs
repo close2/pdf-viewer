@@ -546,6 +546,23 @@ fn leading_number(text: &str) -> Option<u32> {
 ///
 /// [`Corpus`] is what narrows this to documents this project actually sorted a page of; keeping
 /// the two apart is what lets the vocabulary be derived from the lists rather than guessed.
+///
+/// # A slash is part of a page's name, and this function used to end one
+///
+/// It stopped the scan at `/` and then **rejected** whatever it had found, on the reasoning that
+/// "a name preceded by a path separator is a file in this tree rather than a corpus document —
+/// `doc/ISO_32000-2_sponsored_EC3.pdf` is the standard, not a page". That was true when it was
+/// written and stopped being true one round later: ADR 0541 gave every page of a submodule
+/// corpus its corpus's label — `pdfbox/attachment.pdf page 1` — *because* three of those
+/// documents share a bare file name with one of the 974 and only two of the three share their
+/// bytes. So the label is the identity rather than a path, and the rule that kept the standard
+/// out was silently discarding **every** page of the two voted corpora from this sweep's
+/// vocabulary and from [`crate::quoted`]'s, which reads the same [`Note::pages`].
+///
+/// The exclusion it replaced was never needed: [`Corpus`] is built from the lists' own members,
+/// so a `.pdf` token in prose that no list holds is narrowed away whatever its shape. The scan
+/// therefore takes the separator as part of the name — which is what makes the label survive —
+/// and the standard reaches [`Corpus::narrow`] and is dropped there, one filter instead of two.
 fn documents_in(text: &str) -> BTreeSet<String> {
     const SUFFIX: &str = ".pdf";
     let mut found = BTreeSet::new();
@@ -560,16 +577,14 @@ fn documents_in(text: &str) -> BTreeSet<String> {
                 || previous == b'_'
                 || previous == b'-'
                 || previous == b'.'
+                || previous == b'/'
             {
                 start = start.saturating_sub(1);
             } else {
                 break;
             }
         }
-        // A name preceded by a path separator is a file in this tree rather than a corpus
-        // document — `doc/ISO_32000-2_sponsored_EC3.pdf` is the standard, not a page.
-        let rooted = start > 0 && bytes.get(start.saturating_sub(1)).copied() == Some(b'/');
-        let named = (!rooted && start < from.saturating_add(at))
+        let named = (start < from.saturating_add(at))
             .then(|| text.get(start..end))
             .flatten();
         if let Some(name) = named {
@@ -647,10 +662,29 @@ mod tests {
         assert_eq!(citations_in("ADR 12345"), BTreeSet::new());
     }
 
+    /// A corpus label is part of the page's identity and survives the scan (ADR 0541).
+    #[test]
+    fn a_corpus_label_is_part_of_the_document_name() {
+        let named = documents_in("pdfbox/attachment.pdf page 1");
+        assert_eq!(named, BTreeSet::from(["pdfbox/attachment.pdf".to_owned()]));
+    }
+
+    /// And the standard, which is a path rather than a page, is dropped by the corpus instead.
     #[test]
     fn a_path_is_not_a_corpus_document() {
         let named = documents_in("colors.pdf page 1 and doc/ISO_32000-2_sponsored_EC3.pdf");
-        assert_eq!(named, BTreeSet::from(["colors.pdf".to_owned()]));
+        assert_eq!(
+            named,
+            BTreeSet::from([
+                "colors.pdf".to_owned(),
+                "doc/ISO_32000-2_sponsored_EC3.pdf".to_owned()
+            ])
+        );
+        let corpus = corpus_of(&[note("A_LIST_OF_PAGES", "", &["colors.pdf"])]);
+        assert_eq!(
+            corpus.narrow(&named),
+            BTreeSet::from(["colors.pdf".to_owned()])
+        );
     }
 
     #[test]

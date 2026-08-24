@@ -264,6 +264,29 @@ with the reading, which is this file. Every bullet below is unchanged.
   prose is right), another instrument's table borrowing the gate's words, and a range read as its
   first endpoint. Calibrated per trap 13 by planting a wrong worst tile in a confirmed sentence:
   named, with the gate's own value offered first, and gone when the plant was restored.
+- **One asks the twentieth's mirror question, and it is the newest**: `cargo run --release -p
+  conformance --bin unpriced -- <the oracle's log>`, under a second, over the same two sides — the
+  twenty-first sweep and the sixteenth to be a program (ADR 0606). `quoted` checks a figure a note
+  *quotes*; **its own closing sentence says it cannot ask for one that is missing**, and five
+  rounds recorded exactly that debt in the same words — *nothing links a group's note to which
+  bound the gate fails its pages on* (sessions 489, 668, 672, 675, 680). This asks. The
+  discriminator is **a measure the gate fails one of a note's own pages on, in a verdict of
+  `CONTRADICTED`, that the note's prose never names**, and it is ADR 0497's sixth criterion made
+  mechanical: a contradicted entry is a standing exemption from a *specific failing bound*, so a
+  note pricing its mechanism in ink, cap rows or a perimeter has explained the picture and not the
+  verdict. Which bound fails is arithmetic on the gate's own line, `Tolerance::accepts`' three
+  ceilings and one floor. **The population is that verdict and no other** — trap 11 — because on
+  an `ambiguous` page no two references agreed, so the bound beside them decided nothing. Three
+  rungs, closest first: the note names measures and not one of them is a measure its pages fail;
+  the note names no measure at all; the note names one failing measure and misses another. Its
+  first run named `CONTRADICTED_TIGHT_CONSENSUS`, whose hundred and sixty lines name one measure —
+  the worst tile, which is one of its three pages' — while the other two fail on **structural
+  similarity alone** under a table of four unlabelled decimals. Calibrated per trap 13 against
+  that live defect rather than a plant: rank 1 before the note was written, silent after, and the
+  run then reads every failing bound in the pool named by the note that holds its page. **Two
+  populations it names rather than counts**: a page whose figure and bound print identically at
+  the gate's two decimals, so its own line cannot say what its verdict rests on; and a
+  contradicted page sitting in no note at all.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the

@@ -621,6 +621,47 @@ family whose name does not begin `bitmap-`, sitting on the contradicted list wit
 could judge it filtering it out. **Ask what a population's filter is made of, and which members were
 named after something else.**
 
+**And since the seven-hundred-and-twenty-second session the pool answers that question about
+itself, as a command** (ADR 0606). Five rounds in a row — the four-hundred-and-eighty-ninth, the
+six-hundred-and-sixty-eighth, and the three that spent ADR 0497's sixth criterion — closed on the
+same owed line: *nothing links a group's note to which bound the gate fails its pages on*, and each
+of their thirteen diagnoses began by reading it off a log by hand. `--bin unpriced` is that link,
+`doc/todo/01`'s twenty-first sweep, and it needs no rasteriser: the gate already prints all four
+measures beside all four bounds, so which one fails is arithmetic on a line the round has run.
+
+Three things its first run said about the pool as a whole, and only the first is a note:
+
+- **`CONTRADICTED_TIGHT_CONSENSUS` named one measure in a hundred and sixty lines and it belonged
+  to one of its three pages.** `colors.pdf` pages 1 and 2 fail on **structural similarity and
+  nothing else** — mean 0.21 of 1.00, worst tile 2.63 of 5.00, differing 0.50% of 1.00% on page 1 —
+  under a table of four unlabelled decimals. The group's sentence, *a bound no analytic-coverage
+  renderer meets*, was an argument about mean distances from a closed form; measured in the metric
+  that fails, the voting pair is ssim 0.99431 and 0.99201 so the bound is 0.98862 and 0.98402, and
+  **`mupdf` and `hayro` are outside it on both pages and both further outside than we are**. Two
+  renderers that are not this tree fail the same bound, which is as close to a control as trap 12's
+  shape admits.
+- **One page's verdict is six channels of eighty thousand.** `issue6069.pdf` page 1 prints
+  `differing 6.55%` against `bound … differing 6.55%` — identical at the two decimals the gate
+  writes — because ours is 6.5550% against a bound of 6.5475% derived from `poppler` against
+  `mupdf` at 3.2738%. **A page's own line can stop being able to say what its verdict rests on**,
+  and nothing but this sweep was in a position to notice.
+- **Sixty-nine page names were invisible to the nineteenth and twentieth sweeps**, which is a
+  defect of the instrument rather than of the pool. `overtaken`'s `documents_in` rejects a `.pdf`
+  token preceded by `/`, written when the only such token was `doc/ISO_32000-2_sponsored_EC3.pdf`
+  and overtaken one round later by ADR 0541, which gave every submodule-corpus page its corpus's
+  label *because* three of those documents share a bare file name with one of the 974. So the
+  label is the identity, not a path. Fixed by taking the separator into the name and letting
+  `Corpus::narrow` drop the standard, which it always could: `overtaken`'s vocabulary went 320 →
+  **340** documents, `quoted`'s unanchored figures 21 → **13** with five more confirmed, and
+  `unpriced`'s pool of contradicted pages held by no note 5 → **0**. **A rule written to exclude
+  one file excluded a naming convention that did not exist yet.**
+
+With both notes written, that session's run reports **every** failing bound in the pool named by
+the note that holds its page — the first time the sixth criterion has been answered for the whole
+pool rather than for a bucket of it. The figure is not written down here on purpose: the sweep
+prints it, and a round that can read it in a document can write "unchanged" without running
+anything.
+
 ### 3d. `no render` is the one verdict reached without asking the references
 
 **Taken in the five-hundred-and-seventy-fifth session** (ADR 0410), which went looking for the
