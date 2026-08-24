@@ -2505,3 +2505,65 @@ fn a_border_style_dictionary_ignores_the_border_arrays_corner_radii() {
     );
     assert_eq!(extent(&square), (20, 20, 79, 59), "still inside /Rect");
 }
+
+/// §12.5.5's second transparency sentence: a `/Group` on the appearance is not the default one.
+///
+/// > If the appearance's stream dictionary does not contain a Group entry, it shall be treated
+/// > as a non-isolated, non-knockout transparency group. Otherwise, the isolated and knockout
+/// > values specified in the group dictionary (see 11.6.6, "Transparency group XObjects") shall
+/// > be used.
+///
+/// The first case is what this crate builds, and §11.4.4's NOTE 5 makes it free: painting the
+/// elements straight onto the page is the group. The second is not built, and each of its two
+/// values is asserted under the condition that makes it visible — §11.4.4's NOTE 2 makes an
+/// element's blend with the backdrop "what distinguishes non-isolated groups from isolated
+/// groups", and §11.4.6 makes a knockout group differ where a later element composites over an
+/// earlier one. The middle fixture is the control: the same blending appearance under the group
+/// the sentence names by default reports nothing.
+///
+/// **The corpus has no witness and the crawl does**, which is why the fixture is a pair rather
+/// than a document (trap 8): `examples/appearance_transparency_census` finds four appearance
+/// streams stating a `/Group` across the 974, all of them non-isolated and non-knockout, and
+/// 95 isolated ones with a knockout beside them over `CC-MAIN-2021-31`'s 65 944.
+#[test]
+fn an_appearance_group_the_file_states_is_named_and_the_default_one_is_not() {
+    let isolated = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10] /Group << /S /Transparency /I true >> \
+         /Resources << /ExtGState << /G0 << /BM /Multiply >> >> >>",
+        "/G0 gs 1 0 0 rg 0 0 10 10 re f",
+    ));
+    let reported = format!("{:?}", isolated.unsupported);
+    assert!(
+        reported.contains("isolated group (§12.5.5)"),
+        "an isolated appearance group whose element blends is a departure: {reported}"
+    );
+
+    let default = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10] /Group << /S /Transparency >> \
+         /Resources << /ExtGState << /G0 << /BM /Multiply >> >> >>",
+        "/G0 gs 1 0 0 rg 0 0 10 10 re f",
+    ));
+    assert!(
+        default.unsupported.is_empty(),
+        "the non-isolated, non-knockout group is the one this crate builds: {:?}",
+        default.unsupported
+    );
+
+    // §11.4.6's own condition, which is the other half of the same sentence: "[i]n a knockout
+    // group, each individual element shall be composited with the group's initial backdrop
+    // rather than with the stack of preceding elements in the group", so two overlapping
+    // elements that composite are what makes the two models differ.
+    let knockout = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 60 60] /F 4 /AP << /N 6 0 R >> >>",
+        "/BBox [0 0 10 10] /Group << /S /Transparency /K true >> \
+         /Resources << /ExtGState << /G0 << /ca 0.5 >> >> >>",
+        "/G0 gs 1 0 0 rg 0 0 8 8 re f 0 0 1 rg 2 2 8 8 re f",
+    ));
+    let reported = format!("{:?}", knockout.unsupported);
+    assert!(
+        reported.contains("knockout group (§12.5.5)"),
+        "a knockout appearance group with an element over another is a departure: {reported}"
+    );
+}

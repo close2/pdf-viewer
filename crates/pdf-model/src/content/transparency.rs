@@ -2241,6 +2241,57 @@ impl Interpreter<'_> {
         None
     }
 
+    /// Reports what an annotation appearance's own `/Group` asks for and this path does not do.
+    ///
+    /// §12.5.5 states two cases and `crate::content::annotations` builds only the first:
+    ///
+    /// > If the appearance's stream dictionary does not contain a Group entry, it shall be
+    /// > treated as a non-isolated, non-knockout transparency group. Otherwise, the isolated
+    /// > and knockout values specified in the group dictionary (see 11.6.6, "Transparency
+    /// > group XObjects") shall be used.
+    ///
+    /// **The first case costs nothing, and §11.4.4's NOTE 5 is why** — compositing objects as
+    /// a group is the same as compositing them separately when "[t]he group is non-isolated
+    /// and has the same knockout attribute as its parent group" and "[w]hen compositing the
+    /// group's results with the group backdrop, the Normal blend mode is used, and the shape
+    /// and opacity inputs are always 1.0". An appearance is run with its elements painted
+    /// straight onto the page, which is exactly that reduction.
+    ///
+    /// So what is left is the *stated* half, and each of the two is reported only where it can
+    /// change a pixel — the same discriminator [`Interpreter::note_group_structure`] uses for
+    /// a form `XObject`, and for the same reason: a report that fires where the output is
+    /// provably identical costs the page its place in the oracle's comparison and buys
+    /// nothing. §11.4.4's NOTE 2 makes an element's blend with the backdrop "what
+    /// distinguishes non-isolated groups from isolated groups", and §11.4.6 makes a knockout
+    /// group differ only where a later element composites over an earlier one.
+    ///
+    /// Table 145's `/CS` is **not** reported here, and the clause is the reason rather than an
+    /// omission: §11.6.6 gives a group colour space only to an isolated group — "[f]or
+    /// non-isolated groups, or if no group colour space is specified, the group colour space
+    /// shall be inherited from the parent group or page" — so on the group this path actually
+    /// builds a `/CS` states nothing, and where the file also states `/I true` the first
+    /// report below already names the departure that carries it.
+    pub(super) fn note_appearance_group(
+        &mut self,
+        group: &TransparencyGroup,
+        commands: &[Command],
+    ) {
+        if group.isolated && any_command(commands, &command_blends) {
+            self.note(Unsupported::TransparencyGroup {
+                detail: "an annotation appearance's isolated group (§12.5.5), whose elements \
+                         blend with the page behind it rather than with transparency"
+                    .to_owned(),
+            });
+        }
+        if group.knockout && knockout_can_show(commands) {
+            self.note(Unsupported::TransparencyGroup {
+                detail: "an annotation appearance's knockout group (§12.5.5), and an element \
+                         composites over another"
+                    .to_owned(),
+            });
+        }
+    }
+
     /// Reports the parts of §11.4 this group asks for and does not get.
     ///
     /// A group is composited here under its own constant alpha and blend mode, onto the

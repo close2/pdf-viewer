@@ -3764,6 +3764,29 @@ it compares are only the `partial` ones.
 no line of it is a defect, and it settles nothing a person does not then have to read. What it
 replaces is choosing by eye, which is what the three rounds before it did.
 
+## The ranking run a second time, in the seven-hundred-and-tenth, and two rules for reading it
+
+The search above was run on a base one round later and gave a different head, which is what a
+ranking is for. Two things about its **output** cost that round time and belong here rather than in
+its ADR:
+
+- **Strip the clause-level parents.** §12, §11, §8, §14, §7 and §10 sort above every real family
+  and none of them is one: a subtree with ninety-six `partial` rows has 4560 pairs and scores on
+  the tail of them. The first run did not say so only because §12.8 happened to beat them. A parent
+  worth reading has a dot in its number.
+- **The total ranks the family; the *pairs* choose the reading.** The head was §12.5, whose
+  subtree carries more `partial` rows than a round can read properly, and what it was actually
+  opened on is its three strongest pairs: §12.5.4 ~ §12.5.6.8, §12.5.2 ~ §12.5.5, and
+  §12.5.3 ~ §12.5.6.4. Each is a *quotation* one round wrote into two rows, which is the shape the
+  rare-sequence filter exists to surface.
+
+**The pair to take is the one where the two rows do not merely quote the same sentence but disagree
+about what it leaves standing.** §12.5.2 and §12.5.5 both quote Table 166 on `/CA` and `/ca` beside
+a stored appearance; only one of them had noticed that Errata Collection 3 took `/BM` out of the
+list they were both reasoning from. ADR 0579 has that reading and the two further defects it led to
+— a paraphrase citing the wrong NOTE, and a `shall` in the same paragraph that no code read and no
+report named.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

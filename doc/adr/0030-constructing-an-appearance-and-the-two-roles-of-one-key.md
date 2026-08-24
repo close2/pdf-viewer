@@ -136,6 +136,24 @@ transparency group", and with the annotation's compositing parameters ignored th
 alpha 1, the Normal blend mode and no soft mask — which §11.6.7's NOTE 1 makes identical to
 painting the elements directly, which is what the interpreter does.
 
+> **Two corrections, from the seven-hundred-and-tenth session** (ADR 0579), which leave the
+> decision standing and repair what it rests on.
+>
+> **The note is §11.4.4's NOTE 5, not §11.6.7's NOTE 1.** §11.6.7 is *Patterns and transparency*
+> and its NOTE 1 says a different thing — that a non-isolated group whose elements all paint
+> Normal may be *treated as isolated*, which is the optimisation `note_group_structure` cites it
+> for. The reduction this paragraph needs is NOTE 5's, and it states its own conditions: the
+> group is non-isolated with its parent's knockout attribute, and "[w]hen compositing the group's
+> results with the group backdrop, the Normal blend mode is used, and the shape and opacity
+> inputs are always 1.0".
+>
+> **`/BM` is no longer among the parameters ignored**, so the second condition is the annotation's
+> to break. Errata Collection 3's Issues #23 and #34 strike `BM` out of §12.5.2's ignore list, and
+> the four-hundred-and-seventeenth session applied it on both paths; the bullet above is the 2020
+> printing's list. Where an annotation states a non-Normal `/BM` the elements are painted with it
+> one at a time instead of the group's result being composited with it once, and the two differ
+> exactly where the appearance's own marks overlap.
+
 ## Consequences
 
 **42 documents left the corpus gate's incomplete list**, 189 → **147**, the largest single
