@@ -293,6 +293,7 @@ fn main() {
         dirty: false,
         asking: viewer_host::Asking::new(),
         password: viewer_ui::chrome::PasswordCard::default(),
+        refused: viewer_ui::chrome::Refusal::default(),
         locked: None,
         drawn_without_a_page: false,
         chrome,
@@ -311,7 +312,8 @@ fn main() {
         // needed to show page one, so the session is not asked for one until somebody copies.
         platform_clipboard: viewer_ui::clipboard::Clipboard::new(),
         drawing: None,
-        pages: Vec::new(),
+        pages: viewer_host::Miniatures::new(),
+        page_count: 0,
         information: pdf_model::metadata::Information::default(),
         metadata: None,
         state: None,

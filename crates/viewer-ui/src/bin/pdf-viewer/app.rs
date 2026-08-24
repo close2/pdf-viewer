@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use pdf_render::TargetSpec;
 use viewer_core::{Answer, Command, Event, Query, Viewer};
-use viewer_ui::chrome::{About, Chrome, FindBar, Sidebar, Tab};
+use viewer_ui::chrome::{About, Chrome, FindBar, Sidebar};
 
 use crate::arguments::Backend;
 use crate::presentation::Presentation;
@@ -188,6 +188,11 @@ pub(crate) struct App {
     pub(crate) asking: viewer_host::Asking,
     /// §7.6.4.1's prompt, over the page — this host's own, because it has no toolkit to ask.
     pub(crate) password: viewer_ui::chrome::PasswordCard,
+    /// Why there is no document, where there is none — `Event::OpenFailed`, or a page tree with no
+    /// leaves. **Two `std::process::exit(1)` calls until the seven-hundred-and-fourth session**,
+    /// which is `viewer_host::keys`' Escape-quits finding again: this host left the process where
+    /// the other two said the sentence and stayed up.
+    pub(crate) refused: viewer_ui::chrome::Refusal,
     /// Whether this window has ever put chrome up over no page at all.
     ///
     /// What it decides is what an *empty* overlay list means on a window with no page:
@@ -317,7 +322,9 @@ pub(crate) struct App {
     /// and a document opens at a page rather than at a contact sheet. Filled once and kept,
     /// because a thumbnail is a property of an immutable document — the same argument the
     /// outline and the attachments are cached under, and exactly not the layers'.
-    pub(crate) pages: Vec<viewer_ui::chrome::Page>,
+    pub(crate) pages: viewer_host::Miniatures<pdf_render::Image>,
+    /// How many rows §12.3.4's tab has, which is the document's page count.
+    pub(crate) page_count: usize,
     pub(crate) state: Option<State>,
     /// The thread opening the document, until the window and the device have been brought up.
     ///
@@ -615,13 +622,12 @@ impl App {
     /// for `/NonFullScreenPageMode`, because it is that entry's own condition.
     pub(crate) fn show_page_mode(&mut self, mode: pdf_model::viewer_preferences::PageMode) {
         use pdf_model::viewer_preferences::PageMode;
-        match mode {
-            PageMode::UseNone => {}
-            PageMode::UseOutlines => self.panel.show(Tab::Contents),
-            PageMode::UseOptionalContent => self.panel.show(Tab::Layers),
-            PageMode::UseAttachments => self.panel.show(Tab::Files),
-            PageMode::UseThumbs => self.panel.show(Tab::Pages),
-            PageMode::FullScreen => self.begin_presentation(),
+        // Which panel each name opens is `viewer_host::Tab`'s, shared with the other two hosts
+        // since `doc/todo/30`'s item 4; what is left here is `FullScreen`, which is not a panel.
+        if let Some(tab) = viewer_host::Tab::of_page_mode(mode) {
+            self.panel.show(tab);
+        } else if matches!(mode, PageMode::FullScreen) {
+            self.begin_presentation();
         }
     }
 

@@ -34,6 +34,35 @@ pub fn on_screen(pages: &[PageReports<'_>]) -> String {
         .join(" · ")
 }
 
+/// What a window says when [`viewer_core::Event::OpenFailed`] arrives.
+///
+/// **One sentence, three windows, and it replaced an `exit(1)` in the third.** `viewer-ui` printed
+/// this on `stderr` and left the process; the two native hosts each built their own version of the
+/// line and stayed up. That is the shape ADR 0545 corrected for §7.6.4.1's password one round
+/// earlier and deliberately did not widen — a window refusing the *environment* rather than
+/// answering the document — and the argument is the same: a person who launched a viewer from a
+/// desktop is told nothing at all by a process that is no longer there.
+///
+/// `named` is what the person asked for, not a path this crate went looking for: [`viewer_core`]'s
+/// rule 2 is that the crate has no filesystem, so which file it was is the host's to say.
+#[must_use]
+pub fn cannot_open(named: &str, reason: &str) -> String {
+    format!("{named} could not be opened: {reason}")
+}
+
+/// What a window says about a document that opened and has no pages in it.
+///
+/// **Not an error, and that is why it is a sentence rather than an exit.** §7.7.3.2 makes a page
+/// tree's `/Count` "the number of leaf nodes (page objects) that are descendants of this node", and
+/// states no floor on it; §7.7.2's `/Pages` is required and a tree with no leaves is a document
+/// with nothing to show. So this program has read the file correctly and there is nothing on the
+/// screen, which is exactly the case a reader most needs told — a blank window and a window with a
+/// broken file behind it look identical.
+#[must_use]
+pub fn no_pages(named: &str) -> String {
+    format!("{named} states no pages (§7.7.3.2's /Count is zero), so there is nothing to show")
+}
+
 #[cfg(test)]
 mod tests {
     use viewer_core::PageReports;

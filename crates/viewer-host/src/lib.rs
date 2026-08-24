@@ -26,9 +26,12 @@
 //!
 //! - [`arrangement`] — moving between Table 29's six `/PageLayout` values, which the clause states
 //!   and says nothing about cycling. The third host would have been the third copy.
-//! - [`panel`] — §12.3.3's outline, §8.11.4.3's `/Order` and §7.11.4's embedded files, as one
-//!   [`PanelRow`] tree with a [`RowAction`] per row. Three answers, three types, one shape a
-//!   platform tree can hold.
+//! - [`panel`] — §12.3.3's outline, §8.11.4.3's `/Order`, §7.11.4's embedded files, §12.4.3's
+//!   article threads and §14.3.3's document information, as one [`PanelRow`] tree with a
+//!   [`RowAction`] per row. Five answers, five types, one shape a platform tree can hold. §12.3.4's
+//!   miniatures are the sixth panel and the one that is not a row, so what is shared for them is
+//!   [`page_entry`] and the picture stays each toolkit's. [`Tab`] is the list of the six itself,
+//!   which is what makes `doc/todo/30`'s "all three hosts stay level" a thing a compiler checks.
 //! - [`form`] — §12.7.5's field, decided into the [`ControlKind`] a platform builds. One variant
 //!   per *control* rather than one per clause type, because the clause's choice field is two
 //!   controls and its button field is three.
@@ -59,10 +62,12 @@
 //!   the action, and §O.2.1's embedded file, which a URI may name and a person may not have.
 //!   `viewer_core`'s rule 2 is that the crate has no filesystem, so this is where that rule
 //!   reaches a person.
-//! - [`status`] — what the pages on the screen could not draw, worded for a status bar. One
-//!   sentence, three widgets: `Query::Reports` answers per page since Table 29's arrangements
-//!   were obeyed, and a note that did not say which page it was about would be a note about one
-//!   of four.
+//! - [`status`] — what the pages on the screen could not draw, worded for a status bar, and the two
+//!   sentences a window says when there is no document to draw at all. One wording, three widgets:
+//!   `Query::Reports` answers per page since Table 29's arrangements were obeyed, and a note that
+//!   did not say which page it was about would be a note about one of four. The other two are
+//!   `Event::OpenFailed` and a document with no pages, which `viewer-ui` answered with
+//!   `std::process::exit(1)` until the seven-hundred-and-fourth session.
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -96,12 +101,16 @@ pub use copying::{ContentOrder, Copied, copied};
 pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
 pub use keys::{Key, Meaning, Mode, WindowAct, meaning};
-pub use panel::{PanelRow, RowAction, attachment_rows, layer_rows, outline_rows};
+pub use panel::{
+    Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,
+    attachment_rows, layer_rows, outline_rows, page_entry, property_rows, stamp,
+};
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{
     ImportRefusal, may_open_extracted, may_write_extracted, read_import, resolve_import,
 };
 pub use presentation::{Chrome, Presenting};
+pub use status::{cannot_open, no_pages, on_screen};
 pub use trace::{Topic, Trace, parse_topics};
 
 /// The third-party notices every binary in this tree is obliged to carry with it.

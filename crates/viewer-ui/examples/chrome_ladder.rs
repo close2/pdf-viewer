@@ -120,7 +120,8 @@ fn main() {
         collection: None,
         information: &information,
         metadata: metadata.as_ref(),
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let panel = sidebar.draw(&chrome, content, WINDOW.1, 1.0);
     let edge = sidebar.inset(1.0);

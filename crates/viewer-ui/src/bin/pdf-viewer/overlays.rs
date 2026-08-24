@@ -406,9 +406,14 @@ pub(crate) struct Overlays {
     find: Option<pdf_render::DisplayList>,
     /// `/NOTICE`, where it is shown. A modal card, so the sidebar is behind it.
     about: Option<pdf_render::DisplayList>,
-    /// §7.6.4.1's prompt. **Last, so it is on top of everything including the notices card**: the
-    /// document behind it is not open, so nothing drawn over it could be about this document.
+    /// §7.6.4.1's prompt. **Last but one, so it is on top of everything including the notices
+    /// card**: the document behind it is not open, so nothing drawn over it could be about this
+    /// document.
     password: Option<pdf_render::DisplayList>,
+    /// Why there is no document at all, where there is none. **Last**, for the prompt's reason
+    /// carried one step further: a window saying it could not open the file has nothing behind the
+    /// sentence that could be about the file.
+    refusal: Option<pdf_render::DisplayList>,
 }
 
 impl Overlays {
@@ -426,6 +431,7 @@ impl Overlays {
             find: app.find_list(width),
             about: app.about_list(width, height),
             password: app.password_list(width, height),
+            refusal: app.refusal_list(width, height),
         }
     }
 
@@ -444,6 +450,7 @@ impl Overlays {
             self.find.as_ref(),
             self.about.as_ref(),
             self.password.as_ref(),
+            self.refusal.as_ref(),
         ]
         .into_iter()
         .flatten()

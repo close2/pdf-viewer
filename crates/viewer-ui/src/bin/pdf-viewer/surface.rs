@@ -557,7 +557,7 @@ impl App {
         let began = std::time::Instant::now();
         // §12.3.4's list is built here and nowhere else: this is the one place that holds
         // `&mut self` and runs before the panel is drawn.
-        self.ensure_pages();
+        self.fill_visible_pages();
         let (width, height) = {
             let state = self.state.as_ref()?;
             state.size

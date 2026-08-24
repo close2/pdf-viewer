@@ -131,6 +131,12 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
     let label = gtk4::Label::new(Some(&row.label));
     label.set_xalign(0.0);
     label.set_ellipsize(pango::EllipsizeMode::End);
+    // `PanelRow::note` is a sentence *about* the document rather than a thing in it — §14.3.2's
+    // heading, or "this document states no article threads". Adwaita's own dimmed style is what
+    // this platform says that with, which is the whole of what a host adds to the decision.
+    if row.note {
+        label.add_css_class("dim-label");
+    }
     text.append(&label);
     if let Some(detail) = row.detail.as_deref() {
         let second = gtk4::Label::new(Some(detail));

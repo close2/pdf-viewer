@@ -43,10 +43,12 @@
 //! §7.7.3.3's rotation. Glyph outlines arrive from `pdf-font` in font units with y *upwards*, and
 //! [`Chrome::text`] is the one place that flip happens.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use pdf_render::{Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Transform};
 use pdf_syntax::ObjectId;
+
 use viewer_core::Layer;
 
 /// How wide the panel is, in logical pixels.
@@ -596,59 +598,36 @@ impl Row {
 }
 
 /// Which of the sidebar's lists it is showing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Tab {
-    /// §12.3.3's outline.
-    #[default]
-    Contents,
-    /// §12.3.4's thumbnail images, one row per page.
-    Pages,
-    /// §8.11.4.3's `/Order`.
-    Layers,
-    /// §7.11.4's embedded files.
-    Files,
-    /// §12.4.3's article threads.
-    Articles,
-    /// §14.3.3's document information dictionary.
-    Document,
-}
+///
+/// **`viewer_host::Tab`'s, since the seven-hundred-and-fourth session, and this crate no longer
+/// has one of its own.** Six panels drawn here against three in the two native hosts was
+/// `doc/todo/30`'s item 4 and the plainest instance of the level-hosts debt; what makes it stay
+/// closed is that the list is now one value all three read, exactly as `viewer_host::keys` is one
+/// key table (ADR 0526). The tier-2 host lost a private type doing it, which is what distinguishes
+/// this from a fourth copy.
+pub use viewer_host::Tab;
 
-impl Tab {
-    /// The six, in the order they are drawn.
-    const ALL: [Self; 6] = [
-        Self::Contents,
-        Self::Pages,
-        Self::Layers,
-        Self::Files,
-        Self::Articles,
-        Self::Document,
-    ];
-
-    /// What the tab says.
-    const fn label(self) -> &'static str {
-        match self {
-            Self::Contents => "Contents",
-            Self::Pages => "Pages",
-            Self::Layers => "Layers",
-            Self::Files => "Files",
-            // Short enough for a sixth tab in 300 logical pixels, and the clause's own noun:
-            // §12.4.3 calls the thing "an article thread" and its `/I` title is the article's.
-            Self::Articles => "Read",
-            Self::Document => "About",
-        }
+/// One [`viewer_host::PanelRow`] as this panel draws one.
+///
+/// §12.4.3's threads and §14.3.3's information are built by `viewer_host::panel` so that three
+/// hosts say one thing about them, and what is left here is the *styling*, which is this host's
+/// because this host is the one that draws its own rows: a label with a value under it is a label,
+/// so it is set in bold, and a row that is a sentence about the document is dimmed and italic —
+/// the same distinction GTK makes with a `dim-label` and Qt by clearing `Qt::ItemIsEnabled`.
+fn shared_row(row: &viewer_host::PanelRow) -> Row {
+    if row.note {
+        return nothing(&row.label);
     }
-
-    /// Which of [`Self::ALL`] this is, for the per-tab scroll positions.
-    const fn index(self) -> usize {
-        match self {
-            Self::Contents => 0,
-            Self::Pages => 1,
-            Self::Layers => 2,
-            Self::Files => 3,
-            Self::Articles => 4,
-            Self::Document => 5,
-        }
+    let mut drawn = Row::plain(0, row.label.clone());
+    drawn.detail.clone_from(&row.detail);
+    drawn.style = Style {
+        bold: row.detail.is_some(),
+        italic: false,
+    };
+    if let viewer_host::RowAction::Activate(object) = row.action {
+        drawn.act = Act::Activate(object);
     }
+    drawn
 }
 
 /// What the sidebar shows, gathered by the host from three queries.
@@ -676,12 +655,22 @@ pub struct Content<'a> {
     pub information: &'a pdf_model::metadata::Information,
     /// §14.3.2's metadata stream, read — `None` where the catalog names none.
     pub metadata: Option<&'a Result<pdf_model::xmp::Xmp, pdf_model::xmp::XmpError>>,
-    /// One entry per page, for §12.3.4's tab: its label and its thumbnail where it has one.
+    /// How many rows §12.3.4's tab has, which is how many pages the document has.
+    pub page_count: usize,
+    /// The rows of that tab the host has actually fetched.
     ///
-    /// Built by the host rather than queried here, and **only while that tab is open**: a
-    /// thumbnail is a decoded image, `viewer_core::Query::Thumbnail` answers one page at a time,
-    /// and a thousand-page document would otherwise decode a thousand miniatures to draw eight.
-    pub pages: &'a [Page],
+    /// **Only the ones about to be drawn, and this used to be every one of them.** A thumbnail is
+    /// a decoded image and `viewer_core::Query::Thumbnail` answers one page at a time so that a
+    /// host can obey `CLAUDE.md` section 2 — and this one did not: it built the whole list the
+    /// first time the tab was shown, which for a thousand-page document stating Table 29's
+    /// `/PageMode /UseThumbs` put **121 ms of a 156 ms launch** into decoding miniatures for rows
+    /// nobody was looking at. [`Sidebar::visible_pages`] is what a host fills before it draws, and
+    /// [`viewer_host::Miniatures`] is what bounds what it keeps.
+    ///
+    /// A row the host has not fetched is still a row: it draws its number, because §12.4.2 makes
+    /// the index what identifies a page when no label does — and [`None`] is a host that has
+    /// fetched none of them, which is every host until somebody opens that tab.
+    pub pages: Option<&'a viewer_host::Miniatures<pdf_render::Image>>,
 }
 
 /// §12.3.5's collection as this panel needs it: the dictionary, and where the clause says to open.
@@ -696,15 +685,6 @@ pub struct Presentation<'a> {
     pub collection: &'a pdf_model::collection::Collection,
     /// Which document §12.3.5.1 says shall be presented first.
     pub initial: &'a pdf_model::collection::Initial,
-}
-
-/// One page, as §12.3.4's tab shows it.
-#[derive(Debug, Clone)]
-pub struct Page {
-    /// What the row says: §12.4.2's label where the document states one, else the number.
-    pub label: String,
-    /// The decoded thumbnail, where the page states a `/Thumb` this program could read.
-    pub thumbnail: Option<pdf_render::Image>,
 }
 
 /// What a click on the sidebar asked for.
@@ -771,6 +751,47 @@ impl Sidebar {
         } else {
             0
         }
+    }
+
+    /// Which of §12.3.4's rows are on the screen, so that a host fetches those and no others.
+    ///
+    /// **The half that makes the panel demand-driven**, and it is answerable only because every
+    /// row of that tab is [`THUMBNAIL_UNITS`] tall whether or not it has a picture — see
+    /// [`Content::pages`] for what a height that depended on the fetch cost this host.
+    ///
+    /// One row of margin either side, because a list is scrolled: a fetch bounded exactly to what
+    /// is visible decodes the row a reader is scrolling onto in the frame that shows it.
+    #[must_use]
+    pub fn visible_pages(&self, page_count: usize, height: u32, scale: f32) -> Range<usize> {
+        if !self.shows_pages() || page_count == 0 {
+            return 0..0;
+        }
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's height in pixels, which is thousands"
+        )]
+        let tall = height as f32 / scale.max(0.01);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a row's height in row units, which is THUMBNAIL_UNITS and is seven"
+        )]
+        let row = TEXT_SIZE * ROW_HEIGHT * THUMBNAIL_UNITS as f32;
+        let top = self.scrolled();
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a row index from a scroll position, both bounded by the list's own length"
+        )]
+        let first = (top / row.max(1.0)) as usize;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the same"
+        )]
+        let rows = ((tall - TABS) / row.max(1.0)) as usize;
+        let first = first.saturating_sub(1);
+        let last = first.saturating_add(rows).saturating_add(2).min(page_count);
+        first.min(last)..last
     }
 
     /// Whether §12.3.4's tab is the one showing.
@@ -965,49 +986,47 @@ impl Sidebar {
                 }
             }
             Tab::Pages => {
-                for (index, page) in content.pages.iter().enumerate() {
-                    let mut row = Row::plain(0, page.label.clone());
+                for index in 0..content.page_count {
+                    let held = content.pages.and_then(|held| held.get(index));
+                    let mut row = Row::plain(
+                        0,
+                        held.map_or_else(
+                            || format!("Page {}", index.saturating_add(1)),
+                            |held| held.label.clone(),
+                        ),
+                    );
                     row.act = Act::GoTo(index);
+                    // **Every row is the same height, whether or not it has a picture**, and that
+                    // is what makes the list demand-driven rather than a preference about looks: a
+                    // row whose height depended on whether its `/Thumb` had been decoded would
+                    // make the layout a function of the fetch and the fetch a function of the
+                    // layout, which is exactly why this host used to decode all of them.
+                    //
                     // A page with no thumbnail is still a row: §12.3.4's NOTE says they "are not
-                    // required, and can be included for some pages and not for others", so a
-                    // panel that listed only the pages that have one would be a list of the
-                    // document's *thumbnails* rather than of its pages.
-                    if let Some(image) = page.thumbnail.clone() {
-                        row.units = THUMBNAIL_UNITS;
-                        row.image = Some(image);
-                    }
+                    // required, and can be included for some pages and not for others", so a panel
+                    // that listed only the pages that have one would be a list of the document's
+                    // *thumbnails* rather than of its pages.
+                    row.units = THUMBNAIL_UNITS;
+                    row.image = held.and_then(|held| held.picture.clone());
                     out.push(row);
                 }
                 if out.is_empty() {
                     out.push(nothing("This document has no pages."));
                 }
             }
-            Tab::Articles => {
-                for thread in content.articles {
-                    // §12.4.3 puts the title in the thread's *information* dictionary — Table 159
-                    // is §14.3.3's Table 349 by another name — and a thread that states none is
-                    // still a thread, so it gets the clause's own noun and its place in the array.
-                    let label = thread
-                        .title
-                        .clone()
-                        .unwrap_or_else(|| format!("Article {}", out.len().saturating_add(1)));
-                    let mut row = Row::plain(0, label);
-                    row.detail = Some(match thread.beads.len() {
-                        1 => "1 bead".to_owned(),
-                        count => format!("{count} beads"),
-                    });
-                    // The same message an outline row sends, and for the same reason: the
-                    // *document* decides what activating an object means. `interact` composes
-                    // §12.6.4.7's own thread action out of it, so a click lands on Table 163's
-                    // `/R` rather than on the page the first bead happens to sit on.
-                    row.act = Act::Activate(thread.id);
-                    out.push(row);
-                }
-                if out.is_empty() {
-                    out.push(nothing("This document states no article threads."));
-                }
-            }
-            Tab::Document => property_rows(content, &mut out),
+            // §12.4.3's threads and §14.3.3's information are `viewer_host::panel`'s rows, so
+            // that the sentence a reader is shown about an untitled thread or an absent `/Info` is
+            // one sentence rather than three. What this host adds is how they are drawn.
+            Tab::Articles => out.extend(
+                viewer_host::article_rows(content.articles)
+                    .iter()
+                    .map(shared_row),
+            ),
+            Tab::Document => out.extend(
+                viewer_host::property_rows(content.information, content.metadata)
+                    .iter()
+                    .map(shared_row),
+            ),
         }
         out
     }
@@ -1200,7 +1219,7 @@ impl Sidebar {
             reason = "the number of tabs, which is six"
         )]
         let each = width / Tab::ALL.len() as f32;
-        for (index, tab) in Tab::ALL.into_iter().enumerate() {
+        for (index, tab) in Tab::ALL.iter().copied().enumerate() {
             #[expect(clippy::cast_precision_loss, reason = "one of five tabs")]
             let left = index as f32 * each;
             if tab == self.tab {
@@ -1425,126 +1444,6 @@ fn describe(file: &pdf_model::attachment::Attachment) -> Option<String> {
         });
     }
     (!parts.is_empty()).then(|| parts.join(", "))
-}
-
-/// §14.3.3's Table 349, as a list of what the document says about itself.
-///
-/// A label and a value on one row, with the label bold: nothing here is clickable, and the tab
-/// exists because §14.3.3's ledger row said `inapplicable` on the reason "a viewer with a
-/// document-properties panel would read it; this one has no panel" — which stopped being true in
-/// the hundred-and-sixty-sixth session.
-///
-/// **§14.3.2's own answers follow, under their own heading**, since the
-/// two-hundred-and-ninety-fourth session (ADR 0186). Table 349's every text entry carries a NOTE
-/// pointing at an XMP counterpart, so a document with a metadata stream may be saying something
-/// else about itself there — and §14.3.4 leaves the disagreement "at the discretion of the PDF
-/// processor", which for a panel means showing both rather than picking one.
-fn property_rows(content: Content<'_>, out: &mut Vec<Row>) {
-    let information = content.information;
-    let stated: [(&str, Option<String>); 9] = [
-        ("Title", information.title.clone()),
-        ("Author", information.author.clone()),
-        ("Subject", information.subject.clone()),
-        ("Keywords", information.keywords.clone()),
-        ("Created in", information.creator.clone()),
-        ("Converted by", information.producer.clone()),
-        (
-            "Created",
-            stamp(information.created_date(), information.created.as_ref()),
-        ),
-        (
-            "Modified",
-            stamp(information.modified_date(), information.modified.as_ref()),
-        ),
-        (
-            "Trapped",
-            // Table 349's stated default is `Unknown`, so a document that says nothing about
-            // trapping and one that says `Unknown` are the same statement and neither is shown.
-            match information.trapped {
-                pdf_model::metadata::Trapped::Unknown => None,
-                other => Some(format!("{other:?}")),
-            },
-        ),
-    ];
-    for (label, value) in stated {
-        let Some(value) = value else { continue };
-        let mut row = Row::plain(0, format!("{label}:"));
-        row.style = Style {
-            bold: true,
-            italic: false,
-        };
-        row.detail = Some(value);
-        out.push(row);
-    }
-    if out.is_empty() {
-        out.push(nothing("This document states no §14.3.3 information."));
-    }
-    metadata_rows(&content, out);
-}
-
-/// §14.3.2's stream, under §14.3.3's dictionary and marked as the other place.
-///
-/// The two tables state the same seven facts and Table 349's NOTEs pair them up, so a panel that
-/// merged them would be hiding a disagreement rather than resolving one — §12.2 ranks `dc:title`
-/// above `/Title` and nothing ranks the rest. What is shown is therefore the *stream's* answer,
-/// labelled, for the four properties a person recognises, and a count for everything else.
-fn metadata_rows(content: &Content<'_>, out: &mut Vec<Row>) {
-    let Some(metadata) = content.metadata else {
-        return;
-    };
-    let xmp = match metadata {
-        Ok(xmp) => xmp,
-        Err(error) => {
-            out.push(nothing(&format!(
-                "§14.3.2's metadata stream could not be read: {error}"
-            )));
-            return;
-        }
-    };
-
-    let stated: Vec<(&str, Option<String>)> = vec![
-        ("dc:title", xmp.title().map(str::to_owned)),
-        (
-            "dc:creator",
-            xmp.authors().map(|authors| authors.join(", ")),
-        ),
-        ("dc:description", xmp.description().map(str::to_owned)),
-        ("pdf:Producer", xmp.producer().map(str::to_owned)),
-        ("xmp:CreatorTool", xmp.creator_tool().map(str::to_owned)),
-        ("xmp:CreateDate", xmp.created().map(str::to_owned)),
-        ("xmp:ModifyDate", xmp.modified().map(str::to_owned)),
-    ];
-    let shown = stated.iter().filter(|(_, value)| value.is_some()).count();
-    out.push(nothing("§14.3.2 (XMP):"));
-    for (label, value) in stated {
-        let Some(value) = value else { continue };
-        let mut row = Row::plain(0, format!("{label}:"));
-        row.style = Style {
-            bold: true,
-            italic: false,
-        };
-        row.detail = Some(value);
-        out.push(row);
-    }
-    let rest = xmp.properties().len().saturating_sub(shown);
-    if rest > 0 {
-        out.push(nothing(&format!("and {rest} other propert(ies).")));
-    }
-}
-
-/// A §7.9.4 date as a person reads it, or the file's own string where it does not conform.
-///
-/// **The string is never dropped.** A producer that wrote a malformed date still wrote
-/// something, and showing nothing would hide it — which is the same choice
-/// [`pdf_model::metadata::Information`] makes by keeping the bytes beside the parse.
-fn stamp(parsed: Option<pdf_syntax::Date>, written: Option<&String>) -> Option<String> {
-    match parsed {
-        Some(date) => Some(format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}",
-            date.year, date.month, date.day, date.hour, date.minute
-        )),
-        None => written.cloned(),
-    }
 }
 
 /// §8.11.4.3's `/Order`, flattened into rows.
@@ -2149,7 +2048,7 @@ fn draw_popup(
     // Table 166's `/M`, in whatever format the file spells it — the table makes displaying it a
     // `shall` and puts no format on the string. Only where the title has left room for it.
     if let Some(modified) = window.modified.as_deref() {
-        let stamp = stamp(
+        let stamp = viewer_host::stamp(
             pdf_syntax::Date::parse(modified),
             Some(&modified.to_owned()),
         )
@@ -2503,6 +2402,99 @@ impl PasswordCard {
             Style::default(),
             DIMMED,
         );
+        Some(list)
+    }
+}
+
+/// The sentence a window says when there is no document to draw, and it stays on the screen.
+///
+/// **This replaced two `std::process::exit(1)` calls in the seven-hundred-and-fourth session**, and
+/// the argument is ADR 0545's one round on: a window that leaves the process has told a person who
+/// launched it from a desktop nothing at all, and `viewer_core::Event::OpenFailed` and a document
+/// with no pages are exactly the two cases where the *reason* is the only thing this program has to
+/// offer. The two native hosts printed their own line into a status bar and stayed up throughout,
+/// which is what "all three hosts stay level" means here; the wording is
+/// [`viewer_host::cannot_open`] and [`viewer_host::no_pages`] so that the three say one thing.
+///
+/// No keyboard, no buttons, and nothing to dismiss: there is no page behind it to get back to. It
+/// is drawn over `pdf_render::SURROUND` by `Surface::without_a_page`, which is the path
+/// ADR 0545 built for a window that has not authenticated and which this is the second user of.
+#[derive(Debug, Clone, Default)]
+pub struct Refusal {
+    /// What the window says, or nothing at all while there is a document.
+    said: Option<String>,
+}
+
+impl Refusal {
+    /// Puts the sentence on the window. Nothing takes it off.
+    pub fn say(&mut self, sentence: String) {
+        self.said = Some(sentence);
+    }
+
+    /// Whether a sentence is up, which is what decides that no key reaches the page.
+    #[must_use]
+    pub const fn shown(&self) -> bool {
+        self.said.is_some()
+    }
+
+    /// The card, in device pixels of the window.
+    #[must_use]
+    pub fn draw(
+        &self,
+        chrome: &Chrome,
+        width: u32,
+        height: u32,
+        scale: f32,
+    ) -> Option<DisplayList> {
+        let said = self.said.as_deref()?;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a window's extent in pixels, which is thousands"
+        )]
+        let (wide, tall) = (width as f32, height as f32);
+        let mut list = DisplayList::new(pdf_render::Size {
+            width: wide,
+            height: tall,
+        });
+        let size = TEXT_SIZE * scale;
+        let pad = PASSWORD_PADDING * scale;
+        let card_wide = PASSWORD_WIDTH * scale;
+        let inner = (card_wide - pad * 2.0).max(0.0);
+        let lines = wrap(chrome, said, size, inner);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a wrapped sentence's line count, which is a handful"
+        )]
+        let card_tall = pad * 2.0 + size * 1.4 * lines.len() as f32;
+        let (left, top) = (
+            (wide - card_wide).max(0.0) / 2.0,
+            (tall - card_tall).max(0.0) / 2.0,
+        );
+        rectangle(&mut list, (left, top, card_wide, card_tall), PASSWORD_PAPER);
+        // **A border, which §7.6.4.1's card does not need and this one does.** That card is drawn
+        // over a page dimmed to 45% black and stands out against it; this one is drawn on a window
+        // with no page at all, where the ground is whatever `software::surround` put there — and a
+        // near-white card on a near-white ground is a sentence nobody can see.
+        for edge in [
+            (left, top, card_wide, scale),
+            (left, top + card_tall - scale, card_wide, scale),
+            (left, top, scale, card_tall),
+            (left + card_wide - scale, top, scale, card_tall),
+        ] {
+            rectangle(&mut list, edge, EDGE);
+        }
+        let mut baseline = top + pad + size;
+        for line in lines {
+            chrome.text(
+                &mut list,
+                &line,
+                (left + pad, baseline),
+                size,
+                Style::default(),
+                PASSWORD_INK,
+            );
+            baseline += size * 1.4;
+        }
         Some(list)
     }
 }

@@ -39,11 +39,19 @@ pub(crate) enum Topic {
     Selection,
     /// What a document-wide search cost, and what its readback cache is holding afterwards.
     Search,
+    /// What the sidebar's six panels hold, and what §12.3.4's cost to build.
+    ///
+    /// The two native hosts have had `viewer_host::Topic::Panel` since they had panels; this host
+    /// drew six lists and could not say what any of them cost. It is the one topic where the
+    /// *number* is a rule rather than a curiosity: `CLAUDE.md` section 2 forbids thumbnail
+    /// generation on the launch path, and a panel's build time is where a host finds out it has
+    /// moved eager work rather than removed it.
+    Panel,
 }
 
 impl Topic {
     /// Every topic, in the order `--trace=?` lists them.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Launch,
         Self::Frames,
         Self::Events,
@@ -52,6 +60,7 @@ impl Topic {
         Self::Access,
         Self::Selection,
         Self::Search,
+        Self::Panel,
     ];
 
     /// What a person types after `--trace=`.
@@ -65,6 +74,7 @@ impl Topic {
             Self::Access => "access",
             Self::Selection => "selection",
             Self::Search => "search",
+            Self::Panel => "panel",
         }
     }
 
@@ -79,6 +89,7 @@ impl Topic {
             Self::Access => 1 << 5,
             Self::Selection => 1 << 6,
             Self::Search => 1 << 7,
+            Self::Panel => 1 << 8,
         }
     }
 
@@ -89,7 +100,7 @@ impl Topic {
 }
 
 /// Every topic at once: what a bare `--trace` asks for, and what `all` names.
-const EVERY_TOPIC: u16 = 0xff;
+const EVERY_TOPIC: u16 = 0x1ff;
 
 /// Whether to say what is happening, about what, and since when.
 ///

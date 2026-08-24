@@ -426,7 +426,8 @@ is set in the same Helvetica on a machine with no fonts installed.
   Depends on `viewer-core`, `pdf-model` and `accesskit`; nothing depends on it but `viewer-ui`.
 - `viewer-ui` — consumer #1 since session 132, and a tier-2 host.
 - `viewer-host` — **exists** since the four-hundred-and-tenth, and it is what a second host
-  discovered: the three panel answers as one row shape, §12.7.5's field as the control it is,
+  discovered: five panel answers as one row shape and the list of panels itself (`Tab`, ADR 0564),
+  §12.3.4's miniatures fetched a row at a time, §12.7.5's field as the control it is,
   §12.7.6.4's file policy, §O.2.1's extraction policy, the launch timeline, and — since the
   five-hundred-and-eleventh — **the magnification at which a platform control fits the `/Rect` the
   document states for it** (`fit::ControlFit`, ADR 0346), which is the piece ADR 0245's third

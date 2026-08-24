@@ -81,8 +81,12 @@ makes what it costs a number to keep rather than a cost to hide. What each step 
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
 
-**And it has chrome.** A sidebar of six tabs, drawn with `pdf-font`'s compiled-in Helvetica and a
-`pdf-render` display list so that both backends draw it: §12.3.3's outline, where a click
+**And it has chrome — and since the seven-hundred-and-fourth session all three windows have the
+same six panels**, because the *list* of them is one value every host matches exhaustively on
+(`viewer_host::Tab`, ADR 0564), which is what `viewer_host::keys` is for a key press. A sidebar of
+six tabs, drawn in `viewer-ui` with `pdf-font`'s compiled-in Helvetica and a `pdf-render` display
+list so that both backends draw it, and in the two native hosts with a `GtkNotebook` of
+`GtkListView`s and a `QTabWidget` of `QTreeView`s: §12.3.3's outline, where a click
 **activates the item** and the document decides whether that is a jump or a URI; §8.11.4.3's
 layers, where a switch turns one on unless Table 99's `/Locked` forbids it; §7.11.4's embedded
 files, where a click writes the file beside the document — as does a click on §12.5.6.15's
@@ -90,8 +94,10 @@ paperclip, because §7.11.4.1 gives an embedded file two homes and a file hung o
 annotation is in the one the name tree does not list — and where a document stating §12.3.5's
 `/Collection` gets its folder tree and the schema's columns instead of a flat list, because a
 collection is how a document *arranges* its files rather than a new population of them (ADR 0202);
-§14.3.3's `/Info`; §12.3.4's thumbnails, one row per page with the miniature fitted above
-§12.4.2's label; and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
+§14.3.3's `/Info` with §14.3.2's XMP under it; §12.3.4's thumbnails, one row per page with the
+miniature fitted above §12.4.2's label and **fetched only for the rows about to be drawn**, which is
+`CLAUDE.md` section 2 reaching a panel rather than a preference — Table 29's `/PageMode /UseThumbs`
+opens that tab as a document opens, so the whole list was on the launch path until ADR 0564; and §12.4.3's article threads, followed on a click to Table 163's `/R` rather
 than to the page the first bead sits on, because activating one composes §12.6.4.7's own thread
 action rather than adding a second route (ADR 0200). **Not one *pdf.js* document states a thread —
 and this sentence said "not one corpus document" for as long as the panel has existed**, while four
@@ -102,8 +108,11 @@ font programs and had no surface for their licences at all (ADR 0526). **What a 
 value, `viewer_host::keys`, that all three hosts translate their toolkit's key into**: three tables
 that disagreed about the arrow keys, about `f` and about Escape are one, and each host has a test
 that fails when it stops translating the whole of it. **The
-document chooses what opens**: Table 29's `/PageMode` names a panel and §12.2's
-`/DisplayDocTitle` puts the document's own title in the title bar. §12.6.3's trigger events are
+document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
+hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
+§12.2's `/DisplayDocTitle` puts the document's own title in the title bar. **A document this program
+cannot open, and one whose page tree has no leaves, are two sentences rather than an exit**, in all
+three windows (ADR 0564). §12.6.3's trigger events are
 raised by the pointer. Four clauses closed on the sidebar without anybody picking them off a list,
 and three of the four had a ledger row whose reason was "this program has no ___" — which is the
 lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about the sidebar.

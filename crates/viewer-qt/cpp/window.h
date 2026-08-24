@@ -7,12 +7,18 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <optional>
 #include <vector>
 
 #include <QAbstractItemModel>
+#include <QAbstractListModel>
 #include <QImage>
 #include <QMainWindow>
+#include <QPixmap>
 #include <QPoint>
+#include <QString>
 #include <QVector>
 #include <QWidget>
 
@@ -20,6 +26,7 @@
 
 class QLabel;
 class QLineEdit;
+class QListView;
 class QTabWidget;
 class QTimer;
 class QToolBar;
@@ -82,6 +89,65 @@ private:
     std::vector<Node> nodes_;
     std::vector<QtRow> rows_;
     std::vector<int> nodeOfFlat_;
+};
+
+/// ISO 32000-2 §12.3.4's panel as a Qt item model: one row per page, and the miniature it states.
+///
+/// > An interactive PDF processor may display these images on the screen, allowing the user to
+/// > navigate to a page by clicking its thumbnail image
+///
+/// **The rows are virtual, and that is a requirement rather than a technique.** `CLAUDE.md` section 2
+/// forbids thumbnail generation on the launch path by name, and `viewer_core::Query::Thumbnail`
+/// answers one page at a time so that a host can obey it. A `QAbstractListModel` is asked for the
+/// rows a view is laying out and no others, so the decode happens in `data` and nowhere else:
+/// opening this tab on a thousand-page document asks for the dozen rows on the screen.
+///
+/// What is kept afterwards is bounded by `viewer_host::KEPT_MINIATURES`, asked for across the
+/// bridge rather than written down here — a decoded miniature is tens of kilobytes and a reader
+/// who scrolls a thousand pages would otherwise leave the window holding all of them. Eviction is
+/// by distance from the row last asked for rather than by age, for the reason a panel is scrolled:
+/// what a view wants next is next to what it just wanted.
+class PageModel : public QAbstractListModel
+{
+    Q_OBJECT
+
+public:
+    /// What one row needs, or nothing at all where the host could not be asked.
+    ///
+    /// The empty answer is the re-entrancy case and only that: `data` can be called while a call
+    /// into the host is running, and a second one would be two borrows of one `rust::Box`. Such a
+    /// row is drawn from its number and **not cached**, so the next lay-out asks again.
+    using Fetch = std::function<std::optional<QtPage>(int)>;
+
+    PageModel(Fetch fetch, int kept, QObject* parent = nullptr);
+
+    /// How many pages the document has. Resets the model, because a new document is a new list.
+    void setCount(int count);
+
+    int rowCount(const QModelIndex& parent) const override;
+    QVariant data(const QModelIndex& index, int role) const override;
+
+private:
+    /// One row, once it has been asked for.
+    struct Held
+    {
+        /// §12.4.2's label for the page.
+        QString label;
+        /// The miniature, or a null pixmap for a page stating no `/Thumb` — most pages of most
+        /// documents, and not a defect. The row is drawn either way.
+        QPixmap picture;
+    };
+
+    /// This row, asking for it if it is not held and dropping the furthest if that goes over the
+    /// bound. `nullptr` where the host refused, which is the re-entrancy case above.
+    const Held* held(int row) const;
+
+    Fetch fetch_;
+    int kept_;
+    int count_ = 0;
+    /// Ordered, so that the two ends are the two candidates for "furthest from here"; `mutable`
+    /// because `data` is const and a demand-driven model is the reason this class exists.
+    mutable std::map<int, Held> held_;
 };
 
 /// The layer the interactive chrome is drawn on: over the page, over the controls, under nothing.
@@ -161,7 +227,7 @@ private:
     bool pressed_ = false;
 };
 
-/// The window: a splitter, three trees, a page, a status bar, and the host behind all of it.
+/// The window: a splitter, `viewer_host::Tab`'s panels, a page, a status bar, and the host.
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -208,6 +274,8 @@ private:
     void pumpPresentation();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
+    /// ISO 32000-2 §12.3.4's panel: a `QListView` of miniatures, built once and filled on demand.
+    QListView* buildPages();
     /// Puts the window in the state Table 29 and ISO 32000-2 §12.2 ask for.
     ///
     /// Four sentences, four widgets: `/HideMenubar` is `QMainWindow::menuBar`, `/HideToolbar` the
@@ -224,8 +292,15 @@ private:
 
     rust::Box<Host> host_;
     QTabWidget* tabs_;
-    QTreeView* trees_[3];
-    PanelModel* models_[3];
+    /// One entry per `viewer_host::Tab`, in that list's own order, and **grown from the bridge
+    /// rather than sized here**: the window asks `panel_label` until it runs out, so a panel added
+    /// on the Rust side appears in this notebook without a line of C++ changing. §12.3.4's slot
+    /// holds `nullptr` in both vectors, because that panel is a `QListView` and not a tree.
+    std::vector<QTreeView*> trees_;
+    std::vector<PanelModel*> models_;
+    /// §12.3.4's panel, which is the one that is not a tree.
+    QListView* pageView_ = nullptr;
+    PageModel* pageModel_ = nullptr;
     PageArea* page_;
     QLabel* status_;
     /// The find bar, hidden until Ctrl+F or `/`.

@@ -73,6 +73,35 @@ pub mod ffi {
         on: bool,
         /// For action 2 only: Table 99's `/Locked`, which makes the switch unusable.
         locked: bool,
+        /// Whether the row is a sentence *about* the document rather than a thing *in* it.
+        ///
+        /// `viewer_host::PanelRow::note` — §14.3.2's heading, or "this document states no article
+        /// threads". Qt says it by clearing `Qt::ItemIsEnabled`, which is the platform's own way
+        /// of saying a row is not a thing to act on; GTK says it with a `dim-label`.
+        note: bool,
+    }
+
+    /// One row of §12.3.4's panel: a page's label, and its miniature where the page states one.
+    ///
+    /// **The pixels are owned here and borrowed in `QtFrame`**, and the difference is the size: a
+    /// miniature is tens of kilobytes asked for once per row, a frame is megabytes asked for once
+    /// per present. Copying the first buys a bridge with one cache in it rather than two.
+    ///
+    /// `width` and `height` are zero for a page carrying no `/Thumb`, which is most pages of most
+    /// documents and is not a defect — §12.3.4's NOTE says thumbnails "are not required, and can
+    /// be included for some pages and not for others". The row is drawn either way.
+    #[derive(Debug, Clone)]
+    struct QtPage {
+        /// §12.4.2's label for the page, or the fallback `viewer_host::page_entry` chose.
+        label: String,
+        /// The miniature's width in samples, or 0 where the page states none.
+        width: u32,
+        /// Its height.
+        height: u32,
+        /// Row-major RGBA8 samples, top row first, with no row padding — the same layout a frame's
+        /// pixels arrive in, because `pdf_model::thumbnail` decodes a `/Thumb` into the raster
+        /// every other image in this tree becomes.
+        pixels: Vec<u8>,
     }
 
     /// Where the pixels the viewer is holding belong, and how big they are.
@@ -280,10 +309,12 @@ pub mod ffi {
         fn pointer(self: &mut Host, x: f32, y: f32, action: u8);
         /// The wheel turned, in device pixels of the viewport.
         fn scrolled(self: &mut Host, dx: f32, dy: f32);
-        /// A row of tree `tree` — 0 outline, 1 layers, 2 files — was activated.
+        /// A row of panel `tree` was activated. The number is a place in `viewer_host::Tab::ALL`.
         fn activate_row(self: &mut Host, tree: u8, index: usize);
-        /// §8.11.4.3's switch on row `index` of tree `tree` was moved.
+        /// §8.11.4.3's switch on row `index` of panel `tree` was moved.
         fn toggle_row(self: &mut Host, tree: u8, index: usize, on: bool);
+        /// §12.3.4: a person clicked a page's miniature, so that page is the one to show.
+        fn show_page(self: &mut Host, index: usize);
         /// A control's value was typed into.
         fn set_control(self: &mut Host, index: usize, value: &str);
         /// §12.7.5.4: which of Table 234's `/Opt` entries are selected now, by index.
@@ -339,10 +370,10 @@ pub mod ffi {
         /// A function rather than a constant in the header because the text is
         /// `viewer_host::NOTICE` and only Rust has it; asked once, when the flag says so.
         fn notices(self: &Host) -> String;
-        /// Which of Table 29's six panels the document asks to be showing, as a tab index.
+        /// Which of `viewer_host::Tab`'s panels the document asks to be showing, as a tab index.
         ///
-        /// `-1` for a page mode this host has no panel for — `UseNone`, `FullScreen`, and
-        /// `UseThumbs`, which needs a §12.3.4 tab these three notebooks do not have. Answered
+        /// `-1` for a page mode that names no panel — `UseNone` and `FullScreen`. `UseThumbs` was
+        /// among them until §12.3.4's panel was built. Answered
         /// rather than pushed, because the same question is asked twice for two different clauses:
         /// §7.7.2 when the document opens and §12.2's `/NonFullScreenPageMode` when full screen
         /// ends.
@@ -353,8 +384,23 @@ pub mod ffi {
         fn frame(self: &Host, index: usize) -> QtFrame;
         /// The pixels themselves, borrowed rather than copied.
         fn frame_pixels(self: &Host, index: usize) -> &[u8];
-        /// Tree `tree`'s rows, depth first.
+        /// Panel `tree`'s rows, depth first. §12.3.4's panel has none — see `page_row`.
         fn rows(self: &Host, tree: u8) -> Vec<QtRow>;
+        /// What panel `tab` is called, from the one place the six words are written down.
+        fn panel_label(self: &Host, tab: u8) -> String;
+        /// Which of the panels is §12.3.4's — the one that is a list of pictures rather than rows.
+        fn pages_panel(self: &Host) -> u8;
+        /// How many rows §12.3.4's panel has, which is the document's page count.
+        fn page_count(self: &Host) -> usize;
+        /// One row of §12.3.4's panel, asked for when the model is about to draw that row.
+        ///
+        /// **Not in a loop over `page_count`.** `CLAUDE.md` section 2 forbids thumbnail generation on the
+        /// launch path by name and `viewer_core::Query::Thumbnail` answers one page at a time so
+        /// that a host can obey it; a `QAbstractListModel` asks `data` for the rows a view is
+        /// laying out and no others, which is what makes that obedience the model's own shape.
+        fn page_row(self: &Host, index: usize) -> QtPage;
+        /// How many of §12.3.4's miniatures the panel may keep — `viewer_host::KEPT_MINIATURES`.
+        fn kept_miniatures(self: &Host) -> usize;
         /// Every control the page's form wants.
         fn controls(self: &Host) -> Vec<QtControl>;
         /// Table 234's `/Opt` labels for control `index`, in the array's own order.

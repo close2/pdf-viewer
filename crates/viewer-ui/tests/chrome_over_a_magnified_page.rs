@@ -188,7 +188,8 @@ fn sidebar(viewer: &Viewer) -> (pdf_render::DisplayList, u32) {
         collection: None,
         information: &information,
         metadata: None,
-        pages: &[],
+        page_count: 0,
+        pages: None,
     };
     let list = sidebar.draw(&chrome, content, WINDOW.1, 1.0);
     (list, sidebar.inset(1.0))
