@@ -21,10 +21,52 @@
 //! try the empty user password and then to ask; asking is a window, and a window is a host's.
 //! `viewer_core::Event::PasswordRequired` is where that arrives and each host's own window is
 //! what puts the platform's secure entry in front of it.
+//!
+//! **And the fourth, which was three string literals until the seven-hundred-and-twenty-first
+//! session** — how much of what a *document* asserts over its reader this program obeys.
+//! `viewer_core::Command::Restrict` is the value and `CLAUDE.md` states the rule it exists for:
+//! a document's restrictions "are the reader's to set" and "**it shall always be possible to turn
+//! them off**". [`IGNORE_RESTRICTIONS`] is the word that turns them off and [`refused`] is the
+//! sentence that names it, and they are one unit here for the reason ADR 0604 records: they were
+//! apart, and two of the three windows said the word without taking it.
 
 use std::path::{Component, Path, PathBuf};
 
 use viewer_core::Extraction;
+
+/// The word a person types to turn a document's restrictions off, in every host that has a
+/// command line.
+///
+/// **One constant rather than three string literals, and a defect this tree shipped is why.**
+/// `viewer_core::Event::Refused` was answered in all three windows with a sentence naming
+/// `--ignore-restrictions`, and only `pdf-viewer` took the word: `pdf-viewer-gtk` and
+/// `pdf-viewer-qt` answered *"--ignore-restrictions is not an option this program has"* and left,
+/// so each of them told a person the way out of a refusal and then refused the way out. That is
+/// `CLAUDE.md`'s one non-negotiable sentence about restrictions — "it shall always be possible to
+/// turn them off" — true in one host of three, and the sentence saying otherwise was the copy
+/// that made it look closed (ADR 0604).
+///
+/// **Not a user interface**, which `doc/todo/38` says is not to be built until the project owner
+/// asks for one: it is the single policy value [`viewer_core::Command::Restrict`] carries, supplied
+/// the way each host supplies every other one it has. The four levels the owner named — off, on,
+/// ask, warn — are still two, and nothing here has to be revisited to add the other two.
+pub const IGNORE_RESTRICTIONS: &str = "--ignore-restrictions";
+
+/// What a window says when [`viewer_core::Event::Refused`] arrives.
+///
+/// The notes are the document's own reason, which `pdf_model::restriction` worded; what this adds
+/// is the two things only a *host* can say — that this reader chose to obey, and which word makes
+/// it stop. Both hosts wrote this sentence for themselves and `viewer-ui` wrote a third; the third
+/// copy is where they stop agreeing, and here it is where two of them came to name a flag they did
+/// not have.
+#[must_use]
+pub fn refused(notes: &[String]) -> String {
+    format!(
+        "{} — this reader is obeying that; {IGNORE_RESTRICTIONS} turns it off (CLAUDE.md: a \
+         document's restrictions are the reader's to set)",
+        notes.join("; ")
+    )
+}
 
 /// Why a file a document named was not supplied.
 ///

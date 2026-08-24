@@ -604,23 +604,50 @@ half of that sentence.
    host's convention and no clause states one.
 
 **That is all seven, and the ordering is spent.** What a next UI round has to choose from is named
-here rather than left to be re-surveyed, and neither item is architecture:
+here rather than left to be re-surveyed, and none of it is architecture:
 
 - **`AccessibilityNode::lines` does not cross the C ABI** — the per-character byte counts and boxes
   AT-SPI's `Text` interface wants, so a C caller building a screen reader has the tree and the
   extents and not the character offsets. Two accessors and no new decision; named by the
   seven-hundred-and-ninth in item 5 above.
-- **`tools/state.sh windows` prints eleven queries each native host does not ask, and the list is
-  uninterpreted.** ADR 0577's own note says a zero there is not automatically a debt — no window
-  asks `Query::Dirty` because all three learn about an edit from `Event::Dirty`, a tier-2 host never
-  asks `Query::Frame` because it draws its own pixels, and most of the native hosts' eleven are a
-  *delegation*, because a real `GtkEntry` owns its own caret. Sorting that list into debts and
-  non-debts is what stops a parity claim decaying behind a number nobody reads.
+- ~~**`tools/state.sh windows` prints eleven queries each native host does not ask, and the list is
+  uninterpreted.**~~ **Sorted in the seven-hundred-and-twenty-first** (ADR 0603), and **the list
+  could not be sorted as it stood**, which is the finding rather than the sort. Two of its entries
+  were the instrument's own: `Command::[A-Za-z]+` with no word boundary matched the tail of
+  `PathCommand::Close` — `pdf_render`'s *path* close, which `viewer-ui` writes on every rounded
+  rectangle of its chrome — and `viewer-ui`'s trace formatter matches `Command` exhaustively in
+  order to *print* a name, which `section_hosts`' own comment gives as its reason for asking
+  `viewer-ffi` alone and which `section_windows` was then built over anyway. So the section reported
+  `viewer-ui reaches 25 of 25` and `every Command reaches at least one window`, and both were false.
+
+  **The reading now lives in the script, under the counts**, one line per unreached variant saying
+  *debt* or *not a debt* and why — because no command can decide whether a `GtkEntry` owning its own
+  caret is a gap or a delegation, and a count printed without that decision is what two rounds read
+  as "eleven queries" and walked past. It is checked in both directions: a variant with no reason
+  prints `UNREAD`, and a reason for a variant every window now reaches prints `SPENT`.
+
+  **What the reading found, in the row nobody had been asked to read**, is `doc/todo/38`'s and
+  `CLAUDE.md`'s: `Command::Restrict` reached one window of three, so a document's restrictions could
+  not be turned off in either native host — while both of them answered every refusal with a
+  sentence naming `--ignore-restrictions`, a word their own argument parsers rejected. Closed in the
+  same round (ADR 0604), which is why it is no longer on any missing list.
+
+  **Five debts are left and they rank**, which is what a next round chooses from: §14.7's
+  accessibility tree with §9.10.2's readback beside it, absent from both native hosts and the
+  largest; §12.5.6.14's popup windows, which two windows of three draw nothing of while Table 186's
+  `/Open` says which "shall initially be displayed open"; §12.3.5's collection, whose `shall` is
+  addressed to a viewer outright and which no corpus document states; §12.5.6.5's link cursor, which
+  one host sets and two do not; and §12.5.6.6's free text, which is already refused **by name** and
+  is `doc/todo/33`'s. `tools/state.sh windows` prints all five with their reasons.
 
 A third thing is worth writing down because this round nearly rediscovered it: **the criterion in
 ADR 0509 outlives its list.** What a reader can do and cannot do here, then what costs no new
 message, then what makes the level-hosts decision checkable — and a toolkit block is a claim to
-check rather than a rank.
+check rather than a rank. **The seven-hundred-and-twenty-first session declined to write a second
+numbered list and said why** (ADR 0603 §5): what the first one bought was three rounds not spending
+themselves on a survey each, and the survey is now a command that reruns itself with its reasons
+attached. A ranking that a script prints beside the count it ranks cannot go stale between rounds
+the way a list in a file did.
 
 **Two places the API forces a host into an awkward shape**, neither an argument for changing the
 vocabulary today. The per-page answers are two shapes — `Reports`, `Readback`, `Accessibility` and

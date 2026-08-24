@@ -15,7 +15,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use pdf_model::view::WidgetAppearances;
-use viewer_host::{Topic, Trace, parse_topics};
+use viewer_core::RestrictionLevel;
+use viewer_host::{IGNORE_RESTRICTIONS, Topic, Trace, parse_topics};
 use viewer_qt::Host;
 
 /// What the command line asked for.
@@ -30,6 +31,14 @@ struct Arguments {
     topics: u8,
     /// Who draws §12.7's widgets, per `--draw-widget-appearances`.
     widget_appearances: WidgetAppearances,
+    /// What this reader does with the restrictions a document asserts, per
+    /// [`viewer_host::IGNORE_RESTRICTIONS`].
+    ///
+    /// **Not a user interface for them**, which `doc/todo/38` says is not to be built yet: it is
+    /// the one policy value `viewer-core` asks for, supplied the way this host supplies the other
+    /// one it has. `CLAUDE.md` is why it is here at all — "it shall always be possible to turn them
+    /// off" — and until ADR 0604 this program printed the word and then refused it.
+    restrictions: RestrictionLevel,
     /// How many milliseconds to run for before quitting, or zero to run until closed.
     ///
     /// A window under `Xvfb` has nobody to close it, and a test that killed the process could not
@@ -46,9 +55,12 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
     let mut topics = 0;
     let mut widget_appearances = WidgetAppearances::Delegated;
     let mut quit_after = 0;
+    let mut restrictions = RestrictionLevel::On;
     for word in words {
         if word == "--draw-widget-appearances" {
             widget_appearances = WidgetAppearances::Drawn;
+        } else if word == IGNORE_RESTRICTIONS {
+            restrictions = RestrictionLevel::Off;
         } else if word == "--trace" {
             topics = parse_topics("")?;
         } else if let Some(list) = word.strip_prefix("--trace=") {
@@ -76,15 +88,17 @@ fn arguments(words: impl Iterator<Item = String>) -> Result<Arguments, String> {
         }
     }
     let path = path.ok_or_else(|| {
-        "usage: pdf-viewer-qt [--trace[=topics]] [--draw-widget-appearances] \
-         [--quit-after=<ms>] <file.pdf>"
-            .to_owned()
+        format!(
+            "usage: pdf-viewer-qt [--trace[=topics]] [--draw-widget-appearances] \
+             [{IGNORE_RESTRICTIONS}] [--quit-after=<ms>] <file.pdf>"
+        )
     })?;
     Ok(Arguments {
         path,
         fragment,
         topics,
         widget_appearances,
+        restrictions,
         quit_after,
     })
 }
@@ -109,6 +123,7 @@ fn main() -> std::process::ExitCode {
         &arguments.path,
         arguments.fragment,
         arguments.widget_appearances,
+        arguments.restrictions,
         trace,
     ) {
         Ok(host) => host,
@@ -178,5 +193,33 @@ mod tests {
     fn a_run_with_no_document_says_how_to_run_it() {
         let complaint = arguments(std::iter::empty()).expect_err("a document is required");
         assert!(complaint.starts_with("usage:"), "{complaint}");
+    }
+
+    /// The word this window's refusal names has to be a word this program takes.
+    ///
+    /// The same test `pdf-viewer-gtk` carries, and the same defect behind it: `Host::react`
+    /// answered `viewer_core::Event::Refused` with a sentence naming `--ignore-restrictions` while
+    /// `arguments` answered that word with *"is not an option this program has"* and exit 1. Two
+    /// hosts wrote the sentence independently and both got it wrong the same way, which is what a
+    /// copied sentence does. ADR 0604.
+    #[test]
+    fn the_word_the_refusal_names_turns_the_restrictions_off() {
+        use viewer_core::RestrictionLevel;
+        let asked = arguments(
+            [
+                viewer_host::IGNORE_RESTRICTIONS.to_owned(),
+                "x.pdf".to_owned(),
+            ]
+            .into_iter(),
+        )
+        .expect("a document");
+        assert_eq!(asked.restrictions, RestrictionLevel::Off);
+        let asked = arguments(["x.pdf".to_owned()].into_iter()).expect("a document");
+        assert_eq!(
+            asked.restrictions,
+            RestrictionLevel::On,
+            "obeying is the default, because a reader that ignored a document's restrictions \
+             without being asked would be choosing on the person's behalf in the other direction"
+        );
     }
 }

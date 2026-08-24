@@ -295,6 +295,32 @@ condition since ADR 0509 and had simply not been bitten. Both strip `//` to end 
 general form is the one that generalises past greps: whenever a condition is *presence of a name*,
 ask what else in the population can carry that name without meaning it (ADR 0577).
 
+**And a seventh and an eighth, in the same count, twelve rounds later — because that question was
+asked once and not exhaustively.** Stripping comments answered *what else can carry the name*, and
+two more things could.
+
+**A suffix is not a name.** `grep -oE "Command::[A-Za-z]+"` matches the tail of
+`PathCommand::Close`, `pdf_render`'s *path* close, which `viewer-ui` writes on every rounded
+rectangle of its own chrome — so "does this window ever close a document?" was answered by a piece
+of chrome geometry. `\b` is the fix and the rule is one word longer than the sixth instance's: a
+grep for an enumeration's variant is a claim about a **path** through the source, and a suffix is
+not a path.
+
+**A rule written in the paragraph above the code is not a rule the code has.** `section_hosts`'
+comment says, in so many words, that it asks `viewer-ffi` alone because *"`viewer-ui` names all of
+them in `trace.rs` … so the same grep over those two would answer 100% and mean nothing — trap 11's
+shape, a count whose condition is not the question"*. `section_windows` was then written sixty lines
+below it, over a population containing `viewer-ui`, citing that same comment as its reason for
+excluding `viewer-confined` and not excluding the trace formatter. A match arm that formats a
+variant's name is a name **printed**, not a question asked, and the count said `25 of 25` where the
+host sends 22.
+
+**What the two of them cost is the sentence worth carrying**: the section's headline finding —
+`every Command reaches at least one window` — was false, and the two messages it was wrong about
+were `Close` and `Focus`. **A count you wrote is a population you have not audited**, and the audit
+is not "is the condition right?" but "list everything in this population that satisfies the
+condition and does not satisfy the question". ADR 0603.
+
 ### 13. A sweep for a defect must be run against the defect before it is believed
 
 A round told to look for a class of defect writes a grep, gets a handful of hits, reads them and

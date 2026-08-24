@@ -153,8 +153,10 @@ pass.
   0235, 0241; `doc/todo/34`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
-  page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the two
-  decisions a host owns — §12.7.6.4's file and §7.6.4.1's password. `doc/todo/30`'s order made
+  page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three
+  decisions a host owns — §12.7.6.4's file, §7.6.4.1's password, and, since the
+  seven-hundred-and-twenty-first, how much of what the document asserts over its reader this
+  window obeys (ADR 0604). `doc/todo/30`'s order made
   GTK4 first because `gtk4-rs` is Rust-safe with no C++ bridge, and the crate keeps
   `#![forbid(unsafe_code)]` to prove it. **Tier 1, because GTK4 admits no other**: a widget has no
   native surface and GSK hands out no device, so `Query::Frame`'s raster becomes a
@@ -188,7 +190,11 @@ pass.
   test rather than by a round's care: `every_query_reaches_the_abi.rs` matches exhaustively over the
   enum, so a question added to the boundary fails to compile in this crate (ADR 0576). **And
   `tools/state.sh windows` asks the same question of each window** — the parity instrument
-  "all three hosts stay level" had never had (ADR 0577). ADRs 0247, 0509.
+  "all three hosts stay level" had never had (ADR 0577). **It prints the *reading* beside the count
+  since the seven-hundred-and-twenty-first**, one line per unreached variant saying whether it is a
+  debt and why, checked in both directions — because a count of what a window does not reach is not
+  a list of debts, and two rounds read "eleven queries" off it and walked past a window that could
+  not turn a document's restrictions off (ADRs 0603, 0604). ADRs 0247, 0509.
 
 **The freeze's three amendments came first and one of them was a bug.** `Answer::Field`'s password
 value was supposed to be a sentence in a doc comment; reading Table 231 bit 14 for it found a

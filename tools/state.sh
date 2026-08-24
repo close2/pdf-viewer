@@ -192,7 +192,8 @@ section_counts() {
 # offering it. `viewer-ui` names all of them in `trace.rs` and `viewer-confined` in its
 # protocol, so the same grep over those two would answer 100% and mean nothing — trap 11's
 # shape, a count whose condition is not the question.
-# The `Kind::Variant` names a set of crates uses **in code**, with comments removed first.
+# The `Kind::Variant` names a set of crates uses **in code**, with comments removed first and a
+# **word boundary** in front of the name.
 #
 # **The strip is not fussiness; it is trap 11 caught in the act.** The first run of
 # `section_windows` reported both native hosts reaching §12.3.5's collection, on the evidence of
@@ -200,12 +201,27 @@ section_counts() {
 # that this host does not yet ask"*. A rustdoc link is a sentence about a question, not a call —
 # so a count whose condition is "the name appears" reported the exact opposite of what the
 # sentence said. Both sections below strip `//` to end of line before matching.
+#
+# **And the `\b` is the same trap a second time, one round on** (ADR 0603). Without it
+# `Command::[A-Za-z]+` matches the *tail* of `PathCommand::Close` — `pdf_render`'s path-closing
+# display-list command, which `viewer-ui` writes on every rounded rectangle it draws — so the
+# question "does this window ever close a document?" was answered by a piece of chrome geometry.
+# A grep for an enumeration's variant is a claim about a *path* through the source, and a suffix
+# is not one.
+#
+# **`trace.rs` is excluded for the reason `section_hosts` gives one paragraph up**, and it is the
+# third face of the same mistake: `viewer-ui`'s trace formatter matches `Command` exhaustively in
+# order to *print* a command's name, so it named every variant of an enumeration that host sends
+# twenty-two of. `section_hosts` wrote that down as its reason for asking `viewer-ffi` alone, and
+# `section_windows` was then built over `viewer-ui` anyway — the condition was documented and not
+# applied, sixty lines apart in one file. A match arm that formats a name is a name printed, not a
+# question asked.
 names_in_code() {
     local kind=$1
     shift
-    find "$@" -name '*.rs' -exec cat {} + \
+    find "$@" -name '*.rs' ! -name trace.rs -exec cat {} + \
         | sed 's|//.*||' \
-        | grep -oE "$kind::[A-Za-z]+" \
+        | grep -oE "\b$kind::[A-Za-z]+" \
         | sed "s/$kind:://" \
         | sort -u
 }
@@ -247,10 +263,47 @@ section_hosts() {
 #
 # `viewer-confined` is deliberately **not** here, for the reason `hosts` gives about `trace.rs`: it
 # puts every variant on a wire, so the same grep would answer 100% and mean nothing.
+#
+# # The reading, which is the half this section did not have
+#
+# **A count of what a window does not reach is not a list of debts, and printing it without saying
+# which is which is how a parity claim decays quietly** (ADR 0603). ADR 0577 wrote that down as a
+# note and left the sorting to a later round; two rounds then read the number, wrote "eleven
+# queries", and moved on — which is exactly what an uninterpreted figure invites.
+#
+# So the reasons are below, one per variant, each saying *debt* or *not a debt* and why. They are
+# a **reading** rather than a count, which is what `CLAUDE.md` permits to be written down: no
+# command can decide whether a `GtkEntry` owning its own caret is a gap or a delegation.
+#
+# What keeps it from going stale is that the section checks it in **both** directions — a variant
+# with no reason is named as owing one, and a reason for a variant every window now reaches is
+# named as spent. A round that closes one of these deletes its line and the check says so if it
+# did not.
+reading() {
+    cat <<'READING'
+Command:Close|not a debt|every window opens exactly one document from its command line and lives as long as it, so there is no second document to close and closing the only one is quitting. It is Query::Collection's companion: §12.3.5 presents several documents, and a host that presented one would hold two DocumentIds and need both this and Focus.
+Command:Focus|not a debt|the same pair, and the same condition: choosing between two open documents is a question no window can be asked while every window has one.
+Command:Delegate|not a debt|viewer-ui alone, and by construction. §6.3.2.2's instruction takes the widget appearances *out* of the page so that a host can put real controls there; a tier-2 host that draws its own chrome places none, so delegating would leave a form with holes. viewer_ui::chrome::ChoiceList is the drawn counterpart (ADR 0596).
+Query:Dirty|not a debt|all three windows learn that a document has been edited from Event::Dirty and mark their titles from it. The question is for a host that did not keep the event.
+Query:Frame|not a debt|viewer-ui alone, and it is the tier rather than a gap: a tier-2 host draws its own pixels onto its own surface and hands the viewer none, so there is no frame of the viewer's to ask about. The answer would be Answer::None, which its own documentation says.
+Query:Caret|not a debt|a delegation. Both native hosts place a real GtkEntry or QLineEdit over §12.7's field, and a toolkit's own entry owns its caret; §12.7.4.3's layout question arises only for a host that draws the field itself.
+Query:Offset|not a debt|the same delegation: a click placing the cursor inside a toolkit's own entry is the toolkit's arithmetic.
+Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
+Query:FieldAt|not a debt|a delegation of a different shape. These hosts place one control per widget, so which field a press belongs to is the control it landed on; the hit test is for a host that holds only pixels.
+Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
+Query:LinkAt|a debt|§12.5.6.5's activation region, asked at pointer speed to choose a cursor. viewer-ui sets CursorIcon::Pointer over a link and neither native host changes the cursor at all, so a reader cannot see that a link is there until after clicking it. No clause states a cursor, so it is a convention one host has and two do not.
+Query:Popups|a debt, with a clause|§12.5.6.14 makes a popup a window that "displays text in a popup window for entry and editing" and Table 186's /Open says which ones "shall initially be displayed open". viewer-ui draws them; neither native host draws anything at all, so a comment on a page is invisible in two windows of three. Seven of the corpus's documents state an open one.
+Query:Collection|a debt, with the sharpest clause here|"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection" (§12.3.5) — a shall addressed to a viewer. viewer-ui shows it and the two native hosts do not. No corpus document states one, which is why nobody has driven it and why it is not first.
+Query:AccessibilityTree|a debt, and the largest|§14.7's tree reaches AT-SPI through viewer-accessibility, which only viewer-ui uses; GTK's and Qt's own accessibility interfaces are unwired, so a screen reader on either native host is handed a picture. doc/todo/31's.
+Query:Readback|a debt, and the same one|§9.10.2's shortfall — the codes nothing could name — is published today only as part of that tree, so it lands and falls with the row above. No status bar in any host says it either.
+READING
+}
+
 section_windows() {
     heading "viewer-core's vocabulary, and how much of it each window reaches" \
         "Command:: and Query:: named in each host's code and viewer-host's (comments stripped)"
-    local kind file all host named missing everywhere total
+    local kind file all host named missing everywhere total sorted
+    sorted=$(mktemp)
     for kind in Command Query; do
         file=crates/viewer-core/src/$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]').rs
         all=$(sed -n "/^pub enum $kind/,/^}/p" "$file" | grep -oE '^    [A-Z][A-Za-z]*' | tr -d ' ' | sort -u)
@@ -275,6 +328,46 @@ section_windows() {
         else
             printf '             every %s reaches at least one window\n' "$kind"
         fi
+        printf '%s' "$everywhere" | grep -v '^$' | sed "s/^/$kind:/" >> "$sorted"
+    done
+    say_the_reading "$sorted"
+    rm -f "$sorted"
+}
+
+# The reading beside the count, checked in both directions.
+#
+# `$1` holds one `Kind:Variant` line per host that does not reach it, so a variant three windows
+# miss appears three times and the count of them is printed: *which* windows is what turns a
+# reason into a claim somebody can check.
+say_the_reading() {
+    local unreached line variant hosts verdict why
+    unreached=$(sort -u "$1")
+    printf '\nthe reading — which of those are debts, and why (ADR 0603, doc/todo/30)\n'
+    while IFS= read -r variant; do
+        [ -n "$variant" ] || continue
+        hosts=$(grep -c "^$variant\$" "$1")
+        line=$(reading | grep -F "$variant|" || true)
+        if [ -z "$line" ]; then
+            printf '  %-28s UNREAD — %s window(s) do not reach it and nothing here says whether\n' \
+                "${variant#*:}" "$hosts"
+            printf '  %-28s that is a debt. This round owes a reading, in this table.\n' ""
+            continue
+        fi
+        verdict=$(printf '%s' "$line" | cut -d'|' -f2)
+        why=$(printf '%s' "$line" | cut -d'|' -f3)
+        printf '  %-18s %-2s %s\n' "${variant#*:}" "$hosts" "$verdict"
+        printf '%s\n' "$why" | fold -s -w 84 | sed -e 's/[[:space:]]*$//' -e 's/^/                        /'
+    done <<EOF
+$unreached
+EOF
+    # And the other direction: a reason kept for something every window now reaches is a sentence
+    # about a debt somebody closed, which is exactly how a document goes stale while a count stays
+    # right. The round that closes one deletes its line, and this is what says it did not.
+    reading | cut -d'|' -f1 | while IFS= read -r variant; do
+        [ -n "$variant" ] || continue
+        grep -qx -- "$variant" "$1" && continue
+        printf '  %-18s SPENT — every window reaches it now, so this reason has outlived it\n' \
+            "${variant#*:}"
     done
 }
 
