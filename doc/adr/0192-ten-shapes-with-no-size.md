@@ -23,6 +23,20 @@ a *description* and no dimension at all:
 | Slash | "A short line at the endpoint approximately 30 degrees clockwise from perpendicular to the line itself" |
 | None | "No line ending" |
 
+**Two things about that table were settled after this decision, by the standard rather than by a
+round** (both found in the seven-hundred-and-sixteenth session; `doc/errata-read.md` has the
+locations):
+
+- **`RClosedArrow`'s row is filled too.** Errata Collection 3 Issue #515 adds "filled with the
+  annotation's interior colour, if any" to the end of that row, which is what `Ending::filled` had
+  already derived from "in the reverse direction from" — so the fill is five of ten and not four,
+  and the *Consequences* sentence below is corrected with it.
+- **`OpenArrow`'s row above is quoted whole here and `doc/md/` is a word short of it.** Issue #513
+  is an EDITOR NOTE saying the ISO PDF's own row height obscures the end of that sentence; the
+  conversion ends the cell at "an open" and begins the next with "arrowhead". That is why
+  `--bin quotations` prints this line as a diverging document span. The quotation is right and
+  stays; the instrument is what is short.
+
 So this is **a `shall` behind a silence about artwork** — ADR 0109's shape, where §12.5.6.4 requires
 "predefined icon appearances" for seven names and draws none of them. It had been refused since the
 eighty-fifth session on the true observation that the table states no dimension, which is a reason
@@ -71,7 +85,9 @@ shape comes from Table 181's `/Path`, whose curves this routine does not hold th
 - **Table 181's `/IC` finally does something on a polyline.** The table divides the entry by
   subtype — "[f]or Polyline annotations, the value of the IC key is used to fill only the line
   ending" — and this tree read it, refused the ending, and therefore drew nothing with it. Four of
-  Table 179's ten fill and six do not, which is now a test.
+  Table 179's ten fill and six do not, which is now a test. **Five and five since Errata
+  Collection 3 Issue #515**, per the correction above; the test asserted five all along and was
+  named for four until the seven-hundred-and-sixteenth session.
 - **§12.5.6.7's `/Cap` is still owed and is a different kind of nothing.** A caption needs a font
   and no entry of a line annotation states one; the line is drawn and the caption is named beside
   it, as it has been since session 116. What changed is that the report no longer has to carry two

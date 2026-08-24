@@ -1823,7 +1823,9 @@ enum Ending {
     ClosedArrow,
     /// "Two short lines in the reverse direction from `OpenArrow`".
     ReverseOpenArrow,
-    /// "A triangular closed arrowhead in the reverse direction from `ClosedArrow`".
+    /// "A triangular closed arrowhead in the reverse direction from `ClosedArrow`", to which
+    /// Errata Collection 3 Issue #515 (`/State` `Review` `Completed`) adds "filled with the
+    /// annotation's interior colour, if any." — see [`Self::filled`].
     ReverseClosedArrow,
     /// "A short line at the endpoint perpendicular to the line itself".
     Butt,
@@ -1857,10 +1859,22 @@ impl Ending {
 
     /// Whether Table 179 fills this shape with "the annotation's interior colour, if any".
     ///
-    /// Four of the ten say so and the other six do not, which is the whole of the difference an
+    /// Five of the ten say so and the other five do not, which is the whole of the difference an
     /// `/IC` makes here — and for a polyline it is the only thing `/IC` does at all (Table 181:
     /// "[f]or Polyline annotations, the value of the IC key is used to fill only the line
     /// ending").
+    ///
+    /// **The fifth was this crate's inference until Errata Collection 3 supplied it, and this
+    /// comment said four while the arms below said five.** The published table names the fill on
+    /// `Square`, `Circle`, `Diamond` and `ClosedArrow` and says of `RClosedArrow` only that it is
+    /// that arrowhead "in the reverse direction from" the fourth — so filling it rested on a
+    /// reversed shape being the same shape, which is a reading rather than a sentence. Issue #515
+    /// puts "filled with the annotation's interior colour, if any." on that row and settles it.
+    /// **Nothing drawn moves**: the arms were five before the erratum was read, and what changes
+    /// is which of the two — the count in the prose or the set in the code — was right.
+    ///
+    /// The erratum is a `Caret` with no `StrikeOut`, so `spec-errata check` has no struck text to
+    /// match and could not have printed it; `emit` over the clause's own pages is what does.
     fn filled(self) -> bool {
         matches!(
             self,
@@ -1983,7 +1997,15 @@ fn draw_ending(
             if closed {
                 stream.close();
             }
-            stream.paint(closed && interior != Colour::None, true);
+            // [`Ending::filled`] decides this, here as for the three shapes above. **This arm
+            // asked `closed && interior != Colour::None` instead until the
+            // seven-hundred-and-sixteenth session**, which is the same answer written a second
+            // time and reached by a different route: `filled` was consulted for three of the five
+            // shapes it names and the other two decided for themselves. The two expressions
+            // agreed, so nothing drawn moves — what moves is that a correction to `filled` now
+            // reaches every shape it is about, which is what the erratum on `RClosedArrow`'s row
+            // would have needed had it gone the other way.
+            stream.paint(fill, true);
         }
     }
 }

@@ -2063,9 +2063,21 @@ fn each_of_table_179_s_line_endings_draws_its_own_shape() {
     }
 }
 
-/// Table 179 fills four of its ten with `/IC` and leaves the other six to the stroke.
+/// Table 179 fills five of its ten with `/IC` and leaves the other five to the stroke.
+///
+/// **This said four and asserted five**, which is the arithmetic `Ending::filled`'s own doc
+/// comment carried too: the published table names the fill on four rows and Errata Collection 3
+/// Issue #515 puts it on `RClosedArrow` as well, which is the arm this crate had already derived
+/// from "in the reverse direction from" `ClosedArrow`. Every one of the ten is named below now, so
+/// the sentence and the assertions are the same list; `/None` is stated rather than asserted, and
+/// honestly so — `draw_ending` returns before it looks at a colour, so that one arm cannot fail.
+///
+/// **And this test could not see the arrowheads at all until the same session.** `draw_ending`
+/// decided their fill for itself, three arms below the one that asks `Ending::filled`, so removing
+/// `RClosedArrow` from `filled` left every assertion here passing. Calibrated per trap 13 after
+/// the two expressions became one: with that arm removed the run fails on `/RClosedArrow` by name.
 #[test]
-fn only_the_four_endings_table_179_fills_use_the_interior_colour() {
+fn only_the_five_endings_table_179_fills_use_the_interior_colour() {
     let ending = |name: &str, interior: &str| {
         let raster = render(pdf_with(
             &format!(
@@ -2084,7 +2096,7 @@ fn only_the_four_endings_table_179_fills_use_the_interior_colour() {
             "Table 179 fills /{name} with the annotation's interior colour"
         );
     }
-    for name in ["OpenArrow", "ROpenArrow", "Butt", "Slash"] {
+    for name in ["OpenArrow", "ROpenArrow", "Butt", "Slash", "None"] {
         assert_eq!(
             ending(name, "/IC [1 0 0]"),
             ending(name, ""),

@@ -1031,3 +1031,60 @@ the `/ca` row's own "Default value: 1.0" said the opposite, and this tree had pi
 neighbouring sentence over the nearer one for its whole life. The amended `/ca` row now says what
 the `/CA` row says. No arithmetic moves; the authority does, which is what a bare caret and a bare
 strikeout have both turned out to be worth. Recorded in §12.5.2's note.
+
+## Table 179's fifth fill, and a word the ISO PDF's own row height hides — the seven-hundred-and-sixteenth
+
+`emit` over the pages §12.5.6.7's Table 179 spans files three annotation objects this tree named
+nowhere, and the first of them is the one that matters.
+
+**Issue #515**, `/State` `Review`/`Completed`, `D:20260521100754-05'00'`, on physical page 504: a
+`Caret` whose `/Contents` is `filled with the annotation's interior colour, if any.` at
+`[338.883 320.112 347.959 327.508]`. There is **no** `StrikeOut` beside it, so this is the first of
+`check`'s three blindnesses rather than the third — nothing was struck, so there is nothing to
+compare a quotation against.
+
+The row it lands on is settled by arithmetic rather than by eye. The page is 841.92 tall, so the
+caret occupies 514.41–521.81 from the top, and `pdftotext -bbox` puts exactly one line there:
+`from ClosedArrow` at 508.65–520.32, which is the second line of `RClosedArrow`'s description —
+`(PDF 1.5) A triangular closed arrowhead in the reverse direction from ClosedArrow`. The caret's
+left edge, 338.883, is two points past that line's last word, which ends at 341.06. So the amended
+row reads *…in the reverse direction from ClosedArrow, filled with the annotation's interior
+colour, if any.*
+
+**What it settles is a count this tree held in four places and got right in only two of them.**
+Table 179 as published names the fill on `Square`, `Circle`, `Diamond` and `ClosedArrow`, and this
+crate has always filled a fifth — `RClosedArrow` — on the reading that a shape drawn "in the
+reverse direction from" a filled one is the same shape. The reading was right and the erratum now
+states it. What was wrong was the prose beside it: `Ending::filled`'s doc comment said "Four of the
+ten say so and the other six do not" over a `matches!` with **five** arms, and the test guarding it
+was named `only_the_four_endings_table_179_fills_use_the_interior_colour` over a loop of **five**
+names. §12.5.6.6's ledger row carried the same four. No pixel moves; four sentences do.
+
+**And the same run explains a sweep hit that had been standing unread.** **Issue #513**,
+`/State` `Review`/`Accepted`, on the same page, is an EDITOR NOTE rather than a change:
+
+> EDITOR NOTE: (Issue #513) The row height in the ISO PDF file obscures the end of the sentence.
+> The text is unchanged but noted here for clarity.
+
+The annotation then reprints `OpenArrow`'s whole description, ending in the word `arrowhead`. It is
+**not** quoted again here, and that is deliberate: the sentence is one `doc/md/` cannot supply, so a
+copy of it in this file would be a sixth diverging span for `--bin quotations` to print and a reader
+to re-diagnose. `doc/adr/0192` carries the quotation, with the explanation beside it.
+
+`doc/md/` carries the damage the note describes. Its Table 179 ends `OpenArrow`'s cell at "Two
+short lines meeting in an acute angle to form an open" and begins `ClosedArrow`'s with the word
+that finishes it. `--bin quotations` has therefore printed `doc/adr/0192`'s copy of the sentence as
+a diverging document span, at the head of its own output — and the ADR is right, the conversion is
+short, and the standard says so itself. This is the sweep's own instruction — *suspect the
+conversion before the document* — answered for once by the specification rather than by a reader.
+The ADR keeps its quotation and now says why the sweep prints it.
+
+**Issue #524** is the third, and it moves nothing here. A one-word `StrikeOut` over `rectangle`
+with a `Caret` saying `array`, in the **type** column of `/RD` — struck on physical page 500
+(Table 177, free text), 505 (Table 180, square and circle) and 508 (Table 187, caret), which is
+three of the four tables that state the entry. `/RD` is four differences rather than a pair of
+corners, so `array` is the right type name and `rectangle` was not. A one-word strike is under
+`check`'s four-word floor, which is the second blindness; nothing in this tree calls `/RD` a
+rectangle, and `appearance::differences` reads four numbers in the clause's own order of left,
+top, right and bottom. **Establishing that is worth recording**: the entry is read by three
+subtypes and a wrong type name in the table is exactly the sort of thing a reader copies.

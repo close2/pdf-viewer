@@ -3787,6 +3787,64 @@ list they were both reasoning from. ADR 0579 has that reading and the two furthe
 — a paraphrase citing the wrong NOTE, and a `shall` in the same paragraph that no code read and no
 report named.
 
+## The ranking run a third time, in the seven-hundred-and-sixteenth, and a rule the first two could not see
+
+The search was run again on a base one block later, and its *order* did not move: §12.5 heads it,
+§12.8 is second, §12.7 third. What moved is the head family's score, and the reason is a property of
+the instrument rather than of the ledger.
+
+**A family the last round read scores higher for having been read.** Run over the ledger as it stood
+before the seven-hundred-and-tenth session's commit and over the ledger now, with one instrument on
+both sides, §12.5.2 ~ §12.5.5 goes from 17 shared rare sequences to **21** and §12.5's total from
+221 to **225**. That pair is precisely what 710 opened the family on: it read the two rows against
+each other and rewrote both, in one round's voice, with one round's vocabulary — which is what
+reading a family *is*, and it leaves behind more shared rare sequences than it found. Every other
+family's total is unchanged.
+
+So the ranking is **self-reinforcing over one round**, and the third rule for reading it is:
+
+> **Take the strongest pair the previous round named and did not read**, rather than the top of the
+> family's list. A pair that has just been corrected is the one pair in the family whose two rows
+> are known to agree.
+
+In the seven-hundred-and-sixteenth that was §12.5.4 ~ §12.5.6.8, at 24 — the strongest pair below
+any clause-level parent in the whole ledger bar §12.4.4 ~ §12.4.4.1 and §10.7.4 ~ §10.7.5 — which
+ADR 0579 §1 named and left.
+
+**And the pair was clean, which is not a wasted reading.** Both rows quote §12.5.4's sentence about
+the four subtypes whose `/BS` supplies width and dash alone, and enumerating the `/BS`-bearing tables
+confirms the division: Tables 176, 177 and 191 say "the annotation's border" and Tables 178, 180,
+181 and 185 say the line, the rectangle or ellipse, the line again and the paths — so `Border::simulated`
+is asked by exactly the three subtypes whose entry is a border, and the fifth table the sentence does
+not name is Table 181's, excluded correctly for a reason neither row states. **What the pair bought
+was the pages**: it put the round on Tables 179 and 180, and `spec-errata emit` over those pages is
+where all three of its findings are (ADR 0593). A pair that survives its reading has still chosen
+where to look.
+
+### What that reading found, and it is the first blindness rather than the third
+
+- **Issue #515 is a `Caret` with no `StrikeOut`** — the first of the three ways `check` cannot see an
+  erratum, and the first met since the seven-hundred-and-tenth named the third. It adds "filled with
+  the annotation's interior colour, if any" to Table 179's `RClosedArrow` row, which `Ending::filled`
+  had already derived from "in the reverse direction from" `ClosedArrow`. **The reading was right and
+  the arithmetic around it was wrong in four places at once**: the function's doc comment, the test's
+  doc comment, the test's *name*, and §12.5.6.6's ledger row all said *four* over five arms. No pixel
+  moves.
+- **The fill was decided twice, and trap 13 is what found it.** Calibrating the renamed test by taking
+  `RClosedArrow` out of `filled` — the test passed. `draw_ending` asks `filled` for three of the five
+  shapes it names and the arrowhead arm asked its own `closed && interior != Colour::None` three
+  matches below. The two expressions agree and always have; what the duplication cost is the reach of
+  a correction, and the two shapes outside `filled`'s reach are the two the erratum is about. **701's
+  shape inside one function**, and the place the duplicate had not yet disagreed was the place a
+  correction would have had to land.
+- **Issue #513 explains a sweep hit that had been standing at the head of `--bin quotations`' output.**
+  It is an EDITOR NOTE saying the ISO PDF's own row height obscures the end of `OpenArrow`'s sentence;
+  `doc/md/` ends that cell at "an open" and begins the next with the word that finishes it, and
+  ADR 0192 quotes the whole sentence correctly. **A hit a sweep prints every round is not a hit nobody
+  has explained** — the sweep's own instruction is *suspect the conversion*, and here the specification
+  says so itself. The document now carries the answer beside the quotation.
+
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
