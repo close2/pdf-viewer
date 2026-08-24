@@ -543,7 +543,7 @@ item priced by an earlier round re-derives the price before believing it**, exac
 a count or a population — and the cheapest re-derivation is asking what the libraries and the layers
 *already contain*, because that is the part a pricing round tends not to enumerate.
 
-**Three shapes of wrong price are known now, and the third is the one to watch for.** ADR 0474's was
+**Four shapes of wrong price are known now, and the last two are the ones to watch for.** ADR 0474's was
 too high because a library already held the pieces; ADR 0469's named the wrong *place*, and would have
 shipped a 64-level error; and ADR 0489's was **one price quoted for two cases** — a group's shape and
 its alpha are one number wherever its opacity is 1.0 throughout, which is decidable while the content
@@ -569,6 +569,24 @@ crawl holds 1504 and **42** do. A sentence of the form *no document does X* carr
 inside it whether or not it says so, so **the round that adds a population owes a re-derivation of
 every negative measured over the old one** — and `doc/todo/03` now holds whole-population figures
 precisely so those are answerable rather than inherited.
+
+**A fourth shape: a price that names the wrong *mechanism*, and is therefore right about the cost and
+wrong about the fix.** `doc/todo/41` priced "a refusal whose encoded bytes outgrow the budget" as a
+thing to hold, and the seven-hundred-and-twelfth session measured it at **25 000×** — real, reachable,
+and still not a memo's problem: what makes that document expensive is that reaching the refusal
+inflates a gibibyte, so windowing the chain removes the cost on *every* read where a memo removes it
+on every read after the first, and needs no entry, no charge and no eviction argument (ADR 0586).
+**The tell is that all three ways to take the item as posed gave something up** — the ceiling, the
+cache, or soundness — and when every construction of a fix is bad, the fix is in the wrong layer.
+
+**And a price measured on the file can miss a multiplier that only the *caller* has.** ADR 0585's
+population was right — most images run a filter in front of their codec — and the number that
+decided the work was found by reading `pdf_model::content::image::draw` and counting: one `Do` asked
+`Document::image_stream` **four times**, three of them reports that decoded the chain before asking
+which codec it was. No profile names that as redundancy and no census of the corpus can see it, because
+it is a property of this tree. So: **when pricing a memo, count the calls before measuring the misses**
+— the redundant call is the cheaper defect to find and often the larger one, and on a thousand-page
+sweep removing it beat the memo outright (−2.35% against −2.06%).
 
 
 - **A negative answer from a tool is a claim about that tool, not about the world.** `which

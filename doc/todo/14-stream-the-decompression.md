@@ -1,7 +1,9 @@
 # Road D — stream the decompression, so the bomb never becomes an allocation
 
-Status: **closed — all five of §7.8.2's content streams are read through a window and both
-streaming bombs' filters pump** (ADRs 0365, 0427, 0429, 0430). A bomb in a page's `/Contents`
+Status: **one item owed again — a *chain* of pumpable stages is not pumped, which is how a bomb
+escapes this road (ADR 0586, and the section below)**. Everything the road was opened about is
+done: all five of §7.8.2's content streams are read through a window and both streaming bombs'
+filters pump (ADRs 0365, 0427, 0429, 0430). A bomb in a page's `/Contents`
 costs 8.4 MB (flate) or 10 MB (LZW) where it cost 1032/1035 MB, one in a form XObject 10.7 MB
 where it cost 1032, one in a **tiling pattern's cell** 9.4 MB where it cost 1055, and the witness
 194 MB where it took 381 — every gate's output identical, and the corpus display lists identical
@@ -11,15 +13,46 @@ but for the last `f32` digit on the 18 pages ADR 0430 moved.
 for two reasons that are about memory rather than about status: fourteen comments in
 `pdf-syntax` and `pdf-model` point a reader here for the road's argument, and `doc/todo/01`'s
 sweeps read it. What it holds now is the argument and the measurements; the *decisions* live in
-the four ADRs, which is where `README.md` wants them. Nothing below is owed.
+the four ADRs, which is where `README.md` wants them. Nothing below is owed except the section
+that follows.
+
+## One thing is owed again, and it arrived from `doc/todo/41` with a number attached
+
+**A chain of pumpable stages is not pumped, and that is how a bomb escapes this road.**
+`Document::pumping` grants a window to a *single* `FlateDecode` or `LZWDecode` with no predictor, so
+an author defeats the whole of road D by wrapping the bomb in a second filter —
+`[/ASCIIHexDecode /FlateDecode]`, which is §7.4.7's own worked arrangement. §7.4.2 makes
+`ASCIIHexDecode` the easiest stage in §7.4 to window: it "produces one byte per two", so no file can
+inflate through it and a window over it needs no ratio argument at all.
+
+The seven-hundred-and-twelfth session priced what that costs, from the other side of the same
+question (ADR 0586). Twenty pages drawing one hex-wrapped bomb as a form `XObject`, the two
+documents differing only in how many gibibytes of zeros the deflate stream carries:
+
+| encoded | one cold sweep of twenty pages |
+|---|---|
+| 4 174 537 B — under `DECODED_BUDGET`, so the refusal is memoised | 257–279 µs |
+| 12 523 517 B — over it, so it is not | 6.93–6.98 s |
+
+**About 25 000×, bought with padding.** ADR 0437's memo is what makes the first row cheap and it
+stops at the budget by construction; ADR 0586 followed the three ways to make the memo hold the
+second row and each gives up the ceiling, the cache, or soundness. A pump over the chain removes the
+gibibyte instead of remembering it, on *every* read rather than every read after the first, and
+needs no entry, no charge and no eviction argument. That is the ranking argument this item did not
+have when it was closed.
+
+`Document::pumping` is still the one function this changes, and the shape is `Lzw`'s: a resumable
+state per stage, composed, with the whole-buffer entry point a loop over it (trap 6 — one decoder,
+not two).
 
 The producer half was ADR 0343's, the measurement ADR 0362's, the page's rewrite ADR 0365's, the
 other three nested streams ADR 0427's, the LZW pump ADR 0429's, and §8.7.3.1's tiling cell — the
 last item, which needed the cell drawn once and its commands repeated before its decode could be
 windowed at all — ADR 0430's.
 Priority: 14 — the first road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
-four and whose §6 binds whatever lands here. **Road D is finished**; road B
-([`15`](15-ship-the-confinement.md)) is what the owner's order points at next.
+four and whose §6 binds whatever lands here. **Everything the road was opened about is finished and
+one item came back** (above); road B ([`15`](15-ship-the-confinement.md)) is what the owner's order
+points at next.
 Witness: `tmp/Entwurf.pdf` — **not in the repository and not addable to it**, so no test may name
 that path; and Bomb B, which `doc/todo/10` §2 describes precisely enough to rebuild (sessions 519,
 527 and 595 rebuilt it from that description, the last of them inside a pattern cell)
