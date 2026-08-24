@@ -63,6 +63,33 @@ file's, and a page judged on two is held tighter rather than more leniently. The
 be about why the third reference could not read the document, which is `doc/oracle-and-corpus.md`
 §3g.
 
+## A second neighbouring question, asked and left **open** — *which* pair forms the consensus
+
+**From the seven-hundred-and-twenty-seventh session** (ADR 0616), and it is this item's code rather
+than its number: `Tolerance::accepts` decides whether two references form a consensus, and
+`pdfref::decide` then picks one. **Agreement is not transitive**, so `a ~ b` and `b ~ c` with
+`a ≁ c` leaves two maximal agreeing sets, neither contained in the other. The loop skipped a subset
+no larger than the best so far, so the second was discarded without being counted, and the survivor
+is the one whose subset bitmask is smaller — the order `Reference`'s variants are declared in.
+
+`Triangulation::consensuses` now holds them all and the gate counts the pages carrying more than
+one, naming those where the sets reach **different verdicts about us**. `DIVIDED_CONSENSUS` in
+`oracle.rs` is that list with the reading of each page. Every member of it is contradicted and every
+one would have agreed under the set that was thrown away, including a page whose discarded pair
+contains a renderer our raster is byte-identical to.
+
+**No verdict was moved**, and the work owed is the rule. Three are order-independent and ADR 0616
+has the hazard in each: hold us to *every* maximal consensus (costs nothing today and keeps four
+verdicts nobody can defend on the merits); call the page `ambiguous` where the sets disagree (whose
+hazard is that a page can be rescued by the *looser* pair, which is one of the four); or take the
+tightest set (which needs an order over four measures that do not rank the same way). Whoever takes
+it should measure the second and third columns over the corpus rather than over four pages — the
+census makes that a run — and should say what happens to a page whose rival consensus arrives after
+a pixel moves, which is the direction none of the four is in today.
+
+It is *not* the same question as the one above: this one is about which pair the bound is derived
+from, not about how wide the bound then is. They meet in `widened_to`, which is why both are here.
+
 ## What this is not
 
 Not a licence to loosen. If the answer turns out to be that 0.05 is the right consensus threshold
