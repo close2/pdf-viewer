@@ -179,7 +179,11 @@ number, so a rule about which numbers are valid binds a writer and a processor t
 
 **The finding is not the erratum, it is where the erratum already was.** `doc/errata-read.md` carries
 Issue #371 under §10.7.2, read correctly and disposed of correctly — "moved here from Table 58 … the
-permission this row rests on is untouched" — and the *row* never heard. So the seventeenth sweep's
+permission this row rests on is untouched" — and the *row* never heard. *(The quoted number is wrong
+and was corrected to **Table 57**, the graphics state parameter dictionary, in the
+seven-hundred-and-twenty-fifth session: Table 58 is the path construction operators. It changes
+nothing about this ADR's finding, which is about where a reading stopped rather than about which
+table the entry is in.)* So the seventeenth sweep's
 premise has a mirror image nobody had named: that sweep asks whether a place that records an erratum
 has applied it, and this is a place that recorded it, applied it in reasoning, and left the
 conclusion in the document it was written in. Two homes, one of them gated by

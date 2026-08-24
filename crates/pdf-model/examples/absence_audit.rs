@@ -132,6 +132,8 @@ struct Answers {
     trap_net: Option<String>,
     /// §10.7.2's `/FL` in a graphics state parameter dictionary.
     flatness: Option<String>,
+    /// §10.7.5's `/SA true` in a graphics state parameter dictionary.
+    stroke_adjustment: Option<String>,
     /// §7.11.4.2's `/RF` on a file specification.
     related_files: Option<String>,
     /// §12.6.3's `/PV` and `/PI`, Table 197's two page-visibility triggers.
@@ -270,6 +272,11 @@ fn report_every_claim(results: &[(String, Answers)]) {
         |a| a.flatness.as_deref(),
     );
     report(
+        "§10.7.5's /SA true in an /ExtGState — two places counted it and disagreed",
+        results,
+        |a| a.stroke_adjustment.as_deref(),
+    );
+    report(
         "§7.11.4.2's /RF — the claim was \"no corpus file specification carries one\"",
         results,
         |a| a.related_files.as_deref(),
@@ -352,6 +359,8 @@ struct Sightings {
     trap_nets: usize,
     /// §10.7.2: how each `/FL` was reached — a typed dictionary, or a resource entry.
     flatness: Vec<String>,
+    /// §10.7.5: how each `/SA true` was reached, by the same two routes.
+    stroke_adjustment: Vec<String>,
     /// §7.11.4.2: what `attachment::related` returns for each file specification with an `/RF`.
     related: Vec<String>,
     /// §12.6.3: which of `/PV` and `/PI` an annotation's `/AA` states.
@@ -438,6 +447,27 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
                 && !document.get_key(state, "FL").is_null()
             {
                 into.flatness
+                    .push("a /Resources /ExtGState entry".to_owned());
+            }
+        }
+    }
+
+    // §10.7.5's automatic stroke adjustment, by the two routes above and asked of the *value*
+    // rather than of the name: the clause's rule fires "[w]hen stroke adjustment is enabled", so
+    // a `/SA false` states the entry and enables nothing. A name census cannot draw that line,
+    // which is why two written sentences counted this and disagreed — a ledger row said 49 and
+    // `oracle.rs` said 30, neither naming its population and neither naming a command.
+    if named(document, dict, "Type", b"ExtGState")
+        && matches!(document.get_key(dict, "SA"), Object::Boolean(true))
+    {
+        into.stroke_adjustment.push("a typed /ExtGState".to_owned());
+    }
+    if let Some(states) = document.get_key(dict, "ExtGState").as_dict() {
+        for (_, value) in states.iter() {
+            if let Some(state) = document.resolve(value).as_dict()
+                && matches!(document.get_key(state, "SA"), Object::Boolean(true))
+            {
+                into.stroke_adjustment
                     .push("a /Resources /ExtGState entry".to_owned());
             }
         }
@@ -1042,6 +1072,15 @@ fn measure(path: &Path) -> Answers {
         sightings.flatness.sort();
         sightings.flatness.dedup();
         answers.flatness = Some(format!("{total} — {}", sightings.flatness.join(", ")));
+    }
+    if !sightings.stroke_adjustment.is_empty() {
+        let total = sightings.stroke_adjustment.len();
+        sightings.stroke_adjustment.sort();
+        sightings.stroke_adjustment.dedup();
+        answers.stroke_adjustment = Some(format!(
+            "{total} — {}",
+            sightings.stroke_adjustment.join(", ")
+        ));
     }
     if !sightings.related.is_empty() {
         answers.related_files = Some(sightings.related.join(", "));

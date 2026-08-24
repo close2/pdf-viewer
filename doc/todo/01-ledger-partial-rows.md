@@ -3906,6 +3906,59 @@ exclusive.** ADR 0601 has the geometry that places them and the rule that comes 
 erratum is evidence about the standard, in the way another renderer is evidence about our reading**,
 and where two disagree the published clause and its own arithmetic decide.
 
+## The third rule's second use, in the seven-hundred-and-twenty-fifth, and a `shall` that was paid
+
+The search was run again on a base one round later. **Its family order did not move** — §12.5, then
+§12.8, then §12.7 — and stripping the clause-level parents leaves three pairs above every other in
+the ledger: §12.4.4 ~ §12.4.4.1, §12.8 ~ §12.8.3 and **§10.7.4 ~ §10.7.5**. ADR 0600 §1 named two
+and read one, so the third rule gives the pair it left, and the family it lands in is one no round
+of this method had opened.
+
+**The pair scores on each row quoting the *other's* clause**, which is the strongest form of what the
+rare-sequence filter looks for: §10.7.4's "[z]ero-width strokes may be done in an
+implementation-defined manner that may include fewer pixels than the rule implies" stands in both
+rows, and §10.7.5's NOTE — "[t]his is the thinnest line that can be rendered at device resolution" —
+stands in both. And they disagree about what those sentences leave standing, which is 0579's rule
+for choosing among such pairs.
+
+**§10.7.5's row said a `shall` was unpaid and it had been paid.** The row narrates the
+four-hundred-and-thirty-second session's measurement of `tiny-skia`'s hairline — taken for every
+width up to *and including* one device pixel, laying one pixel down per step along the line's longer
+device axis, so a 45° rule one device pixel wide carried 141.42 of its own 200 against the fill of
+the same outline's 177.44 — and ended it "Not paid … `doc/todo/11`". The four-hundred-and-fifty-fifth
+paid it: `render_cpu::at_or_under_the_quantum` is `<=`, `sub_pixel_coverage.rs`'s turned ladder
+carries the `1.0` rung and says it "is the rung that used to fail", §10.7.4's own row records ADR
+0285 in full, and **`doc/todo/11` — the pointer that sentence ends with — heads that item "closed
+(ADR 0285)"**. Worse than stale: **the two reasons the row gave for not paying are the two ADR 0285
+decided the other way**, so the row argued from correct facts to the opposite conclusion. ADR 0610.
+
+**No sweep here could have printed it, and that is worth knowing rather than fixing.** `--bin
+blockers` judges a blocker that names a *clause*; this one named a conclusion. `--bin owed` looks for
+a debt naming a thing the tree lacks; the thing this debt named — the hairline — is a thing the tree
+has, in a dependency. The defect is a conclusion, and nothing in this tree ranks conclusions. The
+ranking does not rank them either; what it does is put the two rows side by side.
+
+### The ninth sweep's keyless count is a hiding place as well as a noise filter
+
+Reading the same family's errata turned up the *same* wrong table number in two more places, and
+neither is printable by the sweep built for it. `doc/errata-read.md` says "Table 58's `/FL`" where
+the graphics state parameter dictionary is Table 57 — the confusion §10.7.5's own row records having
+carried until the three-hundred-and-eighty-ninth — and **Table 58 is the path construction
+operators, which state no entries**, so `--bin tables` counts the citation among its keyless ones
+instead of among its absences. Three rows down the same document writes "moved here from Table 58"
+with no key beside the number, which is not an attribution at all and is below the sweep's
+discriminator by design.
+
+Calibrated per trap 13, one instrument over three states of the cell: with `Table 58` the sweep
+prints nothing; with `Table 166` — a table that does state entries — it prints the citation **and
+names Table 57 as the table stating the key**; with `Table 57` it agrees. So the blindness is
+exactly one class wide, and the rule that comes out of it is about writing rather than about
+building: **write a claim in the form its sweep reads** — a table number with its key beside it, a
+pointer as a path, a debt with its identifier. `oracle.rs` had the third form of the same failure in
+the same family, a pointer written as the prose "the handover's list of departures" for a list the
+handover has not held since it became an index. ADR 0611, which also says why widening `--bin
+tables` to print keyless attributions is declined.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
@@ -4370,7 +4423,7 @@ and where two disagree the published clause and its own arithmetic decide.
   What settled it was again another sweep's measurement rather than a new heuristic: the ninth's
   attribution rule for the population, the sixth's family arithmetic for the answer. **Only sweep 6
   itself is left as a description**, and it is two hits long and has never printed anything else.
-- **The sixteenth sweep's structural half names fifteen claims and there are more.**
+- **The sixteenth sweep's structural half names one claim per block and there are always more.**
   `absence_audit` hard-codes one block per claim, which is what makes each honest — the reader that
   would act on the entry is the one asked — and what makes it incomplete. The claims a name census
   cannot settle are the ones left: a flag's bit, a value's range, a group's colour space, a
@@ -4380,7 +4433,14 @@ and where two disagree the published clause and its own arithmetic decide.
   the narrower half of §11.6.5.2's claim, and that is the rule the round adds**: a claim whose
   falsification is a count and whose residue is a *condition* wants two blocks rather than one,
   because the two populations differed by three orders of magnitude and one report line cannot say
-  both. Two rules the blocks
+  both. **The seven-hundred-and-twenty-fifth adds a block for a claim that was not a negative at
+  all**, which is the third kind this example can settle: §10.7.5's `/SA` was counted in two written
+  sentences that disagreed — 49 in a ledger row, 30 in `oracle.rs` — neither naming a population and
+  neither naming a command, and neither a name census could arbitrate because the clause fires on the
+  *value* and a `/SA false` states the entry too. A block asking `Object::Boolean(true)` by the same
+  two routes §10.7.2's `/FL` block already uses settles it, and the same run reprints the `/FL`
+  figure exactly, which is the backwards planted-witness control the bullet below asks for. ADR 0610.
+  Two rules the blocks
   themselves teach: **walk into each object's nested structure**, because a producer may write an
   action, an annotation or a resource dictionary inline and a top-level-only walk reports a false
   zero (session 648, paid again in this example's own first draft); and **plant a witness stating

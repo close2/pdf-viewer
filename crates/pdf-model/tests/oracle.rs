@@ -4646,13 +4646,22 @@ const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] = [
 /// implement, and it is a departure recorded as one.** The clause also says the *coordinates*
 /// shall be adjusted; `poppler` grid-fits, so both of its lines are one solid black column,
 /// while ours are one solid column and one pair of half-covered ones — the same ink in the
-/// same place, differently distributed. The handover's list of departures carries the
-/// argument: the non-uniformity grid-fitting removes is an artefact of the binary scan
-/// conversion §10.7.4 requires, and this tree already departs from that.
+/// same place, differently distributed. `doc/todo/_scan-conversion.md` and §10.7.4's ledger
+/// row carry the argument: the non-uniformity grid-fitting removes is an artefact of the
+/// binary scan conversion §10.7.4 states, and this tree already departs from that. **This
+/// sentence said "the handover's list of departures" and that list has not been in
+/// `doc/HANDOVER.md` for a long time**; a pointer written as prose rather than as a path is
+/// one `conformance --bin pointers` cannot resolve, which is why it outlived the move.
 ///
 /// `Stroke::device_width` conditions the rule on `/SA` rather than applying it always, which
-/// is what makes this a derivation rather than a coincidence: 30 corpus documents state
-/// `/SA true` and this is the one page where it decides a pixel.
+/// is what makes this a derivation rather than a coincidence: this is the one page in the
+/// corpus where the entry decides a pixel. **How many documents state it is a command rather
+/// than a number here** — `pdf-model/examples/absence_audit [--pdfjs|--crawl]`, whose
+/// §10.7.5 block asks for the *value* `true` rather than for the name, because the clause's
+/// rule fires "[w]hen stroke adjustment is enabled" and a `/SA false` states the entry too.
+/// This note said **30** and §10.7.5's ledger row said **49**, neither naming a population
+/// and neither naming a command, and the census agrees with neither over any population this
+/// tree can measure. ADR 0610.
 ///
 /// **A degenerate fill's mark *does* snap to the grid since the three-hundred-and-sixty-eighth
 /// session, and that is not this rule quietly arriving.** The two are separated by the clauses
