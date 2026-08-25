@@ -17,25 +17,56 @@ result, 268.0 and 266.6). What is left, in the order the measurement ranks it:
 
 | what | now | what it is |
 |---|---:|---|
-| §5's three release binaries | **79.3 s** | one fat-LTO link, 66.4 s of it in one codegen unit |
+| §5's release binaries | *re-derived in §1* | one fat-LTO link, and it is the whole critical path |
 | the eight gate *runs* | 101.6 s | 31.2 text, 29.5 quorra, 25.5 oracle, 9.1 JPEG 2000, the rest under 4 |
 | the gate binaries' compilation | 43.3 s | thin LTO over 16 units; the six `pdf-model` gates are 30.1 of it, quorra 13.0 |
 | the workspace's tests | 21.9 s + 5.2 compile | was 235.7 |
 | `pdfref-hayro` | 11.3 s | a binary whose *output* does not depend on our code at all |
 
-## 1. §5's fat link is now the single largest item, and it is deliberate
+## 1. §5's fat link is the single largest item — and it is **bought**, measured at last
 
-66.4 s of a 76.9 s `cargo build --release --bin pdf-viewer` is one unit — `viewer-ui`'s binary,
-fat link-time optimisation over `codegen-units = 1`, with `user` time equal to `real` time on a
-24-core machine. `cargo build --timings` says so.
+**Answered in the seven-hundred-and-fifty-second session, and the answer is that it stays.** ADR
+0666 has the measurement. This section had asked since ADR 0222 what the fat link is *for*, and
+named the candidate itself: if `lto = "thin"` costs nothing measurable, `[profile.release]` could
+follow the gates. It costs a great deal.
 
-It stays until somebody measures what it is *for*. The question nobody has asked is what
-`lto = "thin"` costs the launch path and the page-turn latency; if the answer is "nothing
-measurable", `[profile.release]` could follow the gates and a round would lose another 60 s. That
-is a **measurement task, not a change**: the numbers to take are `doc/todo/42`'s launch timeline
-under `Xvfb` and the callgrind counters, both ways, and the rule against curve-fitting applies —
-a difference smaller than the spread is not a difference. Until then the shipped binaries keep
-the optimisation they have always had.
+**The A/B needed no edit at all, which is why it should have been run 300 rounds ago.**
+`[profile.gates]` *is* `[profile.release]` with `lto = "thin"` and `codegen-units = 16` — it
+inherits everything else — so the two arms were already sitting in `Cargo.toml`, and two further
+profiles separate the settings. Callgrind rather than a clock, because this file's own denominator
+warning applies and the machine had three parallel rounds on it:
+
+| against `release` (`fat`, 1) | `callgrind_open` | `callgrind_interpret` | `callgrind_rasterise` |
+|---|---|---|---|
+| `gates` (`thin`, 16) | **+12.30%** | +1.65% | +4.07% |
+| `thin`, 1 | +4.06% | +1.84% | +0.67% |
+| `fat`, 16 | +10.72% | −0.01% | −0.00% |
+
+Exactly reproducible — three passes of each arm agreed to the instruction, so there is no spread
+to hide behind and the rule against reading a difference smaller than one does not bite.
+
+**Both settings are load-bearing, and on different paths**, which is the finding worth more than
+the verdict. Cross-crate inlining is what the interpreter and the rasteriser gain: `fat, 16` is
+`release` to within 0.01% on both, so `codegen-units` is irrelevant there. The single code
+generation unit is what §7.5's cross-reference parse gains: `fat, 16` is +10.7% on it, and only
+the two together reach the shipped number. So there is no cheaper combination — the obvious
+compromise, `thin` at `codegen-units = 1`, is still +4.06% on the launch path's largest step.
+Binaries are also about a **quarter** smaller under `release` than under `gates`.
+
+**What it costs, re-derived, because the figures this section carried had decayed.** §5's six
+binaries after touching one file in `pdf-model`: **94.5 s wall under `release` against 50.4 s
+under `gates`**, and `viewer-ui`'s own unit is **93.59 s** of the first — it starts at 0.8 s and
+*is* the critical path, every other binary linking underneath it and finishing 45 s earlier. The
+66.4 s this section recorded is now 93.59, the 79.3 s in the table above is now 94.5 for twice as
+many binaries, and `Cargo.toml`'s own comment said 78 s. All three are corrected. The load was 4
+to 7 during the `release` arm and 27 during the `gates` arm, which biases *against* the arm that
+won on time, so the 44 s gap is a floor rather than a ceiling.
+
+**And the prize was priced against a cadence that no longer exists.** "A round would lose another
+60 s" was written when §5 ran every round; ADR 0428 made it every fifth round and before any
+measurement. So the trade on offer was ~44 s of a fifth of a round against 12.3% of every
+`Document::open`, and `CLAUDE.md` principle 2 makes startup a first-class requirement. Declined,
+with numbers, and this question is closed rather than open.
 
 A cheaper half-measure that has not been measured either: §5 does not need to run when a round
 changed nothing that reaches `viewer-ui`. Cargo already knows that and skips it; what it cannot
@@ -118,7 +149,8 @@ argument; three things belong here because they are about *this file's* denomina
 
 **What this leaves for the denominator this file owns.** The whole of `doc/todo/02` §2, end to end through
 `tools/state.sh`, is now **2 m 37 s**. §1's fat link is again the single largest item in a round and is
-still unmeasured against what it buys, which is the top of this file and unchanged.
+**measured against what it buys since the seven-hundred-and-fifty-second** (ADR 0666), which is the
+top of this file and is now an answer rather than a question.
 
 **And one lesson that is this file's rather than the ADR's**: *no gate measures a gate*, which is what the
 four-hundred-and-forty-fifth said, and it is still true. What the four-hundred-and-forty-seventh adds is

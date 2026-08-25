@@ -238,8 +238,7 @@ pub fn apply_predictor(
     // loop was one allocation per object, on the launch path. Measured with callgrind over ten
     // opens of that file (`cargo run -p pdf-syntax --example callgrind_open`): **138.3 M
     // instructions per `Document::open` before, 131.3 M after — 5.1%** — and every millisecond
-    // of it in `calloc` and `free` rather than in this loop, which is why the loop is unchanged.
-    // ADR 0180.
+    // of it in `calloc` and `free` rather than in this loop. ADR 0180.
     let mut previous = vec![0u8; row_len];
     let mut current = vec![0u8; row_len];
 
@@ -252,33 +251,28 @@ pub fn apply_predictor(
         // a zeroed row is written rather than assumed.
         current.get_mut(copy..)?.fill(0);
 
-        for index in 0..copy {
-            let left = if index >= bpp {
-                *current.get(index.saturating_sub(bpp))?
-            } else {
-                0
-            };
-            let up = *previous.get(index)?;
-            let up_left = if index >= bpp {
-                *previous.get(index.saturating_sub(bpp))?
-            } else {
-                0
-            };
-            let raw = *current.get(index)?;
-
-            let value = match tag {
-                0 => raw,
-                1 => raw.wrapping_add(left),
-                2 => raw.wrapping_add(up),
-                // The PNG Average filter is the floor of the mean, which `midpoint`
-                // computes without an intermediate that could overflow.
-                3 => raw.wrapping_add(u8::midpoint(left, up)),
-                4 => raw.wrapping_add(paeth(left, up, up_left)),
-                // An undefined row filter cannot be reversed; guessing would corrupt every
-                // subsequent row too, since rows depend on their predecessor.
-                _ => return None,
-            };
-            *current.get_mut(index)? = value;
+        // **The row's filter selects a loop; it is not re-tested per byte.** §7.4.4.4 makes
+        // the tag a property of the *row*, so testing it per byte asks a question whose
+        // answer cannot change — and it also forced every filter to pay for `left` and
+        // `up_left`, which types 0 and 2 never read. A cross-reference stream is the case
+        // that cares: `/Predictor 12` is type 2 on every row, and type 2 is now a `zip` of
+        // two slices with no bounds check and nothing else in it. ADR 0667 has the
+        // measurement; the output is byte-identical by construction, because this moves
+        // where the tag is examined and changes none of the arithmetic.
+        //
+        // **An empty row validates no tag, exactly as the per-byte form did**: `data.chunks`
+        // can yield a final chunk of one byte, whose row is empty, and the loop that would
+        // have rejected an undefined tag never ran. That is a statement about malformed
+        // input, so it is preserved rather than tidied.
+        match (tag, copy) {
+            (_, 0) | (0, _) => {}
+            (1, _) => unfilter_sub(current.get_mut(..copy)?, bpp),
+            (2, _) => unfilter_up(current.get_mut(..copy)?, previous.get(..copy)?),
+            (3, _) => unfilter_average(current.get_mut(..copy)?, previous.get(..copy)?, bpp),
+            (4, _) => unfilter_paeth(current.get_mut(..copy)?, previous.get(..copy)?, bpp),
+            // An undefined row filter cannot be reversed; guessing would corrupt every
+            // subsequent row too, since rows depend on their predecessor.
+            _ => return None,
         }
 
         out.extend_from_slice(current.get(..copy)?);
@@ -286,6 +280,68 @@ pub fn apply_predictor(
     }
 
     Some(Arc::from(out.as_slice()))
+}
+
+/// Reverses §7.4.4.4's PNG filter type 1, `Sub`: a byte is a delta from the byte `bpp`
+/// earlier in the same row.
+///
+/// Indices below `bpp` have no left neighbour and the filter adds zero to them, so the loop
+/// starts at `bpp` rather than testing for it.
+fn unfilter_sub(row: &mut [u8], bpp: usize) {
+    for index in bpp..row.len() {
+        let left = row.get(index.saturating_sub(bpp)).copied().unwrap_or(0);
+        if let Some(value) = row.get_mut(index) {
+            *value = value.wrapping_add(left);
+        }
+    }
+}
+
+/// Reverses §7.4.4.4's PNG filter type 2, `Up`: a byte is a delta from the byte above it.
+///
+/// This is the one a cross-reference stream takes, and it is why the tag was hoisted out of
+/// the byte loop: with no left neighbour to fetch and no tag to re-test, the whole filter is
+/// a walk of two slices in step.
+fn unfilter_up(row: &mut [u8], above: &[u8]) {
+    for (value, &up) in row.iter_mut().zip(above) {
+        *value = value.wrapping_add(up);
+    }
+}
+
+/// Reverses §7.4.4.4's PNG filter type 3, `Average`.
+///
+/// The filter is the floor of the mean of the left and upper neighbours, which
+/// `u8::midpoint` computes without an intermediate that could overflow.
+fn unfilter_average(row: &mut [u8], above: &[u8], bpp: usize) {
+    for index in 0..row.len() {
+        let left = if index >= bpp {
+            row.get(index.saturating_sub(bpp)).copied().unwrap_or(0)
+        } else {
+            0
+        };
+        let up = above.get(index).copied().unwrap_or(0);
+        if let Some(value) = row.get_mut(index) {
+            *value = value.wrapping_add(u8::midpoint(left, up));
+        }
+    }
+}
+
+/// Reverses §7.4.4.4's PNG filter type 4, `Paeth`.
+fn unfilter_paeth(row: &mut [u8], above: &[u8], bpp: usize) {
+    for index in 0..row.len() {
+        let (left, up_left) = if index >= bpp {
+            let earlier = index.saturating_sub(bpp);
+            (
+                row.get(earlier).copied().unwrap_or(0),
+                above.get(earlier).copied().unwrap_or(0),
+            )
+        } else {
+            (0, 0)
+        };
+        let up = above.get(index).copied().unwrap_or(0);
+        if let Some(value) = row.get_mut(index) {
+            *value = value.wrapping_add(paeth(left, up, up_left));
+        }
+    }
 }
 
 /// The PNG Paeth predictor.

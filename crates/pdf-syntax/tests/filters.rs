@@ -184,6 +184,57 @@ fn a_predictor_the_clause_does_not_define_is_refused() {
     assert!(pdf_syntax::filter::apply_predictor(&[0, 1, 2, 3], 1, 1, 8, 3).is_none());
 }
 
+/// ISO 32000-2 §7.4.4.4: the fifth PNG filter type, Paeth, and each of its three answers.
+///
+/// The clause defers the algorithms to ISO/IEC 15948, where the Paeth predictor chooses
+/// whichever of the left, upper and upper-left neighbours is nearest to `left + up - up_left`.
+/// **Which of the three it returns is the whole of the filter**, so a case that happens to
+/// pick the same byte every time would also pass against a decoder that implemented Up — the
+/// row below is built so that the three positions answer *up*, *up-left* and *left* in turn,
+/// and no simpler filter reproduces it.
+///
+/// It is here because until the seven-hundred-and-fifty-second session type 4 had no test at
+/// all: the other four are covered by `each_png_row_carries_its_own_filter_type`, which stops
+/// at Average.
+#[test]
+fn the_paeth_filter_chooses_between_its_three_neighbours() {
+    let data: Vec<u8> = vec![
+        0, 100, 95, 90, // None, so the row above is exactly these three bytes
+        4, 5, 20, 10, // Paeth
+    ];
+    let undone = pdf_syntax::filter::apply_predictor(&data, 12, 1, 8, 3)
+        .expect("a PNG predictor over three columns");
+    // Position 0 has no left or upper-left, so the estimate is the upper byte and *up* wins:
+    // 5 + 100 = 105. Position 1 estimates 105 + 95 - 100 = 100, which is upper-left exactly,
+    // so *up-left* wins: 20 + 100 = 120. Position 2 estimates 120 + 90 - 95 = 115, nearest to
+    // the left byte, so *left* wins: 10 + 120 = 130.
+    assert_eq!(&*undone, &[100, 95, 90, 105, 120, 130]);
+}
+
+/// A trailing type byte with no row after it is accepted, and its type is never examined.
+///
+/// §7.4.4.4 puts one type byte in front of each row, so a stream whose last byte is a lone
+/// tag is malformed — and this crate's rule for malformed input is to keep what decoded
+/// rather than to discard it. The row contributes nothing because it has no bytes, which
+/// means the tag never has to be one the clause defines: an undefined tag *with* a row is
+/// refused by `a_predictor_the_clause_does_not_define_is_refused`'s sibling path, and an
+/// undefined tag with no row is this.
+///
+/// Pinned because it is a behaviour that is easy to lose while tidying: it survives only as
+/// long as the tag is examined where the bytes are, and the seven-hundred-and-fifty-second
+/// session moved that examination (ADR 0667).
+#[test]
+fn a_trailing_type_byte_with_no_row_keeps_what_decoded() {
+    // Three columns, so a row is a tag plus three bytes; the `9` is a fourth chunk of one.
+    let undone = pdf_syntax::filter::apply_predictor(&[0, 1, 2, 3, 9], 12, 1, 8, 3)
+        .expect("the whole rows still decode");
+    assert_eq!(
+        &*undone,
+        &[1, 2, 3],
+        "the complete row survives and the empty one adds nothing"
+    );
+}
+
 /// Deflates with the same library the decoder uses, which is what a producer would have done.
 fn deflate(data: &[u8]) -> Vec<u8> {
     use std::io::Write as _;

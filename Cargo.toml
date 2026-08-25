@@ -547,9 +547,31 @@ undocumented_unsafe_blocks = "warn"
 
 # What a person runs and what every performance number is taken from. Whole-graph
 # link-time optimisation over one code generation unit is the slowest thing this
-# workspace does — 78 s to relink `pdf-viewer` after one file in `pdf-model` moves,
-# essentially single-threaded — and it stays, because the binaries in `target/` are the
-# ones a launch is timed with. `[profile.gates]` below is where the gates went instead.
+# workspace does — `viewer-ui`'s link is essentially single-threaded and is on its own
+# the whole wall clock of `doc/todo/02` §5, every other binary finishing underneath it.
+# `[profile.gates]` below is where the gates went instead.
+#
+# **It stays because it was measured, in the seven-hundred-and-fifty-second session, and
+# not because the binaries here are what a launch is timed with** — which is what this
+# comment used to argue and is a reason to keep the *profile*, not a reason to keep the
+# setting. `doc/todo/43` §1 had asked since ADR 0222 what the fat link is *for*, naming
+# `lto = "thin"` following the gates as the candidate. ADR 0666 ran it, on callgrind
+# counters because instruction counts do not care what else is on the machine:
+#
+# | against this profile | `callgrind_open` | `callgrind_interpret` | `callgrind_rasterise` |
+# |---|---|---|---|
+# | `lto = "thin"`, `codegen-units = 16` | +12.30% | +1.65% | +4.07% |
+# | `lto = "thin"`, `codegen-units = 1`  |  +4.06% | +1.84% | +0.67% |
+# | `lto = "fat"`,  `codegen-units = 16` | +10.72% | -0.01% | -0.00% |
+#
+# Exactly reproducible, three passes each. **Both settings are load-bearing and on
+# different paths**: cross-crate inlining is what the interpreter and the rasteriser
+# gain, and the single code generation unit is what §7.5's cross-reference parse gains,
+# so no cheaper combination reproduces this one. Binaries are also about a quarter
+# smaller here than under the gates profile. Principle 2 makes startup a first-class
+# requirement, so a 12.3% regression on the launch path's largest step is not a trade
+# that buys back link time — especially since ADR 0428 made §5 run every fifth round
+# rather than every round.
 [profile.release]
 lto = "fat"
 codegen-units = 1
