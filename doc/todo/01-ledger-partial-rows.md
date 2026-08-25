@@ -4065,10 +4065,38 @@ sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the r
 #    nearest ledger row at or above that clause number, keep the rows whose status is live, drop
 #    the issues step 2 found and the ones carrying neither a StrikeOut nor a Caret, and rank by
 #    annotations. Then read one issue *whole*, across every heading it appears under.
-# 4. rank a second time with `implemented` admitted, and say which list the row came from. An
-#    erratum adds requirements to clauses this tree calls complete, and step 3's population
-#    cannot see one; the fourth use found the top two rows of the whole ranking inside them.
+# 4. rank a second time over EVERY row, whatever its status, and take the head of the two —
+#    preferring the settled row where they tie. Say which ranking the row came from. See below.
 ```
+
+**Step 4's ordering is an argument rather than a convention, and it is the one the fifth use ran.**
+The two rankings answer different questions and the second is the sharper of the two:
+
+- **A live row's count ranks a debt the ledger already declares.** `partial`, `reported` and
+  `silent` all say something is owed; an erratum landing there refines a known gap, and the row
+  will be re-read anyway by whichever round pays it off.
+- **A settled row's count ranks a *claim*.** `implemented` says every normative requirement in the
+  clause is executed, and `inapplicable`, `out-of-scope` and `writer-side` say no requirement
+  reaches this program at all. `CLAUDE.md` says both kinds of claim decay — its own §10.5 entry is
+  the standing example of an *inapplicable* that was wrong — and an unread erratum on such a row is
+  the only signal this project has that one has. The falsest row the ledger can hold is an
+  `implemented` over a requirement nobody read.
+- **So one ranking over every row, and the settled row wins a tie.** Not two lists read in order:
+  ranking the settled ones *above* the live ones outright would ignore the count, and the count is
+  the whole instrument. What the tie-break encodes is that at equal evidence the row asserting more
+  is worth more.
+- **The count means less on a settled row than on a live one, and that is a reason to read the head
+  rather than to reweight it.** #307 was one caret per clause on two `implemented` rows and the
+  fourth use met it by walking into it. A weighting that tried to price this would be a second
+  ranking over notes, which the measurement above says not to build.
+
+**And the record is what keeps step 2 honest**, which is the fourth use's other finding: an erratum
+read to a verdict is written into `doc/errata-read.md`, where step 2's second grep reads it. **An
+issue number written anywhere else must carry the `Issue #` prefix** — the form `**#214**` is
+invisible to *both* greps, and a bare-number search over the tree is not the repair, because
+`doc/HAYRO_ISSUES.md` lists another project's issues under the same numbers. An erratum read only
+far enough to break a tie is left in the population on purpose; saying so is cheaper than a grep
+that cannot tell the two apart.
 
 **Step 2 is two greps and neither is right alone, which the second use found by running it.** The
 prefixed search is not decoration and it is not sufficient:
@@ -4203,6 +4231,42 @@ for the phrase "by unsigned character code", which ISO 32000-2 prints nowhere at
   Table 37, both `implemented`, and the ranking could not see either. **A round running this rule
   reads the ranking twice — live rows, then all rows — and says which one it took its row from.**
 
+## The rule's fifth use, in the seven-hundred-and-fifty-fifth, and the fourth step's first run
+
+**The fourth step was written by the round that could not run it, and running it moved the head.**
+Over live rows the head is §14.8.5.3 with seven annotations — the plateau the fourth use left
+standing, §7.7.4 having gone off the ranking because 750 read it, which is the decay working for the
+third use running. Over **every** row, §D.3 carries **fifteen** under three issues, more than twice
+that, and is `implemented`. §9.6.4 and §7.4.1, the two rows 750 measured from outside at 11 and 8,
+are second and third and are still unread. ADR 0671; `doc/errata-read.md` has the three errata with
+their rectangles.
+
+**The head paid, and what it paid with was not a requirement.** All three errata correct Table D.3's
+own *presentation* — a glyph printed in the `Character` column, the alias of a code the annex marks
+undefined, one `Unicode` cell of another such code — and not one of them moves a byte this program
+decodes. What reading them was worth is what they made the round look at: §D.3 was `implemented` on
+a **round trip**, which searches the same array it indexes and therefore cannot see a wrong
+transcription at all, and Issue #461 names the exact mistake that gate would have missed. It strikes
+the `Š` the standard printed in code 0x8a's `Character` column, where the `Unicode` column says
+U+2212 and `Š` is 0x97's — so a transcription taken from the column the erratum corrects would decode
+a minus sign as a capital S with caron, and every one of the module's ten tests stays green when that
+is planted. All 256 rows are compared against `doc/md/` now, in both directions.
+
+**Three things about the rule itself, from running it:**
+
+- **The second ranking is where the rule now earns its keep, and one number says why.** Of the 126
+  issue numbers this tree names nowhere, the live ranking's whole head is seven annotations; the
+  head of the full ranking is fifteen. Four uses of this rule read live rows because the recipe said
+  to, and the largest single accumulation of unread errata in the collection was sitting on a row
+  that claims to owe nothing.
+- **A settled row's defect is a *gate* rather than a behaviour, and that is the shape to expect.** A
+  live row's erratum tends to name a requirement nobody implemented. A settled row's erratum tends
+  to find the requirement implemented and the *evidence* for it weaker than the row says — here, a
+  round trip standing in for a transcription check, and a note citing Table D.2 for a table that is
+  D.3. Neither is something a corpus can see.
+- **Nothing had to be reassembled this time, and that is not the rule relaxing.** All fifteen
+  annotations fall under one `emit` heading because Annex D.3 is one table on six pages. The four
+  uses before this each had an issue split across clause headings, and the check costs one grep.
 
 ## What is still owed, named
 

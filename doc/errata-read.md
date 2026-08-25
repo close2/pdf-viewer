@@ -1394,3 +1394,39 @@ session and `viewer_host::panel` in the four-hundred-and-twenty-ninth never came
 invisible to the instrument that finds quotations of retired text**, which is the sharpest reason
 this project has to keep quotation marks meaning verbatim: the cost of a paraphrase inside them is
 not only that it is wrong, but that it stops being checkable.
+
+## Table D.3's own cells, corrected three ways and moving nothing — the seven-hundred-and-fifty-fifth
+
+The successor rule's fifth use, and the first run of its fourth step. Ranked over live rows alone
+the head is §14.8.5.3, the plateau the fourth use left standing; ranked over **every** row, §D.3
+carries fifteen unread annotations under three issues — more than twice the live head's — and is
+`implemented`. `doc/todo/01` has the argument for taking the second head; ADR 0671 is the round.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+All fifteen fall under one heading, so nothing had to be reassembled — which is itself worth
+recording, because the four uses before this one each had an issue split across clauses.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| Annex D.3 Table D.3, codes 0x04 and 0x05 | 874 | #562 | **cites** | Two strikes with a caret apiece, `Review/Accepted`, over the *alias* column. `[318.650 709.414 384.651 724.111]` covers the `(END OF TEXT)` that `-bbox` puts at (318.65, 712.44)–384.65 on the 0x04 row — where the same words are already 0x03's — and writes *END OF TRANSMISSION*, which is what U+0004 is; `[318.650 733.434 431.021 748.131]` covers 0x05's `(END OF TRANSMISSION)` and writes *ENQUIRY*, which is what U+0005 is. Both codes carry the annex's `U` note, so both are `None` here and neither erratum reaches a byte this program decodes. |
+| Annex D.3 Table D.3, codes 0x18 and 0x19 | 875 | #562 | **vindicates** | The same issue's other half, and it is in the `Character` column: `[88.944 533.608 94.483 548.761]` over the `u` printed for 0x18 and `[89.184 557.638 94.111 572.911]` over the `v` printed for 0x19 — two lower-case letters standing where a breve and a caron belong. **Each caret's `/Contents` is a single byte**, 0x18 and 0x19, so the erratum states its own replacement *in `PDFDocEncoding`*: `spec-errata emit` prints them as `˘` and `ˇ` only because `pdf_syntax::text_string` decoded them through the very table they correct. The annex's `Unicode` column, U+02D8 and U+02C7, is the independent side of that circle and is what `tests/pdf_doc_encoding.rs` reads. |
+| Annex D.3 Table D.3, code 0x16 | 875 | #285 | **cites** | `[226.640 490.178 266.643 501.384]` over the `U+0017` that `-bbox` puts at (229.61, 489.09)–263.67 on the 0x16 row, with a caret writing *U+0016* — the published table prints U+0017 twice, on 0x16 and on 0x17. A second strike, `[290.085 486.064 350.542 500.761]`, takes the same row's `(SYNCRONOUS` and writes *SYNCHRONOUS*. 0x16 is one of the annex's `U` codes, so the corrected cell names a character `PDFDocEncoding` still does not have; the row is `None` under both printings. |
+| Annex D.3 Table D.3, code 0x8a | 879 | #461 | **vindicates, and is the one that could have cost a page** | `[89.904 701.734 94.664 716.431]` over the `Š` that `-bbox` puts at (89.90, 701.73)–94.66 in the `Character` column of the **0x8a** row, whose `Unicode` cell says U+2212 and whose name cell is empty. One caret carries the byte 0x8a and a second writes *MINUS*. `Š` is 0x97's character, so the published table showed one code's glyph against another's code — and a transcription taken from that column rather than from the `Unicode` one would put U+0160 at 0x8a, which decodes a minus sign as a capital S with caron and round-trips perfectly. The table here reads U+2212 and always has. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**The row's only gate could not see a wrong transcription, and the erratum names the exact mistake
+it would have missed.** §D.3 was `implemented` on
+`text_string.rs::every_text_string_survives_the_round_trip`, and a round trip is a statement about an
+encoder and a decoder that share one array: swap two codes and it still passes. Planted with 0x8a as
+`Š` — #461's own misprint, transcribed — all ten of the module's tests stay green.
+`crates/pdf-syntax/tests/pdf_doc_encoding.rs` now compares all 256 rows against `doc/md/` in both
+directions and fails that plant twice, and the parent §D row's claim that all five tables are
+"transcribed from `doc/md/` and gated" is true for the first time.
+
+**And the row named the wrong table for its whole life.** §D.3's note said the code was "the fourth
+column of Table D.2" — a font encoding keyed by glyph name, in `pdf-font` — where what
+`text_string.rs` holds is Table D.3's code-to-Unicode column. No instrument could print it: the ninth
+sweep reads `Table NNN` citations against the entries ISO 32000-2 puts in that table, and an annex
+table's number is outside its population.

@@ -185,6 +185,21 @@ const ESCAPE: char = '\u{1b}';
 /// It is not ISO Latin 1 and the differences are load-bearing: 0x18 to 0x1F are accents where
 /// Latin 1 has control codes, 0x80 to 0x9E are punctuation, and **0xA0 is EURO SIGN** where
 /// Latin 1 has NO-BREAK SPACE. Reading a `/V` as Latin 1 turns a price into a space.
+///
+/// Every entry is checked against the annex by `tests/pdf_doc_encoding.rs`, in both directions.
+/// The transcription is the `Unicode` column and never the `Character` one, and Errata
+/// Collection 3 is why that distinction is worth stating: three of its errata land on this table
+/// and all three are in the columns a reader does not read. Issue #461 corrects the *glyph*
+/// printed for code 0x8a from `Š` — which is 0x97's — to `−`, leaving the `Unicode` cell U+2212
+/// untouched; Issue #285 corrects code 0x16's `Unicode` cell from U+0017 to U+0016 and a
+/// spelling in its alias; Issue #562 corrects two more glyphs and the aliases of two more codes.
+/// Every code the three touch except 0x8a is one the annex marks `U`, so nothing here moves.
+///
+/// **The three glyph corrections are written in `PDFDocEncoding` itself**, which is worth
+/// knowing before trusting a tool that prints them: each caret's `/Contents` is the single byte
+/// 0x18, 0x19 or 0x8a, so `spec-errata emit` renders the erratum's own replacement *through this
+/// table*. The annex's `Unicode` column is the independent side of that comparison, and it is
+/// what the test reads.
 #[rustfmt::skip]
 const PDF_DOC_ENCODING: [Option<char>; 256] = [
     None, None, None, None,
