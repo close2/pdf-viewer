@@ -110,6 +110,25 @@ pub enum Uncodable {
         /// Which table.
         what: &'static str,
     },
+    /// The list passed the size its own raster would be, so the encoder stopped.
+    ///
+    /// **A cost this format used to pay once per corpus run and, on the frame path, would pay
+    /// once per frame.** A scanned page is one `Command::Image` over tens of megabytes of
+    /// samples: finishing its encoding to learn that pixels are the smaller payload costs the
+    /// confined process that whole allocation and the milliseconds to make it — 33.7 MB and 7.7
+    /// ms on `scan-bad.pdf`, against a page that takes 49 ms to draw. So [`crossing`] hands the
+    /// encoder the number it is about to compare against and the encoder stops at it.
+    ///
+    /// `written` is a **lower bound** rather than the list's price: what the encoder had
+    /// accounted for when it stopped. `examples/list_over_the_wire` is where an exact figure
+    /// comes from, and it gets one because [`encode`] passes no budget and never returns this.
+    #[error("a display list of at least {written} bytes is past the {budget} its raster costs")]
+    TooLarge {
+        /// What had been written or accounted for when the encoder stopped.
+        written: usize,
+        /// What it was being compared against.
+        budget: usize,
+    },
     /// A variant of one of `pdf-render`'s `#[non_exhaustive]` enums this format does not know.
     ///
     /// Four of the types crossing here are open — [`Command`], [`Paint`], [`ImageSource`] and
@@ -143,9 +162,14 @@ pub enum RasterReason {
     /// The list would be at least as large as the raster.
     ///
     /// The scanned page: one `Command::Image` whose samples are most of the file.
-    #[error("the encoded list is {list} bytes against a raster of {raster}")]
+    #[error("the encoded list is at least {list} bytes against a raster of {raster}")]
     Larger {
-        /// What the encoded list came to.
+        /// What the encoded list came to, or a **lower bound** where the encoder stopped early.
+        ///
+        /// See [`Uncodable::TooLarge`]: the encoder is handed the raster's size and stops when it
+        /// passes it, so on a scanned page this is what it had accounted for rather than what the
+        /// whole list would have cost. The two are the same number for every page that crosses as
+        /// a list, because that encoder ran to the end.
         list: usize,
         /// What the target's pixels come to.
         raster: u64,
@@ -167,7 +191,12 @@ pub enum RasterReason {
 /// answer is pixels.
 #[must_use]
 pub(crate) fn crossing(list: &DisplayList, raster_bytes: u64) -> Crossing {
-    match encode(list) {
+    let budget = usize::try_from(raster_bytes).unwrap_or(usize::MAX);
+    match write_down(list, budget) {
+        Err(Uncodable::TooLarge { written, .. }) => Crossing::Raster(RasterReason::Larger {
+            list: written,
+            raster: raster_bytes,
+        }),
         Err(refusal) => Crossing::Raster(RasterReason::Uncodable(refusal)),
         Ok(bytes) if super::as_u64(bytes.len()) >= raster_bytes => {
             Crossing::Raster(RasterReason::Larger {
@@ -188,8 +217,18 @@ pub(crate) fn crossing(list: &DisplayList, raster_bytes: u64) -> Crossing {
 /// enumerations. Every one of those is ADR 0607's raster arm rather than a failure; [`crossing`]
 /// is the caller that says so.
 pub(crate) fn encode(list: &DisplayList) -> Result<Vec<u8>, Uncodable> {
+    write_down(list, usize::MAX)
+}
+
+/// The encoder, with the number it may stop at.
+///
+/// `budget` is what the caller is going to compare the result against, and handing it in is what
+/// turns "encode it and see" into "stop when the answer is known". [`Uncodable::TooLarge`] has
+/// the measurement that made it worth doing; [`encode`] passes [`usize::MAX`], where no check can
+/// fire, and is therefore the exact price.
+fn write_down(list: &DisplayList, budget: usize) -> Result<Vec<u8>, Uncodable> {
     let mut writer = Writer::new();
-    write_list(&mut writer, list, true)?;
+    write_list(&mut writer, list, true, budget)?;
     Ok(writer.finish())
 }
 
@@ -359,7 +398,12 @@ impl<T: ?Sized> Interned<T> {
 /// `page` is false for the companion list [`DisplayList::black`] holds, which may not carry a
 /// blending space of its own — §11.4.7's space is the *page's*, and refusing a second one bounds
 /// this recursion at one level rather than at whatever a message asserts.
-fn write_list(writer: &mut Writer, list: &DisplayList, page: bool) -> Result<(), Uncodable> {
+fn write_list(
+    writer: &mut Writer,
+    list: &DisplayList,
+    page: bool,
+    budget: usize,
+) -> Result<(), Uncodable> {
     let mut tables = Tables::default();
     let mut body = Writer::new();
 
@@ -368,6 +412,26 @@ fn write_list(writer: &mut Writer, list: &DisplayList, page: bool) -> Result<(),
     write_clips(&mut body, list)?;
     write_soft_masks(&mut body, list, &mut tables)?;
     write_commands(&mut body, list.commands(), &mut tables, 0)?;
+
+    // **The two places the budget can be known before the bytes exist**, and between them they
+    // cover both shapes of an oversized list. The body is written, so its length is a fact. The
+    // samples table is not written yet, and interning holds the `Arc`s rather than copying them
+    // — so summing the slices it is about to write is a lower bound on this format's output
+    // whatever the format later decides to write *around* them, which is what keeps this from
+    // being a second statement of the format. A scanned page is refused here, before its
+    // thirty-three megabytes are copied anywhere.
+    let interned = tables
+        .samples
+        .order
+        .iter()
+        .fold(0usize, |sum, samples| sum.saturating_add(samples.len()));
+    let accounted = body.len().saturating_add(interned);
+    if accounted >= budget {
+        return Err(Uncodable::TooLarge {
+            written: accounted,
+            budget,
+        });
+    }
 
     writer.f32(list.page_size.width).f32(list.page_size.height);
     match list.content_clip() {
@@ -386,7 +450,7 @@ fn write_list(writer: &mut Writer, list: &DisplayList, page: bool) -> Result<(),
         (true, Some(space), Some(black)) => {
             writer.u8(1);
             write_blending_space(writer, space);
-            write_list(writer, black, false)?;
+            write_list(writer, black, false, budget.saturating_sub(writer.len()))?;
         }
         // A list with a space and no companion, or a companion and no space, cannot be built
         // through `set_blending`, which takes both. Writing the absent case is the honest
@@ -884,7 +948,12 @@ fn write_colour(writer: &mut Writer, colour: Color) {
         .f32(colour.a);
 }
 
-fn write_transform(writer: &mut Writer, transform: Transform) {
+/// The six numbers of a matrix, in `pdf-render`'s own order.
+///
+/// `pub(super)` because a frame's list arm carries the target the host is to draw at, and a
+/// target is two dimensions and one of these. One statement of the layout rather than two, for
+/// the reason this module gives about every other field it writes.
+pub(super) fn write_transform(writer: &mut Writer, transform: Transform) {
     writer
         .f32(transform.a)
         .f32(transform.b)
@@ -1570,7 +1639,11 @@ fn read_colour(reader: &mut Reader<'_>, what: &'static str) -> Result<Color, Pro
     ))
 }
 
-fn read_transform(reader: &mut Reader<'_>, what: &'static str) -> Result<Transform, ProtocolError> {
+/// The six numbers back. `pub(super)` for [`write_transform`]'s reason.
+pub(super) fn read_transform(
+    reader: &mut Reader<'_>,
+    what: &'static str,
+) -> Result<Transform, ProtocolError> {
     Ok(Transform::new(
         reader.f32(what)?,
         reader.f32(what)?,

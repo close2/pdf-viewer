@@ -606,6 +606,20 @@ about 2% of a raster at the median, larger than one on the 4% of pages that are 
 one protocol: `Rendered::{Raster, Presented}` was already a payload choice on this boundary, and
 this makes the choice a measurement rather than a tier.
 
+**And it is wired in since the seven-hundred-and-thirty-sixth** (ADR 0633), which cost this
+vocabulary nothing at all — the fourth time that has been the whole answer. The payload choice is
+`viewer_confined::Framed::payload`, on the *transport's* side of the boundary and not on this one,
+because which of two encodings a page crosses in is a fact about a pipe and not about what a host
+may ask. What the round found instead is the one thing this vocabulary now owes it: **`Rendered` is
+per viewer where it needs to be per page.** A confined worker that answered `Rendered::Presented`
+for the page it ships as marks would set `holds_rasters` false for every page, so `Query::Frame`
+would go silent about the pages that must still cross as pixels and `MAX_PIXELS` would stop
+bounding what a *confined* process is asked to draw — and inside a confinement an unbounded raster
+is an abort rather than a refusal. So the worker draws a page whose pixels it does not send, and
+what would remove that is an outcome meaning *the host took the request's own list*. It is the
+first thing in ten sessions of building on this boundary that has needed a change here rather than
+a message; `doc/todo/15` holds it.
+
 What the prediction did not say, and what building it showed: **`viewer-core` needed no change at
 all**. The five rules below are a description of a confined process — no filesystem, no clock, no
 threads it was not handed — so the crate written to be free of a *toolkit* turned out to be free of

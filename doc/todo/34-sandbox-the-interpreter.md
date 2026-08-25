@@ -62,7 +62,7 @@ is `Command::Activate(item.id)`, which follows §12.6's action machinery inside 
 Worth knowing rather than fixing; it becomes a question the day a panel wants to print a number
 beside a row.
 
-### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled in the seven-hundred-and-twenty-fourth session, and the codec built in the seven-hundred-and-thirty-second
+### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled in the seven-hundred-and-twenty-fourth session, the codec built in the seven-hundred-and-thirty-second and wired in in the seven-hundred-and-thirty-sixth
 
 `viewer-ui` hands back `Rendered::Presented` and draws on the graphics device; a confined process
 draws on the processor and hands over a raster, so putting the window on this boundary is a change
@@ -95,9 +95,18 @@ message asserts; a clip table that cannot be rebuilt as the message numbers it i
 `fuzz/fuzz_targets/display_list.rs` is the target, and `examples/list_over_the_wire` is the
 instrument that replaces the prediction below with what the encoder writes.
 
-**What is left of this item is the wiring rather than the codec**, and `doc/todo/15` holds it: the
-frame's payload arm, which host rasterises, and the `MAGIC` bump that goes with changing what a
-frame carries.
+**And the wiring is done** (ADR 0633). `viewer_confined::Framed::payload` is the marks or the
+pixels; `viewer-confined` takes no rasteriser, because the device is the host's by necessity and
+ADR 0607's own sentence points at `viewer-ui`; the target crosses beside the marks so that no host
+rebuilds one out of a page size and a scale; and `MAGIC` moved once, `PDFVCF03` → `PDFVCF04`. The
+decoder refuses a target past `viewer_core::MAX_PIXELS`, which is the one length on this boundary
+with no bytes behind it — eight bytes that become the host's own allocation, which is the
+seven-hundred-and-nineteenth session's finding arriving somewhere new.
+
+**What is left of this item is a `viewer-core` change and `doc/todo/15` holds it**: the confined
+worker still draws a page whose pixels it does not send, because `Rendered::Presented` is a
+statement about the viewer rather than about a page and answering it would take `MAX_PIXELS` off a
+confined process's raster.
 
 **What decided the first way out is one number this entry never had**: how big a display list is
 beside the pixels it produces. `viewer-confined`'s `examples/list_against_raster` is that

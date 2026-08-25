@@ -141,8 +141,8 @@ pass.
 - **`viewer-ui`'s winit window**, and a **headless test harness**.
 - **`viewer-confined`'s `pdf-view-worker`** — a `Viewer` and `render-cpu` behind seccomp-BPF,
   Landlock and an address-space ceiling, with `viewer_confined::Confined` speaking
-  `Command`/`Event` and `Query`/`Reply` to it over a pipe and the **pixels** coming back, because
-  the confined process owns the rasteriser and the display list therefore never leaves. That is
+  `Command`/`Event` and `Query`/`Reply` to it over a pipe and **either the pixels or the marks**
+  coming back — chosen per page, in the confined process, by comparing two byte counts. That is
   principle 3's other half, owed since ADR 0014 confined the three image codecs and left the
   document, the interpreter and the rasteriser in process. **Nothing in `viewer-core` had to
   change**: rules 2, 3 and 4 already forbid it a filesystem, a clock and threads it was not
@@ -159,12 +159,16 @@ pass.
   and not pixels, because a process holding a graphics device cannot be confined at all, and the
   raster payload stays as a per-page fall-back chosen by size. **The codec for that payload
   exists** (ADR 0626) — both sides, `Arc` identity preserved, the two deferred producers refused
-  by name into the raster arm, and a fuzz target — and it is **not yet what a frame carries**,
-  which is the wiring `doc/todo/15` now holds. **A
+  by name into the raster arm, and a fuzz target — **and it is what a frame carries** (ADR 0633):
+  `Framed::payload` is the marks or the pixels, the target crosses beside the marks so no host
+  rebuilds one, and the decoder refuses a target past what a render request is held to — the one
+  length on this boundary with no bytes behind it. What the confined process still does that it
+  need not is *draw* a page it ships as marks, because `viewer-core` has one tier per viewer and
+  not one per page; `doc/todo/15` holds that. **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
   own last line to the host rather than a bare signal number. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626; `doc/todo/34`, `doc/todo/15`.
+  0235, 0241, 0597, 0607, 0626, 0633; `doc/todo/34`, `doc/todo/15`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three

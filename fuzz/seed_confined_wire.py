@@ -28,6 +28,8 @@ small seeds.
 """
 import hashlib
 import os
+import pathlib
+import re
 import struct
 import subprocess
 import sys
@@ -36,6 +38,22 @@ WORKER = sys.argv[1]
 OUT = sys.argv[2]
 DOCS = sys.argv[3:]
 
+# The greeting's magic, **read out of the Rust rather than written down here.**
+#
+# It was written down, as `PDFVCF02`, and the seven-hundred-and-thirty-sixth session found it one
+# behind: `MAGIC` had moved to `PDFVCF03` when the panel answers landed and nothing said so, so
+# this seeder had been refusing to run — and `confined_wire`'s corpus had been empty — for however
+# long. A pinned constant is right (a format change must stop this script, not be seeded past) and
+# a *copy* of one is not, which is `CLAUDE.md`'s rule about a fact that can be counted.
+def magic():
+    source = pathlib.Path(__file__).resolve().parent.parent / "crates/viewer-confined/src/protocol.rs"
+    found = re.search(r'const MAGIC: &\[u8; 8\] = b"(\w{8})"', source.read_text())
+    if not found:
+        raise SystemExit(f"{source} states no MAGIC this script can read")
+    return found.group(1).encode()
+
+
+MAGIC = magic()
 HANDSHAKE = 8 + 1 + 8 + 1
 FRAME_COMMAND, FRAME_QUERY = 1, 2
 
@@ -104,7 +122,7 @@ for document in DOCS:
         bytes_of = handle.read()
     worker = subprocess.Popen([WORKER], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     greeting = worker.stdout.read(HANDSHAKE)
-    assert greeting[:8] == b"PDFVCF02", greeting[:8]
+    assert greeting[:8] == MAGIC, (greeting[:8], MAGIC)
 
     resize = u8(5) + u32(48) + u32(64) + f32(1.0)
     worker.stdin.write(frame(FRAME_COMMAND, resize))
