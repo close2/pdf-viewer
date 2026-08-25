@@ -391,7 +391,7 @@ pub mod ffi {
         /// Separate from `set_control` for the reason Table 233 bit 22 gives: "more than one of
         /// the field's option items may be selected simultaneously", so what a `QListWidget` has
         /// to say is a *set* and a string cannot carry one. Indices rather than labels because
-        /// two of `/Opt`'s entries may carry the same name string and only the position says
+        /// two of `/Opt`'s entries may carry the same label and only the position says
         /// which was clicked (ADR 0248).
         fn choose_control(self: &mut Host, index: usize, chosen: &[u32]);
         /// §12.7.5.2.3's check box or §12.7.5.2.4's radio button was clicked.

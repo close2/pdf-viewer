@@ -2518,8 +2518,8 @@ fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
 ///
 /// `issue17492.pdf`'s `databases` is one of the corpus's **4** widgets that set it, over 4
 /// documents. Its `/Opt` is Table 234's two-element form throughout, so the export values and the
-/// labels are different strings and §12.7.5.4 decides which reach `/V`: "the name string is the
-/// second of the two array elements". ADR 0248.
+/// labels are different strings and §12.7.5.4 decides which reach `/V`: of a two-element `/Opt`
+/// entry it is the second element. ADR 0248.
 #[test]
 fn a_host_can_select_several_items_of_a_list_box_and_save_them() {
     let Some(bytes) = corpus_bytes("issue17492.pdf") else {

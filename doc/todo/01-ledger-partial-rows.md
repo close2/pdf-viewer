@@ -4065,6 +4065,9 @@ sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the r
 #    nearest ledger row at or above that clause number, keep the rows whose status is live, drop
 #    the issues step 2 found and the ones carrying neither a StrikeOut nor a Caret, and rank by
 #    annotations. Then read one issue *whole*, across every heading it appears under.
+# 4. rank a second time with `implemented` admitted, and say which list the row came from. An
+#    erratum adds requirements to clauses this tree calls complete, and step 3's population
+#    cannot see one; the fourth use found the top two rows of the whole ranking inside them.
 ```
 
 **Step 2 is two greps and neither is right alone, which the second use found by running it.** The
@@ -4162,6 +4165,44 @@ nothing outside the standard in it. The registry owns the *second* leg. ADR 0653
   comment on `Geospatial::projected_matrix` quoted the sentence it sits in. Two consecutive uses of
   this rule have found a quotation resting on struck text that `check` cannot see, which says the
   floor is where the errata debt now is.
+
+## The rule's fourth use, in the seven-hundred-and-fiftieth, and two more things about the instrument
+
+**The head is the plateau the third use left standing.** §12.10.2 is off the ranking — 746 read it —
+and §7.7.4 and §14.8.5.3 are back at the top with seven annotations apiece, which is 746's tie-break
+run a second time between the two rows it had already ranked below the winner. §7.7.4 takes it on the
+same rule: Issue #672 appends *; deprecated in PDF 2.0* to two of Table 32's cells, and §14.8.5.3's
+four carets swap *version* for *level* in the name of a referenced CSS specification. ADR 0660;
+`doc/errata-read.md` has the five errata with their rectangles.
+
+**The head paid twice, and neither hit was on the head's own row.** #672 turns two of §7.7.4's six
+unread name trees from *owed to Web Capture* into *deprecated in PDF 2.0*, and its third caret does
+the same to §7.7.2's `/SpiderInfo`, so one erratum deprecates the whole of the catalogue's Web
+Capture surface. #214 — the global *name string* → *string* rename — took the round to §7.9.6, where
+it strikes *lexically* and *in lexical order*, and where `pdf_syntax::tree` was citing that clause
+for the phrase "by unsigned character code", which ISO 32000-2 prints nowhere at all.
+
+**Two things about the rule itself, and both are about a record rather than about a ranking:**
+
+- **A round that reads an issue without recording it in `doc/errata-read.md` leaves it at the head.**
+  746 read #214 and #672 far enough to break its tie and wrote both into its ADR and into this file
+  as bolded bare numbers — `**#214**` — which is a form *neither* of step 2's greps can see: the
+  first wants the `Issue #` prefix and the second reads `doc/errata-read.md` alone. This is 739's
+  finding in a new costume, and the repair is a rule about writing rather than a third grep, because
+  the collision families that make a bare-number search useless are still there. **An erratum read to
+  a verdict is recorded in `doc/errata-read.md`; an erratum read only far enough to rank it is left
+  in the population on purpose, and saying so is cheaper than a grep that cannot tell the two apart.**
+- **The ranking drops `implemented` rows, and the true head is inside them.** Step 3 keeps the rows
+  whose status is live, which is what makes this a ranking of what is *owed* — but an erratum's whole
+  point is that it can add a requirement to a clause this tree calls complete, and a row claiming
+  `implemented` over an unread requirement is the falsest row the ledger can hold. Measured at this
+  base, with `implemented` admitted: §9.6.4 carries **11** unread annotations under four issues and
+  §7.4.1 carries **8**, both above the live head's seven, and §7.9.2.4, §7.5.4, §7.6.4.4.3, §7.10.5.3,
+  §12.5.6.1 and §12.10.4 all appear in the top twenty. This round met the shape rather than measuring
+  it from outside: #307 adds *Keys shall not be the null object.* to §7.9.6's Table 36 and §7.9.7's
+  Table 37, both `implemented`, and the ranking could not see either. **A round running this rule
+  reads the ranking twice — live rows, then all rows — and says which one it took its row from.**
+
 
 ## What is still owed, named
 

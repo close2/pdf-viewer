@@ -378,8 +378,8 @@ fn combo(
             return;
         }
         // §12.7.5.4's item, named by its position in Table 234's `/Opt` rather than by the label
-        // `/V` will hold. The clause makes the label the value — "the name string is the second of
-        // the two array elements" — and the position is what says *which* label, where two entries
+        // `/V` will hold. The clause makes the label the value — of a two-element `/Opt` entry it
+        // is the second element — and the position is what says *which* label, where two entries
         // carry the same one. A drop-down list has no other value to send, which is Table 233 bit
         // 19 clear stated as a control rather than reported: there is nowhere here to type.
         change(FieldChange::Set {
@@ -395,7 +395,7 @@ fn combo(
 /// The two halves send **different** values, and that is the clause rather than a convenience.
 /// Typing sends characters, because §12.7.5.4 lets an editable combo box hold "a value other than
 /// the predefined choices" and there is no index for such a value to be. Picking a row sends the
-/// row's *position* in Table 234's `/Opt`, because two entries may carry the same name string and
+/// row's *position* in Table 234's `/Opt`, because two entries may carry the same label and
 /// a label could not say which was picked — the same reason the plain drop-down above sends one.
 ///
 /// The entry is what the value is read back into ([`crate::host`]'s `write_back`), so §12.7.5.3's

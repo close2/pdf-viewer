@@ -351,9 +351,10 @@ pub enum FieldValue<'a> {
 /// which several. ADR 0248.
 ///
 /// **A selection is named by index and not by label**, which is the decision worth stating. The
-/// clause makes `/V` hold the *labels* — "the name string is the second of the two array elements"
-/// — so labels are what reaches the file; but two of Table 234's `/Opt` entries may carry the same
-/// name string, and a host that answered with labels could not say which of them a person clicked.
+/// clause makes `/V` hold the *labels* — a two-element `/Opt` entry's second element is the one
+/// `/V` names — so labels are what reaches the file; but two of Table 234's `/Opt` entries may
+/// carry the same label, and a host that answered with labels could not say which of them a
+/// person clicked.
 /// [`crate::form::ChoiceControl::selected`] already answers in indices, so a host reads and writes
 /// the same coordinate.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -1192,8 +1193,15 @@ impl ViewState {
     /// > 1.4 ) is not set -or if multiple selection is supported but only one item is currently
     /// > selected, V is a text string representing the selected item, as given in the field
     /// > dictionary's Opt array. If multiple items are selected, V is an array of such strings.
-    /// > (For items represented in the Opt array by a two-element array, the name string is the
-    /// > second of the two array elements.)
+    ///
+    /// and its next sentence, a parenthesis, says which of a two-element `/Opt` entry that string
+    /// is: the second. **It is stated here in prose rather than quoted**, because the published
+    /// wording is *the name string is the second of the two array elements* and Errata Collection
+    /// 3's Issue #214 replaces the term *name string* with *string* wherever ISO 32000-2:2020
+    /// prints it. The erratum is one `Text` note and a handful of illustrative strikes on Table
+    /// 32, so nothing is struck here for `spec-errata check` to land on and `doc/md/` carries the
+    /// published wording; the meaning is the same under either printing, and this tree quotes
+    /// neither.
     ///
     /// So one index becomes a string, several become an array of strings, and none becomes no `/V`
     /// at all — "[t]he default value of V is null , indicating that no item is currently selected."
@@ -1535,7 +1543,7 @@ impl ViewState {
             }
             // Table 234's `/I` is written for a single selection too, because it is the only
             // entry that says *which* `/Opt` element was chosen where two of them carry the same
-            // name string. This line used to justify that with the entry's own "shall be used ...
+            // label. This line used to justify that with the entry's own "shall be used ...
             // when the value of the choice field is an array" and to read as a stretch of it;
             // Errata Collection 3 struck that trigger out and opened the row to choice fields at
             // large rather than to multiple-selection ones — Issue #468, `/State` `Review`

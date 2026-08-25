@@ -135,11 +135,13 @@ fn a_layer_row_carries_the_switch_and_a_heading_carries_none() {
 
 #[test]
 fn an_attachment_row_carries_the_key_the_extraction_names_and_shows_the_file_name() {
-    // §7.11.4.1: the `/EmbeddedFiles` tree maps §7.7.4's name strings to file specifications, and
-    // its NOTE says that before PDF 1.6 "it was necessary to identify document-level embedded
-    // files by the name string provided in the name dictionary" — so the key need not be a file
-    // name. What a person is shown is Table 43's `/UF`, and what `Command::Extract` carries is the
-    // key. Two strings, and a host that used one for both would be wrong on some document.
+    // §7.11.4.1: the `/EmbeddedFiles` tree maps §7.7.4's strings to file specifications, and its
+    // NOTE says that before PDF 1.6 a document-level embedded file had to be identified by the
+    // string the name dictionary filed it under — so the key need not be a file name. What a
+    // person is shown is Table 43's `/UF`, and what `Command::Extract` carries is the key. Two
+    // strings, and a host that used one for both would be wrong on some document. The NOTE is
+    // prose here rather than a quotation for Issue #214's reason, which
+    // `pdf_model::attachment::Attachment::name` carries.
     //
     // The first half was a quotation until the four-hundred-and-twenty-ninth session, of a
     // sentence Errata Collection 3 struck out with the two bullets around it (Issue #481). The

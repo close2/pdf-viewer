@@ -2194,8 +2194,8 @@ fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidg
         }
         // Table 233 bit 19 set: the text box half of `controls::editable_combo`, which is where a
         // row picked out of the drop-down arrives — the list sends a position and the field
-        // resolves it to Table 234's name string, so the entry shows what the *field* holds rather
-        // than what this host guessed it would.
+        // resolves it to the string Table 234's `/Opt` entry displays, so the entry shows what the
+        // *field* holds rather than what this host guessed it would.
         viewer_host::form::ControlKind::Combo { editable: true, .. } => {
             if let Some(entry) = placed
                 .widget

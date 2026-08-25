@@ -149,6 +149,23 @@ reading in this project goes through them:
   clause number**, because a clause number is checkable in a minute and nobody checks it: the item
   reads as settled, and the citation is doing the work of an argument. Read the cited clause's own
   subject line before inheriting a block. ADRs 0582 and 0583.
+- **A paraphrase inside quotation marks does not just say something false — it stops being
+  checkable, which is why `CLAUDE.md` principle 5's rule is mechanical rather than stylistic.**
+  `spec-errata check` finds a quotation of text an erratum struck by *matching* it against the
+  struck passage; a quotation that is nearly the clause's words matches nothing and is therefore
+  invisible to the one instrument built to catch it. `viewer_core::command` quoted §7.11.4.1 as
+  "the tree shall map name strings to file specifications" where the clause opened with *the
+  associated name tree*, over a sentence Issue #481 struck out — and the two *accurate* copies of
+  the same quotation, in `pdf_model::attachment` and `viewer_host::panel`, were both found by the
+  tool within a round of the erratum being read, while this one survived three hundred and twenty
+  sessions. ADR 0660. **Two consequences worth carrying**: an inline quotation in prose is checked
+  by nothing at all — only rustdoc blockquotes are gated, and `--bin quotations` reads `doc/` and
+  `ledger.toml` rather than `crates/` — so a phrase in quotation marks inside a sentence is where
+  an invented one hides; and a quotation whose words appear in **no** clause is invisible twice
+  over, because there is no struck text to match and no blockquote to verify. `pdf_syntax::tree`
+  cited §7.9.6 for "by unsigned character code" for as long as the module existed, and ISO 32000-2
+  prints that phrase nowhere. `grep` the phrase in `doc/md/` before putting it in quotation marks;
+  it costs a second.
 
 ### Judging against other implementations
 

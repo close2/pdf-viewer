@@ -73,10 +73,18 @@ const MAX_ATTACHMENTS: usize = 4096;
 pub struct Attachment {
     /// The name the `/EmbeddedFiles` tree filed it under, or the file specification's own name.
     ///
-    /// §7.11.4.1 makes the `/EmbeddedFiles` tree map name strings to file specifications, and
-    /// says that before PDF 1.6 "it was necessary to identify document-level embedded files by
-    /// the name string provided in the name dictionary". So the tree's key is a name and not
-    /// necessarily a file name, which is why [`Self::file_name`] is a separate answer.
+    /// §7.11.4.1 makes the `/EmbeddedFiles` tree map strings to file specifications, and its NOTE
+    /// says that before PDF 1.6 a document-level embedded file had to be identified by the string
+    /// the name dictionary filed it under. So the tree's key is a name and not necessarily a file
+    /// name, which is why [`Self::file_name`] is a separate answer.
+    ///
+    /// **Both halves are prose and the second stopped being a quotation in the
+    /// seven-hundred-and-fiftieth session.** The NOTE prints *name string*, and Errata Collection
+    /// 3's Issue #214 (`/State` `Review` `Completed`) replaces that term with *string* wherever
+    /// ISO 32000-2:2020 states it — one `Text` note carrying the instruction and a handful of
+    /// illustrative strikes, five of them on §7.7.4's own Table 32. Nothing is struck at this
+    /// clause, so `doc/md/` keeps the published wording and no sweep can reach a quotation of it;
+    /// what the key *is* does not move under either printing.
     ///
     /// The first half was a quotation — "shall map name strings to file specifications" — until
     /// the four-hundred-and-eighteenth session. Errata Collection 3 replaces the two bullets it
@@ -562,7 +570,7 @@ mod tests {
 
     /// §7.7.4's `/EmbeddedFiles` tree, with §7.11.4's stream and Table 45's parameters.
     ///
-    /// The fixture is the shape §7.11.4.1 describes: a name tree mapping a name string to a file
+    /// The fixture is the shape §7.11.4.1 describes: a name tree mapping a string to a file
     /// specification "that refer[s] to embedded file streams through their EF entries". The tree
     /// key and the file name differ on purpose, because the clause makes them different things —
     /// before PDF 1.6 the key was how a document-level attachment was identified at all.

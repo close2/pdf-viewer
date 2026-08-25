@@ -1345,3 +1345,52 @@ requirement type, and `pairs` chunks by two unconditionally under a row claiming
 It is declined rather than owed, on where the dictionary sits: Table 309's `/GEO` puts it "within a
 3D Annotation" and #284 puts the same entry in Table 333, which is a RichMedia annotation's and states none, both of which are
 clause 13's and both excluded. The erratum that could have opened it is the one that closes it.
+
+## §7.7.4's rename and its two deprecations, and where the rename really landed — the seven-hundred-and-fiftieth
+
+The successor rule's fourth use. §12.10.2 is gone from the ranking — the round before read it — and
+what is left at the head is the plateau it left behind: §7.7.4 and §14.8.5.3, seven annotations
+apiece, the two rows the tie-break lost to §12.10.2. §7.7.4 wins the second round of that same
+tie-break, because Issue #672 changes a requirement level in a cell and §14.8.5.3's four `Caret`s
+swap *version* for *level* in the name of a referenced CSS specification. ADR 0660.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §7.7.4 Table 32, ten rows | 124, 125 | #214 | **corrects six places** | Not a table's erratum but the whole standard's, stated once as a `Text` note on page 10: *as a result of Errata #214, all occurrences of the term "name string" are replaced by just "string" throughout ISO 32000-2:2020*. Table 32 carries ten illustrative strikes over the words `name `, five per page — `[425.259 163.049 451.035 173.009]` and four more at the same width down page 124, each over the `name strings` that `-bbox` puts at x 423.6–449.4 on the `/Dests`, `/AP`, `/JavaScript`, `/Pages` and `/Templates` rows, and five more on page 125's `/EmbeddedFiles`, `/AlternatePresentations` and `/Renditions`. **The term is not one §7.9.2 defines**: that clause states a text string, a PDFDocEncoded string and a byte string, and nothing else — so the erratum withdraws a type ISO 32000-2 never had. What it corrects here is quotation rather than behaviour, and the *scope* is the finding: see below. |
+| §7.7.4 Table 32 `/IDS`, `/URLS` | 124 | #672 | **cites** | Two bare `Caret`s, `Review/Accepted`, at `[319.3999 114.04235 328.47596 121.43766]` and `[321.03334 75.26235 330.10939 82.65766]`, each landing on the `1.3)` that `-bbox` puts at the end of `(Optional; PDF 1.3)` on its row, and each writing *; deprecated in PDF 2.0*. Both trees are Web Capture's (§14.10.4's content sets). §7.7.4's row had them as two of six trees *owed to a feature*; they are deprecated, which is the reason `/AlternatePresentations` already carried in the published table, so the row's debt is three trees rather than six. |
+| §7.7.2 Table 29 `/SpiderInfo` | 116 | #672 | **cites** | The same issue's third caret, `[318.3199 510.2123 327.39595 517.6076]`, on the `1.3)` of the `SpiderInfo` row that `-bbox` puts at x 310.29–326.79. §7.7.2's row lists that entry under "[g]enuinely unread, and each for a reason", and the reason is now the one the row already gives `/NeedsRendering`. **All three of the catalogue's Web Capture entries are deprecated by one erratum**, which is what reassembling an issue across its clause headings is for. |
+| §7.9.6 sorting, Table 36 `/Names` | 135 | #214 | **corrects** | The same rename, reaching a sentence about order rather than about type. A strike at `[415.088 433.799 456.091 444.839]` takes ` lexically` out of "arranged in key-value pairs and shall be sorted lexically in ascending order by key", and one at `[400.965 579.139 467.059 589.099]` takes ` in lexical order` out of Table 36's "The keys shall be sorted in lexical order, as described below." What is left defines the order and the struck word only named it: "Shorter keys shall appear before longer ones beginning with the same byte sequence. Any encoding of the keys may be used as long as it is self-consistent; keys shall be compared for equality on a simple byte-by-byte basis." That is `<[u8] as Ord>`, which `TreeKey::compare` has always been. `named_page.rs` said "which §7.9.6 makes lexical by key" and is prose about bytes now. |
+| §7.9.6 Table 36 `/Names`; §7.9.7 Table 37 `/Nums` | 135, 137 | #307 | **tested** | ×2, and **the fifth `Caret` with no `StrikeOut` this file has recorded**, after #293, #34, #536 and #154 — nothing is retired, so `check` has no struck text to land a quotation on. `[231.006 567.124 238.959 573.604]` sits on the `below.` that ends Table 36's `/Names` cell and `[217.915 105.668 225.868 112.148]` on the `trees".` that ends Table 37's `/Nums` cell, each writing *. Keys shall not be the null object.* One sentence, stated once per clause, which is §7.9.7 defining itself as §7.9.6 with integer keys showing through the collection as well as the standard. It is a writer's `shall not`; `tree.rs` meets a file that breaks it by chunking the pairs array in twos, so a null key costs its own pair and never re-pairs the remainder against itself, and `a_null_key_yields_nothing_and_leaves_its_neighbours_paired` asserts that for both trees. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**A quotation of §7.9.6 for words ISO 32000-2 prints nowhere.** `tree::name_pairs` said keys come
+back as the bytes the file wrote, since §7.9.6 "sorts them by unsigned character code" — and that
+phrase is in no clause of the standard, no annex, and none of the technical specifications in
+`doc/md/`. It is the sentence #214 amends, quoted in words the clause never had. **No instrument in
+this project was placed to reach it**: `check` compares a quotation against text an erratum *struck*
+and this one rests on nothing struck at all; `--bin quotations` reads the documents and the ledger
+rather than `crates/`; and the conformance gate verifies rustdoc **blockquotes**, where this was a
+quotation inside a sentence of prose. It is §7.9.6's own words now.
+
+**And the rename's real landing is a sentence in §12.7.5.4 that no annotation touches.** #214 is
+scoped by a `Text` note — *all occurrences ... throughout ISO 32000-2:2020* — with strikes only
+where the editor chose to illustrate it, so an instrument built on strikes can see the illustration
+and never the rule. Six places in this tree quoted §12.7.5.4's "the name string is the second of the
+two array elements", **one of them a rustdoc blockquote in the population the conformance gate
+checks**, and two more quoted §7.11.4.1's NOTE about identifying an embedded file "by the name string
+provided in the name dictionary". All are prose now, naming the erratum; nothing behaves
+differently, because the term the erratum withdraws was never a type.
+
+**A third copy of the sentence Issue #481 struck, hidden by being misquoted.** `viewer_core::command`
+put *the tree shall map name strings to file specifications* in quotation marks against §7.11.4.1.
+The clause opened that sentence with *the associated name tree*, so the quoted words were never the
+standard's — and because they were not, `spec-errata check`'s whitespace-insensitive comparison
+matched nothing and the landing that caught `pdf_model::attachment` in the four-hundred-and-eighteenth
+session and `viewer_host::panel` in the four-hundred-and-twenty-ninth never came. **A misquotation is
+invisible to the instrument that finds quotations of retired text**, which is the sharpest reason
+this project has to keep quotation marks meaning verbatim: the cost of a paraphrase inside them is
+not only that it is wrong, but that it stops being checkable.
