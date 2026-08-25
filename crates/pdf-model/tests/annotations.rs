@@ -939,6 +939,74 @@ fn a_link_border_is_drawn_inside_its_rectangle_in_its_own_colour() {
     assert!(!painted(&raster, 19, 40), "outside /Rect");
 }
 
+/// A border as wide as its rectangle covers the rectangle, and still nothing outside it.
+///
+/// §12.5.4 puts the border "completely inside the annotation rectangle" and Table 168 makes `/W`
+/// "[t]he border width in points", so the border of width *w* is the part of the rectangle within
+/// *w* of its boundary. Once *w* reaches either dimension the bands from opposite sides meet and
+/// that region *is* the rectangle — there is no frame left, and this is the width at which a
+/// stroke stops being able to state it: the path inset by *w*/2 has a zero-length pair of sides,
+/// and a stroke of those two sides covers nothing.
+///
+/// The three widths below are the three regimes, and the middle one is the boundary rather than a
+/// round number: 40 is exactly the rectangle's height.
+///
+/// **Each of the last two drew the wrong picture until the seven-hundred-and-fifty-sixth
+/// session** — a band as wide as the rectangle minus the width where the region is the whole
+/// rectangle, and, past both dimensions, nothing at all. `bug1552113.pdf` is the corpus's own
+/// witness, and its content stream says "this text should be visible" under an annotation whose
+/// `/Border` is 112 units on a 20-unit-tall rectangle (ADR 0674).
+#[test]
+fn a_border_as_wide_as_its_rectangle_covers_it_and_no_more() {
+    for width in ["20", "40", "400"] {
+        let raster = render(pdf_with(
+            &format!(
+                "<< /Type /Annot /Subtype /Link /Rect [20 20 80 60] /C [0 1 0] \
+                 /Border [0 0 {width}] >>"
+            ),
+            "/BBox [0 0 10 10]",
+            "",
+        ));
+
+        // A 20-unit border on a 60 × 40 rectangle still leaves a 20 × 0 hole, which is no hole:
+        // every width from the height upwards paints the rectangle and only the rectangle.
+        assert_eq!(extent(&raster), (20, 20, 79, 59), "/Border [0 0 {width}]");
+        assert_eq!(
+            colour_at(&raster, 50, 40),
+            (0, 255, 0),
+            "the middle of the rectangle, under a /Border [0 0 {width}]"
+        );
+        assert!(!painted(&raster, 19, 40), "left of /Rect: {width}");
+        assert!(!painted(&raster, 80, 40), "right of /Rect: {width}");
+        assert!(!painted(&raster, 50, 19), "above /Rect: {width}");
+        assert!(!painted(&raster, 50, 60), "below /Rect: {width}");
+    }
+}
+
+/// The same width on §12.5.6.8's square, whose `/BS` states the line and not a border style.
+///
+/// Table 180 gives that entry "the line width and dash pattern that shall be used in drawing the
+/// rectangle or ellipse", so this subtype's wide line is not §12.5.4's border — but §12.5.4's
+/// sentence still binds where the ink may fall, and the geometry that follows is the same one:
+/// a line as wide as the shape covers the shape. `/IC` is under it whole and is not seen.
+#[test]
+fn a_square_whose_line_is_wider_than_it_is_covered_by_that_line() {
+    let raster = render(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 80 60] /C [0 1 0] /IC [1 0 0] \
+         /BS << /W 400 >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+
+    assert_eq!(extent(&raster), (20, 20, 79, 59));
+    assert_eq!(
+        colour_at(&raster, 50, 40),
+        (0, 255, 0),
+        "the line's own colour, not /IC's"
+    );
+    assert!(!painted(&raster, 19, 40), "outside /Rect");
+}
+
 /// A zero-width border, or one with no colour, draws nothing and says nothing.
 ///
 /// Table 166: "if the border width is 0, no border is drawn", and an empty `/C` is "No colour;

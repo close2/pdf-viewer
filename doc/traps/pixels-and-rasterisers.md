@@ -43,6 +43,17 @@ references about one is `doc/oracle-and-corpus.md` §3d (ADR 0410).
 *reading of the specification* rather than finding a defect. `issue6621.pdf` and `issue7901.pdf`
 were both code that was right about the clause it cited.
 
+**A comment that states the picture a construction produces is a claim about a raster, and only a
+raster settles it.** `Border::inset`'s said that clamping the inset to the centre line "fills the
+rectangle solid", the oracle's note about the corpus page that exercises it said "[o]urs fills it",
+and the ledger row said it a third time. What `/Border [0 0 112]` on a 150 × 20 `/Rect` actually
+drew was a 38 × 20 block in the middle of the rectangle, and a width past *both* dimensions drew
+nothing at all — the stroke of a degenerate path loses the two sides that degenerated. Three
+documents agreed with each other for eight hundred sessions because each was written from the
+arithmetic rather than from the page, and no test, gate or reference could see it: the arithmetic is
+right in every case a test covered, the one corpus witness is *ambiguous*, and on an ambiguous page
+nothing ranks us at all. Render it and look (ADR 0674).
+
 **A contradicted page's group names a hypothesis, not a diagnosis — twelve for twelve on being
 wrong, and the thirteenth examination is the first where the name held.** That one is
 `CONTRADICTED_NEGATIVE_LINE_WIDTH` in the six-hundred-and-fifty-first session: `issue19633.pdf`

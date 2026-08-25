@@ -800,9 +800,7 @@ fn link(document: &Document, annotation: &Dictionary, stream: &mut Stream) -> Ou
     if !border.strokes() {
         return Ok(Painted::EMPTY);
     }
-    border.apply(stream);
-    border.outline(stream, rect);
-    stream.paint(false, true);
+    border.draw(stream, rect);
     Ok(border.simulated())
 }
 
@@ -992,15 +990,24 @@ fn square_or_circle(
         return Ok(Painted::EMPTY);
     }
 
-    let box_ = border.inset(differences(document, annotation, rect));
+    let shape = differences(document, annotation, rect);
+    // §12.5.4's sentence reaches this subtype too — the line drawn round the rectangle or ellipse
+    // is still inside `/Rect` — so a line as wide as the shape covers the shape. See
+    // [`Border::fills`] for what the stroke of the inset path does instead, and why it is not
+    // this. The shape is filled in the line's own colour: `/IC` would be under it whole.
+    let covered = border.strokes() && border.fills(shape);
+    let box_ = if covered { shape } else { border.inset(shape) };
     border.apply(stream);
-    stream.set_colour(interior, false);
+    stream.set_colour(if covered { border.colour } else { interior }, false);
     if subtype == b"Circle" {
         stream.ellipse(box_);
     } else {
         stream.rectangle(box_);
     }
-    stream.paint(interior != Colour::None, border.strokes());
+    stream.paint(
+        covered || interior != Colour::None,
+        border.strokes() && !covered,
+    );
     Ok(Painted::DRAWN)
 }
 
@@ -2074,9 +2081,7 @@ fn widget(
             stream.paint(true, false);
         }
         if border.strokes() {
-            border.apply(stream);
-            border.outline(stream, rect);
-            stream.paint(false, true);
+            border.draw(stream, rect);
         }
     }
 
@@ -3484,11 +3489,7 @@ fn free_text_border(
     if !border.strokes() {
         return Painted::EMPTY;
     }
-    stream.text.push_str("q\n");
-    border.apply(stream);
-    border.outline(stream, box_);
-    stream.paint(false, true);
-    stream.text.push_str("Q\n");
+    border.draw(stream, box_);
     border.simulated()
 }
 
@@ -4330,8 +4331,12 @@ impl Border {
     ///
     /// §12.5.4: "If present, the border shall be drawn completely inside the annotation
     /// rectangle." A stroke straddles its path, so the path is the rectangle inset by half the
-    /// width. A border wider than the rectangle would invert it; the inset stops at the centre
-    /// line, which fills the rectangle solid and is what a border that thick asks for.
+    /// width, and stroking that path lays down exactly the band of width `self.width` measured
+    /// inward from each of the four sides.
+    ///
+    /// The clamp keeps the result from inverting where the width reaches a dimension. It decides
+    /// no picture: [`Self::fills`] is true at exactly the widths that reach the clamp, and every
+    /// caller asks that first.
     fn inset(&self, rect: [f32; 4]) -> [f32; 4] {
         let half = self.width * 0.5;
         let inset_x = half.min((rect[2] - rect[0]) * 0.5);
@@ -4342,6 +4347,48 @@ impl Border {
             rect[2] - inset_x,
             rect[3] - inset_y,
         ]
+    }
+
+    /// Whether a border this wide leaves none of the rectangle uncovered.
+    ///
+    /// §12.5.4 puts the border "completely inside the annotation rectangle" and Table 168 calls
+    /// `/W` "[t]he border width in points", so a border of width *w* is the part of the rectangle
+    /// within *w* of its boundary. The bands from opposite sides meet as soon as *w* reaches
+    /// either dimension, and what is left is the rectangle itself — there is no frame, and no
+    /// stroke of any path draws one.
+    ///
+    /// **A stroke of the inset path cannot state that region, which is what this exists for.**
+    /// Below the threshold [`Self::inset`] is exact; at it the inset path degenerates in one axis,
+    /// and the stroke of a rectangle with a zero-length pair of sides loses whatever those two
+    /// sides would have covered. `bug1552113.pdf` is the witness the corpus already held: a
+    /// `/Border [0 0 112]` on a 150 × 20 `/Rect`, which drew as a 38 × 20 block in the middle of
+    /// the rectangle, and a width past *both* dimensions drew nothing at all. The comment above
+    /// this method claimed the clamp "fills the rectangle solid" for eight hundred sessions, which
+    /// is what the region is and was never what the stroke did (ADR 0674).
+    fn fills(&self, rect: [f32; 4]) -> bool {
+        self.width >= rect[2] - rect[0] || self.width >= rect[3] - rect[1]
+    }
+
+    /// Paints this border around a rectangle, in whichever of the two shapes its width asks for.
+    ///
+    /// The `q`/`Q` is not decoration: the fill colour a covering border sets would otherwise
+    /// outlive the border, and so would the line width and dash [`Self::apply`] writes.
+    fn draw(&self, stream: &mut Stream, rect: [f32; 4]) {
+        stream.text.push_str("q\n");
+        // Table 168's `U` is "[a] single line along the bottom of the annotation rectangle" and
+        // spans the rectangle's full width with butt caps, so its stroke covers the whole
+        // rectangle by itself once the width reaches the height. Only the four styles that
+        // enclose the rectangle need the fill.
+        if self.style == Style::Underline || !self.fills(rect) {
+            self.apply(stream);
+            self.outline(stream, rect);
+            stream.paint(false, true);
+        } else {
+            stream.set_colour(self.colour, false);
+            stream.rounded_rectangle(rect, self.radii);
+            stream.paint(true, false);
+        }
+        stream.text.push_str("Q\n");
     }
 
     /// Appends the path this border's style asks for around a rectangle.
