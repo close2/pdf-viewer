@@ -159,7 +159,12 @@ with the reading, which is this file. Every bullet below is unchanged.
   **denial** as a claim in the other direction, so "Table 119 gives a Type 0 dictionary no
   `/FontDescriptor`" is agreement and a denial the table contradicts is a hit. Its findings arrive
   in blocks, and its most durable population is a *document*: a number a round retires in the code
-  goes on living in the ADR the code came from.
+  goes on living in the ADR the code came from. **Two more ways it goes quiet, both found in the
+  seven-hundred-and-thirtieth** (ADR 0620): a list of keys whose third item carries a parenthesis
+  attributes nothing after that item, because `keys_within` stops at the first word that neither is
+  a key nor continues a list; and a citation whose attributed noun is a *value* rather than an entry
+  has no key beside it at all, so it lands in the keyless count — 0611's finding reached by a second
+  route, and this time with a wrong number underneath it.
 - **One reads the status nobody expects to come back to**: `cargo run --release -p conformance
   --bin inapplicable`, a fraction of a second, over `ledger.toml` and the source roots — the
   seventh sweep as a program (ADR 0388). Every other sweep walks the rows that *owe* something; this

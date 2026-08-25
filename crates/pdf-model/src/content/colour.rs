@@ -41,8 +41,9 @@ impl BlackPoint {
 
 /// A rendering intent, per ISO 32000-2 §8.6.5.8 Table 69.
 ///
-/// Three of the four reach nothing further in this tree — selecting an ICC profile's `A2B1` or
-/// `A2B2` table by intent is not done — and they are still kept apart rather than collapsed
+/// Three of the four reach nothing further in this tree — `crate::icc` reads a profile's `A2B1`
+/// whatever the intent says, taking `A2B0` only where there is no `A2B1`, and selects neither
+/// `A2B0` nor `A2B2` by an intent — and they are still kept apart rather than collapsed
 /// into "absolute or not", because §8.6.5.9's override is stated over *the current render
 /// intent of an object* and an object's intent is a parameter in its own right. Collapsing the
 /// two is what let a `ri` of any other name silently switch black point compensation back on.
@@ -50,8 +51,13 @@ impl BlackPoint {
 pub(super) enum Intent {
     /// Table 69's `AbsoluteColorimetric`, the one name that changes what this renderer does.
     Absolute,
-    /// Table 69's `RelativeColorimetric`, which Table 52 also makes the initial value and
+    /// Table 69's `RelativeColorimetric`, which Table 51 also makes the initial value and
     /// which §8.6.5.8 makes the answer to a name this processor does not recognise.
+    ///
+    /// **Table 51 and not 52**: the rendering intent is one of §8.4.1's device-*independent*
+    /// parameters, and Table 52 is the device-dependent list — flatness, smoothness,
+    /// overprint and the rest. §8.6.5.8's ledger row had the number right while this comment,
+    /// which depends on it, did not.
     Relative,
     /// Table 69's `Saturation`.
     Saturation,
