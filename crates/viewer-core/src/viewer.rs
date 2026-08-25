@@ -36,6 +36,12 @@ use crate::readback::ReadbackCache;
 /// request against this number refused pages that nothing was going to allocate, which is what
 /// a person zooming in saw. `Viewer::holds_rasters` is which of the two is being talked to.
 ///
+/// **A host that answers [`Rendered::Listed`] is still the first of the two**, and that is the
+/// point of that outcome rather than an accident of it: taking one page's display list says
+/// nothing about the next page, so the bound stays on. `viewer-confined`'s worker mixes the two
+/// arms page by page under an address-space ceiling, where an unbounded raster is a kill rather
+/// than a refusal.
+///
 /// The bounds that are not about allocation stay unconditional, and `TargetSpec::for_page`
 /// applies them to every caller: a dimension over [`pdf_render::MAX_EXTENT`] is an `f32`
 /// precision limit, and a degenerate one is a target that cannot exist.
@@ -121,6 +127,10 @@ pub struct Viewer {
     /// told otherwise must assume it will be asked to hold a raster. A tier-2 host settles it
     /// on its first frame, which it draws at an opening magnification where the budget is not
     /// in question — so the conservative start costs nothing and the tier is never guessed.
+    ///
+    /// **[`Rendered::Listed`] deliberately does not move it.** That outcome is one page's, and a
+    /// host answering it for one page and [`Rendered::Raster`] for the next is a host this
+    /// crate is still holding pixels for.
     holds_rasters: bool,
     /// What this reader does with the restrictions a document asserts over it.
     ///
@@ -307,6 +317,12 @@ impl Viewer {
             // `Answer::None` for a tier-2 host, which hands back no pixels at all, and a list —
             // possibly empty — for a tier-1 host. The two are told apart by the same flag the
             // pixel budget is: a host that has answered `Rendered::Presented` holds its own.
+            //
+            // **A page the host answered `Rendered::Listed` for is simply not in the list**, and
+            // that is the answer rather than an omission: this crate is holding no pixels of it
+            // because the host took its display list, and the host knows which pages those are —
+            // it said so. What matters is that the question goes on being answered for the
+            // page's neighbours, which is what `Rendered::Presented` could not have left true.
             Query::Frame if !self.holds_rasters => Answer::None,
             Query::Frame => Answer::Frame(
                 open.on_screen
@@ -624,6 +640,20 @@ impl Viewer {
                 // nothing here will hold a whole-page raster for it and `MAX_PIXELS` has
                 // nothing to bound.
                 self.holds_rasters = false;
+            }
+            // **The same two lines as above and deliberately not the third.** The host took this
+            // page's display list, so there are no pixels here either — but that is a fact about
+            // one page and not about the host, and a host that mixes the two arms will hand the
+            // next page back as a raster. Concluding `holds_rasters = false` from it would take
+            // `MAX_PIXELS` off every request the mixed host makes and silence `Query::Frame`
+            // about the pages it *is* holding pixels for. See `Rendered::Listed`.
+            //
+            // Damaged like a raster rather than silent like a presentation: the host has what it
+            // needs to draw the page and has not said it drew it.
+            Rendered::Listed => {
+                on_screen.shown = Some((pending.target, pending.revision));
+                on_screen.frame = None;
+                events.push(damage(viewport));
             }
             // **A refusal is recorded as an answer**, and it has to be: the scheduler's question
             // is "is what is on the screen what should be", and a host that cannot draw this page
@@ -2128,6 +2158,9 @@ impl Viewer {
     /// [`MAX_PIXELS`] bounds a raster this crate hands back, so it binds a host that takes one
     /// and says nothing to a host that draws its own frames at its own size. What remains for
     /// both is `TargetSpec::for_page`'s own refusal of a dimension `f32` cannot resolve.
+    ///
+    /// A host that answers [`Rendered::Listed`] for some pages is the first kind: the budget is
+    /// per request and it has not stopped taking rasters.
     const fn raster_budget(&self) -> u64 {
         if self.holds_rasters {
             MAX_PIXELS

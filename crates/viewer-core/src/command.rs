@@ -620,10 +620,17 @@ pub enum Purpose {
 
 /// What a worker did with a [`crate::RenderRequest`].
 ///
-/// Three outcomes rather than a `Result<Raster, E>`, because a host that draws straight to its
+/// Four outcomes rather than a `Result<Raster, E>`, because a host that draws straight to its
 /// own surface has no raster to hand back and has not failed either. That is the difference
 /// between tier 1 and tier 2 of this project's three pixel tiers, and it is the only place in
 /// the protocol where the two differ.
+///
+/// **Two of the four say the viewer holds no pixels, and they are not the same statement.**
+/// [`Self::Presented`] is about the *viewer* — this host draws every page onto its own surface,
+/// for good, at whatever size its window is — and [`Self::Listed`] is about *this page*. The
+/// difference is what [`crate::MAX_PIXELS`] is for: a host that has presented once is asking for
+/// no allocation here ever again and the budget stops applying to it, while a host that took one
+/// page's list may hand the next one back as pixels and must go on being bounded.
 #[derive(Debug)]
 pub enum Rendered {
     /// Tier 1: the pixels, for the viewer to hold and the host to blit when it is told to.
@@ -636,7 +643,32 @@ pub enum Rendered {
     /// The viewer holds no pixels, so it cannot repaint on the host's behalf: a tier-2 host is
     /// told what changed by [`crate::Event::Damage`] and re-renders. It keeps its own display
     /// list to do that with — the request it was handed is enough.
+    ///
+    /// **A statement about the host and not about the page**, and it is remembered as one: after
+    /// it, [`crate::Query::Frame`] answers [`crate::Answer::None`] for every page and
+    /// [`crate::MAX_PIXELS`] stops bounding what this crate asks for, because nothing here will
+    /// hold a whole-page raster again. A host that means it about one page wants [`Self::Listed`].
     Presented,
+    /// The host took this request's own [`crate::RenderRequest::list`] and holds the page itself.
+    ///
+    /// **Per page, which is the whole of what distinguishes it from [`Self::Presented`].** The
+    /// viewer keeps no pixels for this page and will not repaint it, exactly as for a presented
+    /// one; what it does not do is conclude anything about the host. The page holds its place in
+    /// the arrangement, so the scheduler does not ask for it again; [`crate::Query::Frame`] goes
+    /// on answering for the pages whose pixels this crate *is* holding; and
+    /// [`crate::MAX_PIXELS`] goes on bounding every request, because the next page may come back
+    /// as [`Self::Raster`].
+    ///
+    /// It exists for a host that can afford the pixels of some pages and would rather have the
+    /// marks of others — `viewer-confined`'s worker is the one in this tree, which compares the
+    /// two byte counts per page and ships whichever is smaller. Answering [`Self::Presented`]
+    /// there would take the raster budget off a process running under an address-space ceiling,
+    /// where an unbounded allocation is a kill rather than a refusal (ADR 0640).
+    ///
+    /// [`crate::Event::Damage`] follows it, because taking a list is not the same as having
+    /// drawn it: the host, or whoever the host is answering for, still has a page to put on a
+    /// screen.
+    Listed,
     /// The request could not be drawn, and this is why.
     ///
     /// Reported rather than swallowed: a viewer that silently shows the previous page when a

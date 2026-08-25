@@ -24,7 +24,18 @@
 )]
 
 /// How deep the forms nest by default. `MAX_FORM_DEPTH` is 16, so this is well inside it.
-pub(crate) const LEVELS: usize = 4;
+///
+/// **Five rather than four since ADR 0640, and the extra level is not decoration.** A confined
+/// worker draws a page only where its *pixels* are the payload that crosses; a page whose marks
+/// are smaller is shipped undrawn, so its rasterisation is never work the worker does and never
+/// work a cancel has anything to stop. Four levels is ten thousand page-covering fills in 990 KB
+/// of marks, which is under a window-sized raster and therefore the marks arm. Five is a hundred
+/// thousand and 9.9 MB — larger than a raster of any window — so the page crosses as pixels, the
+/// worker draws it, and there is something for a cancel to be about.
+///
+/// Both consumers check that premise rather than assuming it: `tests/confined.rs` asks
+/// `wire::crossing` which arm the page takes before it blocks on one.
+pub(crate) const LEVELS: usize = 5;
 
 /// How many copies of the level below each level draws.
 pub(crate) const BRANCH: usize = 10;

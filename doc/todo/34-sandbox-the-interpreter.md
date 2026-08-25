@@ -103,10 +103,18 @@ decoder refuses a target past `viewer_core::MAX_PIXELS`, which is the one length
 with no bytes behind it — eight bytes that become the host's own allocation, which is the
 seven-hundred-and-nineteenth session's finding arriving somewhere new.
 
-**What is left of this item is a `viewer-core` change and `doc/todo/15` holds it**: the confined
-worker still draws a page whose pixels it does not send, because `Rendered::Presented` is a
-statement about the viewer rather than about a page and answering it would take `MAX_PIXELS` off a
-confined process's raster.
+**And the render it was wasting is gone since the seven-hundred-and-fortieth** (ADR 0640). The one
+`viewer-core` change this whole item needed is `Rendered::Listed` — *the host took this request's
+own list*, said about a page rather than about the viewer, so `MAX_PIXELS` goes on bounding a
+confined process's raster and `Query::Frame` goes on answering for the pages that must still cross
+as pixels. `viewer_confined::protocol::Marks` holds each page's origin now, from
+`Query::PageGeometry`, because the viewer holds nothing at all for a page it was told the host
+took; `encode_answer` merges the two halves and the wire format did not move.
+
+**What that changes about item 3's cancel is a sentence, not a hole**: a cancel stops the work
+*this process* does, so on the marks arm it covers the interpretation and there is no rasterisation
+of ours to stop. Drawing the marks was always the host's — the worker had merely been doing it
+twice and discarding one.
 
 **What decided the first way out is one number this entry never had**: how big a display list is
 beside the pixels it produces. `viewer-confined`'s `examples/list_against_raster` is that
@@ -134,6 +142,14 @@ Demonstrated on a **1567-byte** document that draws for **44.2 s**: the host's t
 **What is still not here is a deadline, and deliberately.** A page's cost is bounded by the
 document and the magnification together, so a fixed number refuses work a viewer permits. What a
 host has is the ability to decide, on its own grounds.
+
+**And since ADR 0640 the cancel's scope is worth stating exactly**, because it is easy to read as
+larger than it is: it ends the worker, so what it stops is what the worker is doing. On the pixel
+arm that is the interpretation *and* the rasterisation; on the marks arm the worker does not
+rasterise, so it is the interpretation alone and the drawing is the host's. `doc/todo/15` carries
+what the host then owes. `tests/support/amplification.rs` is five levels deep rather than four for
+this reason and says so: four levels' marks are smaller than a window's pixels, so that document
+crossed as marks and there was nothing left for the cancel test to cancel.
 
 ### 4. One rasterising thread — repriced, and the `glibc` claim is now measured
 

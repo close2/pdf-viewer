@@ -111,6 +111,45 @@ struct Crossed {
     bytes: Vec<u8>,
     /// The target the list was measured against, which the host draws it at.
     target: pdf_render::TargetSpec,
+    /// Where the viewer places this page in the viewport, in device pixels.
+    ///
+    /// **Kept here since ADR 0640 because the viewer no longer holds anything for this page.**
+    /// A page whose host took the display list answers [`viewer_core::Rendered::Listed`], so it
+    /// is absent from [`Answer::Frame`] — which is where the origin used to come from — and this
+    /// store is the only thing that can place it.
+    ///
+    /// Written by [`Marks::decide`] when the page is recorded and again by [`Marks::place`] on
+    /// every command, because a scroll moves a page without redrawing it: an origin remembered
+    /// from the render would place the page where it used to be.
+    origin: (f32, f32),
+}
+
+/// What one page's frame carries, which [`Marks::decide`] settles.
+///
+/// Named rather than returned as a `bool` because the two arms are two different pieces of work
+/// — one rasterises the page and one deliberately does not — and a call site reading
+/// `if marks.decide(&request)` would say nothing about which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Carries {
+    /// The marks, which this store now holds. **No raster is drawn for the page at all**, which
+    /// is what [`viewer_core::Rendered::Listed`] made expressible.
+    Marks,
+    /// The pixels, so the page is rasterised and the viewer holds what came back.
+    Pixels,
+}
+
+/// One page of [`Answer::Frame`], from whichever of the two places holds it.
+///
+/// The two are disjoint by construction — a page crossing as marks answers
+/// [`viewer_core::Rendered::Listed`] and leaves the viewer holding nothing, and a page crossing
+/// as pixels is forgotten by [`Marks::forget`] — and [`encode_answer`] states the tie-break
+/// anyway, because "by construction" is a claim about two crates at once.
+#[derive(Debug)]
+enum Placed<'a> {
+    /// The pixels the viewer is holding.
+    Pixels(&'a viewer_core::FrameView<'a>),
+    /// The marks this store is holding, and where the viewer puts the page they are of.
+    Marks(&'a Crossed),
 }
 
 /// The pages whose marks are what crosses, one entry apiece.
@@ -136,20 +175,45 @@ impl Marks {
     /// producers, a list nested past what a backend composites, and a variant added to one of
     /// `pdf-render`'s open enumerations all mean *this page crosses as pixels*, which is the arm
     /// that was already there for the scans.
-    pub(crate) fn decide(&mut self, request: &viewer_core::RenderRequest) {
+    ///
+    /// `origin` is where the viewer places the page, which the caller asks it for: since ADR
+    /// 0640 a page crossing as marks is drawn by nobody on this side, so this store is what has
+    /// to be able to place it.
+    pub(crate) fn decide(
+        &mut self,
+        request: &viewer_core::RenderRequest,
+        origin: Option<(f32, f32)>,
+    ) -> Carries {
+        // A page the viewer will not place is one this store could not describe to a host, and a
+        // frame it could not describe would be a page missing from the screen. Drawing it is the
+        // answer that cannot be wrong. It is an arm rather than an assertion because the
+        // alternative inside a confinement is a panic: as `viewer-core` stands a render is asked
+        // for only where the arrangement has just placed the page and interpreted it, which is
+        // exactly the condition `Query::PageGeometry` answers under.
+        let Some(origin) = origin else {
+            self.forget(request.page, request.token);
+            return Carries::Pixels;
+        };
         let raster = u64::from(request.target.width)
             .saturating_mul(u64::from(request.target.height))
             .saturating_mul(4);
         match display_list::crossing(&request.list, raster) {
-            display_list::Crossing::List(bytes) => self.record(
-                request.page,
-                Crossed {
-                    token: request.token,
-                    bytes,
-                    target: request.target,
-                },
-            ),
-            display_list::Crossing::Raster(_) => self.forget(request.page, request.token),
+            display_list::Crossing::List(bytes) => {
+                self.record(
+                    request.page,
+                    Crossed {
+                        token: request.token,
+                        bytes,
+                        target: request.target,
+                        origin,
+                    },
+                );
+                Carries::Marks
+            }
+            display_list::Crossing::Raster(_) => {
+                self.forget(request.page, request.token);
+                Carries::Pixels
+            }
         }
     }
 
@@ -184,20 +248,27 @@ impl Marks {
         }
     }
 
-    /// Drops every page not among those given.
-    pub(crate) fn retain(&mut self, on_screen: &[usize]) {
-        self.by_page.retain(|page, _| on_screen.contains(page));
-    }
-
-    /// The marks for a page, where they are the ones its raster was drawn from.
+    /// Places every page this store holds where the viewer now places it, and forgets the rest.
     ///
-    /// The dimensions are compared because they are the one thing both sides of the pair state
-    /// independently: a raster the viewer is holding and a target this store recorded describe
-    /// the same render only if they are the same size. Where they disagree the store is behind,
-    /// and the pixels — which the viewer is holding *now* — are what crosses.
-    fn of(&self, page: usize, width: u32, height: u32) -> Option<&Crossed> {
-        let crossed = self.by_page.get(&page)?;
-        (crossed.target.width == width && crossed.target.height == height).then_some(crossed)
+    /// **One pass that does two jobs, because the viewer answers both with one question.** Where
+    /// a page sits changes without the page being redrawn — a scroll is the ordinary case — so
+    /// the origin has to be asked for rather than remembered. And a page the viewer will not
+    /// place at all has left Table 29's arrangement, which is this store's eviction rule: a
+    /// confined process runs under an address-space ceiling, and a store that kept one encoded
+    /// list per page a reader scrolled past would be a slow leak in the one process that must
+    /// not have one.
+    ///
+    /// **It used to be [`Answer::Frame`]'s own page list**, which stopped being the right
+    /// population the moment a page crossing as marks stopped producing a raster: those pages
+    /// are precisely the ones that answer is now silent about.
+    pub(crate) fn place(&mut self, mut origin: impl FnMut(usize) -> Option<(f32, f32)>) {
+        self.by_page.retain(|page, crossed| match origin(*page) {
+            Some(at) => {
+                crossed.origin = at;
+                true
+            }
+            None => false,
+        });
     }
 }
 
@@ -2449,39 +2520,63 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
             // **A list since Table 29's `/PageLayout` was obeyed**: `OneColumn` puts several
             // pages in one window, and a wire that carried the first of them would show the host
             // a continuous view with a hole in it.
-            writer.u8(k::FRAME).usize(frames.len());
+            //
+            // **The two halves are held in two places since ADR 0640, and this is where they
+            // meet.** A page crossing as marks answers `viewer_core::Rendered::Listed`, which is
+            // how the worker gets out of drawing a page whose pixels it does not send — so the
+            // viewer holds nothing for it and `Answer::Frame` is silent about it, by design.
+            // Keyed by page number, so the reply is in the page order this answer already
+            // arrives in whichever half a page came from.
+            //
+            // The pixels are inserted second, so that a page both halves claim crosses as the
+            // pixels the viewer is holding *now*. That case is unreachable as the two crates
+            // stand — the store forgets a page it did not record marks for — and the tie-break
+            // is stated rather than assumed, because it is the older `Marks::of`'s rule and it
+            // rested on a size comparison this arm no longer has a second side for.
+            let mut placed: std::collections::BTreeMap<usize, Placed<'_>> = marks
+                .by_page
+                .iter()
+                .map(|(page, crossed)| (*page, Placed::Marks(crossed)))
+                .collect();
             for frame in frames {
-                writer.usize(frame.page);
-                if let Some(crossed) = marks.of(frame.page, frame.raster.width, frame.raster.height)
-                {
+                placed.insert(frame.page, Placed::Pixels(frame));
+            }
+            writer.u8(k::FRAME).usize(placed.len());
+            for (page, entry) in placed {
+                writer.usize(page);
+                match entry {
                     // The target is written out rather than left to be rebuilt from the list's
                     // page size and a scale: it carries the y flip and any tile offset, and
                     // `doc/traps/the-interactive-loop.md`'s trap 12a is what happens when the two
                     // spaces are assumed to be one.
-                    writer
-                        .u8(PAYLOAD_LIST)
-                        .u32(crossed.target.width)
-                        .u32(crossed.target.height);
-                    display_list::write_transform(&mut writer, crossed.target.transform);
-                    writer.bytes(&crossed.bytes);
-                } else {
+                    Placed::Marks(crossed) => {
+                        writer
+                            .u8(PAYLOAD_LIST)
+                            .u32(crossed.target.width)
+                            .u32(crossed.target.height);
+                        display_list::write_transform(&mut writer, crossed.target.transform);
+                        writer.bytes(&crossed.bytes);
+                        writer.point(crossed.origin);
+                    }
                     // `RasterFormat` is written out rather than assumed, because a second format
                     // would otherwise be read as the first. Exhaustive since ADR 0247: it is no
                     // longer `#[non_exhaustive]`, so a second pixel layout fails to compile here
                     // and has to be given a wire byte deliberately. The *reading* side keeps its
                     // refusal, because a byte arriving from the confined process is a claim
                     // rather than a variant.
-                    let format = match frame.raster.format {
-                        RasterFormat::Rgba8 => 0,
-                    };
-                    writer
-                        .u8(PAYLOAD_RASTER)
-                        .u32(frame.raster.width)
-                        .u32(frame.raster.height)
-                        .u8(format)
-                        .bytes(&frame.raster.data);
+                    Placed::Pixels(frame) => {
+                        let format = match frame.raster.format {
+                            RasterFormat::Rgba8 => 0,
+                        };
+                        writer
+                            .u8(PAYLOAD_RASTER)
+                            .u32(frame.raster.width)
+                            .u32(frame.raster.height)
+                            .u8(format)
+                            .bytes(&frame.raster.data);
+                        writer.point(frame.origin);
+                    }
                 }
-                writer.point(frame.origin);
             }
         }
         // One entry per page the arrangement shows, each carrying its page: the same shape
@@ -4123,6 +4218,84 @@ mod tests {
         assert_eq!((target.width, target.height), (100, 200));
         assert_eq!(list.page_size, Size::new(10.0, 20.0));
         assert_eq!(list.commands().len(), 1);
+    }
+
+    /// **A frame answer holding no pixels at all still carries the page**, out of this store.
+    ///
+    /// That is the whole of what ADR 0640 moved on this side. A page whose marks are what
+    /// crosses now answers [`viewer_core::Rendered::Listed`], so the worker draws nothing for it,
+    /// the viewer holds nothing of it and [`Answer::Frame`] is silent about it — and the reply
+    /// has to carry it anyway, at the origin the viewer places it at. Before the change the page
+    /// was in that answer because the worker had drawn a raster it then threw away, so an empty
+    /// `Answer::Frame` produced an empty reply.
+    ///
+    /// Driven by a real [`viewer_core::Viewer`] because [`viewer_core::RenderToken`] is opaque
+    /// and nothing outside that crate can mint one. The document is the committed note, which
+    /// every checkout has, and its first page is sparse — which is what makes [`Carries::Marks`]
+    /// the answer rather than an assumption.
+    #[test]
+    fn a_page_the_viewer_holds_no_pixels_of_still_crosses_as_marks() {
+        let bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf"),
+        )
+        .expect("the committed note is readable");
+        let mut viewer = viewer_core::Viewer::new(900, 1200, 1.0);
+        let events: Vec<Event> = viewer
+            .handle(Command::Open {
+                id: DocumentId(1),
+                bytes,
+                password: None,
+                fragment: None,
+            })
+            .collect();
+        let request = events
+            .iter()
+            .find_map(|event| match event {
+                Event::NeedsRender(request) => Some(request.clone()),
+                _ => None,
+            })
+            .expect("opening a document asks for its first page");
+        let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(request.page)) else {
+            panic!("the page a render was asked for is a page the arrangement places");
+        };
+
+        let mut marks = Marks::default();
+        assert_eq!(
+            marks.decide(&request, Some(geometry.origin)),
+            Carries::Marks,
+            "a page of text is a small fraction of its own pixels"
+        );
+        marks.place(|page| (page == request.page).then_some(geometry.origin));
+
+        // An empty list, which is exactly what the viewer answers once the only page on the
+        // screen has been taken as marks.
+        let encoded = encode_answer(&Answer::Frame(Vec::new()), &marks).expect("a frame crosses");
+        let Reply::Frame(frames) = decode_answer(&encoded).expect("what was written reads back")
+        else {
+            panic!("a frame answer decodes as one");
+        };
+        let [only] = frames.as_slice() else {
+            panic!("the page this store holds is the page that crossed: {frames:?}");
+        };
+        assert_eq!(only.page, request.page);
+        assert_eq!(only.origin, geometry.origin);
+        let crate::Payload::List { target, .. } = &only.payload else {
+            panic!("the marks are what this store holds: {only:?}");
+        };
+        assert_eq!(
+            (target.width, target.height),
+            (request.target.width, request.target.height)
+        );
+
+        // And the eviction rule: a page the viewer will not place is one this store forgets, so
+        // the reply goes back to carrying nothing rather than a page that has scrolled away.
+        marks.place(|_| None);
+        let encoded = encode_answer(&Answer::Frame(Vec::new()), &marks).expect("a frame crosses");
+        let Reply::Frame(frames) = decode_answer(&encoded).expect("what was written reads back")
+        else {
+            panic!("a frame answer decodes as one");
+        };
+        assert!(frames.is_empty(), "{frames:?}");
     }
 
     /// **A target is the one length on this boundary with no bytes behind it.**

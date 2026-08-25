@@ -392,14 +392,15 @@ fn answer(
 /// count times four — arithmetic, not a rasteriser. [`protocol::Marks`] carries the answer to the
 /// moment a host asks for a frame.
 ///
-/// **The page is still drawn either way, and that is a cost written down rather than an
-/// oversight.** `viewer-core` has one tier per *viewer* and not one per page — a host that
-/// answers [`Rendered::Presented`] once holds no rasters at all thereafter, and `MAX_PIXELS`
-/// stops bounding what it is asked to draw — so a worker that skipped the render for a page
-/// crossing as a list would give up the one bound standing between a hostile page's dimensions
-/// and an address-space ceiling that kills rather than refuses. What that costs is one CPU
-/// rasterisation of a page whose pixels are not sent; `doc/todo/15` names the `viewer-core`
-/// change that would remove it.
+/// **A page whose marks are what crosses is not drawn at all**, which is ADR 0640 and which this
+/// comment recorded as a cost for four rounds. What made the render unskippable was a vocabulary
+/// question rather than a rasteriser one: the only outcome meaning *no pixels here* was
+/// [`Rendered::Presented`], a statement about the **viewer** — it holds for every page at once,
+/// silences `Query::Frame` about the pages that must still cross as pixels, and takes
+/// `viewer_core::MAX_PIXELS` off what this process is asked to draw, where an unbounded raster is
+/// the kill ADR 0597 spent a round turning back into a sentence. [`Rendered::Listed`] says the
+/// same thing about **one page**, so the budget stays, the neighbours stay answerable, and the
+/// render goes.
 fn perform(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
@@ -417,12 +418,20 @@ fn perform(
         for event in viewer.handle(command) {
             match event {
                 Event::NeedsRender(request) => {
-                    marks.decide(&request);
-                    let rendered = match rasterizer.rasterize(&request.list, request.target) {
-                        Ok(raster) => Rendered::Raster(raster),
-                        // Named rather than swallowed: a viewer that silently showed the previous
-                        // page when a render failed would be telling a person something false.
-                        Err(error) => Rendered::Failed(error.to_string()),
+                    let rendered = match marks.decide(&request, placement(viewer, request.page)) {
+                        // **The render that does not happen.** The host is being handed this
+                        // page's own display list, so pixels of it would be drawn, held and
+                        // thrown away.
+                        protocol::Carries::Marks => Rendered::Listed,
+                        protocol::Carries::Pixels => {
+                            match rasterizer.rasterize(&request.list, request.target) {
+                                Ok(raster) => Rendered::Raster(raster),
+                                // Named rather than swallowed: a viewer that silently showed the
+                                // previous page when a render failed would be telling a person
+                                // something false.
+                                Err(error) => Rendered::Failed(error.to_string()),
+                            }
+                        }
                     };
                     pending.push(Command::RenderReady {
                         token: request.token,
@@ -434,22 +443,32 @@ fn perform(
         }
     }
 
-    // **What the store is bounded by**: the pages the viewer is holding a frame for, asked of
-    // the viewer rather than deduced. A confined process runs under an address-space ceiling and
-    // a store that kept one encoded list per page a reader ever scrolled past would be a slow
-    // leak in the one process that must not have one. The question is a borrow of state the
-    // viewer already has and costs no interpretation.
-    let on_screen = match viewer.query(viewer_core::Query::Frame) {
-        viewer_core::Answer::Frame(views) => views.iter().map(|view| view.page).collect::<Vec<_>>(),
-        // A viewer holding no rasters at all is one this worker has not made and could not use;
-        // forgetting everything is the direction that cannot be wrong.
-        _ => Vec::new(),
-    };
-    marks.retain(&on_screen);
+    // **Where the pages this store holds sit now, and which of them are still on the screen** —
+    // asked of the viewer rather than deduced, because it is the only thing that knows. A scroll
+    // moves a page without redrawing it, and a page the viewer will not place has left Table 29's
+    // arrangement: forgetting it is what keeps the store bounded by the screen rather than by
+    // everything a reader has ever scrolled past, inside the one process that must not leak.
+    //
+    // It used to ask `Query::Frame` for the same list. That answer is now silent about exactly
+    // the pages this store holds, because those are the ones the viewer keeps no pixels of.
+    // Both questions are a borrow of state the viewer already has and cost no interpretation.
+    marks.place(|page| placement(viewer, page));
 
     match protocol::encode_events(&outgoing) {
         Ok(encoded) => (protocol::FRAME_EVENTS, encoded),
         Err(uncarried) => refuse(&uncarried.to_string()),
+    }
+}
+
+/// Where the viewer places one page in the viewport, or nothing where it places it nowhere.
+///
+/// `Answer::None` here is Table 29's arrangement not showing the page, or showing it before
+/// anything has interpreted it — and both mean the same thing to a store of encoded marks: there
+/// is no frame to describe.
+fn placement(viewer: &Viewer, page: usize) -> Option<(f32, f32)> {
+    match viewer.query(viewer_core::Query::PageGeometry(page)) {
+        viewer_core::Answer::Geometry(geometry) => Some(geometry.origin),
+        _ => None,
     }
 }
 
