@@ -872,6 +872,17 @@ dismissed in a subordinate clause (ADRs 0667, 0677), each larger than the part i
 irreducible. **Whoever re-runs a floor re-runs the attribution under it**, and a round quoting a
 share rather than a total should say which run printed it.
 
+**And on a parallel path, a share of the *total* is not a share of the *critical path* — they can
+differ by the number of threads.** ADR 0687 retook the composition of page 101's rasterisation, six
+hundred rounds after it was last taken, and found a serial planner at 9.13% of the instruction
+count. The page is granted eleven strips whose slowest holds 10.6% of the estimated cost, so the
+drawing's contribution to the critical path was about the same 25 M the planner was: **9% of the
+sum was half of the wait.** Callgrind counts every thread, which is what makes an instruction
+profile of a parallel program honest about work and silent about latency — and `CLAUDE.md` ranks
+latency first. So a round profiling anything divided asks *which side of the division is this on*
+before ranking it, and the two numbers that answer it are the profile's and the planner's own worst
+strip.
+
 **A hot callee is invisible under a fat link, and one attribute is the whole instrument.**
 `[profile.release]` inlines aggressively across crates, so callgrind reports a callee's cost against
 its *caller's* name and files the inlined library code under `uint_macros.rs`, `slice/index.rs` and

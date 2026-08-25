@@ -585,6 +585,20 @@ inside it `render_cpu::convert::path` 405 M, `Rect::from_points` 218 M and
 `RasterPipelineBlitter::new` 164 M are **787 M — 19% of the render — of per-command work that does
 not shrink with the band**, and that a strip replay repeats once per strip a command touches.
 
+**That composition is spent, and the six hundred rounds it took to say so is the lesson rather than
+the numbers.** The *total* above has been re-taken in the hundred-and-sixty-second,
+-third, -seventy-fifth, -eighty-fifth and -ninety-fifth sessions and again in ADR 0677's table; the
+*breakdown* was last taken with it in the hundred-and-sixty-third. Re-run in the
+seven-hundred-and-sixty-second (ADR 0687), two of the three items above are gone —
+`convert::path` 405 M → 45 M, `RasterPipelineBlitter::new` 164 M → 24.5 M — `Rect::from_points` is
+where it was at 227.9 M, and what had taken their place was **`pdf_render::strips::segments` at
+373.7 M self and 448.3 M inclusive**, a function no document in this tree had ever named. A total
+is what a later round re-takes and a breakdown is not, so **a composition decays faster than the
+sum it adds up to**; `doc/habits.md`'s measuring section carries the rule. Retaking it is one
+`valgrind --tool=callgrind` over `examples/callgrind_rasterise` and one `callgrind_annotate
+--tree=both`, which is a minute — so the ranking above is never a thing to read when it can be
+printed.
+
 **And the counter that decides it is written and run: `examples/strip_spans`, ADR 0137.** At eight
 strips a command touches **1.01 to 1.13** of them on four pages, so the 19% is multiplied by 1.13
 and not by 8 — a **2.5%** penalty, and duplication is not the problem. **Imbalance is, and a prefix
@@ -644,6 +658,24 @@ page transparent — a `[0,0,0,0]` pixel is exactly the medium, so that case is 
 `command_extents` rebuilt every command's clip chain from the leaf, **606 ms** on
 `bug1721218_reduced.pdf`, six times that page's whole rasterisation, correct and unmeasured for two
 sessions because only an example called it.
+
+**The planner's *other* half was never priced at all, and it was half the critical path** (ADR
+0687). `unsplittable_rows` walks every fill's, every clip's and every soft mask's path to name the
+rows a cut may not fall on, and on page 101 of ISO 32000-2 that was 76 991 `mark` calls per render,
+**448 M inclusive — 8.28% of the page** — with the whole planning prologue at 494 M, 9.13%. Nine of
+those ten marks changed nothing: a dense text page is thousands of glyph fills over a few hundred
+rows, and once a line of text has marked its own rows every later glyph on it re-marks them.
+Skipping a path whose every reachable row is already forbidden — exact, because `Path::bounds` is
+the control hull `oblique_spans` reports y ranges of — takes the page down **7.08%**, `tracemonkey`
+5.81%, page 6 3.19%.
+
+**Nine per cent of the total understated it, and the arithmetic that says so is worth keeping**:
+the prologue is serial and everything under it is not. `examples/strip_spans` says page 101 is
+granted eleven strips whose slowest holds 10.6% of the estimated cost, so of the ~258 M a render
+costs, the drawing contributes about 233 M × 10.6% ≈ 24.7 M to the critical path — and the planner
+was 24.7 M of it. **On this page the plan cost as much as the drawing did.** It is now 5.1 M.
+A share of a *total* and a share of a *critical path* are different questions on any parallel path,
+and this file had only ever asked the first.
 
 **And ADR 0137's touch ratio was right about four pages and wrong as a property of pages.** The
 oracle's first parallel run kept every verdict and went **37.0 s → 59.1 s**; five pages held most of
