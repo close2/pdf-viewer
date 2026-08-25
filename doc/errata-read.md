@@ -1494,3 +1494,76 @@ clause of that conversion — so quoting NOTE 2 as a blockquote fails the gate, 
 does not contain … as written*. The convention that already exists is `measurement.rs`'s for Issue
 #534: an erratum's replacement text goes in *italics*, naming the issue, never between `> ` or between
 quotation marks. Both places this round wrote it now do.
+
+## §7.4.1's two producer rules, the filter set that became this program's, and an example missing its EOD — the seven-hundred-and-sixty-fifth
+
+The successor rule's seventh use. Over live rows the head is **§7.6.4.1 and §7.6.6 with six
+annotations apiece**, and the four-use plateau above them is gone for a reason that is this round's
+finding rather than the decay working — see below. Over **every** row §9.6.4 is gone (760 read it)
+and the head is **§7.4.1 with eight annotations under two issues**, `implemented`, which is the
+figure 750 measured from outside and 760 named as second. Both issues fall under one `emit` heading,
+so nothing had to be reassembled. ADR 0691.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §7.4.1 first paragraph, and the categories sentence | 49, 50 | #216 | **corrects, and is the one that moved the row** | Three annotations, `Review/Accepted`. A strike at `[138.740005 249.809113 153.964203 262.747986]` over the `are` that `-bbox` puts at exactly (138.74, 579.17)–(153.96, 592.11) — the fourth of four on the page, and the rectangle picks it out to the hundredth of a point — in "Whether to do so and which decoding filter or filters to use are specified in the stream dictionary", with a caret at `[313.168701 248.161377 323.228882 256.358582]` writing *shall be*; a second caret on the same line, past `dictionary.` at (265.30, 579.17)–(315.75, 592.11), inserting *All stream data shall follow the appropriate format(s) as described below.*; and a strike at `[93.863998 640.609131 113.360596 653.547974]` over the `files` at (93.86, 188.37)–(113.36, 201.31) in "PDF files support a standard set of filters that fall into two main categories", with a caret writing *processors shall*. The first two are a producer's. **The third is not**, and it is what reading this issue was worth: below. |
+| §7.4.1 EXAMPLE 3 | 51 | #527 | **corrects an example, and its two halves check each other** | Two annotations, `Review/Completed`. A caret at `[84.104729 372.66507 91.43129 378.634857]` — (84.10, 463.29)–(91.43, 469.25) from the top, at the end of the last base-85 line and immediately above the `endstream` at (68.54, 470.01) — writing *~>*, so the example's ASCII base-85 stream had been printed without §7.4.3's end-of-data marker; and a strike at `[154.820007 478.438507 159.643997 486.647339]` over the last glyph of the `447` at (145.22, 355.27)–(159.64, 363.48), with a caret writing *9*, so `/Length 447` becomes 449. **Two bytes of marker and two of length**: the corrections are one change and each confirms the other's arithmetic. This tree quotes the example's arrangement — `/Filter [/ASCII85Decode /FlateDecode]` — in `filter.rs` and in `nested_content_window.rs`, and its bytes nowhere, so nothing here transcribed the missing marker. It is corroboration for Issue #293's addition to §7.4.3, read in the six-hundred-and-fifty-sixth: the marker is a rule rather than a convention, and the standard's own example is now written as though it were one. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #216's third annotation moves a sentence from describing a file to obliging a processor.**
+"PDF *files support* a standard set of filters" becomes "PDF *processors shall support* a standard
+set of filters", so Table 6 stops being an inventory of what documents contain and becomes a closed
+set this program owes. It is owed in full and it is met — five byte-to-byte filters in
+`filter.rs`, `Crypt` a pass-through because §7.6.2 has already decrypted the bytes by the time a
+chain runs, and four image codecs recognised by `is_image_codec` for the image pipeline to run —
+and **nothing asserted it.** Every filter in Table 6 has a test of its own *output*; not one asked
+whether the table was covered, so a name dropped from `decode_reported`'s match or from
+`is_image_codec` becomes `FilterRefusal::Unsupported`, which is also what a name from no table gets,
+with every other test in `pdf-syntax` green. That is the fifth use's shape for a third row and by a
+third mechanism: there a round trip that could not fail, then a sentence about a sibling row, and
+here a set with no closure check.
+
+`every_filter_table_6_names_is_supported_under_both_of_its_spellings` walks Table 6's ten names and
+Table 92's seven abbreviations — seventeen spellings, because `decode_reported` admits the inline
+form beside the full one — and asks of each whether it decodes here or is an image codec, and
+whether the two spellings of one filter answer alike on the same bytes. Calibrated per trap 13
+against two plants, each of which the whole crate is otherwise silent about: `JPXDecode` taken out
+of `is_image_codec`, and `A85` taken off `ASCII85Decode`'s arm.
+
+**And §7.4's own row could not add up.** It said Table 6's ten filters were "[f]our … stream filters
+implemented here, one … a pass-through … and four … image codecs", which is nine, while the same
+note has said since the seven-hundred-and-fourteenth that "all five of Table 6's byte-to-byte
+filters can be windowed". `filter.rs` decodes five. The wrong number is corrected in the row, and
+`--bin counts` is not at fault for missing it: a cardinal is a claim about a family there only where
+it governs one of the ledger's own words for a row, and *stream filters* is not one.
+
+### The eighth blindness, and it is this rule's own record naming an issue in order to disown it
+
+**The live ranking's head did not move because a round read it. It moved because a sentence
+mentioned it.** 760 recorded, correctly, that an early draft of its ADR had written two issue
+numbers in full and taken §14.8.5.3 off the ranking without a verdict — and the sentence recording
+that fix writes both numbers with the `Issue #` prefix, inside backticks, in
+`doc/history/760-the-operator-category-a-row-said-we-could-not-run.md`. Step 2's first grep cannot
+tell a **use** from a **mention**. So at this round's base both numbers count as named, the
+population is 118 where restoring the two gives 120, and §14.8.5.3 — the live head for four
+consecutive uses — is not in the live ranking at all.
+
+Measured rather than inferred: with the two numbers put back, this round's script prints exactly
+760's own figures — 120 named nowhere, §14.8.5.3 the live head with seven annotations under two
+issues — and without them the live head is §7.6.4.1 and §7.6.6 with six. That is the calibration
+that says the mention is what did it.
+
+**Neither number is written here**, and that is not squeamishness: this file's own bare column is
+step 2's *second* grep, so recording a number here is how an erratum leaves the population, and
+these two have no verdict to leave it with.
+
+**The repair is a rule about writing, as 750's was, because no third grep can see the difference.**
+A sentence about the *form* of an issue number must not contain one: write "with the `Issue #`
+prefix" and say how many, never which. The two this round found are left in the population on
+purpose, in the form the greps already read, and they will be at the head of the live ranking again
+the moment somebody looks — which is where they belong, since no round has yet given either a
+verdict.

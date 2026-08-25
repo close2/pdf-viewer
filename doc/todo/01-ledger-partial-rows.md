@@ -4311,6 +4311,48 @@ amendment. `measurement.rs`'s convention for Issue #534 is the one to follow: an
 replacement goes in *italics*, naming the issue, never between `> `. This file and
 `doc/errata-read.md` had the rule written down for *struck* text only.
 
+## The rule's seventh use, in the seven-hundred-and-sixty-fifth, and the head a *mention* took off the list
+
+**The full ranking out-ranked the live one for the third time running.** Over live rows the head is
+§7.6.4.1 and §7.6.6 with six annotations apiece; over **every** row it is §7.4.1 with eight under two
+issues, `implemented` — the figure 750 measured from outside and 760 named as second, reproduced
+before it was trusted, which is 755's calibration practice for the third round in a row. Both issues
+fall under one `emit` heading. ADR 0691; `doc/errata-read.md` has both with their rectangles.
+
+**The head paid with a sentence that changes who a clause is addressed to.** Issue #216 strikes
+*files* from §7.4.1's "PDF files support a standard set of filters that fall into two main
+categories" and writes *processors shall* in its place, so Table 6 stops describing what documents
+contain and becomes a closed set this program owes. It is met — five byte-to-byte filters, `Crypt` a
+pass-through, four image codecs handed to the image pipeline — and nothing asserted it: every filter
+had a test of its *output* and none asked whether the table was covered, so a name dropped from
+`decode_reported` or from `is_image_codec` became `Unsupported`, which is what a name from no table
+gets, with the rest of the crate green. Issue #527 corrects the clause's EXAMPLE 3 — a base-85 stream
+printed without its `~>` marker, and `/Length 447` becoming 449, which is exactly those two bytes.
+
+**Three things about the rule itself, and the first is the biggest thing this rule has learned about
+its own record.**
+
+- **A mention is not a use, and step 2 cannot tell them apart.** 760 recorded that an early draft had
+  written two issue numbers in full and taken §14.8.5.3 off the ranking without a verdict — and the
+  sentence recording that fix writes both numbers with the `Issue #` prefix, inside backticks, in
+  order to say they should not be written that way. So both left the population anyway, and the live
+  head this rule had carried for four consecutive uses vanished from the live ranking. Measured:
+  restoring the two gives back 760's own figures exactly, 120 named nowhere and §14.8.5.3 at the live
+  head with seven; without them the live head is six. **The repair is a rule about writing**, because
+  a bare-number search is already ruled out by `doc/HAYRO_ISSUES.md` and excluding `doc/history/`
+  would silence true records: *a sentence about the form of an issue number must not contain one* —
+  write "with the `Issue #` prefix" and say how many, never which. **This is the eighth blindness on
+  the list and the second that is the instrument's rather than an erratum's.**
+- **A settled row's erratum found the evidence weaker than the row for a third time, by a third
+  mechanism.** 755 found a round trip that could not fail; 760 found a sentence about a sibling row;
+  this found a *set* with no closure check. The three have nothing in common except the status, which
+  is the fourth step's whole argument working.
+- **The reading found a wrong number no sweep can print, in the parent row.** §7.4's note called Table
+  6's ten "[f]our … stream filters implemented here, one … a pass-through … and four … image codecs",
+  which is nine, while the same note has said since ADR 0587 that all *five* of Table 6's byte-to-byte
+  filters can be windowed. `--bin counts` is right not to see it: a cardinal is a claim about a family
+  there only where it governs one of the ledger's own words for a row.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
