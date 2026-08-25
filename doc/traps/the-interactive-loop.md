@@ -115,3 +115,11 @@ page's place — `settle` skips a page whose `pending` already matches the targe
 silence is not a leak and the frame that supersedes it is what answers.
 `viewer-core/tests/headless.rs::a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked`
 asserts both halves, because neither was written down anywhere a host could read it.
+
+**Where the rule now lives, so that a host cannot get it wrong by writing it a third time:**
+`viewer_host::drawing::Finished::outcome` is an `Option<Rendered>` and `None` means nothing is owed
+(ADR 0668). Both native windows write the same two lines — a `let else` that continues — so the trap
+is visible at the call site instead of being a sentence somebody has to remember. The same shape is
+what makes the *positive* rule checkable: a tier-1 host abandons only a draw whose token
+`viewer_core` has already replaced or dropped, so silence is not merely safe, it is what the core
+would have done with the answer anyway.

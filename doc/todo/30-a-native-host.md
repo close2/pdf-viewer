@@ -158,25 +158,40 @@ their controls from left one item in its place, below. Plus the standing note ab
   options are drawn and the unmarked selection is reported. What is left on the page is the mark,
   which no clause states and which this tree will not invent; a host draws it from
   `ChoiceControl::selected`, as it draws a text selection, in its own colour.
-- **Both native windows rasterise on the event thread, so neither can stop a draw** — open, found
-  by asking which hosts ADR 0657's interrupt policy has. `viewer-gtk` and `viewer-qt` both call
-  `self.rasterizer.rasterize(&request.list, request.target)` **inside** their `Event::NeedsRender`
-  arm, on the toolkit's main thread. `pdf_render::Interrupt` is a flag *another* thread raises, so
-  in those two there is no other thread to raise it and nothing for it to interrupt but the loop
-  that would do the raising: a page written to draw for 27.6 s (ADR 0650) takes the window with
-  it — no repaint, no key, no way to say stop.
+- ~~**Both native windows rasterise on the event thread, so neither can stop a draw.**~~ **Taken in
+  the seven-hundred-and-fifty-fourth** (ADR 0668), and **it needed no message**, which is the
+  fifteenth time since the six-hundred-and-seventh. `viewer_host::drawing` is the arrangement —
+  a queue, one job in flight, and a thread the first page to need one spawns — and both hosts lost
+  their `rasterize` call for a `drawing.ask(request)`. This entry's prediction held in both halves:
+  what the two needed was `viewer-ui`'s thread rather than a watchdog, and the policy did move into
+  `viewer-host` the moment there were two hosts to write it twice.
 
-  **The answer is not a watchdog**, and that is worth writing down so a later round does not reach
-  for one: a thread whose only job is to raise the flag after a fixed duration is precisely the
-  automatic deadline ADR 0657 §1 measured and refused, and it would refuse legitimate pages while
-  a document that chose its cost passed. What these two need is `viewer-ui`'s arrangement — the
-  draw on a thread of its own (`crate::composer`, ADR 0461) — after which they get the policy
-  unchanged and it moves into `viewer-host`, which is where it belongs the moment there are two
-  hosts to write it twice.
+  **What the entry did not predict is that a tier-1 host states the rule *more exactly* than the
+  host it was copied from.** `viewer-ui`'s is `stale::could_stand_in`, a judgement about whether a
+  finished picture could be shown or moved; a tier-1 host holds a **token**, and `viewer_core`
+  drops a `RenderReady` whose token is not the one outstanding — so a draw whose token the viewer
+  no longer holds provably cannot change a pixel. The two things that take a token away are a newer
+  request for the same page, which `Drawing::ask` sees for itself, and the page leaving Table 29's
+  arrangement, which is `Query::PageGeometry`'s answer and the one fact each host has to supply.
 
-  `viewer-ffi` is the third and the case is different: a C caller is *told* to move the request to
-  a thread of its own, so the structure is already right and what is missing is an ABI entry point
-  to raise a flag with. That is a header change and a levelness question of its own.
+  **And the arrangement is a *pull*, which `viewer-qt` decided.** C++ owns the `Host` for the life
+  of `QApplication::exec` and Rust never calls a Qt object, so there is no path from a drawing
+  thread into that loop that would not cost a second hand-written `unsafe` token. GTK could be woken
+  through a file descriptor and is not, because this file's own rule is one arrangement in three
+  hosts. `Drawing::interval` answers how long to wait and each toolkit arms its own one-shot — the
+  same shape `viewer_host::Clock` has — and it answers `None` at rest, so a window showing a drawn
+  page wakes for this never.
+
+  `viewer-ffi` is the third and the case is different, and is **still open**: a C caller is *told*
+  to move the request to a thread of its own, so the structure is already right and what is missing
+  is an ABI entry point to raise a flag with. That is a header change and a levelness question of
+  its own.
+
+  **One thing is owed and is named rather than left silent**: the launch A/B on a quiet machine. The
+  arrangement adds one trip through the toolkit's main loop to page one, measured at 2.1 ms in both
+  toolkits with the loop otherwise idle, and between 53 and 400 ms at launch on a machine carrying
+  three other rounds — where both arms drifted by an order of magnitude and neither number is the
+  program's. ADR 0668 §7.
 
 ## Three hosts, and what turned out not to be a toolkit's
 

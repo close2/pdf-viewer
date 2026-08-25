@@ -4743,6 +4743,7 @@ dependencies = [
  "pdf-model",
  "pdf-render",
  "pdf-syntax",
+ "render-cpu",
  "thiserror 2.0.19",
  "viewer-core",
 ]

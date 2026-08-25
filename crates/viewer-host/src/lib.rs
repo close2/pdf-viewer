@@ -45,6 +45,12 @@
 //!   the three event loops that could supply one — `glib::timeout_add_local`, `QTimer`, winit's
 //!   `ControlFlow::WaitUntil` — agree about every question the clause asks and differ in every
 //!   letter of how it is asked.
+//! - [`drawing`] — the rasterisation of a page, on a thread of its own, with the one rule that says
+//!   when to take that thread back. Both native windows used to draw inside the arm that received
+//!   `Event::NeedsRender`, on the toolkit's main thread, so a page written to be expensive took the
+//!   window with it and `pdf_render::Interrupt` — a flag *another* thread raises — had no thread to
+//!   be raised from. It is here rather than in either host for this crate's own test: the second
+//!   copy is where two hosts stop agreeing, and what a *toolkit* supplies is only the timer.
 //! - [`copying`] — §14.8.2.5's two content orders, and which of them the text a person copies out
 //!   of the program is in. The *clipboard* is a platform surface and there are four of them here;
 //!   which order to hand it, and what to say about the one it did not get, is one decision.
@@ -95,6 +101,7 @@
 pub mod arrangement;
 pub mod clock;
 pub mod copying;
+pub mod drawing;
 pub mod fit;
 pub mod form;
 pub mod geometry;
@@ -110,6 +117,7 @@ pub mod trace;
 pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
+pub use drawing::{Drawing, Finished};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};
 pub use geometry::{bounds, covers};

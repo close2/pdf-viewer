@@ -39,7 +39,7 @@ use pdf_render::Rasterizer;
 use render_cpu::CpuRasterizer;
 use viewer_core::{
     Answer, Command, DocumentId, Edit, Entered, Event, Extraction, Find, FindDirection, FormField,
-    PageTarget, PointerAction, PresentationMode, Query, Rendered, Viewer, Zoom,
+    PageTarget, PointerAction, PresentationMode, Query, Viewer, Zoom,
 };
 
 use crate::controls::{FieldChange, Placed};
@@ -181,8 +181,26 @@ pub struct Host {
     bytes: Vec<u8>,
     /// Annex O's fragment, where the host was given one.
     fragment: Option<String>,
-    /// Tier 1's worker, called on this thread. See ADR 0244 for what that costs and why.
+    /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
+    /// §12.4.4.1's two transition faces.
+    ///
+    /// **The page is no longer drawn here**, which is ADR 0668: a display list this program did not
+    /// write is drawn on [`Host::drawing`]'s thread, so that a page written to be expensive cannot
+    /// take the window with it. What is left on this thread is bounded by *this host's* own asking
+    /// — a miniature is a `/Thumb` at panel size and a face is one whole-viewport draw per page
+    /// turn while a presentation is running — rather than by what a document chose to state.
     rasterizer: CpuRasterizer,
+    /// The page rasteriser, on a thread of its own.
+    ///
+    /// `viewer_host::Drawing` is the whole arrangement, shared with `viewer-qt`: what is GTK's is
+    /// the one-shot below that asks it whether anything has landed.
+    drawing: viewer_host::Drawing,
+    /// The one-shot waiting to ask [`Host::drawing`] whether a page has finished.
+    ///
+    /// **`None` is a window that wakes for this exactly never**, which is the same shape
+    /// [`Host::armed`] has one clause over: `pump_drawing` re-arms only while `Drawing::interval`
+    /// answers `Some`, and it answers `None` the moment the thread is idle.
+    drawing_armed: Option<glib::SourceId>,
     /// The launch timeline.
     pub(crate) trace: Trace,
     /// The widgets.
@@ -412,6 +430,10 @@ impl Host {
                 bytes,
                 fragment,
                 rasterizer: CpuRasterizer::new(),
+                // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule
+                // that nothing page one does not need happens before page one.
+                drawing: viewer_host::Drawing::new(),
+                drawing_armed: None,
                 trace,
                 ui,
                 chrome,
@@ -521,34 +543,159 @@ impl Host {
     }
 
     /// Runs commands until nothing is left, reacting to what each produces, then repaints.
+    ///
+    /// **The outer loop is the drawing thread's** (ADR 0668). A page that finished while the
+    /// commands were being run answers the viewer with a `RenderReady`, which produces more events
+    /// — so the queue is drained again rather than the answer waiting for the next wakeup.
     fn pump(&mut self, mut queue: VecDeque<Command>) {
-        while let Some(command) = queue.pop_front() {
-            let described = self
-                .trace
-                .on(Topic::Events)
-                .then(|| format!("{command:?}"))
-                .map(|text| text.chars().take(120).collect::<String>());
-            // **A command that changes the document changes what §14.7's tree says**, and
-            // `Showing` cannot see it: an edit and a click move neither the page nor the viewport.
-            // Which commands those are is one statement for all three windows
-            // (`viewer_accessibility::republishes`, ADR 0623).
-            if viewer_accessibility::republishes(&command) {
-                self.spoken = None;
+        loop {
+            while let Some(command) = queue.pop_front() {
+                let described = self
+                    .trace
+                    .on(Topic::Events)
+                    .then(|| format!("{command:?}"))
+                    .map(|text| text.chars().take(120).collect::<String>());
+                // **A command that changes the document changes what §14.7's tree says**, and
+                // `Showing` cannot see it: an edit and a click move neither the page nor the
+                // viewport. Which commands those are is one statement for all three windows
+                // (`viewer_accessibility::republishes`, ADR 0623).
+                if viewer_accessibility::republishes(&command) {
+                    self.spoken = None;
+                }
+                let events: Vec<Event> = self.viewer.handle(command).collect();
+                if let Some(described) = described {
+                    self.trace.say(
+                        Topic::Events,
+                        format_args!("{described} -> {} event(s)", events.len()),
+                    );
+                }
+                for event in events {
+                    self.react(event, &mut queue);
+                }
             }
-            let events: Vec<Event> = self.viewer.handle(command).collect();
-            if let Some(described) = described {
-                self.trace.say(
-                    Topic::Events,
-                    format_args!("{described} -> {} event(s)", events.len()),
-                );
-            }
-            for event in events {
-                self.react(event, &mut queue);
+            self.take_the_thread_back();
+            self.take_the_drawn(&mut queue);
+            if queue.is_empty() {
+                break;
             }
         }
         self.refresh();
         self.pump_search();
         self.pump_presentation();
+        self.pump_drawing();
+    }
+
+    /// ADR 0668's second half: takes the drawing thread back from a page the arrangement has
+    /// stopped showing.
+    ///
+    /// The *rule* is `viewer_host::Drawing`'s and the same in both native windows; what this
+    /// supplies is the one fact that crate cannot ask for itself, because it holds no viewer: a
+    /// page Table 29's arrangement does not show has no place on the screen, so
+    /// `Query::PageGeometry` answers `Answer::None` for it.
+    fn take_the_thread_back(&mut self) {
+        let Some(page) = self.drawing.inside() else {
+            return;
+        };
+        let shown = matches!(
+            self.viewer.query(Query::PageGeometry(page)),
+            Answer::Geometry(_)
+        );
+        if self.drawing.superseded(shown) {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} left the arrangement while it was being drawn, so the draw was \
+                     abandoned",
+                    page.saturating_add(1)
+                ),
+            );
+        }
+    }
+
+    /// Takes whatever the drawing thread has finished and answers the viewer for it.
+    ///
+    /// **A `Finished` whose outcome is `None` is answered to nobody**, which is trap 20 and is why
+    /// the type carries an `Option` rather than a `Rendered`: `Rendered::Failed` would record the
+    /// page as answered for and stop the scheduler ever asking again, which freezes a page this
+    /// window merely chose not to finish drawing.
+    fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
+        for finished in self.drawing.collect() {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "page {} {} {}x{} in {:?}, waited {:?}",
+                    finished.request.page.saturating_add(1),
+                    if finished.outcome.is_some() {
+                        "rasterised"
+                    } else {
+                        "abandoned after"
+                    },
+                    finished.request.target.width,
+                    finished.request.target.height,
+                    finished.cost,
+                    finished.waited
+                ),
+            );
+            let Some(rendered) = finished.outcome else {
+                continue;
+            };
+            queue.push_back(Command::RenderReady {
+                token: finished.request.token,
+                rendered,
+            });
+            // §12.4.4.1: the page a transition moves *to* is the one whose list has just arrived,
+            // so this is where an armed one can begin. Only while a presentation is running,
+            // because taking the face costs a whole-viewport rasterisation and no other clause
+            // wants one.
+            self.face_arrived(&finished.request);
+        }
+    }
+
+    /// Takes down the pending drawing poll, if there still is one.
+    ///
+    /// [`Host::disarm`]'s reason one clause over: `SourceId::remove` panics on a source that has
+    /// already fired, so the id is looked up before it is used.
+    fn disarm_drawing(&mut self) {
+        let Some(armed) = self.drawing_armed.take() else {
+            return;
+        };
+        if let Some(source) = glib::MainContext::default().find_source_by_id(&armed) {
+            source.destroy();
+        }
+    }
+
+    /// Arms the next look at the drawing thread, on GTK's own main loop.
+    ///
+    /// A one-shot re-armed after every look, for [`Host::pump_presentation`]'s reason: the interval
+    /// is `None` the moment nothing is being drawn, and a repeating source cannot stop.
+    fn pump_drawing(&mut self) {
+        self.disarm_drawing();
+        let Some(interval) = self.drawing.interval() else {
+            return;
+        };
+        let me = self.me.clone();
+        self.drawing_armed = Some(glib::timeout_add_local_once(interval, move || {
+            with(&me, |host| {
+                host.drawing_armed = None;
+                host.look_at_the_drawing();
+            });
+        }));
+    }
+
+    /// One look at the drawing thread: answer the viewer for whatever landed, and draw it.
+    ///
+    /// **A look that finds nothing repaints nothing**, which is [`Host::turn_the_clock`]'s own
+    /// answer to the same question: a page being drawn is asked about a thousand times a second,
+    /// and rebuilding this window's textures at that rate would copy megabytes for a picture that
+    /// has not changed.
+    fn look_at_the_drawing(&mut self) {
+        let mut queue = VecDeque::new();
+        self.take_the_drawn(&mut queue);
+        if queue.is_empty() {
+            self.pump_drawing();
+            return;
+        }
+        self.pump(queue);
     }
 
     /// Does what one event asks.
@@ -593,34 +740,12 @@ impl Host {
                 section,
                 ..
             } => self.turned(index, label.as_deref(), of, section.as_deref()),
-            Event::NeedsRender(request) => {
-                let began = std::time::Instant::now();
-                let rendered = match self.rasterizer.rasterize(&request.list, request.target) {
-                    Ok(raster) => Rendered::Raster(raster),
-                    // Trap 5: a host that quietly kept the previous page would be telling a person
-                    // something false about this one.
-                    Err(error) => Rendered::Failed(error.to_string()),
-                };
-                self.trace.say(
-                    Topic::Frames,
-                    format_args!(
-                        "page {} rasterised {}x{} in {:?}",
-                        request.page.saturating_add(1),
-                        request.target.width,
-                        request.target.height,
-                        began.elapsed()
-                    ),
-                );
-                queue.push_back(Command::RenderReady {
-                    token: request.token,
-                    rendered,
-                });
-                // §12.4.4.1: the page a transition moves *to* is the one whose list has just
-                // arrived, so this is where an armed one can begin. Only while a presentation is
-                // running, because taking the face costs a whole-viewport rasterisation and no
-                // other clause wants one.
-                self.face_arrived(&request);
-            }
+            // **Handed to the drawing thread rather than drawn here** (ADR 0668). Until the
+            // seven-hundred-and-fifty-fourth session this arm called `rasterize` on the toolkit's
+            // own thread, so a page written to draw for 27.6 s took the window with it — no
+            // repaint, no key, and no thread from which `pdf_render::Interrupt` could be raised.
+            // What comes back arrives in `take_the_drawn`.
+            Event::NeedsRender(request) => self.drawing.ask(request),
             // §12.6.4.8: handed over rather than opened. The string is one the *document*
             // controls, and giving it to a browser is a decision about this machine that this
             // host has not been given — the same answer `viewer-ui` gives.

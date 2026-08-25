@@ -130,6 +130,20 @@ request, a variant changing shape would mean two different facts carried at one 
 `Query` is no use for an answer that arrives unasked. One consumer failed to compile —
 `viewer-ui`, the only one that matches `Rendered` exhaustively — `PDFV_EVENT_KIND_COUNT` stayed
 where it is, because an outcome is not an event, and the C ABI gained no entry point (ADR 0640).
+**And the seven-hundred-and-fifty-fourth added nothing at all either**, which is the sixth time and
+the one that moved the most host code: both native windows rasterised inside their
+`Event::NeedsRender` arm, on the toolkit's main thread, so a page written to draw for 27.6 s took
+the window with it — and `pdf_render::Interrupt`, a flag *another* thread raises, had no thread to be
+raised from. `viewer_host::drawing` is the thread, shared by both, and everything it needed was
+already here. The sharpest part is that this boundary's own bookkeeping is what makes the policy
+*exact* rather than a judgement: `Viewer::rendered` drops a `Command::RenderReady` whose token is not
+the one outstanding, which was written so that "a worker that is slow costs a wasted render and never
+a wrong frame" — and read the other way round it says a draw whose token the viewer no longer holds
+cannot change a pixel, which is precisely when a host may stop drawing. What it did *not* need was a
+question about that: `Query::PageGeometry` already answers `Answer::None` for a page the arrangement
+does not show, which is the other half of the rule. `PDFV_EVENT_KIND_COUNT` stayed 16 and the C ABI
+gained no entry point — it is the one host of the four still without a way to raise a flag, which is
+`doc/todo/30`'s (ADR 0668).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
