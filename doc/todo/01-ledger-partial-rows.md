@@ -4120,6 +4120,49 @@ the five errata with their rectangles.
   quotation in `ledger.toml` — the population that has a gate; and #219 had to be reassembled across
   two clause headings, seven annotations on two tables in two clauses.
 
+## The rule's third use, in the seven-hundred-and-forty-sixth, and it needed a tie-break
+
+**The head moved for the first time, and it moved because the two rounds before it were read.**
+§12.8.1 and §12.5.2 are gone from the ranking — every issue on them now carries a verdict in
+`doc/errata-read.md` — which is the decay the rule was chosen for, working. §12.7.5.5 and §9.8.1,
+the other two rows 734's reconstruction found in the top six at all nine bases, are at ranks 8 and 7.
+
+**Three rows tie at the head with seven annotations apiece**, which the rule as written does not
+settle. §7.7.4's seven are #214, the global *name string* → *string* rename, five times over on
+Table 31's rows, and #672, which marks `/IDS` and `/URLS` *deprecated in PDF 2.0*; §14.8.5.3's are
+#357, *version* → *level* on three of Table 384's CSS owners, and #224, which inserts *structure*
+into a NOTE; §12.10.2's change a requirement level and an entry's meaning. **So the tie-break is
+what the annotations do rather than how many there are**, and it is worth stating because a count of
+carets weighs a five-times-repeated editorial substitution as five: read the row whose errata strike
+a *cell* — a requirement level, a type, a description — ahead of the row whose errata substitute a
+word in prose. Both losing rows were read far enough to say that, which is the cheap part; #672's
+two deprecations are worth a later round's attention on their own, since `/IDS` and `/URLS` are Web
+Capture's and this tree reads neither.
+
+**The head paid, and it paid by making an implementation possible rather than by naming a debt.**
+§12.10.2's row claimed *Table 269 entire* and §12.10's blocker said turning a page coordinate into a
+latitude needs the EPSG registry. Issue #534 strikes three words of `/PCSM`'s description and writes
+its whole shape in their place — *a 4x4 affine transformation matrix in row order*, applied to the
+position as *[ x y z 1 ]* — and twelve numbers for a 4×4 matrix is §8.3.4's own elision one dimension
+up, so the leg from the object's coordinates to the projected system is a matrix multiplication with
+nothing outside the standard in it. The registry owns the *second* leg. ADR 0653;
+`doc/errata-read.md` has the four errata with their rectangles.
+
+**Three things about the rule itself, from running it:**
+
+- **The instrument was sound this time**, which is worth recording because the two uses before it
+  each found something wrong with the instrument. Step 2 as 739 repaired it needs no further
+  correction: 133 of the 302 issue numbers carrying a strike or a caret are named nowhere, and
+  spot-checking the head's four against both greps and `doc/HAYRO_ISSUES.md` turned up no collision.
+- **A tie is the normal case at the head and the rule should have expected one.** The ranking's
+  units are annotations, and an issue lands between one and seven of them on a row, so the top of
+  the list is a plateau rather than a peak. The tie-break above is the rule's, now.
+- **The blindness this round met is the second on the list, again**: #534's strike is
+  `projected coordinate system.` — three words, under `check`'s four-word floor — and the doc
+  comment on `Geospatial::projected_matrix` quoted the sentence it sits in. Two consecutive uses of
+  this rule have found a quotation resting on struck text that `check` cannot see, which says the
+  floor is where the errata debt now is.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

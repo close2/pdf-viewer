@@ -410,15 +410,25 @@ fn unit(value: &str, format: &NumberFormat) -> String {
 ///
 /// # Read as data, and the boundary is stated rather than assumed
 ///
-/// Everything Table 269 holds is read. What is *not* here is the transformation: turning a point
-/// on a page into a latitude means evaluating the projection named in a WKT string or looked up
-/// by an EPSG code, which is a geodesy library and a database — ISO 19162 and the EPSG registry,
-/// both outside this standard, and both named by §12.10.3 as external references. A reader that
-/// guessed at it would produce coordinates that look right and are somewhere else.
+/// Everything Table 269 holds is read. What is *not* here is the **projection**: turning a
+/// point in a projected coordinate system into a latitude means evaluating the algorithm named
+/// in a WKT string or looked up by an EPSG code, which is a geodesy library and a database —
+/// ISO 19162 and the EPSG registry, both outside this standard, and both named by §12.10.3 as
+/// external references. A reader that guessed at it would produce coordinates that look right
+/// and are somewhere else.
 ///
-/// What *is* usable without any of that is the registration: [`Self::registration`] pairs the
-/// `/GPTS` geographic points with the `/LPTS` positions in the object's unit square, which is
-/// the correspondence the file states directly.
+/// **The registry is the second leg of the journey and not the whole of it**, which is worth
+/// stating because this comment said otherwise for a long time. Two things are usable without
+/// any of it:
+///
+/// - the registration — [`Self::registration`] pairs the `/GPTS` geographic points with the
+///   `/LPTS` positions in the object's unit square, which is the correspondence the file states
+///   directly;
+/// - the first leg — [`Self::projected_position`] carries a position in the object's own
+///   coordinates into the projected system by `/PCSM`, which is a matrix multiplication and
+///   needs nothing outside the file. Table 269 gives that matrix priority over `/GPTS` where it
+///   is present, so on a document that states one the arithmetic this module cannot do is
+///   *projected to geographic* alone.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Geospatial {
     /// `/Bounds`, the polygon "for which geospatial transformations are valid" — a *neatline* on
@@ -444,18 +454,42 @@ pub struct Geospatial {
     pub display_units: Option<[String; 3]>,
     /// `/GPTS`, points in geographic space, "as degrees of latitude and longitude, respectively"
     /// — or as eastings and northings where `/GCS` is a projected system.
+    ///
+    /// **Pairs rather than triples, and the condition for the other form is out of this
+    /// reader's reach.** Table 269 requires the array "to hold 3D point coordinates as triples
+    /// rather than pairwise" for the `Geospatial3D` requirement type, "where the third value of
+    /// each tripe is an elevation value" — but only "when Geospatial feature information is
+    /// present … in a 3D annotation", and Errata Collection 3's Issue #284 widens that to a
+    /// `RichMedia` annotation, whose Table 333 states no `/GEO` entry until the same erratum
+    /// adds one. A geospatial measure dictionary reaches this module through §12.9's `/VP`
+    /// alone, so the dictionary those triples belong to sits inside an annotation of clause 13,
+    /// which `CLAUDE.md`'s exclusion list excludes.
     pub geographic_points: Vec<[f64; 2]>,
     /// `/LPTS`, the same points in the object's own unit square, which Table 269 says "is
     /// mapped to the rectangular bounds of the `Viewport`, image `XObject`, or forms `XObject`
     /// that contains the measure dictionary".
+    ///
+    /// The published table makes it *(Optional)*; Errata Collection 3's Issue #533 strikes that
+    /// word and writes *Required* in its place, which is the entry's own description agreeing —
+    /// the array is what makes `/GPTS` a registration rather than a list of coordinates. The
+    /// triples form on [`Self::geographic_points`] is stated here too and is out of reach for
+    /// the same reason.
     pub local_points: Vec<[f64; 2]>,
     /// `/PCSM`, a twelve-element matrix "defining the transformation from `XObject` position
-    /// coordinates to projected coordinate system".
+    /// coordinates to" the projected coordinate system.
     ///
     /// The table states its own precedence twice over: it "should be ignored" when `/GCS` is
     /// geographic, and where it is present "it has priority over GPTS , and GPTS values may be
-    /// ignored". Both sentences are about a consumer, and this reader is not one — it carries
-    /// the matrix and the points and says which the clause would prefer.
+    /// ignored". [`Geospatial::matrix_has_priority`] is which of the two the clause would
+    /// prefer and [`Geospatial::projected_position`] is the transformation itself.
+    ///
+    /// **The layout of the twelve numbers is Errata Collection 3's**, not the published
+    /// table's, which says only how many there are. Issue #534 strikes `projected coordinate
+    /// system.` and writes *the projected coordinate system. This array represents a 4x4 affine
+    /// transformation matrix in row order. The `XObject` position coordinates are represented as
+    /// a 1x4 matrix, [ x y z 1 ], where the z value is non-zero only in the context of a
+    /// `Geospatial3D`-enabled annotation.  `PCSM` only applies when `GCS` is a projected
+    /// coordinate system.* Issue #358 strikes `real` from `of real numbers` in the same sentence.
     pub projected_matrix: Option<[f64; 12]>,
 }
 
@@ -485,6 +519,47 @@ impl Geospatial {
                 .coordinate_system
                 .as_ref()
                 .is_some_and(|system| system.projected)
+    }
+
+    /// A position in the object's own coordinates, carried into the projected coordinate system
+    /// by `/PCSM` — the one leg of a georeference this program can do without a registry.
+    ///
+    /// `None` where [`Self::matrix_has_priority`] is false, which is the clause's own answer
+    /// rather than a failure: with no matrix there is nothing to apply, and with a geographic
+    /// `/GCS` Table 269 says the matrix "should be ignored".
+    ///
+    /// # Where the arithmetic comes from
+    ///
+    /// The published Table 269 says only that `/PCSM` is a twelve-element matrix, which is not
+    /// enough to multiply by. Errata Collection 3's Issue #534 says the rest — a 4x4 affine
+    /// matrix in row order, applied to the position written as the row vector *[ x y z 1 ]* —
+    /// and twelve numbers for a 4×4 matrix is §8.3.4's own convention one dimension up. There a
+    /// point is "expressed in vector form as [ x y 1]", the matrix is 3-by-3, and:
+    ///
+    /// > Because a transformation matrix has only six elements that can be changed, in most
+    /// > cases in PDF it shall be specified as the six-element array [a b c d e f].
+    ///
+    /// The six are the three rows' first two columns, the elided third column being 0, 0, 1, and
+    /// the multiplication §8.3.4 then writes out takes `a` and `c` and `e` — one element per
+    /// row, a stride of two. Twelve numbers for four rows of a 4×4 matrix is the same elision
+    /// with the last column 0, 0, 0, 1, so the stride here is three.
+    ///
+    /// The `z` of the argument "is non-zero only in the context of a Geospatial3D-enabled
+    /// annotation" — Issue #534 again — so a caller measuring on a page passes `0.0` for it.
+    #[must_use]
+    pub fn projected_position(&self, [x, y, z]: [f64; 3]) -> Option<[f64; 3]> {
+        if !self.matrix_has_priority() {
+            return None;
+        }
+        // One row per line, each name saying which input axis it scales and which output
+        // component it lands in; the fourth row is the translation and the elided last column
+        // is 0, 0, 0, 1.
+        let &[xx, xy, xz, yx, yy, yz, zx, zy, zz, tx, ty, tz] = self.projected_matrix.as_ref()?;
+        Some([
+            x * xx + y * yx + z * zx + tx,
+            x * xy + y * yy + z * zy + ty,
+            x * xz + y * yz + z * zz + tz,
+        ])
     }
 }
 
@@ -591,6 +666,9 @@ fn display_units(document: &Document, dict: &Dictionary) -> Option<[String; 3]> 
 }
 
 /// An array of numbers "taken pairwise", which is how Table 269 states three of its entries.
+///
+/// Pairwise unconditionally, because the one condition under which two of them are triples puts
+/// the dictionary somewhere this module never looks — see [`Geospatial::geographic_points`].
 fn pairs(document: &Document, dict: &Dictionary, key: &str) -> Vec<[f64; 2]> {
     let value = document.get_key(dict, key);
     let Some(array) = value.as_array() else {
@@ -609,6 +687,10 @@ fn pairs(document: &Document, dict: &Dictionary, key: &str) -> Vec<[f64; 2]> {
 }
 
 /// Table 269's `/PCSM`, a twelve-element matrix.
+///
+/// Shorter than twelve is refused rather than padded: the missing elements of a transformation
+/// are not zeroes, and a matrix read from an array that does not state one would georeference a
+/// page onto somewhere else. [`Geospatial::projected_position`] has the layout.
 fn matrix(document: &Document, dict: &Dictionary) -> Option<[f64; 12]> {
     let value = document.get_key(dict, "PCSM");
     let array = value.as_array()?;
@@ -1096,6 +1178,72 @@ mod tests {
             panic!("an absent /Subtype is Table 266's default, RL");
         };
         assert_eq!(measure.ratio, "1:1");
+    }
+
+    /// `/PCSM` carries a position into the projected system, and a geographic `/GCS` disarms it.
+    ///
+    /// Table 269 states the matrix's *size* and Errata Collection 3's Issue #534 states its
+    /// *shape*: a 4x4 affine matrix in row order applied to the row vector `[ x y z 1 ]`. The
+    /// matrix below is that shape with every element distinct, so an implementation that read
+    /// the twelve numbers column-first, or that dropped the translation row, answers differently
+    /// on every component.
+    ///
+    /// It is a hand-built document because no corpus document states a `/PCSM` at all — the one
+    /// witness `tests/measurement.rs` walks is a geographic system with four registration points
+    /// and no matrix, which is trap 8's situation stated rather than worked around.
+    #[test]
+    fn a_projected_coordinate_system_matrix_is_read_in_row_order() {
+        // Four rows of three, every element distinct and the 3×3 block deliberately
+        // asymmetric: a reader that transposed it would agree on a diagonal matrix.
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R 5 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 10 10] /Measure << /Type /Measure /Subtype /GEO \
+             /GCS << /Type /PROJCS /EPSG 32633 >> /GPTS [0 0] /LPTS [0 0] \
+             /PCSM [1 2 3  4 5 6  7 8 9  10 20 30] >> >>",
+            "<< /Type /Viewport /BBox [0 0 10 10] /Measure << /Type /Measure /Subtype /GEO \
+             /GCS << /Type /GEOGCS /EPSG 4326 >> /GPTS [0 0] /LPTS [0 0] \
+             /PCSM [1 2 3  4 5 6  7 8 9  10 20 30] >> >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+
+        let Some(Measure::Geospatial(projected)) = &viewports.viewports[0].measure else {
+            panic!("a geospatial measure");
+        };
+        assert!(
+            projected.matrix_has_priority(),
+            "a matrix beside a PROJCS is the one Table 269 prefers"
+        );
+        assert_eq!(
+            projected.projected_position([1.0, 1.0, 1.0]),
+            Some([22.0, 35.0, 48.0]),
+            "each output component sums one column of the three rows, plus the fourth row"
+        );
+        assert_eq!(
+            projected.projected_position([1.0, 0.0, 0.0]),
+            Some([11.0, 22.0, 33.0]),
+            "the x axis is the first row, which a transposed reading would take as a column"
+        );
+        assert_eq!(
+            projected.projected_position([0.0, 0.0, 0.0]),
+            Some([10.0, 20.0, 30.0]),
+            "the origin lands on the translation row alone"
+        );
+
+        let Some(Measure::Geospatial(geographic)) = &viewports.viewports[1].measure else {
+            panic!("a geospatial measure");
+        };
+        assert_eq!(
+            geographic.projected_matrix, projected.projected_matrix,
+            "the same twelve numbers, so what differs is the /GCS and nothing else"
+        );
+        assert_eq!(
+            geographic.projected_position([1.0, 1.0, 1.0]),
+            None,
+            "Table 269: a geographic /GCS makes the matrix one that should be ignored"
+        );
     }
 
     /// The first viewport's own dictionary, for the point-data reader above.
