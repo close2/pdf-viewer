@@ -19,6 +19,33 @@
 //! §12.4.2's page labels, §12.7.7's named pages and §14.7.5.4's `/ParentTree` all need a name
 //! or number tree and nothing else in this tree read one, so four families in two clauses were
 //! blocked on one small piece of clause 7.
+//!
+//! # What Errata Collection 3 changes here
+//!
+//! Two issues reach these clauses and neither moves a line of this module. `doc/md/` carries
+//! neither, because the sponsored copy records EC3 as review markup and the conversion dropped
+//! every annotation (ADR 0252).
+//!
+//! **Issue #214** (`/State` `Review` `Completed`) strikes the word *lexically* out of "shall be
+//! sorted lexically in ascending order by key" and the phrase *in lexical order* out of Table
+//! 36's `/Names` row. What is left is the ordering §7.9.6 already defined in the two sentences
+//! after it, and nothing else:
+//!
+//! > Shorter keys shall appear before longer ones beginning with the same byte sequence. Any
+//! > encoding of the keys may be used as long as it is self-consistent; keys shall be compared
+//! > for equality on a simple byte-by-byte basis.
+//!
+//! That is `<[u8] as Ord>` exactly, which is what [`TreeKey::compare`] has always used. The
+//! erratum withdraws a word that *named* an order and leaves the words that *define* one, so
+//! the code is unchanged and its reason is now the clause's rather than the word's.
+//!
+//! **Issue #307** (`/State` `Review` `Completed`) is two `Caret`s with nothing struck beneath
+//! them, adding one sentence to Table 36's `/Names` row and the same sentence to §7.9.7's Table
+//! 37 `/Nums` row: *Keys shall not be the null object.* Nothing is retired, so `spec-errata
+//! check` — which compares this tree's quotations against text an erratum struck — cannot see
+//! it at all. It is a requirement on whoever writes the file; what a reader owes is to meet one
+//! that breaks it without losing the pairs around it, which
+//! `a_null_key_yields_nothing_and_leaves_its_neighbours_paired` is.
 
 use crate::object::{Dictionary, Object};
 
@@ -225,8 +252,15 @@ pub fn number_pairs(root: &Dictionary, resolve: &dyn Fn(&Object) -> Object) -> V
 ///
 /// A whole-tree walk rather than a lookup for the reason §7.11.4's attachments need: a caller
 /// listing a document's embedded files has no key to look up. Keys come back as the bytes the
-/// file wrote, since §7.9.6 sorts them "by unsigned character code" and what they *mean* is
-/// §7.9.2's question.
+/// file wrote, because §7.9.6 settles them as bytes rather than as text — "[a]ny encoding of the
+/// keys may be used as long as it is self-consistent" — and what they *mean* is §7.9.2's
+/// question.
+///
+/// **That clause was cited here for words ISO 32000-2 prints nowhere.** The sentence read
+/// `§7.9.6 sorts them "by unsigned character code"` until the seven-hundred-and-fiftieth
+/// session, and no instrument in this project was placed to say so: `spec-errata check`
+/// compares a quotation against text an erratum *struck*, and the conformance gate reads
+/// rustdoc blockquotes rather than a quotation inside a sentence of prose.
 #[must_use]
 pub fn name_pairs(
     root: &Dictionary,
@@ -335,7 +369,7 @@ fn collect<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{TreeKey, lookup, number_pairs};
+    use super::{TreeKey, lookup, name_pairs, number_pairs};
     use crate::object::{Dictionary, Name, Object};
 
     /// Builds a node dictionary from entries, keeping the test fixtures readable.
@@ -498,6 +532,67 @@ mod tests {
         assert_eq!(
             pairs.first().map(|(_, value)| value.clone()),
             Some(string("i"))
+        );
+    }
+
+    /// A null key holds nothing, and the pairs after it keep their own values.
+    ///
+    /// Errata Collection 3's Issue #307 adds *Keys shall not be the null object.* to Table 36's
+    /// `/Names` row and to §7.9.7's Table 37 `/Nums` row; the module comment has the annotation
+    /// and why no sweep can see it. A `shall not` addressed to a writer is a malformed file to a
+    /// reader, so what is asserted here is the reader's half: the pair with the null key answers
+    /// nothing, and **every pair after it still holds the value the file put beside it**.
+    ///
+    /// The second half is the one worth a test. Both walks chunk the array by two, so a null in
+    /// a key position costs exactly its own pair — where a reader that dropped the null *element*
+    /// before pairing would re-pair the whole remainder against itself and hand back the wrong
+    /// value for every key past the fault. The fixture puts the null in the middle and gives
+    /// every key a different value so that a shift by one cannot pass.
+    ///
+    /// Hand-built rather than taken from a document (trap 8): a file that states one is by this
+    /// erratum's own words a file that should not exist.
+    #[test]
+    fn a_null_key_yields_nothing_and_leaves_its_neighbours_paired() {
+        let names = node(&[(
+            "Names",
+            Object::Array(vec![
+                string("aa"),
+                Object::Integer(1),
+                Object::Null,
+                Object::Integer(2),
+                string("ac"),
+                Object::Integer(3),
+            ]),
+        )]);
+        assert_eq!(
+            name_pairs(&names, &direct),
+            vec![
+                (b"aa".to_vec(), Object::Integer(1)),
+                (b"ac".to_vec(), Object::Integer(3)),
+            ],
+            "a null key costs its own pair and no other"
+        );
+        assert_eq!(
+            lookup(&names, &TreeKey::Name(b"ac"), &direct),
+            Some(Object::Integer(3)),
+            "the key after the null still finds its own value"
+        );
+
+        let nums = node(&[(
+            "Nums",
+            Object::Array(vec![
+                Object::Integer(0),
+                string("i"),
+                Object::Null,
+                string("skipped"),
+                Object::Integer(7),
+                string("A-8"),
+            ]),
+        )]);
+        assert_eq!(
+            number_pairs(&nums, &direct),
+            vec![(0, string("i")), (7, string("A-8"))],
+            "the same sentence is stated twice, once per tree"
         );
     }
 

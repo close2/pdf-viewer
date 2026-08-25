@@ -62,9 +62,15 @@ const MAX_NAMES: usize = 16384;
 pub struct NamedPages {
     /// `/Names /Pages`: names of pages that are "intended to be visible to a user".
     ///
-    /// In the tree's own order, which §7.9.6 makes lexical by key — so this is a list a person
-    /// could be shown, and a duplicate name is kept rather than resolved, because the clause
-    /// states no tie-break and a file writing one has said something worth seeing.
+    /// In the tree's own order, which §7.9.6 makes ascending by key over the key's own bytes —
+    /// so this is a list a person could be shown, and a duplicate name is kept rather than
+    /// resolved, because the clause states no tie-break and a file writing one has said
+    /// something worth seeing.
+    ///
+    /// **This line said "which §7.9.6 makes lexical by key" until the
+    /// seven-hundred-and-fiftieth session**, and *lexical* is the one word Errata Collection 3's
+    /// Issue #214 takes out of that clause; what defines the order is the byte comparison the
+    /// two sentences after it state, which `pdf_syntax::tree` now carries in full.
     pub pages: Vec<(String, ObjectId)>,
     /// `/Names /Templates`: names of pages "not intended to be displayed by the PDF processor".
     pub templates: Vec<(String, ObjectId)>,

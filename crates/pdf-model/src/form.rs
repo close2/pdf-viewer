@@ -317,8 +317,9 @@ pub struct ChoiceControl {
 pub struct Choice {
     /// The first of the pair, where the entry is one: what §12.7.6.2 exports for this item.
     pub export: Option<String>,
-    /// What is shown, and what §12.7.5.4 makes `/V` name: "the name string is the second of the
-    /// two array elements".
+    /// What is shown, and what §12.7.5.4 makes `/V` name: of a two-element `/Opt` entry it is the
+    /// second element. Prose rather than a quotation, because Issue #214 rewrites the term that
+    /// sentence uses; [`crate::view::Entered`] has the erratum.
     pub label: String,
 }
 

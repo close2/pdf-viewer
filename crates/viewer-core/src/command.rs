@@ -211,12 +211,23 @@ pub enum Command {
     /// reason it writes [`Self::Save`]'s: rule 2 says this crate has no filesystem, and where a
     /// file taken out of a document should land is a policy rather than a rendering decision.
     ///
-    /// The name is the key §7.11.4.1's `/EmbeddedFiles` tree filed the file under — "the tree
-    /// shall map name strings to file specifications" — which is
+    /// The name is the key §7.11.4.1's `/EmbeddedFiles` tree filed the file under, which is
     /// [`pdf_model::attachment::Attachment::name`] and is what [`crate::Query::Attachments`]
     /// answered with. A name the tree does not hold extracts nothing and says so; a name it
     /// holds twice extracts the first, because the clause makes a name tree's keys unique and a
     /// file that broke that has not said which it meant.
+    ///
+    /// **The middle of that first sentence was a quotation, and it was wrong twice over.** Until
+    /// the seven-hundred-and-fiftieth session it put *the tree shall map name strings to file
+    /// specifications* inside quotation marks: the clause opened the sentence with *the
+    /// associated name tree*, so the quoted words are not ISO 32000-2's, and the sentence itself
+    /// was struck out with the two bullets around it by Errata Collection 3 (Issue #481, `/State`
+    /// `Review` `Completed`). `pdf_model::attachment` was corrected for that erratum in the
+    /// four-hundred-and-eighteenth session and `viewer_host::panel` in the
+    /// four-hundred-and-twenty-ninth; **this third copy outlived both because the paraphrase hid
+    /// it** — `spec-errata check` matches a quotation against the struck text, and one that
+    /// misquotes matches nothing. Nothing about the command moves: what the key is stays what
+    /// §7.7.4's name tree makes it.
     ///
     /// A file §12.5.6.15's annotation attaches is *not* named here and needs no command at all:
     /// it has no key in any tree, and a click on the annotation is what extracts it — the same

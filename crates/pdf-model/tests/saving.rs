@@ -580,7 +580,7 @@ fn several_selected_items_are_written_as_an_array_and_an_index_list() {
     assert_eq!(
         labels,
         vec!["Oracle".to_owned(), "DB2".to_owned()],
-        "the name string is the second of the two array elements"
+        "§12.7.5.4: of a two-element /Opt entry, /V names the second element"
     );
     let indices = entry(&saved, field, "I");
     let indices: Vec<i64> = indices

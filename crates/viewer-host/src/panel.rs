@@ -215,7 +215,8 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
             // Collection 3 replaces the two bullets it came from outright (Issue #481, `/State`
             // `Review` `Completed`), and the replacement drops the sentence: an `/EmbeddedFiles`
             // association "is not required unless stated otherwise". What the key is stays what
-            // §7.7.4 makes it, a name string in a name tree, which is why nothing here moves.
+            // §7.7.4 makes it, a string in a name tree, which is why nothing here moves — *name
+            // string* being the term Issue #214 takes out of that clause.
             // `pdf_model::attachment` carries the same correction, made one round after the
             // erratum was read and three before this copy of it was found (ADR 0254).
             label: attachment
