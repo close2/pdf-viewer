@@ -527,6 +527,21 @@ pub mod ffi {
         fn accessibility_wait(self: &Host) -> i32;
         /// One drain of that queue. Called from a `QTimer`.
         fn accessibility_pump(self: &mut Host);
+        /// How long to wait before asking the drawing thread whether a page has finished, in
+        /// milliseconds, or `-1` while nothing is being drawn.
+        ///
+        /// **`presentation_wait`'s shape a third time, and here it is the whole reason the
+        /// arrangement is a pull** (ADR 0668). A page is rasterised on a thread of its own since
+        /// the seven-hundred-and-fifty-fourth session, so that a document written to be expensive
+        /// cannot take `QApplication::exec` with it — and a finished page has to reach this window
+        /// somehow. There is no path from that thread into a Qt object that would not cost this
+        /// crate a second hand-written `unsafe` token, which is the property this module's own
+        /// documentation states. So the interval is `viewer_host::Drawing`'s decision, shared with
+        /// `viewer-gtk`, and the timer is Qt's — and it does not exist at all while the thread is
+        /// idle.
+        fn drawing_wait(self: &Host) -> i32;
+        /// One look at that thread. Called from a `QTimer`.
+        fn drawing_pump(self: &mut Host);
         /// ISO 32000-2 §12.4.4.1: how long to wait before the next turn of the presentation
         /// clock, in milliseconds, or `-1` where nothing is presenting.
         ///

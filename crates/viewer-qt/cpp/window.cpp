@@ -712,6 +712,19 @@ MainWindow::MainWindow(rust::Box<Host> host)
         applyUpdates();
     });
 
+    // The look at the drawing thread. Created stopped, exactly as the two above are:
+    // `drawing_wait` answers `-1` while nothing is being drawn, which is a window showing a page.
+    // ADR 0668.
+    drawing_ = new QTimer(this);
+    connect(drawing_, &QTimer::timeout, this, [this] {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->drawing_pump();
+        applyUpdates();
+    });
+
     // One tab per `viewer_host::Tab`, in that list's own order and with that list's own wording.
     // The words are asked for across the bridge rather than written here for `notices`' reason —
     // three hosts naming one panel three ways is three claims about one clause — and the loop ends
@@ -1028,6 +1041,24 @@ void MainWindow::pumpAccessibility()
     }
 }
 
+// The page being drawn on a thread of its own, asked about on a timer the host decides.
+//
+// The same six lines the two above are, and the third instance of the argument: the interval is
+// `viewer_host::Drawing`'s, shared with `viewer-gtk`, and what is Qt's is the timer. It answers
+// `-1` the moment the thread goes idle, so a window at rest has nothing armed. ADR 0668.
+void MainWindow::pumpDrawing()
+{
+    const int wait = host_->drawing_wait();
+    if (wait < 0) {
+        drawing_->stop();
+        return;
+    }
+    if (!drawing_->isActive() || drawing_->interval() != wait) {
+        drawing_->setInterval(wait);
+        drawing_->start();
+    }
+}
+
 // Where this window is on the screen, which is what AT-SPI adds to a node's own rectangle.
 //
 // **The one thing `viewer-gtk` cannot answer.** A node's extents cross this boundary in the
@@ -1167,6 +1198,7 @@ void MainWindow::applyUpdates()
     pumpSearch();
     pumpPresentation();
     pumpAccessibility();
+    pumpDrawing();
     if (update.window) {
         applyChrome();
     }

@@ -234,6 +234,15 @@ is the view being asked for or if one placement carries it onto that view. Where
 a page turn, a resize, a re-interpretation, a zoom of a column — `pdf_render::Interrupt` is raised
 and the thread draws the view the person is actually looking at instead.
 
+**And the two native windows got the same *policy* and not the same *question* — 754.** They have a
+drawing thread since ADR 0668, and what they ask before raising an interrupt is not this file's five
+rules at all: a tier-1 host holds a **token** rather than a picture, and `viewer_core` drops a
+`RenderReady` whose token is not the one outstanding — so *is this answer still wanted* has a
+provable answer there where here it is a judgement about pixels. That is worth knowing before
+somebody unifies the two: `viewer_host::drawing` is deliberately not a second caller of
+`could_stand_in`, and could not be, because rule 2 keeps every stand-in inside `viewer-ui`'s own
+binary.
+
 Two consequences for anyone changing the rules above:
 
 - **A scroll must go on carrying.** It is the commonest gesture there is, and its frame is thrown

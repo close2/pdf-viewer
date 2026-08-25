@@ -177,8 +177,12 @@ pass.
   show, which is `doc/todo/37`'s own stand-in question asked of a frame not yet drawn. It reads no
   clock, because a deadline separates nothing — a document picks its own cost, and the corpus and
   the amplification fixture are two orders of magnitude apart with legitimate pages on both sides
-  of anything between them. `viewer-ui` under `--cpu` raises them; the two native windows
-  rasterise on their event thread and cannot (`doc/todo/30`). **A
+  of anything between them. **All three windows raise them since the seven-hundred-and-fifty-fourth**
+  (ADR 0668): `viewer_host::drawing` gave the two native ones the thread they were missing, and on a
+  tier-1 host the same policy has a *provable* form — `viewer_core` drops a `RenderReady` whose token
+  is not the one outstanding, so a draw the viewer has stopped holding a token for cannot change a
+  pixel however long it runs. The C ABI is the one host still without a way to raise a flag, which is
+  an entry point rather than an arrangement (`doc/todo/30`). **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
   own last line to the host rather than a bare signal number. ADRs 0218, 0223,
@@ -202,6 +206,11 @@ pass.
   its position and that no other crate lifts the denial. It brought **`crates/viewer-host`**,
   because the second host wanted four of `viewer-gtk`'s modules unchanged — the panel rows, the
   control decision, §12.7.6.4's file policy and the launch timeline named no GTK type. ADR 0246.
+  **That crate's newest module is the one that decided the *shape* of a thread for both hosts**:
+  Rust never calls a Qt object here, so a finished page cannot be pushed into `QApplication::exec`
+  and is *pulled* instead, on a timer whose interval `viewer-host` decides and each toolkit arms —
+  which is what `Clock` and the accessibility drain already do, and is why `viewer-gtk` does not use
+  the file descriptor GTK would have given it (ADR 0668).
 - **`viewer-ffi`**, a C ABI over the same vocabulary, with a hand-written `include/pdf_viewer.h`
   and a `c/open_a_page.c` that a test compiles with `-Wall -Wextra -Werror` and runs. Four shapes
   decide it, each because C takes something away that Rust gave: **commands are functions**,

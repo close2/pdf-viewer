@@ -15,8 +15,12 @@ pdf-model.workspace = true
 # §12.5.6.5's link targets and §8.11's groups are named by object identity.
 pdf-syntax.workspace = true
 # §12.4.4.1's clock shapes a transition's frames, and a frame is a `DisplayList` over two
-# `Image`s in a `Rect`. A vocabulary of values rather than a rasteriser: nothing here draws.
+# `Image`s in a `Rect`; `Interrupt` is what takes a drawing thread back.
 pdf-render.workspace = true
+# `drawing` puts a tier-1 host's rasterisation on a thread of its own, and this is what draws
+# there. Named rather than taken behind a `Rasterizer` parameter: it is the only backend in the
+# tree that can be interrupted at all, which is ADR 0650's decision and not a preference.
+render-cpu.workspace = true
 # Every refusal in this crate is a typed error, as everywhere else in the tree.
 thiserror.workspace = true
 

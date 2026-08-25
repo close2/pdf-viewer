@@ -306,6 +306,14 @@ private:
     /// that does not exist until a client has attached. `-1` means nobody is listening, which is
     /// the overwhelmingly common case and arms nothing at all. ADR 0623.
     void pumpAccessibility();
+    /// Asks the drawing thread whether a page has finished, at whatever interval the host asks for.
+    ///
+    /// `pumpAccessibility`'s shape a third time and for the same reason one layer over: since ADR
+    /// 0668 a page is rasterised on a thread of its own, so that a document written to be expensive
+    /// cannot take `QApplication::exec` with it — and there is no path from that thread into a Qt
+    /// object that would not cost `viewer-qt` a second hand-written `unsafe` token. `-1` means
+    /// nothing is being drawn, which is what a window showing a page answers, and it arms nothing.
+    void pumpDrawing();
     /// Tells the host where this window is on the screen, which AT-SPI needs to place a node.
     ///
     /// `QWidget::frameGeometry` and `QWidget::geometry` are both in screen coordinates, which is
@@ -364,6 +372,9 @@ private:
     QTimer* clock_ = nullptr;
     /// The timer draining an assistive technology's requests, stopped whenever nobody is listening.
     QTimer* access_ = nullptr;
+    /// The timer asking the drawing thread for a finished page, stopped whenever none is being
+    /// drawn.
+    QTimer* drawing_ = nullptr;
     /// Set while this window is writing values into its own controls, so that the write is not
     /// mistaken for a person typing. The same flag `viewer-gtk` calls `suppress`.
     bool writing_ = false;
