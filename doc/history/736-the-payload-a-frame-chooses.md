@@ -66,8 +66,8 @@ neither restates the format: the body is already written so its length is a fact
 holds the samples' `Arc`s rather than copies so summing them is a lower bound on what the tables
 are about to write.
 
-`scan-bad.pdf` chooses in **4 µs** where finishing cost **6.4 ms and 33.7 MB**;
-`issue12841_reduced.pdf` in **5 µs** against **15.5 ms and 80.1 MB**. Per render, inside a
+`scan-bad.pdf` chooses in **4 µs** where finishing cost **6.6 ms and 33.7 MB**;
+`issue12841_reduced.pdf` in **6 µs** against **16.0 ms and 80.1 MB**. Per render, inside a
 four-gibibyte ceiling.
 
 ## And a second implementation that had gone stale unnoticed
@@ -79,13 +79,14 @@ assertion is right and a *copy* of the constant is not: it now reads `MAGIC` out
 
 ## What the numbers say, both arms in one sitting
 
-`examples/confined_page`, same worker, same viewport, load average 4.9 to 14.8 with three other
-rounds building beside it — so the byte counts carry the argument and the milliseconds are
-ranked rather than pinned. ADR 0633 section 6 has the two tables. The short of it: the sparse
-page's frame went from ADR 0607's measured **3.915 ms** of pixels to **0.074 ms** of marks
-(35 580 B against 4 075 200 B), ISO 32000-2's densest first page to **0.878 ms** (1 011 568 B),
-and the two scans still cross as **pixels** in 3.2 and 4.4 ms, which is the decision working in
-both directions. The codec costs about 0.06 ms on the sparse page and 0.4 ms on the dense one.
+`examples/confined_page`, four documents, one run, **load average 1.5 to 2.4** — the neighbouring
+rounds had finished, which matters because ADR 0607's transport figure was taken at load 12 and
+the two are being compared. ADR 0633 section 6 has the tables. The short of it: the sparse page's
+frame went from ADR 0607's **3.915 ms** of pixels to **0.074 ms** of marks (35 580 B against
+4 075 200 B), ISO 32000-2's densest first page to **0.778 ms** (1 011 568 B), and the two scans
+still cross as **pixels**, in 2.8 and 3.3 ms — which reproduces 0607's raster arm on a quiet
+machine and is the control that makes the other two rows mean something. The codec costs about
+0.05 ms on the sparse page and 0.4 ms on the dense one.
 
 `examples/list_over_the_wire` gained a `crossing_ms` column so that the *choice* is timed apart
 from the exact encoding, which is what makes the paragraph above checkable.

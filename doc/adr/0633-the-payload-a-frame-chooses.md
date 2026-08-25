@@ -131,42 +131,50 @@ no budget and is still the exact price.
 
 ## 6. What it measures, both arms in one sitting
 
-`examples/confined_page`, one machine, load average 4.9 to 14.8 with three other rounds building
-beside it, which is why the byte counts carry the argument and the milliseconds are ranked rather
-than pinned. `examples/list_over_the_wire` gained a `crossing_ms` column so that the *choice* is
-timed apart from the exact encoding.
+`examples/confined_page`, one machine, **load average 1.5 to 2.4** — the neighbouring rounds had
+finished, which is worth saying because ADR 0607's own transport figure was taken at load 12 and
+the two are being compared. `examples/list_over_the_wire` gained a `crossing_ms` column so that
+the *choice* is timed apart from the exact encoding.
 
-**Both arms, one sitting** — the same viewport, the same worker, the same run:
+**Both arms, one sitting** — four documents, four processes, one run of one binary, nothing else
+on the machine:
 
 | page | crosses as | payload | crossed in |
 |---|---|---|---|
 | `PDF20_AN001-BPC.pdf` p1, 849×1200 | marks | **35 580 B** against 4 075 200 B of pixels | **0.074 ms** |
-| ISO 32000-2 p1, 849×1200 | marks | **1 011 568 B** against 4 075 200 B | **0.878 ms** |
-| `scan-bad.pdf` p1, 900×1165 | pixels | 4 194 000 B | **3.184 ms** |
-| `issue12841_reduced.pdf` p1, 900×1165 | pixels | 4 194 000 B | **4.423 ms** |
+| ISO 32000-2 p1, 849×1200 | marks | **1 011 568 B** against 4 075 200 B | **0.778 ms** |
+| `scan-bad.pdf` p1, 900×1165 | pixels | 4 194 000 B | **2.758 ms** |
+| `issue12841_reduced.pdf` p1, 900×1165 | pixels | 4 194 000 B | **3.312 ms** |
 
-ADR 0607 measured the raster arm at **3.915 ms** for a 4 075 200 B frame at load 12, and this
-round's own raster arm reproduces that at 3.2 to 4.4 ms. So the sparse page's frame went from
-about four milliseconds to **0.074**, and the dense one to **0.878** — and the two scans, where a
-list would have been 8.7× and 20.7× its raster, still cross as pixels. That is ADR 0607's decision
-working in both directions rather than a display list winning by fiat.
+The bottom two rows are the *control*, and they are what makes the top two mean something: the
+raster arm still exists, still runs, and is still what a scan takes — 2.8 to 3.3 ms for four
+megabytes, which is ADR 0607's 3.915 ms at load 12 reproduced on a quiet machine. Against that,
+the sparse page's frame is **0.074 ms** and the densest first page in this tree is **0.778 ms**.
+A list would have been 8.7× and 20.7× its raster on those two scans and the comparison says so,
+which is ADR 0607's decision working in both directions rather than a display list winning by
+fiat.
 
-**What the codec costs, which is the other half:**
+**What the codec costs, which is the other half**, same sitting:
 
 | page | choice (`crossing_ms`) | exact encode | decode |
 |---|---|---|---|
-| `PDF20_AN001-BPC.pdf` | 0.030 ms | 0.015 ms | 0.026 ms |
-| ISO 32000-2 p1 | 0.209 ms | 0.215 ms | 0.181 ms |
-| `scan-bad.pdf` | **0.004 ms** | 6.381 ms | 16.376 ms |
-| `issue12841_reduced.pdf` | **0.005 ms** | 15.521 ms | 36.250 ms |
+| `PDF20_AN001-BPC.pdf` | 0.029 ms | 0.015 ms | 0.025 ms |
+| ISO 32000-2 p1 | 0.216 ms | 0.202 ms | 0.182 ms |
+| `scan-bad.pdf` | **0.004 ms** | 6.601 ms | 15.648 ms |
+| `issue12841_reduced.pdf` | **0.006 ms** | 15.967 ms | 35.496 ms |
 | `function_based_shading.pdf` | 0.008 ms | — | — |
-| `issue16263.pdf` | 0.009 ms | — | — |
+| `issue16263.pdf` | 0.006 ms | — | — |
 
-The codec costs about 0.06 ms on a sparse page against roughly 3.8 ms of transport removed, and
-about 0.4 ms on the densest first page in this tree against about 3.0 ms removed. **And section
-5's stop is worth what it looked like it would be**: the two scans choose in four and five
-*microseconds* where finishing would have cost 6.4 and 15.5 milliseconds and 33.7 MB and 80.1 MB
-of transient allocation, per render, inside a process under a four-gibibyte ceiling.
+The codec costs about 0.05 ms on a sparse page against roughly 2.7 ms of transport removed, and
+about 0.4 ms on the dense one against about 2.0 ms removed. Net in both, and net by a wide margin
+on the page a window actually shows. **And section 5's stop is worth what it looked like it would
+be**: the two scans choose in four and six *microseconds* where finishing would have cost 6.6 and
+16.0 milliseconds and 33.7 MB and 80.1 MB of transient allocation, per render, inside a process
+under a four-gibibyte ceiling.
+
+`crossing_ms` under `encode_ms` on the two pages that cross as lists is the same work twice, warm
+the second time; the column is there for the two rows where the numbers are three orders of
+magnitude apart.
 
 ## 7. The refusals stay by name, on the pages ADR 0626 named
 
