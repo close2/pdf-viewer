@@ -71,6 +71,11 @@
 //!   did not say which page it was about would be a note about one of four. The other two are
 //!   `Event::OpenFailed` and a document with no pages, which `viewer-ui` answered with
 //!   `std::process::exit(1)` until the seven-hundred-and-fourth session.
+//! - [`popup`] — §12.5.6.14's window: the title bar's two texts, the body, and the upright box it
+//!   occupies. The clause gives a popup *no appearance stream*, so the window is furniture rather
+//!   than ink and a host draws it — which two of the three did not, until they were made to.
+//! - [`geometry`] — the axis-aligned bound of a quadrilateral. Both native hosts had written it,
+//!   identically, before [`popup`] wanted it a third and fourth time.
 //! - [`trace`] — `--trace=<topics>`, in the line format `viewer-ui` prints, so that two hosts'
 //!   launch timelines can be read side by side. `CLAUDE.md` makes the launch path a measured
 //!   thing and a host is a program a person runs.
@@ -90,10 +95,12 @@ pub mod clock;
 pub mod copying;
 pub mod fit;
 pub mod form;
+pub mod geometry;
 pub mod keys;
 pub mod panel;
 pub mod password;
 pub mod policy;
+pub mod popup;
 pub mod presentation;
 pub mod status;
 pub mod trace;
@@ -103,6 +110,7 @@ pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
 pub use fit::ControlFit;
 pub use form::{ControlKind, control_kind};
+pub use geometry::bounds;
 pub use keys::{Key, Meaning, Mode, WindowAct, meaning};
 pub use panel::{
     Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,
@@ -113,6 +121,7 @@ pub use policy::{
     IGNORE_RESTRICTIONS, ImportRefusal, may_open_extracted, may_write_extracted, read_import,
     refused, resolve_import,
 };
+pub use popup::Window;
 pub use presentation::{Chrome, Presenting};
 pub use status::{cannot_open, no_pages, on_screen};
 pub use trace::{Topic, Trace, parse_topics};

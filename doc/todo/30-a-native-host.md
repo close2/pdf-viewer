@@ -354,7 +354,9 @@ six sidebar tabs came off it in the seven-hundred-and-fourth** (ADR 0564), by th
 panel over: the list of panels is `viewer_host::Tab` and every host matches exhaustively on it, so
 being ahead or behind on a *panel* is no longer a thing a host can be either — which left
 §12.3.5's collection and §12.5.6.14's popups, neither of which is a tab, as the whole of the first
-half of that sentence.
+half of that sentence. **And §12.5.6.14's window came off it in the seven-hundred-and-twenty-sixth**
+(ADR 0613), by the mechanism one layer down from a tab: `viewer_host::popup` is the reading and each
+host places its own furniture — so §12.3.5's collection is what is left of that half.
 
 1. ~~**A selection that can leave the program.**~~ **Taken in the six-hundred-and-eighty-third**
    (ADR 0519), and the claim it was ranked on held: **no new message**, checked rather than assumed.
@@ -497,7 +499,8 @@ half of that sentence.
    fit its tabs hides the rest behind an arrow nobody looks for.
 
    **What is still `viewer-ui`'s alone is named in ADR 0564 §7**: §12.3.5's collection and
-   §12.5.6.14's popup windows, neither of which is a *tab*. ~~Nothing counts what a window cannot
+   §12.5.6.14's popup windows, neither of which is a *tab* — **and the second of those two was taken
+   in the seven-hundred-and-twenty-sixth** (ADR 0613), leaving the collection. ~~Nothing counts what a window cannot
    reach, the way `tools/state.sh hosts` counts what a C caller cannot.~~ **`tools/state.sh windows`
    counts it since the seven-hundred-and-ninth** (ADR 0577), per host and for both enums, and names
    any variant no window reaches at all.
@@ -606,10 +609,21 @@ half of that sentence.
 **That is all seven, and the ordering is spent.** What a next UI round has to choose from is named
 here rather than left to be re-surveyed, and none of it is architecture:
 
-- **`AccessibilityNode::lines` does not cross the C ABI** — the per-character byte counts and boxes
-  AT-SPI's `Text` interface wants, so a C caller building a screen reader has the tree and the
-  extents and not the character offsets. Two accessors and no new decision; named by the
-  seven-hundred-and-ninth in item 5 above.
+- ~~**`AccessibilityNode::lines` does not cross the C ABI**~~ — **taken in the
+  seven-hundred-and-twenty-sixth** (ADR 0613), and **"[t]wo accessors and no new decision" was wrong
+  about the first half and right about the second.** It is **three** entry points, and the reason is
+  this ABI's own convention rather than an oversight: a count is asked before an indexed accessor,
+  and a line has two counts — how many lines an element drew and how many character codes a line
+  holds. `pdfv_structure_lines`, `pdfv_structure_line` (the text *and* the code count in one call,
+  because the byte counts summing to the text's length is the invariant a text interface rests on and
+  a caller asking twice could see them disagree) and `pdfv_structure_character`.
+
+  **The decision the entry did not predict is which text crosses.** These are the readback and not
+  §14.9's substitutions: `PDFV_ELEMENT_NAME` applies `/Alt` and `/E`, and a caret moves over what is
+  on the page — `GetCharacterExtents` asks where the *glyph* is, and a phrase substituted for an
+  element's content has none. An element stating one has zero lines here, which is what
+  `pdfv_structure_node`'s `substituted` says from the other side. `PDFV_ABI_VERSION` did not move:
+  no struct crosses by value.
 - ~~**`tools/state.sh windows` prints eleven queries each native host does not ask, and the list is
   uninterpreted.**~~ **Sorted in the seven-hundred-and-twenty-first** (ADR 0603), and **the list
   could not be sorted as it stood**, which is the finding rather than the sort. Two of its entries
@@ -632,13 +646,39 @@ here rather than left to be re-surveyed, and none of it is architecture:
   sentence naming `--ignore-restrictions`, a word their own argument parsers rejected. Closed in the
   same round (ADR 0604), which is why it is no longer on any missing list.
 
-  **Five debts are left and they rank**, which is what a next round chooses from: §14.7's
+  **Five debts were left and they ranked**, and **two of them were taken in the
+  seven-hundred-and-twenty-sixth** (ADR 0613) in the order ADR 0509's criterion puts them:
+  §12.5.6.14's popup windows, which two windows of three drew nothing of — so a comment on a page was
+  invisible in two programs of three — and §12.5.6.5's link cursor, which one host set and two did
+  not, so a reader could not see that a link was there until after clicking it. **It needed no
+  message**, which is the thirteenth time since the six-hundred-and-seventh: `Query::Popups` has
+  existed since ADR 0191 and `Query::LinkAt` since the vocabulary was frozen, and what was missing
+  was consumers.
+
+  **`tools/state.sh windows` said so before this file did**, which is what ADR 0603's second
+  direction is for: both rows printed `SPENT` the moment the hosts reached the variants, and the
+  reasons are deleted rather than left to be read as debts. **And one of them was wrong about its own
+  population** — it said "[s]even of the corpus's documents state an open one" where the measurement
+  is seven open popups on **two** documents, `issue14438.pdf` with six and `pr7352.pdf` with one. The
+  durable fix is in the instrument rather than in the sentence: `examples/open_annotation_census`
+  counted popups stating Table 186's `/Open true` into its totals and named no document holding one,
+  so a round wanting to *look* at an open window had a number and no file.
+
+  **What is left is three, and `tools/state.sh windows` prints them with their reasons**: §14.7's
   accessibility tree with §9.10.2's readback beside it, absent from both native hosts and the
-  largest; §12.5.6.14's popup windows, which two windows of three draw nothing of while Table 186's
-  `/Open` says which "shall initially be displayed open"; §12.3.5's collection, whose `shall` is
-  addressed to a viewer outright and which no corpus document states; §12.5.6.5's link cursor, which
-  one host sets and two do not; and §12.5.6.6's free text, which is already refused **by name** and
-  is `doc/todo/33`'s. `tools/state.sh windows` prints all five with their reasons.
+  largest — `doc/todo/31`'s; §12.3.5's collection, whose `shall` is addressed to a viewer outright and
+  which no corpus document states; and §12.5.6.6's free text, which is already refused **by name** and
+  is `doc/todo/33`'s.
+
+  **What the popup cost that this entry could not have predicted is a trap** (19, and ADR 0613 §1). A
+  `GtkFixed` measures the union of its children and a popup's `/Rect` is the *document's*:
+  `issue14438.pdf` states six open windows beside its page, so placing them in the layer the page is
+  in let the file decide how wide the window was — 509 to 1229 device pixels in nine frames, measured
+  off `--trace`, with nothing on the screen looking wrong. The windows are an unmeasured `GtkOverlay`
+  child now, and Qt's `PageArea` has no layout at all. What is shared is `viewer_host::popup` — the
+  title bar's two texts, the body, the upright box and the one refusal for a window with no area —
+  which `viewer-ui` adopted, losing three private derivations and gaining the rotation correction its
+  own arithmetic did not have.
 
 A third thing is worth writing down because this round nearly rediscovered it: **the criterion in
 ADR 0509 outlives its list.** What a reader can do and cannot do here, then what costs no new

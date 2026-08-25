@@ -73,14 +73,20 @@ fn main() {
         };
         opened = opened.saturating_add(1);
         let counts = document_counts(&document);
-        if counts.text_open > 0 || counts.open_elsewhere > 0 {
+        // **`popup_open` is in this condition because it was in the totals and in nothing else.**
+        // The census counted popups stating Table 186's `/Open true` and named no document
+        // holding one, so a reader who wanted to *look* at an open window had a number and no
+        // file — which is how a reason in `tools/state.sh` came to say "seven of the corpus's
+        // documents state an open one" where the population is seven windows on far fewer.
+        if counts.text_open > 0 || counts.open_elsewhere > 0 || counts.popup_open > 0 {
             let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
             lines.push(format!(
                 "  {name}: {} /Text with /Open true ({} with a /Popup, {} whose popup is \
-                 already open), {} /Open on another subtype",
+                 already open), {} popup(s) with /Open true, {} /Open on another subtype",
                 counts.text_open,
                 counts.text_open_with_popup,
                 counts.text_open_popup_open,
+                counts.popup_open,
                 counts.open_elsewhere
             ));
         }

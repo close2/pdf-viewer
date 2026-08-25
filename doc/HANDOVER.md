@@ -112,6 +112,7 @@ it (ADR 0232 §2). The index below resolves any such citation in one hop:
 | 16 | A gate can measure a program **the build did not finish producing** | instruments |
 | 17 | A toolkit's widget list is a catalogue, not a statement of what it can do | interactive loop |
 | 18 | A limit a process is under can destroy the channel it reports through | instruments |
+| 19 | A widget the *document* placed can decide how big the window is | interactive loop |
 
 ---
 

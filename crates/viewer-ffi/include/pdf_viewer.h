@@ -952,6 +952,30 @@ int32_t pdfv_structure_headers(const pdfv_structure *structure, size_t entry, si
                                size_t *count);
 int32_t pdfv_structure_header(const pdfv_structure *structure, size_t entry, size_t node,
                               size_t header, size_t *cell);
+/* The element's own text again, one line at a time, with each character code's place — which is
+ * what AT-SPI's org.a11y.atspi.Text asks for and what PDFV_ELEMENT_NAME cannot answer. A name is
+ * one string for a whole paragraph, so a client can read it or not read it; moving a caret through
+ * it by character, by word or by line needs to know where each character begins and which
+ * characters share a line.
+ *
+ * NOT §14.9's substitutions, and that is the point: PDFV_ELEMENT_NAME applies /Alt and /E, and
+ * these do not — a caret moves over what is on the page, and a phrase that replaces the content has
+ * no glyphs whose positions could be reported. So an element stating one has zero lines here, which
+ * is the same thing pdfv_structure_node's `substituted` says. */
+int32_t pdfv_structure_lines(const pdfv_structure *structure, size_t entry, size_t node,
+                             size_t *count);
+/* One line's text and how many character codes produced it, in one call: the character byte counts
+ * below sum to the length of this string, so an offset into the text and an index into the
+ * characters convert into each other without either side guessing. */
+int32_t pdfv_structure_line(const pdfv_structure *structure, size_t entry, size_t node, size_t line,
+                            size_t *characters, char *out, size_t cap, size_t *needed);
+/* One character code's share of a line: how many bytes of the line's text it produced, and where
+ * its glyph is as [x0, y0, x1, y1] in the viewport's device pixels. THE UNIT IS THE CODE, not the
+ * character: a code mapped through /ToUnicode to a several-character string — a ligature read back
+ * as "ffi" — drew one glyph in one place, and splitting its box into thirds would invent positions
+ * the file does not state. */
+int32_t pdfv_structure_character(const pdfv_structure *structure, size_t entry, size_t node,
+                                 size_t line, size_t character, size_t *bytes, float *into);
 
 /* §12.3.5's portable collection, where the catalogue states one — PDFV_NO_ANSWER otherwise, which
  * is every document in this project's corpora. The clause is a `shall` on a viewer: "[i]f this

@@ -150,8 +150,14 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // value**, which is why `PDFV_ABI_VERSION` did not move for the largest addition this ABI has
     // had. Six of the fifty-two take no pointer and are therefore not `unsafe` — the three
     // `_count`/`_name` pairs that let a caller print a number this build does not define.
-    assert_eq!(no_mangle, 169, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 155, "153 `unsafe` entry points and two helpers");
+    // **And three in the seven-hundred-and-twenty-sixth**, which `doc/todo/30` had priced at "two
+    // accessors": §14.7's per-character offsets and boxes — `AccessibilityNode::lines`, which is
+    // what AT-SPI's `Text` interface is built on and the one part of the accessibility answer a C
+    // caller could not reach. Three rather than two because this ABI asks a *count* before an
+    // indexed accessor, and a line has two counts: how many lines an element drew, and how many
+    // character codes a line holds. No struct crossed by value, so `PDFV_ABI_VERSION` did not move.
+    assert_eq!(no_mangle, 172, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 158, "156 `unsafe` entry points and two helpers");
 }
 
 #[test]

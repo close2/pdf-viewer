@@ -1133,6 +1133,63 @@ mod tests {
         assert!(session.outline().is_err());
     }
 
+    /// §14.7's per-character offsets and boxes reach a C caller, and the invariant holds.
+    ///
+    /// **The half of the accessibility answer that crossed nowhere until this test existed.**
+    /// `PDFV_ELEMENT_NAME` is one string for a whole paragraph, so a client building AT-SPI's
+    /// `org.a11y.atspi.Text` had the tree and the extents and no way to answer
+    /// `GetCharacterExtents`. What is asserted here is the property that interface rests on: the
+    /// character byte counts sum to the line's own length, so an offset into the text and an index
+    /// into the characters convert into each other without either side guessing.
+    #[test]
+    fn a_tagged_pages_lines_cross_with_a_place_for_every_character_code() {
+        let mut session = Session::new(800, 1000, 1.0);
+        let events = session.open(1, note(), None, None);
+        // The tree is built from the page's interpretation, so the page has to have been drawn.
+        let asked = (0..events.len())
+            .find(|index| events.kind(*index) == Ok(EventKind::NeedsRender))
+            .expect("opening a document asks for its first page");
+        let request = events.render_request(asked).expect("that is the kind");
+        let raster = rasterise(&request).expect("the note's first page draws");
+        drop(session.render_ready_raster(&request, raster));
+
+        let structure = session.structure().expect("the note is tagged");
+        let (_, nodes) = structure.page(0).expect("one entry per page on the screen");
+        let mut lines = 0_usize;
+        let mut characters = 0_usize;
+        for node in 0..nodes {
+            let count = structure.lines(0, node).expect("in range");
+            for line in 0..count {
+                let (text, codes) = structure.line(0, node, line).expect("in range");
+                let mut bytes = 0_usize;
+                for character in 0..codes {
+                    let (produced, box_) = structure
+                        .character(0, node, line, character)
+                        .expect("in range");
+                    bytes += produced;
+                    assert!(box_[2] >= box_[0] && box_[3] >= box_[1], "a normalised box");
+                    characters += 1;
+                }
+                assert_eq!(
+                    bytes,
+                    text.len(),
+                    "the codes account for every byte of the line"
+                );
+                lines += 1;
+            }
+        }
+        assert!(lines > 0, "a tagged page's elements drew text");
+        assert!(characters > 0, "and every line is made of character codes");
+        // Out of range in each of the three directions, rather than a zero that reads like an
+        // answer — which is what the rest of this ABI does and what a caller walks by.
+        assert_eq!(structure.lines(0, nodes), Err(Status::OutOfRange));
+        assert_eq!(structure.line(0, 0, usize::MAX), Err(Status::OutOfRange));
+        assert_eq!(
+            structure.character(0, 0, 0, usize::MAX),
+            Err(Status::OutOfRange)
+        );
+    }
+
     /// §12.3.3's outline crosses owned, which is ADR 0247's second amendment from the C side.
     #[test]
     fn the_outline_crosses_as_rows_with_a_depth_and_an_object_on_each() {

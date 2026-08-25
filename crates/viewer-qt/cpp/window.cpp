@@ -18,6 +18,7 @@
 #include <QElapsedTimer>
 #include <QGuiApplication>
 #include <QFontDatabase>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QKeyEvent>
 #include <QLabel>
@@ -32,6 +33,7 @@
 #include <QPushButton>
 #include <QRadioButton>
 #include <QResizeEvent>
+#include <QSizePolicy>
 #include <QMenuBar>
 #include <QSplitter>
 #include <QStatusBar>
@@ -70,6 +72,12 @@ constexpr int kMiniatureHeight = 140;
 /// A choice, and the same number `viewer-gtk` chose: the standard says nothing about a wheel, and
 /// what a notch is worth is not a fact about a toolkit.
 constexpr double kScrollStep = 48.0;
+
+/// How far ISO 32000-2 §12.5.6.14's text sits from the edge of its window, in logical pixels.
+///
+/// A choice, and the same one `viewer-gtk` makes: the clause states a rectangle and not one word
+/// about what a window looks like inside it.
+constexpr int kPopupPadding = 5;
 
 /// Refuses a call into the host that arrives while another one is running.
 ///
@@ -487,6 +495,72 @@ void ChromeOverlay::paintEvent(QPaintEvent*)
     for (const QtQuad& quad : focus_) {
         painter.drawPath(pathOf(quad, scale_));
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// PopupWindow
+// ---------------------------------------------------------------------------------------------
+
+PopupWindow::PopupWindow(const QtPopup& window, QWidget* parent) : QFrame(parent)
+{
+    setFrameShape(QFrame::StyledPanel);
+    // §12.5.6.14: a popup has "no appearance stream or associated actions of its own", so there is
+    // nothing on it to activate — and a widget over the page that swallowed a press would take the
+    // selection, the link and the form control underneath it away from the reader. The same
+    // sentence `gtk_widget_set_can_target(FALSE)` says in the other host.
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    setFocusPolicy(Qt::NoFocus);
+    setAutoFillBackground(true);
+    QPalette paper = palette();
+    paper.setColor(QPalette::Window, paper.color(QPalette::Base));
+    setPalette(paper);
+
+    auto* column = new QVBoxLayout(this);
+    column->setContentsMargins(0, 0, 0, 0);
+    column->setSpacing(0);
+
+    // Table 166's `/C` is "[t]he title bar of the annotation's popup window", so the colour is the
+    // bar's ground rather than the text's. A file stating none gets the platform's own, which is
+    // what `coloured` distinguishes from a file stating black.
+    auto* bar = new QWidget(this);
+    bar->setAutoFillBackground(true);
+    if (window.coloured) {
+        QPalette bright = bar->palette();
+        bright.setColor(QPalette::Window, QColor(window.red, window.green, window.blue));
+        bar->setPalette(bright);
+    }
+    auto* row = new QHBoxLayout(bar);
+    row->setContentsMargins(kPopupPadding, kPopupPadding / 2, kPopupPadding, kPopupPadding / 2);
+    // §12.5.6.2's `/T`: "[t]he text label that shall be displayed in the title bar of the
+    // annotation's popup window when open and active."
+    auto* title = new QLabel(text(window.title), bar);
+    QFont heading = title->font();
+    heading.setBold(true);
+    title->setFont(heading);
+    title->setTextFormat(Qt::PlainText);
+    // Ignored rather than Preferred: a long author name may not decide how wide the window is,
+    // because the window is the rectangle the *document* stated.
+    title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    row->addWidget(title, 1);
+    // Table 166's `/M`, in the one format `viewer_host::stamp` gives every date this program
+    // shows — so a popup and §14.3.3's panel do not spell one clause's answer two ways.
+    if (!window.modified.empty()) {
+        auto* stamp = new QLabel(text(window.modified), bar);
+        stamp->setTextFormat(Qt::PlainText);
+        stamp->setEnabled(false);
+        row->addWidget(stamp, 0);
+    }
+    column->addWidget(bar, 0);
+
+    // Table 166's `/Contents`: the text in the window, wrapped by Qt — which is the whole reason a
+    // native host puts a label here instead of breaking lines for itself.
+    auto* note = new QLabel(text(window.text), this);
+    note->setTextFormat(Qt::PlainText);
+    note->setWordWrap(true);
+    note->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    note->setContentsMargins(kPopupPadding, kPopupPadding, kPopupPadding, kPopupPadding);
+    note->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    column->addWidget(note, 1);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -992,6 +1066,14 @@ void MainWindow::applyUpdates()
         page_->chrome()->setShapes(std::move(selection), std::move(matches), std::move(highlights),
                                    std::move(focus), page_->devicePixelRatioF());
     }
+    if (update.popups) {
+        rebuildPopups();
+    }
+    if (update.cursor) {
+        // §12.5.6.5's activation region. The clause states no cursor at all, so this is a
+        // convention rather than a requirement — and it is the convention all three hosts keep.
+        page_->setCursor(host_->over_link() ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    }
     if (update.title) {
         setWindowTitle(text(host_->title()));
     }
@@ -1377,6 +1459,35 @@ void MainWindow::rebuildControls()
         controls_.push_back(widget);
     }
     host_->note("controls rebuilt");
+}
+
+// ISO 32000-2 §12.5.6.14's open windows, as widgets over the page.
+//
+// **A child of `PageArea` and not of a layout**, which is what keeps a window the document put
+// *beside* the page from deciding how wide this window is: `PageArea` has no layout, so a child's
+// size hint reaches nothing, and Qt clips a child to its parent's rectangle. `viewer-gtk` had to
+// take an explicit answer to the same question — a `GtkFixed` measures its children, and placing
+// six of `issue14438.pdf`'s windows in the one the page is in walked the page area from 509 to
+// 1229 device pixels in nine frames.
+void MainWindow::rebuildPopups()
+{
+    for (QWidget* window : popups_) {
+        window->deleteLater();
+    }
+    popups_.clear();
+
+    const qreal scale = page_->devicePixelRatioF() > 0.0 ? page_->devicePixelRatioF() : 1.0;
+    const rust::Vec<QtPopup> wanted = host_->popups();
+    for (const QtPopup& window : wanted) {
+        auto* widget = new PopupWindow(window, page_);
+        widget->setGeometry(QRect(qRound(window.x / scale), qRound(window.y / scale),
+                                  qRound(window.width / scale), qRound(window.height / scale)));
+        widget->show();
+        popups_.push_back(widget);
+    }
+    // Under the chrome layer: a selection, a match and §12.5.1's ring are marks *on the page*, and
+    // a window that hid them would be furniture eating the document.
+    page_->chrome()->raise();
 }
 
 void MainWindow::placeControls()

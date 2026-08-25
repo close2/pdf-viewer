@@ -1982,7 +1982,11 @@ pub fn popup_windows(
     height: u32,
     scale: f32,
 ) -> Option<DisplayList> {
-    if windows.is_empty() {
+    // **What each window says and where it goes is `viewer_host::popup`'s**, shared with the two
+    // native hosts since the seven-hundred-and-twenty-sixth session, so that one clause is read
+    // once for three programs. This host draws what that answers; the other two place widgets.
+    let placed = viewer_host::popup::windows(windows);
+    if placed.is_empty() {
         return None;
     }
     #[expect(
@@ -1990,7 +1994,7 @@ pub fn popup_windows(
         reason = "window dimensions are far below f32's exact integer range"
     )]
     let mut list = DisplayList::new(pdf_render::Size::new(width as f32, height as f32));
-    for window in windows {
+    for window in &placed {
         draw_popup(chrome, &mut list, window, scale);
     }
     Some(list)
@@ -2000,14 +2004,10 @@ pub fn popup_windows(
 fn draw_popup(
     chrome: &Chrome,
     list: &mut DisplayList,
-    window: &viewer_core::PopupWindow,
+    window: &viewer_host::Window<'_>,
     scale: f32,
 ) {
-    let (x, y) = (window.quad[0], window.quad[1]);
-    let (w, h) = (window.quad[2] - x, window.quad[5] - y);
-    if w <= 0.0 || h <= 0.0 {
-        return;
-    }
+    let (x, y, w, h) = window.place;
     let size = TEXT_SIZE * scale;
     let padding = POPUP_PADDING * scale;
     let bar = size * POPUP_TITLE_HEIGHT;
@@ -2024,12 +2024,11 @@ fn draw_popup(
         return;
     }
     let baseline = y + bar - size * 0.4;
-    let title = window.title.as_deref().unwrap_or_default();
     let used = chrome.text(
         list,
         &elide(
             chrome,
-            title,
+            window.title,
             size,
             Style {
                 bold: true,
@@ -2047,12 +2046,7 @@ fn draw_popup(
     );
     // Table 166's `/M`, in whatever format the file spells it — the table makes displaying it a
     // `shall` and puts no format on the string. Only where the title has left room for it.
-    if let Some(modified) = window.modified.as_deref() {
-        let stamp = viewer_host::stamp(
-            pdf_syntax::Date::parse(modified),
-            Some(&modified.to_owned()),
-        )
-        .unwrap_or_else(|| modified.to_owned());
+    if let Some(stamp) = viewer_host::popup::modified(window) {
         let stamp_width = chrome.width(&stamp, size * 0.85, Style::default());
         let at = x + w - padding - stamp_width;
         if at > used + padding {
@@ -2069,7 +2063,7 @@ fn draw_popup(
 
     let mut line = y + bar + size;
     let bottom = y + h - padding;
-    let text = window.text.as_deref().unwrap_or_default();
+    let text = window.text;
     for paragraph in text.split(['\r', '\n']) {
         for run in wrap(chrome, paragraph, size, room) {
             if line > bottom {

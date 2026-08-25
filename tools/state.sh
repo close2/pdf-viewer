@@ -291,8 +291,6 @@ Query:Offset|not a debt|the same delegation: a click placing the cursor inside a
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FieldAt|not a debt|a delegation of a different shape. These hosts place one control per widget, so which field a press belongs to is the control it landed on; the hit test is for a host that holds only pixels.
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
-Query:LinkAt|a debt|§12.5.6.5's activation region, asked at pointer speed to choose a cursor. viewer-ui sets CursorIcon::Pointer over a link and neither native host changes the cursor at all, so a reader cannot see that a link is there until after clicking it. No clause states a cursor, so it is a convention one host has and two do not.
-Query:Popups|a debt, with a clause|§12.5.6.14 makes a popup a window that "displays text in a popup window for entry and editing" and Table 186's /Open says which ones "shall initially be displayed open". viewer-ui draws them; neither native host draws anything at all, so a comment on a page is invisible in two windows of three. Seven of the corpus's documents state an open one.
 Query:Collection|a debt, with the sharpest clause here|"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection" (§12.3.5) — a shall addressed to a viewer. viewer-ui shows it and the two native hosts do not. No corpus document states one, which is why nobody has driven it and why it is not first.
 Query:AccessibilityTree|a debt, and the largest|§14.7's tree reaches AT-SPI through viewer-accessibility, which only viewer-ui uses; GTK's and Qt's own accessibility interfaces are unwired, so a screen reader on either native host is handed a picture. doc/todo/31's.
 Query:Readback|a debt, and the same one|§9.10.2's shortfall — the codes nothing could name — is published today only as part of that tree, so it lands and falls with the row above. No status bar in any host says it either.
@@ -379,8 +377,15 @@ section_binaries() {
 
 section_disk() {
     heading "the build directory" "du -sh"
-    du -sh /home/AI/cargo-target/pdf-viewer 2>/dev/null
-    du -sh /home/AI/cargo-target/pdf-viewer/tmp/pdfref-cache 2>/dev/null
+    # Asked for rather than written down: a worktree round has a `target-dir` of its own, and the
+    # literal path this used to carry reported the *main* tree's directory from inside every one of
+    # them (trap 15). `tools/round.sh` has derived it all along.
+    local built
+    built=$(cargo metadata --no-deps --format-version 1 2>/dev/null |
+            grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4)
+    [ -n "$built" ] || built=target
+    du -sh "$built" 2>/dev/null
+    du -sh "$built/tmp/pdfref-cache" 2>/dev/null
 }
 
 all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
