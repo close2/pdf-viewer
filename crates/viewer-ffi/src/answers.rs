@@ -455,6 +455,72 @@ impl Structure {
             .copied()
             .ok_or(Status::OutOfRange)
     }
+
+    /// How many lines of text the element's own content items drew.
+    ///
+    /// **What a platform text interface is built on**, and the half of this answer that did not
+    /// cross until the seven-hundred-and-twenty-sixth session: `PDFV_ELEMENT_NAME` is what the
+    /// element is *called* and this is what it *says*, with each character's place beside it, which
+    /// is what `org.a11y.atspi.Text`'s `GetCharacterExtents` and `GetOffsetAtPoint` need and what
+    /// no string can answer.
+    ///
+    /// Zero for an element stating §14.9.3's `/Alt` or §14.9.5's `/E` — the phrase substitutes for
+    /// the whole element, which is what `pdfv_structure_node`'s `substituted` also says — and for
+    /// one whose content drew no text, which is most of them.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such page or node.
+    pub fn lines(&self, entry: usize, index: usize) -> Result<usize, Status> {
+        Ok(self.node(entry, index)?.lines.len())
+    }
+
+    /// One line's text, and how many character codes produced it.
+    ///
+    /// The two come from one call because the invariant between them is what a text interface
+    /// rests on: the sum of the characters' byte counts is this string's length, so an offset into
+    /// the text and an index into the characters convert into each other without either side
+    /// guessing.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such page, node or line.
+    pub fn line(&self, entry: usize, index: usize, line: usize) -> Result<(&str, usize), Status> {
+        self.node(entry, index)?
+            .lines
+            .get(line)
+            .map(|line| (line.text.as_str(), line.characters.len()))
+            .ok_or(Status::OutOfRange)
+    }
+
+    /// One character code's share of a line: how many bytes of the line's text it produced, and
+    /// where its glyph is.
+    ///
+    /// **The unit is the *code* rather than the character**, which is `viewer_core::Character`'s
+    /// own reading and the reason the byte count crosses at all: a code mapped through `/ToUnicode`
+    /// to several characters — a ligature read back as `ffi` — drew one glyph in one place, and
+    /// splitting its box into thirds would invent positions the file does not state.
+    ///
+    /// The rectangle is `[x0, y0, x1, y1]` in the device pixels of the viewport every other shape
+    /// in this ABI is in.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::OutOfRange`] where there is no such page, node, line or character.
+    pub fn character(
+        &self,
+        entry: usize,
+        index: usize,
+        line: usize,
+        character: usize,
+    ) -> Result<(usize, [f32; 4]), Status> {
+        self.node(entry, index)?
+            .lines
+            .get(line)
+            .and_then(|line| line.characters.get(character))
+            .map(|character| (character.bytes, character.bounds))
+            .ok_or(Status::OutOfRange)
+    }
 }
 
 /// §12.3.5's portable collection: Table 153's columns, its folders, and where to open.

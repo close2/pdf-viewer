@@ -197,6 +197,44 @@ pub mod ffi {
         minimum_height: i32,
     }
 
+    /// One of ISO 32000-2 §12.5.6.14's popup windows, as the window furniture Qt places.
+    ///
+    /// **A rectangle and three strings rather than pixels**, because the clause gives a popup "no
+    /// appearance stream or associated actions of its own": there is nothing on the page to copy
+    /// and a window belongs to the platform. What decides the three texts and the box is
+    /// `viewer_host::popup`, shared with the other two hosts; what is Qt's is the frame, the
+    /// fonts and the palette.
+    #[derive(Debug, Clone)]
+    struct QtPopup {
+        /// The window's left edge in device pixels of the viewport.
+        x: f32,
+        /// Its top edge.
+        y: f32,
+        /// Its width.
+        width: f32,
+        /// Its height.
+        height: f32,
+        /// §12.5.6.2's `/T`, at the left of the title bar. Empty where the file states none.
+        title: String,
+        /// Table 166's `/M` as `viewer_host::stamp` shows a date, at the right of the title bar.
+        /// Empty where the annotation states none.
+        modified: String,
+        /// Table 166's `/Contents`: the text in the window.
+        text: String,
+        /// Whether Table 166's `/C` gave the title bar a colour of its own.
+        ///
+        /// A flag beside the three components rather than an absent value, because `cxx` carries
+        /// no `Option` — and the distinction matters: a file stating no colour gets the platform's
+        /// own title bar, and one stating black gets black.
+        coloured: bool,
+        /// `/C`'s red component in 0..=255, where `coloured` is true.
+        red: u8,
+        /// Its green.
+        green: u8,
+        /// Its blue.
+        blue: u8,
+    }
+
     /// One quadrilateral of interactive chrome, in device pixels of the viewport.
     ///
     /// `[x0, y0, … x3, y3]` as eight named fields rather than an array, because the C++ reads
@@ -237,6 +275,18 @@ pub mod ffi {
         controls: bool,
         /// The selection or §12.5.1's focus ring moved.
         chrome: bool,
+        /// §12.5.6.14's set of open windows changed, or one of them moved.
+        ///
+        /// Its own flag rather than `chrome`'s, because these are *widgets* and that one is a
+        /// repaint: rebuilding a window on every pointer move during a drag would churn the widget
+        /// tree at pointer speed for a list that changes when a page turns.
+        popups: bool,
+        /// The pointer crossed into or out of §12.5.6.5's activation region.
+        ///
+        /// A flag beside `over_link` rather than the boolean itself, which is the shape `window`
+        /// and `clipboard` already have and is here for the reason this module's own documentation
+        /// gives: Rust never calls a Qt object, and `QWidget::setCursor` is one.
+        cursor: bool,
         /// The title bar's text changed.
         title: bool,
         /// There is a new sentence for the status bar.
@@ -411,6 +461,14 @@ pub mod ffi {
         fn selection(self: &Host) -> Vec<QtQuad>;
         /// §12.5.1's focus ring: one quadrilateral, or none.
         fn focus(self: &Host) -> Vec<QtQuad>;
+        /// §12.5.6.14's open popup windows, placed. Asked when `QtUpdate::popups` says so.
+        fn popups(self: &Host) -> Vec<QtPopup>;
+        /// Whether the pointer is over §12.5.6.5's activation region.
+        ///
+        /// Asked when `QtUpdate::cursor` says so, which is when the answer *changed*: what a
+        /// reader sees over a link is a convention no clause states, and this is the one this
+        /// program has had in `viewer-ui` since ADR 0166.
+        fn over_link(self: &Host) -> bool;
         /// Every occurrence of the find bar's string on the page being shown.
         fn matches(self: &Host) -> Vec<QtQuad>;
         /// Annex O's `highlight`: what the URI's fragment asked to be shown highlighted.

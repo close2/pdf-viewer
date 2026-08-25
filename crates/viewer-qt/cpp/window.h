@@ -14,6 +14,7 @@
 
 #include <QAbstractItemModel>
 #include <QAbstractListModel>
+#include <QFrame>
 #include <QImage>
 #include <QMainWindow>
 #include <QPixmap>
@@ -182,6 +183,23 @@ private:
     qreal scale_ = 1.0;
 };
 
+/// One of ISO 32000-2 §12.5.6.14's popup windows, as real Qt window furniture.
+///
+/// The clause gives a popup "no appearance stream or associated actions of its own", so there is
+/// nothing of it in the page's pixels: what a window *looks* like is the platform's, which is why
+/// `viewer-core` answers a rectangle and three strings and why this is a `QFrame` rather than
+/// something painted on the chrome overlay. The three texts and the box are
+/// `viewer_host::popup`'s, shared with the other two hosts; the frame, the fonts and the palette
+/// are Qt's.
+class PopupWindow : public QFrame
+{
+    Q_OBJECT
+
+public:
+    /// Builds one window from what the host answered. Placed by the caller with `setGeometry`.
+    PopupWindow(const QtPopup& window, QWidget* parent);
+};
+
 /// The page's pixels, the form's controls, and the chrome over both.
 ///
 /// A plain `QWidget` with no layout is Qt's `GtkFixed`: children are placed by `setGeometry` at
@@ -247,6 +265,13 @@ private:
     void placeControls();
     /// Rebuilds the three trees.
     void rebuildPanels();
+    /// Rebuilds ISO 32000-2 §12.5.6.14's popup windows, which happens when the answer changes.
+    ///
+    /// Rebuilt rather than moved, which is the opposite of `placeControls`' rule and right for the
+    /// opposite reason: a control holds the keyboard and a person's half-typed value, and a popup
+    /// window holds neither — the clause gives it no actions of its own and
+    /// `Qt::WA_TransparentForMouseEvents` means a press goes through it to the page.
+    void rebuildPopups();
     /// §7.6.4.1's prompt, in a window of the platform's own.
     void askForAPassword();
     /// The third-party notices this binary is obliged to carry, in a window of their own.
@@ -310,6 +335,8 @@ private:
     /// The string in it.
     QLineEdit* needle_;
     std::vector<QWidget*> controls_;
+    /// ISO 32000-2 §12.5.6.14's open windows, in the order the host answered them.
+    std::vector<QWidget*> popups_;
     /// §12.4.4.1's clock, as one repeating timer that is stopped whenever nothing is presenting.
     ///
     /// One timer rather than a chain of `singleShot`s, because `applyUpdates` runs after every

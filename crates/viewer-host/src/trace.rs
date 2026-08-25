@@ -19,11 +19,24 @@ pub enum Topic {
     Events,
     /// What the three trees and the form controls were built from.
     Panel,
+    /// What the pointer is over — §12.5.6.5's activation region, and so the cursor.
+    ///
+    /// Its own topic rather than a line under [`Topic::Events`], because a pointer move is already
+    /// a command and this is the *answer* to a question asked beside it. It is also the one thing
+    /// a window does that cannot be photographed on a headless display: `xwd` does not capture the
+    /// pointer, so a trace line is the only instrument there is for it here.
+    Pointer,
 }
 
 impl Topic {
     /// Every topic, in the order `--trace=?` lists them.
-    const ALL: [Self; 4] = [Self::Launch, Self::Frames, Self::Events, Self::Panel];
+    const ALL: [Self; 5] = [
+        Self::Launch,
+        Self::Frames,
+        Self::Events,
+        Self::Panel,
+        Self::Pointer,
+    ];
 
     /// What a person types after `--trace=`.
     #[must_use]
@@ -33,6 +46,7 @@ impl Topic {
             Self::Frames => "frames",
             Self::Events => "events",
             Self::Panel => "panel",
+            Self::Pointer => "pointer",
         }
     }
 
@@ -43,6 +57,7 @@ impl Topic {
             Self::Frames => 1 << 1,
             Self::Events => 1 << 2,
             Self::Panel => 1 << 3,
+            Self::Pointer => 1 << 4,
         }
     }
 

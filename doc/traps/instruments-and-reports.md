@@ -106,6 +106,16 @@ Two rules:
 - **Take the path from the toolchain, not from memory**: `cargo run --release -p conformance --bin
   <name>` is what `doc/todo/01` states, and it cannot pick the wrong tree. If you invoke a binary
   directly, get its directory from `cargo metadata --format-version 1 --no-deps`.
+
+**It is not only a sweep, and `doc/todo/02` §5 was the instruction that got it wrong.** That section
+told a round to `install` from `/home/AI/cargo-target/pdf-viewer/release/`, a *literal* path, and in
+a worktree round that is a **neighbour's** build directory — so the binaries a person picks up, and
+every launch measurement taken from them, are another branch's. The seven-hundred-and-twenty-sixth
+session spent three rebuild-and-run cycles on it: the GTK host was rebuilt each time, installed each
+time, and each time ran the main tree's binary and printed nothing for a feature that was working.
+The tell is the same one as above — *nothing moves when you re-run after an edit* — and the fix is
+the same: derive the directory. §5 does now, `tools/round.sh` always did, and `tools/state.sh disk`
+does since the same round.
 - **A before/after comparison needs a before that was compiled from the "before" tree.** `git stash`
   is forbidden here (the stack is shared), so export it — `git archive HEAD | tar -x -C <dir>` — and
   build the sweeps *inside* the export with its own `target-dir`. The export carries only tracked

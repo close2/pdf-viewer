@@ -37,7 +37,7 @@ use viewer_host::panel::{PanelRow, RowAction, Tab};
 use viewer_host::trace::{Topic, Trace};
 
 use crate::bridge::ffi::{
-    QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtQuad, QtRow, QtUpdate,
+    QtChrome, QtControl, QtFrame, QtMeasure, QtPage, QtPopup, QtQuad, QtRow, QtUpdate,
 };
 use crate::keys;
 use crate::page;
@@ -157,6 +157,17 @@ pub struct Host {
     fields: Vec<FormField>,
     /// One entry per control, in the order the C++ side placed them.
     placed: Vec<Placement>,
+    /// §12.5.6.14's open windows, as `Query::Popups` last answered.
+    ///
+    /// Kept rather than asked for twice: `refresh` compares this against the new answer to decide
+    /// whether the C++ side has to rebuild the widgets, and `popups` then hands over what the
+    /// comparison was made on. `viewer_core::PopupWindow` is `PartialEq`, which is the whole test.
+    popups_shown: Vec<viewer_core::PopupWindow>,
+    /// Whether the pointer was last over §12.5.6.5's activation region.
+    ///
+    /// Kept so that the cursor is changed when the answer changes rather than on every motion
+    /// event, which is the same economy `viewer-gtk` makes for the same reason.
+    over_link: bool,
     /// What has changed since the C++ side last asked.
     update: QtUpdate,
     /// Table 29's `/PageMode /FullScreen`, §12.2's chrome flags, and the way back out.
@@ -277,6 +288,8 @@ impl Host {
             trees: std::array::from_fn(|_| Vec::new()),
             fields: Vec::new(),
             placed: Vec::new(),
+            popups_shown: Vec::new(),
+            over_link: false,
             update: nothing_changed(),
             presented: false,
             needle: String::new(),
@@ -764,6 +777,23 @@ impl Host {
             }
         };
         self.dispatch(Command::Pointer { at: (x, y), action });
+        // §12.5.6.5's activation region, asked at pointer speed — which is what makes
+        // `Query::LinkAt` a query rather than a command. The clause states no cursor at all, so
+        // what a reader sees over a link is a convention; this is the one all three hosts now
+        // keep, and the flag is how it reaches a Qt object without Rust calling one.
+        if let Answer::Link(over) = self.viewer.query(Query::LinkAt((x, y)))
+            && over != self.over_link
+        {
+            self.over_link = over;
+            self.update.cursor = true;
+            self.trace.say(
+                Topic::Pointer,
+                format_args!(
+                    "the pointer is {} §12.5.6.5's activation region",
+                    if over { "over" } else { "off" }
+                ),
+            );
+        }
     }
 
     /// A row of one of the three trees was activated.
@@ -1223,7 +1253,7 @@ impl Host {
     pub(crate) fn controls(&self) -> Vec<QtControl> {
         let mut controls = Vec::with_capacity(self.placed.len());
         for (placed, (field, widget)) in self.placed.iter().zip(self.widgets()) {
-            let (x, y, width, height) = bounds(widget.quad);
+            let (x, y, width, height) = viewer_host::bounds(widget.quad);
             let (kind, max_len, multi, editable) = describe_kind(&placed.kind);
             controls.push(QtControl {
                 x,
@@ -1380,6 +1410,43 @@ impl Host {
         }
     }
 
+    /// §12.5.6.14's open popup windows, as the furniture Qt places.
+    ///
+    /// The clause gives a popup "no appearance stream or associated actions of its own", so there
+    /// is nothing of it in the page's pixels and a window is the platform's to draw. The three
+    /// texts and the box are `viewer_host::popup`'s, so this host and `viewer-gtk` say the same
+    /// thing about one clause.
+    pub(crate) fn popups(&self) -> Vec<QtPopup> {
+        let placed = viewer_host::popup::windows(&self.popups_shown);
+        placed
+            .iter()
+            .map(|window| {
+                let (x, y, width, height) = window.place;
+                let colour = window
+                    .colour
+                    .map(|colour| (level(colour.r), level(colour.g), level(colour.b)));
+                QtPopup {
+                    x,
+                    y,
+                    width,
+                    height,
+                    title: window.title.to_owned(),
+                    modified: viewer_host::popup::modified(window).unwrap_or_default(),
+                    text: window.text.to_owned(),
+                    coloured: colour.is_some(),
+                    red: colour.map_or(0, |rgb| rgb.0),
+                    green: colour.map_or(0, |rgb| rgb.1),
+                    blue: colour.map_or(0, |rgb| rgb.2),
+                }
+            })
+            .collect()
+    }
+
+    /// Whether the pointer is over §12.5.6.5's activation region.
+    pub(crate) fn over_link(&self) -> bool {
+        self.over_link
+    }
+
     /// What the title bar should say.
     pub(crate) fn title(&self) -> String {
         let mark = if self.dirty { "• " } else { "" };
@@ -1423,16 +1490,6 @@ impl Host {
                   entry in the bridge for a value that belongs to this host"
     )]
     pub(crate) fn surround(&self) -> Vec<u8> {
-        let level = |component: f32| {
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "a colour component in 0..=1 scaled by 255"
-            )]
-            {
-                (component.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
-            }
-        };
         let colour = pdf_render::SURROUND;
         vec![level(colour.r), level(colour.g), level(colour.b)]
     }
@@ -1675,6 +1732,28 @@ impl Host {
         }
         self.fields = fields;
         self.placed = placed;
+        // §12.5.6.14's windows, which are widgets and not pixels: rebuilt when the set changes or
+        // one of them moves, and left alone otherwise. Reported on what the *answer* held rather
+        // than on what could be placed, so that a window with no area is a line rather than a
+        // silence.
+        let popups = match self.viewer.query(Query::Popups) {
+            Answer::Popups(windows) => windows,
+            _ => Vec::new(),
+        };
+        if popups != self.popups_shown {
+            self.update.popups = true;
+            if !popups.is_empty() || !self.popups_shown.is_empty() {
+                self.trace.say(
+                    Topic::Panel,
+                    format_args!(
+                        "{} of {} §12.5.6.14 popup window(s) placed",
+                        viewer_host::popup::windows(&popups).len(),
+                        popups.len()
+                    ),
+                );
+            }
+            self.popups_shown = popups;
+        }
     }
 
     /// The rows of one panel, or none at all for the one panel that has no rows.
@@ -1993,22 +2072,6 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
     }
 }
 
-/// The axis-aligned bound of a quadrilateral, in the device pixels it arrived in.
-///
-/// A widget's `/Rect` can arrive rotated — §7.7.3.3's `/Rotate` and Table 192's `/R` both turn it
-/// — and a platform control is a rectangle, so this is where a host loses that. Both native hosts
-/// lose it in the same place and for the same reason, which is a fact about toolkits rather than
-/// about the boundary: `FormWidget::quad` carries the four corners correctly.
-fn bounds(quad: [f32; 8]) -> (f32, f32, f32, f32) {
-    let xs = [quad[0], quad[2], quad[4], quad[6]];
-    let ys = [quad[1], quad[3], quad[5], quad[7]];
-    let left = xs.iter().copied().fold(f32::INFINITY, f32::min);
-    let right = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
-    let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    (left, top, right - left, bottom - top)
-}
-
 /// One `[x0, y0, … x3, y3]` as the bridge carries it.
 fn quad(corners: [f32; 8]) -> QtQuad {
     QtQuad {
@@ -2041,6 +2104,8 @@ fn nothing_changed() -> QtUpdate {
         panels: false,
         controls: false,
         chrome: false,
+        popups: false,
+        cursor: false,
         title: false,
         status: false,
         password: false,
@@ -2049,6 +2114,19 @@ fn nothing_changed() -> QtUpdate {
         find_bar: false,
         notices: false,
     }
+}
+
+/// A colour component in `0.0..=1.0` as the 0..=255 level a `QColor` takes.
+///
+/// Shared by `pdf_render::SURROUND` and Table 166's `/C`, because two roundings of one convention
+/// is exactly the kind of thing that comes to differ by a level and be argued about.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a colour component in 0..=1 scaled by 255"
+)]
+fn level(component: f32) -> u8 {
+    (component.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
 }
 
 /// What to call the document in a title bar: its file name, or the whole path where it has none.

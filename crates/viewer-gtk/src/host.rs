@@ -107,6 +107,12 @@ struct Ui {
     window: gtk4::ApplicationWindow,
     /// The page and the form controls.
     fixed: gtk4::Fixed,
+    /// §12.5.6.14's popup windows, in a layer of their own over the page.
+    ///
+    /// Not in [`Ui::fixed`], and the reason is in `build_window`: a `GtkFixed` measures its
+    /// children and a window the document put beside the page would then decide how wide the
+    /// window is.
+    popups: gtk4::Fixed,
     /// The pixels of every page Table 29's arrangement is showing, one widget apiece.
     ///
     /// Grown when a layout puts more pages on the screen and never shrunk — a `GtkPicture` with
@@ -196,6 +202,18 @@ pub struct Host {
     caption: String,
     /// The controls over the page, and which fields they are for.
     placed: Vec<Placed>,
+    /// §12.5.6.14's open popup windows, as the widgets placed for them.
+    popups: Vec<gtk4::Frame>,
+    /// The answer those widgets were built from, so that a repaint that changes nothing rebuilds
+    /// nothing. `viewer_core::PopupWindow` is `PartialEq`, which is what makes the comparison the
+    /// whole test.
+    popups_shown: Vec<viewer_core::PopupWindow>,
+    /// Whether the pointer was last over §12.5.6.5's activation region.
+    ///
+    /// Kept so that `Query::LinkAt` changes the cursor when the answer changes rather than on
+    /// every motion event: `gdk_surface_set_cursor` is a round trip to the display server and a
+    /// pointer moved across a page produces hundreds of them a second.
+    over_link: bool,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
     /// What the find bar is looking for, kept because the *page's* highlights are asked for on
@@ -307,6 +325,12 @@ const PANEL_WIDTH: i32 = 380;
 /// about that.
 const SCROLL_STEP: f64 = 48.0;
 
+/// How far §12.5.6.14's text sits from the edge of its window, in logical pixels.
+///
+/// A choice, and written down as one: the clause states a rectangle and not one word about what a
+/// window looks like inside it. The other two hosts make the same choice in their own units.
+const POPUP_PADDING: i32 = 5;
+
 impl std::fmt::Debug for Host {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -372,6 +396,9 @@ impl Host {
                 dirty: false,
                 caption: String::new(),
                 placed: Vec::new(),
+                popups: Vec::new(),
+                popups_shown: Vec::new(),
+                over_link: false,
                 presented: false,
                 needle: String::new(),
                 pages_left: 0,
@@ -685,6 +712,22 @@ impl Host {
             _ => Vec::new(),
         };
         self.place_fields(&fields);
+        // §12.5.6.14's windows, which have no appearance stream and are therefore nowhere in the
+        // pixels above: they are furniture, and this host places real GTK widgets for them.
+        let popups = match self.viewer.query(Query::Popups) {
+            Answer::Popups(windows) => windows,
+            _ => Vec::new(),
+        };
+        self.place_popups(&popups);
+        self.refresh_chrome();
+    }
+
+    /// The shapes the chrome layer draws, gathered from the four questions that answer them.
+    ///
+    /// Its own method rather than the tail of [`Host::refresh`] because all four are asked on
+    /// every repaint and none of them touches a widget: what comes back is written into the one
+    /// piece of state the draw function reads, and the layer is asked to redraw itself.
+    fn refresh_chrome(&mut self) {
         let selection = match self.viewer.query(Query::Selection) {
             Answer::Selected(selected) => selected.quads.clone(),
             _ => Vec::new(),
@@ -767,7 +810,7 @@ impl Host {
                 let Some(placed) = self.placed.iter().find(|placed| placed.key == key) else {
                     continue;
                 };
-                let (x, y, width, height) = bounds(widget.quad);
+                let (x, y, width, height) = viewer_host::bounds(widget.quad);
                 self.ui
                     .fixed
                     .move_(&placed.widget, f64::from(x) / scale, f64::from(y) / scale);
@@ -787,6 +830,51 @@ impl Host {
         }
         self.suppress.set(false);
         self.report_fit(&fit);
+    }
+
+    /// §12.5.6.14's open windows, as real widgets over the page.
+    ///
+    /// **Rebuilt rather than moved, which is the opposite of [`Host::place_fields`]' rule and is
+    /// right for the opposite reason.** A control holds the keyboard and a person's half-typed
+    /// value, so rebuilding one costs them their place; a popup holds neither — the clause gives
+    /// it "no appearance stream or associated actions of its own", and this host makes it untargetable
+    /// — so there is nothing in one to lose. A page states as many windows as it has open comments,
+    /// which is few, and the comparison below means a scroll that moves nothing rebuilds nothing.
+    fn place_popups(&mut self, popups: &[viewer_core::PopupWindow]) {
+        if self.popups_shown == popups {
+            return;
+        }
+        for widget in self.popups.drain(..) {
+            self.ui.popups.remove(&widget);
+        }
+        let scale = f64::from(self.scale);
+        let placed = viewer_host::popup::windows(popups);
+        for window in &placed {
+            let widget = popup_window(window);
+            let (x, y, width, height) = window.place;
+            widget.set_size_request(
+                logical(f64::from(width), scale),
+                logical(f64::from(height), scale),
+            );
+            self.ui
+                .popups
+                .put(&widget, f64::from(x) / scale, f64::from(y) / scale);
+            self.popups.push(widget);
+        }
+        // On what the *answer* held rather than on what was placed, so that a window the page
+        // states and this host could not put anywhere is a line rather than a silence — which is
+        // trap 5 applied to the one report that would otherwise say nothing about a refusal.
+        if !popups.is_empty() || !self.popups_shown.is_empty() {
+            self.trace.say(
+                Topic::Panel,
+                format_args!(
+                    "{} of {} §12.5.6.14 popup window(s) placed",
+                    placed.len(),
+                    popups.len()
+                ),
+            );
+        }
+        self.popups_shown = popups.to_vec();
     }
 
     /// What the controls' minimum sizes say about the magnification, said once per placement.
@@ -1898,6 +1986,43 @@ impl Host {
         )]
         let at = ((x * scale) as f32, (y * scale) as f32);
         self.dispatch(Command::Pointer { at, action });
+        self.show_whether_it_is_a_link(at);
+    }
+
+    /// §12.5.6.5's activation region under the pointer, as this platform's cursor.
+    ///
+    /// The clause makes a link annotation "either a hypertext link to a destination elsewhere in
+    /// the document or an action to be performed", and states nothing at all about a pointer — so
+    /// what a reader sees over one is a **convention**, and this is GTK's name for it. It is
+    /// nevertheless the difference between a page whose links can be found and one where they can
+    /// only be discovered by clicking, which is why `viewer-ui` has had it since ADR 0166 and why
+    /// two windows of three having it was a debt rather than a platform difference.
+    ///
+    /// Asked at pointer speed, which is what makes `Query::LinkAt` a query rather than a command —
+    /// and set only when the answer *changes*, because `gdk_surface_set_cursor` reaches the
+    /// display server and a pointer sweeping a page of links would reach it on every motion event.
+    fn show_whether_it_is_a_link(&mut self, at: (f32, f32)) {
+        let Answer::Link(over) = self.viewer.query(Query::LinkAt(at)) else {
+            return;
+        };
+        if over == self.over_link {
+            return;
+        }
+        self.over_link = over;
+        self.trace.say(
+            Topic::Pointer,
+            format_args!(
+                "the pointer is {} §12.5.6.5's activation region",
+                if over { "over" } else { "off" }
+            ),
+        );
+        // The layer the pages are in rather than the toplevel: GTK takes the cursor from the
+        // widget the pointer is *picked* on, so setting it on the window would override the text
+        // cursor a `GtkEntry` over a §12.7 widget sets for itself, and setting it on the chrome
+        // layer would set it on a widget `set_can_target(false)` means is never picked.
+        self.ui
+            .fixed
+            .set_cursor_from_name(over.then_some("pointer"));
     }
 }
 
@@ -1997,21 +2122,85 @@ fn write_back(placed: &Placed, value: Option<&pdf_model::view::ShownValue>) {
     }
 }
 
-/// The axis-aligned bound of a quadrilateral, in the device pixels it arrived in.
+/// One of §12.5.6.14's popup windows, as the widgets GTK draws it with.
 ///
-/// A widget's `/Rect` can arrive rotated — §7.7.3.3's `/Rotate` and Table 192's `/R` both turn it
-/// — and a platform control is a rectangle, so this is where a host loses that. Said rather than
-/// hidden: a rotated widget gets an upright control, and now that ADR 0245 takes the appearance out
-/// from under it there is nothing rotated left on the page to disagree with. (This cited Table 189,
-/// which is the *movie* annotation's, until the four-hundred-and-ninth session read it.)
-fn bounds(quad: [f32; 8]) -> (f32, f32, f32, f32) {
-    let xs = [quad[0], quad[2], quad[4], quad[6]];
-    let ys = [quad[1], quad[3], quad[5], quad[7]];
-    let left = xs.iter().copied().fold(f32::INFINITY, f32::min);
-    let right = xs.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
-    let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    (left, top, right - left, bottom - top)
+/// The clause gives a popup "no appearance stream", so there is nothing on the page to show and a
+/// window is furniture — which is why `viewer-core` answers a rectangle and three strings and why
+/// this is a real [`gtk4::Frame`] rather than a rectangle painted on the chrome layer. What is
+/// this host's is only the *look*: the border, the fonts and the two style classes below.
+/// The three texts and the box are `viewer_host::popup`'s, shared with the other two hosts.
+fn popup_window(window: &viewer_host::Window<'_>) -> gtk4::Frame {
+    let frame = gtk4::Frame::new(None);
+    // §12.5.6.14: a popup has "no appearance stream or associated actions of its own", so there is
+    // nothing on it to activate — and a widget over the page that swallowed a press would take the
+    // selection, the link and the form control underneath it away from the reader.
+    frame.set_can_target(false);
+    frame.set_can_focus(false);
+    // A window is the rectangle the *document* states, so text that does not fit stops at its edge
+    // rather than growing it. The drawn host stops at the same place for the same reason.
+    frame.set_overflow(gtk4::Overflow::Hidden);
+
+    let column = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    let bar = gtk4::Box::new(gtk4::Orientation::Horizontal, POPUP_PADDING);
+    bar.set_margin_start(POPUP_PADDING);
+    bar.set_margin_end(POPUP_PADDING);
+    // §12.5.6.2's `/T`: "[t]he text label that shall be displayed in the title bar of the
+    // annotation's popup window when open and active."
+    let title = gtk4::Label::new(Some(window.title));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    title.add_css_class("heading");
+    bar.append(&title);
+    // Table 166's `/M`, in the one format `viewer_host::stamp` gives every date this program
+    // shows, so that a popup and §14.3.3's panel do not spell one clause's answer two ways.
+    if let Some(when) = viewer_host::popup::modified(window) {
+        let stamp = gtk4::Label::new(Some(&when));
+        stamp.add_css_class("dim-label");
+        bar.append(&stamp);
+    }
+    // Table 166's `/C` is "[t]he title bar of the annotation's popup window", so the colour is
+    // painted *behind* the bar's two labels rather than applied to their text. A drawing area
+    // under an overlay, because GTK4 has no per-widget background short of a style sheet and a
+    // provider per window would be a document's colour reaching into this program's CSS.
+    let painted = gtk4::Overlay::new();
+    if let Some(colour) = window.colour {
+        let ground = gtk4::DrawingArea::new();
+        ground.set_draw_func(move |_, cr, _, _| {
+            cr.set_source_rgb(
+                f64::from(colour.r),
+                f64::from(colour.g),
+                f64::from(colour.b),
+            );
+            if let Err(error) = cr.paint() {
+                eprintln!("note: cannot draw a popup window's title bar: {error}");
+            }
+        });
+        painted.set_child(Some(&ground));
+    }
+    painted.add_overlay(&bar);
+    // **A `GtkOverlay` measures its main child and not its overlays**, and the main child here is
+    // a drawing area with no natural size at all — so without this the title bar was allocated no
+    // height and the note's first line was drawn through the author's name. Photographed, not
+    // reasoned: the first screenshot of this window had the two on top of each other.
+    painted.set_measure_overlay(&bar, true);
+    column.append(&painted);
+
+    // Table 166's `/Contents`: the text in the window. Wrapped by Pango, which is the whole reason
+    // a native host places a label here instead of breaking lines for itself.
+    let note = gtk4::Label::new(Some(window.text));
+    note.set_xalign(0.0);
+    note.set_yalign(0.0);
+    note.set_wrap(true);
+    note.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+    note.set_vexpand(true);
+    note.set_margin_start(POPUP_PADDING);
+    note.set_margin_end(POPUP_PADDING);
+    note.set_margin_top(POPUP_PADDING);
+    column.append(&note);
+
+    frame.set_child(Some(&column));
+    frame
 }
 
 /// Device pixels as the logical ones GTK lays out in.
@@ -2088,29 +2277,7 @@ fn build_window(
     window.set_default_size(1000, 1100);
     window.set_title(Some(&named(path)));
 
-    let fixed = gtk4::Fixed::new();
-    fixed.set_overflow(gtk4::Overflow::Hidden);
-    surround(&fixed);
-
-    let chrome = gtk4::DrawingArea::new();
-    // The chrome layer is over the page and over the controls, so it must not take a click that
-    // belongs to either: this is what makes a `GtkEntry` under it still receive the keyboard.
-    chrome.set_can_target(false);
-    chrome.set_hexpand(true);
-    chrome.set_vexpand(true);
-    let state = Rc::clone(chrome_state);
-    chrome.set_draw_func(move |area, cr, _, _| {
-        if let Err(error) = draw_chrome(area, cr, &state.borrow()) {
-            eprintln!("note: cannot draw the chrome: {error}");
-        }
-    });
-
-    let overlay = gtk4::Overlay::new();
-    overlay.set_child(Some(&fixed));
-    overlay.add_overlay(&chrome);
-    overlay.set_overflow(gtk4::Overflow::Hidden);
-    overlay.set_hexpand(true);
-    overlay.set_vexpand(true);
+    let (fixed, popups, chrome, overlay) = page_area(chrome_state);
 
     // One notebook page per `viewer_host::Tab`, in that list's own order and with that list's own
     // wording — six panels rather than the three this host drew until `doc/todo/30`'s item 4, and
@@ -2209,6 +2376,7 @@ fn build_window(
     Ui {
         window,
         fixed,
+        popups,
         pictures: Vec::new(),
         chrome,
         slots,
@@ -2220,6 +2388,58 @@ fn build_window(
         find,
         find_entry,
     }
+}
+
+/// The four widgets the page is drawn in, and the order they are stacked in.
+///
+/// Its own function because it is one decision — *what is over what* — and stating it beside the
+/// notebook, the header bar and the status bar buried it. Bottom to top: the page's own pictures
+/// and §12.7's controls, §12.5.6.14's windows, and the layer the selection and §12.5.1's ring are
+/// drawn on.
+fn page_area(
+    chrome_state: &Rc<RefCell<Chrome>>,
+) -> (gtk4::Fixed, gtk4::Fixed, gtk4::DrawingArea, gtk4::Overlay) {
+    let fixed = gtk4::Fixed::new();
+    fixed.set_overflow(gtk4::Overflow::Hidden);
+    surround(&fixed);
+
+    let chrome = gtk4::DrawingArea::new();
+    // The chrome layer is over the page and over the controls, so it must not take a click that
+    // belongs to either: this is what makes a `GtkEntry` under it still receive the keyboard.
+    chrome.set_can_target(false);
+    chrome.set_hexpand(true);
+    chrome.set_vexpand(true);
+    let state = Rc::clone(chrome_state);
+    chrome.set_draw_func(move |area, cr, _, _| {
+        if let Err(error) = draw_chrome(area, cr, &state.borrow()) {
+            eprintln!("note: cannot draw the chrome: {error}");
+        }
+    });
+
+    // §12.5.6.14's windows go in a layer of their own, and **not** in the `GtkFixed` the page and
+    // the form controls are in. A `GtkFixed` measures the union of its children, so a popup whose
+    // `/Rect` the document put *beside* the page — which is where every one of `issue14438.pdf`'s
+    // six is — asks the `GtkPaned` for more room, which widens the viewport, which moves the
+    // window further out, which asks for more room again: measured, the page area walked from 509
+    // to 1229 device pixels in nine frames before the geometric series ran out. An overlay child
+    // is not measured by `GtkOverlay` unless `set_measure_overlay` says so, and it is allocated
+    // the overlay's own size, so a window outside the viewport is clipped instead of moving it.
+    let popups = gtk4::Fixed::new();
+    popups.set_can_target(false);
+    popups.set_overflow(gtk4::Overflow::Hidden);
+
+    let overlay = gtk4::Overlay::new();
+    overlay.set_child(Some(&fixed));
+    // Under the chrome layer: a selection, a match and §12.5.1's ring are marks *on the page*, and
+    // a window that hid them would be furniture eating the document. The window is opaque either
+    // way, so what this decides is only what happens where the two meet.
+    overlay.add_overlay(&popups);
+    overlay.add_overlay(&chrome);
+    overlay.set_overflow(gtk4::Overflow::Hidden);
+    overlay.set_hexpand(true);
+    overlay.set_vexpand(true);
+
+    (fixed, popups, chrome, overlay)
 }
 
 /// Everything a person does to the window, in the vocabulary the viewer takes.

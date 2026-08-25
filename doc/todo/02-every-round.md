@@ -396,10 +396,17 @@ share and the two that break it:
 
 ## 5. Put the binaries where a person can run them — every fifth round, and before any measurement
 
-**The agent builds into `/home/AI/cargo-target/pdf-viewer/`, which the human's shell never looks
-at.** So what a person would run has to be copied into the project's own `target/`.
-`tools/state.sh binaries` says what is there and how old it is; `tools/round.sh` says whether this
-round owes the rebuild.
+**The agent builds outside the tree, into a directory the human's shell never looks at.** So what
+a person would run has to be copied into the project's own `target/`. `tools/state.sh binaries`
+says what is there and how old it is; `tools/round.sh` says whether this round owes the rebuild.
+
+**Which directory that is has to be *asked for*, never written down**, and this section wrote it
+down — `/home/AI/cargo-target/pdf-viewer/` — for as long as it has existed. That is the main tree's,
+and a worktree round has its own (`.cargo/config.toml`'s `target-dir`), so the literal path installs
+a **neighbour's** binary over this round's: the seven-hundred-and-twenty-sixth session rebuilt the
+GTK host three times, installed it three times, ran a feature that was working, and saw nothing,
+because every run was of another branch's program. It is trap 15's own subject — a binary from a
+neighbour's build directory — reached through an instruction rather than through a habit.
 
 **Its cadence is stated as a *rule about staleness* rather than as a habit**, and the rule is the
 one this section has always argued from: **a stale binary is a measurement of the past.** The
@@ -418,16 +425,13 @@ change. What is no longer required is paying for a whole-graph fat link at the e
 moved a document.
 
 ```sh
+built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
 cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
                      --bin pdf-viewer-gtk --bin pdf-viewer-qt --bin pdf-retrieve
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer          target/pdf-viewer
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-sandbox-worker  target/pdf-sandbox-worker
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-view-worker     target/pdf-view-worker
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-gtk      target/pdf-viewer-gtk
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-viewer-qt       target/pdf-viewer-qt
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/pdf-retrieve        target/pdf-retrieve
+for binary in pdf-viewer pdf-sandbox-worker pdf-view-worker pdf-viewer-gtk pdf-viewer-qt pdf-retrieve
+do install -Dm755 "$built/$binary" "target/$binary"; done
 cargo build --release -p viewer-ffi          # a library, so not in the invocation above
-install -Dm755 /home/AI/cargo-target/pdf-viewer/release/libviewer_ffi.so   target/libviewer_ffi.so
+install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so
 ```
 
 **One invocation, not three.** Each of these is a whole-graph fat link and Cargo runs three of

@@ -96,6 +96,11 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
             "pdfv_structure_page",
             "pdfv_structure_node",
             "pdfv_structure_text",
+            // §14.7's per-character offsets and boxes, which AT-SPI's `Text` interface is built on
+            // and which this answer carried nowhere until the seven-hundred-and-twenty-sixth.
+            "pdfv_structure_lines",
+            "pdfv_structure_line",
+            "pdfv_structure_character",
         ],
         Query::Reports => &["pdfv_reported_pages", "pdfv_reported_page", "pdfv_report"],
         Query::Readback => &[

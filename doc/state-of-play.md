@@ -70,7 +70,11 @@ text box beside a drop-down list — composed in GTK4, which has no widget that 
 clear is a drop-down and no way to type into it, which the host drawing its own chrome broke for the
 whole of its life (ADR 0596); a click on a markup annotation
 **opens the window §12.5.6.14 gives it**, which is the second half of §12.5.1's sentence about
-activation (ADR 0191); a person can **add an annotation** — §12.5.6.10's four markups over what is
+activation (ADR 0191) — **in all three windows since the seven-hundred-and-twenty-sixth**, where two
+of them drew nothing of it at all: the clause gives a popup "no appearance stream", so the window is
+furniture rather than ink and each host places its own, over one reading of the two clauses that say
+what goes in it (ADR 0613); a **cursor changes over §12.5.6.5's activation region** in all three,
+which no clause states and which is therefore recorded as this program's convention; a person can **add an annotation** — §12.5.6.10's four markups over what is
 selected (ADR 0196), and §12.5.6.6's free text drawn as a rectangle and typed into, which is the
 one markup subtype whose text *is* the annotation and therefore the one whose geometry has to come
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation

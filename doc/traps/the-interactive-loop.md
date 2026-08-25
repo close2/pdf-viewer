@@ -57,3 +57,34 @@ The mirror of this trap is worth having beside it: **a flag reads as a permissio
 are prohibitions**. Bit 19's second clause — if clear, the combo box "shall include only a
 drop-down list" — was broken in silence by the host that had no trouble with the first, for the
 whole of that host's life. Read the sentence after the semicolon.
+
+### 19. A widget the *document* placed can decide how big the window is
+
+`viewer-gtk` puts the page's pictures and §12.7's controls in a `GtkFixed`, and the seven-hundred-and-twenty-sixth
+session put §12.5.6.14's popup windows there too. A `GtkFixed` **measures the union of its
+children**, and a popup's `/Rect` is the document's — `issue14438.pdf` states six open windows
+*beside* its page, at x 598 to 785 on a 612-unit page — so the window asked the `GtkPaned` for more
+room, which widened the viewport, which moved the popups further out, which asked for more room
+again. Measured off `--trace`: the page area walked 509 → 653 → 838 → 1035 → 1134 → … → 1229 device
+pixels in nine frames, a geometric series that converged only because each step halved.
+
+Nothing about it looked like a defect. The windows appeared, the page drew, no gate could see it,
+and the only tell was that one `Resize` line in the trace had become nine.
+
+**The rule is about the direction of the arithmetic, not about GTK.** Everything `viewer-core`
+answers with is in *device pixels of the viewport*, and the viewport is what the host tells the core
+it is — so a host that lets an answer feed back into the viewport has closed a loop the boundary
+cannot see. A page's raster is safe because the core sized it to the viewport in the first place;
+a `/Rect` the document states is not, and neither is anything else the file decides.
+
+Two answers, one per toolkit, and both are *explicit*: in GTK the popups are a `GtkOverlay` child,
+which `GtkOverlay` does not measure unless `set_measure_overlay` says so and which it allocates its
+own size (so a window outside the viewport is clipped instead of moving it); in Qt they are children
+of a `PageArea` that has no layout at all, so a child's size hint reaches nothing. The Qt half was
+right by accident and is now right on purpose, which is the difference worth keeping.
+
+**And a report on what could be *placed* would not have caught it either.** The first version of
+this host's trace line fired on the count of windows it placed, so a document whose windows all had
+zero area printed nothing at all — the same silence as a document with no windows. It fires on what
+the *answer* held, which is trap 11 pointed at the one line that would otherwise say nothing about
+a refusal. ADR 0613.

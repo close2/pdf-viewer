@@ -4077,6 +4077,114 @@ pub unsafe extern "C" fn pdfv_structure_header(
     }
 }
 
+/// How many lines of text this element's own content items drew.
+///
+/// **What AT-SPI's `Text` interface is built on.** `PDFV_ELEMENT_NAME` is what the element is
+/// *called* and these are what it *says*: a name is one string for a whole paragraph, so a client
+/// can read the paragraph or not read it, and moving a caret through it by character, by word or by
+/// line needs to know where each character begins and which characters share a line. That is what
+/// `org.a11y.atspi.Text`'s `GetCharacterExtents`, `GetOffsetAtPoint` and `GetTextAtOffset` ask for
+/// and what no string can answer.
+///
+/// **Not §14.9's substitutions**, deliberately, and the difference is the point: `PDFV_ELEMENT_NAME`
+/// applies §14.9.3's `/Alt` and §14.9.5's `/E`, and this does not — a caret moves over what is on
+/// the page, and a phrase that substitutes for the content has no glyphs to report positions for.
+/// Zero lines for an element that states one, which is also what `pdfv_structure_node`'s
+/// `substituted` says, and zero for an element whose content drew no text.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_lines(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    count: *mut usize,
+) -> c_int {
+    let (Some(structure), Some(count)) = (structure.as_ref(), count.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match structure.lines(entry, node) {
+        Ok(number) => {
+            *count = number;
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One line's text, with the number of character codes that produced it.
+///
+/// The text follows this ABI's string convention — `out` and `cap`, with `needed` receiving the
+/// length including the terminator — and `characters` receives the count in the same call, because
+/// the invariant between them is what a text interface rests on: the character byte counts sum to
+/// the text's length, so an offset into the string and an index into the characters convert into
+/// each other without either side guessing.
+///
+/// # Safety
+///
+/// See the module documentation. `out` is writable for `cap` bytes, or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_line(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    line: usize,
+    characters: *mut usize,
+    out: *mut c_char,
+    cap: usize,
+    needed: *mut usize,
+) -> c_int {
+    let (Some(structure), Some(characters)) = (structure.as_ref(), characters.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match structure.line(entry, node, line) {
+        Ok((text, codes)) => {
+            *characters = codes;
+            copy_out(text, out, cap, needed)
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// One character code's share of a line: its byte count, and where its glyph is.
+///
+/// `bytes` is how much of the line's text this code produced — **the unit is the code and not the
+/// character**, because a code mapped through `/ToUnicode` to a several-character string drew one
+/// glyph in one place and splitting its box would invent positions the file does not state.
+/// `into` receives `[x0, y0, x1, y1]` in the device pixels of the viewport, the same space every
+/// other shape in this ABI is in.
+///
+/// # Safety
+///
+/// See the module documentation. `into` is writable for four floats.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_structure_character(
+    structure: *const Structure,
+    entry: usize,
+    node: usize,
+    line: usize,
+    character: usize,
+    bytes: *mut usize,
+    into: *mut f32,
+) -> c_int {
+    let (Some(structure), Some(bytes)) = (structure.as_ref(), bytes.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    if into.is_null() {
+        return Status::NullArgument.code();
+    }
+    match structure.character(entry, node, line, character) {
+        Ok((produced, rectangle)) => {
+            *bytes = produced;
+            core::slice::from_raw_parts_mut(into, rectangle.len()).copy_from_slice(&rectangle);
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
 /// §12.3.5's portable collection, as a handle the caller frees.
 ///
 /// The clause is a `shall` on a viewer — "[i]f this dictionary is present in a PDF document, the
