@@ -1,5 +1,8 @@
 //! The interface every rasteriser backend implements.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::display_list::DisplayList;
 use crate::geom::Transform;
 
@@ -181,6 +184,72 @@ pub struct Raster {
     pub data: Vec<u8>,
 }
 
+/// A flag one thread raises to abandon a draw another thread is inside.
+///
+/// # Why this exists, and why it is not called a cancel
+///
+/// `doc/todo/34` §3 settled that the confined worker's cancel **is a kill**: the process being
+/// stopped is interpreting a hostile document, so a stop it has to *agree* to is one the document
+/// can decline. That argument holds for the worker and does not transfer, because since ADR 0633
+/// a page usually crosses the confinement as *marks* and the host draws them itself — in the
+/// host's own process, on the host's own thread, outside any confinement. There is nothing to
+/// kill there but the program the person is using. So the two mechanisms are deliberately
+/// different objects with different names, and neither is a synonym for the other: a `Canceller`
+/// **ends a process**, and an `Interrupt` is *raised* and *honoured* — a loop this tree owns
+/// reaches its next check and stops going round.
+///
+/// What makes asking sufficient here is that the loop is ours. A hostile document reaches this
+/// crate as a [`DisplayList`], which is data: it can make the loop long, and it cannot make an
+/// iteration of it decline to check.
+///
+/// # What an interrupt does and does not bound
+///
+/// A backend that honours this reads it **between commands**, so what it cannot interrupt is
+/// one command's own scan conversion and any whole-target pass after the drawing. Both of those
+/// are `O(target area)`, which `viewer-core`'s `MAX_PIXELS` and [`MAX_EXTENT`] bound. What it does
+/// interrupt is the *number* of commands, which nothing in this tree bounds at all — a display
+/// list of 990 kB is ten thousand page-covering fills and **27.6 s** of drawing at a 900x1165
+/// window, out of a document of 1567 bytes (ADR 0650).
+///
+/// # Which backends honour it
+///
+/// `render_cpu::CpuRasterizer::interruptible` takes one. The device backends do not offer the
+/// method rather than accepting one and ignoring it, which is `doc/traps/parsers-and-streams.md`
+/// trap 5 applied to an API: a host that hands an interrupt to a backend that cannot honour it
+/// should fail to compile, not to stop. ADR 0650 section 4 says why a submitted frame is a different
+/// question.
+///
+/// # Ordering
+///
+/// Both accesses are `Relaxed`, and that is a decision rather than a default. Nothing is
+/// *published* through this flag — the abandoned draw's raster is dropped, not read — so there is
+/// no data for an acquire to acquire, and the cost of the load is what makes it affordable once
+/// per command. The only guarantee wanted is eventual visibility, which `Relaxed` gives.
+#[derive(Debug, Clone, Default)]
+pub struct Interrupt(Arc<AtomicBool>);
+
+impl Interrupt {
+    /// An interrupt that has not been raised.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Raises it. Every backend holding a clone abandons its draw at its next check.
+    ///
+    /// Idempotent, and callable from any thread — including while a draw is in progress, which
+    /// is the only time it does anything.
+    pub fn raise(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether it has been raised.
+    #[must_use]
+    pub fn raised(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
 /// A rasteriser: turns a resolved display list into pixels.
 ///
 /// # Why the whole list at once
@@ -233,6 +302,14 @@ pub enum BackendError {
     /// The requested target rounds to zero pixels, or its size is not finite.
     #[error("target dimensions are degenerate")]
     DegenerateTarget,
+    /// The caller raised the [`Interrupt`] it handed the backend, and the draw was abandoned.
+    ///
+    /// A *refusal*, not a failure, and the only variant here that says nothing about the
+    /// document: what it reports is a decision the host made about its own thread. The raster
+    /// does not exist, so a caller that wanted pixels shows whatever it had before — which is
+    /// `doc/todo/37`'s stale frame, already built for both windows.
+    #[error("the draw was interrupted by the caller")]
+    Interrupted,
     /// Transparency groups nest deeper than [`MAX_GROUP_DEPTH`].
     #[error("transparency groups nest {depth} deep, over the limit of {limit}")]
     GroupsTooDeep {

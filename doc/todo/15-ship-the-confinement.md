@@ -1,13 +1,14 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
-its codec built (ADR 0626), wired into the frame path (ADR 0633) and paid for (ADR 0640).** The
+its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640) and the
+host's own draw made stoppable (ADR 0650).** The
 machinery exists and is verified
 against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; a
 frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
 confined process can both compute; and a page shipped as marks is **not drawn at all**, which is
-what the choice was for. The tier change is complete. What it left behind is one *host-side* debt,
-below.
+what the choice was for. The tier change is complete. What it left behind was one *host-side* debt
+whose mechanism is now built and whose *policy* is what remains, below.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
@@ -99,15 +100,34 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
   to ten thousand page-covering fills from **26.5 s to 18 ms**, with the two pixel-arm documents
   flat beside them as the control.
 
-- **What that leaves is a *host-side* debt and it is new here rather than caused here.** A cancel
-  stops the work the worker does, and on the marks arm the worker does not rasterise — so the
-  drawing of a page that will not finish is the host's, outside the confinement, with no cancel.
-  It always was: since ADR 0633 the marks are what crosses, and the host has to draw them whatever
-  the worker did with its own copy. What ADR 0640 removed is the duplicate, and what it exposes is
-  that **a host taking marks owns their draw** and needs an answer for a page whose *cost* its
-  size said nothing about. `tests/support/amplification.rs` is the witness — a document a producer
-  can write in a few hundred bytes — and `render-quorra`'s own budget refusals are the nearest
-  thing this tree has to an answer.
+- **What that left was a *host-side* debt, new here rather than caused here — and the mechanism
+  half of it is carried out** (ADR 0650). A cancel stops the work the worker does, and on the
+  marks arm the worker does not rasterise, so the drawing of a page that will not finish is the
+  host's, outside the confinement. `pdf_render::Interrupt` is what reaches it:
+  `render_cpu::CpuRasterizer::interruptible` takes one and honours it between commands, which is
+  the loop nothing bounds. The witness draws for **27.6 s** in the host from 990 kB of marks the
+  worker shipped in 14 ms and never drew, and an interrupt returns the drawing thread in **1.3 to
+  2.1 ms**.
+
+  **What ADR 0650 also settled is that there is no budget to derive, which this entry expected
+  there to be.** The only pre-draw cost estimate in the tree — `row_costs` over
+  `command_extents`, which every CPU draw already computes to place its strips — correlates with
+  the measured draw at **0.115** by Pearson over `doc/pdf.js`'s first pages. Two pages of the same
+  size make it concrete: one painted **0.2** times over draws for **162 ms** and one painted
+  **593** times over draws in **16 ms**. `render-quorra`'s budget refusals are not the answer
+  either: that budget is the *device's resources*, not the frame's cost. `examples/host_draw` is
+  the instrument and carries the finding.
+
+  **What is left is the policy**, which is a host's and has no host yet: nothing decides *when* to
+  raise one, because `viewer-ui` is not on this boundary (`doc/todo/34` §2's last line). The shape
+  it takes is the owner's brief in [`10`](10-bounds-that-cap-size.md) — a callback that warns and
+  does not block — and ADR 0650 §2 is why it has to be driven by a clock read *while* drawing.
+
+  **And the policy owes one message besides the decision**, found by reading `doc/todo/37`'s
+  machinery rather than assuming it: `Stale::plan` stands in for a view until a rendering lands,
+  and an interrupted draw never lands. A host that raises one has to say the render *failed*, or
+  the stand-in becomes permanent and the person is left looking at a frozen approximation with
+  nothing to explain it.
 - **The cancel path proven from the host**, not only from a test: the owner's brief says the
   callback may not block, and the `Canceller` is already about a millisecond.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the
