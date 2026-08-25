@@ -1113,6 +1113,14 @@ impl Interpreter<'_> {
         // file can build a cycle out of — `ContentStreamCycleType3insideType3.pdf` in the
         // corpus is exactly that. It shares the bound with form XObjects because it is the
         // same danger and the same cost: a nested content stream.
+        //
+        // §9.6.4 says so itself since Errata Collection 3 (Issue #111), which inserts a
+        // paragraph below NOTE 1: "Implementations also need to avoid potential infinite
+        // recursion if a Type 3 glyph description refers to itself directly or indirectly. The
+        // result in all such cases is implementation-dependent." The bound was written from
+        // principle 3's budgets rather than from the clause, and the clause now states it —
+        // which leaves only *which* implementation-dependent result to produce, and this one
+        // is reported rather than silent.
         if form_depth >= MAX_FORM_DEPTH {
             self.note(Unsupported::LimitReached {
                 limit: "MAX_FORM_DEPTH",

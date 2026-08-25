@@ -139,6 +139,19 @@ fn fill_colours(interpretation: &pdf_model::Interpretation) -> Vec<[f32; 4]> {
         .collect()
 }
 
+/// The unit-square transforms of the images in a display list, in page units.
+fn image_transforms(interpretation: &pdf_model::Interpretation) -> Vec<pdf_render::Transform> {
+    interpretation
+        .display_list
+        .commands()
+        .iter()
+        .filter_map(|command| match command {
+            Command::Image { transform, .. } => Some(*transform),
+            _ => None,
+        })
+        .collect()
+}
+
 /// A glyph description is run, and run once per character shown.
 ///
 /// §9.6.4 step c): "Invoke the glyph description." Before the tenth session a Type 3 font was
@@ -513,6 +526,98 @@ fn a_glyph_description_finds_the_resources_its_own_stream_names() {
         fill_origins(&interpretation).len(),
         2,
         "the square is now drawn by the form XObject and the triangle by its own path"
+    );
+}
+
+/// Errata Collection 3's NOTE 2 for §9.6.4, on the one operator category the ledger denied.
+///
+/// Issue #111 (`/State` `Review` `Accepted`) inserts below NOTE 1 — in italics rather than as a
+/// blockquote, because an erratum's *added* text is in no clause of `doc/md/` and the quotation
+/// gate's right-hand side is that conversion: *NOTE 2 Type 3 glyphs can use any PDF operator
+/// from any operator category (see "Table 50 - Operator categories" and "Figure 9 - Graphics
+/// objects") subject to additional restrictions described in this clause.*
+///
+/// Table 50's own categories include inline images, which is the case worth a test rather than
+/// an assertion: §9.6.4's ledger row said a glyph description whose marks are an inline image
+/// "draws nothing yet and reports" from the tenth session until the seven-hundred-and-sixtieth,
+/// while `pdf_model::inline_image` landed in the eleventh (ADR 0019). The description declares
+/// `d0`, so §8.6.8's restriction — the one NOTE 2's last clause defers to — does not apply and
+/// the image is the glyph.
+///
+/// The rectangle is asymmetric on purpose (trap 13): a transposed placement is a different
+/// transform, and a test on a square one could not tell the two apart.
+#[test]
+fn an_inline_image_is_a_glyph_description_s_marks_like_any_other_operator() {
+    let interpretation = Fixture {
+        square: "1000 0 d0\nq 750 0 200 375 0 0 cm\nBI /W 2 /H 2 /CS /G /BPC 8 /F /AHx ID \
+                 00ffff00> EI\nQ",
+        content: "BT /FT3 10 Tf 0 0 Td (a) Tj ET",
+        ..Fixture::default()
+    }
+    .interpret();
+
+    assert!(
+        interpretation.is_complete(),
+        "an inline image inside a glyph description is drawn, not reported: {:?}",
+        interpretation.unsupported
+    );
+    let images = image_transforms(&interpretation);
+    assert_eq!(images.len(), 1, "the glyph's one mark is its inline image");
+    // The description's `cm` through a 0.001 font matrix at 10-point text: every glyph-space
+    // number a hundredth of itself. The shear is what makes the matrix disagree with its own
+    // transpose, which a rectangle alone would not.
+    let placed = images[0];
+    for (got, want, name) in [
+        (placed.a, 7.5, "a"),
+        (placed.b, 0.0, "b"),
+        (placed.c, 2.0, "c"),
+        (placed.d, 3.75, "d"),
+    ] {
+        assert!(
+            (got - want).abs() < 1e-4,
+            "the image is placed by the description's own matrix, whose {name} is {want}: \
+             {placed:?}"
+        );
+    }
+}
+
+/// Table 111's `d1` restriction reaches an inline image, and stops at an image mask.
+///
+/// §9.6.4, Table 111's `d1` entry:
+///
+/// > For the same reason, the glyph description shall not include an image; however, an image
+/// > mask is acceptable, since it merely defines a region of the page to be painted with the
+/// > current colour.
+///
+/// §8.6.8 is what a reader does about a file that breaks the `shall`: "unless painting an image
+/// mask, all image painting operators shall be ignored". So the two halves of this test are one
+/// rule seen from both sides, and the second is why the first is not simply "images are dropped
+/// inside a glyph description" — which is what a test of the `d1` case alone would establish.
+#[test]
+fn a_d1_glyph_description_drops_an_image_and_keeps_an_image_mask() {
+    let image = Fixture {
+        square: "1000 0 0 0 750 750 d1\nq 750 0 0 375 0 0 cm\nBI /W 2 /H 2 /CS /G /BPC 8 /F \
+                 /AHx ID 00ffff00> EI\nQ",
+        content: "BT /FT3 10 Tf 0 0 Td (a) Tj ET",
+        ..Fixture::default()
+    }
+    .interpret();
+    assert!(
+        image_transforms(&image).is_empty(),
+        "§8.6.8 ignores an image painting operator inside a `d1` description"
+    );
+
+    let mask = Fixture {
+        square: "1000 0 0 0 750 750 d1\nq 750 0 0 375 0 0 cm\nBI /W 8 /H 1 /IM true /D [0 1] \
+                 /F /AHx ID ff> EI\nQ",
+        content: "BT /FT3 10 Tf 0 0 Td (a) Tj ET",
+        ..Fixture::default()
+    }
+    .interpret();
+    assert_eq!(
+        image_transforms(&mask).len(),
+        1,
+        "an image mask designates where the inherited colour is painted, so it is not ignored"
     );
 }
 

@@ -4268,6 +4268,49 @@ is planted. All 256 rows are compared against `doc/md/` now, in both directions.
   annotations fall under one `emit` heading because Annex D.3 is one table on six pages. The four
   uses before this each had an issue split across clause headings, and the check costs one grep.
 
+## The rule's sixth use, in the seven-hundred-and-sixtieth, and the live head has now stood for four
+
+**The fourth step out-ranked the live list for the second time running, and by more.** Over live rows
+the head is §14.8.5.3 with seven annotations — the same plateau the third, fourth and fifth uses each
+left standing, because not one of the three took its row from that list. Over **every** row §9.6.4
+carries **eleven** under four issues and is `implemented`; §7.4.1 with eight is second. Both figures
+reproduce what 750 measured from outside before the step existed, which is the calibration that says
+the arithmetic is right before it is trusted. ADR 0681; `doc/errata-read.md` has the four errata with
+their rectangles.
+
+**The head paid with a *denial* rather than with a gate.** Issue #111 inserts a NOTE saying a Type 3
+glyph description "can use any PDF operator from any operator category … subject to additional
+restrictions described in this clause" — and §9.6.4's row had denied exactly one of those categories
+since the tenth session, saying an inline image in a glyph description "draws nothing yet and
+reports, which is §8.9.7's gap rather than this one's". §8.9.7 has been `implemented` since the
+**eleventh** (ADR 0019). Measured, it draws, it is placed by the description's own matrix, and
+nothing is reported; all three claims were false for seven hundred and fifty rounds.
+
+**Three things about the rule itself, from running it:**
+
+- **The live ranking's head has not moved in four uses, and that is the fourth step working rather
+  than the decay failing.** §14.8.5.3 has been the live head since 746 because 750 took §7.7.4, 755
+  took §D.3 and this round took §9.6.4 — the full ranking out-ranks the live one every time it is
+  run. A round that wants the live head takes it deliberately; the rule will not hand it over.
+- **The shape 755 predicted held for a second row, with a different mechanism.** There a settled
+  row's evidence was a round trip that could not fail. Here it was a *sentence* — a row asserting a
+  gap in another clause family, which no sweep in this project is placed to print: `--bin overstated`
+  reads the inverse relation, `--bin blockers` reads a stated blocker, and `spec-errata check` is
+  blind to the erratum that leads to the clause because the strike is one word.
+- **A row's denial of a capability decays exactly as its claim does, and nothing measures it.** The
+  ledger's sweeps compare a row against the *code*; this sentence was wrong about a **sibling row's
+  status**, and the only reason it was ever read is that an erratum put a round on the clause. Worth
+  a sweep if a second instance turns up: every `partial`-shaped sentence inside a settled row's note
+  that names another clause as the reason.
+
+**And an erratum's *added* text cannot be a rustdoc blockquote.** `cargo test -p conformance`'s
+`every_quotation_is_the_standards_own_words` asks `doc/md/` for every blockquote under `crates/`, and
+an inserted sentence is in no clause of that conversion, so it fails with *§9.6.4 does not contain …
+as written* — correctly, since the alternative is a gate that cannot tell a paraphrase from an
+amendment. `measurement.rs`'s convention for Issue #534 is the one to follow: an erratum's
+replacement goes in *italics*, naming the issue, never between `> `. This file and
+`doc/errata-read.md` had the rule written down for *struck* text only.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
