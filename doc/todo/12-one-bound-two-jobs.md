@@ -21,6 +21,15 @@ wrong twice, once when the pool shrank under it and once when this round moved f
 gate's own per-page lines print `ours at worst … ; bound …` for each of the four measures, which is
 where the current figure is.
 
+**And since the seven-hundred-and-thirty-seventh session the gate prints that population in the one
+unit this item never had** (ADR 0636). `rank_the_contradicted_by_the_bound` orders the pool by how
+far outside its bound each page sits and says which of the four measures the ratio belongs to, so
+the line under it counts the pages this bound is the binding one on **and gives the range they span**
+— which is the difference between *how many pages this bound convicts* and *how much of a page's
+verdict it is worth*. Read it before arguing the number again: a population whose members sit a few
+percent outside is a different argument from one whose members sit twice outside, and until that line
+existed nobody could tell which this was.
+
 Re-run the derivation at any time:
 
 ```sh

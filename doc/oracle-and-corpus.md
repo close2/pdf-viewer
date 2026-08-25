@@ -604,9 +604,37 @@ ranking or in any group in `oracle.rs`**, because both are pages this tree *repo
 `check_the_ratchets` filters on `complete`. That filter is right and its argument is the oracle
 module's own; what nobody had noticed is that it also kept the list's largest disagreements out of
 every diagnosis in the file. Both are diagnosed now — the second was a defect and is fixed, the first
-is `CONTRADICTED_ON_A_PAGE_WE_REPORT` — and the ranking itself is left as it is, with the reason in
-ADR 0349. **Take both orderings: one names the page the references are furthest from, the other names
-the page furthest outside what it is held to.**
+is `CONTRADICTED_ON_A_PAGE_WE_REPORT`. **Take both orderings: one names the page the references are
+furthest from, the other names the page furthest outside what it is held to.**
+
+**And since the seven-hundred-and-thirty-seventh session the gate prints the second one too**
+(ADR 0636), which is the code ADR 0349 argued for and left unwritten and which three rounds in a row
+recorded as owed. `rank_the_contradicted_by_the_bound` orders the pool by how far outside its bound
+each page sits — the largest of `Tolerance::accepts`' four ratios, over the members of the consensus
+that convicts the page, against that consensus's own widened bounds — and prints the *name* of the
+measure beside the number, because 29× on the differing fraction and 29× on the mean are two
+different pages. It does not filter on `complete`, deliberately: that filter is what put ADR 0349's
+two largest disagreements outside every diagnosis in the file, and a ranking repeating it would
+re-create the hole. The label says which they are.
+
+What that ordering says about the *other* one is the finding, and it is ADR 0242's own defect
+surviving one level up. `Distance::of` reduces a comparison to **three** ratios and the differing
+fraction is not among them — which is right for `Distance`, whose figures are quoted in a hundred
+notes and have to keep meaning what they meant, and wrong for a ranking built on it, because the
+differing fraction is the bound most of this pool fails on. The gate now prints both counts: how
+many of the pool are furthest outside on that measure, and how many have a `Distance` at or under
+1.0, which is that unit saying *nothing here is wrong* about a page the gate has just contradicted.
+The figures are the run's and are not written here.
+
+**One page of the pool is priced differently by the two sets that convict it**, and it is the
+remainder of ADR 0617's census: `issue19633.pdf` page 1 is the only contradicted page carrying more
+than one maximal consensus. `{poppler, mupdf}` agree to a structural similarity of 0.99896, so
+`widened_to` leaves the bound at the class floor and our 0.97700 against `mupdf` is 2.30 times it;
+`{poppler, ghostscript}` agree to 0.99088, which widens the same bound to 0.98176, and our 0.97959
+against `poppler` is 1.12 times *that*. Both reject us, so the verdict is untouched — but the
+exemption is worth the milder reading, because since ADR 0617 a contradiction is what every set
+reaches. **Trap 12's arithmetic with the sign made visible: the tighter the pair, the harsher the
+bound derived from it**, and a page can be convicted twice at half the price.
 
 **And where a corpus states an invariant about itself, that invariant can be asked of the
 references** — which is the method the five-hundred-and-forty-sixth session took to the head of the

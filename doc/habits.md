@@ -166,7 +166,10 @@ reading in this project goes through them:
   out of `ambiguous`. A derivation says where a number should be; it does not say the number has
   only one job.
 - **Rank the suspects by a ratio, not a distance** — our worst measurement over the bound it is
-  held to. Five times it has chosen the next item before an artefact was opened.
+  held to. Five times it has chosen the next item before an artefact was opened. The oracle prints
+  it for the contradicted pool itself since ADR 0636, so it is no longer a thing to take off a log
+  by hand — and the ratio carries the *name* of the measure it belongs to, because the same number
+  on the differing fraction and on the mean describes two different pages.
 - **Before believing "one pixel out" is rounding, compare the raster sizes.** One reference put
   type a row above ours from a raster *the same size as ours*, which no disagreement about row
   counts can explain. ADR 0064.

@@ -1025,6 +1025,40 @@ const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf p
 /// is about the negative line width, and what the gate is failing us on is the width that clip
 /// produces. Sixth criterion, and the second group in a row where the deciding clause was not the
 /// one the group cites.
+///
+/// # The 2.3 above is one of the page's two readings, and it is the harsher one
+///
+/// Since ADR 0617 a contradicted verdict is one **every** maximal consensus reaches, and this page
+/// is the only one in the pool that carries more than one set and is still contradicted — the
+/// census line above counts the population it is the remainder of. Both of its sets reject us, so
+/// the verdict stands; what nobody had computed until [`rank_the_contradicted_by_the_bound`] is
+/// that they price the rejection at two very different amounts (ADR 0636):
+///
+/// Every figure below is the structural similarity, which is the measure that decides this page;
+/// the pair's own column is a comparison between two references and is not a number this gate ever
+/// prints for a page.
+///
+/// ```text
+///                          the pair agree to   which bounds us at   our worst member   outside by
+///   {poppler, mupdf}            0.99896          0.9900 (floor)     mupdf   0.97700      2.30x
+///   {poppler, ghostscript}      0.99088          0.98176            poppler 0.97959      1.12x
+/// ```
+///
+/// The first row is the page's own printed line — ours at ssim 0.9770 against a bound of 0.9900 —
+/// and the second row is the reading beside it that nothing printed.
+///
+/// `mupdf` with `ghostscript` reaches 0.98828, under the class floor, so those two form no set and
+/// the two above are both maximal. The taken one is `poppler` with `mupdf`, whose agreement is so
+/// close that [`Tolerance::widened_to`] leaves the bound at the class floor — **trap 12's arithmetic
+/// exactly: the tighter the pair, the harsher the bound derived from it** — while the rival pair's
+/// own wider agreement doubles its distance into a bound admitting nearly all of the same
+/// difference.
+///
+/// So this page's standing exemption is worth **1.12x, not 2.3x**, because that is what the
+/// references' most forgiving reading of it comes to. Nothing about the verdict, the mechanism or
+/// the two clauses above changes: the rival set rejects us too, and the third table's `poppler`
+/// column is the one it rejects us on — the one renderer of the three the sign is worth anything
+/// against.
 const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
@@ -4193,6 +4227,13 @@ const JUDGED_WITHOUT_A_THIRD_READING: [&str; 6] = [
 /// contradicted. The condition is the sets *disagreeing*, never their number —
 /// `pdfref::tests::two_maximal_consensuses_that_concur_still_reach_a_verdict` is that property
 /// held against a fixture.
+///
+/// **And its two sets convict it at very different prices**, which ADR 0636 measured when it built
+/// the pool's ratio ranking: the taken pair holds the page 2.30 times outside its bound and the
+/// rival 1.12 times, because the tighter pair's agreement leaves the bound at the class floor while
+/// the wider pair's widens it. [`CONTRADICTED_NEGATIVE_LINE_WIDTH`] carries the table. It is the
+/// same rule as this list's — a verdict is what every set reaches — read for *how far outside*
+/// rather than for *which way*, and it is why that ranking takes the mildest set's number.
 const AMBIGUOUS_DIVIDED_CONSENSUS: [&str; 4] = [
     "colorkeymask.pdf page 1",
     "colors.pdf page 1",
@@ -10435,6 +10476,16 @@ struct Examined {
     ///
     /// `None` where fewer than two references were compared with each other.
     consensus_missed_by: Option<f64>,
+    /// How far outside its own bound a contradicted page sits, in multiples of that bound.
+    ///
+    /// `None` on every verdict but `CONTRADICTED`, which is trap 11 rather than tidiness: on an
+    /// `ambiguous` page no two references agreed, so the bound beside them decided nothing and a
+    /// ratio against it would rank a quantity no verdict rests on. `--bin unpriced` draws its
+    /// population the same way and for the same reason (ADR 0606).
+    ///
+    /// See [`outside_the_bound`] for what the number is made of and why it is a minimum, and
+    /// [`worst_ratio`] for why the measure's name travels with it.
+    outside_the_bound: Option<(f64, &'static str)>,
     /// How many references produced a raster of one colour on a page another one drew, and
     /// therefore took no part in the consensus — `pdfref::consensus_abstentions`.
     ///
@@ -10486,6 +10537,7 @@ impl Examined {
             complete,
             distance: None,
             consensus_missed_by: None,
+            outside_the_bound: None,
             abstentions: 0,
             absent: Vec::new(),
             consensuses: 0,
@@ -10971,6 +11023,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     let verdict = verdict_of(&triangulation, outvoted.as_deref());
     let distance = Distance::of(&triangulation);
     let consensus_missed_by = consensus_missed_by(&triangulation);
+    let outside_the_bound = outside_the_bound(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
         let _ = std::fs::remove_dir_all(&work_dir);
@@ -11000,6 +11053,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         complete,
         distance,
         consensus_missed_by,
+        outside_the_bound,
         abstentions: triangulation.abstained.len(),
         absent,
         consensuses: triangulation.consensuses.len(),
@@ -11051,6 +11105,76 @@ fn consensus_missed_by(triangulation: &pdfref::Triangulation) -> Option<f64> {
         .fold(None::<f64>, |best, missed| {
             Some(best.map_or(missed, |b: f64| b.min(missed)))
         })
+}
+
+/// How far outside its bound a contradicted page sits, and which measure that is.
+///
+/// `None` unless the verdict is a contradiction. On an `ambiguous` page no two references agreed,
+/// so the bound printed beside them decided nothing and a ratio against it would rank a quantity
+/// no verdict rests on — the population rule `--bin unpriced` states and applies (ADR 0606).
+///
+/// # Why the *smallest* of the sets, where a page carries more than one
+///
+/// Since ADR 0617 a verdict is one **every** maximal consensus reaches, so a contradicted page is
+/// one every set rejects and the exemption it is granted is only as strong as the set that rejects
+/// it least. Each set's own number is the largest [`outside_by`] over its members, taken against
+/// **that set's** widened bounds, because a set's bound is derived from its own members' spread and
+/// borrowing another's would price the page against a judgement nothing made. The page's number is
+/// then the smallest of those: *even on the references' most forgiving reading, this page is this
+/// far outside.*
+///
+/// On every page of the pool but one this is exactly the ratio the page's own printed line is made
+/// of, because it carries one consensus and [`measurements`] folds over that same set with the same
+/// function.
+fn outside_the_bound(triangulation: &pdfref::Triangulation) -> Option<(f64, &'static str)> {
+    if !matches!(triangulation.outcome, Outcome::Regression { .. }) {
+        return None;
+    }
+    triangulation
+        .consensuses
+        .iter()
+        .filter(|consensus| !consensus.agrees_with_us())
+        .filter_map(|consensus| {
+            triangulation
+                .ours
+                .iter()
+                .filter(|(reference, _)| consensus.references.contains(reference))
+                .map(|(_, comparison)| worst_ratio(comparison, &consensus.judged_by))
+                .fold(None::<(f64, &'static str)>, |worst, ratio| {
+                    Some(worst.map_or(ratio, |w| if w.0 >= ratio.0 { w } else { ratio }))
+                })
+        })
+        .fold(None::<(f64, &'static str)>, |mildest, ratio| {
+            Some(mildest.map_or(ratio, |m| if m.0 <= ratio.0 { m } else { ratio }))
+        })
+}
+
+/// The largest of [`outside_by`]'s four ratios, and the name of the measure it belongs to.
+///
+/// Split out of `outside_by` rather than folded into it because a ranked number that does not say
+/// what it is a ratio *of* is unreadable: 29.19× on the differing fraction and 29.19× on the mean
+/// are two different pages. The spellings are `quoted::Measure::words`' first, which is the
+/// vocabulary two sweeps already read notes in.
+fn worst_ratio(comparison: &raster_compare::Comparison, bounds: &Tolerance) -> (f64, &'static str) {
+    [
+        (comparison.mean_error / bounds.max_mean, "mean"),
+        (
+            comparison.worst_tile_error / bounds.max_worst_tile,
+            "worst tile",
+        ),
+        (
+            comparison.differing_fraction / bounds.max_differing_fraction,
+            "differing fraction",
+        ),
+        (
+            (1.0 - comparison.structural_similarity) / (1.0 - bounds.min_structural_similarity),
+            "structural similarity",
+        ),
+    ]
+    .into_iter()
+    .fold((0.0, "mean"), |worst, ratio| {
+        if worst.0 >= ratio.0 { worst } else { ratio }
+    })
 }
 
 /// Renders one page with every available reference.
@@ -11382,14 +11506,13 @@ fn measurements(triangulation: &pdfref::Triangulation, decided_by: Option<&[Refe
 ///
 /// [`Distance::of`] deliberately keeps a *three*-measure ratio and is not folded into this one.
 /// Its numbers are quoted in a hundred entries of this file and in `doc/todo/00`, and a page's
-/// recorded "0.16 from the nearest reference" has to stay the number that was recorded.
+/// recorded "0.16 from the nearest reference" has to stay the number that was recorded. What that
+/// costs is priced in [`rank_the_contradicted_by_the_bound`] rather than left as a caution.
+///
+/// The arithmetic is [`worst_ratio`]'s, which also says which of the four the largest ratio was.
+/// One implementation of it, because two would eventually disagree about a verdict.
 fn outside_by(comparison: &raster_compare::Comparison, bounds: &Tolerance) -> f64 {
-    let mean = comparison.mean_error / bounds.max_mean;
-    let tile = comparison.worst_tile_error / bounds.max_worst_tile;
-    let differing = comparison.differing_fraction / bounds.max_differing_fraction;
-    let structural =
-        (1.0 - comparison.structural_similarity) / (1.0 - bounds.min_structural_similarity);
-    mean.max(tile).max(differing).max(structural)
+    worst_ratio(comparison, bounds).0
 }
 
 /// The gate.
@@ -11789,9 +11912,18 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     name_the_pages_judged_without_a_third_reading(results);
     name_the_pages_with_a_divided_consensus(results);
 
+    rank_the_pools(results);
+}
+
+/// The four orderings, in one call because they are one section of the report.
+///
+/// Each says what it is for in its own comment; what they share is that none of them is a ratchet
+/// and none decides a verdict. They are where the next round's page comes from.
+fn rank_the_pools(results: &[Examined]) {
     rank_the_undiagnosed(results);
     rank_the_manufactured_ambiguity(results);
     rank_the_contradicted(results);
+    rank_the_contradicted_by_the_bound(results);
 }
 
 /// Which pages were judged on two readings, against the list that says why for each.
@@ -11911,6 +12043,14 @@ fn name_the_pages_with_a_divided_consensus(results: &[Examined]) {
 /// references allow"; levels ask "how much of the page is different."** Both are printed
 /// elsewhere and only the first can be ranked across the whole list, which is why it is the
 /// one here.
+///
+/// # And there is a third, which is the one `doc/habits.md` asks for
+///
+/// [`rank_the_contradicted_by_the_bound`] below, since ADR 0636. This one measures our distance
+/// from the **nearest** reference in [`Distance`]'s three measures, which is a question about the
+/// page; that one measures how far outside its bound the **consensus that convicts us** puts us,
+/// which is a question about the verdict. They are printed together and its own comment says what
+/// each is for.
 fn rank_the_contradicted(results: &[Examined]) {
     let mut ranked: Vec<(&Examined, Distance)> = results
         .iter()
@@ -11929,6 +12069,105 @@ fn rank_the_contradicted(results: &[Examined]) {
             distance.nearest, distance.furthest, examined.name
         );
     }
+}
+
+/// The ten contradicted pages furthest outside the bound they are held to.
+///
+/// **The ordering ADR 0349 argued for and left unwritten**, and three rounds in a row recorded as
+/// owed after it. `doc/habits.md` asks the pool to be ranked by *our worst measurement over the
+/// bound it is held to*; [`rank_the_contradicted`] above orders by distance from the nearest
+/// reference, which is the ambiguous bucket's instrument borrowed unchanged. The two answer
+/// different questions and both are printed — one names the page the references are furthest from,
+/// this one names the page furthest outside what it is held to.
+///
+/// # What the borrowed instrument cannot see, priced rather than asserted
+///
+/// [`Distance::of`] reduces a comparison to **three** ratios — mean, worst tile, structural
+/// similarity — and the differing fraction is not among them. That is deliberate and stated there:
+/// a hundred entries in this file quote a `Distance` figure and those numbers have to keep meaning
+/// what they meant. What nobody had priced is the consequence for the *ranking* built on it, and it
+/// is the same defect ADR 0242 found in the per-page **line** one level up, surviving in the order
+/// the lines are printed in: the differing fraction is the bound most of this pool fails on, so a
+/// ranking blind to it is blind to most of the pool's accusations. The gate's own run says by how
+/// much — the census line below counts the pages whose every other measure is *inside* the bound,
+/// and each of those has a `Distance` at or under 1.0, which is the unit's way of saying *nothing
+/// here is wrong*.
+///
+/// So this is not a replacement. It is the second ordering `doc/oracle-and-corpus.md` §3b asks a
+/// reader to take, made mechanical so that a round choosing a page off the pool no longer takes it
+/// by hand from a log.
+///
+/// # How to read it
+///
+/// The number is [`Examined::outside_the_bound`] and the word beside it names which of the four
+/// measures it is a ratio of, because 29× on the differing fraction and 29× on the mean are two
+/// different pages. Above 1.0 by construction — a page inside every bound is not contradicted —
+/// and the distance from 1.0 is what the page's standing exemption is worth. **A page just above
+/// 1.0 is trap 12's arithmetic and not a defect's size**: `issue6069.pdf` sits at the foot of this
+/// list because its whole verdict is six differing channels of eighty thousand (ADR 0606).
+///
+/// Nothing here is a ratchet and nothing here decides a verdict. It is a place to look, and its
+/// head is a page every group in this file already names.
+fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
+    let mut ranked: Vec<(&Examined, f64, &str)> = results
+        .iter()
+        .filter(|e| matches!(e.verdict, Verdict::Contradicted(_)))
+        .filter_map(|e| e.outside_the_bound.map(|(ratio, of)| (e, ratio, of)))
+        .collect();
+    ranked.sort_by(|(_, a, _), (_, b, _)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Unlike its neighbour this ranking does **not** filter on `complete`, and that is ADR 0349's
+    // own finding rather than an oversight: `check_the_ratchets` filters on it for a reason the
+    // module states, and the consequence was that the two largest disagreements on the whole pool
+    // sat outside every diagnosis in this file. Both are diagnosed now, and a ranking that hid
+    // them again would be re-creating the hole. The label says which they are.
+    println!("\n  contradicted, and furthest outside the bound it is held to:");
+    for (examined, ratio, of) in ranked.iter().take(10) {
+        println!(
+            "    {ratio:>7.2}x on the {of:<22} {}{}",
+            examined.name,
+            if examined.complete {
+                ""
+            } else {
+                " (incomplete)"
+            }
+        );
+    }
+
+    // The pool's shape in one line, and it is `doc/todo/12`'s population counted by the gate that
+    // makes it rather than by a round with a log. That item says most of this pool fails the
+    // differing fraction and no other bound; what it could not say is by how much, because until
+    // this ranking nothing put the pool in that unit.
+    let on_the_differing_fraction: Vec<f64> = ranked
+        .iter()
+        .filter(|(_, _, of)| *of == "differing fraction")
+        .map(|(_, ratio, _)| *ratio)
+        .collect();
+    let range = |values: &[f64]| {
+        values.iter().fold((f64::MAX, f64::MIN), |(low, high), v| {
+            (low.min(*v), high.max(*v))
+        })
+    };
+    if !on_the_differing_fraction.is_empty() {
+        let (low, high) = range(&on_the_differing_fraction);
+        println!(
+            "    of the {} pages, {} are furthest outside on the differing fraction, between \
+             {low:.2}x and {high:.2}x — the bound `doc/todo/12` is about",
+            ranked.len(),
+            on_the_differing_fraction.len(),
+        );
+    }
+    // What the other ranking's unit says about the same pages: at or under 1.0 it says the page is
+    // inside every bound it can see. Printed rather than described, because it is the whole reason
+    // this second ordering exists.
+    println!(
+        "    and on {} of them every measure `Distance` can see is inside the bound, so the \
+         ranking above them cannot order them at all",
+        ranked
+            .iter()
+            .filter(|(examined, _, _)| examined.distance.is_some_and(|d| d.nearest <= 1.0))
+            .count()
+    );
 }
 
 /// The ten ambiguous pages on which the *references* missed each other by the most.
