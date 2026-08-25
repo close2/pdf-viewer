@@ -1348,30 +1348,49 @@ impl Document {
     /// bound is byte for byte the decode that succeeds under a larger one, so what it puts in
     /// the memo is what the memo would have held anyway.
     fn decoded_under(&self, stream: &Stream, limits: Limits) -> Result<Decoded, StreamRefusal> {
+        self.decoded_chain(stream, self.chain_with_parms(&stream.dict), limits)
+    }
+
+    /// The same again, over a chain the caller has already read out of the dictionary.
+    ///
+    /// [`Self::nested_content_source`] has one in hand — [`Self::pumping`] read the same
+    /// `/Filter` and the same `/DecodeParms` to decide the route — and reading them a second
+    /// time here would resolve every indirect reference in both twice for one decode.
+    fn decoded_chain(
+        &self,
+        stream: &Stream,
+        chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+        limits: Limits,
+    ) -> Result<Decoded, StreamRefusal> {
         if stream.decryption_failed {
             return Err(StreamRefusal::DecryptionFailed);
         }
         if Self::is_external(stream) {
             return Err(StreamRefusal::External);
         }
-        let filters = self.filter_chain(&stream.dict);
-        if filters.is_empty() || self.states_no_data(stream) {
+        if chain.is_empty() || self.states_no_data(stream) {
             return Ok(Decoded {
                 data: Arc::clone(&stream.data),
                 damage: None,
             });
         }
 
-        // The parameters are read before the loop rather than inside it, because they are half
-        // of what identifies a decode and the memo below has to be keyed on all of it. It is
-        // the same work in the same order — `decode_parms` was already called once per filter.
-        let chain: Vec<(Vec<u8>, Option<Dictionary>)> = filters
+        self.chain_over(&stream.data, chain, limits)
+    }
+
+    /// §7.4's chain over one stream dictionary, each filter beside its own `/DecodeParms`.
+    ///
+    /// **Half of what identifies a decode**, the other half being the bytes — see
+    /// [`DecodedEntry::chain`] — so it is built in one place and the memo's key and the work
+    /// the memo remembers come from the same call. The parameters are read here rather than
+    /// inside [`Self::chain_over`]'s loop for that reason: an entry has to be keyed on all of
+    /// what produced it, and `decode_parms` was already called once per filter either way.
+    fn chain_with_parms(&self, dict: &Dictionary) -> Vec<(Vec<u8>, Option<Dictionary>)> {
+        self.filter_chain(dict)
             .into_iter()
             .enumerate()
-            .map(|(index, filter)| (filter, self.decode_parms(&stream.dict, index)))
-            .collect();
-
-        self.chain_over(&stream.data, chain, limits)
+            .map(|(index, filter)| (filter, self.decode_parms(dict, index)))
+            .collect()
     }
 
     /// Runs one filter chain over one buffer, through [`DecodedStreams`].
@@ -1641,15 +1660,18 @@ impl Document {
         if Self::is_external(stream) {
             return Err(StreamRefusal::External);
         }
-        let Some(pumping) = self.pumping(stream) else {
+        let Some(Pumpable { pumping, chain }) = self.pumping(stream) else {
             return self
                 .decoded_stream_data_reported(stream)
                 .map(StreamSource::Whole);
         };
-        Ok(StreamSource::Pumped(crate::filter::Pump::new(
-            pumping,
-            Arc::clone(&stream.data),
-        )))
+        Ok(StreamSource::Pumped {
+            pump: crate::filter::Pump::new(pumping, Arc::clone(&stream.data)),
+            decoding: Decoding {
+                encoded: Arc::clone(&stream.data),
+                chain,
+            },
+        })
     }
 
     /// How one of §7.8.2's *other* content streams is to be read — a form `XObject`, a tiling
@@ -1688,17 +1710,37 @@ impl Document {
     ///
     /// [`StreamRefusal`], exactly as [`Self::decoded_stream_data_reported`] gives it.
     pub fn nested_content_source(&self, stream: &Stream) -> Result<StreamSource, StreamRefusal> {
-        let Some(pumping) = self.pumping(stream) else {
+        let Some(Pumpable { pumping, chain }) = self.pumping(stream) else {
             return self
                 .decoded_stream_data_reported(stream)
                 .map(StreamSource::Whole);
         };
-        let allowance = read(&self.decoded).allowance(&stream.data);
+        // The memo answers two questions here and is asked once, because both are about the same
+        // entry and taking the lock twice for them would be two acquisitions where the exclusive
+        // one is already the expensive part (see [`DecodedStreams`]).
+        //
+        // The first: a window over these bytes has already reached this document's own bound and
+        // found not one instruction inside it, so a second window would spend the same inflation
+        // for the same nothing. The decode is deterministic — the same bytes under the same chain
+        // and the same bound — which is what makes remembering it an answer rather than a guess,
+        // and is why the fact has to include the *emptiness*: a window that had delivered marks
+        // would owe those marks to every later read as well. See [`Self::window_found_nothing`].
+        let allowance = {
+            let mut memo = write(&self.decoded);
+            if let Some(limit) =
+                memo.nothing_under(&stream.data, &chain, self.limits.max_stream_len)
+            {
+                return Ok(StreamSource::Refused { limit });
+            }
+            // And the second, which is the routing rule itself: how much of a decode this memo
+            // would keep beside these encoded bytes.
+            memo.allowance(&stream.data)
+        };
         let within = Limits {
             max_stream_len: allowance.min(self.limits.max_stream_len),
             ..self.limits
         };
-        match self.decoded_under(stream, within) {
+        match self.decoded_chain(stream, chain.clone(), within) {
             Ok(decoded) => Ok(StreamSource::Whole(decoded)),
             // The one refusal that is not the file's: this decode outgrew what the memo would
             // have kept, so there is nothing to be gained by finishing it into a buffer nobody
@@ -1706,12 +1748,56 @@ impl Document {
             Err(StreamRefusal::Filter {
                 why: FilterRefusal::TooLarge { .. },
                 ..
-            }) => Ok(StreamSource::Pumped(crate::filter::Pump::new(
-                pumping,
-                Arc::clone(&stream.data),
-            ))),
+            }) => Ok(StreamSource::Pumped {
+                pump: crate::filter::Pump::new(pumping, Arc::clone(&stream.data)),
+                decoding: Decoding {
+                    encoded: Arc::clone(&stream.data),
+                    chain,
+                },
+            }),
             Err(other) => Err(other),
         }
+    }
+
+    /// Remembers that a window read this decode to `under` bytes and found nothing to draw.
+    ///
+    /// **The one fact a window has that the buffered route does not**, and the whole of
+    /// `doc/todo/41`'s remainder. [`Self::nested_content_source`] hands a stream the memo
+    /// declines to a window (see there), and a window makes no [`FilterRefusal::TooLarge`] of
+    /// its own — it has no allocation to bound — so a bomb whose *encoded* bytes fit the budget
+    /// was re-inflated to [`Limits::max_stream_len`] on every one of §7.8.2's re-reads while the
+    /// answer sat one hop away. On twenty pages drawing one hex-armoured form `XObject` that is
+    /// 14.32-17.99 s against 186.16-287.23 microseconds (ADR 0646; ADR 0587 measured the same
+    /// pair the other way round, before the chain gained a pump).
+    ///
+    /// **What travels is "too large *and empty*", never "too large" alone**, and the second half
+    /// is what makes it sound. A window delivers everything up to the bound and then says it
+    /// stopped, so a stream that drew marks on its first read owes those marks to its second;
+    /// only a run that produced no operation at all can be replaced by a refusal without the
+    /// page depending on the memo — which is the rule [`Outcome::Decoded`]'s `damage` field
+    /// already states for the other half of this cache. `pdf_model::content`'s interpreter is
+    /// what can see both halves, and it is the caller.
+    ///
+    /// A decode whose encoded bytes do not fit [`DECODED_BUDGET`] is still not remembered, since
+    /// [`DecodedStreams::keep`] declines what it cannot hold beside its key — ADR 0586 argued
+    /// that refusal and it is unchanged.
+    pub fn window_found_nothing(&self, decoding: &Decoding, under: usize) {
+        // The chain's last stage is the one whose output outgrew the bound, which is the same
+        // stage `chain_over` would have named had it run the chain to the end in a buffer.
+        let name = decoding
+            .chain
+            .last()
+            .map(|(filter, _)| String::from_utf8_lossy(filter).into_owned())
+            .unwrap_or_default();
+        write(&self.decoded).refuse(
+            &decoding.encoded,
+            decoding.chain.clone(),
+            &StreamRefusal::Filter {
+                name,
+                why: FilterRefusal::TooLarge { limit: under },
+            },
+            under,
+        );
     }
 
     /// Which chain of §7.4's filters a [`crate::filter::Pump`] would run over this stream, if
@@ -1758,13 +1844,19 @@ impl Document {
     /// reader's, §7.7.3.3's, applied over the whole content by `pdf_model::content::reader`, and
     /// what stops a bomb is `MAX_OPERATIONS` over the program it decodes to. The memory a chain
     /// costs is `LINK` bytes per stage regardless of what it names.
-    fn pumping(&self, stream: &Stream) -> Option<crate::filter::Pumping> {
+    ///
+    /// **The chain comes back beside the route, and both are the same two reads.** Deciding
+    /// whether a stream pumps means reading `/Filter` and every `/DecodeParms`, which is also
+    /// exactly what identifies the decode to [`DecodedStreams`] — so a caller that needs both
+    /// gets both here rather than resolving those indirect references a second time.
+    fn pumping(&self, stream: &Stream) -> Option<Pumpable> {
         if self.states_no_data(stream) {
             return None;
         }
         let filters = self.filter_chain(&stream.dict);
         let mut stages = Vec::with_capacity(filters.len());
-        for (index, filter) in filters.iter().enumerate() {
+        let mut chain = Vec::with_capacity(filters.len());
+        for (index, filter) in filters.into_iter().enumerate() {
             // The stage's own parameters, read exactly as `decoded_stream_data_reported` reads
             // them, so that the two routes cannot disagree about what the stream says.
             let parms = self.decode_parms(&stream.dict, index);
@@ -1775,9 +1867,13 @@ impl Document {
             if predicted {
                 return None;
             }
-            stages.push(crate::filter::stage(filter, parms.as_ref())?);
+            stages.push(crate::filter::stage(&filter, parms.as_ref())?);
+            chain.push((filter, parms));
         }
-        crate::filter::Pumping::of(stages)
+        Some(Pumpable {
+            pumping: crate::filter::Pumping::of(stages)?,
+            chain,
+        })
     }
 
     /// Where the encoded data `dict` describes ends inside `data`, on its first filter's own
@@ -2115,6 +2211,50 @@ impl DecodedStreams {
         answer
     }
 
+    /// The bound a window has already read this decode to without finding anything in it.
+    ///
+    /// **A question about routing rather than a request for bytes**, which is why it counts
+    /// neither a hit nor a miss: [`Self::hits`] and [`Self::misses`] tally lookups that asked
+    /// what a chain produces, and adding a second population to them would make the instrument
+    /// mean two things. What it does do is stamp the entry, because an entry that answers is an
+    /// entry in use and eviction is ordered by that stamp.
+    ///
+    /// Only [`FilterRefusal::TooLarge`] answers. The other refusals are properties of the bytes
+    /// rather than of a bound, and a caller asking this one has a chain a window can pump, so
+    /// there is nothing for them to say here.
+    fn nothing_under(
+        &mut self,
+        encoded: &Arc<[u8]>,
+        chain: &[(Vec<u8>, Option<Dictionary>)],
+        bound: usize,
+    ) -> Option<usize> {
+        self.clock = self.clock.saturating_add(1);
+        let clock = self.clock;
+        let entry = self
+            .held
+            .get_mut(&allocation(encoded))
+            .filter(|entry| entry.chain == chain)?;
+        let Outcome::Refused {
+            why:
+                StreamRefusal::Filter {
+                    why: FilterRefusal::TooLarge { limit },
+                    ..
+                },
+            under,
+        } = &entry.outcome
+        else {
+            return None;
+        };
+        // The same rule [`Outcome::Refused`]'s `under` field states: an answer reached under a
+        // tighter bound says nothing about a looser one.
+        if bound > *under {
+            return None;
+        }
+        let limit = *limit;
+        entry.used = clock;
+        Some(limit)
+    }
+
     /// How many decoded bytes this cache would keep beside `encoded`.
     ///
     /// [`Self::keep`]'s own condition, asked before the decode rather than after it: the entry
@@ -2299,7 +2439,45 @@ pub enum StreamSource {
     /// Decoded, whole, by the route every other caller takes.
     Whole(Decoded),
     /// A pump: the bytes come out a window at a time and are never all resident.
-    Pumped(crate::filter::Pump),
+    Pumped {
+        /// The pump itself.
+        pump: crate::filter::Pump,
+        /// Which decode it is running, so that a reader reaching a bound can say which.
+        decoding: Decoding,
+    },
+    /// A window has read this decode to `limit` before and found nothing to draw in it.
+    ///
+    /// Not a third behaviour: it is the second one's answer, remembered. See
+    /// [`Document::window_found_nothing`] for what makes the memory sound, and why the reader
+    /// that meets this arm raises the same report the window raised when it learnt the fact.
+    Refused {
+        /// The bound the window reached, which is the `limit` its own report carried.
+        limit: usize,
+    },
+}
+
+/// What [`Document::pumping`] found: the resumable chain, and the chain that identifies it.
+///
+/// Two answers from one pair of reads. See [`Document::pumping`].
+struct Pumpable {
+    /// The stages a [`crate::filter::Pump`] would run.
+    pumping: crate::filter::Pumping,
+    /// The same filters with their parameters, which is what [`DecodedStreams`] keys on.
+    chain: Vec<(Vec<u8>, Option<Dictionary>)>,
+}
+
+/// Which decode a [`crate::filter::Pump`] is running: the bytes, and §7.4's chain over them.
+///
+/// The pair [`DecodedStreams`] keys an entry by, handed out so that a reader which exhausts a
+/// bound can name the decode it exhausted — [`Document::window_found_nothing`] is the one
+/// consumer. Opaque on purpose: a caller has no reason to read a chain apart, and the type
+/// exists so that the fact travelling back cannot be about some *other* stream.
+#[derive(Debug, Clone)]
+pub struct Decoding {
+    /// The encoded bytes, which are half the key and the whole of its identity argument.
+    encoded: Arc<[u8]>,
+    /// §7.4's filter chain with its parameters, which is the other half.
+    chain: Vec<(Vec<u8>, Option<Dictionary>)>,
 }
 
 /// A stream's data with its image codec, if any, still to be applied.
@@ -2802,6 +2980,68 @@ mod tests {
             cache.get(&encoded, &chain, 4).is_none(),
             "a looser bound has to run the filter"
         );
+    }
+
+    /// The routing question obeys the same bound rule, and counts as neither a hit nor a miss.
+    ///
+    /// [`DecodedStreams::nothing_under`] is asked *before* a decode rather than instead of one,
+    /// so its population is not [`DecodedStreamCache::hits`]'s and adding it to that tally would
+    /// make the instrument report two questions as one. What it must not get wrong is the same
+    /// thing the test above pins: an entry reached under a tighter bound says nothing about a
+    /// looser one, and a window is about to run under the document's own. ADR 0646.
+    #[test]
+    fn the_routing_question_answers_under_its_bound_and_moves_neither_tally() {
+        let chain = vec![(b"FlateDecode".to_vec(), None)];
+        let encoded: Arc<[u8]> = Arc::from(b"xxxxxxxx".as_slice());
+        let refusal = StreamRefusal::Filter {
+            name: "FlateDecode".to_owned(),
+            why: FilterRefusal::TooLarge { limit: 8 },
+        };
+        let mut cache = DecodedStreams::with_budget(DECODED_BUDGET);
+        cache.refuse(&encoded, chain.clone(), &refusal, 8);
+        let before = cache.report();
+
+        assert_eq!(
+            cache.nothing_under(&encoded, &chain, 8),
+            Some(8),
+            "the bound it was reached under is an answer"
+        );
+        assert_eq!(
+            cache.nothing_under(&encoded, &chain, 4),
+            Some(8),
+            "and so is a tighter one"
+        );
+        assert_eq!(
+            cache.nothing_under(&encoded, &chain, 16),
+            None,
+            "a looser bound has to run the window"
+        );
+        assert_eq!(
+            cache.nothing_under(&encoded, &[(b"LZWDecode".to_vec(), None)], 8),
+            None,
+            "and another chain over the same bytes is another decode"
+        );
+
+        let after = cache.report();
+        assert_eq!(
+            (before.hits, before.misses),
+            (after.hits, after.misses),
+            "asking which route to take is not asking for bytes"
+        );
+    }
+
+    /// A refusal reached for a reason that is not a bound is not a reason to skip the window.
+    ///
+    /// [`FilterRefusal`] has arms that say the chain cannot work at all, and a caller asking
+    /// [`DecodedStreams::nothing_under`] has one a window *can* pump — so answering from such an
+    /// entry would decline a stream on the strength of something else's complaint.
+    #[test]
+    fn the_routing_question_answers_only_for_a_bound() {
+        let chain = vec![(b"FlateDecode".to_vec(), None)];
+        let encoded: Arc<[u8]> = Arc::from(b"xxxxxxxx".as_slice());
+        let mut cache = DecodedStreams::with_budget(DECODED_BUDGET);
+        cache.refuse(&encoded, chain.clone(), &StreamRefusal::DecryptionFailed, 8);
+        assert_eq!(cache.nothing_under(&encoded, &chain, 8), None);
     }
 
     /// Table 255 makes `/Type` optional, so a signature that omits it is still one.

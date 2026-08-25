@@ -159,7 +159,7 @@ pub struct NestedContent {
     source: Nested,
 }
 
-/// The two shapes of [`NestedContent`]. See there.
+/// The three shapes of [`NestedContent`]. See there.
 #[derive(Debug, Clone)]
 enum Nested {
     /// Decoded whole, and held by the document's memo, so every read after the first is a
@@ -182,6 +182,20 @@ enum Nested {
         filters: Vec<String>,
         /// `Limits::max_stream_len`, which still bounds this one stream.
         limit: usize,
+        /// Which decode the pump is running, so that a run reaching `limit` without producing
+        /// one operation can say so to the document. See [`super::Interpreter::run`].
+        decoding: pdf_syntax::Decoding,
+    },
+    /// A window has read this decode to the document's own bound before and found nothing in
+    /// it, so this read raises that report and inflates nothing.
+    ///
+    /// **The same report and the same absence of marks as the read that learnt it**, which is
+    /// the condition [`pdf_syntax::Document::window_found_nothing`] only records under: a page
+    /// whose marks depended on whether the memo still held an entry would be a page drawn by
+    /// the cache.
+    Refused {
+        /// The bound the window reached, which [`crate::page::ContentIssue::TooLarge`] carries.
+        limit: usize,
     },
 }
 
@@ -200,12 +214,14 @@ impl NestedContent {
                 data: decoded.data,
                 damage: decoded.damage,
             },
-            StreamSource::Pumped(pump) => Nested::Windowed {
+            StreamSource::Pumped { pump, decoding } => Nested::Windowed {
                 data: Arc::clone(&stream.data),
                 pumping: pump.pumping(),
                 filters: filter_names(document, &stream.dict),
                 limit: document.limits().max_stream_len,
+                decoding,
             },
+            StreamSource::Refused { limit } => Nested::Refused { limit },
         };
         Ok(Self { detail, source })
     }
@@ -254,6 +270,7 @@ impl NestedContent {
                 pumping,
                 filters,
                 limit,
+                ..
             } => ContentReader {
                 held: Held::Window(Box::new(Window::single(
                     pumping.clone(),
@@ -262,6 +279,21 @@ impl NestedContent {
                     *limit,
                 ))),
             },
+            Nested::Refused { limit } => ContentReader {
+                held: Held::Window(Box::new(Window::refused(*limit))),
+            },
+        }
+    }
+
+    /// Which decode a windowed read is running, for a run that reaches its bound.
+    ///
+    /// `None` for the other two shapes, and each for its own reason: a stream held whole never
+    /// reaches the bound, and one already refused has nothing left to learn.
+    #[must_use]
+    pub fn decoding(&self) -> Option<&pdf_syntax::Decoding> {
+        match &self.source {
+            Nested::Windowed { decoding, .. } => Some(decoding),
+            Nested::Whole { .. } | Nested::Refused { .. } => None,
         }
     }
 
@@ -274,7 +306,10 @@ impl NestedContent {
     pub fn stated_damage(&self) -> Option<(Damage, usize)> {
         match &self.source {
             Nested::Whole { data, damage } => damage.map(|damage| (damage, data.len())),
-            Nested::Windowed { .. } => None,
+            // A refusal is not damage — ADR 0365's distinction — so this stays `None` for the
+            // same reason the windowed shape does, and the report the reader raises is the
+            // bound's rather than the filter's.
+            Nested::Windowed { .. } | Nested::Refused { .. } => None,
         }
     }
 
@@ -289,6 +324,8 @@ impl NestedContent {
     pub fn damage(&self) -> Option<(Damage, usize)> {
         match &self.source {
             Nested::Whole { data, damage } => damage.map(|damage| (damage, data.len())),
+            // Nothing was decoded and nothing can therefore have been cut short.
+            Nested::Refused { .. } => None,
             Nested::Windowed { .. } => {
                 let mut reader = self.reader();
                 loop {
@@ -588,6 +625,23 @@ impl Window {
         window
     }
 
+    /// A window with no parts, over a decode the document has already read to `limit`.
+    ///
+    /// **The report is the whole of it.** [`Window::refill`] raises exactly this issue when a
+    /// window reaches the bound, so a read served from
+    /// [`pdf_syntax::Document::window_found_nothing`]'s memory says what the read that learnt
+    /// the fact said, in the same words and with the same number — and produces the same
+    /// nothing, because the memory is only recorded for a run that produced nothing.
+    fn refused(limit: usize) -> Self {
+        let mut window = Self::new(limit);
+        window.shape = Shape::SelfContained;
+        window.exhausted = true;
+        window
+            .issues
+            .push(ContentIssue::TooLarge { part: None, limit });
+        window
+    }
+
     /// Adds one `/Contents` part, or reports why it contributes nothing.
     fn push(&mut self, document: &Document, stream: &Stream, index: usize) {
         let source = match document.stream_source(stream) {
@@ -607,11 +661,20 @@ impl Window {
                     at: 0,
                 }
             }
-            Ok(StreamSource::Pumped(pump)) => PartSource::Pumped(pump),
-            // A bound refused this part; the filter chain did not fail to work. Saying
-            // "undecodable" of a stream this reader can decode perfectly well would put a
-            // limit of ours into a sentence about the file.
-            Err(StreamRefusal::Filter {
+            // The `Decoding` is dropped here rather than kept, and that is the scope of ADR
+            // 0646 rather than an omission: Table 31 makes the array's parts "a single stream"
+            // and the bound is over the concatenation, so a window that reaches it has not
+            // named *which* part outgrew it. A page's `/Contents` is also read once per render
+            // rather than once per site, which is the population §7.8.2's other four are in.
+            Ok(StreamSource::Pumped { pump, .. }) => PartSource::Pumped(pump),
+            // Two ways to reach the same fact, so one arm. The first is a part the document has
+            // already read to the bound, which it can only know of one of §7.8.2's other four —
+            // a page's own `/Contents` never reaches this half. The second is a bound refusing
+            // this part; the filter chain did not fail to work, and saying "undecodable" of a
+            // stream this reader can decode perfectly well would put a limit of ours into a
+            // sentence about the file.
+            Ok(StreamSource::Refused { limit })
+            | Err(StreamRefusal::Filter {
                 why: pdf_syntax::FilterRefusal::TooLarge { limit },
                 ..
             }) => {

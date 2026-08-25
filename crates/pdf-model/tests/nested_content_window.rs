@@ -113,6 +113,16 @@ fn lzw_literals(content: &[u8]) -> Vec<u8> {
 /// differs between the arms: the *same* instructions, decoded by the same filter table, reaching
 /// the interpreter by the routes `Document::nested_content_source` chooses between.
 fn document_with_form(content: &[u8], coding: Coding) -> Document {
+    document_with_form_under(content, coding, Limits::DEFAULT)
+}
+
+/// The same, under bounds of the caller's choosing.
+///
+/// `max_stream_len` is what a window stops at, and the tests below need it *above* the memo's
+/// allowance and *below* the decode — the arrangement a real bomb reaches by having encoded bytes
+/// large enough to eat the four-mebibyte budget. Moving the bound instead of the bytes keeps the
+/// fixture in kilobytes.
+fn document_with_form_under(content: &[u8], coding: Coding, limits: Limits) -> Document {
     let (data, filter) = match coding {
         Coding::Plain => (content.to_vec(), ""),
         Coding::Flate => {
@@ -173,7 +183,7 @@ fn document_with_form(content: &[u8], coding: Coding) -> Document {
         "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.extend_from_slice(tail.as_bytes());
-    Document::open_with_limits(out, Limits::DEFAULT).expect("the fixture opens")
+    Document::open_with_limits(out, limits).expect("the fixture opens")
 }
 
 /// A `fmt::Write` over a byte buffer, so that the hexadecimal armour is written where it goes.
@@ -226,7 +236,7 @@ fn a_form_read_through_the_window_draws_what_the_whole_decode_draws() {
     let whole = document_with_form(&content, Coding::Plain);
 
     assert!(
-        matches!(route(&windowed), StreamSource::Pumped(_)),
+        matches!(route(&windowed), StreamSource::Pumped { .. }),
         "a form whose decode outgrows the memo is read through the window"
     );
     assert!(
@@ -260,7 +270,7 @@ fn an_lzw_form_is_read_through_the_window_and_draws_what_the_whole_decode_draws(
     let whole = document_with_form(&content, Coding::Plain);
 
     assert!(
-        matches!(route(&windowed), StreamSource::Pumped(_)),
+        matches!(route(&windowed), StreamSource::Pumped { .. }),
         "an LZW form whose decode outgrows the memo is read through the window"
     );
 
@@ -291,7 +301,7 @@ fn a_chained_form_is_read_through_the_window_and_draws_what_the_whole_decode_dra
     let whole = document_with_form(&content, Coding::Plain);
 
     assert!(
-        matches!(route(&windowed), StreamSource::Pumped(_)),
+        matches!(route(&windowed), StreamSource::Pumped { .. }),
         "a chain whose every stage pumps is read through the window"
     );
 
@@ -325,7 +335,7 @@ fn a_tiling_cell_is_windowed_like_the_form_of_the_same_size() {
     let stream = object.as_stream().expect("object 5 is the form");
 
     assert!(
-        matches!(route(&document), StreamSource::Pumped(_)),
+        matches!(route(&document), StreamSource::Pumped { .. }),
         "the routing constructor windows a decode the memo would decline"
     );
     assert!(
@@ -357,4 +367,110 @@ fn a_form_the_memo_keeps_is_decoded_once_however_often_it_is_read() {
         before + 2,
         "every read after the first is a cache read"
     );
+}
+
+/// What a window stops at in the two tests below, and why it is not the document's own gibibyte.
+///
+/// A real bomb reaches the arrangement these test by being *encoded* large enough to eat the
+/// four-mebibyte decoded-stream budget: the memo then allows the buffered attempt only the few
+/// kilobytes left over, so the window runs under a bound far above it. Eight mebibytes is that
+/// same inequality with the bytes small — the allowance is under the budget and the decode below
+/// is above this — and it keeps the fixture at kilobytes on disk and milliseconds to run.
+const WINDOW_BOUND: usize = 8 << 20;
+
+/// Content that decodes past [`WINDOW_BOUND`] and asks the interpreter for nothing.
+///
+/// §7.2.3 makes NUL "white-space", so a run of them is a content stream that lexes to no token
+/// at all — which is what every decompression bomb this tree has met decodes to, and what makes
+/// the memory below sound: there is nothing for a second read to draw differently.
+fn silent_beyond_the_bound() -> Vec<u8> {
+    vec![0u8; WINDOW_BOUND + (1 << 20)]
+}
+
+/// A window that read a decode to the bound and found nothing refuses the next read.
+///
+/// **`doc/todo/41`'s remainder, and ADR 0646.** A window makes no `FilterRefusal::TooLarge` of
+/// its own — it has nothing allocated to bound — so before this, a bomb whose encoded bytes fit
+/// the memo was re-inflated to `max_stream_len` on every one of §7.8.2's re-reads, while the
+/// buffered route had remembered the identical refusal since ADR 0437. Twenty pages drawing one
+/// hex-armoured form: 14.32–17.99 s against 186.16–287.23 µs.
+///
+/// **What discriminates is the route, twice.** Comparing the two display lists alone would pass
+/// with nothing remembered at all, since both are empty either way; so the route is asserted
+/// before the first read and after it, and the report is asserted to be the same sentence both
+/// times — a report that appeared only on the first read would be a report that depends on the
+/// cache.
+#[test]
+fn a_window_that_found_nothing_refuses_the_read_after_it() {
+    let limits = Limits {
+        max_stream_len: WINDOW_BOUND,
+        ..Limits::DEFAULT
+    };
+    let document = document_with_form_under(&silent_beyond_the_bound(), Coding::Flate, limits);
+    assert!(
+        matches!(route(&document), StreamSource::Pumped { .. }),
+        "a decode the memo declines starts out windowed"
+    );
+
+    let first = report_of(&document);
+    assert!(
+        matches!(route(&document), StreamSource::Refused { limit } if limit == WINDOW_BOUND),
+        "and the window's own bound, once reached with nothing in it, is remembered"
+    );
+    let second = report_of(&document);
+
+    assert!(
+        first.iter().any(|note| note.contains("TooLarge")),
+        "the first read says the stream outgrew the bound, and said: {first:?}"
+    );
+    assert_eq!(
+        first, second,
+        "the remembered read has to say what the read that learnt it said"
+    );
+}
+
+/// A window that *drew* something is read again rather than remembered.
+///
+/// **The other half of the rule, and the half that makes it sound.** A window delivers everything
+/// up to the bound before it says it stopped, so a stream whose prefix marked the page owes those
+/// marks to its second read as well: remembering a refusal there would make the page a function
+/// of what the cache still held, which is the failure `Outcome::Decoded`'s `damage` field exists
+/// to prevent for the other half of the same memo. The fact that travels is "too large *and
+/// empty*", never "too large" alone.
+#[test]
+fn a_window_that_drew_something_is_read_again_rather_than_remembered() {
+    let limits = Limits {
+        max_stream_len: WINDOW_BOUND,
+        ..Limits::DEFAULT
+    };
+    let mut content = b"0 0 1 rg 10 20 30 40 re f\n".to_vec();
+    content.extend_from_slice(&silent_beyond_the_bound());
+    let document = document_with_form_under(&content, Coding::Flate, limits);
+
+    let first = commands(&document);
+    assert!(
+        first.contains("Fill"),
+        "the fixture has to draw something for this to be about drawing"
+    );
+    assert!(
+        matches!(route(&document), StreamSource::Pumped { .. }),
+        "a window that marked the page owes those marks to the next read too"
+    );
+    assert_eq!(
+        commands(&document),
+        first,
+        "so the second read draws exactly what the first drew"
+    );
+}
+
+/// Page one's report, as `Unsupported`'s own `Debug`, which is what the two reads compare by.
+fn report_of(document: &Document) -> Vec<String> {
+    let page = pdf_model::Pages::new(document)
+        .get(0)
+        .expect("the fixture has a page");
+    pdf_model::interpret(document, &page)
+        .unsupported
+        .iter()
+        .map(|note| format!("{note:?}"))
+        .collect()
 }
