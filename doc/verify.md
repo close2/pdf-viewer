@@ -283,6 +283,20 @@ DISPLAY=:77 target/pdf-viewer-gtk --trace=launch,frames [file.pdf]   # and where
   # of an A/B **need `.cargo/config.toml` target directories of their own**, because a worktree
   # inherits `/home/AI/.cargo/config.toml`'s and would otherwise measure whichever linked last —
   # `cargo metadata --no-deps | jq -r .target_directory` is the check. ADR 0678
+  #
+  # **And a scratch arm that did share the directory leaves a residue that outlives it.** A build
+  # script is compiled with its own `CARGO_MANIFEST_DIR` baked in, so an arm built from a scratch
+  # export puts scripts naming that export into the *shared* directory — and when the export is
+  # deleted the next `cargo build --release` in the **main tree** dies with `data/cmaps is
+  # readable: No such file or directory`, naming a path no checkout has. It is trap 10b's shape
+  # with the staleness pointing at a tree that is gone rather than at one that moved: the round
+  # that measured is finished and the round that pays is the next one to build. Found by the
+  # seven-hundred-and-sixty-third session, one merge round after the arms were taken.
+  #
+  # `touch crates/*/build.rs` and rebuild — the scripts recompile with the real manifest directory
+  # and nothing else is affected. **Or avoid it: give the scratch arm its own target directory,
+  # which the paragraph above already requires for a different reason**, and the residue never
+  # exists. One rule, two hazards.
 cargo run --release -p render-quorra --example bring_up  -- [all|vulkan|gl]
   # and where its device half goes: instance, adapter, device — one measurement per process,
   # because a second instance in one process is measured with the loader already warm
