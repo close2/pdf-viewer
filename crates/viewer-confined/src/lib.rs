@@ -3,11 +3,15 @@
 //! `pdf-sandbox` confines three image decoders. This confines everything above them: the
 //! document, the content interpreter and the rasteriser — which is where a PDF's bytes actually
 //! go, and by far the larger attack surface. `CLAUDE.md` principle 3 asks for it, and
-//! `doc/ui-boundary.md` says why it costs one protocol rather than two: if the boundary
-//! is `Command`/`Event` with `Raster` payloads, the confined process owns document,
-//! interpretation and rasterisation, and the host receives pixels and events. The design question
-//! that used to be recorded there — whether a display list would have to cross — dissolves,
-//! because it never leaves.
+//! `doc/ui-boundary.md` says why it costs one protocol rather than two: the boundary is
+//! `Command`/`Event`, and the confined process owns document, interpretation and rasterisation.
+//!
+//! **What a page crosses as is a measurement rather than a tier**, since ADR 0607 and the
+//! seven-hundred-and-thirty-sixth session wired it in: [`Payload::Raster`] where the pixels are
+//! smaller, [`Payload::List`] where the marks are — which is almost every page, and which is what
+//! a host holding the graphics device needs, because a process holding one cannot be confined at
+//! all. It is still one protocol: `Rendered::{Raster, Presented}` was already a payload choice on
+//! this boundary, and this makes the choice a comparison of two byte counts.
 //!
 //! # The shape of it
 //!
@@ -193,7 +197,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command as OsCommand, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use pdf_render::Raster;
+use pdf_render::{DisplayList, Raster};
 use pdf_sandbox::lockdown::Confinement;
 use pdf_syntax::ObjectId;
 use viewer_core::{Command, DocumentId, Event, PageGeometry, Query};
@@ -548,15 +552,58 @@ impl Cancellation {
     }
 }
 
-/// One page's pixels as they crossed the confinement, and where they belong on the screen.
+/// One page as it crossed the confinement, and where it belongs on the screen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Framed {
-    /// Which page these pixels are of.
+    /// Which page this is of.
     pub page: usize,
-    /// Row-major RGBA, no padding.
-    pub raster: Raster,
-    /// Where the raster's top-left corner sits in the viewport, in device pixels.
+    /// The pixels, or the marks that make them — see [`Payload`].
+    pub payload: Payload,
+    /// Where the page's top-left corner sits in the viewport, in device pixels.
+    ///
+    /// The same number for either payload: it is where the *page* goes, and a host that
+    /// rasterises a list for itself puts the result exactly where it would have put pixels.
     pub origin: (f32, f32),
+}
+
+/// What one page crossed the confinement as (ADR 0607).
+///
+/// **Chosen per page, by size, in the confined process**, which is the whole of ADR 0607's
+/// decision: a display list is scale-invariant and a raster is quadratic in the scale, so the
+/// list is a small fraction of the pixels for almost every page — and larger for exactly one
+/// population, a scan, whose decoded samples *are* its display list. Two of `doc/pdf.js`'s first
+/// pages carry a producer this format defers ([`Uncodable`]) and cross as pixels for that reason
+/// instead.
+///
+/// **Nothing is `#[non_exhaustive]`**, for `doc/ui-boundary.md`'s reason: a third payload should
+/// fail to compile in every host rather than fall into a catch-all arm.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Payload {
+    /// The pixels, drawn in the confined process on the processor.
+    ///
+    /// Row-major RGBA, no padding. What every page crossed as before ADR 0607, and what a page
+    /// still crosses as when its pixels are the smaller of the two.
+    Raster(Raster),
+    /// The page's marks, for a host that holds the graphics device to draw for itself.
+    ///
+    /// **The device is the host's by necessity and not by preference**: a process holding one
+    /// dies on its first `ioctl` under this confinement, measured over four orderings (ADR 0607),
+    /// so the process that interprets a hostile document cannot be the process that draws it on a
+    /// device. What crosses instead is what is left after the standard has been read.
+    List {
+        /// The marks, resolution-independent.
+        ///
+        /// Shared because a host keeps it: a zoom or a scroll is a new [`pdf_render::TargetSpec`]
+        /// over the same list, which is the difference between re-rasterising and asking the
+        /// confined process for another frame.
+        list: Arc<DisplayList>,
+        /// What the confined process would have drawn into, and the transform to it.
+        ///
+        /// Carried rather than rebuilt from the list's page size and a scale, because a target
+        /// carries the y flip and any tile offset besides — and `doc/traps/the-interactive-loop.md`'s
+        /// trap 12a is a doc comment that claimed the display list's space *was* the raster's.
+        target: pdf_render::TargetSpec,
+    },
 }
 
 /// One page's sentences about what it could not draw, as they crossed the confinement.
@@ -678,11 +725,12 @@ pub enum Reply {
     },
     /// §14.8.2.5's logical content order for the selection.
     LogicalSelection(String),
-    /// **The pixels**, drawn in the confined process — one entry per page on the screen.
+    /// **The page**, interpreted behind the seccomp filter — one entry per page on the screen.
     ///
-    /// The payload the whole boundary exists for: the page was interpreted and rasterised behind
-    /// the seccomp filter, and what crossed is a raster. A list since Table 29's `/PageLayout`
-    /// was obeyed, because `OneColumn` puts several pages in one window.
+    /// The payload the whole boundary exists for. What each entry carries is [`Payload`]'s
+    /// subject and is chosen per page by size: the pixels the confined process drew, or the marks
+    /// for a host to draw itself. A *list* of entries since Table 29's `/PageLayout` was obeyed,
+    /// because `OneColumn` puts several pages in one window.
     Frame(Vec<Framed>),
     /// What the pages on the screen could not draw, one entry per page.
     ///

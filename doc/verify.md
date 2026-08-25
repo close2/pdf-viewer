@@ -402,8 +402,12 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=
   # but a *process*: `pdf-view-worker` runs hostile files behind seccomp and writes its answers to
   # a host that is not confined. **Seed its corpus first**, with `fuzz/seed_confined_wire.py` —
   # a second implementation of the frame layer, which spawns the release worker and keeps every
-  # payload it wrote: 83 of them from five documents and 25 of the 29 questions (see below). Unseeded it never gets
-  # past a one-byte discriminant into an outline's tree or a thumbnail's samples:
+  # payload it wrote, from five documents and 25 of the 29 questions (see below). Unseeded it never gets
+  # past a one-byte discriminant into an outline's tree or a thumbnail's samples.
+  # **It reads `MAGIC` out of `protocol.rs` since the seven-hundred-and-thirty-sixth**, because a
+  # copy of it went one behind and this seeder therefore refused to run — silently, for as long as
+  # nobody re-seeded — which is the corpus for this target being empty. Pinning the greeting is
+  # right; copying the constant was not:
   #   cargo build --release -p viewer-confined --bins
   #   python3 fuzz/seed_confined_wire.py target/pdf-view-worker fuzz/corpus/confined_wire \
   #     doc/PDF20_AN002-AF.pdf doc/PDF-Declarations.pdf doc/ISO_32000-2_sponsored_EC3.pdf \

@@ -10,7 +10,9 @@
 //! - **what the format really writes**, tables, tags, padding and all;
 //! - **which payload the page crosses as**, by ADR 0607's own per-page rule, with the refusal
 //!   named where it is one of the two deferred producers;
-//! - **what the codec costs in time**, both ways, beside the transport's own measured rate.
+//! - **what the codec costs in time**, both ways, beside the transport's own measured rate — and
+//!   since the seven-hundred-and-thirty-sixth session, the *choice* timed separately from the
+//!   exact encoding, because the frame path makes the choice and never pays for the rest.
 //!
 //! Every list is decoded and compared against the one that was encoded, so a run that prints a
 //! number has also checked that the number is of a faithful round trip.
@@ -87,7 +89,10 @@ fn main() {
         return;
     }
 
-    println!("# name\tmarks\tlist_B\traster_B\tlist/raster\tencode_ms\tdecode_ms\tcrossing");
+    println!(
+        "# name\tmarks\tlist_B\traster_B\tlist/raster\tcrossing_ms\tencode_ms\tdecode_ms\t\
+         crossing"
+    );
     let mut ratios: Vec<f64> = Vec::new();
     let mut list_total = 0_u64;
     let mut raster_total = 0_u64;
@@ -119,6 +124,15 @@ fn main() {
         pages += 1;
         raster_total += raster;
 
+        // **The choice as the confined process makes it**, timed first and separately from the
+        // exact encoding below. `crossing` hands the encoder the raster's own size and the
+        // encoder stops when it passes it, so on a page that crosses as pixels this is the
+        // column that says what the *frame path* pays — where `encode_ms` beside it is what
+        // finishing would have cost, which is the number that made the stop worth having.
+        let started = Instant::now();
+        let chosen = wire::crossing(&list, raster);
+        let crossing_ms = started.elapsed().as_secs_f64() * 1000.0;
+
         let started = Instant::now();
         let encoded = wire::encode_display_list(&list);
         let encode_ms = started.elapsed().as_secs_f64() * 1000.0;
@@ -128,7 +142,10 @@ fn main() {
             Err(refusal) => {
                 deferred += 1;
                 as_pixels += 1;
-                println!("{name}\t-\t-\t{raster}\t-\t{encode_ms:.3}\t-\traster: {refusal}");
+                println!(
+                    "{name}\t-\t-\t{raster}\t-\t{crossing_ms:.3}\t{encode_ms:.3}\t-\t\
+                     raster: {refusal}"
+                );
                 continue;
             }
         };
@@ -159,7 +176,7 @@ fn main() {
         let ratio = encoded.len() as f64 / raster as f64;
         ratios.push(ratio);
         list_total += encoded.len() as u64;
-        let crossing = match wire::crossing(&list, raster) {
+        let crossing = match chosen {
             Crossing::List(_) => "list".to_owned(),
             Crossing::Raster(RasterReason::Larger { .. }) => {
                 as_pixels += 1;
@@ -171,7 +188,8 @@ fn main() {
             }
         };
         println!(
-            "{name}\t{}\t{}\t{raster}\t{ratio:.4}\t{encode_ms:.3}\t{decode_ms:.3}\t{crossing}",
+            "{name}\t{}\t{}\t{raster}\t{ratio:.4}\t{crossing_ms:.3}\t{encode_ms:.3}\t\
+             {decode_ms:.3}\t{crossing}",
             list.commands().len(),
             encoded.len(),
         );

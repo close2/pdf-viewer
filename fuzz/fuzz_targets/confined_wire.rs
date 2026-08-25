@@ -27,15 +27,22 @@
 //! these readers carry a cursor and, in the structure tree's case, a running index, and a decoder
 //! that leaked state between elements is exactly the defect one pass cannot see.
 //!
-//! **The two checked invariants hold on anything that decodes at all**: a raster and a thumbnail
-//! carry exactly `width × height × 4` bytes, and every parent link in §14.7's answer points at a
-//! node already read. Both are refusals in the decoder rather than assumptions in the host, and a
-//! target that did not assert them would not notice if one were deleted.
+//! **The three checked invariants hold on anything that decodes at all**: a raster and a thumbnail
+//! carry exactly `width × height × 4` bytes; a frame crossing as ADR 0607's display list names a
+//! target the host can afford to draw into; and every parent link in §14.7's answer points at a
+//! node already read. All three are refusals in the decoder rather than assumptions in the host,
+//! and a target that did not assert them would not notice if one were deleted.
+//!
+//! The middle one is the newest and it is the one with no bytes behind it. Every other length on
+//! this boundary costs the sender what it costs the reader — a raster's samples are in the message
+//! — but a render target is two `u32`s that become however many pixels the **host** asks its
+//! allocator for, out of a frame that can be nine bytes long. That is the shape the
+//! seven-hundred-and-nineteenth session found unguarded on the raster arm, in a new place.
 
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use viewer_confined::{Reply, wire};
+use viewer_confined::{Payload, Reply, wire};
 
 /// The invariants a decoded answer must satisfy, whatever the bytes said.
 fn check(reply: &Reply) {
@@ -45,16 +52,41 @@ fn check(reply: &Reply) {
         // short raster in the second of three is exactly as wrong as one in the first.
         Reply::Frame(frames) => {
             for framed in frames {
-                let raster = &framed.raster;
-                let expected = (raster.width as usize)
-                    .saturating_mul(raster.height as usize)
-                    .saturating_mul(4);
-                assert_eq!(
-                    raster.data.len(),
-                    expected,
-                    "page {}'s raster crossed with dimensions its samples do not fill",
-                    framed.page
-                );
+                match &framed.payload {
+                    Payload::Raster(raster) => {
+                        let expected = (raster.width as usize)
+                            .saturating_mul(raster.height as usize)
+                            .saturating_mul(4);
+                        assert_eq!(
+                            raster.data.len(),
+                            expected,
+                            "page {}'s raster crossed with dimensions its samples do not fill",
+                            framed.page
+                        );
+                    }
+                    // The target is the host's own allocation and the message says nothing that
+                    // bounds it, so the decoder is what bounds it: `MAX_PIXELS` is what a render
+                    // request is held to and `MAX_EXTENT` is what an `f32` resolves.
+                    Payload::List { target, .. } => {
+                        assert!(
+                            target.width > 0
+                                && target.height > 0
+                                && target.width <= pdf_render::MAX_EXTENT
+                                && target.height <= pdf_render::MAX_EXTENT,
+                            "page {}'s list named a target of {}x{}",
+                            framed.page,
+                            target.width,
+                            target.height
+                        );
+                        assert!(
+                            u64::from(target.width).saturating_mul(u64::from(target.height))
+                                <= viewer_core::MAX_PIXELS,
+                            "page {}'s list named a target of {} pixels",
+                            framed.page,
+                            u64::from(target.width).saturating_mul(u64::from(target.height))
+                        );
+                    }
+                }
             }
         }
         Reply::Thumbnail(thumbnail) => {

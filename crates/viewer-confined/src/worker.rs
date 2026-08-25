@@ -226,6 +226,7 @@ pub fn serve() -> Result<(), std::io::Error> {
 
     let mut viewer = Viewer::new(INITIAL_VIEWPORT.0, INITIAL_VIEWPORT.1, 1.0);
     let mut rasterizer = CpuRasterizer::new().with_strips(limits.strips);
+    let mut marks = protocol::Marks::default();
 
     while let Some(incoming) = read_frame(&mut input, limits.message_budget)? {
         // Header and payload in two calls rather than one concatenated buffer: a raster is 4.1 MB
@@ -234,7 +235,7 @@ pub fn serve() -> Result<(), std::io::Error> {
         // and ADR 0241 has what the two of them were costing.
         let (kind, response) = match incoming {
             Incoming::Frame { kind, payload } => {
-                answer(&mut viewer, &mut rasterizer, kind, payload)
+                answer(&mut viewer, &mut rasterizer, &mut marks, kind, payload)
             }
             Incoming::NoRoom { length } => refuse(&unaffordable(length, &limits)),
         };
@@ -351,6 +352,7 @@ fn as_u64(value: usize) -> u64 {
 fn answer(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
+    marks: &mut protocol::Marks,
     kind: u8,
     payload: Vec<u8>,
 ) -> (u8, Vec<u8>) {
@@ -359,7 +361,7 @@ fn answer(
             let decoded = protocol::decode_command(&payload);
             drop(payload);
             match decoded {
-                Ok(command) => perform(viewer, rasterizer, command),
+                Ok(command) => perform(viewer, rasterizer, marks, command),
                 Err(error) => refuse(&error.to_string()),
             }
         }
@@ -367,10 +369,12 @@ fn answer(
             let decoded = protocol::decode_query(&payload);
             drop(payload);
             match decoded {
-                Ok(query) => match protocol::encode_answer(&viewer.query(query.as_query())) {
-                    Ok(encoded) => (protocol::FRAME_ANSWER, encoded),
-                    Err(uncarried) => refuse(&uncarried.to_string()),
-                },
+                Ok(query) => {
+                    match protocol::encode_answer(&viewer.query(query.as_query()), marks) {
+                        Ok(encoded) => (protocol::FRAME_ANSWER, encoded),
+                        Err(uncarried) => refuse(&uncarried.to_string()),
+                    }
+                }
                 Err(error) => refuse(&error.to_string()),
             }
         }
@@ -380,7 +384,28 @@ fn answer(
 }
 
 /// Performs one command, drawing whatever it asked for.
-fn perform(viewer: &mut Viewer, rasterizer: &mut CpuRasterizer, command: Command) -> (u8, Vec<u8>) {
+///
+/// # What this decides about each page, and why it is decided here
+///
+/// ADR 0607's payload choice is per page and by size, and this is the one place both sizes are
+/// known: the display list is in the request, and the raster's byte count is the target's pixel
+/// count times four — arithmetic, not a rasteriser. [`protocol::Marks`] carries the answer to the
+/// moment a host asks for a frame.
+///
+/// **The page is still drawn either way, and that is a cost written down rather than an
+/// oversight.** `viewer-core` has one tier per *viewer* and not one per page — a host that
+/// answers [`Rendered::Presented`] once holds no rasters at all thereafter, and `MAX_PIXELS`
+/// stops bounding what it is asked to draw — so a worker that skipped the render for a page
+/// crossing as a list would give up the one bound standing between a hostile page's dimensions
+/// and an address-space ceiling that kills rather than refuses. What that costs is one CPU
+/// rasterisation of a page whose pixels are not sent; `doc/todo/15` names the `viewer-core`
+/// change that would remove it.
+fn perform(
+    viewer: &mut Viewer,
+    rasterizer: &mut CpuRasterizer,
+    marks: &mut protocol::Marks,
+    command: Command,
+) -> (u8, Vec<u8>) {
     let mut outgoing = Vec::new();
     let mut pending: Vec<Command> = vec![command];
 
@@ -392,6 +417,7 @@ fn perform(viewer: &mut Viewer, rasterizer: &mut CpuRasterizer, command: Command
         for event in viewer.handle(command) {
             match event {
                 Event::NeedsRender(request) => {
+                    marks.decide(&request);
                     let rendered = match rasterizer.rasterize(&request.list, request.target) {
                         Ok(raster) => Rendered::Raster(raster),
                         // Named rather than swallowed: a viewer that silently showed the previous
@@ -407,6 +433,19 @@ fn perform(viewer: &mut Viewer, rasterizer: &mut CpuRasterizer, command: Command
             }
         }
     }
+
+    // **What the store is bounded by**: the pages the viewer is holding a frame for, asked of
+    // the viewer rather than deduced. A confined process runs under an address-space ceiling and
+    // a store that kept one encoded list per page a reader ever scrolled past would be a slow
+    // leak in the one process that must not have one. The question is a borrow of state the
+    // viewer already has and costs no interpretation.
+    let on_screen = match viewer.query(viewer_core::Query::Frame) {
+        viewer_core::Answer::Frame(views) => views.iter().map(|view| view.page).collect::<Vec<_>>(),
+        // A viewer holding no rasters at all is one this worker has not made and could not use;
+        // forgetting everything is the direction that cannot be wrong.
+        _ => Vec::new(),
+    };
+    marks.retain(&on_screen);
 
     match protocol::encode_events(&outgoing) {
         Ok(encoded) => (protocol::FRAME_EVENTS, encoded),

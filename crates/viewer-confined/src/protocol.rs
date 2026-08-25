@@ -41,7 +41,13 @@ mod panels;
 ///
 /// A host and a worker from different builds must not talk to each other, and the cheapest
 /// place to find that out is the first thing either says.
-const MAGIC: &[u8; 8] = b"PDFVCF03";
+///
+/// **`03` → `04` in the seven-hundred-and-thirty-sixth session**, because a frame now carries a
+/// payload discriminant and, on one arm of it, a display list. ADR 0626 deliberately left it
+/// where it was when the codec was built: nothing crossed in a frame then, and bumping it would
+/// have refused a worker that spoke the same protocol. It moves once, here, where something new
+/// genuinely crosses.
+const MAGIC: &[u8; 8] = b"PDFVCF04";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -81,6 +87,119 @@ pub(crate) const FRAME_ANSWER: u8 = 4;
 /// transport does not carry gets a sentence back and keeps its worker, exactly as a malformed
 /// image keeps `pdf-sandbox`'s.
 pub(crate) const FRAME_REFUSAL: u8 = 5;
+
+/// Frame payload: the pixels the confined process drew.
+const PAYLOAD_RASTER: u8 = 0;
+/// Frame payload: the marks, for a host that draws them itself (ADR 0607).
+const PAYLOAD_LIST: u8 = 1;
+
+/// One page's encoded marks, kept until the viewer is asked for a frame.
+///
+/// **ADR 0607's payload choice needs both sizes in one place and they are known at two different
+/// moments.** The list exists at [`viewer_core::Event::NeedsRender`], where the confined process
+/// is handed one; the raster is what the viewer holds when a host asks [`Query::Frame`]. This is
+/// what carries the first moment's answer to the second.
+///
+/// The *size* comparison itself happens at the first moment and costs no rasteriser: a target's
+/// pixel count times four is exactly what its RGBA raster comes to, which is the same arithmetic
+/// [`decode_answer`] checks a crossing raster against.
+#[derive(Debug)]
+struct Crossed {
+    /// Which request produced it. See [`Marks::record`].
+    token: viewer_core::RenderToken,
+    /// What [`display_list::encode`] wrote.
+    bytes: Vec<u8>,
+    /// The target the list was measured against, which the host draws it at.
+    target: pdf_render::TargetSpec,
+}
+
+/// The pages whose marks are what crosses, one entry apiece.
+///
+/// **Bounded by the pages on the screen and not by the pages ever drawn**, which is
+/// [`Self::retain`]'s whole subject: a confined process runs under an address-space ceiling, and
+/// a store that grew by one encoded list per page a reader scrolled past would be a slow leak
+/// inside the one process that must not have one.
+#[derive(Debug, Default)]
+pub(crate) struct Marks {
+    by_page: std::collections::BTreeMap<usize, Crossed>,
+}
+
+impl Marks {
+    /// Settles ADR 0607's payload choice for one render request.
+    ///
+    /// Both sides of the comparison are known here and neither needs a rasteriser: the list's
+    /// price is what [`display_list::encode`] writes, and the raster's is the target's pixel
+    /// count times four, which is exactly what an RGBA raster of that target comes to — the same
+    /// arithmetic [`decode_raster_payload`] checks a crossing raster against.
+    ///
+    /// A refusal is not a failure here and never reaches a host as one: ADR 0607's two deferred
+    /// producers, a list nested past what a backend composites, and a variant added to one of
+    /// `pdf-render`'s open enumerations all mean *this page crosses as pixels*, which is the arm
+    /// that was already there for the scans.
+    pub(crate) fn decide(&mut self, request: &viewer_core::RenderRequest) {
+        let raster = u64::from(request.target.width)
+            .saturating_mul(u64::from(request.target.height))
+            .saturating_mul(4);
+        match display_list::crossing(&request.list, raster) {
+            display_list::Crossing::List(bytes) => self.record(
+                request.page,
+                Crossed {
+                    token: request.token,
+                    bytes,
+                    target: request.target,
+                },
+            ),
+            display_list::Crossing::Raster(_) => self.forget(request.page, request.token),
+        }
+    }
+
+    /// Records what one page crosses as, unless a later render has already answered for it.
+    ///
+    /// **The token comparison is not belt and braces.** A `viewer-core` that asks for one page
+    /// twice before either answer arrives keeps the *later* answer and drops the earlier one, and
+    /// the worker performs the two in whichever order its own queue pops them — so a store that
+    /// took the last write could hold the marks of the render the viewer threw away, and the host
+    /// would draw an interpretation nothing on the screen was of. Keeping the greatest token is
+    /// exactly the rule `Viewer::rendered` applies.
+    fn record(&mut self, page: usize, crossed: Crossed) {
+        match self.by_page.get(&page) {
+            Some(held) if held.token > crossed.token => {}
+            _ => {
+                self.by_page.insert(page, crossed);
+            }
+        }
+    }
+
+    /// Records that a page crosses as pixels, forgetting any marks held for it.
+    ///
+    /// The same token rule as [`Self::record`], and it is needed in this direction too: a page
+    /// whose newest interpretation cannot cross as a list — a scan, or one of ADR 0607's two
+    /// deferred producers — must not be drawn from an older interpretation that could.
+    fn forget(&mut self, page: usize, token: viewer_core::RenderToken) {
+        match self.by_page.get(&page) {
+            Some(held) if held.token > token => {}
+            _ => {
+                self.by_page.remove(&page);
+            }
+        }
+    }
+
+    /// Drops every page not among those given.
+    pub(crate) fn retain(&mut self, on_screen: &[usize]) {
+        self.by_page.retain(|page, _| on_screen.contains(page));
+    }
+
+    /// The marks for a page, where they are the ones its raster was drawn from.
+    ///
+    /// The dimensions are compared because they are the one thing both sides of the pair state
+    /// independently: a raster the viewer is holding and a target this store recorded describe
+    /// the same render only if they are the same size. Where they disagree the store is behind,
+    /// and the pixels — which the viewer is holding *now* — are what crosses.
+    fn of(&self, page: usize, width: u32, height: u32) -> Option<&Crossed> {
+        let crossed = self.by_page.get(&page)?;
+        (crossed.target.width == width && crossed.target.height == height).then_some(crossed)
+    }
+}
 
 /// A message this transport deliberately does not carry, and why.
 ///
@@ -223,6 +342,15 @@ impl Writer {
     /// What has been written.
     pub(crate) fn finish(self) -> Vec<u8> {
         self.out
+    }
+
+    /// How many bytes have been written so far.
+    ///
+    /// Exists for [`display_list`]'s budget: an encoder that is going to be compared against a
+    /// number can stop at it, and stopping needs the running total. See
+    /// [`display_list::Uncodable::TooLarge`].
+    fn len(&self) -> usize {
+        self.out.len()
     }
 
     /// Puts another message's bytes on the end of this one.
@@ -2204,6 +2332,11 @@ mod answer_kind {
 
 /// Encodes one answer.
 ///
+/// `marks` is what the confined process decided each page crosses as, and it is a parameter
+/// rather than something this function works out because the decision is made where the display
+/// list is — see [`Marks`]. An empty one is a viewer whose every page crosses as pixels, which is
+/// what the boundary carried before ADR 0607.
+///
 /// # Errors
 ///
 /// [`Uncarried`] in three places, and each names what it refused: a raster in a pixel layout this
@@ -2214,7 +2347,7 @@ mod answer_kind {
     clippy::too_many_lines,
     reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
 )]
-pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
+pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8>, Uncarried> {
     use answer_kind as k;
 
     let mut writer = Writer::new();
@@ -2308,29 +2441,47 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::LOGICAL_SELECTION).str(text);
         }
         Answer::Frame(frames) => {
-            // The raster is why this boundary is worth having: the confined process draws the
-            // page and the host is handed pixels, which is the whole of `doc/ui-boundary.md`'s
-            // tier 1. `RasterFormat` is written out rather than assumed, because a second
-            // format would otherwise be read as the first.
-            // Exhaustive since ADR 0247: `RasterFormat` is no longer `#[non_exhaustive]`, so a
-            // second pixel layout fails to compile here and has to be given a wire byte
-            // deliberately. The *reading* side keeps its refusal, because a byte arriving from
-            // the confined process is a claim rather than a variant.
+            // **A payload choice per page since ADR 0607, made where the two sizes are known.**
+            // The marks are what a host holding a graphics device needs, because a process
+            // holding one cannot be confined; the pixels stay for the pages where the pixels are
+            // smaller, which is a scan, whose decoded samples are its display list.
+            //
             // **A list since Table 29's `/PageLayout` was obeyed**: `OneColumn` puts several
             // pages in one window, and a wire that carried the first of them would show the host
             // a continuous view with a hole in it.
             writer.u8(k::FRAME).usize(frames.len());
             for frame in frames {
-                let format = match frame.raster.format {
-                    RasterFormat::Rgba8 => 0,
-                };
-                writer
-                    .usize(frame.page)
-                    .u32(frame.raster.width)
-                    .u32(frame.raster.height)
-                    .u8(format)
-                    .bytes(&frame.raster.data)
-                    .point(frame.origin);
+                writer.usize(frame.page);
+                if let Some(crossed) = marks.of(frame.page, frame.raster.width, frame.raster.height)
+                {
+                    // The target is written out rather than left to be rebuilt from the list's
+                    // page size and a scale: it carries the y flip and any tile offset, and
+                    // `doc/traps/the-interactive-loop.md`'s trap 12a is what happens when the two
+                    // spaces are assumed to be one.
+                    writer
+                        .u8(PAYLOAD_LIST)
+                        .u32(crossed.target.width)
+                        .u32(crossed.target.height);
+                    display_list::write_transform(&mut writer, crossed.target.transform);
+                    writer.bytes(&crossed.bytes);
+                } else {
+                    // `RasterFormat` is written out rather than assumed, because a second format
+                    // would otherwise be read as the first. Exhaustive since ADR 0247: it is no
+                    // longer `#[non_exhaustive]`, so a second pixel layout fails to compile here
+                    // and has to be given a wire byte deliberately. The *reading* side keeps its
+                    // refusal, because a byte arriving from the confined process is a claim
+                    // rather than a variant.
+                    let format = match frame.raster.format {
+                        RasterFormat::Rgba8 => 0,
+                    };
+                    writer
+                        .u8(PAYLOAD_RASTER)
+                        .u32(frame.raster.width)
+                        .u32(frame.raster.height)
+                        .u8(format)
+                        .bytes(&frame.raster.data);
+                }
+                writer.point(frame.origin);
             }
         }
         // One entry per page the arrangement shows, each carrying its page: the same shape
@@ -2437,6 +2588,100 @@ pub(crate) fn encode_answer(answer: &Answer<'_>) -> Result<Vec<u8>, Uncarried> {
     Ok(writer.finish())
 }
 
+/// Reads one page's pixels off a frame.
+fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, ProtocolError> {
+    let width = reader.u32("a raster width")?;
+    let height = reader.u32("a raster height")?;
+    let format = match reader.u8("a raster format")? {
+        0 => RasterFormat::Rgba8,
+        value => {
+            return Err(ProtocolError::Unrecognised {
+                what: "a raster format",
+                value: u32::from(value),
+            });
+        }
+    };
+    let data = reader.owned_bytes("a raster")?;
+    // The worker is the untrusted side, so its dimensions are checked against the bytes it
+    // actually sent rather than believed — the same rule `pdf_sandbox`'s parent applies to a
+    // decoded image, and for the same reason.
+    let expected = usize::try_from(width)
+        .ok()
+        .zip(usize::try_from(height).ok())
+        .and_then(|(width, height)| width.checked_mul(height))
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(ProtocolError::Overlong {
+            what: "a raster",
+            claimed: usize::MAX,
+            available: data.len(),
+        })?;
+    if data.len() != expected {
+        return Err(ProtocolError::Overlong {
+            what: "a raster",
+            claimed: expected,
+            available: data.len(),
+        });
+    }
+    Ok(crate::Payload::Raster(Raster {
+        width,
+        height,
+        format,
+        data,
+    }))
+}
+
+/// Reads one page's marks off a frame, and the target the host is to draw them at (ADR 0607).
+///
+/// **The target is where this arm's own allocation lives, and it is eight bytes.** Every other
+/// length on this boundary is checked against bytes the sender actually wrote — a raster's
+/// samples, a display list's tables — so a claim costs the sender what it costs the reader. A
+/// target does not: two `u32`s become however many pixels the *host* asks its allocator for when
+/// it draws, which is 719's finding in a new place, and the frame carrying them can be nine
+/// bytes long. So they are refused here against the bounds that produced them.
+///
+/// [`viewer_core::MAX_PIXELS`] is the bound a tier-1 host's render request is held to, and the
+/// confined worker is one — so an honest worker cannot have produced a larger target, and this
+/// refuses exactly what it cannot have sent. [`pdf_render::MAX_EXTENT`] is the separate `f32`
+/// precision limit `TargetSpec::for_page` applies to each dimension whatever the tier, and a
+/// dimension of zero is a target that cannot exist.
+///
+/// The transform's six numbers are *not* checked for finiteness, deliberately and for ADR 0626
+/// §7's reason: the three places in this tree that ask that question are in `pdf-render`, where a
+/// device decision belongs, and a fourth answer in a codec would be a fourth place the confined
+/// path and the in-process path could differ.
+fn decode_list_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, ProtocolError> {
+    let width = reader.u32("a target width")?;
+    let height = reader.u32("a target height")?;
+    if width == 0 || height == 0 {
+        return Err(ProtocolError::Unbuildable {
+            what: "a render target",
+            why: "a dimension of zero is a target nothing can be drawn into",
+        });
+    }
+    if width > pdf_render::MAX_EXTENT || height > pdf_render::MAX_EXTENT {
+        return Err(ProtocolError::Unbuildable {
+            what: "a render target",
+            why: "a dimension past what an f32 resolves to a fraction of a pixel",
+        });
+    }
+    if u64::from(width).saturating_mul(u64::from(height)) > viewer_core::MAX_PIXELS {
+        return Err(ProtocolError::Unbuildable {
+            what: "a render target",
+            why: "more pixels than a render request is held to, so no worker asked for it",
+        });
+    }
+    let transform = display_list::read_transform(reader, "a target transform")?;
+    let bytes = reader.bytes("a display list")?;
+    Ok(crate::Payload::List {
+        list: std::sync::Arc::new(display_list::decode(bytes)?),
+        target: pdf_render::TargetSpec {
+            width,
+            height,
+            transform,
+        },
+    })
+}
+
 /// Reads one answer.
 ///
 /// # Errors
@@ -2512,46 +2757,19 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             let mut frames = Vec::new();
             for _ in 0..count {
                 let page = reader.usize("a page index")?;
-                let width = reader.u32("a raster width")?;
-                let height = reader.u32("a raster height")?;
-                let format = match reader.u8("a raster format")? {
-                    0 => RasterFormat::Rgba8,
+                let payload = match reader.u8("a frame payload")? {
+                    PAYLOAD_RASTER => decode_raster_payload(&mut reader)?,
+                    PAYLOAD_LIST => decode_list_payload(&mut reader)?,
                     value => {
                         return Err(ProtocolError::Unrecognised {
-                            what: "a raster format",
+                            what: "a frame payload",
                             value: u32::from(value),
                         });
                     }
                 };
-                let data = reader.owned_bytes("a raster")?;
-                // The worker is the untrusted side, so its dimensions are checked against the
-                // bytes it actually sent rather than believed — the same rule `pdf_sandbox`'s
-                // parent applies to a decoded image, and for the same reason.
-                let expected = usize::try_from(width)
-                    .ok()
-                    .zip(usize::try_from(height).ok())
-                    .and_then(|(width, height)| width.checked_mul(height))
-                    .and_then(|pixels| pixels.checked_mul(4))
-                    .ok_or(ProtocolError::Overlong {
-                        what: "a raster",
-                        claimed: usize::MAX,
-                        available: data.len(),
-                    })?;
-                if data.len() != expected {
-                    return Err(ProtocolError::Overlong {
-                        what: "a raster",
-                        claimed: expected,
-                        available: data.len(),
-                    });
-                }
                 frames.push(crate::Framed {
                     page,
-                    raster: Raster {
-                        width,
-                        height,
-                        format,
-                        data,
-                    },
+                    payload,
                     origin: reader.point("an origin")?,
                 });
             }
@@ -3851,8 +4069,109 @@ mod tests {
 
     /// Encodes an answer and reads it back, failing loudly rather than returning a `Result`.
     fn round_trip(answer: &Answer<'_>) -> Reply {
-        let encoded = encode_answer(answer).expect("this answer crosses");
+        let encoded = encode_answer(answer, &Marks::default()).expect("this answer crosses");
         decode_answer(&encoded).expect("what was written reads back")
+    }
+
+    /// One frame carrying ADR 0607's list arm, written the way [`encode_answer`] writes it.
+    ///
+    /// Hand-built rather than taken off a [`Marks`], because [`viewer_core::RenderToken`] is
+    /// opaque and nothing outside its own crate can mint one — which is correct and is why the
+    /// *choosing* half is tested end to end, against the real worker, in `tests/confined.rs`.
+    /// What is under test here is the half a hostile worker controls: the bytes.
+    fn a_list_frame(width: u32, height: u32) -> Vec<u8> {
+        use pdf_render::{
+            BlendMode, Color, Command as Mark, DisplayList, FillRule, Paint, Path, Transform,
+        };
+
+        let mut list = DisplayList::new(Size::new(10.0, 20.0));
+        list.push(Mark::Fill {
+            path: std::sync::Arc::new(Path::new()),
+            paint: Paint::Solid(Color::BLACK),
+            fill_rule: FillRule::NonZero,
+            transform: Transform::IDENTITY,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        });
+
+        let mut writer = Writer::new();
+        writer.u8(answer_kind::FRAME).usize(1);
+        writer.usize(0).u8(PAYLOAD_LIST).u32(width).u32(height);
+        display_list::write_transform(&mut writer, Transform::IDENTITY);
+        writer.bytes(&display_list::encode(&list).expect("a one-command page encodes"));
+        writer.point((1.5, -2.5));
+        writer.finish()
+    }
+
+    /// The list arm decodes, and it decodes into the target the message named.
+    ///
+    /// The control for the three refusals below: a bound that refused everything would pass all
+    /// of them and carry no page at all.
+    #[test]
+    fn a_frame_crossing_as_marks_decodes_into_a_target_a_host_can_draw() {
+        let Reply::Frame(frames) = decode_answer(&a_list_frame(100, 200)).expect("a frame") else {
+            panic!("a frame answer decodes as one");
+        };
+        let [shown] = frames.as_slice() else {
+            panic!("one page was written")
+        };
+        assert_eq!(shown.origin, (1.5, -2.5));
+        let crate::Payload::List { list, target } = &shown.payload else {
+            panic!("the marks were written, so the marks are what crossed")
+        };
+        assert_eq!((target.width, target.height), (100, 200));
+        assert_eq!(list.page_size, Size::new(10.0, 20.0));
+        assert_eq!(list.commands().len(), 1);
+    }
+
+    /// **A target is the one length on this boundary with no bytes behind it.**
+    ///
+    /// The seven-hundred-and-nineteenth session's finding in a new place: a raster's dimensions
+    /// are checked against samples the sender had to write, so a claim costs the sender what it
+    /// costs the reader — and a render target is eight bytes that become however many pixels the
+    /// *host* asks its allocator for. The last of these four frames names a terabyte of pixels
+    /// in a message the assertion below holds to a couple of hundred bytes.
+    #[test]
+    fn a_target_no_render_request_could_have_asked_for_is_refused() {
+        for (width, height, why) in [
+            (0, 200, "a dimension of zero"),
+            (100, 0, "a dimension of zero"),
+            (
+                pdf_render::MAX_EXTENT + 1,
+                1,
+                "a dimension past what an f32 resolves",
+            ),
+            (1 << 20, 1 << 20, "more pixels than a render request"),
+        ] {
+            let frame = a_list_frame(width, height);
+            assert!(
+                frame.len() < 256,
+                "the point of this test is that the message is small: {} bytes",
+                frame.len()
+            );
+            let refused = decode_answer(&frame).expect_err("a target this size is refused");
+            assert!(
+                matches!(refused, ProtocolError::Unbuildable { what, .. } if what == "a render target"),
+                "{width}x{height} ({why}) was refused as {refused}"
+            );
+        }
+    }
+
+    /// A payload byte this build does not define is a refusal, not a raster read as a list.
+    #[test]
+    fn a_frame_payload_this_build_does_not_define_is_refused() {
+        let mut writer = Writer::new();
+        writer.u8(answer_kind::FRAME).usize(1);
+        writer.usize(0).u8(200);
+        let refused = decode_answer(&writer.finish()).expect_err("200 is not a payload");
+        assert_eq!(
+            refused,
+            ProtocolError::Unrecognised {
+                what: "a frame payload",
+                value: 200,
+            }
+        );
     }
 
     /// A §7.11.6 value Table 47 does not describe is refused, and the refusal names the answer.
@@ -3880,10 +4199,13 @@ mod tests {
             }),
             ..Collection::default()
         };
-        let refused = encode_answer(&Answer::Collection {
-            collection,
-            initial: pdf_model::collection::Initial::Container,
-        })
+        let refused = encode_answer(
+            &Answer::Collection {
+                collection,
+                initial: pdf_model::collection::Initial::Container,
+            },
+            &Marks::default(),
+        )
         .unwrap_err();
         assert_eq!(refused.message, "Answer::Collection");
     }
@@ -3977,7 +4299,8 @@ mod tests {
             ] {
                 let answer = viewer.query(query);
                 let at = std::time::Instant::now();
-                let encoded = encode_answer(&answer).expect("this answer crosses");
+                let encoded =
+                    encode_answer(&answer, &Marks::default()).expect("this answer crosses");
                 let encoded_in = at.elapsed();
                 let at = std::time::Instant::now();
                 let read = decode_answer(&encoded).expect("what was written reads back");
@@ -4087,10 +4410,13 @@ mod tests {
                 },
             ])
             .unwrap(),
-            encode_answer(&Answer::Selected(viewer_core::Selected {
-                text: std::borrow::Cow::Borrowed("selected"),
-                quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
-            }))
+            encode_answer(
+                &Answer::Selected(viewer_core::Selected {
+                    text: std::borrow::Cow::Borrowed("selected"),
+                    quads: vec![[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]],
+                }),
+                &Marks::default(),
+            )
             .unwrap(),
             encode_query(Query::Find("needle")).unwrap(),
         ];

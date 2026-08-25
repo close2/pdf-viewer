@@ -157,6 +157,27 @@ fn frame_here(viewer: &Viewer) -> (usize, pdf_render::Raster, (f32, f32)) {
     (frame.page, frame.raster.clone(), frame.origin)
 }
 
+/// The pixels one crossed frame stands for, drawing the marks where marks are what crossed.
+///
+/// **ADR 0607's payload choice, taken the way a host takes it.** A page crossing as a display
+/// list is not a weaker answer than a page crossing as pixels — it is the *same* page, drawn on
+/// this side of the boundary instead of the far one — so every comparison in this file goes
+/// through here. A test that reached for a raster field directly would have stopped seeing the
+/// boundary on the day the boundary started working, which is trap 1's own shape.
+///
+/// One strip, because that is what the confined worker rasterises with. ADR 0139's property says
+/// the count cannot change the bytes; matching it anyway means a failure here is about the
+/// boundary rather than about a thread.
+fn pixels(framed: &viewer_confined::Framed) -> pdf_render::Raster {
+    match &framed.payload {
+        viewer_confined::Payload::Raster(raster) => raster.clone(),
+        viewer_confined::Payload::List { list, target } => CpuRasterizer::new()
+            .with_strips(1)
+            .rasterize(list, *target)
+            .expect("the host draws the list it was handed"),
+    }
+}
+
 #[test]
 fn a_document_opens_in_the_confined_process_and_says_how_many_pages_it_has() {
     let (_confined, events) = opened();
@@ -180,20 +201,14 @@ fn the_confined_process_draws_the_page_this_one_would_have() {
     let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
         panic!("the confined viewer holds the frame it drew");
     };
-    let [
-        viewer_confined::Framed {
-            page,
-            raster,
-            origin,
-        },
-    ] = frames.as_slice()
-    else {
+    let [shown] = frames.as_slice() else {
         panic!(
             "a single-page arrangement crosses as one frame: {}",
             frames.len()
         );
     };
-    let (page, origin) = (*page, *origin);
+    let (page, origin) = (shown.page, shown.origin);
+    let raster = &pixels(shown);
 
     let here = drawn_here(&[
         Command::Resize {
@@ -286,7 +301,7 @@ fn turning_a_page_and_magnifying_it_both_draw_behind_the_filter() {
             frames.len()
         );
     };
-    let (page, raster) = (frame.page, &frame.raster);
+    let (page, raster) = (frame.page, &pixels(frame));
     assert_eq!(page, page_here);
     assert_eq!(
         (raster.width, raster.height),
@@ -851,7 +866,7 @@ fn a_free_text_annotation_is_drawn_typed_and_saved_behind_the_filter() {
             frames.len()
         );
     };
-    let raster = &frame.raster;
+    let raster = &pixels(frame);
     let red = raster
         .data
         .chunks_exact(4)
@@ -918,7 +933,7 @@ fn a_document_with_a_sandboxed_codec_draws_inside_the_confinement() {
             frames.len()
         );
     };
-    let raster = &frame.raster;
+    let raster = &pixels(frame);
     let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
     assert!(
         ink > 100,
@@ -1623,6 +1638,177 @@ fn a_lists_price_beside_its_raster_is_printed() {
             refused @ viewer_confined::Crossing::Raster(_) => {
                 panic!("a sparse page crosses as a list, not as {refused:?}")
             }
+        }
+    }
+}
+
+/// **The wiring itself: the committed note crosses as marks, not as pixels.**
+///
+/// Every other assertion in this file goes through [`pixels`] and is therefore true of either
+/// arm — which is what makes them good comparisons and useless as a statement that ADR 0607's
+/// choice is switched on at all. This one says which arm a sparse page took, and prints the two
+/// byte counts the choice was made from.
+#[test]
+fn a_sparse_page_crosses_the_confinement_as_marks_rather_than_as_pixels() {
+    let (mut confined, _events) = opened();
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds the frame it drew");
+    };
+    let [shown] = frames.as_slice() else {
+        panic!("a single-page arrangement crosses as one frame")
+    };
+    let viewer_confined::Payload::List { list, target } = &shown.payload else {
+        panic!("a sparse page's marks are a small fraction of its pixels: {shown:?}")
+    };
+    let sent = viewer_confined::wire::encode_display_list(list).expect("a codable page");
+    let raster = u64::from(target.width) * u64::from(target.height) * 4;
+    println!(
+        "PDF20_AN001-BPC.pdf p1 at {}x{}: {} B of marks against {raster} B of pixels",
+        target.width,
+        target.height,
+        sent.len(),
+    );
+    assert!(
+        (sent.len() as u64) * 4 < raster,
+        "a sparse page's marks should be a small fraction of its pixels"
+    );
+}
+
+/// **A scan crosses as pixels**, which is the arm ADR 0607 kept and the reason it kept it.
+///
+/// A scanned page's decoded samples *are* its display list: one `Command::Image` whose data is
+/// most of the file, so writing the list down costs more than writing the pixels down and the
+/// comparison the confined process makes says so. The page is named rather than counted, and a
+/// corpus that is not checked out says so rather than passing in silence.
+#[test]
+fn a_scanned_page_crosses_the_confinement_as_pixels() {
+    let Some(bytes) = corpus_bytes("scan-bad.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds the frame it drew");
+    };
+    let [shown] = frames.as_slice() else {
+        panic!("a single-page arrangement crosses as one frame")
+    };
+    assert!(
+        matches!(shown.payload, viewer_confined::Payload::Raster(_)),
+        "scan-bad.pdf's samples are its display list, so its pixels are the smaller payload"
+    );
+}
+
+/// **The two deferred producers are refused into the raster arm by name, on four named pages.**
+///
+/// ADR 0607 deferred `ImageSource::AtDeviceScale` and `ShadingKind::Sampled` with a reason rather
+/// than by attrition — they are *producers* the backend invokes once it knows how many device
+/// pixels the mark covers, and for a page whose colours are a function of position at the
+/// device's own resolution, pixels are what this boundary is for. Trap 5 is why the refusal is
+/// checked by variant rather than by "something went the other way": a page that quietly went
+/// blank would satisfy any assertion that only counted arms.
+///
+/// §8.7.4.5.2's type 1 shading is the first pair, §11.6.5.2's soft-mask image on a grid of its
+/// own the second.
+#[test]
+fn the_two_deferred_producers_reach_the_raster_arm_by_name() {
+    let expected = [
+        (
+            "function_based_shading.pdf",
+            viewer_confined::Uncodable::DeferredColours,
+        ),
+        (
+            "function_based_shading_cmyk.pdf",
+            viewer_confined::Uncodable::DeferredColours,
+        ),
+        ("issue16263.pdf", viewer_confined::Uncodable::DeferredImage),
+        ("issue19517.pdf", viewer_confined::Uncodable::DeferredImage),
+    ];
+    let mut seen = 0;
+    for (name, producer) in expected {
+        let Some(bytes) = corpus_bytes(name) else {
+            continue;
+        };
+        let document = pdf_syntax::Document::open(bytes).expect("the document opens");
+        let page = pdf_model::Pages::new(&document)
+            .get(0)
+            .unwrap_or_else(|| panic!("{name} has a first page"));
+        let list = pdf_model::interpret(&document, &page).display_list;
+        let target =
+            pdf_render::TargetSpec::for_page(&list, 1.0, 1 << 28).expect("a page-sized target");
+        let raster = u64::from(target.width) * u64::from(target.height) * 4;
+        match viewer_confined::wire::crossing(&list, raster) {
+            viewer_confined::Crossing::Raster(viewer_confined::RasterReason::Uncodable(named)) => {
+                assert_eq!(named, producer, "{name} names the wrong producer");
+            }
+            other => panic!("{name} should reach the raster arm by name, not {other:?}"),
+        }
+        seen += 1;
+    }
+    if seen == 0 {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+    }
+}
+
+/// **The encoder stops at the size it is being compared against.**
+///
+/// ADR 0626 encoded a list in full and then compared it, with the cost written down as "one
+/// buffer, on the four percent of pages where the answer is pixels". On the frame path that
+/// buffer is paid **per render**: `scan-bad.pdf` is 33.7 MB of samples and 7.7 ms of encoding to
+/// learn something the comparison already knew. So [`viewer_confined::wire::crossing`] hands the
+/// encoder the raster's size and the encoder stops there.
+///
+/// The discriminator is the number it reports back. A run that stopped early reports what it had
+/// accounted for, which is strictly less than the whole list — so this fails if the stop is
+/// removed, and it needs no clock to say so.
+#[test]
+fn an_encoder_given_a_budget_stops_at_it_rather_than_finishing() {
+    let document = pdf_syntax::Document::open(specification_bytes()).expect("the committed note");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the committed note has a first page");
+    let list = pdf_model::interpret(&document, &page).display_list;
+    let whole = viewer_confined::wire::encode_display_list(&list)
+        .expect("a codable page")
+        .len();
+
+    // One byte, so that the very first check must fire: what comes back is what the encoder had
+    // accounted for at that point and not what the page costs.
+    match viewer_confined::wire::crossing(&list, 1) {
+        viewer_confined::Crossing::Raster(viewer_confined::RasterReason::Larger {
+            list: stopped_at,
+            raster,
+        }) => {
+            assert_eq!(raster, 1);
+            assert!(
+                stopped_at < whole,
+                "the encoder ran to the end: {stopped_at} of {whole} bytes"
+            );
+        }
+        other => panic!("a budget of one byte is one no page fits in, not {other:?}"),
+    }
+
+    // And the control: with no budget in the way the same page crosses whole, so the stop is an
+    // early exit rather than a refusal that swallowed the page.
+    match viewer_confined::wire::crossing(&list, u64::from(u32::MAX)) {
+        viewer_confined::Crossing::List(bytes) => assert_eq!(bytes.len(), whole),
+        other @ viewer_confined::Crossing::Raster(_) => {
+            panic!("a sparse page crosses as a list, not as {other:?}")
         }
     }
 }

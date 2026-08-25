@@ -23,7 +23,7 @@
 
 use std::time::Instant;
 
-use viewer_confined::{Confined, Reply};
+use viewer_confined::{Confined, Payload, Reply};
 use viewer_core::{Command, DocumentId, Event, PageTarget, Query};
 
 /// A valid one-page document padded to about `ballast` bytes with a stream nothing refers to.
@@ -151,15 +151,54 @@ fn main() {
     let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
         panic!("the confined viewer holds the frame it drew");
     };
-    let Some(raster) = frames.first().map(|frame| &frame.raster) else {
+    let crossed = at.elapsed();
+    let Some(shown) = frames.first() else {
         panic!("a frame crossed with no pages in it");
     };
-    println!(
-        "{}x{} pixels crossed the pipe in {:.3} ms",
-        raster.width,
-        raster.height,
-        at.elapsed().as_secs_f64() * 1e3
-    );
+
+    // **Both arms of ADR 0607's choice, and which one this page took.** The list arm is the
+    // measurement the seven-hundred-and-thirty-sixth session wired in: what crossed, and what a
+    // raster of the same target would have been. The host draws the list itself, which is what
+    // the second timing below is — a cost this side of the boundary did not use to pay and which
+    // belongs in the same run as the saving it buys.
+    let raster = match &shown.payload {
+        Payload::Raster(raster) => {
+            println!(
+                "{}x{} pixels crossed the pipe in {:.3} ms",
+                raster.width,
+                raster.height,
+                crossed.as_secs_f64() * 1e3
+            );
+            raster.clone()
+        }
+        Payload::List { list, target } => {
+            let pixels = u64::from(target.width)
+                .saturating_mul(u64::from(target.height))
+                .saturating_mul(4);
+            let bytes = viewer_confined::wire::encode_display_list(list)
+                .expect("a list the worker encoded encodes here")
+                .len();
+            println!(
+                "a display list for {}x{} crossed the pipe in {:.3} ms: {bytes} B against \
+                 {pixels} B of pixels",
+                target.width,
+                target.height,
+                crossed.as_secs_f64() * 1e3
+            );
+            let at = Instant::now();
+            let raster = {
+                use pdf_render::Rasterizer as _;
+                render_cpu::CpuRasterizer::new()
+                    .rasterize(list, *target)
+                    .expect("the host draws the list it was handed")
+            };
+            println!(
+                "  the host drew it on the processor in {:.3} ms",
+                at.elapsed().as_secs_f64() * 1e3
+            );
+            raster
+        }
+    };
     let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
     println!("  {ink} dark pixels");
 
