@@ -379,14 +379,27 @@ pub struct LoadedFont {
     ///
     /// **Measured, on `examples/callgrind_interpret`**: 2 013.8 M instructions before,
     /// 1 989.1 M after — 1.2% of the whole of interpretation for a cache of 256 entries.
-    /// The AGL's own share went from 4.26% to 3.35%, and what remains is *not* this path: it
-    /// is §9.6.5.4's, which asks the list once per code when a `TrueType` font is loaded, and
-    /// which is already once per font.
+    /// The AGL's own share went from 4.26% to 3.35%.
     ///
     /// Lazy rather than built at load, because a font whose `/ToUnicode` covers its codes
     /// never reaches the list at all, and 256 AGL searches is not a cost to pay on the page-one
     /// path for nothing (`CLAUDE.md` principle 2).
-    agl_by_code: OnceCell<Box<[Option<String>; 256]>>,
+    ///
+    /// **And the same sentence applies one level down, which is why there are two cells.** The
+    /// laziness used to be the table's alone: the first code that reached this route resolved
+    /// all 256, and a page shows a few dozen of them — so the cost the paragraph above declines
+    /// to pay on the page-one path was paid in full by the first character extracted from the
+    /// font. Each cell now declines a different one. The outer declines the array itself for a
+    /// font that never extracts text; the inner declines the Adobe Glyph List search for a code
+    /// the page does not show. Neither changes an answer: the function and its argument are
+    /// what they were, so the table this converges to is the one it used to build in one go.
+    /// Page 101 of ISO 32000-2 asked [`encoding::text_for`] 67 200 times over fifty
+    /// interpretations and asks it **8 850** — the codes it shows — which is **5.10%** of the
+    /// whole of interpretation (ADR 0694). The outer cell's own price is one check per glyph,
+    /// **+0.22%** on that page, and it is paid because the page whose fonts all reach this
+    /// route is the arm where it loses: the eager array would allocate and zero 8 KiB at load
+    /// for a font whose `/ToUnicode` answers every code and that never arrives here at all.
+    agl_by_code: OnceCell<Box<[OnceCell<Option<String>>; 256]>>,
     /// §9.10.2's last resort: what the *program* calls each glyph it defines.
     ///
     /// Keyed by glyph index rather than by character code, which is what lets one table serve
@@ -830,32 +843,31 @@ impl LoadedFont {
         let Some(names) = self.glyph_names.as_ref() else {
             return self.text_from_program(code, out);
         };
-        let table = self.agl_by_code.get_or_init(|| {
-            let mut table: Box<[Option<String>; 256]> = Box::new([const { None }; 256]);
-            for (code, slot) in table.iter_mut().enumerate() {
-                *slot = names
-                    .get(code)
-                    .map(Cow::as_ref)
-                    .filter(|name| !name.is_empty())
-                    .and_then(|name| {
-                        // The clause's own second method first, and Annex D's character set
-                        // where that list does not hold the name — which for `ZapfDingbats` is
-                        // every name it has. See `SymbolicEncoding::character_for`, and ADR 0318
-                        // for why the annex is a route to a character and not a convention.
-                        encoding::text_for(name).or_else(|| {
-                            self.symbolic_set
-                                .and_then(|set| set.character_for(name))
-                                .map(String::from)
-                        })
-                    });
-            }
-            table
-        });
-        if let Some(text) = usize::try_from(code.value())
+        let cells = self
+            .agl_by_code
+            .get_or_init(|| Box::new(std::array::from_fn(|_| OnceCell::new())));
+        let Some((slot, name)) = usize::try_from(code.value())
             .ok()
-            .and_then(|code| table.get(code))
-            .and_then(Option::as_deref)
-        {
+            .and_then(|index| cells.get(index).zip(names.get(index)))
+        else {
+            return self.text_from_program(code, out);
+        };
+        let resolved = slot.get_or_init(|| {
+            Some(Cow::as_ref(name))
+                .filter(|name| !name.is_empty())
+                .and_then(|name| {
+                    // The clause's own second method first, and Annex D's character set
+                    // where that list does not hold the name — which for `ZapfDingbats` is
+                    // every name it has. See `SymbolicEncoding::character_for`, and ADR 0318
+                    // for why the annex is a route to a character and not a convention.
+                    encoding::text_for(name).or_else(|| {
+                        self.symbolic_set
+                            .and_then(|set| set.character_for(name))
+                            .map(String::from)
+                    })
+                })
+        });
+        if let Some(text) = resolved {
             out.push_str(text);
             return true;
         }

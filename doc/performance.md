@@ -708,6 +708,27 @@ leaves fewer commands to build than the rules cost to apply.
 `inflate_table` 4.0%, AGL name lookup 3.2% — the last was ours and avoidable, and a cache took
 interpretation 2 013.8 M → 1 989.1 M.
 
+**Re-taken in the seven-hundred-and-sixty-sixth, and the ranking is inverted** (ADR 0694). The
+same instrument on the same page: `inflate` **3.11%**, `show_text` **13.83%**, `next_token`
+7.69%, `inflate_table` 0.54%, the Adobe Glyph List **6.52%**. The largest item in the profile by
+a factor of four is now the fifth, because ADRs 0317, 0365 and 0429 happened to §7.4; the
+smallest had doubled, because nothing had happened to §9.10.2's list. **This is the same lesson
+`callgrind_rasterise`'s composition taught four rounds earlier** (ADR 0687) and the pair is worth
+keeping: the *total* was re-taken in ADR 0677 and this session reproduced it to nine digits
+(1 278 428 629 against 1 278 427 485, a tree measured twice), while the breakdown beside it was
+seven hundred rounds old. **A total is what a later round re-takes and a breakdown is not.**
+Read the absolute figures, not the shares — interpretation of this page is 1 278.4 M against
+session 195's 2 184.4 M, so every share above moved for two reasons at once (ADR 0370's rule).
+
+What the retake found is two costs neither the profile's shares nor any document named, both
+taken in the same session for **−7.52%** with the display list identical command for command:
+§9.3.1's `Tf` resolved and **copied the font dictionary twice** before asking the cache that
+answered 273 of its 280 statements on that page; and `agl_by_code`'s laziness was the *table*'s
+rather than the *entry*'s, so the first character extracted from a font resolved all 256 of its
+codes through the list where the page shows a few dozen — 67 200 `text_for` calls against the
+8 850 the page asks for. ADR 0694 has both, and the arm where the second one's own extra cell
+loses (+0.22%) is measured there rather than assumed.
+
 **The decompression item is priced and it is small** (session 128). Over one interpretation of
 every corpus page: 6220 inflations of 38.08 MB; among the streams above 4 KB — 722 calls, 35.0 MB,
 92% of the bytes — **35 are repeats costing 925 KB, 2.6%**, so a decoded-data cache is worth about

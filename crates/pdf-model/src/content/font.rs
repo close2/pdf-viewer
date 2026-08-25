@@ -246,7 +246,6 @@ impl Interpreter<'_> {
         // same answer (see `resource_entry`, whose whole reason for existing is this one).
         // §9.6.2.2's fourteen are ASCII names, so a resource name that is not text cannot be one
         // of them and `as_str` returning `None` is that answer rather than a lost lookup.
-        let label = String::from_utf8_lossy(name.as_bytes());
         let entry = self
             .resource_entry(resources, "Font", name)
             .or_else(|| name.as_str().and_then(standard_font_named));
@@ -254,10 +253,38 @@ impl Interpreter<'_> {
             .as_ref()
             .and_then(Object::as_reference)
             .map(FontKey::Referenced);
-        let dict = entry
-            .map(|object| self.document.resolve(&object))
-            .and_then(|object| object.as_dict().cloned());
-        self.load_font(key, dict.as_ref(), &label)
+
+        // **Ask the cache before paying for what a load would need.** Everything below this
+        // point exists only for a load: resolving the reference copies the font dictionary out
+        // of `Document`'s cache, and `/Widths` alone is an array of up to 256 numbers. A page
+        // states `Tf` once per text object and names the same few fonts throughout — 280 times
+        // for seven fonts on page 101 of ISO 32000-2 — so the copy was made 273 times for a
+        // load that did not happen. `load_font` asks again, because it is the authority and
+        // Table 57's route reaches it without coming through here.
+        if let Some(cached) = self.cached_font(key.as_ref()) {
+            return cached;
+        }
+
+        let label = String::from_utf8_lossy(name.as_bytes());
+        let resolved = entry.map(|object| self.document.resolve(&object));
+        self.load_font(key, resolved.as_ref().and_then(Object::as_dict), &label)
+    }
+
+    /// What a previous load left under `key`, where there was one.
+    ///
+    /// The cache holds a *failure* as well as a font, so the answer is two levels deep: the
+    /// outer `None` means nothing has been loaded under this key and the inner one means a load
+    /// was tried and did not produce a font. Collapsing them would make a page that names an
+    /// unloadable font on every `Tf` re-attempt the load and re-report it, which is what the
+    /// note on [`Self::load_font`] is about.
+    #[expect(
+        clippy::option_option,
+        reason = "the two levels are the two answers: nothing is cached under this key, and a \
+                  load under it produced no font. The lint is right that they are usually one \
+                  question wearing two shapes, and here they are two questions"
+    )]
+    fn cached_font(&self, key: Option<&FontKey>) -> Option<Option<Font>> {
+        self.fonts.get(key?).cloned()
     }
 
     /// Loads a font, caching it under `key`, which is what `Tf` and Table 57's `/Font` share.
@@ -277,10 +304,8 @@ impl Interpreter<'_> {
         dict: Option<&Dictionary>,
         name: &str,
     ) -> Option<Font> {
-        if let Some(key) = key.as_ref()
-            && let Some(cached) = self.fonts.get(key)
-        {
-            return cached.clone();
+        if let Some(cached) = self.cached_font(key.as_ref()) {
+            return cached;
         }
 
         let loaded = dict.map(|dict| pdf_font::LoadedFont::load(self.document, dict, name));
