@@ -618,8 +618,19 @@ impl Host {
     /// the type carries an `Option` rather than a `Rendered`: `Rendered::Failed` would record the
     /// page as answered for and stop the scheduler ever asking again, which freezes a page this
     /// window merely chose not to finish drawing.
+    ///
+    /// **Before the first frame this waits, and after it this only asks** — ADR 0678. A poll
+    /// cannot be dispatched while GTK's main loop is inside its own first frame, and that frame is
+    /// the expensive one, so page one used to wait the whole of it out for an answer that was
+    /// ready in three milliseconds. A window with nothing on the screen has no frame to spoil and
+    /// no input to lose, and `viewer_host::Drawing::SETTLE` bounds the whole of what it may spend.
     fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
-        for finished in self.drawing.collect() {
+        let drawn = if self.presented {
+            self.drawing.collect()
+        } else {
+            self.drawing.settle(viewer_host::Drawing::SETTLE)
+        };
+        for finished in drawn {
             self.trace.say(
                 Topic::Frames,
                 format_args!(

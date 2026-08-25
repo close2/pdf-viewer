@@ -219,7 +219,28 @@ launch on this machine's own GPU should be **75 to 90 ms**. Nobody has run it �
 authority cookie for the user's display, so the window half of that number is the user's to
 measure (ADR 0126).
 
+## 6. The *native* hosts have a launch path too, and it is a different number
+
+This file's five items are `viewer-ui`'s, which drives its own event loop and presents itself.
+`pdf-viewer-gtk` and `pdf-viewer-qt` place somebody else's widgets, so their launch has a term
+`viewer-ui`'s does not: **page one's answer comes back through a main loop that is inside the
+toolkit's own first frame.** Measured in the seven-hundred-and-fifty-ninth on a quiet machine, twenty
+alternating pairs an arm (ADR 0678): `viewer-gtk`'s `opened` → first frame went from 9.5 ms to 53.4
+when the drawing moved to a thread, and back to 9.9 once a window with nothing on the screen waited
+for page one instead of polling for it. The instrument is `--trace=launch` in either binary and
+`--trace=launch,frames` for the wait beside the draw; `doc/verify.md` has the A/B's shape.
+
+**Two things stay open here and neither is ours to close alone:**
+
+- **The 44 ms was llvmpipe's magnitude.** What is structural is that page one waits on a loop inside
+  its first frame; what that frame costs is the driver's. On a real adapter it is smaller, and by how
+  much is item 5's last paragraph's question in a second window.
+- **A native launch has never been measured cold.** Every number above is a warm page cache and a
+  warm loader, which is right for an A/B and wrong for `CLAUDE.md`'s cold-start gate. The gate does
+  not exist for these two binaries at all.
+
 ## What is deliberately not here
 
-**Nothing, since item 5.** This section used to say the first present was not yet an item because
+**Nothing, since item 5 — and item 6, which is a *second* launch path rather than a sixth item on
+this one.** This section used to say the first present was not yet an item because
 nobody had split it; it is split now, and the half that is ours is item 5's second bullet.

@@ -89,6 +89,37 @@ zero area printed nothing at all — the same silence as a document with no wind
 the *answer* held, which is trap 11 pointed at the one line that would otherwise say nothing about
 a refusal. ADR 0613.
 
+### 21. A toolkit's main loop cannot dispatch your poll while it is inside its own frame
+
+`viewer_host::Drawing` is *pulled* rather than pushed, because one of the two toolkits cannot be
+pushed to (ADR 0668 §5): each host arms a one-shot for `Drawing::POLL` and asks whether a page has
+landed. A poll is a request for a **turn of the main loop**, and the whole arrangement's latency is
+therefore the interval *plus whatever the loop is busy with* — which is nothing at all, right up
+until the one moment it is everything.
+
+That moment is the launch. `open_document` runs inside the first size allocation, so the instant the
+pump returns, GTK begins its own first frame: GSK's renderer bring-up, which under `Xvfb`'s software
+Vulkan holds the loop for the better part of sixty milliseconds. Page one drew in **3.3 ms** and the
+window waited **61.5 ms** for it, on a quiet machine, twenty runs an arm with no overlap between the
+before and after ranges (ADR 0678). `GSK_RENDERER=cairo` is the control and the same wait falls to
+about twelve.
+
+**The tell is a wait far larger than the work, in a host that is doing nothing else** — the frame
+line prints both, `rasterised … in 3.252476ms, waited 61.528955ms`, and a round that reads only the
+first number sees a fast rasteriser. It is not a scheduling problem and no priority fixes it: a
+source cannot be dispatched while the loop is inside another dispatch.
+
+`Drawing::settle` is the answer for the one case where a host may block — a window with nothing on
+the screen has no frame to spoil and no input to lose — and it is bounded by one refresh over the
+whole launch. **What the trap is about is the general shape rather than that fix**: an interval is a
+floor on a pull, never a ceiling, and the ceiling belongs to somebody else's loop.
+
+**And the two-host reading is what located it.** `viewer-qt` paints a `QImage` with no device
+bring-up in the way, so its loop was free and its column showed no regression at all. One host
+cannot tell its toolkit's cost from its own; two on one arrangement can, in a single sitting. That is
+a reason to keep them level beyond fairness to a user — and see trap 1 for the sting in Qt's tail,
+whose *faster* launch number named a first frame carrying half the pages the arrangement showed.
+
 ### 20. `Rendered::Failed` marks a page as answered, so it is not the word for "I gave up on this draw"
 
 The core's `Viewer::rendered` sets `on_screen.shown` for a `Rendered::Failed` exactly as it does for

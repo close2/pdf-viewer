@@ -70,6 +70,22 @@
 //!
 //! [`Drawing::POLL`] is the interval and [`Drawing::interval`] is `None` at rest, so a window with
 //! nothing being drawn wakes for this exactly never.
+//!
+//! # The one place a host does not pull, and why the launch is that place
+//!
+//! A poll asks the toolkit's loop for a turn, and at launch the toolkit's loop is inside its own
+//! first frame and does not give one. Measured (ADR 0678): page one of a five-page document draws
+//! in 3.3 ms and `viewer-gtk` waited **57 to 61 ms** for it, because GSK's first frame holds the
+//! main loop for that long under `Xvfb`'s software Vulkan — so the whole of the toolkit's most
+//! expensive frame landed *in front of* page one instead of beside it, and the launch cost 53 ms
+//! against 9.5 where it had rasterised inside the allocation. `viewer-qt` showed none of it, which
+//! is what says the fault is the toolkit's first frame rather than this arrangement.
+//!
+//! [`Drawing::settle`] is the answer and it is deliberately small: a host with **nothing on the
+//! screen yet** waits for the page rather than polling for it, for at most [`Drawing::SETTLE`] over
+//! the whole launch. Nothing is interrupted, so a page that outlasts the budget arrives through the
+//! poll exactly as before; what the budget buys is that page one is in the toolkit's first frame
+//! rather than its second.
 
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -178,6 +194,14 @@ pub struct Drawing {
     queued: VecDeque<RenderRequest>,
     /// Pages drawn on this thread because there was no other one — see [`Drawing::dispatch`].
     landed: Vec<Finished>,
+    /// How much of [`Drawing::SETTLE`] has been spent waiting — see [`Drawing::settle`].
+    ///
+    /// **Time actually spent blocked, and nothing else.** A launch's budget is a bound on how long
+    /// the window may decline to answer, so what fills it is waiting rather than elapsing: a
+    /// thousand-page document whose §7.5 cross-reference table takes fourteen milliseconds to read
+    /// has not spent any of this, because during those milliseconds there was nothing in flight to
+    /// wait for.
+    spent: Duration,
 }
 
 impl Drawing {
@@ -190,6 +214,24 @@ impl Drawing {
     /// `doc/pdf.js`'s first pages draws in about two milliseconds — so a poll at one refresh
     /// period, the obvious alternative, would be most of a median page turn again.
     pub const POLL: Duration = Duration::from_millis(1);
+
+    /// The whole of what a window with nothing on the screen may spend waiting for page one.
+    ///
+    /// **One 60 Hz refresh, and it is a budget for the launch rather than a per-page timeout** —
+    /// see [`Self::settle`], which is the only thing that reads it and which a host calls with
+    /// what is left of it. The two sides of the choice:
+    ///
+    /// - *why wait at all*: a poll cannot be dispatched while the toolkit's own main loop is
+    ///   inside its first frame, and that frame is the expensive one — GTK's is about 55 ms under
+    ///   `Xvfb`'s software Vulkan, which page one waited through in full (ADR 0678).
+    /// - *why no longer than this*: the wait is time in which the window answers nothing, and one
+    ///   refresh is the longest that is invisible. It is also where the corpus puts the
+    ///   population: at twice device scale 93.9% of `doc/pdf.js`'s first pages draw inside one
+    ///   60 Hz period (ADR 0657), so this admits page one to the toolkit's first frame for nearly
+    ///   all of them and gives up on the rest rather than growing to fit them — the slowest of the
+    ///   957 takes 252 ms and a document written to be expensive takes 27 600, so no bound reaches
+    ///   those without becoming a freeze.
+    pub const SETTLE: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
     /// A host that has drawn nothing yet, and has no thread.
     #[must_use]
@@ -279,6 +321,46 @@ impl Drawing {
         }
         self.dispatch();
         finished
+    }
+
+    /// [`Self::collect`], having first waited for the page in flight out of a `budget`.
+    ///
+    /// **For a window that has not put a frame on the screen yet, and for nothing else.** A host
+    /// that has presented something owes a person a live window and must not block its toolkit's
+    /// loop at all; a host that has presented nothing has no frame to spoil and no input to lose,
+    /// and the thing it is waiting for is the only thing it exists to show. ADR 0678 is the
+    /// measurement that put this here and [`Self::SETTLE`] is what a host passes.
+    ///
+    /// **`budget` is the whole launch's rather than this call's**, which is why the accounting is
+    /// here and not in the two hosts: Table 29's arrangement asks for every page it shows, so a
+    /// column asks two or three times before the first frame and a per-call bound would multiply
+    /// by however many pages a document chose to open in. A host calls this with the same
+    /// [`Self::SETTLE`] each time and the remainder shrinks.
+    ///
+    /// **This is not a deadline on the drawing and takes no thread back.** Nothing is interrupted
+    /// and nothing is abandoned: a page still unfinished when the budget runs out stays in flight
+    /// and arrives through [`Self::interval`]'s poll exactly as it did before, one toolkit frame
+    /// later. So the two conditions in this module's head are still the only two that raise an
+    /// interrupt, and the automatic deadline ADR 0657 refused is still refused.
+    pub fn settle(&mut self, budget: Duration) -> Vec<Finished> {
+        let left = budget.saturating_sub(self.spent);
+        let arrived = match (self.in_flight.as_ref(), self.link.as_ref()) {
+            // Nothing in flight, or no thread because `dispatch` fell back to drawing on this one
+            // — in both cases whatever there is to have is already in `landed` or in the channel,
+            // and a `recv_timeout` here would be a window frozen for the budget over nothing.
+            (Some(_), Some(link)) if !left.is_zero() => {
+                let began = Instant::now();
+                let arrived = link.done.recv_timeout(left).ok();
+                self.spent = self.spent.saturating_add(began.elapsed());
+                arrived
+            }
+            _ => None,
+        };
+        if let Some(done) = arrived {
+            let asked = self.in_flight.take().map(|in_flight| in_flight.asked);
+            self.landed.push(landed(done, asked));
+        }
+        self.collect()
     }
 
     /// How long the host should wait before asking again, or `None` while there is nothing to ask
@@ -547,6 +629,79 @@ mod tests {
         let drawing = Drawing::new();
         assert!(drawing.link.is_none());
         assert_eq!(drawing.interval(), None);
+    }
+
+    /// ADR 0678: a window with nothing on the screen waits for page one rather than polling for
+    /// it, and one call is enough for an ordinary page.
+    ///
+    /// The assertion is about the *answer* rather than about a clock, which is 749's rule: on a
+    /// machine that gave the drawing thread no core the wait would run out and the page would
+    /// arrive through the poll instead, so timing this would measure the machine.
+    #[test]
+    fn a_launch_waits_for_page_one_instead_of_polling_for_it() {
+        let request = a_real_request();
+        let mut drawing = Drawing::new();
+        drawing.ask(request.clone());
+        let finished = drawing.settle(Drawing::SETTLE);
+        assert_eq!(finished.len(), 1, "one settle answered page one");
+        assert_eq!(finished[0].request.token, request.token);
+        assert!(matches!(finished[0].outcome, Some(Rendered::Raster(_))));
+    }
+
+    /// And the budget is a budget rather than a deadline: a page that outlasts it is still being
+    /// drawn, and the host's poll is still what brings it back.
+    #[test]
+    fn a_page_that_outlasts_the_budget_is_not_taken_back() {
+        let request = a_real_request();
+        let mut drawing = Drawing::new();
+        drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
+        assert!(
+            drawing.settle(Duration::ZERO).is_empty(),
+            "nothing had finished"
+        );
+        assert_eq!(drawing.inside(), Some(0), "and it is still being drawn");
+        assert_eq!(drawing.interval(), Some(Drawing::POLL));
+        let finished = wait(&mut drawing);
+        assert!(
+            matches!(finished[0].outcome, Some(Rendered::Raster(_))),
+            "no interrupt was raised, so the page came back whole"
+        );
+    }
+
+    /// And the budget is the launch's rather than the call's.
+    ///
+    /// Table 29's `OneColumn` asks for every page it shows, so a window asks two or three times
+    /// before its first frame; a bound that started again on each call would multiply by however
+    /// many pages a document chose to open in. Asserted on what was *spent* rather than on a
+    /// clock, which is 749's rule.
+    #[test]
+    fn the_budget_is_spent_once_over_a_whole_launch() {
+        let request = a_real_request();
+        let mut drawing = Drawing::new();
+        drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
+        assert!(
+            drawing.settle(Drawing::SETTLE).is_empty(),
+            "the page outlasted the budget"
+        );
+        assert!(
+            drawing.spent >= Drawing::SETTLE,
+            "and spent the whole of it"
+        );
+        let spent = drawing.spent;
+        assert!(drawing.settle(Drawing::SETTLE).is_empty());
+        assert_eq!(drawing.spent, spent, "so a second call waited for nothing");
+    }
+
+    /// A settle on a host that has asked for nothing is a settle that returns at once.
+    ///
+    /// The one that would hurt is a `recv_timeout` on a channel nobody will send to, which is a
+    /// window frozen for the budget at every launch that has yet to ask for a page.
+    #[test]
+    fn a_settle_before_anything_is_asked_for_waits_for_nothing() {
+        let mut drawing = Drawing::new();
+        let began = Instant::now();
+        assert!(drawing.settle(Duration::from_secs(30)).is_empty());
+        assert!(began.elapsed() < GIVE_UP, "it did not wait for the budget");
     }
 
     /// And a window showing a drawn page goes back to wanting none.

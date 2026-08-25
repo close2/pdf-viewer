@@ -1703,8 +1703,21 @@ impl Host {
     /// the type carries an `Option` rather than a `Rendered`: `Rendered::Failed` would record the
     /// page as answered for and stop the scheduler ever asking again, which freezes a page this
     /// window merely chose not to finish drawing.
+    ///
+    /// **Before the first frame this waits, and after it this only asks** — ADR 0678, and the same
+    /// three lines as `viewer-gtk`'s because the rule is `viewer_host::Drawing`'s rather than a
+    /// toolkit's. A window with nothing on the screen has no frame to spoil and no input to lose,
+    /// and `viewer_host::Drawing::SETTLE` bounds the whole of what it may spend. The measurement
+    /// that put it there is GTK's — Qt's own launch was not the one that lost 44 ms — and it is
+    /// here for levelness and because a `QTimer` is no more dispatchable than a `glib` one while a
+    /// toolkit is inside its own first frame.
     fn take_the_drawn(&mut self, queue: &mut std::collections::VecDeque<Command>) {
-        for finished in self.drawing.collect() {
+        let drawn = if self.presented {
+            self.drawing.collect()
+        } else {
+            self.drawing.settle(viewer_host::Drawing::SETTLE)
+        };
+        for finished in drawn {
             self.trace.say(
                 Topic::Frames,
                 format_args!(

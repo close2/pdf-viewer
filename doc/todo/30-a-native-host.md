@@ -187,11 +187,29 @@ their controls from left one item in its place, below. Plus the standing note ab
   is an ABI entry point to raise a flag with. That is a header change and a levelness question of
   its own.
 
-  **One thing is owed and is named rather than left silent**: the launch A/B on a quiet machine. The
-  arrangement adds one trip through the toolkit's main loop to page one, measured at 2.1 ms in both
-  toolkits with the loop otherwise idle, and between 53 and 400 ms at launch on a machine carrying
-  three other rounds — where both arms drifted by an order of magnitude and neither number is the
-  program's. ADR 0668 §7.
+  ~~**One thing is owed and is named rather than left silent**: the launch A/B on a quiet machine.~~
+  **Taken in the seven-hundred-and-fifty-ninth, and it found a regression rather than the 2.1 ms the
+  in-run number predicted** (ADR 0678). The four words 0668 §7 could not test were *with the loop
+  otherwise idle*: at launch the loop is inside the toolkit's own first frame, which is the expensive
+  one, and a poll cannot be dispatched until it comes out. `viewer-gtk`'s launch went from 9.5 ms to
+  53.4 with twenty runs an arm and no overlap between the ranges — the page drew in 3.3 ms and the
+  window waited 61.5 for it — while `viewer-qt` showed none of it, which is what says the fault is the
+  toolkit's frame rather than the arrangement.
+
+  **Two lessons outlive the fix**, and the second is why this entry keeps its words:
+
+  - **Two hosts on one arrangement are a differential instrument.** One host cannot tell its
+    toolkit's cost from its own; two disagreeing localise it in a single reading. That is a reason to
+    keep them level beyond fairness to a user.
+  - **Qt's arm was the *faster* number and the worse picture.** Its `/OneColumn` first frame carried
+    exactly half the bytes of every other arm's — one of the two pages Table 29 shows — so its
+    instrument called a regression an improvement. A launch stamp says when a frame went up and never
+    what was in it, and `doc/traps/`'s oldest sentence is the one that catches that.
+
+  `viewer_host::Drawing::settle` is the fix and it is deliberately confined to the launch: a window
+  with **nothing on the screen yet** waits for page one out of a one-refresh budget instead of polling
+  for it, nothing is interrupted, and the budget is spent once over the whole launch rather than once
+  per page. ADR 0678 §5 has the four reasons it is small enough to defend.
 
 ## Three hosts, and what turned out not to be a toolkit's
 

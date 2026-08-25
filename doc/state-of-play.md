@@ -210,7 +210,12 @@ pass.
   Rust never calls a Qt object here, so a finished page cannot be pushed into `QApplication::exec`
   and is *pulled* instead, on a timer whose interval `viewer-host` decides and each toolkit arms —
   which is what `Clock` and the accessibility drain already do, and is why `viewer-gtk` does not use
-  the file descriptor GTK would have given it (ADR 0668).
+  the file descriptor GTK would have given it (ADR 0668). **A pull has one moment it cannot be made
+  at**, found by the quiet-machine launch A/B in the seven-hundred-and-fifty-ninth: a poll asks the
+  toolkit's loop for a turn, and at launch that loop is inside its own first frame — so GTK's page one
+  drew in 3.3 ms and waited 61.5 for the timer, and the launch cost 53 ms against 9.5. A host with
+  nothing on the screen yet therefore *waits* for page one, out of a one-refresh budget spent once
+  over the whole launch, and polls for everything after it (ADR 0678, trap 21).
 - **`viewer-ffi`**, a C ABI over the same vocabulary, with a hand-written `include/pdf_viewer.h`
   and a `c/open_a_page.c` that a test compiles with `-Wall -Wextra -Werror` and runs. Four shapes
   decide it, each because C takes something away that Rust gave: **commands are functions**,

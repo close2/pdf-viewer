@@ -273,6 +273,16 @@ cargo run --profile gates -p pdf-model --example parallel_sweep -- [file.pdf] [t
 cargo run --release -p pdf-model     --example open_cost -- [file.pdf]
   # where the *launch path's* document half goes: §7.5's xref, the page tree, §12.3.3's outline,
   # §12.8's signatures, each on its own. ADR 0179, doc/todo/42
+DISPLAY=:77 target/pdf-viewer-gtk --trace=launch,frames [file.pdf]   # and where a *native* host's
+  # launch goes, which is a different path: `opened` -> `first frame on the screen` are two stamps
+  # inside one process, so the difference is not the machine's (749's rule) and a launch A/B needs
+  # only that column. Read the **frame** line beside it — `rasterised ... in 3.25ms, waited 61.53ms`
+  # is trap 21, a poll waiting for a main loop that is inside its own first frame, and a round that
+  # reads only the first number sees a fast rasteriser. `GSK_RENDERER=cairo` is the control that
+  # separates the toolkit's frame from ours. Alternate the arms and say the load average; two arms
+  # of an A/B **need `.cargo/config.toml` target directories of their own**, because a worktree
+  # inherits `/home/AI/.cargo/config.toml`'s and would otherwise measure whichever linked last —
+  # `cargo metadata --no-deps | jq -r .target_directory` is the check. ADR 0678
 cargo run --release -p render-quorra --example bring_up  -- [all|vulkan|gl]
   # and where its device half goes: instance, adapter, device — one measurement per process,
   # because a second instance in one process is measured with the loader already warm
