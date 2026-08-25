@@ -127,6 +127,13 @@ session is that the tree is far enough along for this to be the work.
   number that made it possible: until it existed the pair had no figure in `Distance`'s unit and
   the queue could be counted but not opened. ADR 0647, and the paragraph below is how to read it.
 
+  **Its numerator has to be outside a bound**, since the seven-hundred-and-fifty-first (ADR 0663):
+  a page whose nearest reference sits inside all three of them is one that reference would have
+  *accepted*, and a ratio taken there ranks how closely the references agree. The pages that
+  requirement drops stay printed as a count, and the count under the list is now the sublist rather
+  than the population — how many of the listed pages have a closest pair inside all three bounds
+  while we are outside one.
+
 ## What the two rankings say when read together
 
 **Taken in the five-hundred-and-eighteenth session over all 786.** The gate's own ranking is in
@@ -206,6 +213,29 @@ gate itself since the seven-hundred-and-forty-fourth session. Three things came 
   `bug766086.pdf`, `freeculture.pdf` 315, 322, 323, 329 and 333, `issue16224.pdf`, `endchar.pdf`
   and `issue12337.pdf`.
 
+**The second of those three was a question and it is answered: the list requires our own number to
+be outside a bound now** (ADR 0663). The reasoning is in `rank_the_pages_we_are_alone_on`'s doc
+comment and the short form is that the threshold is not arbitrary and not the references': on an
+ambiguous page `pdfref::decide` returns the **class floor** unwidened, because widening is a
+consensus's and there is no consensus — so *outside 1* means outside the fixed tolerance for this
+page's class, the same constant for every text page in the pool. Below it, the nearest reference
+would have accepted our page had it been in a consensus, and a page somebody accepts is not one we
+are alone on.
+
+What the cut costs is measured rather than assumed. **The list loses exactly the pages where our own
+nearest was inside, the head loses exactly one of its ten, and the one it loses is the page 744
+named as the defect** — `issue11403_reduced.pdf`, which led at 9.06× on ours 0.51 over 0.06 with a
+verdict line reading `differing alone`. What rises into the tenth place is `endchar.pdf`, which is
+in the sublist. Nothing else in the printed ten moves, no page that was invisible becomes the head
+(ADR 0349's warning), and the pages dropped stay printed as a count. **The count underneath now
+names the sublist directly**: how many of the list have a closest pair inside all three bounds while
+we are outside one, which is this queue.
+
+**In four measures the same requirement changes nothing, and the reason is the asymmetry itself**:
+the closest pair is above 1 in four measures on every ambiguous page by construction, so *ours >
+theirs* already implied *ours > 1* over there. The three-measure denominator has no such floor, and
+that is the whole of what went wrong.
+
 **And the five book pages were measured rather than handed to their population's argument.** Three
 ladders on page 315 — ours 11.8908 → 11.9540 → 11.9855, `poppler` 11.8704 → 11.9478 → 11.9592,
 `mupdf` 11.9611 → 11.9979 → 11.9914 at 1×, 4× and 8× — converge with ours **between** the other two
@@ -217,6 +247,42 @@ pair on **9 of the 11 book pages that reach this list** and on **7 of the other 
 own median MAE is **724** over those 11 against **1760** over the rest. Shared code manufacturing
 an agreement in a ratio's *denominator* is the same trap seen from the other end, and the page it
 lifts is one every instrument agrees is fine.
+
+**And the other four of the nine were opened, and they are four different shapes rather than one**
+(ADR 0663). The reading of each is beside its own group in `oracle.rs`; what belongs here is the
+answer to the question 744's finding poses, which is *whether the sublist is one mechanism*:
+
+| page | our number is | the divisor is | and that is |
+|---|---|---|---|
+| `bug766086.pdf` | 2.58, the **similarity**, against `poppler` | `mupdf` + `ghostscript` at 0.45 | trap 9's *shared gap*: neither draws a link border, for two unrelated reasons |
+| `issue16224.pdf` | 1.13 against `mupdf` | `poppler` + `mupdf` at 0.41 | trap 9's **tenth** mechanism: the `libfreetype.so.6` pair, 7.5× closer to each other than either is to `ghostscript` |
+| `endchar.pdf` | 1.97, the **mean**, against `mupdf` | `poppler` + `ghostscript` at 0.83 | neither — four ladders now put the coverage inside 0.153 of 255 and what is left is §10.7.4's glyph scan conversion on a 15 × 34 raster |
+| `issue12337.pdf` | 1.12, the **mean**, against `ghostscript` | `mupdf` + `ghostscript` at 0.88 | neither — and the *numerator* is the finding |
+
+So one of the four is the mechanism 744 measured on the book, one is a different bullet of the same
+trap, and two are not that trap at all. **A sublist is not a diagnosis**, which is the general form
+of it: the shape *we are outside and they are inside* is worth opening precisely because what is
+behind it differs page by page.
+
+**Two of the four were priced by taking the mechanism out of the document**, which is trap 9's own
+instrument (`doc/traps/oracle-and-references.md`, the `visibility_expressions.pdf` bullet) pointed at
+our own accusation instead of somebody's excuse. On both, `/Annots` was replaced in place by an empty
+array of the same byte length, so the cross-reference table still resolves, and all four renderers
+were re-run:
+
+- On `bug766086.pdf` our nearest falls **2.58 → 0.43** — inside every bound — while the pair the
+  ratio divides by is **byte-identical to the digit**, because neither of those two draws the
+  annotation at all. Numerator and denominator are the same clause, counted twice, in opposite
+  directions.
+- On `issue12337.pdf` our nearest falls **1.12 → 0.61** while the divisor moves 0.88 → 0.89, so
+  without the annotation the page is not on the list at all. And the annotation is the one thing on
+  the page a clause reaches: a `/Highlight` with no `/AP` whose `/QuadPoints` and `/Rect` are the
+  same rectangle, where ours is the only one of five renderers whose yellow stays inside it —
+  `poppler`, `mupdf` and `ghostscript` bulge 17 to 27 device columns past each end and `hayro` draws
+  none.
+
+**The instrument to copy is the removal.** A ratio's two halves can be the same mechanism, and the
+only way to see that is to make the mechanism unable to act and re-measure *both*.
 
 ## The bucket is two camps, and the camp that votes is the one that cannot agree with itself
 
@@ -283,9 +349,20 @@ directory over.
 
    **The gate ranks the other *alone* shape by itself now** — our nearest over the closest pair of
    references, which is the comparison *What the two rankings say when read together* is about —
-   and the two counts printed under that list are not decoration: read them before reading the
-   ratios, because on most of the list neither number is outside any bound at all.
-   `rank_the_pages_we_are_alone_on`, ADR 0647.
+   and every page on it has our own nearest outside a bound, so the ratio's numerator is an
+   accusation rather than an artefact. `rank_the_pages_we_are_alone_on`, ADR 0647 and ADR 0663.
+
+   **Read the line under it before reading the ratios**, and read it as two different things. The
+   first count is the sublist — the closest pair inside all three bounds while we are outside one,
+   which is this step's own shape at its sharpest. The second is the pages the list no longer
+   prints, where we are further from everybody than the pair is from itself *and* inside every
+   bound; they are not a queue, and a round that wants them has the count to ask for.
+
+   **And the ratio's two halves can be the same mechanism**, which is the newest thing this step
+   knows and no number on the line can say. `bug766086.pdf` is the standing witness: with its link
+   annotation removed our number falls from 2.58 bounds to 0.43 while the divisor is byte-identical,
+   because the two references it is taken between do not draw the annotation at all. **Take the
+   mechanism out of the document and re-measure both sides**, before reading a high ratio as ours.
 2. **Read the file's bibliography before opening anything.** Every pdf.js fixture is named after
    the issue that introduced it — `issueNNNN…pdf` → `github.com/mozilla/pdf.js/issues/NNNN`,
    `bugNNNNNNN…pdf` → `bugzilla.mozilla.org/show_bug.cgi?id=NNNNNNN` — and the issue says what

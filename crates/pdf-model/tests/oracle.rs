@@ -6118,6 +6118,55 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 /// `hayro` 11.99 — the border is 40% of the page's ink, which is why a 200×50 page with one line
 /// of text reaches 2.58 bounds.
 ///
+/// # "Ours and `poppler`'s draw it" agreed about the ink and hid a pixel, which is trap 12's rule
+///
+/// Those two sentences were written from an ink table, and the ink table is right: the two borders
+/// weigh the same to 0.12 of 255. **They are not in the same place**, and the measure this page's
+/// 2.58 is taken on is the structural similarity, not the mean — so the note priced a metric the
+/// page passes (`doc/traps/oracle-and-references.md` trap 12's second paragraph, one group over).
+///
+/// The page is 200 × 50 at 72 dpi, so a user-space unit is a device pixel and `/Rect [5 10 190 40]`
+/// is device columns 5 to 190 and device rows 10 to 40. A one-unit border completely inside it
+/// occupies columns 5 and 189 and rows 10 and 39. Reading the red pixels off the two rasters —
+/// device row 25, then device column 100:
+///
+/// ```text
+///           left  right      top  bottom
+/// ours         5    189       10      39
+/// poppler      5    190       10      40
+/// ```
+///
+/// **Ours is the clause and `poppler` is one pixel outside it on two of the four sides**: its
+/// column 190 covers x ∈ [190, 191] and its row 40 covers user-space y ∈ [9, 10], both beyond the
+/// rectangle the border is required to be inside. It is `AMBIGUOUS_OVERSIZED_BORDER`'s finding at a
+/// width of 1 instead of 112 — the same renderer centring the stroke on the rectangle's edge — and
+/// at that width the ink cannot see it while the similarity can.
+///
+/// # And the ratio that ranks this page measures the same annotation twice
+///
+/// It is the head of `rank_the_pages_we_are_alone_on` at **5.68×**, ours 2.58 over 0.45 between
+/// `mupdf` and `ghostscript`. Both halves are this annotation, which was measured by removing it:
+/// `/Annots [4 0 R]` replaced by `/Annots []` in place, same byte length so the cross-reference
+/// table still resolves, and all four renderers re-run.
+///
+/// **These are `examples/compare_rasters`' numbers and not this gate's**, which is why they carry
+/// four decimals the gate does not print: the gate's line is our render against the *worst* member
+/// of a consensus, and every row below is one named pair. `--bin quoted` reports the whole table
+/// for that reason and is right to.
+///
+/// ```text
+///                        with the annotation    without it
+/// ours vs poppler        mean 7.5845 ssim 0.74205    mean 2.1275 ssim 0.98237
+/// ours vs mupdf          mean 6.7478 ssim 0.60519    mean 1.3163 ssim 0.99105
+/// mupdf vs ghostscript   mean 2.2695 ssim 0.98268    mean 2.2695 ssim 0.98268
+/// ```
+///
+/// Our own number falls from 2.58 bounds to **0.43** — inside every one of them — while the pair
+/// the ratio divides by is **byte-identical**, because neither of those two draws the annotation at
+/// all. So the numerator is a clause we implement and the denominator is the same clause two
+/// renderers do not, and the ranking reads the difference as ours. That is trap 9's tenth
+/// mechanism with a shared *gap* in the divisor rather than a shared library (ADR 0663).
+///
 /// # Why three renderers drawing nothing is not three votes
 ///
 /// `CONTRADICTED_LINK_BORDER` has the reading and every word of it applies here: `mupdf`'s
@@ -7676,12 +7725,88 @@ const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
 /// `issue16224.pdf` is 183×33 and ours is 0.01 from the limit and nearest of the five, with the
 /// rest 0.01 to 0.21 under it.
 ///
+/// **And it is the one page of `rank_the_pages_we_are_alone_on`'s head where the divisor is trap
+/// 9's tenth mechanism outright.** The page is one line of type in an embedded Type 1C subset of
+/// `MyriadPro-Regular`, and the three voting references do not divide three ways over it —
+/// `examples/compare_rasters` per pair, which is a different instrument from the gate's own line
+/// and prints two more decimals than it, so `--bin quoted` names every row of this table:
+///
+/// ```text
+/// poppler vs mupdf        mean  2.0394   ssim 0.98174     0.41 bounds
+/// poppler vs ghostscript  mean 10.0894   ssim 0.68934     3.11 bounds
+/// mupdf   vs ghostscript  mean  9.9475   ssim 0.69494     3.05 bounds
+/// ours    vs mupdf        mean  5.3409   ssim 0.88671     1.13 bounds
+/// ```
+///
+/// The two that share `libfreetype.so.6` are **seven and a half times** closer to each other than
+/// either is to the `ghostscript` that links its own copy, and we sit less than half as far from
+/// `mupdf` as `ghostscript` does. The ratio that ranks this page at 2.78× is 1.13 over that 0.41:
+/// *we* are the second-closest thing on the page to the reference pair, and the page rises because
+/// the pair is one glyph rasteriser (ADR 0663).
+///
 /// **`issue12337.pdf` is the case where step 6 has one ladder and not two**: `pdftoppm` at 576
 /// dpi produces no image for it at all, so only `mupdf`'s 16.225 is available, and a single
 /// ladder cannot tell convergence from drift. What can be said without it is that four of the
 /// five renderers are inside 0.24 of each other at the page's own scale and `hayro` is 1.4
 /// below all of them, which makes `hayro` the one to explain rather than us. Listed on that
 /// basis, which is weaker than the other two and is said so.
+///
+/// # And `issue12337.pdf` had a second answer the ladder could not reach, which is the ink table's
+///
+/// The ink above is a *page* number and this page's whole disagreement is a *place*. It carries one
+/// markup annotation with no `/AP` —
+///
+/// ```text
+/// /Subtype /Highlight  /Rect [48.75 300 297 443.25]  /C [1 1 0]  /CA 1  /F 4
+/// /QuadPoints [48.75 443.25 297 443.25 48.75 300 297 300]
+/// ```
+///
+/// — one quadrilateral, identical to the rectangle. §12.5.6.10 states the region and nothing about
+/// the marks in it, which is [`AMBIGUOUS_MARKUP_ARTWORK`]'s subject, and the standard states the
+/// region here **twice**: Table 166 makes `/Rect` the annotation rectangle, "defining the location
+/// of the annotation on the page", and §12.5.6.10 makes `/QuadPoints` the quadrilateral
+/// the marks encompass, and on this file the two are the same rectangle. What the standard states
+/// about marks outside it is nothing at all — the nearest sentence is §12.5.5's, of the appearance
+/// a file supplies rather than one a processor constructs:
+///
+/// > Each appearance stream is a form XObject (see 8.10, "Form XObjects"): a self-contained
+/// > content stream that shall be rendered inside the annotation rectangle.
+///
+/// So the honest statement is that a supplied appearance could not put ink where these three put
+/// it, and that where the file supplies none this tree constructs the appearance the two stated
+/// regions describe and no larger — a documented choice, on the side the one relevant `shall`
+/// points.
+///
+/// The rectangle is device columns 48.75 to 297.0 at 72 dpi. Yellow pixels, counted off each
+/// renderer's own panel:
+///
+/// ```text
+/// ours          x  49 .. 296     inside, flush with both edges
+/// poppler       x  22 .. 323     27 columns left of it, 26 right
+/// mupdf         x  23 .. 321     26 left, 24 right
+/// ghostscript   x  31 .. 314     18 left, 17 right
+/// hayro         no yellow at all
+/// ```
+///
+/// All four that draw it agree about the rows — 349 to 491, inside the rectangle — and bulge only
+/// sideways, so this is three renderers rounding the *ends* of a highlight outwards by three
+/// different amounts and one drawing none. **Ours is the only one of the five inside the
+/// rectangle**, and the page's worst tile, at (288, 416), is exactly where our yellow stops and
+/// theirs continues.
+///
+/// The ranking is why this was looked at, and removing the annotation is what priced it —
+/// `/Annots 998 0 R` replaced by `/Annots []` in place, same byte length, all four re-run:
+///
+/// ```text
+///                       with the highlight   without it
+/// ours, nearest reference      1.117 (gs)      0.613 (mupdf)
+/// closest pair                 0.881           0.891
+/// ```
+///
+/// Our number is the annotation and the denominator is not: **without it the page is not on that
+/// list at all**, because 0.613 is inside 0.891. So `rank_the_pages_we_are_alone_on` is right that
+/// we are alone here and the reason is that we are the only renderer obeying the sentence above
+/// (ADR 0663).
 const AMBIGUOUS_ONE_LADDER: [&str; 3] = [
     "tiling_patterns_variations.pdf page 1",
     "issue16224.pdf page 1",
@@ -8646,6 +8771,34 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 /// 60.98 and at 72 gives 59.06; ours 59.39, `ghostscript` 59.66, `mupdf` 58.16, `hayro` 62.84 —
 /// five renderers spanning 4.7 levels about a limit of 61.0, on a page where one glyph is all
 /// the ink there is.
+///
+/// **That limit stood on one ladder for four hundred sessions, and it has four now** — which is
+/// `doc/todo/02` §7's rule, because one ladder cannot tell convergence from drift and this group's
+/// own `issue2177.pdf` paragraph is where that was learned. Ink as `(1 − mean) × 255` after
+/// `-alpha off -channel R -colorspace Gray`, each renderer on its own uncropped raster
+/// (`examples/render_at` for ours, `mutool draw -r`, `pdftoppm -cropbox -r`, `gs -dUseCropBox
+/// -r`), at one, four, eight and thirty-two times the page's own scale:
+///
+/// ```text
+///                   72       288       576      2304
+/// ours          59.4874   59.8367   61.1486   60.9729
+/// mupdf         58.1554   59.9419   60.6850   60.9314
+/// poppler       59.0589   60.3054   60.8458   60.9757
+/// ghostscript   59.6630   61.4630   60.9818   61.0843
+/// ```
+///
+/// **Four independent ladders land within 0.153 of 255 of each other**, ours between `mupdf`'s and
+/// `poppler`'s, so the geometry is 60.93 to 61.08 and every one of the four converges on it —
+/// including this tree's. What is left at 72 dpi is a spread of 1.51 of 255 over a raster of
+/// **15 × 34 device pixels**, which is this group's sentence rather than a defect: the coverage is
+/// agreed and what differs is where the covered pixels are.
+///
+/// **Three of the four 72-dpi figures above this table reproduce and the fourth is ours**:
+/// `poppler` 59.0589 against a recorded 59.06, `ghostscript` 59.6630 against 59.66, `mupdf`
+/// 58.1554 against 58.16, and *ours* **59.4874 against a recorded 59.39**. So the number that moved
+/// in the rounds between is this tree's own, by 0.10 of 255 on a fifteen-column raster, while every
+/// reference is where it was — which is the only direction of that comparison worth anything, and
+/// is why a note's figures are re-measured rather than cited (ADR 0663).
 ///
 /// `issue16316.pdf` is 60×10 device pixels: the word *Experimentation* in an embedded
 /// `NimbusRomNo9L`. Its crop box is **59.813 × 9.375 points**, which has no whole-pixel answer
@@ -12444,6 +12597,50 @@ fn rank_the_manufactured_ambiguity(results: &[Examined]) {
 ///   accuses us instead of excusing somebody (ADR 0647).
 ///
 /// Read it with the picture, never alone.
+///
+/// # Why the numerator has to be outside a bound, and it is a filter rather than a caution
+///
+/// The seven-hundred-and-forty-fourth session read the list and found that on most of it *neither*
+/// number is outside anything: the closest pair sat inside all three bounds on 31 of its 48 pages
+/// and our own nearest was inside them too on 22. There the ratio ranks a page higher the more
+/// closely the references agree, which answers a different question from the one it is named for.
+/// So this list requires our own nearest to be **outside** at least one of the three bounds, and
+/// the pages it drops are counted underneath rather than left to a caution.
+///
+/// Three things make 1.0 the honest place to cut, and the first is the one that matters:
+///
+/// - **On an ambiguous page the bound is the tolerance class's own floor, not a judgement.**
+///   `pdfref::decide` returns the class `Tolerance` unwidened where no consensus formed — widening
+///   is a consensus's, derived from its members' spread — so `ours > 1` here means *outside the
+///   fixed floor for this page's class* rather than outside something the references decided. That
+///   is what makes it a threshold and not a quantity: it is the same constant for every text page
+///   in the pool. `Examined::outside_the_bound`'s doc comment declines to *rank* ambiguous pages
+///   against their bound, and that objection is about ranking by a page-dependent number; nothing
+///   in it is an argument against testing a page-independent one.
+/// - **Below 1 the numerator says the opposite of the list's name.** Our nearest inside all three
+///   bounds means that reference, had it been in a consensus, would have accepted this page. A
+///   page where somebody accepts us is not a page we are alone on, on this instrument's own terms.
+/// - **The cut costs the head one page and it is the page 744 named as the defect.**
+///   `issue11403_reduced.pdf` led the unfiltered list at 9.06× with ours at 0.51 over 0.06, and
+///   its own verdict line reads `differing alone` — a page whose whole disagreement is invisible
+///   to the three measures the ratio is computed in. Nothing else in the printed ten moves down,
+///   and what moves up into it is `endchar.pdf`, which is in the sublist below.
+///
+/// The same requirement is written into the four-measure count beside it, in the four-measure
+/// unit, and **it changes that count by nothing at all** — which is the asymmetry the three-measure
+/// list had, stated as arithmetic. `consensus_missed_by` is above 1 on every ambiguous page by
+/// construction, because a pair inside all four bounds would have been a consensus; so `ours >
+/// missed` already implies `ours > 1` over there and the filter is a no-op. It is written down
+/// anyway, because a reader comparing two counts of one shape has to be able to see that the same
+/// question was asked, and because the day a fifth measure joins `Tolerance` the implication is
+/// the thing that has to be re-checked.
+///
+/// # The sublist, which the count underneath now names directly
+///
+/// With the numerator required outside, the pages whose *denominator* is inside all three bounds
+/// are exactly `doc/todo/00` step 1's queue: we fail the floor against every reference and the
+/// closest two references pass it against each other. That is the shape worth opening, and the
+/// count is printed for it rather than for the population it was drawn from.
 fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
     let pool: Vec<&Examined> = results
         .iter()
@@ -12454,28 +12651,37 @@ fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
         .iter()
         .filter(
             |e| match (e.nearest_on_every_measure, e.consensus_missed_by) {
-                (Some(ours), Some(missed)) => ours > missed,
+                (Some(ours), Some(missed)) => ours > missed && ours > 1.0,
                 _ => false,
             },
         )
         .count();
+    let ours_and_theirs = |e: &Examined| -> Option<(f64, f64)> {
+        Some((e.distance?.nearest, e.consensus_missed_in_three_measures?))
+    };
     let mut alone: Vec<(&Examined, f64, f64)> = pool
         .iter()
         .filter_map(|e| {
-            let ours = e.distance?.nearest;
-            let missed = e.consensus_missed_in_three_measures?;
-            (ours > missed).then_some((*e, ours, missed))
+            let (ours, missed) = ours_and_theirs(e)?;
+            (ours > missed && ours > 1.0).then_some((*e, ours, missed))
         })
         .collect();
+    // Counted rather than cautioned, because a caution nobody can count is trap 11 with the sign
+    // reversed: the pages this list stopped printing have to stay visible as a number.
+    let ours_inside = pool
+        .iter()
+        .filter(|e| ours_and_theirs(e).is_some_and(|(ours, missed)| ours > missed && ours <= 1.0))
+        .count();
     alone.sort_by(|(_, a_ours, a_missed), (_, b_ours, b_missed)| {
         (b_ours / b_missed)
             .partial_cmp(&(a_ours / a_missed))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     println!(
-        "\n  ambiguous, and further from every reference than the closest two are from each \
-         other — {} of the {} pages in three measures, {alone_on_four} in four, and the three-\
-         measure reading is the one calibrated against a hand-taken one (ADR 0643):",
+        "\n  ambiguous, outside a bound against every reference, and further from all of them \
+         than the closest two are from each other — {} of the {} pages in three measures, \
+         {alone_on_four} in four, and the three-measure reading is the one calibrated against a \
+         hand-taken one (ADR 0643):",
         alone.len(),
         pool.len(),
     );
@@ -12487,21 +12693,18 @@ fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
         );
     }
 
-    // What a reader of those ten numbers cannot see, and it decides how the list may be read.
-    // Neither column has a floor at 1: the closest pair is above 1 in *four* measures on every
-    // ambiguous page by construction, and in three it need not be. So a page can sit here with
-    // both numbers inside every bound it was held to, and then the ratio ranks how much more
-    // closely the references agree rather than how far away we are. Counted rather than cautioned,
-    // because a caution nobody can count is trap 11 with the sign reversed.
+    // What a reader of those ten numbers cannot see, and it decides how the list may be read. The
+    // denominator has no floor at 1 — the closest pair is above 1 in *four* measures on every
+    // ambiguous page by construction, and in three it need not be — so a page can sit here with a
+    // pair that agrees with everybody underneath it. Those are the queue rather than the noise now
+    // that the numerator is required outside, which is what the first count says.
     let pair_inside = alone.iter().filter(|(_, _, missed)| *missed < 1.0).count();
-    let both_inside = alone
-        .iter()
-        .filter(|(_, ours, missed)| *missed < 1.0 && *ours < 1.0)
-        .count();
     println!(
-        "    on {pair_inside} of the {} the closest pair sits inside all three bounds — the page \
-         is ambiguous on the differing fraction alone — and on {both_inside} our own nearest is \
-         inside them too, where the ratio is between two numbers that agree with everybody",
+        "    on {pair_inside} of the {} the closest pair sits inside all three bounds while we \
+         are outside one — the sublist `doc/todo/00` step 1 asks for; and {ours_inside} further \
+         pages of the pool are further from every reference than the closest two are from each \
+         other with our own nearest inside every bound, and are not listed, because there the \
+         ratio measures how closely the references agree (ADR 0663)",
         alone.len(),
     );
 }
