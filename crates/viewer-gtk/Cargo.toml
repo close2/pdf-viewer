@@ -25,6 +25,10 @@ pdf-syntax.workspace = true
 # shape, §12.7.5's field as the control it is, §12.7.6.4's file policy and the launch
 # timeline. Four of this crate's own modules until the second host wanted all four (ADR 0246).
 viewer-host.workspace = true
+# §14.7's structure on AT-SPI. **Not a toolkit dependency**: `viewer_accessibility::Bridge` reaches
+# AccessKit's own AT-SPI adapter and names no GTK type, which is the whole of ADR 0623's argument
+# for a native host driving it directly rather than publishing through `GtkAccessible`.
+viewer-accessibility.workspace = true
 # The toolkit, and the whole point of the crate. See ADR 0244 for the decision, the
 # licence position and what confines it to this crate.
 gtk4.workspace = true

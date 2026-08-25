@@ -362,7 +362,7 @@ pub(crate) struct App {
     /// A scroll and a zoom leave the structure alone; a page turn replaces it, and a resize moves
     /// every rectangle in it. Those are the two things this remembers, and everything else a
     /// person does costs the bridge nothing.
-    pub(crate) spoken: Option<(usize, u32, u32)>,
+    pub(crate) spoken: Option<viewer_accessibility::Showing>,
     /// What wakes this event loop from a thread that is not in it.
     ///
     /// **The one thing in this program that arrives from outside the window system.**

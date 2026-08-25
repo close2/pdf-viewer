@@ -109,7 +109,7 @@ pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
 pub use fit::ControlFit;
-pub use form::{ControlKind, control_kind};
+pub use form::{ControlKind, control_kind, delegated_click};
 pub use geometry::bounds;
 pub use keys::{Key, Meaning, Mode, WindowAct, meaning};
 pub use panel::{

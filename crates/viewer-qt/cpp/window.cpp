@@ -26,6 +26,7 @@
 #include <QListView>
 #include <QListWidget>
 #include <QMouseEvent>
+#include <QMoveEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -698,6 +699,19 @@ MainWindow::MainWindow(rust::Box<Host> host)
         applyUpdates();
     });
 
+    // The drain for what an assistive technology asks. Created stopped, exactly as the clock above
+    // is: `accessibility_wait` answers `-1` until a client has attached to the accessibility bus,
+    // so a window nobody is listening to never arms this at all. ADR 0623.
+    access_ = new QTimer(this);
+    connect(access_, &QTimer::timeout, this, [this] {
+        if (busy_) {
+            return;
+        }
+        Busy guard(busy_);
+        host_->accessibility_pump();
+        applyUpdates();
+    });
+
     // One tab per `viewer_host::Tab`, in that list's own order and with that list's own wording.
     // The words are asked for across the bridge rather than written here for `notices`' reason —
     // three hosts naming one panel three ways is three claims about one clause — and the loop ends
@@ -995,6 +1009,71 @@ void MainWindow::pumpPresentation()
     }
 }
 
+// ISO 32000-2 §14.7's requests, drained on a timer the host decides the interval of.
+//
+// The same three lines `pumpPresentation` is, and the same argument: an interval that is pulled
+// rather than pushed leaves the decision on the Rust side, where it is shared with the other two
+// hosts. What differs is what the answer depends on — a clock's interval is §12.4.4.1's and this
+// one is "has anybody attached to the accessibility bus", which is `Bridge::attended`.
+void MainWindow::pumpAccessibility()
+{
+    const int wait = host_->accessibility_wait();
+    if (wait < 0) {
+        access_->stop();
+        return;
+    }
+    if (!access_->isActive() || access_->interval() != wait) {
+        access_->setInterval(wait);
+        access_->start();
+    }
+}
+
+// Where this window is on the screen, which is what AT-SPI adds to a node's own rectangle.
+//
+// **The one thing `viewer-gtk` cannot answer.** A node's extents cross this boundary in the
+// viewport's device pixels and AT-SPI reports them in the screen's, so the adapter needs the
+// window's origin; `QWidget::frameGeometry` is the window with its decoration and
+// `QWidget::geometry` the contents inside it, both in screen coordinates. GTK4 exposes neither on
+// `GtkWindow`, on `GdkSurface` or on `GdkToplevel`, and `gtk4-sys` has no symbol for one — so that
+// host says so and this one answers. ADR 0623.
+//
+// Called from `moveEvent` and `resizeEvent` rather than per page: `viewer-ui` measured the same
+// two questions at 1.8 to 3.2 ms of synchronous X11 round trips when it asked them on every page
+// turn, for a number a page turn cannot change (ADR 0228).
+void MainWindow::reportPlacement()
+{
+    if (busy_) {
+        return;
+    }
+    Busy guard(busy_);
+    const QRect outer = frameGeometry();
+    const QRect inner = geometry();
+    const auto place = [](const QRect& rect) {
+        QtPlace at{};
+        at.x = static_cast<float>(rect.x());
+        at.y = static_cast<float>(rect.y());
+        at.width = static_cast<float>(rect.width());
+        at.height = static_cast<float>(rect.height());
+        return at;
+    };
+    host_->window_placed(place(outer), place(inner));
+    applyUpdates();
+}
+
+void MainWindow::moveEvent(QMoveEvent* event)
+{
+    QMainWindow::moveEvent(event);
+    reportPlacement();
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event)
+{
+    // The *frame* rather than the page area, whose own `resizeEvent` is what sends
+    // `Command::Resize`: a window that grew moved the origin of everything inside it.
+    QMainWindow::resizeEvent(event);
+    reportPlacement();
+}
+
 // The notices, in a modal window with a read-only `QPlainTextEdit` in it.
 //
 // **Not re-wrapped**, deliberately and for the reason the other two hosts state: a BSD licence's
@@ -1087,6 +1166,7 @@ void MainWindow::applyUpdates()
     }
     pumpSearch();
     pumpPresentation();
+    pumpAccessibility();
     if (update.window) {
         applyChrome();
     }

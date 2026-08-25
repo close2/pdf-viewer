@@ -255,11 +255,20 @@ section_hosts() {
 # parity claim with no instrument decays exactly the way a ledger row does, which is the whole
 # argument of ADR 0509's third criterion.
 #
-# The population is the three hosts that put something on a screen, and **`viewer-host` is added
-# to each of them** rather than counted on its own: it is the crate all three depend on precisely
-# because a host's non-toolkit half lives there, so a window that calls `viewer_host::page_entry`
-# reaches §12.3.4 and §12.4.2 without naming either. Counting the host crates alone would report
-# three windows blind to a panel all three draw — trap 11's shape.
+# The population is the three hosts that put something on a screen, and **`viewer-host` and
+# `viewer-accessibility` are added to each of them** rather than counted on their own: they are the
+# crates all three depend on precisely because a host's non-toolkit half lives there, so a window
+# that calls `viewer_host::page_entry` reaches §12.3.4 and §12.4.2 without naming either. Counting
+# the host crates alone would report three windows blind to a panel all three draw — trap 11's
+# shape.
+#
+# **`viewer-accessibility` joined that list in the seven-hundred-and-thirty-first session, and the
+# section said so before this comment did.** That round took the six queries §14.7's tree is built
+# from out of `viewer-ui`'s own `access.rs` and into `viewer_accessibility::Reading`, so that the
+# two native hosts could publish the same tree rather than derive a second one — and the next run
+# reported `viewer-ui` reaching *fewer* queries than before, with `AccessibilityTree` and
+# `Readback` credited to no window at all on the day all three started asking them. The population
+# is "the crates a window's non-toolkit half lives in", and one had been left out of it. ADR 0623.
 #
 # `viewer-confined` is deliberately **not** here, for the reason `hosts` gives about `trace.rs`: it
 # puts every variant on a wire, so the same grep would answer 100% and mean nothing.
@@ -289,11 +298,8 @@ Query:Frame|not a debt|viewer-ui alone, and it is the tier rather than a gap: a 
 Query:Caret|not a debt|a delegation. Both native hosts place a real GtkEntry or QLineEdit over §12.7's field, and a toolkit's own entry owns its caret; §12.7.4.3's layout question arises only for a host that draws the field itself.
 Query:Offset|not a debt|the same delegation: a click placing the cursor inside a toolkit's own entry is the toolkit's arithmetic.
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
-Query:FieldAt|not a debt|a delegation of a different shape. These hosts place one control per widget, so which field a press belongs to is the control it landed on; the hit test is for a host that holds only pixels.
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
 Query:Collection|a debt, with the sharpest clause here|"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection" (§12.3.5) — a shall addressed to a viewer. viewer-ui shows it and the two native hosts do not. No corpus document states one, which is why nobody has driven it and why it is not first.
-Query:AccessibilityTree|a debt, and the largest|§14.7's tree reaches AT-SPI through viewer-accessibility, which only viewer-ui uses; GTK's and Qt's own accessibility interfaces are unwired, so a screen reader on either native host is handed a picture. doc/todo/31's.
-Query:Readback|a debt, and the same one|§9.10.2's shortfall — the codes nothing could name — is published today only as part of that tree, so it lands and falls with the row above. No status bar in any host says it either.
 READING
 }
 
@@ -308,7 +314,8 @@ section_windows() {
         total=$(printf '%s\n' "$all" | grep -c .)
         everywhere=""
         for host in viewer-ui viewer-gtk viewer-qt; do
-            named=$(names_in_code "$kind" "crates/$host/src" crates/viewer-host/src)
+            named=$(names_in_code "$kind" "crates/$host/src" crates/viewer-host/src \
+                                  crates/viewer-accessibility/src)
             missing=$(comm -23 <(printf '%s\n' "$all") <(printf '%s\n' "$named" | grep -Fx -f <(printf '%s\n' "$all")))
             printf '%-12s %s reaches %s of %s\n' "$kind:" "$host" \
                 "$((total - $(printf '%s\n' "$missing" | grep -c .)))" "$total"

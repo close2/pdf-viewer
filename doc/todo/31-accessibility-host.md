@@ -13,13 +13,16 @@ was paying for**, in the five-hundred-and-fifty-ninth (ADR 0394), and **the acti
 request**, in the five-hundred-and-ninetieth (ADR 0425) — which also made the census a ratchet and
 so closed `doc/todo/05`'s third instrument — and **§14.8.3.3's content rectangle, the place an
 element's own marks give it**, in the six-hundred-and-fifty-eighth (ADR 0486), and **the content
-stream that identifier is only unique within**, in the six-hundred-and-sixty-first (ADR 0488).
+stream that identifier is only unique within**, in the six-hundred-and-sixty-first (ADR 0488),
+and **all three of this project's windows since the seven-hundred-and-thirty-first** (ADR 0623),
+which is what `tools/state.sh windows` had named as the largest debt on that boundary.
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
-Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`),
+Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`, `reading.rs`),
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
-`crates/viewer-ui/src/bin/pdf-viewer/access.rs` (`App::attend`, `App::speak`, `App::act`)
+`crates/viewer-ui/src/bin/pdf-viewer/access.rs`, `crates/viewer-gtk/src/access.rs`,
+`crates/viewer-qt/src/access.rs` (`attend`, `speak`, `act`, one shape in three windows)
 Instruments: `tools/state.sh accessibility` — the corpus-scale census of what a screen reader is
 told, a **ratchet** and a `doc/todo/02` §2 line since ADR 0425 (built by ADR 0342) — `pdf-model --example element_bounds_census`,
 `pdf-model --example cell_header_census`, `pdf-model --example mcid_stream_census`,
@@ -52,6 +55,53 @@ the cell's AT-SPI **description** — `labelled_by` was the obvious relation and
 which is recorded below. `examples/cell_header_census` is what says it was worth doing: 17 431 of
 the corpus's 21 883 table cells end with at least one header and **17 152 of those get it from the
 search rather than from the array**.
+
+## And it is three windows since the seven-hundred-and-thirty-first, not one
+
+**`viewer-gtk` and `viewer-qt` publish this tree too** (ADR 0623), which closes
+`tools/state.sh windows`' largest debt — `Query::AccessibilityTree` and `Query::Readback` reached
+one window of three, so a screen reader on either native host was handed a picture. The decision
+that shaped it is *which* accessibility layer a native host publishes through, and it went to
+AccessKit rather than to `GtkAccessible` or `QAccessible` on the standard's own argument: §14.7.3's
+role map is a `shall` on this reader and §14.8.4's forty-one types are mapped onto a platform
+vocabulary **once**, where a toolkit route inserts a third vocabulary in the middle and does it
+differently in each of the two. `viewer_accessibility::Reading` is the six queries and the assembly
+of them, moved out of `viewer-ui`'s host code before it could become three copies.
+
+**What it costs, measured**: `accesskit_unix` embeds an application root of its own, so a native
+host's process publishes **two** applications on the accessibility desktop — walked with `busctl`,
+both named for the binary, one carrying the toolkit's widgets and one carrying §14.7's tree.
+
+**Three things it leaves, and the first is the next item on this file.**
+
+- **A click on a §12.7 widget does nothing in a host that delegates it, and is refused by name.**
+  `viewer-ui` toggles three of `annotation-button-widget.pdf`'s nine actionable nodes; both native
+  hosts toggled none while `DoAction` answered `true`, because a real `GtkCheckButton` or
+  `QCheckBox` is what a person's click lands on and a synthetic press at a page coordinate goes
+  past it to the page underneath. `viewer_host::delegated_click` says so, 9 of 9. **It needs no
+  message**: `viewer-ui`'s own click is four steps over `Query::FieldAt` and `Query::Fields`, and
+  `App::toggle_button` is the seventy lines of Table 227, Table 229 bit 15 and §12.7.5.2.3 that a
+  shared version of it would carry. It also refutes `tools/state.sh windows`' standing reading of
+  `Query::FieldAt` as a delegation: that argument rests on a press landing on a control, and an
+  assistive technology's press does not.
+- **Only Qt can place a node on the screen.** AT-SPI reports extents in screen coordinates,
+  `QWidget::frameGeometry` is one, and GTK4 exposes a toplevel's position **nowhere** — not on
+  `GtkWindow`, not on `GdkSurface`, not on `GdkToplevel`, and no symbol for one in `gtk4-sys`. So
+  `viewer-gtk` reports where an element is *in its own window* and says so on the `access` topic
+  when the bridge comes up. Nothing in this tree can fix it; a `gdk4-x11` dependency could, at the
+  price of a platform-specific dependency for a coordinate system Wayland does not have.
+- **Neither native host can be woken from the adapter's thread, so both poll.**
+  `Bridge::wait_millis` is the interval for both of them — slow until a client attaches and fast
+  after, which is the hole a fast-only poll would have hidden, because a client's *first* act is
+  itself an AT-SPI call. `viewer-ui` needs none of it: winit's `EventLoopProxy` is `Send`. What
+  would close it is a safe UNIX-descriptor source; neither `glib` nor `gio` offers one in the
+  versions this tree binds, and a `QSocketNotifier` is a Qt object.
+- **Window *focus* is told to no adapter, in any of the three.**
+  `accesskit_unix::Adapter::update_window_focus_state` exists and nothing calls it, so AT-SPI is
+  never told which of the desktop's windows is active. All three hosts can learn it —
+  `notify::is-active`, `QWidget::changeEvent`, winit's `WindowEvent::Focused` — and it is one
+  method on `Bridge` and one line in each. Left because it is a fourth thing and this round had
+  three; it is the cheapest item on this file.
 
 ## What is left
 
@@ -271,5 +321,6 @@ search rather than from the array**.
   state; a guess presented where a person expects the author's answer is worse than the honest
   sentence. Revisit by argument, not by attrition.
 - **macOS and Windows have no bridge**, and `Bridge::shortfall` says so in the program's first
-  lines rather than exposing nothing quietly. AccessKit has adapters for both; nothing in this
+  lines rather than exposing nothing quietly — in all three windows since the
+  seven-hundred-and-thirty-first, because the sentence is the crate's rather than a host's. AccessKit has adapters for both; nothing in this
   environment can test one. `doc/todo/35` is the same shape one interface over.

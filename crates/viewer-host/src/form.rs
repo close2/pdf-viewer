@@ -198,3 +198,30 @@ fn choice_of(choice: &ChoiceControl) -> ControlKind {
         }
     }
 }
+
+/// What a host that *delegates* §12.7's widgets says when a synthetic click lands on one.
+///
+/// **A refusal by name, and it exists because a measurement found the silence.** An assistive
+/// technology's `Action.DoAction` on a §14.8.4.7.2 `Form` element becomes a press and a release at
+/// a point on the page ([`viewer_accessibility::Act::Click`], ADR 0425), and in a host that draws
+/// its own controls that press reaches §12.7.5.2's check box — `viewer-ui` has a click of its own
+/// that consults Table 227's read-only flag, Table 229 bit 15's "selecting the currently selected
+/// button has no effect" and §12.7.5.2.3's on-state name before writing `/V`.
+///
+/// A host that sent `Command::Delegate` has none of that: the real `GtkCheckButton` or `QCheckBox`
+/// over the widget is what a person's click lands on, and a synthetic press at a page coordinate
+/// goes *past* it to the page underneath and changes nothing. Driven over a real AT-SPI bus on
+/// `annotation-button-widget.pdf`, all nine of whose actionable nodes answered `DoAction` with
+/// `true` and left every state where it was, while the tier-2 host toggled three of them
+/// (ADR 0623).
+///
+/// So the two native hosts say this instead of appearing to work. Building the other half is
+/// `doc/todo/31`'s next item and it is not a message: `Query::FieldAt` and `Query::Fields` answer
+/// everything it needs, which is why `viewer-ui` needed nothing added to do it.
+#[must_use]
+pub fn delegated_click(field: &str) -> String {
+    format!(
+        "the field {field} is a control this window places rather than a picture on the page, so \
+         a click asked for by an assistive technology does not reach it (§12.7.5.2, doc/todo/31)"
+    )
+}

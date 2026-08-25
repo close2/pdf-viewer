@@ -108,7 +108,7 @@ struct Placement {
 )]
 pub struct Host {
     /// The state machine every host on this boundary drives.
-    viewer: Viewer,
+    pub(crate) viewer: Viewer,
     /// Where the bytes came from, which is what rule 2 makes a host's business and not the core's.
     path: PathBuf,
     /// The directory §12.7.6.4's policy resolves against.
@@ -120,7 +120,7 @@ pub struct Host {
     /// Tier 1's worker, called on the thread Qt runs its event loop on.
     rasterizer: CpuRasterizer,
     /// The launch timeline.
-    trace: Trace,
+    pub(crate) trace: Trace,
     /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
     widget_appearances: WidgetAppearances,
     /// How much of what the document asserts over its reader this window obeys.
@@ -179,6 +179,18 @@ pub struct Host {
     presenting: viewer_host::Presenting,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
+    /// §14.7's tree on AT-SPI, brought up after the first frame and never before it (ADR 0623).
+    pub(crate) accessibility: Option<viewer_accessibility::Bridge>,
+    /// The page and viewport last published to it, so that a tree is not rebuilt per frame.
+    pub(crate) spoken: Option<viewer_accessibility::Showing>,
+    /// Where the window is on the screen, as Qt last reported it: the frame, then the contents.
+    ///
+    /// **The half of AT-SPI's geometry `viewer-gtk` has no answer for.** It is kept here rather
+    /// than handed straight on because a `moveEvent` arrives before the first paint and the
+    /// adapter does not exist until after it.
+    pub(crate) window_at: Option<crate::access::WindowPlace>,
+    /// Set from `accesskit_unix`'s own thread when a client asks for something.
+    pub(crate) access_pending: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// What the find bar is looking for, kept because the page's highlights are asked for on
     /// every repaint while the document-wide search is a plan inside `viewer-core`.
     needle: String,
@@ -216,7 +228,7 @@ pub struct Host {
     /// somewhere for that borrow to point at.
     playing: Option<pdf_render::Raster>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
-    viewport: (u32, u32),
+    pub(crate) viewport: (u32, u32),
     /// Table 29's arrangement, as this window last asked for it — what `l` cycles from.
     layout: pdf_model::viewer_preferences::PageLayout,
     /// §14.8.2.5's text between the key that copied it and the C++ side taking it to `QClipboard`.
@@ -292,6 +304,10 @@ impl Host {
             over_link: false,
             update: nothing_changed(),
             presented: false,
+            accessibility: None,
+            spoken: None,
+            window_at: None,
+            access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             needle: String::new(),
             pages_left: 0,
             fit_magnification: None,
@@ -1513,6 +1529,20 @@ impl Host {
                 ),
             );
         }
+        // After the first frame rather than before it, and after every one after that: §14.7's
+        // tree on AT-SPI. This is the one moment in this host that is on the far side of a paint,
+        // which is exactly what `CLAUDE.md`'s startup rule asks of it (ADR 0623).
+        self.attend();
+    }
+
+    /// What to call the document, which is the file's own name.
+    pub(crate) fn named(&self) -> String {
+        named(&self.path)
+    }
+
+    /// What the title bar says about the page, after the document's name.
+    pub(crate) fn caption(&self) -> &str {
+        &self.caption
     }
 
     /// One sentence from the C++ side.
@@ -1545,7 +1575,7 @@ impl Host {
     }
 
     /// One command, and everything it produces.
-    fn dispatch(&mut self, command: Command) {
+    pub(crate) fn dispatch(&mut self, command: Command) {
         self.pump(vec![command]);
     }
 
@@ -1558,6 +1588,13 @@ impl Host {
                 .on(Topic::Events)
                 .then(|| format!("{command:?}"))
                 .map(|text| text.chars().take(120).collect::<String>());
+            // **A command that changes the document changes what §14.7's tree says**, and
+            // `Showing` cannot see it: an edit and a click move neither the page nor the viewport.
+            // Which commands those are is one statement for all three windows
+            // (`viewer_accessibility::republishes`, ADR 0623).
+            if viewer_accessibility::republishes(&command) {
+                self.spoken = None;
+            }
             let events: Vec<Event> = self.viewer.handle(command).collect();
             if let Some(described) = described {
                 self.trace.say(
