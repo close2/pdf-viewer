@@ -55,7 +55,7 @@ const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 /// transform is a scale, a y flip and a translation, and §7.7.3.3's page rotation puts
 /// the same factor into `b` and `c` instead of `a` and `d` — so its square root is the
 /// number to compare, and it is right for a rotated page as well.
-fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
+pub(crate) fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
     let magnification = transform
         .a
         .mul_add(transform.d, -(transform.b * transform.c))
@@ -340,10 +340,24 @@ impl App {
     /// scene mark, the note a device refusal earns, the §8.7.4.5.2 programs it drew from the
     /// grid, and the view it settled — which is what the next reprojection composes against.
     fn adopt(&mut self, now: std::time::Instant, stages: &mut Stages) {
-        let Some(landed) = self
-            .device_window()
-            .and_then(crate::renderer::Window::collect)
-        else {
+        let Some(window) = self.device_window() else {
+            return;
+        };
+        let landed = window.collect();
+        let sharpened = window.sharpened();
+        if let Some(took) = sharpened {
+            // Rule 3's sentence for ADR 0699: the page on the window just became the 2×
+            // rendering shown box-filtered down, and a trace that did not say so would
+            // show a colour shift with no cause.
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "sharpened: the settled view at 2x, {:.1} ms on the render thread",
+                    took.as_secs_f64() * 1e3
+                ),
+            );
+        }
+        let Some(landed) = landed else {
             return;
         };
         stages.gpu = landed.cost;
@@ -1089,6 +1103,8 @@ impl App {
             renderer,
             (size.width.max(1), size.height.max(1)),
             self.proxy_pages,
+            self.supersample,
+            self.waker.clone(),
         ) {
             Ok(ungrounded) => ungrounded,
             Err(renderer) => {

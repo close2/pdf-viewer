@@ -151,6 +151,13 @@ pub(crate) struct App {
     /// visible to the tree that judges pictures. It sits beside [`Self::processor`] and
     /// [`Self::backend`] for the same reason those do.
     pub(crate) proxy_pages: usize,
+    /// The settled frame's resolution factor, from `--supersample`: 1 off, 2 on.
+    ///
+    /// A host's setting for [`Self::proxy_pages`]'s reason: what it changes is how a
+    /// picture is *presented*, which is this binary's alone, and nothing a gate could
+    /// link to. The device path reads it; `--cpu` ignores it, because the composing
+    /// thread draws at window resolution by construction.
+    pub(crate) supersample: u32,
     /// The driver stack asked for, from `--backend` or from
     /// [`DEFAULT_BACKEND`](crate::arguments::DEFAULT_BACKEND).
     ///

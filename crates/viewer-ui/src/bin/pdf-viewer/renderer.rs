@@ -159,7 +159,28 @@ struct Done {
     pipelines: Option<Duration>,
 }
 
-/// What the render thread sends back: a window frame, or a page it drew while it was idle.
+/// The settled view drawn again at twice the window's resolution, presented box-filtered
+/// down so abutting fills stop leaking backdrop at their seams (ADR 0699).
+///
+/// It lives **beside** the base rather than replacing it: recording it through
+/// [`crate::stale::Stale::settled`] would make the next view change refuse to reproject
+/// (`Refusal::Resized` — the settled size would be twice the asked one), so the sharp
+/// texture is a presentation substitute and the stale machinery never sees it.
+#[derive(Debug)]
+pub(crate) struct Sharpened {
+    /// The pages it depicts, at their **window-resolution** targets — the identity the
+    /// presenter matches against [`Shown::pages`] before substituting.
+    pages: Vec<crate::stale::Placed>,
+    /// The window size it was drawn for, in the window's own pixels (the texture is twice
+    /// this in each axis).
+    width: u32,
+    height: u32,
+    texture: wgpu::Texture,
+    /// What the pass cost on the render thread, for the trace.
+    took: Duration,
+}
+
+/// What the render thread sends back: a window frame, or work it did while it was idle.
 ///
 /// **One channel rather than two**, so that the order the thread produced them in is the order the
 /// event thread reads them in — a proxy that arrived before a frame must not be adopted after it,
@@ -171,6 +192,9 @@ enum Finished {
     Frame(Box<Done>),
     /// A whole page at [`crate::stale::PROXY_EDGE`], drawn while nothing else was asked for.
     Page(crate::stale::Retained<Arc<wgpu::Texture>>),
+    /// The settled view at twice the window's resolution, drawn while nothing else was
+    /// asked for.
+    Sharp(Box<Sharpened>),
 }
 
 /// The channels to a running render thread, and the thread itself.
@@ -266,6 +290,17 @@ pub(crate) struct Window {
     proxies: crate::stale::Proxies<Arc<wgpu::Texture>>,
     /// The pair the last adopted frame displaced, waiting to go back with the next job.
     spare: Option<Pair>,
+    /// The settled view at twice the window's resolution, or `None` where none has landed
+    /// for the frame on hand. Checked against [`Self::shown`] and [`Self::size`] at every
+    /// present rather than invalidated eagerly — a mismatch simply is not drawn.
+    sharp: Option<Sharpened>,
+    /// What the last adopted sharp pass cost, until the trace takes it.
+    sharp_news: Option<Duration>,
+    /// `--supersample`'s factor: 1 off, 2 on. Carried to the render thread with the spawn.
+    supersample: u32,
+    /// What wakes the event loop when idle work lands while it is at rest. Without it a
+    /// sharp picture would sit in the channel until the next input.
+    waker: Option<winit::event_loop::EventLoopProxy<()>>,
     /// When the frame now being drawn was asked for, or `None` when the thread is idle.
     ///
     /// **One job in flight at a time, deliberately.** A queue would fill at the tick rate while a
@@ -416,6 +451,8 @@ impl Window {
         mut renderer: QuorraWindowRenderer,
         size: (u32, u32),
         proxy_pages: usize,
+        supersample: u32,
+        waker: Option<winit::event_loop::EventLoopProxy<()>>,
     ) -> Result<Ungrounded, Box<QuorraWindowRenderer>> {
         let description = renderer.adapter_description().to_owned();
         let startup = renderer.startup();
@@ -437,6 +474,10 @@ impl Window {
             chrome: Vec::new(),
             proxies: crate::stale::Proxies::new(proxy_pages),
             spare: None,
+            sharp: None,
+            sharp_news: None,
+            supersample,
+            waker,
             in_flight: None,
             serial: 0,
             description,
@@ -480,6 +521,15 @@ impl Window {
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.size = (width, height);
         self.presenter.resize(width, height);
+        // A sharp frame of another size would fail the present-time match anyway; dropping
+        // it here just returns four windows' worth of texture sooner.
+        if self
+            .sharp
+            .as_ref()
+            .is_some_and(|sharp| (sharp.width, sharp.height) != (width, height))
+        {
+            self.sharp = None;
+        }
     }
 
     /// Whether a frame is being drawn right now.
@@ -500,6 +550,7 @@ impl Window {
     pub(crate) fn collect(&mut self) -> Option<Landed> {
         let mut newest = None;
         let mut arrived = Vec::new();
+        let mut sharp = None;
         {
             let link = self.thread.as_ref()?;
             // A thread that has gone is a device that has gone, and the window keeps showing
@@ -512,13 +563,26 @@ impl Window {
                     // page rather than of a moment, so an older one is not superseded by a newer
                     // one of a *different* page.
                     Finished::Page(page) => arrived.push(page),
+                    Finished::Sharp(sharpened) => sharp = Some(sharpened),
                 }
             }
         }
         for page in arrived {
             self.proxies.keep(page);
         }
+        if let Some(sharpened) = sharp {
+            self.sharp_news = Some(sharpened.took);
+            self.sharp = Some(*sharpened);
+        }
         let done = newest?;
+        // A frame of other pages makes the sharp picture a bystander; the present-time
+        // match would decline it, but holding four windows of texels for a picture nobody
+        // will draw again is not worth the allocation it saves.
+        if let Some(sharpened) = self.sharp.as_ref()
+            && !same_pages(&sharpened.pages, &done.pages)
+        {
+            self.sharp = None;
+        }
         self.pipelines = self.pipelines.or(done.pipelines);
         let waited = self
             .in_flight
@@ -567,7 +631,12 @@ impl Window {
             let Some(renderer) = self.idle.take() else {
                 return; // the thread ended and its device went with it; nothing can restart it
             };
-            self.thread = Some(spawn(renderer, self.proxies.extent()));
+            self.thread = Some(spawn(
+                renderer,
+                self.proxies.extent(),
+                self.supersample,
+                self.waker.clone(),
+            ));
         }
         let Some(link) = self.thread.as_ref() else {
             return;
@@ -664,17 +733,32 @@ impl Window {
             });
         }
         if let Some(placement) = placement {
-            layers.push(quorra_gpu::Layer {
-                texture: &shown.textures.page,
-                placement: affine(placement),
-                // **Smoothed on purpose, and it is the one place this host chooses how a
-                // stand-in looks.** A blur is what an approximation should look like — nobody
-                // mistakes it for the page — where squares of four device pixels look like a
-                // rendering decision somebody made. At the identity the sampler lands on texel
-                // centres and the two filters agree exactly, so this costs a frame of the real
-                // page nothing (quorra's `present.wgsl`).
-                filter: quorra_scene::ImageFilter::Linear,
+            // The sharp picture substitutes for the base wherever it is still true of it:
+            // twice the window's texels drawn at half scale, which through the presenter's
+            // one bilinear tap is an exact 2×2 box average (ADR 0699) — the same pixels a
+            // high-resolution rendering scaled down would show. Under a reprojection it
+            // rides the same placement the base would have, composed after the halving.
+            let sharp = self.sharp.as_ref().filter(|sharp| {
+                (sharp.width, sharp.height) == self.size && same_pages(&sharp.pages, &shown.pages)
             });
+            match sharp {
+                Some(sharp) => layers.push(quorra_gpu::Layer {
+                    texture: &sharp.texture,
+                    placement: affine(Transform::scale(0.5, 0.5).then(placement)),
+                    filter: quorra_scene::ImageFilter::Linear,
+                }),
+                None => layers.push(quorra_gpu::Layer {
+                    texture: &shown.textures.page,
+                    placement: affine(placement),
+                    // **Smoothed on purpose, and it is the one place this host chooses how a
+                    // stand-in looks.** A blur is what an approximation should look like — nobody
+                    // mistakes it for the page — where squares of four device pixels look like a
+                    // rendering decision somebody made. At the identity the sampler lands on texel
+                    // centres and the two filters agree exactly, so this costs a frame of the real
+                    // page nothing (quorra's `present.wgsl`).
+                    filter: quorra_scene::ImageFilter::Linear,
+                }),
+            }
         }
         layers.push(quorra_gpu::Layer {
             texture: &shown.textures.chrome,
@@ -691,10 +775,21 @@ impl Window {
     pub(crate) fn last_present(&self) -> Option<quorra_gpu::PresentCost> {
         self.presenter.last()
     }
+
+    /// What the sharp pass that just landed cost, once — for the trace, which is rule 3's
+    /// half of ADR 0699: a picture that quietly got better is still a picture that changed.
+    pub(crate) fn sharpened(&mut self) -> Option<Duration> {
+        self.sharp_news.take()
+    }
 }
 
 /// Starts the render thread around a renderer, and hands back the channels to it.
-fn spawn(renderer: QuorraWindowRenderer, proxy_pages: usize) -> Link {
+fn spawn(
+    renderer: QuorraWindowRenderer,
+    proxy_pages: usize,
+    supersample: u32,
+    waker: Option<winit::event_loop::EventLoopProxy<()>>,
+) -> Link {
     let (jobs, incoming) = channel::<Job>();
     let (outgoing, done) = channel::<Finished>();
     // A spawn this machine refuses is a machine with no thread to spare, and the window then
@@ -702,7 +797,16 @@ fn spawn(renderer: QuorraWindowRenderer, proxy_pages: usize) -> Link {
     // `Link::jobs.send` failing already means, so there is one path rather than two.
     let thread = std::thread::Builder::new()
         .name("page renderer".to_owned())
-        .spawn(move || draw_until_told_to_stop(renderer, proxy_pages, &incoming, &outgoing))
+        .spawn(move || {
+            draw_until_told_to_stop(
+                renderer,
+                proxy_pages,
+                supersample,
+                waker.as_ref(),
+                &incoming,
+                &outgoing,
+            );
+        })
         .ok();
     Link { jobs, done, thread }
 }
@@ -720,6 +824,8 @@ fn spawn(renderer: QuorraWindowRenderer, proxy_pages: usize) -> Link {
 fn draw_until_told_to_stop(
     mut renderer: QuorraWindowRenderer,
     proxy_pages: usize,
+    supersample: u32,
+    waker: Option<&winit::event_loop::EventLoopProxy<()>>,
     jobs: &Receiver<Job>,
     done: &Sender<Finished>,
 ) {
@@ -729,6 +835,12 @@ fn draw_until_told_to_stop(
         crate::stale::Proxies::new(proxy_pages);
     // What the last frame drew, which is the only set of pages this thread has display lists for.
     let mut showing: Vec<crate::stale::Placed> = Vec::new();
+    // The window size the last frame was drawn for — what the sharp pass doubles.
+    let mut shown_size = (0_u32, 0_u32);
+    // Whether the view on hand has had its sharp pass. True after one attempt either way:
+    // a refusal (a device limit, most likely) must not spin, exactly as `draw_whole_page`'s
+    // silence must not — the next view change resets it.
+    let mut sharpened = false;
     // The chrome lane needs a target of its own even where there is no chrome, so one scratch
     // texture is kept for whatever size the proxies are and remade when a page of another shape
     // arrives. One allocation per page shape rather than one per proxy.
@@ -744,7 +856,13 @@ fn draw_until_told_to_stop(
             },
         };
         if let Some(job) = job {
+            // A job of the same pages at the same size — a chrome-only change, a selection,
+            // the find bar — leaves the sharp picture true, so it is not paid for again.
+            if !(same_pages(&showing, &job.pages) && shown_size == (job.width, job.height)) {
+                sharpened = false;
+            }
             showing.clone_from(&job.pages);
+            shown_size = (job.width, job.height);
             let finished = draw(&mut renderer, job);
             // A send that fails is an event thread that has gone, and there is nobody left to draw
             // for. The loop would end at the next `recv` anyway; leaving now saves a frame nobody
@@ -753,6 +871,22 @@ fn draw_until_told_to_stop(
                 return;
             }
             continue;
+        }
+        // The sharp pass goes before the proxies: it is what the person is looking at now,
+        // where a proxy is for a view change that has not happened yet.
+        if supersample >= 2 && !sharpened && !showing.is_empty() {
+            sharpened = true;
+            if let Some(sharp) = draw_sharp(&mut renderer, &showing, shown_size) {
+                if done.send(Finished::Sharp(Box::new(sharp))).is_err() {
+                    return;
+                }
+                // The loop this picture is for may be at rest — a settled view is exactly
+                // when it is — so it is woken. A send to a loop that has exited is nothing.
+                if let Some(waker) = waker {
+                    let _ = waker.send_event(());
+                }
+                continue;
+            }
         }
         if let Some(page) = proxies.wanted(&showing)
             && let Some(retained) = draw_whole_page(&mut renderer, &page, &mut scratch)
@@ -774,6 +908,76 @@ fn draw_until_told_to_stop(
             Err(_) => return,
         }
     }
+}
+
+/// Whether two arrangements are the same pictures at the same placements — [`crate::stale::
+/// Placed::is`]'s question over a whole list, which is what decides both whether a sharp
+/// picture is still true and whether a job invalidates it.
+fn same_pages(a: &[crate::stale::Placed], b: &[crate::stale::Placed]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.is(b))
+}
+
+/// The settled view again, at twice the window's resolution, for the presenter to show
+/// box-filtered down (ADR 0699).
+///
+/// `None` where the device refused — most plausibly `2 × window` past the adapter's
+/// texture limit — and silent for `draw_whole_page`'s reason: this is a picture nobody
+/// asked for, and the caller's `sharpened` flag keeps a refusal from spinning.
+fn draw_sharp(
+    renderer: &mut QuorraWindowRenderer,
+    showing: &[crate::stale::Placed],
+    size: (u32, u32),
+) -> Option<Sharpened> {
+    let began = Instant::now();
+    let (width, height) = (size.0.saturating_mul(2), size.1.saturating_mul(2));
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let doubled: Vec<(&Arc<DisplayList>, TargetSpec)> = showing
+        .iter()
+        .map(|placed| {
+            (
+                &placed.list,
+                TargetSpec {
+                    width,
+                    height,
+                    transform: placed.target.transform.then(Transform::scale(2.0, 2.0)),
+                },
+            )
+        })
+        .collect();
+    // The lane is this magnification's own choice, not the window frame's: doubling the
+    // transform can carry a view past the crossover the 1× frame was under.
+    let coverage = doubled
+        .first()
+        .map_or(quorra_gpu::Coverage::Cpu, |(_, target)| {
+            crate::surface::coverage_for(target.transform)
+        });
+    renderer.set_coverage(coverage);
+    // A fresh texture per pass rather than a pooled one: the one it replaces is still on
+    // the window until the event thread adopts this, and a sharp pass happens once per
+    // settled view rather than once per frame — the pool that keeps `Pair` cheap would
+    // here be a second four-window allocation held for ever.
+    let texture = renderer.layer_texture("the sharpened page", width, height);
+    renderer
+        .render_page_only(
+            PresentFrame {
+                width,
+                height,
+                pages: &doubled,
+                raster: None,
+                overlays: &[],
+            },
+            &texture,
+        )
+        .ok()?;
+    Some(Sharpened {
+        pages: showing.to_vec(),
+        width: size.0,
+        height: size.1,
+        texture,
+        took: began.elapsed(),
+    })
 }
 
 /// Draws one whole page into a raster of its own, for the layer under the base.
