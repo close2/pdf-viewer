@@ -333,6 +333,22 @@ approximation this tree could turn off (ADR 0418). **Being inside a level of the
 same as being the clause**, and where one renderer is exactly on it and you are not, the tie has an
 owner. The page agrees now.
 
+**And a tight consensus need not be the *tightest* one, because agreement is not transitive and
+the gate names only one pair.** `pdfref::decide` takes the largest set of references that all agree
+with one another; with three references, `a` agreeing with `b` and `b` with `c` while `a` and `c`
+differ leaves **two** maximal sets of two, neither contained in the other and neither a majority the
+other is not — and until the seven-hundred-and-twenty-seventh session the loop skipped the second
+without counting it, so the survivor was the one whose subset bitmask is smaller, which is the order
+`Reference`'s variants are declared in. On `colors.pdf` pages 1 and 2 the pair the verdict rests on
+is `poppler` + `ghostscript` at ssim 0.99431 and 0.99201 while `ghostscript` + `mupdf` agree at
+0.99625 and 0.99278 and **accept us**; on `colorkeymask.pdf` the discarded pair contains a renderer
+our raster is byte-identical to. Four contradicted pages turn on it, all four would have agreed
+under the set thrown away, and `DIVIDED_CONSENSUS` names them with the reading of each. **The tell
+costs one command**: run `examples/compare_rasters` over all three reference pairs, not only the one
+the gate printed — a third pair sitting inside the same class bounds is a second consensus, and
+which one decided the page was never argued. No verdict was moved on the finding, and ADR 0616 has
+the three candidate rules and the hazard in each.
+
 **And a bound derived from an aggregate is not a bound on the pixels the aggregate is made of.**
 `calrgb.pdf` page 1's consensus pair differs by 4.41%, so the gate holds us to 8.82%. Over the
 eighty swatch centres that pair is a mean 2.35 of 255 apart — but restricted to the 41 swatches

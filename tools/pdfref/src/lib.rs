@@ -467,6 +467,26 @@ pub fn consensus_abstentions(
         .collect()
 }
 
+/// One maximal set of references that all agree with one another, and what it says about us.
+///
+/// A page can carry more than one of these, and that fact was invisible until the
+/// seven-hundred-and-twenty-seventh session: agreement is not transitive, so with three
+/// references `a` agreeing with `b` and `b` with `c` while `a` and `c` differ leaves **two**
+/// maximal agreeing pairs — `{a, b}` and `{b, c}` — neither of which contains the other and
+/// neither of which is a majority in any sense the other is not. [`Triangulation::consensuses`]
+/// holds them all; the verdict rests on the first, which is what [`decide`] has always taken.
+///
+/// ADR 0616 has the argument and the measurement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Consensus {
+    /// The references, every pair of which is within the class tolerance of the other.
+    pub references: Vec<Reference>,
+    /// What this set concludes about our render.
+    pub outcome: Outcome,
+    /// The bounds this set holds us to, widened by its own members' distance from each other.
+    pub judged_by: Tolerance,
+}
+
 /// The full result of a comparison, including every measurement taken.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Triangulation {
@@ -493,6 +513,12 @@ pub struct Triangulation {
     /// meaningful: a difference of 0.3 means one thing when the references agree to
     /// 0.002 and quite another when they differ by 0.2 among themselves.
     pub between_references: Vec<(Reference, Reference, Comparison)>,
+    /// Every maximal agreeing set of references on this page, largest first.
+    ///
+    /// Empty where no two references agree. **The first is the one [`Self::outcome`] and
+    /// [`Self::judged_by`] rest on**, and a page holding more than one is a page whose verdict
+    /// was settled by which set the enumeration reached first — see [`Consensus`].
+    pub consensuses: Vec<Consensus>,
 }
 
 /// Applies the triangulation rule to one page, judging us against the fixed bounds.
@@ -556,7 +582,7 @@ pub fn triangulate_with(
     }
 
     let abstained = consensus_abstentions(references, &between_references, tolerance);
-    let (outcome, judged_by) = decide(
+    let (outcome, judged_by, consensuses) = decide(
         references,
         &abstained,
         &between_references,
@@ -571,6 +597,7 @@ pub fn triangulate_with(
         judged_by,
         ours: ours_vs,
         between_references,
+        consensuses,
     })
 }
 
@@ -585,10 +612,13 @@ pub fn triangulate_with(
 /// Returns the bounds we were actually held to alongside the conclusion, since under
 /// [`Judgement::RelativeToReferences`] they are derived from the page and a reader cannot
 /// otherwise tell what a verdict meant.
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "the subset bitmask is bounded by the reference count, at most three"
-)]
+///
+/// The third return is **every** maximal agreeing set rather than the one the verdict rests
+/// on, which is the first of it. Agreement is not transitive, so a page can carry two maximal
+/// sets neither of which contains the other; before the seven-hundred-and-twenty-seventh
+/// session the second was discarded without being counted, and on a page where the two reach
+/// different conclusions about us the verdict was the enumeration's rather than the page's
+/// (ADR 0616). Nothing about which one is *taken* changed with the counting.
 fn decide(
     references: &[(Reference, Raster)],
     abstained: &[Reference],
@@ -596,12 +626,7 @@ fn decide(
     ours: &[(Reference, Comparison)],
     tolerance: &Tolerance,
     judgement: Judgement,
-) -> (Outcome, Tolerance) {
-    // The largest set of references that all agree with one another. With three
-    // references this is small enough to check exhaustively, and doing so avoids the
-    // subtle bug in "count pairwise agreements": A agreeing with B and B with C does
-    // not make A agree with C, and treating it as if it did would let a chain of
-    // near-misses masquerade as consensus.
+) -> (Outcome, Tolerance, Vec<Consensus>) {
     let names: Vec<Reference> = references
         .iter()
         .map(|(r, _)| *r)
@@ -614,8 +639,42 @@ fn decide(
                 available: names.len(),
             },
             *tolerance,
+            Vec::new(),
         );
     }
+
+    let consensuses: Vec<Consensus> = maximal_agreements(&names, between, tolerance)
+        .into_iter()
+        .map(|group| conclude(&group, between, ours, tolerance, judgement))
+        .collect();
+
+    match consensuses.first() {
+        None => (Outcome::Ambiguous, *tolerance, consensuses),
+        Some(first) => (first.outcome.clone(), first.judged_by, consensuses),
+    }
+}
+
+/// Every maximal set of references that all agree with one another, largest first.
+///
+/// "Maximal" means no larger agreeing set contains it, which is not the same as "largest":
+/// with `a` agreeing with `b` and `b` with `c` while `a` and `c` differ, both `{a, b}` and
+/// `{b, c}` are maximal and neither is a majority the other is not.
+///
+/// Exhaustive over subsets, which three references make cheap, and doing so avoids the subtle
+/// bug in "count pairwise agreements": A agreeing with B and B with C does not make A agree
+/// with C, and treating it as if it did would let a chain of near-misses masquerade as
+/// consensus. The order is by descending size and then by the subset bitmask, which is the
+/// order the single `best` this function replaced was found in — so its first element is what
+/// that loop returned, unchanged.
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "the subset bitmask is bounded by the reference count, at most three"
+)]
+fn maximal_agreements(
+    names: &[Reference],
+    between: &[(Reference, Reference, Comparison)],
+    tolerance: &Tolerance,
+) -> Vec<Vec<Reference>> {
     let agrees = |a: Reference, b: Reference| {
         between
             .iter()
@@ -623,7 +682,7 @@ fn decide(
             .is_some_and(|(_, _, c)| tolerance.accepts(c))
     };
 
-    let mut best: Vec<Reference> = Vec::new();
+    let mut mutual: Vec<Vec<Reference>> = Vec::new();
     // Every non-empty subset, as a bitmask. Three references means seven subsets.
     for mask in 1u32..(1 << names.len()) {
         let subset: Vec<Reference> = names
@@ -632,46 +691,75 @@ fn decide(
             .filter(|(i, _)| mask & (1 << i) != 0)
             .map(|(_, r)| *r)
             .collect();
-        if subset.len() < 2 || subset.len() <= best.len() {
+        if subset.len() < 2 {
             continue;
         }
-        let mutual = subset
+        if subset
             .iter()
             .enumerate()
-            .all(|(i, a)| subset.iter().skip(i + 1).all(|b| agrees(*a, *b)));
-        if mutual {
-            best = subset;
+            .all(|(i, a)| subset.iter().skip(i + 1).all(|b| agrees(*a, *b)))
+        {
+            mutual.push(subset);
         }
     }
 
-    if best.is_empty() {
-        return (Outcome::Ambiguous, *tolerance);
-    }
+    let contained_in_a_larger = |subset: &[Reference]| {
+        mutual
+            .iter()
+            .any(|other| other.len() > subset.len() && subset.iter().all(|r| other.contains(r)))
+    };
+    let mut maximal: Vec<Vec<Reference>> = mutual
+        .iter()
+        .filter(|subset| !contained_in_a_larger(subset))
+        .cloned()
+        .collect();
+    maximal.sort_by_key(|subset| std::cmp::Reverse(subset.len()));
+    maximal
+}
 
-    // The bounds we are held to. Under `RelativeToReferences` they are widened by how far
-    // the *consensus* references sit from one another — pairs involving an outlier are
-    // excluded deliberately, since an outlier's distance measures its own error and would
-    // otherwise buy us licence to be wrong by the same amount.
+/// What one agreeing set of references concludes about our render.
+///
+/// The bounds are widened by how far the *consensus* references sit from one another — pairs
+/// involving a reference outside this set are excluded deliberately, since an outlier's
+/// distance measures its own error and would otherwise buy us licence to be wrong by the same
+/// amount.
+fn conclude(
+    group: &[Reference],
+    between: &[(Reference, Reference, Comparison)],
+    ours: &[(Reference, Comparison)],
+    tolerance: &Tolerance,
+    judgement: Judgement,
+) -> Consensus {
     let applied = match judgement {
         Judgement::Absolute => *tolerance,
         Judgement::RelativeToReferences { factor } => between
             .iter()
-            .filter(|(l, r, _)| best.contains(l) && best.contains(r))
+            .filter(|(l, r, _)| group.contains(l) && group.contains(r))
             .fold(*tolerance, |widened, (_, _, comparison)| {
                 widened.widened_to(comparison, factor)
             }),
     };
 
-    let we_match_all = best.iter().all(|reference| {
+    let we_match_all = group.iter().all(|reference| {
         ours.iter()
             .find(|(r, _)| r == reference)
             .is_some_and(|(_, c)| applied.accepts(c))
     });
 
-    if we_match_all {
-        (Outcome::Agrees { with: best }, applied)
+    let references = group.to_vec();
+    let outcome = if we_match_all {
+        Outcome::Agrees {
+            with: references.clone(),
+        }
     } else {
-        (Outcome::Regression { agreeing: best }, applied)
+        Outcome::Regression {
+            agreeing: references.clone(),
+        }
+    };
+    Consensus {
+        references,
+        outcome,
+        judged_by: applied,
     }
 }
 
@@ -983,6 +1071,77 @@ mod tests {
             "only pairs within the consensus may widen the bounds"
         );
         assert!(matches!(result.outcome, Outcome::Regression { .. }));
+    }
+
+    /// Agreement is not transitive, so a page can carry two maximal consensuses.
+    ///
+    /// Three panels a step apart: the outer two are two steps from their neighbour and four
+    /// from each other, so each agrees with the middle one and they do not agree with one
+    /// another. Both `{poppler, mupdf}` and `{mupdf, ghostscript}` are maximal — neither is
+    /// contained in the other and neither is a majority the other is not — and here they reach
+    /// **opposite** verdicts about the same render. Which one the gate takes is the order the
+    /// subsets are enumerated in. ADR 0616.
+    #[test]
+    fn two_maximal_consensuses_can_disagree_about_us() {
+        let poppler = banded(1, GREY);
+        let mupdf = banded(3, GREY);
+        let ghostscript = banded(5, GREY);
+        let ours = banded(4, GREY);
+
+        // A fifth wider than one neighbouring step, so a step is inside and two are not.
+        let step = raster_compare::compare(&poppler, &mupdf).expect("same size");
+        let tolerance = Tolerance {
+            max_mean: step.mean_error * 1.2,
+            max_worst_tile: step.worst_tile_error * 1.2,
+            max_differing_fraction: step.differing_fraction * 1.2,
+            min_structural_similarity: -1.0,
+        };
+        let refs = vec![
+            (Reference::Poppler, poppler),
+            (Reference::MuPdf, mupdf),
+            (Reference::Ghostscript, ghostscript),
+        ];
+
+        let result = triangulate(&ours, &refs, &tolerance).expect("comparable");
+        assert_eq!(
+            result.consensuses.len(),
+            2,
+            "two maximal agreeing pairs, neither containing the other: {:?}",
+            result.consensuses
+        );
+        assert_eq!(
+            result.consensuses[0].references,
+            vec![Reference::Poppler, Reference::MuPdf]
+        );
+        assert_eq!(
+            result.consensuses[1].references,
+            vec![Reference::MuPdf, Reference::Ghostscript]
+        );
+        assert!(
+            matches!(result.consensuses[0].outcome, Outcome::Regression { .. }),
+            "the first calls us wrong"
+        );
+        assert!(
+            matches!(result.consensuses[1].outcome, Outcome::Agrees { .. }),
+            "the second calls us right"
+        );
+        assert_eq!(
+            result.outcome, result.consensuses[0].outcome,
+            "the verdict is the first consensus's, which is what it has always been"
+        );
+    }
+
+    /// Where all three agree, the pairs inside that set are not separate consensuses.
+    #[test]
+    fn a_unanimous_agreement_is_one_consensus_and_not_four() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(WHITE)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let result = triangulate(&solid(WHITE), &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert_eq!(result.consensuses.len(), 1);
+        assert_eq!(result.consensuses[0].references.len(), 3);
     }
 
     /// Two renderers that each decoded nothing agree exactly, and that agreement is

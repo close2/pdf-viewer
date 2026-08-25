@@ -656,6 +656,27 @@ Three things its first run said about the pool as a whole, and only the first is
   `unpriced`'s pool of contradicted pages held by no note 5 → **0**. **A rule written to exclude
   one file excluded a naming convention that did not exist yet.**
 
+**And the sixth criterion has a *control* clause as well as a question, which the
+seven-hundred-and-twenty-seventh session pointed at the pool** (ADR 0616). 722's answer for
+`colors.pdf` ended *taking us out of the room does not rescue the bound, because two other renderers
+fail it too* — a statement about the **consensus** rather than about our render, and the half of the
+criterion nobody had asked of the whole pool. Asked as *is the consensus a page's verdict rests on
+the only reading the references had of it?*, the answer is no on more pages than anybody expected
+and decisive on four:
+
+**Agreement is not transitive.** `pdfref::decide` takes the largest mutually agreeing set of
+references, and with three of them `a ~ b` and `b ~ c` while `a ≁ c` leaves **two** maximal sets,
+neither contained in the other. The loop skipped a subset no larger than the best so far, so the
+second was discarded without being counted and the survivor is the one whose subset bitmask is
+smaller — the order `Reference`'s variants are declared in. The gate now counts the pages carrying
+more than one and names those where the sets **disagree about us**; all of the second population is
+contradicted, and every one of them would have *agreed* under the set that was thrown away.
+`colorkeymask.pdf` page 1 is the sharpest, because the discarded pair contains `ghostscript` and our
+raster is byte-identical to `ghostscript`'s over the whole page. `DIVIDED_CONSENSUS` is the list and
+carries the reading of each; **no verdict was moved**, because what should replace an enumeration
+order is a decision with three candidate rules and a hazard in each, which is ADR 0499's precedent
+about this gate arriving a second time.
+
 With both notes written, that session's run reports **every** failing bound in the pool named by
 the note that holds its page — the first time the sixth criterion has been answered for the whole
 pool rather than for a bucket of it. The figure is not written down here on purpose: the sweep
