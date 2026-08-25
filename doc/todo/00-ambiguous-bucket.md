@@ -119,6 +119,14 @@ session is that the tree is far enough along for this to be the work.
   count under the list is taken in the pair's. **A number is only comparable with one the same
   instrument produced**, which is this file's oldest rule about ink arriving as a rule about ratios.
 
+- **A third ranking, of step 1's own shape**, since the seven-hundred-and-forty-fourth session:
+  `rank_the_pages_we_are_alone_on`, the pages we sit further from every reference on than the
+  closest two references sit from each other, counted in both units and **ordered by the
+  three-measure ratio** — because that is the unit session 518's hand-taken reading was in, and
+  the four-measure reading names seven pages in ten. `consensus_missed_in_three_measures` is the
+  number that made it possible: until it existed the pair had no figure in `Distance`'s unit and
+  the queue could be counted but not opened. ADR 0647, and the paragraph below is how to read it.
+
 ## What the two rankings say when read together
 
 **Taken in the five-hundred-and-eighteenth session over all 786.** The gate's own ranking is in
@@ -174,7 +182,41 @@ leaving the differing fraction out of `Distance`: the bound `doc/todo/12` is abo
 references miss by as much as we do, so a reading that includes it says *we are alone* about most of
 the bucket and therefore says nothing. **A shape read off one instrument is a hypothesis until a
 second instrument produces it**, and here two did — the gate now prints the four-measure count under
-the ranking, and the three-measure list of 58 has never been read as a list.
+the ranking, ~~and the three-measure list of 58 has never been read as a list.~~
+
+**It has now, and what it turned out to be is a lesson about the ratio rather than about a page**
+(ADR 0647). The three-measure list is **48 of the 804 complete pages**, printed and ordered by the
+gate itself since the seven-hundred-and-forty-fourth session. Three things came out of reading it:
+
+- **Every one of the head's ten is a documented departure** — `issue11403_reduced.pdf`,
+  `bug766086.pdf`, `bug1743245.pdf`, five pages of `freeculture.pdf`, `issue4260_reduced.pdf` and
+  `issue16224.pdf` — each held by an `AMBIGUOUS_*` group whose argument is the reason it is there.
+  That is the corrected instrument agreeing with this tree's own record, which is what a corrected
+  instrument's first reading should mostly be.
+- **The ratio has no floor, and on most of the list neither number is outside anything.** On **31 of
+  the 48** the closest pair sits inside all three bounds — the page is ambiguous on the differing
+  fraction alone — and on **22** our own nearest is inside them too. There the ratio ranks a page
+  higher the more closely the references agree, not the further away we sit. The gate prints both
+  counts under the list for that reason. **The head is the sharpest instance**:
+  `issue11403_reduced.pdf` is 9.06×, ours 0.51 over 0.06, and its verdict line says
+  `differing alone, 6.24%/5.00%` — a page whose disagreement is *invisible to the three measures the
+  list is computed in*. Both units have a blind spot and they are different ones, which is this
+  file's "read it with the picture, never alone" arriving as arithmetic.
+- **The sublist to open is the nine where we are outside a bound and the closest pair is inside**:
+  `bug766086.pdf`, `freeculture.pdf` 315, 322, 323, 329 and 333, `issue16224.pdf`, `endchar.pdf`
+  and `issue12337.pdf`.
+
+**And the five book pages were measured rather than handed to their population's argument.** Three
+ladders on page 315 — ours 11.8908 → 11.9540 → 11.9855, `poppler` 11.8704 → 11.9478 → 11.9592,
+`mupdf` 11.9611 → 11.9979 → 11.9914 at 1×, 4× and 8× — converge with ours **between** the other two
+at every rung and all three within 0.032 of 255 at the limit; on all five our 72-dpi ink is inside
+the references' own spread to 0.09 of 255. **What lifts them is the denominator, and it is trap 9 in
+a place nothing had priced it**: over the book's 321 compared pages, `poppler` and `mupdf` — the two
+voting references that share `libfreetype`, where `ghostscript` links its own copy — are the closest
+pair on **9 of the 11 book pages that reach this list** and on **7 of the other 310**, and their
+own median MAE is **724** over those 11 against **1760** over the rest. Shared code manufacturing
+an agreement in a ratio's *denominator* is the same trap seen from the other end, and the page it
+lifts is one every instrument agrees is fine.
 
 ## The bucket is two camps, and the camp that votes is the one that cannot agree with itself
 
@@ -238,6 +280,12 @@ directory over.
 1. **Read the ranking**, and prefer a page whose two numbers are close — that is the shape that
    says *we* are alone. `issue7229.pdf` sat at 77 from the nearest with the two nearly equal,
    and it was drawing the wrong page.
+
+   **The gate ranks the other *alone* shape by itself now** — our nearest over the closest pair of
+   references, which is the comparison *What the two rankings say when read together* is about —
+   and the two counts printed under that list are not decoration: read them before reading the
+   ratios, because on most of the list neither number is outside any bound at all.
+   `rank_the_pages_we_are_alone_on`, ADR 0647.
 2. **Read the file's bibliography before opening anything.** Every pdf.js fixture is named after
    the issue that introduced it — `issueNNNN…pdf` → `github.com/mozilla/pdf.js/issues/NNNN`,
    `bugNNNNNNN…pdf` → `bugzilla.mozilla.org/show_bug.cgi?id=NNNNNNN` — and the issue says what

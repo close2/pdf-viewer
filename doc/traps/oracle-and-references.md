@@ -53,10 +53,11 @@ that killed them, under first lines that name the clause the file broke. Take bo
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is
 evidence. Nine ways for that to fail — and the count has moved five times, so read the list rather
-than the number. **The last four entries are not further mechanisms**: one is about a page carrying
-two of them, one about how a mechanism gets *checked*, and two about how the measurement that
-results is read — because a mechanism accounted for in the wrong units is not accounted for. And
-the ninth is not a mechanism either: it is a reading that was never taken.
+than the number. **The final entries are not further mechanisms**: one is about a page carrying
+two of them, one about how a mechanism gets *checked*, and three about how the measurement that
+results is read — because a mechanism accounted for in the wrong units is not accounted for, and
+because the newest of the three is about a ratio's **denominator** rather than a verdict's
+numerator. And the ninth is not a mechanism either: it is a reading that was never taken.
 
 - **A shared gap.** An unimplemented feature falls through to a *default*, so two unrelated
   programs that skipped the same clause produce the same picture. `visibility_expressions.pdf`:
@@ -295,6 +296,20 @@ the ninth is not a mechanism either: it is a reading that was never taken.
   us on all four, because `ghostscript` is not in the pair the verdict names. A before-and-after on
   a contradicted page has to be read against that same pair, or it compares two populations.
   ADR 0510.
+
+- **And every mechanism above can act on a ranking's *denominator*, where it accuses us instead of
+  excusing somebody.** Each bullet in this list is about shared code or a shared gap manufacturing
+  an **agreement**, and the consequence stated for all of them is that the agreement is not
+  evidence. But `doc/todo/00`'s *we are alone* ratio divides our distance by the closest pair's, so
+  the same shared code makes the ratio **larger** and lifts the page up a list whose name says the
+  page is ours. Measured over `freeculture.pdf`'s 321 compared pages: `poppler` and `mupdf` — the
+  two voting references that share `libfreetype.so.6`, where `ghostscript` carries its own
+  statically linked copy — are the closest pair on **9 of the 11 pages that reach that list** and
+  on only **7 of the other 310**, and their own median MAE is **724** over those 11 against
+  **1760** over the rest. Three ladders on the head page
+  converge with ours between the other two and all three inside 0.032 of 255, so nothing about the
+  page is ours. **A high ratio is a question about the denominator before it is a question about
+  us**, and the denominator is where this whole list lives. ADR 0647.
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose

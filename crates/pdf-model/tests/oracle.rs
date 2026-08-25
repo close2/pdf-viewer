@@ -6355,6 +6355,29 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// agreed about than that, and it is still `ambiguous`, because a fifth renderer somewhere in
 /// the set differs by more than a bound measured over dense small glyphs. That is the
 /// tolerance's design and not a defect, one more time and with four decimal places.
+///
+/// # Those same four pages are the book's whole head on a ranking built five hundred rounds later
+///
+/// [`rank_the_pages_we_are_alone_on`] orders the pages we sit further from every reference on than
+/// the closest two references sit from each other, and pages **315, 322, 323, 329 and 333** — the
+/// four above plus the one in the first table — are five of its top eight (ADR 0647). Two things
+/// came out of asking why, and neither is a defect:
+///
+/// - **The ladder reproduces.** Re-taken on page 315 in the seven-hundred-and-forty-fourth
+///   session: ours 11.8908 → 11.9540 → 11.9855 at 1×, 4× and 8×, `poppler` 11.8704 → 11.9478 →
+///   11.9592, `mupdf` 11.9611 → 11.9979 → 11.9914. **Both references reproduce that table's three
+///   decimals exactly**, 511 rounds later, and ours is 0.032 heavier at 1× and 0.010 at 8× — the
+///   direction ADR 0418's round recorded for this population, where most of its moves were upward,
+///   which is a candidate rather than an attribution. Ours still lies between the two limits at
+///   every rung, and at 8× the three are inside 0.032 of 255.
+/// - **What lifts them is the ranking's *denominator*.** Over the book's 321 compared pages,
+///   `poppler` and `mupdf` — the two voting references that share `libfreetype.so.6`, where
+///   `ghostscript` links its own copy — are the closest pair on **9 of the 11 pages that reach
+///   that list** and on **7 of the other 310**, and their own median MAE is **724** over those 11
+///   against **1760** over the rest. Trap
+///   9 is a list of ways shared code manufactures an agreement between references; in a ratio that
+///   agreement is the divisor, so here it accuses us instead of excusing somebody.
+///
 /// # And then the whole of both books, on a sample and a band
 ///
 /// The two-hundred-and-sixty-second session took the population rather than the page. Six pages
@@ -10401,14 +10424,10 @@ impl Distance {
     /// one, and carries both counts.
     fn of(triangulation: &pdfref::Triangulation) -> Option<Self> {
         let bounds = &triangulation.judged_by;
-        let ratio = |c: &raster_compare::Comparison| {
-            let mean = c.mean_error / bounds.max_mean;
-            let tile = c.worst_tile_error / bounds.max_worst_tile;
-            let structural =
-                (1.0 - c.structural_similarity) / (1.0 - bounds.min_structural_similarity);
-            mean.max(tile).max(structural)
-        };
-        let mut ratios = triangulation.ours.iter().map(|(_, c)| ratio(c));
+        let mut ratios = triangulation
+            .ours
+            .iter()
+            .map(|(_, c)| outside_by_in_three_measures(c, bounds));
         let first = ratios.next()?;
         Some(ratios.fold(
             Self {
@@ -10502,6 +10521,15 @@ struct Examined {
     ///
     /// `None` where fewer than two references were compared with each other.
     consensus_missed_by: Option<f64>,
+    /// The same, in [`Distance`]'s three measures rather than in four.
+    ///
+    /// It is what [`Self::distance`]'s `nearest` can be read against, and therefore what orders
+    /// the queue `doc/todo/00` step 1 names: the pages we sit further from every reference on
+    /// than the closest two references sit from each other. See
+    /// [`consensus_missed_in_three_measures`] for why the pool needs both readings.
+    ///
+    /// `None` on exactly the pages [`Self::consensus_missed_by`] is `None` on.
+    consensus_missed_in_three_measures: Option<f64>,
     /// How far outside its own bound a contradicted page sits, in multiples of that bound.
     ///
     /// `None` on every verdict but `CONTRADICTED`, which is trap 11 rather than tidiness: on an
@@ -10564,6 +10592,7 @@ impl Examined {
             distance: None,
             nearest_on_every_measure: None,
             consensus_missed_by: None,
+            consensus_missed_in_three_measures: None,
             outside_the_bound: None,
             abstentions: 0,
             absent: Vec::new(),
@@ -11051,6 +11080,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     let distance = Distance::of(&triangulation);
     let nearest_on_every_measure = nearest_on_every_measure(&triangulation);
     let consensus_missed_by = consensus_missed_by(&triangulation);
+    let consensus_missed_in_three_measures = consensus_missed_in_three_measures(&triangulation);
     let outside_the_bound = outside_the_bound(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
@@ -11082,6 +11112,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         distance,
         nearest_on_every_measure,
         consensus_missed_by,
+        consensus_missed_in_three_measures,
         outside_the_bound,
         abstentions: triangulation.abstained.len(),
         absent,
@@ -11131,6 +11162,39 @@ fn consensus_missed_by(triangulation: &pdfref::Triangulation) -> Option<f64> {
         .between_references
         .iter()
         .map(|(_, _, comparison)| outside_by(comparison, &triangulation.judged_by))
+        .fold(None::<f64>, |best, missed| {
+            Some(best.map_or(missed, |b: f64| b.min(missed)))
+        })
+}
+
+/// [`consensus_missed_by`] in [`Distance`]'s unit — the closest pair over three measures.
+///
+/// The same minimum over the same pairs as [`consensus_missed_by`], reduced by
+/// [`outside_by_in_three_measures`] instead of by [`outside_by`], so that it can be read against
+/// [`Distance::nearest`] rather than against [`nearest_on_every_measure`].
+///
+/// # Why the pool needs both readings and not one
+///
+/// `doc/todo/00` step 1 asks which pages *we are alone on* — our nearest further away than the
+/// closest pair of references are from each other — and the answer depends on which measures the
+/// question is asked in. Both readings are in one unit and neither is a mixed one; what separates
+/// them is `doc/todo/12`'s differing fraction, a bound the references miss by nearly as much as we
+/// do. Over the complete ambiguous pool the four-measure reading names seven pages in ten, and the
+/// three-measure reading names about one in fourteen — and it is the *three*-measure one that
+/// reproduces the reading session 518 took by hand in levels of 255 over a smaller pool, 6.9%
+/// against 7.1% (ADR 0643). So this is the number the queue is ordered by, and
+/// [`nearest_on_every_measure`]'s stays printed beside it because a page that is alone on both is
+/// saying something a page alone on one is not.
+///
+/// `None` where fewer than two references were compared with each other, which is exactly where
+/// [`consensus_missed_by`] is `None`.
+fn consensus_missed_in_three_measures(triangulation: &pdfref::Triangulation) -> Option<f64> {
+    triangulation
+        .between_references
+        .iter()
+        .map(|(_, _, comparison)| {
+            outside_by_in_three_measures(comparison, &triangulation.judged_by)
+        })
         .fold(None::<f64>, |best, missed| {
             Some(best.map_or(missed, |b: f64| b.min(missed)))
         })
@@ -11592,6 +11656,34 @@ fn outside_by(comparison: &raster_compare::Comparison, bounds: &Tolerance) -> f6
     worst_ratio(comparison, bounds).0
 }
 
+/// [`outside_by`] without the differing fraction — the unit [`Distance`] is in.
+///
+/// Three of [`Tolerance::accepts`]' four measures, so that a number taken here is comparable with
+/// [`Distance::nearest`] and therefore with the figures a hundred notes in this file quote. It is
+/// the arithmetic [`Distance::of`] used to carry inline; extracted so that
+/// [`consensus_missed_in_three_measures`] can ask the *references* the same question in the same
+/// unit, which is the whole of what it is for.
+///
+/// # One property this does not share with [`outside_by`]
+///
+/// On an ambiguous page `outside_by` is above 1 for every pair by construction — a pair inside all
+/// four bounds would have been a consensus and the page would not be ambiguous. **This one can be
+/// below 1**, and exactly where the closest pair misses on the differing fraction alone. That is
+/// not a defect of the measure: it is `doc/todo/12`'s bound saying that the pair agreed about
+/// everything the other three measures see. What follows for a reader is that a ratio taken over
+/// this number can be large because *we* are far or because the pair was close on three measures,
+/// and the second is a page where the picture is the instrument (trap 1).
+fn outside_by_in_three_measures(
+    comparison: &raster_compare::Comparison,
+    bounds: &Tolerance,
+) -> f64 {
+    let mean = comparison.mean_error / bounds.max_mean;
+    let tile = comparison.worst_tile_error / bounds.max_worst_tile;
+    let structural =
+        (1.0 - comparison.structural_similarity) / (1.0 - bounds.min_structural_similarity);
+    mean.max(tile).max(structural)
+}
+
 /// The gate.
 #[test]
 #[ignore = "renders every corpus document four times; run explicitly, in release"]
@@ -11999,6 +12091,7 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
 fn rank_the_pools(results: &[Examined]) {
     rank_the_undiagnosed(results);
     rank_the_manufactured_ambiguity(results);
+    rank_the_pages_we_are_alone_on(results);
     rank_the_contradicted(results);
     rank_the_contradicted_by_the_bound(results);
 }
@@ -12284,9 +12377,9 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
 /// this pool that comparison was between different quantities: taken as a ratio the printed pair
 /// names 13 of the 804 complete ambiguous pages as ones we are alone on, where the same question
 /// asked in one unit names 48 in three measures and 569 in four. So ours is printed in **both**
-/// units and the count under the list is taken in the pair's, which is the only one the two
-/// columns share. [`nearest_on_every_measure`] has the measurement and the reason [`Distance`]
-/// itself was left at three.
+/// units. [`nearest_on_every_measure`] has the measurement and the reason [`Distance`] itself was
+/// left at three, and [`rank_the_pages_we_are_alone_on`] — printed directly beneath this list — is
+/// where that comparison is counted and ordered.
 fn rank_the_manufactured_ambiguity(results: &[Examined]) {
     let mut ranked: Vec<(&Examined, f64)> = results
         .iter()
@@ -12310,24 +12403,106 @@ fn rank_the_manufactured_ambiguity(results: &[Examined]) {
             examined.name
         );
     }
+}
 
-    // The comparison the list invites, over the whole pool and in one unit rather than read off the
-    // ten lines above. It is deliberately the *four*-measure column that is counted: the other one
-    // is not in the pair's unit, and a count taken across the two would be the reading this
-    // ranking's comment says is not a ratio.
-    let alone = ranked
+/// The ambiguous pages we sit further from every reference on than the closest two sit from
+/// each other — `doc/todo/00` step 1's *we are alone*, counted and ordered.
+///
+/// [`rank_the_manufactured_ambiguity`] measures how hard the consensus failed; this asks the
+/// question its list invites, over the whole pool and in one unit rather than read off ten lines.
+/// It is a place to look and not a ratchet, exactly as that ranking is.
+///
+/// # Two counts, because the answer depends on which measures the question is asked in
+///
+/// The seven-hundred-and-forty-first session put the two columns of that list into comparable
+/// units and counted the result in **four** measures, because that was the only unit the pair's
+/// number was then available in (ADR 0643). Read that way the shape names seven pages in ten,
+/// which is `doc/todo/12`'s bound arriving as a signal: the differing fraction is one the
+/// references miss by nearly as much as we do. [`consensus_missed_in_three_measures`] supplies the
+/// other unit, and it is the one that reproduces the reading session 518 took by hand — 6.9%
+/// against 7.1% of a smaller pool — so the **three**-measure count is what orders the queue and
+/// the four-measure count is printed beside it as the population it is drawn from.
+///
+/// # What the ratio is and is not
+///
+/// The head is the largest *ratio*, not the largest distance: a page where we are 3 bounds out
+/// while the closest pair are 0.3 apart is the shape step 1 is about, and a page where everybody
+/// is far away is not. Three cautions travel with it, and all three are in `doc/todo/00`:
+///
+/// - **A high ratio means "the closest two agree through a shared gap" at least as often as it
+///   means anything about us.** `issue4260_reduced.pdf` and `bug1743245.pdf` are the standing
+///   witnesses: a clause says we are right and the pair agrees by both departing from it.
+/// - **The denominator can be small for a reason that is not agreement.** Below 1 is possible
+///   here — [`outside_by_in_three_measures`] says when — so a pair that missed on the differing
+///   fraction alone divides by a number under 1 and lifts its page up this list.
+/// - **And it can be small because two references share a glyph rasteriser.** Over
+///   `freeculture.pdf`'s 321 compared pages, `poppler` and `mupdf` — which share
+///   `libfreetype.so.6` where `ghostscript` links its own copy — are the closest pair on 9 of the
+///   11 that reach this list and on 7 of the other 310, at a median MAE of 724 against 1760. Trap
+///   9 is a list of ways shared code
+///   manufactures an agreement; in a ratio that agreement is the divisor, so the same mechanism
+///   accuses us instead of excusing somebody (ADR 0647).
+///
+/// Read it with the picture, never alone.
+fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
+    let pool: Vec<&Examined> = results
         .iter()
-        .filter(|(examined, missed)| {
-            examined
-                .nearest_on_every_measure
-                .is_some_and(|ours| ours > *missed)
+        .filter(|e| e.complete && matches!(e.verdict, Verdict::Ambiguous(_)))
+        .filter(|e| e.consensus_missed_by.is_some())
+        .collect();
+    let alone_on_four = pool
+        .iter()
+        .filter(
+            |e| match (e.nearest_on_every_measure, e.consensus_missed_by) {
+                (Some(ours), Some(missed)) => ours > missed,
+                _ => false,
+            },
+        )
+        .count();
+    let mut alone: Vec<(&Examined, f64, f64)> = pool
+        .iter()
+        .filter_map(|e| {
+            let ours = e.distance?.nearest;
+            let missed = e.consensus_missed_in_three_measures?;
+            (ours > missed).then_some((*e, ours, missed))
         })
+        .collect();
+    alone.sort_by(|(_, a_ours, a_missed), (_, b_ours, b_missed)| {
+        (b_ours / b_missed)
+            .partial_cmp(&(a_ours / a_missed))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    println!(
+        "\n  ambiguous, and further from every reference than the closest two are from each \
+         other — {} of the {} pages in three measures, {alone_on_four} in four, and the three-\
+         measure reading is the one calibrated against a hand-taken one (ADR 0643):",
+        alone.len(),
+        pool.len(),
+    );
+    for (examined, ours, missed) in alone.iter().take(10) {
+        println!(
+            "    {:>6.2}× — {ours:5.2} ours over {missed:5.2} between them  {}",
+            ours / missed,
+            examined.name
+        );
+    }
+
+    // What a reader of those ten numbers cannot see, and it decides how the list may be read.
+    // Neither column has a floor at 1: the closest pair is above 1 in *four* measures on every
+    // ambiguous page by construction, and in three it need not be. So a page can sit here with
+    // both numbers inside every bound it was held to, and then the ratio ranks how much more
+    // closely the references agree rather than how far away we are. Counted rather than cautioned,
+    // because a caution nobody can count is trap 11 with the sign reversed.
+    let pair_inside = alone.iter().filter(|(_, _, missed)| *missed < 1.0).count();
+    let both_inside = alone
+        .iter()
+        .filter(|(_, ours, missed)| *missed < 1.0 && *ours < 1.0)
         .count();
     println!(
-        "    of the {} pages, {alone} are ones where we sit further from every reference, over all \
-         four measures, than the closest pair sit from each other — mostly `doc/todo/12`'s bound, \
-         which the references miss by nearly as much as we do, so read this beside the picture",
-        ranked.len(),
+        "    on {pair_inside} of the {} the closest pair sits inside all three bounds — the page \
+         is ambiguous on the differing fraction alone — and on {both_inside} our own nearest is \
+         inside them too, where the ratio is between two numbers that agree with everybody",
+        alone.len(),
     );
 }
 
