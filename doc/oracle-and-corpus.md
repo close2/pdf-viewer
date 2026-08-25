@@ -617,14 +617,24 @@ different pages. It does not filter on `complete`, deliberately: that filter is 
 two largest disagreements outside every diagnosis in the file, and a ranking repeating it would
 re-create the hole. The label says which they are.
 
-What that ordering says about the *other* one is the finding, and it is ADR 0242's own defect
-surviving one level up. `Distance::of` reduces a comparison to **three** ratios and the differing
-fraction is not among them — which is right for `Distance`, whose figures are quoted in a hundred
-notes and have to keep meaning what they meant, and wrong for a ranking built on it, because the
-differing fraction is the bound most of this pool fails on. The gate now prints both counts: how
-many of the pool are furthest outside on that measure, and how many have a `Distance` at or under
-1.0, which is that unit saying *nothing here is wrong* about a page the gate has just contradicted.
-The figures are the run's and are not written here.
+What that ordering says about the *other* one was read as a defect and is not one. `Distance::of`
+reduces a comparison to **three** ratios and the differing fraction is not among them, which is the
+bound most of this pool fails on; the gate prints both counts, how many of the pool are furthest
+outside on that measure and how many have a `Distance` at or under 1.0 — that unit saying *nothing
+here is wrong* about a page the gate has just contradicted. The figures are the run's and are not
+written here.
+
+**The seven-hundred-and-forty-first session put the fourth measure into the ordering and measured
+what moved, and the answer is nothing worth having** (ADR 0643). On the contradicted pool the ten
+pages `rank_the_contradicted` prints are the same ten in the same order to the hundredth under either
+unit, because the measure that decides those verdicts is never the largest ratio of the page's
+*nearest* comparison. On the ambiguous pool it is the largest ratio on nearly the whole population,
+and `doc/todo/12`'s bound is why that disqualifies it rather than recommending it: over the complete
+ambiguous pages our differing fraction sits at a median 2.08 times the class bound against the closest
+reference pair's 1.96, so the measure separates us from the references by six percent in the middle of
+the bucket. Read as *we are alone*, three measures name 48 of those pages and four name 569. **So the
+ordering is right as it stands, and the fourth measure belongs beside `Distance` rather than inside
+it.**
 
 **One page of the pool is priced differently by the two sets that convict it**, and it is the
 remainder of ADR 0617's census: `issue19633.pdf` page 1 is the only contradicted page carrying more

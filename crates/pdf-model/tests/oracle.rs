@@ -4432,11 +4432,20 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf p
 /// 0.0353 is above `mupdf vs poppler`'s 0.0267. A diagnosis that removes a candidate is worth
 /// what one that finds a defect is, and unlike reading the picture it is checkable. ADR 0161.
 ///
-/// **And it is the head of `rank_the_manufactured_ambiguity`**, at 35.12 bounds between the
-/// closest two references against our own 5.03 from the nearest — the largest consensus failure
-/// in the bucket. That is the same reading from the other side: no pair of them is anywhere near
-/// agreeing, so the verdict carries no information about us and the pairwise table above is the
-/// whole of what can be said.
+/// **And it is the head of [`rank_the_manufactured_ambiguity`]**, at 35.12 bounds between the
+/// closest two references — the largest consensus failure in the bucket. That is the same reading
+/// from the other side: no pair of them is anywhere near agreeing, so the verdict carries no
+/// information about us and the pairwise table above is the whole of what can be said.
+///
+/// **This paragraph used to set that 35.12 against "our own 5.03 from the nearest", and those two
+/// numbers are not comparable** — which is the defect ADR 0643 found by measuring the pool, on
+/// this page as its plainest witness. The pair's figure is [`outside_by`], all four bounds; the
+/// 5.03 is [`Distance::nearest`], which is three of them and does not include the differing
+/// fraction. Over all four, ours from the nearest reference is **32.42** — eight percent from the
+/// pair rather than a seventh of it. Both are printed now. The note's conclusion is untouched and
+/// the reason is worth the line: it never rested on the contrast, but on the pairwise table above,
+/// which is one instrument — mean absolute difference — applied to our four distances and the
+/// references' own.
 /// **`issue7200.pdf` page 1 is the eighth, and it is the family's cleanest result.** Added in the
 /// two-hundred-and-third session at 3.81 bounds, from the top of the ranking. One command:
 /// `pdfimages` says a **501×583 four-bit indexed image at 80 ppi** — a whole page of Lorem ipsum
@@ -10384,6 +10393,12 @@ impl Distance {
     /// beside one failing on mean error. The bounds are the page's own — derived from how
     /// far the references sit from each other — which is what makes the numbers comparable
     /// across pages at all.
+    ///
+    /// **Three and not four**, and since ADR 0643 that is an answered question rather than a
+    /// standing debt: the differing fraction is left out because a hundred notes quote these
+    /// figures, *and* because a run that put it in was measured and would have made the
+    /// ordering worse. [`nearest_on_every_measure`] is the fourth measure printed beside this
+    /// one, and carries both counts.
     fn of(triangulation: &pdfref::Triangulation) -> Option<Self> {
         let bounds = &triangulation.judged_by;
         let ratio = |c: &raster_compare::Comparison| {
@@ -10465,6 +10480,17 @@ struct Examined {
     /// How far we sit from the nearest and furthest reference, in bounds. `None` where the
     /// comparison never happened.
     distance: Option<Distance>,
+    /// The same distance from the nearest reference over **all four** measures, which is the
+    /// unit [`Self::consensus_missed_by`] is already in.
+    ///
+    /// It exists so that the two numbers on one printed line can be read against each other,
+    /// and for nothing else — see [`nearest_on_every_measure`], which has the measurement that
+    /// says why the mixed reading was not a ratio. [`Distance`] is deliberately *not* extended
+    /// to four: its figures are quoted across this file and `doc/todo/00`, and a page recorded
+    /// at "0.16 from the nearest reference" has to stay the number that was recorded.
+    ///
+    /// `None` on exactly the pages [`Self::distance`] is `None` on.
+    nearest_on_every_measure: Option<f64>,
     /// How far the *closest pair of references* sits outside the bound, in multiples of it.
     ///
     /// `ambiguous` is the verdict for a page on which no two voting references agreed, and
@@ -10536,6 +10562,7 @@ impl Examined {
             verdict,
             complete,
             distance: None,
+            nearest_on_every_measure: None,
             consensus_missed_by: None,
             outside_the_bound: None,
             abstentions: 0,
@@ -11022,6 +11049,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
 
     let verdict = verdict_of(&triangulation, outvoted.as_deref());
     let distance = Distance::of(&triangulation);
+    let nearest_on_every_measure = nearest_on_every_measure(&triangulation);
     let consensus_missed_by = consensus_missed_by(&triangulation);
     let outside_the_bound = outside_the_bound(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
@@ -11052,6 +11080,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         verdict,
         complete,
         distance,
+        nearest_on_every_measure,
         consensus_missed_by,
         outside_the_bound,
         abstentions: triangulation.abstained.len(),
@@ -11104,6 +11133,52 @@ fn consensus_missed_by(triangulation: &pdfref::Triangulation) -> Option<f64> {
         .map(|(_, _, comparison)| outside_by(comparison, &triangulation.judged_by))
         .fold(None::<f64>, |best, missed| {
             Some(best.map_or(missed, |b: f64| b.min(missed)))
+        })
+}
+
+/// Our distance from the nearest reference over **all four** of [`Tolerance::accepts`]' measures.
+///
+/// [`Distance::nearest`] is the same quantity over three of them — the differing fraction is not
+/// among them — so this is the number [`consensus_missed_by`] can be read against, and that is the
+/// whole of what it is for.
+///
+/// # Why this is a second number and not a fourth measure inside [`Distance`]
+///
+/// The seven-hundred-and-thirty-seventh session priced [`Distance`]'s blindness for the ranking it
+/// orders and handed the question on. Taken over the run that asked it, the answer is that the
+/// fourth measure does not belong in that unit, and the evidence is two counts:
+///
+/// - **On the contradicted pool it changes no order anybody reads.** The ten pages
+///   [`rank_the_contradicted`] prints are the same ten, in the same order, to the hundredth, under
+///   either unit; and [`rank_the_contradicted_by_the_bound`] already prints that pool in four
+///   measures beside it.
+/// - **On the ambiguous pool it would replace the ordering rather than sharpen it.** The differing
+///   fraction is the largest of the four ratios on 762 of the 804 complete ambiguous pages, so a
+///   four-measure `Distance` would order that bucket by it alone — and `doc/todo/12`'s bound is the
+///   reason it cannot: over the same pages our differing fraction sits at a median **2.08** times
+///   the class bound against the closest reference pair's **1.96**, so the measure separates us
+///   from the references by 6% at the middle of the population. Read as *we are alone*, the
+///   three-measure comparison names **48** of the 804 and the four-measure one names **569**. A
+///   signal that fires on seven pages in ten is not one.
+///
+/// # What it is for, then
+///
+/// [`rank_the_manufactured_ambiguity`] prints the closest pair's number and ours on one line and
+/// its own comment asks a reader to compare them, and until this existed those two columns were
+/// **different instruments** — the pair's over four measures, ours over three. That is ADR 0242's
+/// defect, a printed line whose numbers are not the ones beside them, surviving in a pair of
+/// columns rather than in one. Taking the printed columns as a ratio names **13** of the 804 as
+/// pages we are alone on where the like-for-like three-measure reading names 48, so the mixed
+/// reading was not a conservative version of either question but an answer to neither.
+///
+/// `None` where nothing was measured, which is exactly where [`Distance::of`] is `None`.
+fn nearest_on_every_measure(triangulation: &pdfref::Triangulation) -> Option<f64> {
+    triangulation
+        .ours
+        .iter()
+        .map(|(_, comparison)| outside_by(comparison, &triangulation.judged_by))
+        .fold(None::<f64>, |nearest, ratio| {
+            Some(nearest.map_or(ratio, |n: f64| n.min(ratio)))
         })
 }
 
@@ -11507,7 +11582,9 @@ fn measurements(triangulation: &pdfref::Triangulation, decided_by: Option<&[Refe
 /// [`Distance::of`] deliberately keeps a *three*-measure ratio and is not folded into this one.
 /// Its numbers are quoted in a hundred entries of this file and in `doc/todo/00`, and a page's
 /// recorded "0.16 from the nearest reference" has to stay the number that was recorded. What that
-/// costs is priced in [`rank_the_contradicted_by_the_bound`] rather than left as a caution.
+/// costs is priced in [`rank_the_contradicted_by_the_bound`] rather than left as a caution, and
+/// [`nearest_on_every_measure`] is this function applied to our own comparisons — the fourth
+/// measure as a *second* number beside `Distance` rather than inside it (ADR 0643).
 ///
 /// The arithmetic is [`worst_ratio`]'s, which also says which of the four the largest ratio was.
 /// One implementation of it, because two would eventually disagree about a verdict.
@@ -12198,6 +12275,18 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
 /// - **A little above 1** is trap 12's arithmetic: a pair that missed by a rounding step.
 ///
 /// Nothing here is a ratchet and nothing here decides a verdict. It is a place to look.
+///
+/// # The two columns are two instruments, and were read as one
+///
+/// [`Examined::consensus_missed_by`] is [`outside_by`] — all four of [`Tolerance::accepts`]'
+/// measures — and the `ours` column beside it was [`Distance::nearest`], which is three of them.
+/// The paragraph above and `doc/todo/00`'s step 1 both ask a reader to compare the two, and on
+/// this pool that comparison was between different quantities: taken as a ratio the printed pair
+/// names 13 of the 804 complete ambiguous pages as ones we are alone on, where the same question
+/// asked in one unit names 48 in three measures and 569 in four. So ours is printed in **both**
+/// units and the count under the list is taken in the pair's, which is the only one the two
+/// columns share. [`nearest_on_every_measure`] has the measurement and the reason [`Distance`]
+/// itself was left at three.
 fn rank_the_manufactured_ambiguity(results: &[Examined]) {
     let mut ranked: Vec<(&Examined, f64)> = results
         .iter()
@@ -12205,16 +12294,41 @@ fn rank_the_manufactured_ambiguity(results: &[Examined]) {
         .filter_map(|e| e.consensus_missed_by.map(|missed| (e, missed)))
         .collect();
     ranked.sort_by(|(_, a), (_, b)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
-    println!("\n  ambiguous, and the closest two references missed each other by the most:");
+    println!(
+        "\n  ambiguous, and the closest two references missed each other by the most \
+         (their number is over four measures, so ours is printed in three and in four):"
+    );
     for (examined, missed) in ranked.iter().take(10) {
         let ours = examined
             .distance
             .map_or_else(|| "  -  ".to_owned(), |d| format!("{:5.2}", d.nearest));
+        let every = examined
+            .nearest_on_every_measure
+            .map_or_else(|| "  -  ".to_owned(), |ratio| format!("{ratio:5.2}"));
         println!(
-            "    {missed:>7.2} between them, {ours} ours  {}",
+            "    {missed:>7.2} between them, {ours} ours in three measures, {every} in four  {}",
             examined.name
         );
     }
+
+    // The comparison the list invites, over the whole pool and in one unit rather than read off the
+    // ten lines above. It is deliberately the *four*-measure column that is counted: the other one
+    // is not in the pair's unit, and a count taken across the two would be the reading this
+    // ranking's comment says is not a ratio.
+    let alone = ranked
+        .iter()
+        .filter(|(examined, missed)| {
+            examined
+                .nearest_on_every_measure
+                .is_some_and(|ours| ours > *missed)
+        })
+        .count();
+    println!(
+        "    of the {} pages, {alone} are ones where we sit further from every reference, over all \
+         four measures, than the closest pair sit from each other — mostly `doc/todo/12`'s bound, \
+         which the references miss by nearly as much as we do, so read this beside the picture",
+        ranked.len(),
+    );
 }
 
 /// The ten ambiguous pages we sit furthest from *every* reference on.

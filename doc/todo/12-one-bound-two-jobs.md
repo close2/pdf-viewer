@@ -30,6 +30,22 @@ verdict it is worth*. Read it before arguing the number again: a population whos
 percent outside is a different argument from one whose members sit twice outside, and until that line
 existed nobody could tell which this was.
 
+**And since the seven-hundred-and-forty-first the same number has a second population behind it, on
+the other pool** (ADR 0643). ADR 0243 measured this bound on 2638 pairs of *references*; that round
+measured it on 804 pages of *our own* comparisons, in the ambiguous bucket, where the bound is the
+unwidened class floor because no consensus judged the page. Our differing fraction there sits at a
+median **2.08** times the floor against the closest reference pair's **1.96**, and on 222 of the 804
+pages ours is the smaller of the two. Two instruments, two populations, the same answer: this is the
+one bound of the eight on which we and the references fail together.
+
+**What that settled is a question about an ordering rather than about the bound.** `Distance::of`
+keeps three measures and not this one, and the seven-hundred-and-thirty-seventh round recorded the
+consequence for the ranking built on it as unpriced. Priced: on the contradicted pool the head is the
+same ten pages in the same order under either unit, and on the ambiguous pool a four-measure reading
+would call 569 of the 804 pages ones we are alone on where three measures call 48. So the fourth
+measure stays out of `Distance` and is printed beside it — and the reason is this item's number, not
+a convenience about quoted figures.
+
 Re-run the derivation at any time:
 
 ```sh

@@ -110,6 +110,15 @@ session is that the tree is far enough along for this to be the work.
   Below 1 is impossible here by construction; a little above 1 is trap 12's arithmetic; twenty is
   a renderer that failed.
 
+  **Its two columns were two instruments and the line invited you to divide one by the other**,
+  which the seven-hundred-and-forty-first session found by measuring (ADR 0643). The pair's number
+  is `outside_by` — all four bounds — and the `ours` beside it is `Distance::nearest`, which is
+  three of them. On `jp2k-resetprob.pdf` that reads *35.12 between them, 5.03 ours*, as though the
+  references disagreed seven times more than we differ from the nearest of them; in one unit the two
+  numbers are **35.12 and 32.42**, eight percent apart. Ours is printed in both units now and the
+  count under the list is taken in the pair's. **A number is only comparable with one the same
+  instrument produced**, which is this file's oldest rule about ink arriving as a rule about ratios.
+
 ## What the two rankings say when read together
 
 **Taken in the five-hundred-and-eighteenth session over all 786.** The gate's own ranking is in
@@ -119,7 +128,7 @@ nothing rendered again. Two orderings, and the first is the new one:
 
 | ordering | what its head is |
 |---|---|
-| the closest **voting pair**, in bounds — what the gate prints | `jp2k-resetprob.pdf` **35.12** (ours 5.03), `issue5475.pdf` **31.63** (ours **0.00**), `bitmap-refine-tpgron.pdf` 28.91, then seven more `bitmap-*-refine` pages at 28.58 |
+| the closest **voting pair**, in bounds — what the gate prints | `jp2k-resetprob.pdf` **35.12** (ours 5.03 in three measures, 32.42 in four), `issue5475.pdf` **31.63** (ours **0.00** in either), `bitmap-refine-tpgron.pdf` 28.91, then seven more `bitmap-*-refine` pages at 28.58 |
 | our nearest **over** the closest voting pair, in levels of 255 | `issue4260_reduced.pdf` **8.27**, `bug1743245.pdf` **5.34**, `bug1671312_ArialNarrow.pdf` 3.69, `bug766086.pdf` 2.98 |
 
 **Two JPEG 2000 pages at the very head, and that is the `objdump` finding arriving as a
@@ -154,6 +163,18 @@ pages where a clause says we are right and the closest pair agrees by **sharing 
 
 **So a high ratio means "the closest two references agree through a gap" at least as often as it
 means anything about us.** Read it with the picture, never alone.
+
+**The 56 was reproduced in the gate's own arithmetic in the seven-hundred-and-forty-first session,
+and the reproduction is what settled a different question** (ADR 0643). That figure was taken by
+hand, in levels of 255, over the 786. Computed in *bounds* over all 836 of this run's ambiguous
+pages — our nearest against the closest voting pair, both in `Distance`'s three measures — it is
+**58**, which is 6.9% of the population against that session's 7.1% of a smaller one. Asked the same
+way over **four** measures it is **583**, which is seven pages in ten. That is the whole argument for
+leaving the differing fraction out of `Distance`: the bound `doc/todo/12` is about is one the
+references miss by as much as we do, so a reading that includes it says *we are alone* about most of
+the bucket and therefore says nothing. **A shape read off one instrument is a hypothesis until a
+second instrument produces it**, and here two did — the gate now prints the four-measure count under
+the ranking, and the three-measure list of 58 has never been read as a list.
 
 ## The bucket is two camps, and the camp that votes is the one that cannot agree with itself
 

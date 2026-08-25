@@ -170,6 +170,13 @@ reading in this project goes through them:
   it for the contradicted pool itself since ADR 0636, so it is no longer a thing to take off a log
   by hand — and the ratio carries the *name* of the measure it belongs to, because the same number
   on the differing fraction and on the mean describes two different pages.
+- **Two numbers on one line are comparable only if one instrument produced both.** The oracle
+  printed the closest reference pair's distance in four measures beside ours in three, for two
+  hundred rounds, on a line whose own comment asks a reader to compare them — and on its head page
+  that reads *35.12 between them, 5.03 ours* where in one unit it is 35.12 against 32.42. Over the
+  bucket the mixed reading names 13 pages as ones we are alone on where either single unit names 48
+  or 569. It is `-alpha off`'s lesson in ratios rather than in ink: **a wrong comparison that looks
+  like a finding**. ADR 0643.
 - **Before believing "one pixel out" is rounding, compare the raster sizes.** One reference put
   type a row above ours from a raster *the same size as ours*, which no disagreement about row
   counts can explain. ADR 0064.
