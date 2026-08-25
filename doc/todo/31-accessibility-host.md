@@ -15,7 +15,9 @@ so closed `doc/todo/05`'s third instrument — and **§14.8.3.3's content rectan
 element's own marks give it**, in the six-hundred-and-fifty-eighth (ADR 0486), and **the content
 stream that identifier is only unique within**, in the six-hundred-and-sixty-first (ADR 0488),
 and **all three of this project's windows since the seven-hundred-and-thirty-first** (ADR 0623),
-which is what `tools/state.sh windows` had named as the largest debt on that boundary.
+which is what `tools/state.sh windows` had named as the largest debt on that boundary, and
+**§12.7.5.2's click carried out rather than refused, in all three, in the
+seven-hundred-and-thirty-fifth** (ADR 0630).
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
@@ -72,18 +74,34 @@ of them, moved out of `viewer-ui`'s host code before it could become three copie
 host's process publishes **two** applications on the accessibility desktop — walked with `busctl`,
 both named for the binary, one carrying the toolkit's widgets and one carrying §14.7's tree.
 
-**Three things it leaves, and the first is the next item on this file.**
+**Three things it leaves, and the first is closed.**
 
-- **A click on a §12.7 widget does nothing in a host that delegates it, and is refused by name.**
-  `viewer-ui` toggles three of `annotation-button-widget.pdf`'s nine actionable nodes; both native
-  hosts toggled none while `DoAction` answered `true`, because a real `GtkCheckButton` or
-  `QCheckBox` is what a person's click lands on and a synthetic press at a page coordinate goes
-  past it to the page underneath. `viewer_host::delegated_click` says so, 9 of 9. **It needs no
-  message**: `viewer-ui`'s own click is four steps over `Query::FieldAt` and `Query::Fields`, and
-  `App::toggle_button` is the seventy lines of Table 227, Table 229 bit 15 and §12.7.5.2.3 that a
-  shared version of it would carry. It also refutes `tools/state.sh windows`' standing reading of
-  `Query::FieldAt` as a delegation: that argument rests on a press landing on a control, and an
-  assistive technology's press does not.
+- ~~A click on a §12.7 widget does nothing in a host that delegates it~~ — **built in the
+  seven-hundred-and-thirty-fifth session** (ADR 0630), and checked on a real bus in all three
+  windows. It needed no message, exactly as this entry predicted: `viewer_host::form::toggling` is
+  §12.7.5.2's rule — Table 227 bit 1, Table 229 bit 15, §12.7.5.2.3's on-state name — and
+  `viewer_host::form::clicked` is the walk over `Query::FieldAt` and `Query::Fields` that finds the
+  widget under a point. `Clicked` is matched **exhaustively** in all three hosts and in both of the
+  two doors into the rule, which is one function where there were three copies. Six of
+  `annotation-button-widget.pdf`'s nine clicks give a value and three are refused on Table 227,
+  identically in every window; the two native windows' controls were photographed either side of
+  the walk. It still refutes `tools/state.sh windows`' standing reading of `Query::FieldAt` as a
+  delegation, for the same reason.
+
+  **What is left of it is the other two control kinds**, and it is the same item as `Action::Focus`
+  below: `Clicked::Aimed` is §12.7.5.3's text field and §12.7.5.4's two, where a click asks for a
+  caret at the point it landed or for Table 234's options on the screen — and *that* a synthetic
+  press cannot do to a real `GtkEntry` or `QComboBox`. Refused by name, which is what
+  `Clicked::note`'s one argument is for.
+
+  **Two defects came out of the measurement and neither was the thing being built** (ADR 0630).
+  §14.7.5.3's map was keyed by the annotation and stored the *field's* control under each widget of
+  a radio set, so a screen reader was told every button of a set was selected as soon as one was —
+  §12.7.5.2.4's "individual radio buttons have two states, on and off", disobeyed at the one
+  interface where the picture is no answer. And `viewer-gtk` never wrote a toggle back where
+  `viewer-qt` always did, so a `GtkCheckButton` showed the state it was *built* in for ever: trap 1
+  exactly, because with the write-back removed the bus still reports six of nine toggling and the
+  window's pixels do not move at all.
 - **Only Qt can place a node on the screen.** AT-SPI reports extents in screen coordinates,
   `QWidget::frameGeometry` is one, and GTK4 exposes a toplevel's position **nowhere** — not on
   `GtkWindow`, not on `GdkSurface`, not on `GdkToplevel`, and no symbol for one in `gtk4-sys`. So

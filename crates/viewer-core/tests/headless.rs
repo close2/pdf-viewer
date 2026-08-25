@@ -7319,3 +7319,57 @@ fn a_single_page_window_answers_about_that_page_and_no_other() {
     assert_eq!(reports.len(), 1, "{reports:?}");
     assert_eq!(reports.first().map(|page| page.page), Some(2));
 }
+
+/// §14.7.5.3's object reference names a **widget**, so the node it makes says what that widget is.
+///
+/// **The defect this exists for is a sentence a screen reader said and nothing else could hear.**
+/// `referenced_objects` keyed its map by the annotation and stored the *field's* control under
+/// every one of them, and `pdf_model::form::Control::RadioButton`'s `on` is "[w]hether any widget
+/// of the set is on" — so once one button of a set was chosen, AT-SPI reported all of them
+/// `checked`. Found by driving `Action.DoAction` over a real bus on this document and reading
+/// `GetState` back after each click (ADR 0630).
+///
+/// ISO 32000-2 §12.7.5.2.4: "Like check boxes, individual radio buttons have two states, on and
+/// off", and §12.7.5.2.3 makes the exclusion a `shall` where Table 229 bit 26 is clear — "at most
+/// one radio button in a field shall be set at a time".
+///
+/// `annotation-button-widget.pdf` is the witness `doc/verify.md` names for §14.8.4.7.2's controls:
+/// its second radio field states `/V /1`, and of that field's two widgets only the one whose
+/// `/AP /N` is keyed by `1` is on.
+#[test]
+fn each_radio_button_of_a_set_says_whether_it_is_on_rather_than_whether_the_field_is() {
+    let Some(bytes) = corpus_bytes("annotation-button-widget.pdf") else {
+        return;
+    };
+    let mut viewer = Viewer::new(900, 1200, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DocumentId(1),
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let radios: Vec<bool> = pages
+        .iter()
+        .flat_map(|page| page.nodes.iter())
+        .filter_map(|node| match node.control {
+            Some(Control::RadioButton { on, .. }) => Some(on),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        radios.len(),
+        6,
+        "three radio button fields with two widgets apiece"
+    );
+    assert_eq!(
+        radios.iter().filter(|on| **on).count(),
+        1,
+        "exactly one of the six is on, which is the one whose field states its appearance state: \
+         {radios:?}"
+    );
+}

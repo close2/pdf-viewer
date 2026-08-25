@@ -684,8 +684,18 @@ here rather than left to be re-surveyed, and none of it is architecture:
   delegation: these hosts place one control per widget, so which field a press belongs to is the
   control it landed on". An assistive technology's press lands on no control — it arrives as a point
   on the page — so a click on a §12.7 widget did nothing at all in both native hosts while answering
-  `true`. It is refused by name now (`viewer_host::delegated_click`), the row prints `SPENT`, and
-  building the other half is `doc/todo/31`'s next item.
+  `true`. It was refused by name, the row prints `SPENT`, and **the other half was built in the
+  seven-hundred-and-thirty-fifth** (ADR 0630): `viewer_host::form::clicked` performs the click
+  against the *field* rather than against the control, which is where a value belongs in every host
+  anyway, and `Clicked` is matched exhaustively in three windows. What stays refused is the click a
+  delegated `GtkEntry` or `QComboBox` would have taken — a caret at a point, or Table 234's options
+  on the screen — which is `Clicked::Aimed` and is the same item as `Action::Focus`.
+
+  **And the round that built it found the shape this section exists to prevent, already sprung.**
+  §12.7.5.2's rule was written three times — once per window — and the three had stopped agreeing:
+  only `viewer-ui` asked Table 227 bit 1 before sending an edit, because the other two were relying
+  on a control the toolkit had disabled, which is a fact about a *person's* click and not about the
+  two other ways one arrives. One function in `viewer-host` now, which is this file's own answer.
 
   **The instrument was wrong for one run and its own second direction said so.** Moving the six
   queries into `viewer_accessibility::Reading` — so that three windows publish one tree rather than

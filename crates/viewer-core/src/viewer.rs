@@ -2800,6 +2800,11 @@ fn content_bounds(list: &DisplayList) -> Option<Rect> {
 /// check box a person has just ticked answers `on` in the accessibility tree exactly as it does
 /// in [`Answer::Form`].
 ///
+/// **Keyed by the annotation means answering for the annotation**, which is what
+/// [`this_widgets_control`] is for and what this function did not do for a hundred and thirty
+/// sessions: the control it stored under each of a radio set's widgets was the *field's*, so every
+/// button of the set said it was selected.
+///
 /// Takes the page the arrangement is already holding rather than an index into the page tree:
 /// under a column this is asked once per page on the screen, and `Pages::get` is the walk ADR
 /// 0124 cached `OnScreen::object` to avoid.
@@ -2814,10 +2819,56 @@ fn referenced_objects(
     let mut controls = BTreeMap::new();
     for field in pdf_model::form::fields(&open.document, shown, &open.view) {
         for widget in &field.widgets {
-            controls.insert(widget.annotation, field.control.clone());
+            controls.insert(
+                widget.annotation,
+                this_widgets_control(&field.control, widget),
+            );
         }
     }
     (places, controls)
+}
+
+/// The field's control with §12.7.5.2's on state replaced by **this widget's**.
+///
+/// **§14.7.5.3's object reference names one widget annotation**, so a node built from it is a
+/// button rather than a field — and `pdf_model::form::Control::RadioButton`'s `on` is "[w]hether
+/// any widget of the set is on", which is the field's answer and the wrong one here.
+/// `pdf_model::form::Widget::on` is the right one and sits beside it, saying so in its own doc
+/// comment: "[`Control::CheckBox`] carries the same fact for the field as a whole; this is the
+/// per-widget answer a radio set needs."
+///
+/// What that cost until the seven-hundred-and-thirty-fifth session was a clause, measured on a
+/// real AT-SPI bus: a screen reader was told **every** button of a set is selected as soon as one
+/// of them was. ISO 32000-2 §12.7.5.2.4:
+///
+/// > Like check boxes, individual radio buttons have two states, on and off.
+///
+/// and §12.7.5.2.3 makes the exclusion a `shall` where Table 229 bit 26 is clear: "at most one
+/// radio button in a field shall be set at a time". A tree that says three are is the sharpest
+/// form of trap 5 — the person it misleads is the one for whom the picture is no answer.
+///
+/// The fallback is the one both native hosts already apply to their own buttons: a widget whose
+/// `/AP` names no on state at all cannot be on by name, so the field's answer is what is left.
+fn this_widgets_control(
+    control: &pdf_model::form::Control,
+    widget: &pdf_model::form::Widget,
+) -> pdf_model::form::Control {
+    match control {
+        pdf_model::form::Control::CheckBox { on } => pdf_model::form::Control::CheckBox {
+            on: widget.on || (*on && widget.on_state.is_none()),
+        },
+        pdf_model::form::Control::RadioButton {
+            on,
+            no_toggle_to_off,
+            in_unison,
+        } => pdf_model::form::Control::RadioButton {
+            on: widget.on || (*on && widget.on_state.is_none()),
+            no_toggle_to_off: *no_toggle_to_off,
+            in_unison: *in_unison,
+        },
+        // Every other type states one value for the field and no widget of its own has another.
+        other => other.clone(),
+    }
 }
 
 /// Which object the page at `index` **is**, for the clauses that name a page object.

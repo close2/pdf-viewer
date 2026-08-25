@@ -390,9 +390,18 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # root of its own beside the toolkit's, so a walker that took the first application it found would
 # be reading GTK's widgets or Qt's and reporting them as this program's structure — find the one
 # whose window holds a `DocumentFrame`. And **`--trace=access` is the other half of the
-# instrument**: it prints what was published, what a client asked for, and — on a native host — the
-# refusal for a click that landed on a §12.7 widget the window delegates, which is a thing
-# `DoAction` answers `true` to and which changes nothing.
+# instrument**: it prints what was published, what a client asked for, and which field a click gave
+# a value to or was refused for.
+# **And since ADR 0630 a click on §12.7's two toggling kinds is carried out in all three windows.**
+# `annotation-button-widget.pdf` is the document to walk it on: nine nodes declaring `click`, of
+# which six give a value and three are refused on Table 227 — the same six and the same three in
+# `pdf-viewer`, `pdf-viewer-gtk` and `pdf-viewer-qt`. **Read `GetState` back after *each*
+# `DoAction` rather than after all nine**: a batch measures the net of a walk in which a radio
+# set's second click undoes its first, which is a different question and is where ADR 0623's "three
+# of nine" came from. And on a native host the tree is not the whole answer — the control a person
+# sees is a `GtkCheckButton` or a `QCheckBox` written back from `Query::Fields`, so photograph the
+# window either side of the walk (trap 1: with that write-back removed the bus still says six of
+# nine and the pixels do not move at all).
 # **Orca is not installed on this machine**, so
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,

@@ -6,10 +6,9 @@
 //! to a value — is shared. The clipboard is here because the same three keys serve a field's
 //! value and the page's own selection, and because what a copy *is* belongs to a host.
 
-use pdf_model::form::Control;
 use pdf_syntax::ObjectId;
 use viewer_core::{Answer, Command, Edit, Entered, Query};
-use viewer_host::form::{ControlKind, control_kind};
+use viewer_host::form::{Clicked, ControlKind, control_kind};
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -100,23 +99,6 @@ fn stepped(current: &str, ends: (usize, usize), shift: bool, forward: bool) -> (
     } else {
         (step, step)
     }
-}
-
-/// Whether a quadrilateral this crate was handed covers a point in the viewport.
-///
-/// The **bounding box** of the four corners, and that is exact rather than an approximation for
-/// the shape this is asked about: `viewer_core` builds a widget's quadrilateral out of Table 166's
-/// `/Rect`, which "shall be two opposite corners" of an upright rectangle, through §7.7.3.3's
-/// `/Rotate` — and that entry's value "shall be a multiple of 90", so the rectangle is still
-/// upright on the screen. A quadrilateral this test would get wrong is one no page can state.
-fn covers(quad: [f32; 8], (x, y): (f32, f32)) -> bool {
-    let xs = [quad[0], quad[2], quad[4], quad[6]];
-    let ys = [quad[1], quad[3], quad[5], quad[7]];
-    let bound = |values: [f32; 4]| {
-        values.iter().copied().fold(f32::INFINITY, f32::min)
-            ..=values.iter().copied().fold(f32::NEG_INFINITY, f32::max)
-    };
-    bound(xs).contains(&x) && bound(ys).contains(&y)
 }
 
 /// The §12.7.5 control a press landed on, as the three questions about it answer together.
@@ -403,7 +385,7 @@ impl App {
             .widgets
             .iter()
             .rev()
-            .find(|widget| covers(widget.quad, at))?;
+            .find(|widget| viewer_host::covers(widget.quad, at))?;
         Some(Pressed {
             field: qualified,
             annotation: widget.annotation,
@@ -673,73 +655,40 @@ impl App {
     /// Table 227 bit 1 is checked here as well as in the core, and neither is redundant: the core
     /// refuses the edit, and a host that sent it anyway would be a program that looks broken
     /// rather than one that obeys the document.
+    ///
+    /// **The rule itself is [`viewer_host::form::clicked`] since the seven-hundred-and-thirty-fifth
+    /// session**, and the seventy lines it replaces here were the third copy of it: `viewer-gtk`
+    /// and `viewer-qt` each decided §12.7.5.2 for themselves from their own toolkit's button, and
+    /// only this one asked Table 227 first. The match is exhaustive in all three windows, which is
+    /// what makes a case added to [`viewer_host::Clicked`] a compile error in three places.
+    ///
+    /// [`viewer_host::form::clicked`]: viewer_host::clicked
+    /// [`viewer_host::Clicked`]: viewer_host::Clicked
     pub(crate) fn toggle_button(&mut self, at: (f32, f32)) {
-        let Answer::Field {
-            name, value: None, ..
-        } = self.viewer.query(Query::FieldAt(at))
-        else {
-            // A field whose value is text is one to type into, which `aim_at_field` has already
-            // decided about; no field at all is a press on the page.
-            return;
-        };
-        let qualified = name.qualified.clone();
-        let Answer::Fields(fields) = self.viewer.query(Query::Fields) else {
-            return;
-        };
-        let Some(field) = fields
-            .iter()
-            .find(|field| field.name.qualified == qualified)
-        else {
-            return;
-        };
-        let no_toggle_to_off = match field.control {
-            Control::CheckBox { .. } => false,
-            Control::RadioButton {
-                no_toggle_to_off, ..
-            } => no_toggle_to_off,
-            // §12.7.5.2.2's push-button responds to input "without retaining a permanent value",
-            // a signature field's is a dictionary, and neither is a control a click gives a
-            // value to. (This line quoted "retains no permanent value" until the
-            // four-hundred-and-nineteenth session; Errata Collection 3 strikes the sentence that
-            // phrase is from — Issue #386 — and the definition above is what survives.)
-            _ => return,
-        };
-        if field.read_only {
-            println!("note: the field {} is read-only (Table 227)", name.shown());
-            return;
+        let clicked = viewer_host::clicked(&self.viewer, at);
+        // `false`: this host draws the page's own widget appearances, so a click on a text or
+        // choice field is one it aims a caret or a list at rather than one it cannot reach.
+        if let Some(said) = clicked.note(false) {
+            println!("note: {said}");
         }
-        // The *last* widget covering the point, because §12.5.2 draws them in `/Annots` order and
-        // the one on top is the one under the pointer — the same rule `pdf_model::view::field_at`
-        // applies one level down.
-        let Some(widget) = field
-            .widgets
-            .iter()
-            .rev()
-            .find(|widget| covers(widget.quad, at))
-        else {
-            return;
-        };
-        let value = if widget.on {
-            if no_toggle_to_off {
-                return;
+        match clicked {
+            Clicked::Toggles { name, value } => {
+                println!("note: setting the field {} to {value}", name.shown());
+                self.dispatch(Command::Edit(Edit::SetField {
+                    field: name.qualified,
+                    value: Entered::Text(value),
+                }));
             }
-            // §12.7.5.2.3 names the off state; §12.7.5.2.4 gives it as the default value.
-            "Off".to_owned()
-        } else {
-            let Some(state) = widget.on_state.clone() else {
-                println!(
-                    "note: the field {} states no appearance for an on state (§12.7.5.2.3)",
-                    name.shown()
-                );
-                return;
-            };
-            state
-        };
-        println!("note: setting the field {} to {value}", name.shown());
-        self.dispatch(Command::Edit(Edit::SetField {
-            field: qualified,
-            value: Entered::Text(value),
-        }));
+            // Each of these has already been said by `note` above, or is not this method's:
+            // `aim_at_field` and `open_choices` ran before it for `Aimed`, and `Command::Pointer`
+            // carries §12.6.3's triggers for `Pointed` and for the page.
+            Clicked::ReadOnly { .. }
+            | Clicked::Stays { .. }
+            | Clicked::Unnamed { .. }
+            | Clicked::Pointed { .. }
+            | Clicked::Aimed { .. }
+            | Clicked::Page => {}
+        }
     }
 
     /// Aims the keyboard at whatever §12.5.1's tab walk just landed on, where it takes text.

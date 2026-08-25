@@ -34,7 +34,9 @@
 //!   which is what makes `doc/todo/30`'s "all three hosts stay level" a thing a compiler checks.
 //! - [`form`] — §12.7.5's field, decided into the [`ControlKind`] a platform builds. One variant
 //!   per *control* rather than one per clause type, because the clause's choice field is two
-//!   controls and its button field is three.
+//!   controls and its button field is three. **And what a click on one comes to** ([`Clicked`]),
+//!   which is §12.7.5.2's rule and Tables 227 and 229 — written three times in three windows
+//!   before it was written here, and the three had already stopped agreeing about Table 227.
 //! - [`presentation`] — Table 29's `/PageMode /FullScreen`, §12.2's three chrome flags and the
 //!   page mode §12.2 says to come back to. The *toolkit call* differs in all three hosts and
 //!   which sentence a window is obeying does not, which is this crate's test applied to a window.
@@ -109,8 +111,8 @@ pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
 pub use fit::ControlFit;
-pub use form::{ControlKind, control_kind, delegated_click};
-pub use geometry::bounds;
+pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};
+pub use geometry::{bounds, covers};
 pub use keys::{Key, Meaning, Mode, WindowAct, meaning};
 pub use panel::{
     Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,

@@ -22,7 +22,7 @@ use gtk4::prelude::*;
 use pdf_syntax::ObjectId;
 use viewer_core::{Entered, FormField, FormWidget};
 
-use viewer_host::form::{ControlKind, control_kind};
+use viewer_host::form::{Clicked, ControlKind, control_kind};
 
 /// What a person did to a control, in the vocabulary the viewer takes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,6 +237,17 @@ fn entry(
 }
 
 /// §12.7.5.2.3's check box and §12.7.5.2.4's radio button, which are one control with two rules.
+///
+/// **What the rules *are* is [`viewer_host::toggling`] since the seven-hundred-and-thirty-fifth
+/// session** (ADR 0630), shared with `viewer-qt`, with `viewer-ui` and with this host's own
+/// accessibility click. This function had a copy of them and the copy had drifted: it never asked
+/// Table 227 bit 1, on the reasoning that an insensitive control cannot be clicked — true of a
+/// person's click and not of the two other ways one arrives.
+///
+/// **And a refused click puts the button back.** `connect_toggled` fires *after* GTK has flipped
+/// the widget, so returning without an edit used to leave a `GtkCheckButton` showing a state the
+/// field does not hold — a radio button of a set with `NoToggleToOff` unchecked itself on the
+/// screen while `/V` still named it, which is the opposite of what Table 229 bit 15 requires.
 fn toggle(
     field: &FormField,
     widget: &FormWidget,
@@ -247,7 +258,8 @@ fn toggle(
 ) -> gtk4::Widget {
     let button = gtk4::CheckButton::new();
     button.set_active(widget.on || (on && widget.on_state.is_none()));
-    let name = field.name.qualified.clone();
+    let name = field.name.clone();
+    let read_only = field.read_only;
     let on_state = widget.on_state.clone();
     let suppress = Rc::clone(suppress);
     let change = Rc::clone(change);
@@ -255,27 +267,37 @@ fn toggle(
         if suppress.get() {
             return;
         }
-        let value = if button.is_active() {
-            // §12.7.5.2.3: "[t]he value of the V key shall also be the value of the AS key",
-            // and the on state is a name the *file* invented — which is why it crosses.
-            let Some(state) = on_state.clone() else {
-                eprintln!(
-                    "note: the field {name} states no appearance for an on state (§12.7.5.2.3)"
-                );
-                return;
-            };
-            state
-        } else {
-            if no_toggle_to_off {
-                // Table 229 bit 15: "selecting the currently selected button has no effect".
-                return;
+        let clicked = viewer_host::toggling(
+            &name,
+            read_only,
+            button.is_active(),
+            no_toggle_to_off,
+            on_state.as_deref(),
+        );
+        // `false`: the click reached the control — it *is* the control's signal — so there is
+        // nothing about a page coordinate to report.
+        if let Some(said) = clicked.note(false) {
+            eprintln!("note: {said}");
+        }
+        match clicked {
+            Clicked::Toggles { name, value } => change(FieldChange::Set {
+                field: name.qualified,
+                value: Entered::Text(value),
+            }),
+            // Undo what GTK already did to the picture. Written as the inverse of what the button
+            // now shows rather than as the field's own state, because the field is exactly what
+            // this click did not change.
+            Clicked::ReadOnly { .. }
+            | Clicked::Stays { .. }
+            | Clicked::Unnamed { .. }
+            | Clicked::Pointed { .. }
+            | Clicked::Aimed { .. }
+            | Clicked::Page => {
+                suppress.set(true);
+                button.set_active(!button.is_active());
+                suppress.set(false);
             }
-            "Off".to_owned()
-        };
-        change(FieldChange::Set {
-            field: name.clone(),
-            value: Entered::Text(value),
-        });
+        }
     });
     button.upcast()
 }

@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use viewer_core::{Answer, Command, DocumentId, Extraction, Query, Viewer};
 use viewer_host::{
-    ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, control_kind, layer_rows,
-    may_write_extracted, outline_rows, resolve_import,
+    Clicked, ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, control_kind,
+    layer_rows, may_write_extracted, outline_rows, resolve_import,
 };
 
 /// The identity these tests give the one document they open.
@@ -462,5 +462,148 @@ fn the_refusal_names_the_word_that_turns_the_restrictions_off() {
     assert!(
         said.contains(viewer_host::IGNORE_RESTRICTIONS),
         "the way out has to be in the sentence: {said}"
+    );
+}
+
+/// The middle of a widget, which is the point an assistive technology's click resolves to.
+///
+/// `viewer_accessibility::Act::Click` takes the *node's* centre and a `Form` element's place is its
+/// annotation's `/Rect` (§14.7.5.3, ADR 0338), so this is the same arithmetic that reaches
+/// [`viewer_host::clicked`] over a real AT-SPI bus — computed here rather than borrowed, so that
+/// the test cannot be satisfied by a mirror of the code it checks.
+fn middle(quad: [f32; 8]) -> (f32, f32) {
+    let x = (quad[0] + quad[2] + quad[4] + quad[6]) / 4.0;
+    let y = (quad[1] + quad[3] + quad[5] + quad[7]) / 4.0;
+    (x, y)
+}
+
+/// Every widget of a page, in reading order down the page and then across it.
+///
+/// The order is the *screen's* rather than `/Annots`', because what the assertions below name is
+/// what a person sees: `annotation-button-widget.pdf` labels each of its rows in its own `/TU`.
+fn widgets_down_the_page(viewer: &Viewer) -> Vec<(f32, f32)> {
+    let Answer::Fields(fields) = viewer.query(Query::Fields) else {
+        panic!("a viewer with a document open answers Query::Fields");
+    };
+    let mut points: Vec<(f32, f32)> = fields
+        .iter()
+        .flat_map(|field| field.widgets.iter().map(|widget| middle(widget.quad)))
+        .collect();
+    points.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.total_cmp(&b.0)));
+    points
+}
+
+/// §12.7.5.2's rule over the nine button widgets of a document that labels its own answers.
+///
+/// **The document is the witness `doc/verify.md` names for §14.8.4.7.2's controls**, and it is the
+/// one ADR 0623 measured the delegated click's silence on: nine `Form` elements, each beside a
+/// paragraph reading "Check box, checked", "Radio button, unselected" and so on. What is asserted
+/// here is what the *clause* makes of a click on each, in the order they appear down the page:
+///
+/// - three check boxes — `/V /Off` with an on state named `1`, `/V /1`, and one whose `/Ff` sets
+///   Table 227 bit 1;
+/// - two radio button fields whose `/Ff` is `49152` (Table 229 bits 15 and 16), one with `/V /1`
+///   and one with `/V /Off`, two widgets apiece;
+/// - one radio button field whose `/Ff` is `49153`, which is those two bits and Table 227 bit 1.
+///
+/// So **five of the nine widgets toggle and four are refused by name**, and every one of the four
+/// is a sentence the standard writes: three are Table 227's read-only flag and the fourth is Table
+/// 229 bit 15 on the one button of the set that is already on. A host that toggled nine would be
+/// disobeying the document; a host that toggled none is what both native windows did until
+/// ADR 0630.
+#[test]
+fn a_click_on_each_of_nine_button_widgets_is_what_the_clause_makes_of_it() {
+    let Some(bytes) = corpus_bytes("annotation-button-widget.pdf") else {
+        return;
+    };
+    let viewer = opened(bytes);
+    let points = widgets_down_the_page(&viewer);
+    assert_eq!(points.len(), 9, "the document states nine button widgets");
+    let outcomes: Vec<Clicked> = points
+        .iter()
+        .map(|at| viewer_host::clicked(&viewer, *at))
+        .collect();
+    let named = |outcome: &Clicked| match outcome {
+        Clicked::Toggles { value, .. } => format!("toggles to {value}"),
+        Clicked::ReadOnly { .. } => "read-only".to_owned(),
+        Clicked::Stays { .. } => "stays".to_owned(),
+        Clicked::Unnamed { .. } => "unnamed".to_owned(),
+        Clicked::Pointed { .. } => "pointed".to_owned(),
+        Clicked::Aimed { .. } => "aimed".to_owned(),
+        Clicked::Page => "page".to_owned(),
+    };
+    let said: Vec<String> = outcomes.iter().map(named).collect();
+    assert_eq!(
+        said,
+        vec![
+            // "Check box, unchecked": `/V /Off`, and `/AP /N` names the on state `1`.
+            "toggles to 1",
+            // "Check box, checked": §12.7.5.2.3's off state, which the clause names.
+            "toggles to Off",
+            // "Check box, read-only": `/Ff 1`, Table 227 bit 1.
+            "read-only",
+            // The `/V /Off` radio field's two widgets, neither on: either may be turned on.
+            "toggles to 0",
+            "toggles to 1",
+            // The `/V /1` radio field. The first widget answers to `0` and is off; the second
+            // answers to `1` and is *on*, and Table 229 bit 15 is set — "selecting the currently
+            // selected button has no effect".
+            "toggles to 0",
+            "stays",
+            // The `/Ff 49153` radio field: the same two bits with Table 227 bit 1 beside them.
+            "read-only",
+            "read-only",
+        ],
+        "§12.7.5.2 over the nine widgets, down the page"
+    );
+    // Every refusal names the field §14.9.3 says a user interface shall name, and cites a clause.
+    for outcome in &outcomes {
+        let Some(said) = outcome.note(true) else {
+            continue;
+        };
+        assert!(
+            said.contains("Table 227") || said.contains("Table 229") || said.contains("§12.7.5"),
+            "a refusal cites what refused it: {said}"
+        );
+    }
+}
+
+/// The edit a click decides on is one the viewer carries out, so the next click sees the new state.
+///
+/// **This is the half a decision function cannot assert about itself.** ADR 0623 measured a host
+/// whose clicks answered `true` and changed nothing; what makes this one different is that the
+/// value goes into the field and comes back out of `Query::Fields`, which is the same answer the
+/// control on the screen is written back from.
+#[test]
+fn the_value_a_click_decides_on_reaches_the_field_and_comes_back() {
+    let Some(bytes) = corpus_bytes("annotation-button-widget.pdf") else {
+        return;
+    };
+    let mut viewer = opened(bytes);
+    let at = widgets_down_the_page(&viewer)[0];
+    let Clicked::Toggles { name, value } = viewer_host::clicked(&viewer, at) else {
+        panic!("the first widget is a check box that is off, with an on state named");
+    };
+    viewer
+        .handle(Command::Edit(viewer_core::Edit::SetField {
+            field: name.qualified,
+            value: viewer_core::Entered::Text(value),
+        }))
+        .for_each(drop);
+    // §12.7.5.2.3: "[t]he value of the V key shall also be the value of the AS key", so the widget
+    // is now in the state the click named — and the *second* click on it is therefore the other
+    // one, which is what a person expects of a check box and what nine `DoAction`s used to miss.
+    assert_eq!(
+        viewer_host::clicked(&viewer, at),
+        Clicked::Toggles {
+            name: pdf_model::view::FieldName {
+                qualified: match viewer.query(Query::FieldAt(at)) {
+                    Answer::Field { name, .. } => name.qualified,
+                    _ => panic!("the point is on a field"),
+                },
+                alternative: Some("Check box, unchecked".to_owned()),
+            },
+            value: "Off".to_owned(),
+        }
     );
 }

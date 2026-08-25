@@ -106,6 +106,16 @@ the one that existed. The decision is `viewer_host::Clock` and not this boundary
 `glib::timeout_add_local_once` against `QTimer` against `ControlFlow::WaitUntil` is what an event
 loop is (ADR 0473). `viewer-ui` adopted the shared clock and deleted a private type doing it, which
 is the test this crate applies to anything it takes in: a third host would have been a third copy.
+**And the seven-hundred-and-thirty-fifth added nothing at all either**, which is the fifth time and
+the one that had a *measured* gap behind it rather than a missing capability: a click on §12.7.5.2's
+check box or radio button did nothing in either native window, and what it needed was already here —
+`Query::FieldAt` for the model's own hit test, `Query::Fields` for the flags Tables 227 and 229 set,
+`Edit::SetField` for the appearance-state name §12.7.5.2.3 makes the value. The decision is
+`viewer_host::form::Clicked` and not this boundary, for `Presenting`'s and `Clock`'s reason one
+paragraph up — *what a click on a button field means* is one clause and `GtkCheckButton::toggled`
+against `QAbstractButton::toggled` against a point on a page is what a toolkit is. It deleted the
+third copy on its way in, and the three copies had already stopped agreeing about Table 227 (ADR
+0630).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.

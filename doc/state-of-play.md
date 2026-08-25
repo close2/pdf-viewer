@@ -262,6 +262,10 @@ invented reading order. **And a client may now *act* rather than only listen**: 
 click may be asked of it and a person using a screen reader alone can tick one, an element says it
 may be scrolled to, and the page says a caret may be put in it — each carried out as a place, in the
 device pixels a pointer already works in, so the boundary gained no message and one definition of a
-click serves the mouse and the bus alike (ADR 0425). The one async runtime this tree has is confined
+click serves the mouse and the bus alike (ADR 0425) — **in all three of this project's windows, and
+one definition for the three of them** (ADRs 0623, 0630): a click on §12.7.5.2's check box or radio
+button is decided once, by `viewer_host::form::Clicked`, so a person using a screen reader ticks the
+same boxes and is refused the same read-only ones whichever window they opened the file in. The one
+async runtime this tree has is confined
 to that crate, it is Linux-only in its own manifest, and the adapter is created **after** the first
 frame is presented. ADR 0214.

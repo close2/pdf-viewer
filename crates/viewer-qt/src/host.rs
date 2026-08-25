@@ -91,14 +91,33 @@ struct Flat {
 /// One control placed over the page, and which field's widget it is for.
 #[derive(Debug, Clone)]
 struct Placement {
-    /// §12.7.4.2's qualified name and the widget annotation, which together name this control.
-    key: (String, pdf_syntax::ObjectId),
+    /// The two names §14.9.3 makes a processor distinguish: one to address an edit to, one to say.
+    ///
+    /// It was §12.7.4.2's qualified name alone until the seven-hundred-and-thirty-fifth session,
+    /// which is why every sentence this host said about a field named it the way a *file* does
+    /// rather than the way the clause says a user interface shall.
+    name: pdf_model::view::FieldName,
+    /// The widget annotation, which with the name above identifies this control.
+    annotation: pdf_syntax::ObjectId,
     /// What kind of control it is.
     kind: ControlKind,
     /// The appearance state §12.7.5.2.3 makes a check box's on value, where the file names one.
     on_state: Option<String>,
     /// Table 229 bit 15: whether clicking the selected radio button of a set turns it off.
     no_toggle_to_off: bool,
+    /// Table 227 bit 1: "the field shall not be modified by the user".
+    ///
+    /// The control is disabled, so a person cannot reach it — and an assistive technology's click
+    /// does not go through the control, which is why the flag has to be carried rather than left
+    /// to the widget's own sensitivity (ADR 0630).
+    read_only: bool,
+}
+
+impl Placement {
+    /// What identifies this control between two frames: the field's name and its widget.
+    fn key(&self) -> (String, pdf_syntax::ObjectId) {
+        (self.name.qualified.clone(), self.annotation)
+    }
 }
 
 /// One document, one viewer, and the loop between them.
@@ -849,7 +868,7 @@ impl Host {
         let Some(placed) = self.placed.get(index) else {
             return;
         };
-        let field = placed.key.0.clone();
+        let field = placed.name.qualified.clone();
         self.dispatch(Command::Edit(Edit::SetField {
             field,
             value: Entered::Text(value.to_owned()),
@@ -865,7 +884,7 @@ impl Host {
         let Some(placed) = self.placed.get(index) else {
             return;
         };
-        let field = placed.key.0.clone();
+        let field = placed.name.qualified.clone();
         let chosen: Vec<usize> = chosen
             .iter()
             .filter_map(|index| usize::try_from(*index).ok())
@@ -885,30 +904,45 @@ impl Host {
     /// The *name* the value takes is this side's, because it is a clause and not a widget:
     /// §12.7.5.2.3 makes `/V` select among Table 170's appearance states by name and the names
     /// are the file's own, so a host that sent "on" would be inventing one.
+    ///
+    /// **The rule is [`viewer_host::toggling`] since the seven-hundred-and-thirty-fifth session**,
+    /// shared with the other two windows and with this host's own accessibility click, so a
+    /// `QCheckBox`'s `toggled` and an assistive technology's `DoAction` cannot come to different
+    /// answers about one clause (ADR 0630). What this method still owns is the *index*, which is
+    /// the one thing only a placed control knows.
     pub(crate) fn toggle_control(&mut self, index: usize, on: bool) {
         let Some(placed) = self.placed.get(index) else {
             return;
         };
-        let field = placed.key.0.clone();
-        let value = if on {
-            let Some(state) = placed.on_state.clone() else {
-                self.say(&format!(
-                    "the field {field} states no appearance for an on state (§12.7.5.2.3)"
-                ));
-                return;
-            };
-            state
-        } else {
-            if placed.no_toggle_to_off {
-                // Table 229 bit 15: "selecting the currently selected button has no effect".
-                return;
+        let clicked = viewer_host::toggling(
+            &placed.name,
+            placed.read_only,
+            on,
+            placed.no_toggle_to_off,
+            placed.on_state.as_deref(),
+        );
+        // `false`: the click did reach the control — it *is* the control's signal — so there is
+        // nothing about a page coordinate to report.
+        if let Some(said) = clicked.note(false) {
+            self.say(&said);
+        }
+        match clicked {
+            viewer_host::Clicked::Toggles { name, value } => {
+                self.dispatch(Command::Edit(Edit::SetField {
+                    field: name.qualified,
+                    value: Entered::Text(value),
+                }));
             }
-            "Off".to_owned()
-        };
-        self.dispatch(Command::Edit(Edit::SetField {
-            field,
-            value: Entered::Text(value),
-        }));
+            // A refusal leaves the field alone, and the `QAbstractButton` goes back to whatever
+            // `Query::Fields` says on the next `applyUpdates` — which it does, unconditionally,
+            // for exactly this reason.
+            viewer_host::Clicked::ReadOnly { .. }
+            | viewer_host::Clicked::Stays { .. }
+            | viewer_host::Clicked::Unnamed { .. }
+            | viewer_host::Clicked::Pointed { .. }
+            | viewer_host::Clicked::Aimed { .. }
+            | viewer_host::Clicked::Page => {}
+        }
     }
 
     /// §12.7.5.2.2's push button was pressed.
@@ -916,7 +950,7 @@ impl Host {
         let Some(placed) = self.placed.get(index) else {
             return;
         };
-        let annotation = placed.key.1;
+        let annotation = placed.annotation;
         self.dispatch(Command::Activate(annotation));
     }
 
@@ -1277,7 +1311,7 @@ impl Host {
                 width,
                 height,
                 kind,
-                field: placed.key.0.clone(),
+                field: placed.name.qualified.clone(),
                 annotation: widget.annotation.number,
                 value: field
                     .value
@@ -1752,10 +1786,9 @@ impl Host {
                     .filter_map(move |widget| placement(field, widget, &kind))
             })
             .collect();
-        let keys: Vec<(String, pdf_syntax::ObjectId)> =
-            placed.iter().map(|one| one.key.clone()).collect();
+        let keys: Vec<(String, pdf_syntax::ObjectId)> = placed.iter().map(Placement::key).collect();
         let was: Vec<(String, pdf_syntax::ObjectId)> =
-            self.placed.iter().map(|one| one.key.clone()).collect();
+            self.placed.iter().map(Placement::key).collect();
         if keys != was {
             self.update.controls = true;
             self.trace.say(
@@ -1986,7 +2019,8 @@ fn placement(
     match kind {
         ControlKind::Signature | ControlKind::Unstated => None,
         _ => Some(Placement {
-            key: (field.name.qualified.clone(), widget.annotation),
+            name: field.name.clone(),
+            annotation: widget.annotation,
             kind: kind.clone(),
             on_state: widget.on_state.clone(),
             no_toggle_to_off: matches!(
@@ -1996,6 +2030,7 @@ fn placement(
                     ..
                 }
             ),
+            read_only: field.read_only,
         }),
     }
 }
