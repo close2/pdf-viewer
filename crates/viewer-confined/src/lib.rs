@@ -74,6 +74,7 @@
 mod protocol;
 mod worker;
 
+pub use protocol::display_list::{Crossing, RasterReason, Uncodable};
 pub use protocol::{ProtocolError, Uncarried};
 pub use worker::{WorkerLimits, confine, serve};
 
@@ -95,9 +96,10 @@ pub use worker::{WorkerLimits, confine, serve};
 /// A host that connects a worker over something other than a pipe reads its frames with the same
 /// four functions.
 pub mod wire {
+    use pdf_render::DisplayList;
     use viewer_core::{Command, Event, Query};
 
-    use crate::{ProtocolError, Reply, protocol};
+    use crate::{Crossing, ProtocolError, Reply, Uncodable, protocol};
 
     /// A question read from the wire, holding whatever its answer needs to outlive the message.
     ///
@@ -150,6 +152,38 @@ pub mod wire {
     /// See [`events`].
     pub fn query(bytes: &[u8]) -> Result<Question, ProtocolError> {
         protocol::decode_query(bytes).map(Question)
+    }
+
+    /// Reads one page's resolved marks, as a confined worker writes them (ADR 0607).
+    ///
+    /// **The fifth decoder, and the one whose input is a whole page of geometry.** It is public
+    /// for this module's own reason — `fuzz/fuzz_targets/display_list.rs` cannot reach a private
+    /// module — and it is the one a host runs on the payload a confined process chose to send as
+    /// a list rather than as pixels.
+    ///
+    /// # Errors
+    ///
+    /// See [`events`], and [`ProtocolError::OutOfTable`] and [`ProtocolError::Unbuildable`],
+    /// which are this decoder's own.
+    pub fn display_list(bytes: &[u8]) -> Result<DisplayList, ProtocolError> {
+        protocol::display_list::decode(bytes)
+    }
+
+    /// Writes one page's resolved marks down, as a confined worker does.
+    ///
+    /// # Errors
+    ///
+    /// [`Uncodable`] where the list holds one of the two deferred producers ADR 0607 leaves to
+    /// the raster arm, or nests past what a backend composites. [`crossing`] is the caller that
+    /// turns those into the payload choice.
+    pub fn encode_display_list(list: &DisplayList) -> Result<Vec<u8>, Uncodable> {
+        protocol::display_list::encode(list)
+    }
+
+    /// Which payload one page crosses as, given what its raster would cost (ADR 0607).
+    #[must_use]
+    pub fn crossing(list: &DisplayList, raster_bytes: u64) -> Crossing {
+        protocol::display_list::crossing(list, raster_bytes)
     }
 }
 

@@ -1,8 +1,9 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
-Status: **open, one of its two defects carried out (ADR 0597), and the tier change decided (ADR
-0607).** The machinery exists and is verified against the kernel (ADRs 0218, 0223, 0235, 0241); a
-ceiling breach is no longer a crash; the tier change is priced, argued and not yet made.
+Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607)
+and its codec built (ADR 0626).** The machinery exists and is verified against the kernel (ADRs
+0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; the payload a window would receive
+now has an encoder, a decoder and a fuzz target. What is left of the tier change is the wiring.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
@@ -82,9 +83,21 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
   about 96% of first pages at a window's scale, pixels for the scanned 4% where pixels are smaller.
   The alternative, `wgpu` inside the confinement, was not rejected on price: a device confined at
   any point in the ordering dies on its first `ioctl`, and a process holding one cannot install
-  Landlock under this crate's own descriptor ceiling. What is owed here now is **the codec** —
-  both sides, `Arc` identity preserved, a fuzz target beside `confined_wire`, and either an
-  encoding for the two deferred producers or the raster arm they already fall back to.
+  Landlock under this crate's own descriptor ceiling.
+
+  **The codec this entry owed is built** (ADR 0626): `viewer_confined::wire`'s
+  `encode_display_list`, `display_list` and `crossing`, with `Arc` identity preserved across four
+  interned tables, `fuzz/fuzz_targets/display_list.rs` beside `confined_wire`, and the two
+  deferred producers refused **by name** into the raster arm ADR 0607 kept for them. The corpus
+  figure is a measurement rather than a prediction now, and it held.
+
+  **What the tier change still owes is the wiring, and it is three things rather than one.**
+  `Reply::Frame` carries a `Raster` per page and every consumer reads it; the *host* has to
+  rasterise, which decides whether the payload is unpacked in `viewer-confined` or in `viewer-ui`
+  — ADR 0607's own sentence, "`render-quorra` is that translator and `viewer-ui` is already on
+  it", points at the second; and the frame protocol's `MAGIC` is bumped by whoever changes what a
+  frame carries, which this round deliberately did not, because nothing it added crosses in one
+  yet.
 - **The cancel path proven from the host**, not only from a test: the owner's brief says the
   callback may not block, and the `Canceller` is already about a millisecond.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the

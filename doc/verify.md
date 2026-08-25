@@ -403,6 +403,25 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=
   # ADR 0235) and `FreeTextAt` (29, ADR 0238) — so their payloads have never been seeded, which the
   # four-hundred-and-forty-fifth found by counting `query_kind` against `QUERIES`. Adding them is
   # four lines of `fuzz/seed_confined_wire.py` and a re-seed
+cd fuzz && cargo +nightly fuzz run display_list  -- -max_total_time=600 -rss_limit_mb=4096
+  # ADR 0607's *other* payload, and the second target whose input is a process rather than a
+  # document: a window on the confinement receives display lists, so the unconfined host parses a
+  # whole page of geometry that the confined side chose. Four shared tables, a clip table whose
+  # entries name each other, a nested command tree, four shading geometries and a soft mask holding
+  # commands of its own — ADR 0626. Beyond "nothing panics" it asserts three things, so that
+  # deleting a check in the decoder fails this target: every identifier a decoded list holds points
+  # at something, every decoded image's samples fill its stated dimensions, and **anything this
+  # decoder accepts this encoder can write, reading back the same list**. That last one is what
+  # catches the two halves of a codec drifting.
+  # **Seed its corpus first**, and the seeder is an *example* rather than a Python script, because
+  # producing a display list means running the interpreter:
+  #   cargo build --release -p viewer-confined --example list_over_the_wire
+  #   <built>/examples/list_over_the_wire --seeds fuzz/corpus/display_list doc/pdf.js/test/pdfs/*.pdf
+  # It writes one seed per page under `--seed-max`, 256 KiB by default and for the reason
+  # `doc/todo/02` records of `page`: unbounded, the same corpus is 841 MB of seeds and almost all of
+  # it is four scanned documents' pixels, which state nothing about this format and are paid for in
+  # every merge. Bounded, it is a few hundred real pages in a few megabytes. Unseeded the target
+  # reaches an empty list and little else, since a table count is eight bytes
 cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's signature value:
   # `pdf_model::der`'s X.690 reader and `pdf_model::cms`'s RFC 5652 SignedData, the tree's only
   # ASN.1. **Seed its corpus** with the eleven `/Contents` blobs the nine signed corpus documents
