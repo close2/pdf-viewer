@@ -692,6 +692,9 @@ fn read_xref_stream(
     if row == 0 {
         return None;
     }
+    // `/W` describes the stream, not the record, so it is resolved into byte ranges once here
+    // rather than once per entry. `RecordLayout` says what that was costing.
+    let layout = RecordLayout::of(&widths);
 
     // One allocation rather than the seventeen a doubling `Vec` takes to reach 101 318 entries.
     // The capacity comes from the *decoded data's* own length rather than from `/Size` or
@@ -741,7 +744,7 @@ fn read_xref_stream(
             else {
                 continue;
             };
-            entries.push((number, entry_location(record, &widths, base)?.location()));
+            entries.push((number, entry_location(record, &layout, base)?.location()));
         }
     }
 
@@ -752,6 +755,77 @@ fn read_xref_stream(
     })
 }
 
+/// Where each of Table 18's three fields sits inside one record.
+///
+/// `/W` is a property of the *stream*: §7.5.8.2's Table 17 says of it
+///
+/// > The sum of the items shall be the total length of each entry; it can be used with the Index
+/// > array to determine the starting position of each subsection.
+///
+/// so every record in a stream has the same three fields at the same three offsets, and turning
+/// `/W` into those offsets is work that belongs once per stream. It was being done once per
+/// *entry* — a `take(3)` over `/W`, a running offset and a bounds check apiece — which on ISO
+/// 32000-2 is 101 318 times and made [`entry_location`] a quarter of `Document::open` (ADR 0677).
+#[derive(Debug)]
+struct RecordLayout {
+    /// The half-open byte range each field occupies, in Table 18's order.
+    ///
+    /// `None` is Table 17's absent field — "[a] value of zero for an element in the W array
+    /// indicates that the corresponding field shall not be present in the stream" — which takes
+    /// its default and reads no bytes.
+    fields: [Option<(usize, usize)>; 3],
+}
+
+impl RecordLayout {
+    /// Resolves the first three elements of `/W`.
+    ///
+    /// The caller has already refused a `/W` of fewer than three elements, so a shorter slice
+    /// here would leave later fields absent rather than misplaced.
+    fn of(widths: &[usize]) -> Self {
+        let mut fields = [None; 3];
+        let mut at = 0usize;
+        for (field, &width) in fields.iter_mut().zip(widths) {
+            if width == 0 {
+                continue;
+            }
+            // Saturating, so that a `/W` no address space can hold yields a range past the end
+            // of every record and is refused where the record is read, rather than here: an
+            // `/Index` that declares no entries reads no record and is not refused at all.
+            let end = at.saturating_add(width);
+            *field = Some((at, end));
+            at = end;
+        }
+        Self { fields }
+    }
+}
+
+/// How many bytes of a Table 18 field fit a `u64`.
+const FIELD_BYTES: usize = size_of::<u64>();
+
+/// The unsigned integer a Table 18 field's bytes state, most significant byte first.
+///
+/// §7.5.8.2 states no maximum for an element of `/W`, so a malformed file may declare a field
+/// wider than any integer this reader holds. Such a field **clamps** rather than wrapping, and
+/// that is the load-bearing half: `u64::MAX` is an offset past the end of every file and an
+/// object number no `u32` holds, so a record stating one names nothing that can be reached —
+/// where the low 64 bits of the same number would be a plausible offset into a file the record
+/// does not describe.
+fn big_endian(bytes: &[u8]) -> u64 {
+    if bytes.len() > FIELD_BYTES {
+        return bytes.iter().fold(0u64, |value, &byte| {
+            value.saturating_mul(256).saturating_add(u64::from(byte))
+        });
+    }
+    // Eight bytes or fewer cannot overflow a `u64`, so no clamp is reachable and the shift is
+    // exact. Table 17's own widths are one to four bytes, so this is the whole function for
+    // every file anyone writes. `wrapping_shl` rather than `<<` because a shift is defined only
+    // below the type's width and this says so, where the operator would rely on a lint exception
+    // to say nothing.
+    bytes
+        .iter()
+        .fold(0u64, |value, &byte| value.wrapping_shl(8) | u64::from(byte))
+}
+
 /// Reads one Table 18 record.
 ///
 /// `None` is malformation — a record shorter than `/W` says it is — and is distinct from the
@@ -760,22 +834,13 @@ fn read_xref_stream(
 /// corresponding field shall not be present in the stream, and the default value shall be used,
 /// if there is one", and of the first field specifically, "[i]f the first element is zero, the
 /// type field shall not be present, and shall default to Type 1".
-fn entry_location(record: &[u8], widths: &[usize], base: usize) -> Option<Entry> {
+fn entry_location(record: &[u8], layout: &RecordLayout, base: usize) -> Option<Entry> {
     let mut fields = [1u64, 0, 0];
-    let mut at = 0usize;
-    for (slot, &width) in widths.iter().enumerate().take(3) {
-        if width == 0 {
+    for (slot, field) in fields.iter_mut().zip(&layout.fields) {
+        let Some(&(at, end)) = field.as_ref() else {
             continue;
-        }
-        let bytes = record.get(at..at.saturating_add(width))?;
-        at = at.saturating_add(width);
-        let mut value = 0u64;
-        for &byte in bytes {
-            value = value.saturating_mul(256).saturating_add(u64::from(byte));
-        }
-        if let Some(field) = fields.get_mut(slot) {
-            *field = value;
-        }
+        };
+        *slot = big_endian(record.get(at..end)?);
     }
 
     Some(match fields[0] {

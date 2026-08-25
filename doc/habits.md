@@ -862,6 +862,25 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   delete the glyph drawing and check the count goes to zero. A test that asserted the display
   list held the right number of commands would have passed with every glyph missing.
 
+**A *composition* decays faster than the total it adds up to, because a total is what a later round
+re-takes.** `doc/todo/42` §1 carried "76.6 M instructions, of which inflating the two cross-reference
+streams is 18 M and nothing can remove it" for four hundred and eighty rounds. The total was
+re-measured four rounds before ADR 0677 and the breakdown was not — so what a round choosing work
+would have read was the *ranking* of a tree that no longer existed, and it was inverted: two
+consecutive rounds then took double-digit percentages out of the three quarters that sentence
+dismissed in a subordinate clause (ADRs 0667, 0677), each larger than the part it called
+irreducible. **Whoever re-runs a floor re-runs the attribution under it**, and a round quoting a
+share rather than a total should say which run printed it.
+
+**A hot callee is invisible under a fat link, and one attribute is the whole instrument.**
+`[profile.release]` inlines aggressively across crates, so callgrind reports a callee's cost against
+its *caller's* name and files the inlined library code under `uint_macros.rs`, `slice/index.rs` and
+`take.rs` — which reads like a caller that is diffusely expensive rather than one function that is
+not. A temporary `#[inline(never)]` on the suspect and one rebuild turn it into a row of its own:
+that is how ADR 0677 found a quarter of `Document::open` inside a function that reads three integers
+out of a seven-byte record. Take the attribute off before measuring the result, because it costs
+about twelve instructions a call and this population is a hundred thousand of them.
+
 **And one measurement that was wrong because of *when* it was taken.** §9.10.2's last-resort
 permission applied to simple fonts was measured, found to cost `pr4922.pdf` its whole readback, and
 dropped — two rounds before the round that removed the interaction. Re-measured after it, the same
