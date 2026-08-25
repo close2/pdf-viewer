@@ -210,9 +210,12 @@ fn segments(
         match command {
             Command::Fill {
                 path, transform, ..
-            } => path.oblique_spans(transform.then(to_device), |top, bottom| {
-                mark(rows, top, bottom);
-            }),
+            } => {
+                let at = transform.then(to_device);
+                if !settled(rows, path, at) {
+                    path.oblique_spans(at, |top, bottom| mark(rows, top, bottom));
+                }
+            }
             // A stroke's whole extent, whatever its geometry. Two reasons, and the second is
             // why the first is not enough: a stroker turns a path into an outline, so a round
             // cap or join puts a curve on a straight path; and a stroke thin enough to be a
@@ -259,12 +262,44 @@ fn clip_segments(
             break;
         }
         let Some(clip) = list.clip(id) else { break };
-        clip.path
-            .oblique_spans(clip.transform.then(to_device), |top, bottom| {
-                mark(rows, top, bottom);
-            });
+        let at = clip.transform.then(to_device);
+        if !settled(rows, &clip.path, at) {
+            clip.path
+                .oblique_spans(at, |top, bottom| mark(rows, top, bottom));
+        }
         current = clip.parent;
     }
+}
+
+/// Whether walking `path` under `at` could still change `rows`.
+///
+/// [`mark`] only ever *sets* a row, so a path every one of whose reachable rows is already
+/// marked cannot change the answer, and the walk that would re-mark them is arithmetic with no
+/// outcome. The rows it can reach are [`mark`]'s own range taken over the path's whole device
+/// extent, which contains every one of its segments' — [`crate::Path::bounds`] is the control
+/// hull, and [`crate::Path::oblique_spans`] reports a y range of the same control points — and
+/// `clamp_row`, `floor` and `ceil` are all monotone, so a segment's range lies inside the
+/// path's. **This skips arithmetic and never a mark**: the vector it produces is the one the
+/// unconditional walk produces, row for row.
+///
+/// It is here because the walk is serial work in front of a parallel render, on the page that
+/// most needs the render divided: a dense text page is thousands of glyph fills over a few
+/// hundred rows, and once a line of text has marked its own rows every later glyph on that line
+/// walks forty control points to mark them again. On page 101 of ISO 32000-2 it takes
+/// `unsplittable_rows` from 8.28% of the page's rasterisation to under 2%, byte-identically
+/// (ADR 0687).
+///
+/// A path that names no point reaches no row, so it settles nothing and falls through to a walk
+/// that marks nothing either — the cheap honest answer rather than a second `None` branch.
+fn settled(rows: &[bool], path: &crate::Path, at: Transform) -> bool {
+    let Some(extent) = path.bounds(at) else {
+        return false;
+    };
+    let count = rows.len();
+    let from = clamp_row(extent.min.y.floor() + 1.0, count);
+    let to = clamp_row(extent.max.y.ceil(), count);
+    rows.get(from..to)
+        .is_none_or(|span| span.iter().all(|row| *row))
 }
 
 /// Marks the rows a boundary may not fall on, given a segment spanning `top..bottom`.
@@ -521,8 +556,13 @@ fn feasible(
 
 #[cfg(test)]
 mod tests {
-    use super::{row_costs, strip_boundaries, strip_boundaries_avoiding};
-    use crate::{Rect, TargetSpec, Transform};
+    use std::sync::Arc;
+
+    use super::{row_costs, strip_boundaries, strip_boundaries_avoiding, unsplittable_rows};
+    use crate::{
+        BlendMode, Color, Command, DisplayList, FillRule, Paint, Path, PathCommand, Point, Rect,
+        Size, TargetSpec, Transform,
+    };
 
     fn target(width: u32, height: u32) -> TargetSpec {
         TargetSpec {
@@ -532,11 +572,67 @@ mod tests {
         }
     }
 
+    /// A right triangle with its hypotenuse running from `(right, top)` down to `(0, bottom)`.
+    ///
+    /// Its two other sides are axis-aligned, so under an axis-preserving transform the
+    /// hypotenuse is the only segment [`crate::Path::oblique_spans`] reports — which makes the
+    /// rows it marks exactly `floor(top) + 1 .. ceil(bottom)` and nothing else.
+    fn wedge(top: f32, bottom: f32, right: f32) -> Command {
+        let mut path = Path::new();
+        path.push(PathCommand::MoveTo(Point::new(0.0, top)));
+        path.push(PathCommand::LineTo(Point::new(right, top)));
+        path.push(PathCommand::LineTo(Point::new(0.0, bottom)));
+        path.push(PathCommand::Close);
+        Command::Fill {
+            path: Arc::new(path),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::BLACK),
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    /// The early-out's discriminating case: a shape that *starts* inside rows already forbidden
+    /// and reaches past them is still walked.
+    ///
+    /// [`super::settled`] skips a path only where every row its whole device extent can reach is
+    /// already marked, and the reason to assert that rather than to trust it is that no raster
+    /// can: the strips are exact by construction, so a planner that forbade too few cuts would
+    /// still draw the identical picture and only ADR 0138's edge coverage would move. Written
+    /// against a planted `any`-for-`all`, which leaves rows 20 to 40 legal here (ADR 0687).
+    #[test]
+    fn a_shape_reaching_past_the_rows_already_marked_is_still_walked() {
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        list.push(wedge(10.0, 20.0, 50.0));
+        list.push(wedge(15.0, 40.0, 50.0));
+
+        let rows = unsplittable_rows(&list, target(100, 100));
+
+        for (row, forbidden) in rows.iter().enumerate() {
+            let expected = (11..40).contains(&row);
+            assert_eq!(
+                *forbidden, expected,
+                "row {row} is {forbidden} where the two wedges' segments make it {expected}"
+            );
+        }
+    }
+
+    /// And the property that licenses the skip: a shape wholly inside rows already forbidden
+    /// changes nothing, so leaving it unwalked is exact rather than merely cheap.
+    #[test]
+    fn a_shape_inside_the_rows_already_marked_changes_nothing() {
+        let mut wide = DisplayList::new(Size::new(100.0, 100.0));
+        wide.push(wedge(10.0, 40.0, 50.0));
+        let alone = unsplittable_rows(&wide, target(100, 100));
+
+        wide.push(wedge(20.0, 30.0, 50.0));
+        assert_eq!(unsplittable_rows(&wide, target(100, 100)), alone);
+    }
+
     fn rect(top: f32, bottom: f32, width: f32) -> Rect {
-        Rect::from_corners(
-            crate::Point::new(0.0, top),
-            crate::Point::new(width, bottom),
-        )
+        Rect::from_corners(Point::new(0.0, top), Point::new(width, bottom))
     }
 
     /// The whole point of the module: a page whose ink sits in one place is cut so that the
