@@ -311,6 +311,29 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   page is ours. **A high ratio is a question about the denominator before it is a question about
   us**, and the denominator is where this whole list lives. ADR 0647.
 
+  **Measured over the whole ambiguous pool rather than over one book, and it holds** (ADR 0663).
+  Taking each page's closest pair by name: `poppler` + `mupdf` is the closest pair on **23 of the
+  48** pages that reached that list and on **137 of the other 788**, while `poppler` +
+  `ghostscript` — the one pair of the three that shares no glyph rasteriser — is the closest on
+  **2 of the 48** against **333 of the 788**, where it is the commonest closest pair there is. The
+  list is enriched almost threefold in the pair that shares `libfreetype.so.6` and depleted tenfold
+  in the pair that does not. `issue16224.pdf` is the single-page form of it: one line of an embedded
+  Type 1C subset, the sharing pair 0.41 bounds apart while each is 3.05 and 3.11 from `ghostscript`,
+  and ours 1.13 from `mupdf` — **less than half `ghostscript`'s distance from the same reference**,
+  on the page the ratio calls ours.
+
+  **And the mechanism in a divisor need not be shared code at all — a shared *gap* does it, and the
+  instrument is the removal.** On `bug766086.pdf` the divisor is `mupdf` + `ghostscript` at 0.45,
+  and neither of those two draws the page's link border: `mupdf` constructs no `Link` appearance,
+  `ghostscript` is rendering for paper. Replacing `/Annots [4 0 R]` with an empty array of the same
+  byte length and re-running all four renderers moves our own number from **2.58 bounds to 0.43**
+  and leaves that pair's comparison **byte-identical to the digit** — mean 2.2695, ssim 0.98268,
+  worst tile 5.42 at (64, 0), both ways. So the numerator is a clause we implement and the divisor
+  is the same clause two renderers do not, and the ratio counts it twice with the sign reversed the
+  second time. **Where a ratio is large, take the mechanism out of the document and re-measure both
+  halves**: a denominator that does not move is a denominator that was never about the page. ADR
+  0663.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is
