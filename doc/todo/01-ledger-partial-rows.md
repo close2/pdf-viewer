@@ -3964,6 +3964,119 @@ the same family, a pointer written as the prose "the handover's list of departur
 handover has not held since it became an index. ADR 0611, which also says why widening `--bin
 tables` to print keyless attributions is declined.
 
+## The pairwise ranking runs out, and its successor is measured — the seven-hundred-and-thirty-fourth
+
+The seven-hundred-and-thirtieth reports that ADR 0593's third rule had nothing left above rank 4
+and fell through to a tie broken by an older rule. **A method that has exhausted its head will
+start re-reading old ground**, so this section is the successor and the measurement behind it.
+ADRs 0627 and 0628.
+
+### What was measured first, and it says not to build another ranking over notes
+
+Nine rounds of findings are recorded, from the six-hundred-and-ninety-first to the
+seven-hundred-and-thirtieth. Each names the rows it found a defect in, so there is a labelled set:
+**21 defect rows** that were `partial` or `reported` at their own round's base. Eleven candidate
+signals were scored over every live row at each of the nine bases — each round's ledger taken at
+the commit *before* its own — and each defect row's position in the ranking recorded as a
+percentile, where 50 is what choosing at random gives:
+
+| signal | mean percentile |
+|---|---|
+| distinct §-references in the note | 38.6 |
+| `Table NNN` citations | 40.0 |
+| cardinals that quantify | 40.8 |
+| age of the note's last rewrite (the blame ordering) | 41.7 |
+| note length in words | 42.3 |
+| cardinals × revisions | 42.4 |
+| **revisions — how many commits have rewritten the note** | 46.0 |
+| revisions per commit since the row was born | 46.2 |
+| cardinals per hundred words | 46.8 |
+| `/Key` tokens | 48.1 |
+| **the pairwise rare-sequence score, the incumbent** | 48.3 |
+
+**Nothing here is worth a rule.** The best of the eleven moves the needle by a ninth on 21 points,
+and the *incumbent* scores 48.3 — at row level the pairwise ranking is indistinguishable from
+choosing at random, which is not a criticism of it: it ranks **families**, and it says so. What the
+table settles is that no cheap property of a note ranks the rows inside one. **Revisions were the
+hypothesis worth having and they lost**: the recurring shape is a correction that reached one
+sentence and not another — 730's list audited three times, 720's tally left standing twice — so a
+count of rewrites looked like it should predict, and it predicts less than the note's length does.
+The defects are *conclusions*, and 725 already recorded that nothing in this tree ranks conclusions.
+
+So the successor is not a ranking over notes.
+
+### The rule
+
+> **Rank each live ledger row by the errata annotations that fall on it whose issue number this
+> tree names nowhere. Reassemble the issue from every clause `emit` files it under, and read the
+> issue whole.**
+
+Eight of the nine rounds found something through `spec-errata emit`, and the seven-hundred-and-sixteenth
+put the reason plainly: a pair that survives its reading has still chosen where to look. This rule
+chooses the same thing directly, and it has three properties the pairwise ranking does not:
+
+- **Its population is finite and known.** The collection's issue numbers are a closed set, so
+  *how much is left* is a question with an answer instead of a rank.
+- **It decays on use.** Reading an erratum records its number, which takes it out of the
+  population. The pairwise ranking does the opposite: the seven-hundred-and-sixteenth measured a
+  family scoring **higher** for having been read, because two rows rewritten in one round's voice
+  share more rare vocabulary than they did before.
+- **Its hits are defect-shaped.** An erratum this tree names nowhere is a specific sentence of the
+  standard nobody here has read, not a suspicion about a note.
+
+**Two limits, stated rather than discovered later.** *Named* is not *read properly*: the
+seven-hundred-and-thirtieth's finding was about Issue #619, which this tree names and whose four
+carets it had counted as two — so the population is a lower bound on the debt and the ranking is
+blind to a misread erratum. And it is an errata ranking rather than a defect ranking: three of the
+nine rounds' headline findings had no erratum in them at all.
+
+### The measurement that says it has a head
+
+Reconstructed at each of the nine rounds' own base commits — `git grep` for the issue numbers the
+tree named then, against the same `emit` output, since the PDF does not change:
+
+- The unread population falls **monotonically**: 103, 100, 97, 94, 91, 90, 89, 86, 86 issues
+  landing on a live row. About two a round, which is what nine rounds of reading errata *is*.
+- Of the eleven errata those rounds recorded, **eight were in the population** at their round's
+  base. The other three were errata the tree already named and had misread, which is the limit
+  above showing itself.
+- **The head did not move and nobody was on it.** §12.8.1, §12.5.2, §12.7.5.5 and §9.8.1 are in the
+  top six at every one of the nine bases; the rows the nine rounds actually landed on ranked 1, 4,
+  8, 17, 17, 22, 32, 39 and 50. §7.6.6 is the one row that left the head, after the
+  six-hundred-and-ninety-first read two of its issues — the decay working.
+
+At this base the whole population is **241 issue numbers named nowhere** of the **356** carrying an
+annotation, and **63** of those change the text and land on a `partial`, `reported`, `silent` or
+`unreviewed` row, over **41** rows.
+
+### The recipe, as commands
+
+```sh
+# 1. the annotations, keyed to page and clause. Not committable: ADR 0187.
+cargo run --release -p spec-errata -- emit doc/ISO_32000-2_sponsored_EC3.pdf > /tmp/emit.md
+# 2. every issue number this tree names, with the prefix — see the trap below
+grep -rhoIE 'Issues? #[0-9]+(,? (and )?#[0-9]+)*' crates doc tools fuzz \
+  --exclude-dir=md --exclude-dir=pdf.js --exclude-dir=corpora \
+  --exclude-dir=arlington-pdf-model --exclude-dir=safedocs | grep -oE '#[0-9]+' | sort -u
+# 3. the ranking: for each `## <clause>` heading in the emit, attribute its annotations to the
+#    nearest ledger row at or above that clause number, keep the rows whose status is live, drop
+#    the issues step 2 found and the ones carrying neither a StrikeOut nor a Caret, and rank by
+#    annotations. Then read one issue *whole*, across every heading it appears under.
+```
+
+**Step 2's prefix is not decoration, and this is the trap.** A numeric character reference is a `#`
+and digits: `&#124;` is how a Markdown table cell escapes a pipe, and it is the only one anywhere
+under `crates/`, `doc/` or `tools/` — two of them, in ADR 0484. A search for the bare number `124`
+finds them and answers *recorded*. **Issue #124 is one of the two this rule's first use found
+unread**, on a page the seven-hundred-and-tenth had opened. One collision exists in the whole tree
+and it is on the issue that went unrecorded.
+
+**Not built as a sweep, and the reason is the tool's rather than the rule's**: `emit`'s output is
+derived from documents this project may not redistribute, so a program that consumed it would take
+the same argument `--bin quoted` and `--bin unpriced` take. That is the shape it would have if a
+round decides it is worth building; what it would buy over the recipe is the attribution in step 3,
+which is twenty lines of arithmetic and the only part a person can get wrong.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

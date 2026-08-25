@@ -832,6 +832,29 @@ fn decided(
     let stored = match stored_appearance(document, annotation, view) {
         Normal::Stream(stream) => stream,
         Normal::Absent => {
+            // Table 167's `Invisible` row is the whole of what a reader owes an annotation whose
+            // type this document does not define, and both of its sentences are answered here.
+            // The flag *set* is the branch above; the flag **clear** is this one:
+            //
+            // > If clear, render such an unknown annotation using an appearance stream specified
+            // > by its appearance dictionary, if any (see 12.5.5, "Appearance streams").
+            //
+            // There is no appearance dictionary on this path, so *if any* is the sentence's own
+            // answer: nothing is to be rendered and nothing is owed. Reporting instead would
+            // claim this reader fell short where no reader could draw more, and the report it
+            // produced said "its clause states no geometry" — a claim about a clause a subtype
+            // outside Table 171 does not have.
+            //
+            // **An annotation with no `/Subtype` at all is deliberately not this case.** Table
+            // 166 makes the entry required, so such a file has broken a rule rather than named a
+            // type nobody recognises, and `issue7446.pdf`'s report stays.
+            //
+            // Errata Collection 3's Issue #1 is what puts the two sentences together: it takes
+            // §12.5.1's "expected behaviour for all annotation types that it does not recognise"
+            // off §12.5.2 and points it at §12.5.5 and at this row's first two flags.
+            if !subtype.is_empty() && !STANDARD_SUBTYPES.contains(&subtype.as_slice()) {
+                return Decision::Nothing;
+            }
             // With no stored stream there is nothing whose own box could stand in for a missing
             // rectangle, and every construction in `crate::appearance` is written into one. So
             // this is where a `/Rect` Table 166 makes required is still refused.
@@ -870,7 +893,17 @@ fn decided(
         (None, None) => return Decision::Unsupported(format!("{name}: no usable /Rect")),
     };
     // An annotation covering no area cannot show anything, whether its appearance is stored or
-    // constructed — and Table 166 excuses a writer from supplying one for exactly that shape.
+    // constructed, and §12.5.5's algorithm is why: it scales the appearance's transformed
+    // `/BBox` onto `/Rect`, and a scale onto no extent leaves no mark whatever the stream draws.
+    //
+    // **Table 166's excuse is narrower than this condition and is not what supplies it**, which
+    // this comment claimed until the seven-hundred-and-thirty-fourth session. The `/AP` row frees
+    // a writer for "[a]nnotations where the value of the Rect key consists of an array where the
+    // value at index 1 is equal to the value at index 3 and the value at index 2 is equal to the
+    // value at index 4" — a *point*, and its own NOTE says that bullet "was changed from 'or' to
+    // 'and' in this document to match requirements in other published ISO PDF standards (such as
+    // PDF/A)". [`is_empty`] is the 'or'. Errata Collection 3's Issue #124 renumbers those four
+    // indices from zero and leaves the rectangle they describe unchanged.
     if is_empty(rect) {
         return Decision::Nothing;
     }
