@@ -4969,6 +4969,70 @@ const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] = [
 /// `doc/HANDOVER.md` for a long time**; a pointer written as prose rather than as a path is
 /// one `conformance --bin pointers` cannot resolve, which is why it outlived the move.
 ///
+/// # Which measure ranks this page, and it is not the one every paragraph above prices
+///
+/// The page is **third on [`rank_the_pages_we_are_alone_on`] at 4.13×, marked `[widened:
+/// outside]`**, and the gate now names the measure each half of that ratio is taken on. The
+/// numerator is 31.43 bounds and the divisor 7.62, and **both are the structural similarity** —
+/// ours against `poppler`, theirs between `mupdf` and `ghostscript`. Everything above this line is
+/// priced in whole-page mean grey,
+/// which is not a measure the gate holds anything to and is not the one the ranking reads. ADR
+/// 0688. `examples/compare_rasters` over the gate's own panels — that example's figures, one named
+/// pair per row, where the gate's line is our render against a consensus's worst member (ADR 0663)
+/// — against this page's *vector* bounds of mean 1.00, worst tile 5.00, similarity 0.9900:
+///
+/// ```text
+///                           mean      ssim     bounds
+/// ours vs poppler        17.6275   0.68566    31.43  ← the numerator, on the similarity
+/// ours vs mupdf          17.5866   0.55528    44.47
+/// ours vs ghostscript    16.4961   0.63480    36.52
+/// ours vs hayro           2.8429   0.98976     2.84  ← 1.02 on the similarity, so this is a mean
+/// poppler vs mupdf       21.3666   0.37853    62.15
+/// poppler vs ghostscript 20.4497   0.44878    55.12
+/// mupdf vs ghostscript    3.0929   0.92383     7.62  ← the divisor, on the similarity
+/// ```
+///
+/// **The divisor is the mechanism this note names and the numerator is not.** `mupdf` and
+/// `ghostscript` are the closest pair because both leave the grid lines thin, which is the shared
+/// gap the camps above are about. But our own nearest reference is `poppler`, which is in *our*
+/// camp on the mean and 31 bounds away on the similarity — so the sentence "two camps, and we are
+/// in the right one" cannot account for the number that ranks the page. What can is the paragraph
+/// above it: **the half of §10.7.5 this tree does not implement.** Same ink, different
+/// distribution, is a difference a mean cannot see and a similarity is made of.
+///
+/// # Priced by taking the mechanism out of the document, and the control is the finding
+///
+/// `doc/todo/00` step 1's instrument (ADR 0663): make the mechanism unable to act and re-measure
+/// **both** halves. `/SA true` was renamed to `/S1 true` in place — eight bytes for eight, so the
+/// cross-reference table still resolves, and Table 58's initial value for `SA` is `false`, so the
+/// page is the same page with stroke adjustment disabled — and all five renderers were re-run at
+/// 72 dpi. The control first: on the *unedited* file, freshly rendered, all four references and our
+/// own raster are **byte-identical to the gate's cached panels**, so nothing below is a measurement
+/// of a stale artefact.
+///
+/// ```text
+///                        with /SA   without it
+/// ours vs poppler          31.43       64.34
+/// ours vs mupdf            44.47        2.62   ← our nearest, and the page's whole rank
+/// ours vs ghostscript      36.52       10.70
+/// ours vs hayro             2.84       50.37
+/// mupdf vs ghostscript      7.62        7.62   ← byte-identical
+/// ```
+///
+/// **Not one reference moves by a single bit.** `poppler`, `mupdf`, `ghostscript` and `hayro` all
+/// render the `/SA`-free file identically to the original, so on this page the entry decides a
+/// pixel for **this tree and for nobody else** — which is the sentence below, measured rather than
+/// asserted, and it makes both camps something other than what the note called them: `mupdf` and
+/// `ghostscript` never read the entry, and `poppler` and `hayro` widen a sub-pixel stroke whether
+/// the document asks for it or not. Our agreement with them was two answers to two different
+/// questions (trap 9), in our own camp and with the sign reversed.
+///
+/// And with the entry gone our nearest falls from 31.43 to **2.62**, against a divisor that did not
+/// move at all, so the ratio is 0.34 and **the page leaves that list entirely**. The whole of its
+/// rank is one clause we implement and no reference here conditions on. That is not a defect and
+/// not a reason to stop: it is `AMBIGUOUS_OVERSIZED_BORDER`'s cost stated once more — obeying a
+/// `shall` moves a page *away* from renderers that do not.
+///
 /// `Stroke::device_width` conditions the rule on `/SA` rather than applying it always, which
 /// is what makes this a derivation rather than a coincidence: this is the one page in the
 /// corpus where the entry decides a pixel. **How many documents state it is a command rather
@@ -5085,6 +5149,36 @@ const AMBIGUOUS_FUNCTION_SAMPLED_BY_A_REFERENCE: [&str; 1] = ["function_based_sh
 /// weight among themselves, so nobody's pair ever agreed closely enough to contradict us for
 /// drawing **none** of it. A page can be plainly wrong inside this verdict, which is §3a's whole
 /// argument, and this is the group that demonstrates it.
+///
+/// # Which measure ranks it, and the ink above turns out to be the right instrument for it
+///
+/// The page is ninth on [`rank_the_pages_we_are_alone_on`] at 2.90×, marked `[widened: outside]`,
+/// and the gate names both halves since ADR 0688: ours is the **structural similarity against
+/// `ghostscript`**, 32.84, and the divisor is the **similarity between `poppler` and `mupdf`**,
+/// 11.33. Like for like, which is not true of most of that list's head — and the ink table above
+/// reaches it, because on a page whose only marks are single-pixel rules *how much* and *where*
+/// are the same question. `examples/compare_rasters` over the gate's own panels, that example's
+/// figures and one named pair per row (ADR 0663), against vector bounds of mean 1.00, worst tile
+/// 5.00, similarity 0.9900:
+///
+/// ```text
+///                           mean      ssim     bounds
+/// ours vs ghostscript    11.8958   0.67165    32.84  ← the numerator, on the similarity
+/// ours vs poppler        13.0571   0.58418    41.58
+/// ours vs mupdf          13.2446   0.54941    45.06
+/// poppler vs mupdf        1.4381   0.88670    11.33  ← the divisor, on the similarity
+/// poppler vs ghostscript  3.5061   0.75348    24.65
+/// mupdf vs ghostscript    3.5340   0.73197    26.80
+/// ```
+///
+/// **The similarity orders the three references exactly as the ink does**: `ghostscript` shades
+/// the rules hardest of the three and is our nearest, `mupdf` shades them least and is our
+/// furthest. So the mechanism this note names accounts for the measure that ranks the page, which
+/// is what ADR 0497's sixth criterion asks and what most of that list's head cannot say. The
+/// divisor is the same clause from the other side — `poppler` and `mupdf` are the closest pair
+/// because they are the two that shade a full mark down furthest — and 11.33 is a pair that agrees
+/// about nothing except how far to depart, which is why this page's 2.90× is small beside its
+/// absolute numbers.
 const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 
 /// Ambiguous, and the page is its own conformance test twice over.
@@ -6297,6 +6391,14 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 /// renderers do not, and the ranking reads the difference as ours. That is trap 9's tenth
 /// mechanism with a shared *gap* in the divisor rather than a shared library (ADR 0663).
 ///
+/// **The divisor is the *mean*, where the numerator is the similarity, and 5.68× therefore divides
+/// one measure by another** (ADR 0688). `mupdf` against `ghostscript` is mean 2.2695 of a bound of
+/// 5.00 and similarity 0.98268 of a bound of 0.9000, so 0.45 is the first of those and 0.17 the
+/// second. Read like for like on the similarity the page is 2.58 over 0.17, which is **14.9×** and
+/// the head of that list by a wide margin — so naming the measure makes this row *sharper* and
+/// changes nothing about the reading, because the removal above already answered it: both halves
+/// are one annotation, in either measure.
+///
 /// # Why three renderers drawing nothing is not three votes
 ///
 /// `CONTRADICTED_LINK_BORDER` has the reading and every word of it applies here: `mupdf`'s
@@ -6566,6 +6668,44 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 ///   against **1760** over the rest. Trap
 ///   9 is a list of ways shared code manufactures an agreement between references; in a ratio that
 ///   agreement is the divisor, so here it accuses us instead of excusing somebody.
+///
+/// **And the two halves of that ratio are two different measures, which is the third thing and was
+/// invisible until the gate printed it** (ADR 0688). On all five of these pages our own number is
+/// the **structural similarity against `mupdf`** and the divisor is the **mean between `poppler`
+/// and `mupdf`** — so 3.39× is not a ratio of like for like, and both bullets above are priced in
+/// ink, which is neither of those two. `examples/compare_rasters` over the gate's own panels, that
+/// example's figures and one named pair per row (ADR 0663), against text bounds of mean 5.00,
+/// worst tile 40.00, similarity 0.9000:
+///
+/// ```text
+/// page 315                  mean      ssim     bounds
+/// ours vs poppler         5.4095   0.87334      1.27
+/// ours vs mupdf           5.1514   0.88154      1.18  ← the numerator, on the similarity
+/// ours vs ghostscript     6.5841   0.82608      1.74
+/// poppler vs mupdf        1.7452   0.97776      0.35  ← the divisor, on the mean
+/// poppler vs ghostscript  3.6882   0.93547      0.74
+/// mupdf vs ghostscript    3.6854   0.93595      0.74
+///
+/// page 322
+/// ours vs poppler         5.0380   0.88086      1.19
+/// ours vs mupdf           4.7575   0.88979      1.10  ← the numerator, on the similarity
+/// ours vs ghostscript     6.1033   0.83924      1.61
+/// poppler vs mupdf        1.6720   0.97848      0.33  ← the divisor, on the mean
+/// poppler vs ghostscript  3.6082   0.93487      0.72
+/// mupdf vs ghostscript    3.4711   0.94018      0.69
+/// ```
+///
+/// **Read like for like the page is further out, not nearer.** Taken on the similarity alone the
+/// sharing pair is at 0.22 of the bound and we are at 1.18, which is 5.3× rather than the printed
+/// 3.39×; taken on the mean alone we are at 1.03 over their 0.35, which is 3.0×. So naming the
+/// measure does not excuse
+/// these pages and was never going to: what it does is say **what is left to explain**, and it is
+/// not the ink. The ladders above answer *how much* to four decimal places and the similarity is a
+/// statement about *where* — which is `freeculture.pdf` page 255's lesson arriving on the five
+/// pages that stayed. The clause that licenses the difference is §10.7.4's closing sentence, "[s]can
+/// conversion of character glyphs may be performed by a different algorithm from the preceding
+/// one", and [`AMBIGUOUS_GLYPH_COVERAGE`] is where the same pair of facts is measured on a page of
+/// fifteen rows instead of six hundred.
 ///
 /// # And then the whole of both books, on a sample and a band
 ///
@@ -7886,6 +8026,17 @@ const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
 /// *we* are the second-closest thing on the page to the reference pair, and the page rises because
 /// the pair is one glyph rasteriser (ADR 0663).
 ///
+/// **Those two numbers are two different measures, and the table above is where it can be seen**
+/// (ADR 0688). Against this page's text bounds — mean 5.00, worst tile 40.00, similarity 0.9000 —
+/// our 1.13 is the **structural similarity** against `mupdf`, 0.88671, while the pair's 0.41 is
+/// their **mean**, 2.0394, their own similarity being 0.98174 and therefore 0.18 of the bound. So
+/// the printed 2.78× divides a similarity by a mean. Read like for like the trap-9 reading holds
+/// either way and is *stronger* on the measure our number is: 1.13 over 0.18 is **6.2×** on the
+/// similarity, and 1.07 over 0.41 is 2.6× on the mean. The sharing pair is the closest pair on
+/// both, so nothing here turns on which measure is asked — which is worth saying plainly, because
+/// one group over it does: on `freeculture.pdf` page 322 our own **mean** is 0.95 of its bound,
+/// *inside* it, and only the similarity puts that page on this list at all.
+///
 /// **`issue12337.pdf` is the case where step 6 has one ladder and not two**: `pdftoppm` at 576
 /// dpi produces no image for it at all, so only `mupdf`'s 16.225 is available, and a single
 /// ladder cannot tell convergence from drift. What can be said without it is that four of the
@@ -8935,6 +9086,40 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 /// **15 × 34 device pixels**, which is this group's sentence rather than a defect: the coverage is
 /// agreed and what differs is where the covered pixels are.
 ///
+/// **And on this page the ladder is the right instrument, which is a thing to check rather than to
+/// assume** (ADR 0688). `endchar.pdf` is eleventh on [`rank_the_pages_we_are_alone_on`] at 2.36×,
+/// marked `[widened: outside]`, and the gate names both halves: ours is the **mean against
+/// `mupdf`**, 1.97, and the divisor is the **mean between `poppler` and `ghostscript`**, 0.83. Like
+/// for like, so this page's number may be read as the ratio it looks like — one of the three rows
+/// of that list's head whose numerator is a mean at all, the others being
+/// `copy_paste_ligatures.pdf` below and `AMBIGUOUS_OVERSIZED_BORDER`'s page.
+/// `examples/compare_rasters` over the gate's own panels, that
+/// example's figures and one named pair
+/// per row (ADR 0663), against text bounds of mean 5.00, worst tile 40.00, similarity 0.9000:
+///
+/// ```text
+///                           mean      ssim     bounds
+/// ours vs mupdf           9.8343   0.92555     1.97  ← the numerator, on the mean
+/// ours vs poppler        11.6544   0.90148     2.33
+/// ours vs ghostscript    15.0172   0.85351     3.00
+/// poppler vs ghostscript  4.1686   0.98289     0.83  ← the divisor, on the mean
+/// poppler vs mupdf        4.9809   0.98269     1.00
+/// mupdf vs ghostscript    9.0015   0.94456     1.80
+/// ```
+///
+/// **Our similarity against `mupdf` is 0.92555, which is 0.74 of the bound and therefore inside
+/// it**: the accented glyph is in the same place in both rasters and differently covered, which is
+/// the group's own sentence read off the measure that is failing rather than off the one that is
+/// not.
+///
+/// **One caution the table earns and the ladder cannot state.** A ladder's ink is a *signed page
+/// total* and the gate's mean is a *per-pixel absolute difference*, and the two are not the same
+/// statistic even though both are means: at 72 dpi the ink puts `ghostscript` 0.18 from us and
+/// `mupdf` 1.33, while the gate's mean puts `mupdf` nearest at 9.83 and `ghostscript` furthest at
+/// 15.02. On a raster of 15 × 34 two renderers can cover the same total with different pixels, and
+/// which is nearer then depends on which question is asked. Both answers are above, and neither is
+/// a correction of the other.
+///
 /// **Three of the four 72-dpi figures above this table reproduce and the fourth is ours**:
 /// `poppler` 59.0589 against a recorded 59.06, `ghostscript` 59.6630 against 59.66, `mupdf`
 /// 58.1554 against 58.16, and *ours* **59.4874 against a recorded 59.39**. So the number that moved
@@ -9102,7 +9287,7 @@ const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
 /// # And obeying the clause moved us **away** from the references, which is the cost stated
 ///
 /// Our nearest was **1.90** bounds before that fix and is **5.98** after it, which puts this page
-/// second in `rank_the_pages_we_are_alone_on` at 5.60× where it was on no printed list. Nothing
+/// second in [`rank_the_pages_we_are_alone_on`] at 5.60× where it was on no printed list. Nothing
 /// about that is a regression and the verdict does not move: the two references nearest us,
 /// `mupdf` and `ghostscript`, are nearest because they draw **no link border at all**, so every
 /// unit of the border this clause requires is a unit further from them. It is
@@ -9110,6 +9295,28 @@ const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
 /// flatters a reader that shares it and accuses one that does not (ADR 0663) — and a ranking that
 /// promoted this page for becoming more correct is the instrument working as designed rather than
 /// a reason to stop.
+///
+/// **And the measure is the *mean* on both halves of that ratio, which is the one thing the
+/// paragraph above did not say** (ADR 0688). The gate names it now: the numerator is 5.98 bounds
+/// and the divisor 1.07, and **both are the mean** — ours against `mupdf`, theirs between `mupdf`
+/// and `ghostscript`. The two halves are like for like, so this page's number may be read as the
+/// ratio it looks like. `examples/compare_rasters`' figures, one named pair per row and not the
+/// gate's line (ADR 0663), against text bounds of mean 5.00, worst tile 40.00, similarity
+/// 0.9000:
+///
+/// ```text
+///                           mean      ssim     bounds
+/// ours vs poppler        75.0211   0.30279    15.00
+/// ours vs mupdf          29.9125   0.64561     5.98  ← the numerator, on the mean
+/// ours vs ghostscript    31.8506   0.62032     6.37
+/// mupdf vs ghostscript    5.3459   0.94233     1.07  ← the divisor, on the mean
+/// ```
+///
+/// A border is an area of ink, so a mean is exactly the measure a border mechanism should move,
+/// and the shared gap is on the same measure: the two references nearest us are 1.07 apart on the
+/// mean because neither draws the annotation. Numerator and denominator are one clause counted
+/// twice with the sign reversed, in the unit the clause acts in — `AMBIGUOUS_LINK_BORDER`'s
+/// removal on a page where the mean is what moves.
 ///
 /// **And `poppler`'s side of this page is a population rather than a page**, which is the other
 /// half of the same session: it puts an annotation border's path *on* `/Rect`'s boundary at every
@@ -10900,6 +11107,11 @@ struct Examined {
     ///
     /// `None` on exactly the pages [`Self::consensus_missed_in_three_measures`] is `None` on.
     outside_what_the_closest_pair_would_allow: Option<bool>,
+    /// Which measure, and against which renderers, each half of that ratio is taken on.
+    ///
+    /// `None` on exactly the pages [`Self::consensus_missed_in_three_measures`] is `None` on.
+    /// See [`AloneOn`] for why a ratio whose two halves are anonymous cannot be diagnosed.
+    alone_on: Option<AloneOn>,
     /// How far outside its own bound a contradicted page sits, in multiples of that bound.
     ///
     /// `None` on every verdict but `CONTRADICTED`, which is trap 11 rather than tidiness: on an
@@ -10964,6 +11176,7 @@ impl Examined {
             consensus_missed_by: None,
             consensus_missed_in_three_measures: None,
             outside_what_the_closest_pair_would_allow: None,
+            alone_on: None,
             outside_the_bound: None,
             abstentions: 0,
             absent: Vec::new(),
@@ -11454,6 +11667,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     let consensus_missed_in_three_measures = consensus_missed_in_three_measures(&triangulation);
     let outside_what_the_closest_pair_would_allow =
         outside_what_the_closest_pair_would_allow(&triangulation);
+    let alone_on = AloneOn::of(&triangulation);
     let outside_the_bound = outside_the_bound(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
@@ -11487,6 +11701,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         consensus_missed_by,
         consensus_missed_in_three_measures,
         outside_what_the_closest_pair_would_allow,
+        alone_on,
         outside_the_bound,
         abstentions: triangulation.abstained.len(),
         absent,
@@ -11609,11 +11824,7 @@ fn outside_what_the_closest_pair_would_allow(
     triangulation: &pdfref::Triangulation,
 ) -> Option<bool> {
     let bounds = &triangulation.judged_by;
-    let (_, _, closest) = triangulation.between_references.iter().min_by(|a, b| {
-        outside_by_in_three_measures(&a.2, bounds)
-            .partial_cmp(&outside_by_in_three_measures(&b.2, bounds))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    })?;
+    let (_, _, closest) = closest_reference_pair(triangulation)?;
     let widened = bounds.widened_to(closest, corpus_widening_factor());
     let nearest = triangulation
         .ours
@@ -11623,6 +11834,91 @@ fn outside_what_the_closest_pair_would_allow(
             Some(nearest.map_or(ours, |n: f64| n.min(ours)))
         })?;
     Some(nearest > 1.0)
+}
+
+/// The two references [`consensus_missed_in_three_measures`] is the comparison between.
+///
+/// One implementation of the reduction, because three callers taking their own minimum over the
+/// same list is how two of them eventually name different pairs — which is exactly the defect ADR
+/// 0643 found in two *columns* of one printed line, one step further in.
+fn closest_reference_pair(
+    triangulation: &pdfref::Triangulation,
+) -> Option<&(Reference, Reference, raster_compare::Comparison)> {
+    let bounds = &triangulation.judged_by;
+    triangulation.between_references.iter().min_by(|a, b| {
+        outside_by_in_three_measures(&a.2, bounds)
+            .partial_cmp(&outside_by_in_three_measures(&b.2, bounds))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
+}
+
+/// The reference [`Distance::nearest`] is our comparison against.
+///
+/// The same reduction `Distance::of` folds, kept separately so that the *name* it discards can be
+/// recovered without changing a number a hundred notes quote.
+fn nearest_reference(
+    triangulation: &pdfref::Triangulation,
+) -> Option<&(Reference, raster_compare::Comparison)> {
+    let bounds = &triangulation.judged_by;
+    triangulation.ours.iter().min_by(|a, b| {
+        outside_by_in_three_measures(&a.1, bounds)
+            .partial_cmp(&outside_by_in_three_measures(&b.1, bounds))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
+}
+
+/// Which measure, and against which renderers, each half of the *we are alone* ratio is taken on.
+///
+/// # The gap this fills, which is one level finer than ADR 0497's sixth criterion
+///
+/// [`Distance::nearest`] and [`consensus_missed_in_three_measures`] are each a **maximum over
+/// three measures** and then a **minimum over comparisons**, and the first of those two reductions
+/// throws away a name that [`worst_ratio`] keeps for the contradicted ranking. So a note could
+/// price a page of [`rank_the_pages_we_are_alone_on`] as *our number is 1.83 and here is the
+/// mechanism* without ever saying which of the three the 1.83 is — and **a mechanism that accounts
+/// for a mean need not account for a structural similarity**. The seven-hundred-and-sixty-first
+/// session found the readable form of it: `freeculture.pdf` page 1 and `copy_paste_ligatures.pdf`
+/// are marked `[widened: outside]` below a ratio of 2 precisely because our worst measure and the
+/// pair's are *different* measures, so the two halves of the printed ratio are not commensurable
+/// even though they are in one unit.
+///
+/// `--bin unpriced` asks the same question of a contradicted page's failing bound and calls a note
+/// that argues about another measure its sharpest rung; ADR 0675 is the standing instance — a
+/// note whose mechanism predicted the mean to four decimals while the mean was a bound the page
+/// *passes*. This is that question asked of a ranking rather than of a verdict, and it needs the
+/// gate to print the answer because no per-page line carries it: the line prints our distance from
+/// the consensus's **worst** member, and this ratio is taken against its **nearest**.
+///
+/// # Why the renderers travel with the measures
+///
+/// Every note on this list already names them — *2.58, the similarity, against `poppler`*, *the
+/// divisor is `mupdf` + `ghostscript` at 0.45* — and until now those names were taken by hand off
+/// `examples/compare_rasters`. A claim this tree can print is a claim `--bin quoted`'s rule applies
+/// to, and one it cannot print is a claim that decays unwatched.
+#[derive(Debug, Clone, Copy)]
+struct AloneOn {
+    /// The measure [`Distance::nearest`] is the ratio of, and the reference it is measured against.
+    ours: (&'static str, Reference),
+    /// The measure [`consensus_missed_in_three_measures`] is the ratio of, and the pair it is
+    /// measured between.
+    theirs: (&'static str, Reference, Reference),
+}
+
+impl AloneOn {
+    /// `None` on exactly the pages [`consensus_missed_in_three_measures`] and [`Distance::of`] are.
+    fn of(triangulation: &pdfref::Triangulation) -> Option<Self> {
+        let bounds = &triangulation.judged_by;
+        let (nearest, ours) = nearest_reference(triangulation)?;
+        let (left, right, theirs) = closest_reference_pair(triangulation)?;
+        Some(Self {
+            ours: (worst_ratio_in_three_measures(ours, bounds).1, *nearest),
+            theirs: (
+                worst_ratio_in_three_measures(theirs, bounds).1,
+                *left,
+                *right,
+            ),
+        })
+    }
 }
 
 /// The multiple of a consensus's own spread that [`Judgement::CORPUS`] still counts as agreement.
@@ -12116,11 +12412,36 @@ fn outside_by_in_three_measures(
     comparison: &raster_compare::Comparison,
     bounds: &Tolerance,
 ) -> f64 {
-    let mean = comparison.mean_error / bounds.max_mean;
-    let tile = comparison.worst_tile_error / bounds.max_worst_tile;
-    let structural =
-        (1.0 - comparison.structural_similarity) / (1.0 - bounds.min_structural_similarity);
-    mean.max(tile).max(structural)
+    worst_ratio_in_three_measures(comparison, bounds).0
+}
+
+/// [`outside_by_in_three_measures`] with the name of the measure the largest ratio belongs to.
+///
+/// [`worst_ratio`] and this one are the same split for the same reason, over four measures and
+/// over three: **a ranked number that does not say what it is a ratio of is unreadable**. It took
+/// until the seven-hundred-and-sixty-fourth session to be made here because the four-measure
+/// twin's name is printed beside a *verdict*, where a note that misprices it is an exemption from
+/// a bound, and this one's is printed beside a *ranking*, where nothing failed and the cost is a
+/// diagnosis that explains the wrong measure (ADR 0688). [`AloneOn`] is where it is used.
+fn worst_ratio_in_three_measures(
+    comparison: &raster_compare::Comparison,
+    bounds: &Tolerance,
+) -> (f64, &'static str) {
+    [
+        (comparison.mean_error / bounds.max_mean, "mean"),
+        (
+            comparison.worst_tile_error / bounds.max_worst_tile,
+            "worst tile",
+        ),
+        (
+            (1.0 - comparison.structural_similarity) / (1.0 - bounds.min_structural_similarity),
+            "structural similarity",
+        ),
+    ]
+    .into_iter()
+    .fold((0.0, "mean"), |worst, ratio| {
+        if worst.0 >= ratio.0 { worst } else { ratio }
+    })
 }
 
 /// The gate.
@@ -12948,6 +13269,17 @@ fn rank_the_manufactured_ambiguity(results: &[Examined]) {
 /// there and said so: below the mark, `freeculture.pdf` page 255 is four ink ladders inside 0.066
 /// of 255 with our render the most central of the five (ADR 0685), which is what an unmarked row
 /// looks like when it is opened.
+///
+/// # Which measure each half is, and why it is on the row rather than in a note
+///
+/// Both halves are a maximum over three measures, so the printed ratio is a ratio of like for like
+/// only where the two maxima fall on the same one — and on most of this list's head they do not.
+/// Each row therefore names its own: `[<measure> v <reference>]` for our nearest and
+/// `[<measure>, <reference> v <reference>]` for the closest pair, and a count under the list says
+/// how many rows are mixed. [`AloneOn`] has the argument (ADR 0688), and the short form is that a
+/// note pricing a mechanism has to price *the measure that ranks the page*: `bug1743245.pdf`'s
+/// mechanism was argued in whole-page mean grey over a row whose number is a structural similarity,
+/// and removing the mechanism from the document moved that number the *other* way.
 fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
     let pool: Vec<&Examined> = results
         .iter()
@@ -13002,8 +13334,27 @@ fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
     // names a head of thirteen under a list of ten is a queue a reader cannot open, which is the
     // shape ADR 0643 found in two columns and ADR 0663 in a dropped population.
     for (examined, ours, missed) in alone.iter().take(widened_outside.max(10)) {
+        // Both halves carry the measure they are the ratio of, because a maximum over three
+        // measures discards the one name a diagnosis needs: a mechanism accounting for a mean does
+        // not thereby account for a structural similarity, and two of the rows below are marked at
+        // a ratio under 2 for exactly that reason. `AloneOn` has the argument (ADR 0688).
+        let (ours_on, theirs_on) = examined.alone_on.map_or_else(
+            || ("-".to_owned(), "-".to_owned()),
+            |on| {
+                (
+                    format!("{} v {}", on.ours.0, on.ours.1.name()),
+                    format!(
+                        "{}, {} v {}",
+                        on.theirs.0,
+                        on.theirs.1.name(),
+                        on.theirs.2.name()
+                    ),
+                )
+            },
+        );
         println!(
-            "    {:>6.2}× — {ours:5.2} ours over {missed:5.2} between them  {}{}",
+            "    {:>6.2}× — {ours:5.2} ours [{ours_on}] over {missed:5.2} between them \
+             [{theirs_on}]  {}{}",
             ours / missed,
             examined.name,
             if outside_the_widened_bound(examined) {
@@ -13026,6 +13377,21 @@ fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
          pages of the pool are further from every reference than the closest two are from each \
          other with our own nearest inside every bound, and are not listed, because there the \
          ratio measures how closely the references agree (ADR 0663)",
+        alone.len(),
+    );
+    // A ratio whose two halves are maxima over three measures need not be a ratio of like for
+    // like, and where it is not, a note explaining the divisor's mechanism has not thereby
+    // explained the numerator's measure. Counted rather than cautioned, for trap 11's reason and
+    // ADR 0688's: the rows say which two measures they are, and this says how much of the list
+    // reads that way at all.
+    let mixed = alone
+        .iter()
+        .filter(|(examined, _, _)| examined.alone_on.is_some_and(|on| on.ours.0 != on.theirs.0))
+        .count();
+    println!(
+        "    and on {mixed} of the {} the two halves are different measures, so the printed ratio \
+         divides one measure by another and the mechanism behind the divisor need not reach the \
+         one our own number is on (ADR 0688)",
         alone.len(),
     );
     // The head, marked page by page above. Below it a consensus at the closest pair's own spread

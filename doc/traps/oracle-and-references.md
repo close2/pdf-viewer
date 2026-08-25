@@ -342,6 +342,18 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   the ratio is measuring how closely two references happen to agree rather than anything about the
   page.
 
+  **And the row says which measure each half is, because a mechanism in the divisor need not reach
+  the measure the numerator is on** (ADR 0688). Both halves are a maximum over three measures, so
+  the ratio is like for like only where the two maxima fall on the same one, and on most of that
+  list's head they do not: `bug766086.pdf` divides a structural similarity by a mean, and so do the
+  five `freeculture` pages. Naming the measure does not soften a row — on `bug766086.pdf` the
+  like-for-like similarity reading is 14.9× where the printed ratio is 5.68× — it says **what is
+  left to explain**. `bug1743245.pdf` is the case where the answer changes: its note prices two
+  camps in whole-page mean grey, its row is a similarity against a renderer *in our camp*, and
+  taking the mechanism out of the document moves our nearest from 31.43 to 2.62 while every
+  reference stays byte-identical. The divisor is the mechanism the note names; the numerator is a
+  second one the same note records and never numbered.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is
