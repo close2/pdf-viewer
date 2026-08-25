@@ -150,6 +150,17 @@ session is that the tree is far enough along for this to be the work.
   the pair's *worst* measure are different measures can be marked at a ratio well under 2 — two of
   the marked pages are.
 
+  **And every row now says which measure each of its two halves is, and against which renderers**,
+  since the seven-hundred-and-sixty-fourth (ADR 0688). `outside_by_in_three_measures` returned a
+  maximum and threw away the name where `worst_ratio` keeps it, so a note could price a mechanism
+  on a row of this list without ever saying which of the three the number was — and **a mechanism
+  that accounts for a mean does not thereby account for a structural similarity**. The count under
+  the list says how many rows divide one measure by another; on the rest the printed ratio is a
+  ratio of like for like and may be read as one. This is ADR 0497's sixth criterion — the question
+  `--bin unpriced` asks of a *contradicted* page's failing bound — asked of a ranking instead, and
+  the gate has to print it because no per-page line carries it: that line is our render against the
+  consensus's **worst** member and this ratio is taken against its **nearest**.
+
 ## What the two rankings say when read together
 
 **Taken in the five-hundred-and-eighteenth session over all 786.** The gate's own ranking is in
@@ -406,6 +417,18 @@ directory over.
    now priced against the *measure* its own number is taken on; the two the mark added to the
    readable cut, `freeculture.pdf` page 1 and `copy_paste_ligatures.pdf`, are both pages where our
    worst measure is the structural similarity and the pair's is the mean.
+
+   **And a mechanism is only priced when it is priced in the measure the row is ranked on**, which
+   is the newest thing this step knows and is what the row's own `[measure v reference]` brackets
+   are for (ADR 0688). The seven-hundred-and-sixty-fourth session read the marked head that way and
+   the sharpest result is `bug1743245.pdf`: its note argues two camps over §10.7.5's single-pixel
+   rule in **whole-page mean grey**, and the row's 31.43 is a **structural similarity against
+   `poppler`** — a renderer in our own camp. Removing the mechanism from the document (`/SA true`
+   renamed to `/S1 true`, eight bytes for eight) moves our nearest to **2.62 against `mupdf`** and
+   takes the page off the list, while all four references render byte-identically, so no reference
+   on that page reads the entry at all. The mechanism is real, the note is right about it, and it
+   explains the *divisor*; what explains the numerator is the other half of the same clause, which
+   the note records as a departure and never joined to a number.
 
    **A page below the mark is still worth opening when its own note disclaims it**, and that is the
    one exception. `freeculture.pdf` page 255 sat at 1.35× under a group note saying in as many
