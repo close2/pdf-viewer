@@ -279,9 +279,13 @@ fn an_annotation_with_no_rectangle_is_placed_by_its_appearances_box() {
 ///
 /// `issue14438.pdf` states four ink annotations with no `/Rect` and appearance streams whose
 /// `/BBox` is `[0 0 0 0]`, and it used to be reported for the missing rectangle — the one entry
-/// that could not have changed the picture. Table 166 excuses a writer from supplying an
-/// appearance for an annotation covering no area, and this is that case reached through the
-/// appearance's own box instead of through `/Rect`.
+/// that could not have changed the picture. What draws nothing here is §12.5.5's own arithmetic:
+/// the box is scaled onto the rectangle, and a scale onto no extent leaves no mark.
+///
+/// **Table 166's `/AP` bullet is not the reason, and this comment said it was** until the
+/// seven-hundred-and-thirty-fourth session. The bullet frees a *writer* from supplying an
+/// appearance only where both of `/Rect`'s pairs are equal — a point — which this fixture's
+/// `[0 0 0 0]` happens to be and which `annotation::is_empty` is wider than.
 #[test]
 fn an_appearance_box_covering_no_area_draws_nothing_and_reports_nothing() {
     let interpretation = interpret(pdf_with(
@@ -753,7 +757,7 @@ fn each_text_markup_draws_its_own_mark() {
     }
 }
 
-/// A subtype this crate knows nothing about still draws its normal appearance./// A subtype this crate knows nothing about still draws its normal appearance.
+/// A subtype this crate knows nothing about still draws its normal appearance.
 ///
 /// §12.5.5: "If a PDF processor does not have native support for a particular annotation type,
 /// the PDF processor shall render the annotation with its normal (N) appearance." So the
@@ -769,6 +773,60 @@ fn an_unknown_subtype_still_draws_its_normal_appearance() {
     ));
 
     assert_eq!(extent(&raster), (20, 30, 59, 69));
+}
+
+/// The same subtype with **no** appearance dictionary draws nothing and is not a gap.
+///
+/// The other half of the sentence the test above asserts, and it was reported as unsupported
+/// until the seven-hundred-and-thirty-fourth session — with the detail "its clause states no
+/// geometry", asserted of a subtype that has no clause. Table 167's `Invisible` row says what a
+/// reader owes here and says it with a condition: "If clear, render such an unknown annotation
+/// using an appearance stream specified by its appearance dictionary, if any". There is none, so
+/// the requirement is met by drawing nothing, and a report would name a shortfall that is not
+/// one. Errata Collection 3's Issue #1 is what sends §12.5.1's sentence about an unrecognised
+/// type to this row and to §12.5.5 rather than to §12.5.2.
+///
+/// **A standard subtype whose clause states no geometry is the control**, because it must keep
+/// its report: `Movie` is Table 171's and is on `CLAUDE.md`'s clause 13 exclusion list, and a
+/// page that silently loses it is exactly what trap 5 exists to prevent. An annotation with no
+/// `/Subtype` at all keeps its own report too, for Table 166's reason — the entry is required —
+/// and `issue7446.pdf` is the corpus witness for that one.
+#[test]
+fn an_unknown_subtype_with_no_appearance_dictionary_draws_nothing_and_reports_nothing() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /SomethingFromThePDF3Era /Rect [20 30 60 70] /F 4 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        interpretation.display_list.commands().is_empty(),
+        "nothing states an appearance for it"
+    );
+    assert!(
+        interpretation.is_complete(),
+        "a type the standard does not define, with no /AP, asks for nothing: {:?}",
+        interpretation.unsupported
+    );
+
+    let movie = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Movie /Rect [20 30 60 70] /F 4 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !movie.is_complete(),
+        "a Table 171 subtype this program does not construct stays loud"
+    );
+
+    let anonymous = interpret(pdf_with(
+        "<< /Type /Annot /Rect [20 30 60 70] /F 4 >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        !anonymous.is_complete(),
+        "Table 166 makes /Subtype required, so its absence is still a defect"
+    );
 }
 
 /// A square with no appearance stream is drawn from Table 180's `/IC`.

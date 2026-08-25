@@ -1163,3 +1163,74 @@ about the specification that a future edition may settle either way. §12.4.2's 
 `Caret` with no `StrikeOut`, so there is no retired text for a quotation to fail to match, and
 #432's strike is one word, under the four-word floor. Neither could have been printed by anything
 but `emit`.
+
+## The two §12.5.2 left unread, found by asking which errata this tree names nowhere — the seven-hundred-and-thirty-fourth
+
+`emit` files **seventeen** annotation objects under §12.5.2, and the seven-hundred-and-tenth
+session counted them and wrote that one of the seventeen is named nowhere in this tree. The
+seventeen carry five issue numbers — **#1, #22, #124, #287 and #577** — and **three** of the five
+were named nowhere. That round recorded #577; these are the other two.
+
+This is not the page-straddle shape and it is not a floor. It is what ADR 0627's ranking is built
+on: the question *which issue numbers does this tree name* has an answer a command can print, and
+nobody had asked it. Reading a clause's pages is not the same as reading its errata.
+
+**Issue #1**, `/State` `Review`/`Completed`, `D:20220615120000+10'00'`, on physical page 482 — so
+`emit` files it under §12.5.2 and the sentence it changes is **§12.5.1's last**. A `StrikeOut`
+whose quadrilaterals are `[519.840 658.849 553.643 647.809]` and
+`[72.024 644.089 191.919 633.049]`, with a `Caret` at `[187.448 632.442 196.390 639.728]` saying
+`12.5.5, "Appearance streams" and "Table 167 - Annotation flags" (bit positions 1 and 2)`.
+
+The placement is arithmetic. The page is 841.92 tall, so the strike's two runs occupy 183.07–194.11
+and 197.83–208.87 from the top; `pdftotext -bbox` on physical page 482 puts `12.5.2,` at
+`xMin="522.464" xMax="553.643"` on the line at `yMin="181.174" yMax="194.113"` and
+`"Annotation dictionaries".` at `xMin="72.024" xMax="194.190"` on the line below. The strike takes
+both and stops two points short of the closing full stop; the caret sits at the end of the second
+run. The sentence it amends is *An interactive PDF processor shall provide certain expected
+behaviour for all annotation types that it does not recognise, as documented in* — and what
+follows it is now §12.5.5 and Table 167's first two flags rather than §12.5.2.
+
+**It licenses what this reader does and it found the half nothing read.** §12.5.5's own sentence —
+"[i]f a PDF processor does not have native support for a particular annotation type, the PDF
+processor shall render the annotation with its normal (N) appearance" — has a test. Table 167's
+`Invisible` row has two sentences and only the first had a reader: the flag *set* suppresses an
+annotation outside Table 171, which `annotation::decided` does; the flag *clear* asks for the
+appearance stream "if any", and an unknown subtype with no appearance dictionary was reported as
+unsupported, with the detail *its clause states no geometry* — a claim about a clause a subtype
+outside the table does not have. Recorded in §12.5.1's and §12.5.3's rows; ADR 0628 has the reading
+and `examples/unknown_subtype_census` the population.
+
+**Issue #124**, `/State` `Review`/`Completed`, `D:20220615120000+10'00'`, nine annotation objects on
+physical page 483 — four `StrikeOut`/`Caret` pairs and one lone `Caret`. The pairs strike `1`, `3`,
+`2` and `4` and write `0`, `2`, `1` and `3`; the lone caret at `[506.354 535.402 513.708 541.394]`
+says `Array indices were also corrected to be zero-based as described in 3.2 "array object".`
+
+The four strikes are Table 166's `/AP` bullet, and their quadrilaterals say so exactly:
+`[255.594 584.659 261.112 574.699]`, `[386.618 …]`, `[490.199 …]` and `[308.103 572.899 313.621
+562.939]`. `pdftotext -bbox` on that page puts `1` at `xMin="255.594" xMax="261.112"`, `3` at
+`386.618–392.136` and `2` at `490.199–495.717`, all on the line `yMin="255.554" yMax="267.221"`,
+and `4.` at `308.103–315.771` on the line below — the strike stopping before the full stop. Four
+digits, in the order the bullet writes them.
+
+**It moves no rectangle**, and that is worth writing down rather than leaving to be re-derived: on
+`[x1 y1 x2 y2]` the one-based pairs 1↔3 and 2↔4 and the zero-based pairs 0↔2 and 1↔3 are the same
+two comparisons, x against x and y against y. What reading the bullet did settle is a justification
+this tree had written twice — the bullet is an **and**, its own NOTE saying "[t]he bullet point
+above was changed from 'or' to 'and' in this document to match requirements in other published ISO
+PDF standards (such as PDF/A)", while `annotation::is_empty` is an **or**. Two comments claimed
+Table 166 excused a writer "for exactly that shape"; the excuse is the degenerate point alone.
+Nothing drawn moves — §12.5.5's scale onto no extent leaves no mark either way — and §12.5.2's row
+carries the corrected reason.
+
+**Neither could have been printed by `check`.** #1's strike is four words including a clause
+number, over text no quotation in this tree carries; #124's four strikes are single digits, which
+is the third blindness the seven-hundred-and-tenth named — a strikeout whose text is a *value* —
+four times over in one erratum.
+
+**And there is a fourth way an issue number goes unnoticed, which is this tree's rather than the
+instrument's.** A numeric character reference in Markdown is a `#` and digits: `&#124;` is how a
+table cell escapes a pipe, and it is the only one anywhere under `crates/`, `doc/` or `tools/` —
+two occurrences, in ADR 0484's comparison table. A search for `#124` finds them. So the one issue
+number in the collection that a plain grep cannot answer honestly is exactly the one that went
+unrecorded on a page a round had opened. The rule that comes out of it is `doc/todo/01`'s:
+**ask whether an issue is recorded with the `Issue #` prefix, not with the number alone.**
