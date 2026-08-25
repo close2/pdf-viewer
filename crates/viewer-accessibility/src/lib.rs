@@ -20,12 +20,23 @@
 //! [`role`] and [`tree`] are plain data on every platform: no D-Bus, no threads, no I/O, and
 //! tested everywhere. [`Bridge`] is the platform half, and it is Linux's — what the other two
 //! platforms do instead is *named* by [`Bridge::shortfall`] rather than silently absent.
+//!
+//! # And a third part, since the seven-hundred-and-thirty-first session
+//!
+//! [`reading`] is *what a host asks the viewer* in order to have something to publish, and it is
+//! here because all three of this project's windows now publish — `viewer-ui` through winit,
+//! `viewer-gtk` and `viewer-qt` through their own event loops — and the alternative was three
+//! copies of six queries. It names no toolkit and no adapter, so it is the same plain data
+//! [`role`] and [`tree`] are. ADR 0623 argues why a native host drives this crate directly
+//! rather than publishing through ATK or `QAccessible`.
 
 #![forbid(unsafe_code)]
 
 mod bridge;
+pub mod reading;
 pub mod role;
 pub mod tree;
 
 pub use bridge::{Act, Bridge, Requested};
+pub use reading::{Reading, Showing, republishes};
 pub use tree::{DocumentView, PageView};

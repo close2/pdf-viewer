@@ -24,6 +24,10 @@ pdf-syntax.workspace = true
 # panel answers as one row shape, §12.7.5's field as the control it is, §12.7.6.4's file
 # policy and the launch timeline (ADR 0246).
 viewer-host.workspace = true
+# §14.7's structure on AT-SPI. **Not a Qt dependency and not a reversal of this crate's rule**:
+# `viewer_accessibility::Bridge` reaches AccessKit's own AT-SPI adapter from safe Rust and names no
+# Qt object, so nothing new crosses the `cxx` bridge in the Rust-to-C++ direction. ADR 0623.
+viewer-accessibility.workspace = true
 # The bridge. `cxx` generates the `extern "C"` shims that carry messages between this crate
 # and the C++ under `cpp/`; it is the reason this crate cannot hold `#![forbid(unsafe_code)]`
 # and holds `#![deny(unsafe_code)]` with one exemption instead. ADR 0246.

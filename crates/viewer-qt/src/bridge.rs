@@ -235,6 +235,25 @@ pub mod ffi {
         blue: u8,
     }
 
+    /// Where a window is on the screen, in the screen's own pixels.
+    ///
+    /// A shared struct rather than four arguments, and the difference from the C ABI's rule about
+    /// structs by value is worth stating: `cxx` regenerates both sides from this file in one
+    /// build, so a field added here is a compile error in C++ rather than a silently different
+    /// layout — which is precisely what `PDFV_ABI_VERSION` exists to catch where a caller compiles
+    /// separately (ADR 0576).
+    #[derive(Debug, Clone, Copy)]
+    struct QtPlace {
+        /// The rectangle's left edge in screen pixels.
+        x: f32,
+        /// Its top edge.
+        y: f32,
+        /// Its width.
+        width: f32,
+        /// Its height.
+        height: f32,
+    }
+
     /// One quadrilateral of interactive chrome, in device pixels of the viewport.
     ///
     /// `[x0, y0, … x3, y3]` as eight named fields rather than an array, because the C++ reads
@@ -483,6 +502,31 @@ pub mod ffi {
         fn find_stop(self: &mut Host);
         /// Whether the search still has pages to read, which is what the timer pumps on.
         fn searching(self: &Host) -> bool;
+        /// The window moved or was resized, in the screen's own pixels: its frame, then its
+        /// contents.
+        ///
+        /// **AT-SPI reports a node's extents in screen coordinates and this program's are the
+        /// viewport's**, so an adapter needs the window's own origin to add. Qt has it —
+        /// `QWidget::frameGeometry` and `QWidget::geometry` are both in screen coordinates — and
+        /// GTK4 has no such API at all, which is the one place the two native hosts genuinely
+        /// differ on §14.7 (ADR 0623). It crosses as eight numbers on a `moveEvent` rather than
+        /// being asked for per page: `viewer-ui` measured the same two questions at 1.8 to 3.2 ms
+        /// of synchronous X11 round trips when it asked them on every page turn (ADR 0228).
+        fn window_placed(self: &mut Host, outer: QtPlace, inner: QtPlace);
+        /// How long to wait before draining what an assistive technology has asked for, in
+        /// milliseconds, or `-1` while nothing is listening.
+        ///
+        /// **`presentation_wait`'s shape, and for a related reason** (ADR 0473): the interval is
+        /// pulled rather than pushed, so C++ owns the timer and Rust owns the decision. What is
+        /// different is what the answer depends on — a clock's interval depends on §12.4.4.1 and
+        /// this one depends on whether anybody has attached to the accessibility bus at all.
+        /// `accesskit_unix` calls this program back from its own D-Bus thread and there is no
+        /// path from a foreign thread into `QApplication::exec` that would not cost this crate a
+        /// second hand-written `unsafe` token, so a request is drained on a timer that does not
+        /// exist until a client arrives.
+        fn accessibility_wait(self: &Host) -> i32;
+        /// One drain of that queue. Called from a `QTimer`.
+        fn accessibility_pump(self: &mut Host);
         /// ISO 32000-2 §12.4.4.1: how long to wait before the next turn of the presentation
         /// clock, in milliseconds, or `-1` where nothing is presenting.
         ///

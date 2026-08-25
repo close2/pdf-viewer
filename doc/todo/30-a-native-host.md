@@ -664,11 +664,40 @@ here rather than left to be re-surveyed, and none of it is architecture:
   counted popups stating Table 186's `/Open true` into its totals and named no document holding one,
   so a round wanting to *look* at an open window had a number and no file.
 
-  **What is left is three, and `tools/state.sh windows` prints them with their reasons**: §14.7's
-  accessibility tree with §9.10.2's readback beside it, absent from both native hosts and the
-  largest — `doc/todo/31`'s; §12.3.5's collection, whose `shall` is addressed to a viewer outright and
-  which no corpus document states; and §12.5.6.6's free text, which is already refused **by name** and
-  is `doc/todo/33`'s.
+  **Three were left after that round, and the largest was taken in the
+  seven-hundred-and-thirty-first** (ADR 0623): §14.7's accessibility tree with §9.10.2's readback
+  beside it, which reached one window of three — so a screen reader on either native host was handed
+  a picture. **It needed no message**, which is the fourteenth time since the six-hundred-and-seventh:
+  `Query::AccessibilityTree` has answered since ADR 0134 and `Query::Readback` since ADR 0422, and
+  what was missing was consumers. What it *did* need was a decision this file could not make for
+  itself — whether a native host publishes through its own toolkit's accessibility layer or drives
+  AccessKit as `viewer-ui` does — and the argument that settled it is the standard's rather than
+  either toolkit's: §14.7.3's role map is a `shall` on this reader, and mapping §14.8.4's forty-one
+  types onto a platform vocabulary **twice, differently in each toolkit**, is exactly what "all three
+  hosts stay level" forbids in the one place a person cannot check for themselves.
+
+  **What it cost is a second application root on the accessibility desktop** — `accesskit_unix`
+  embeds its own — measured with `busctl` rather than predicted, and written down as the price of the
+  decision rather than found later.
+
+  **And it refuted a row of this section's own reading.** `Query::FieldAt` was "not a debt, a
+  delegation: these hosts place one control per widget, so which field a press belongs to is the
+  control it landed on". An assistive technology's press lands on no control — it arrives as a point
+  on the page — so a click on a §12.7 widget did nothing at all in both native hosts while answering
+  `true`. It is refused by name now (`viewer_host::delegated_click`), the row prints `SPENT`, and
+  building the other half is `doc/todo/31`'s next item.
+
+  **The instrument was wrong for one run and its own second direction said so.** Moving the six
+  queries into `viewer_accessibility::Reading` — so that three windows publish one tree rather than
+  three — made `state.sh windows` report `viewer-ui` reaching *fewer* queries than before, with
+  `AccessibilityTree` credited to no window on the day all three began asking. Its population was the
+  host crates plus `viewer-host`, and the crate a host's non-toolkit half had just moved into was not
+  in it. Trap 11, caught by the `SPENT` check ADR 0603 added for exactly this.
+
+  **What is left is two, and `tools/state.sh windows` prints them with their reasons**: §12.3.5's
+  collection, whose `shall` is addressed to a viewer outright and which no corpus document states, and
+  which is now the largest; and §12.5.6.6's free text, which is already refused **by name** and is
+  `doc/todo/33`'s.
 
   **What the popup cost that this entry could not have predicted is a trap** (19, and ADR 0613 §1). A
   `GtkFixed` measures the union of its children and a popup's `/Rect` is the *document's*:

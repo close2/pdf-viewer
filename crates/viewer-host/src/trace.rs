@@ -26,16 +26,25 @@ pub enum Topic {
     /// a window does that cannot be photographed on a headless display: `xwd` does not capture the
     /// pointer, so a trace line is the only instrument there is for it here.
     Pointer,
+    /// §14.7's structure as it is published to an assistive technology, and what a client asked for.
+    ///
+    /// Its own topic for [`Topic::Pointer`]'s reason and a sharper version of it: what a screen
+    /// reader is told cannot be photographed at all, and on a machine with no screen reader
+    /// installed the accessibility bus and this line are the whole of the instrument. `viewer-ui`
+    /// has had a topic of this name in its own private table since ADR 0214; the two native hosts
+    /// gained one when they gained the bridge (ADR 0623).
+    Access,
 }
 
 impl Topic {
     /// Every topic, in the order `--trace=?` lists them.
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Launch,
         Self::Frames,
         Self::Events,
         Self::Panel,
         Self::Pointer,
+        Self::Access,
     ];
 
     /// What a person types after `--trace=`.
@@ -47,6 +56,7 @@ impl Topic {
             Self::Events => "events",
             Self::Panel => "panel",
             Self::Pointer => "pointer",
+            Self::Access => "access",
         }
     }
 
@@ -58,6 +68,7 @@ impl Topic {
             Self::Events => 1 << 2,
             Self::Panel => 1 << 3,
             Self::Pointer => 1 << 4,
+            Self::Access => 1 << 5,
         }
     }
 
@@ -68,7 +79,23 @@ impl Topic {
 }
 
 /// Every topic at once, which is what a bare `--trace` asks for.
-const EVERY_TOPIC: u8 = 0b1111;
+///
+/// **Derived from [`Topic::ALL`] rather than written down, and it was written down until the
+/// seven-hundred-and-thirty-first session.** The literal said `0b1111` while the enumeration had
+/// five topics, so `--trace` and `--trace=all` silently asked for four of them and
+/// [`Topic::Pointer`] — added one round earlier, and the *only* instrument for a thing that cannot
+/// be photographed — printed nothing unless a person named it. A constant that has to be edited
+/// when an enumeration grows is a constant that will not be, which is `doc/todo/02` §7's own
+/// "a count that improves is not a picture" one file over.
+fn every_topic() -> u8 {
+    let mut topics = 0;
+    let mut at = 0;
+    while at < Topic::ALL.len() {
+        topics |= Topic::ALL[at].bit();
+        at = at.saturating_add(1);
+    }
+    topics
+}
 
 /// The set of topics a `--trace=` argument asks for, or the word that named none of them.
 ///
@@ -82,10 +109,10 @@ const EVERY_TOPIC: u8 = 0b1111;
 /// less than was asked for.
 pub fn parse_topics(list: &str) -> Result<u8, String> {
     if list.is_empty() {
-        return Ok(EVERY_TOPIC);
+        return Ok(every_topic());
     }
     let mut topics = if list.starts_with('-') {
-        EVERY_TOPIC
+        every_topic()
     } else {
         0
     };
@@ -95,7 +122,7 @@ pub fn parse_topics(list: &str) -> Result<u8, String> {
             None => (false, word),
         };
         if word == "all" {
-            topics = if remove { 0 } else { EVERY_TOPIC };
+            topics = if remove { 0 } else { every_topic() };
             continue;
         }
         let Some(topic) = Topic::parse(word) else {
@@ -162,5 +189,47 @@ impl Trace {
             return;
         }
         println!("trace: {:9}   {what}", "");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Topic, parse_topics};
+
+    /// A bare `--trace` asks for every topic there is, including the one added last.
+    ///
+    /// **Run against the defect before it was believed** (trap 13): with the literal `0b1111` this
+    /// file carried until the seven-hundred-and-thirty-first session, this test fails on
+    /// [`Topic::Pointer`] and on [`Topic::Access`] and passes on the other four — which is exactly
+    /// what a person typing `--trace` saw, and exactly what nothing said.
+    #[test]
+    fn a_bare_trace_asks_for_every_topic() {
+        let asked = parse_topics("").expect("the empty list names no unknown topic");
+        for topic in Topic::ALL {
+            assert!(
+                asked & topic.bit() != 0,
+                "--trace did not ask for the {} topic",
+                topic.name()
+            );
+        }
+        assert_eq!(asked, parse_topics("all").expect("`all` is a word here"));
+    }
+
+    /// "Everything except" is the same set with one taken out, whatever the set has grown to.
+    #[test]
+    fn a_subtraction_takes_one_topic_out_of_all_of_them() {
+        let asked = parse_topics("-panel").expect("`panel` is a topic");
+        assert_eq!(asked & Topic::Panel.bit(), 0);
+        for topic in Topic::ALL {
+            if topic != Topic::Panel {
+                assert!(asked & topic.bit() != 0, "{} was lost", topic.name());
+            }
+        }
+    }
+
+    /// A word that names no topic is refused rather than quietly tracing less than was asked for.
+    #[test]
+    fn a_word_that_names_no_topic_is_the_error() {
+        assert_eq!(parse_topics("frames,acess"), Err("acess".to_owned()));
     }
 }

@@ -58,17 +58,13 @@ impl App {
                 Topic::Events
             };
             let described = self.trace.on(topic).then(|| describe_command(&command));
-            // **A command that changes the document changes what §14.7's tree says**, and nothing
-            // republished it until the five-hundred-and-ninetieth session: `App::attend` compares
-            // the page and the viewport, and an edit moves neither — so a check box a person
-            // ticked went on being announced as unticked, and after ADR 0425 that included one an
-            // assistive technology had clicked itself. Forgetting what was last published is what
-            // makes the next frame say it again. `Event::Dirty` looked like the condition and is
-            // not: it fires when the flag *changes*, so only the first edit of a session raises it.
-            if matches!(
-                command,
-                Command::Edit(_) | Command::Undo | Command::Redo | Command::SetGroup { .. }
-            ) {
+            // **A command that changes the document changes what §14.7's tree says**, and
+            // nothing republished it until the five-hundred-and-ninetieth session: `App::attend`
+            // compares the page and the viewport, and an edit moves neither. Which commands those
+            // are is `viewer_accessibility::republishes` since the seven-hundred-and-thirty-first,
+            // because the two native hosts publish now too and this was about to be its third copy
+            // (ADR 0623).
+            if viewer_accessibility::republishes(&command) {
                 self.spoken = None;
             }
             let events: Vec<Event> = self.viewer.handle(command).collect();

@@ -62,6 +62,8 @@
 
 #![deny(unsafe_code)]
 
+mod access;
+
 // The one exemption, and the reason is in `bridge`'s own documentation: `#[cxx::bridge]` is a
 // procedural macro whose expansion is `unsafe` by construction, and the lint sees expanded code.
 // Nothing under this attribute is written by hand — `tests/unsafe_position.rs` is what says so.

@@ -14,8 +14,18 @@
 //! the selection, the focus ring — in the platform's own colour.
 //!
 //! That third layer is also where the viewport's *size* comes from: `GtkDrawingArea::resize` is
-//! the only size signal GTK4 gives application code without subclassing a widget, and
-//! `#![forbid(unsafe_code)]` is what makes subclassing the wrong answer here.
+//! the only size signal GTK4 gives application code without subclassing a widget, and subclassing
+//! is a larger thing to take on than one signal is worth.
+//!
+//! **This sentence used to end "and `#![forbid(unsafe_code)]` is what makes subclassing the wrong
+//! answer here", and that half was false** — checked in the seven-hundred-and-thirty-first session
+//! by writing the subclass rather than by reading the attribute (ADR 0623). `#[glib::object_subclass]`
+//! expands to `unsafe impl` and `unsafe` blocks, but the `unsafe_code` lint does not fire on a
+//! proc-macro's expansion, so a `GObject` implementing `gtk4::Accessible` compiles in this crate
+//! today with the `forbid` untouched. The reason not to subclass is a judgement about cost, which
+//! is a different kind of claim from a compiler-enforced impossibility — and stating the second
+//! where only the first is true is how a floor gets written down that nobody re-checks (trap 17,
+//! and ADR 0508's rule paying a third time).
 
 use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
@@ -162,7 +172,7 @@ struct Ui {
 )]
 pub struct Host {
     /// The state machine every host on this boundary drives.
-    viewer: Viewer,
+    pub(crate) viewer: Viewer,
     /// Where the bytes came from, which is what rule 2 makes a host's business and not the core's.
     path: PathBuf,
     /// The directory §12.7.6.4's policy resolves against.
@@ -174,7 +184,7 @@ pub struct Host {
     /// Tier 1's worker, called on this thread. See ADR 0244 for what that costs and why.
     rasterizer: CpuRasterizer,
     /// The launch timeline.
-    trace: Trace,
+    pub(crate) trace: Trace,
     /// The widgets.
     ui: Ui,
     /// What the chrome layer draws.
@@ -216,6 +226,24 @@ pub struct Host {
     over_link: bool,
     /// Whether the first frame has been reported, so that the launch line is printed once.
     presented: bool,
+    /// §14.7's tree on AT-SPI, brought up after the first frame and never before it.
+    ///
+    /// **`None` until [`Host::attend`] has run once**, which is `CLAUDE.md`'s startup rule: the
+    /// bridge spawns a thread that connects to the session bus, and page one may not wait behind
+    /// a D-Bus round trip for a screen reader that is probably not there (ADR 0623).
+    pub(crate) accessibility: Option<viewer_accessibility::Bridge>,
+    /// The page and viewport last published to it, so that a tree is not rebuilt per frame.
+    pub(crate) spoken: Option<viewer_accessibility::Showing>,
+    /// Set from `accesskit_unix`'s own thread when a client asks for something.
+    ///
+    /// The only value in this host that crosses a thread boundary, and it carries no payload on
+    /// purpose: the request itself is read back on the main thread through
+    /// `Bridge::requested`, against the tree the client actually walked.
+    pub(crate) access_pending: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// How often the drain below is waking, so that the source is re-armed only when it changes.
+    pub(crate) access_interval: Option<i32>,
+    /// The source draining that flag, at the interval the bridge asks for.
+    pub(crate) access_draining: Option<glib::SourceId>,
     /// What the find bar is looking for, kept because the *page's* highlights are asked for on
     /// every repaint while the document-wide search is a plan inside `viewer-core`.
     needle: String,
@@ -294,7 +322,7 @@ pub struct Host {
         pdf_render::TargetSpec,
     )>,
     /// The viewport in device pixels, which is the rectangle a transition's frames are drawn in.
-    viewport: (u32, u32),
+    pub(crate) viewport: (u32, u32),
     /// Table 29's arrangement, as this window last asked for it.
     ///
     /// Kept because `l` *cycles*: the value in force is the viewer's, and a host that wanted to
@@ -400,6 +428,11 @@ impl Host {
                 popups_shown: Vec::new(),
                 over_link: false,
                 presented: false,
+                accessibility: None,
+                spoken: None,
+                access_pending: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                access_interval: None,
+                access_draining: None,
                 needle: String::new(),
                 pages_left: 0,
                 widget_appearances,
@@ -483,7 +516,7 @@ impl Host {
     }
 
     /// One command, and everything it produces.
-    fn dispatch(&mut self, command: Command) {
+    pub(crate) fn dispatch(&mut self, command: Command) {
         self.pump(VecDeque::from([command]));
     }
 
@@ -495,6 +528,13 @@ impl Host {
                 .on(Topic::Events)
                 .then(|| format!("{command:?}"))
                 .map(|text| text.chars().take(120).collect::<String>());
+            // **A command that changes the document changes what §14.7's tree says**, and
+            // `Showing` cannot see it: an edit and a click move neither the page nor the viewport.
+            // Which commands those are is one statement for all three windows
+            // (`viewer_accessibility::republishes`, ADR 0623).
+            if viewer_accessibility::republishes(&command) {
+                self.spoken = None;
+            }
             let events: Vec<Event> = self.viewer.handle(command).collect();
             if let Some(described) = described {
                 self.trace.say(
@@ -720,6 +760,31 @@ impl Host {
         };
         self.place_popups(&popups);
         self.refresh_chrome();
+        // Last, and **only once a frame is actually on the screen**: §14.7's tree on AT-SPI. The
+        // guard is the rule rather than an optimisation, and it was put here by a measurement —
+        // without it `--trace` printed `accessibility bridge up` at 1.656 s and
+        // `first frame on the screen` at 1.671, because `refresh` runs once on the first
+        // allocation before the document is even open. `Bridge::new` spawns a thread and connects
+        // to the session bus, which is exactly what `CLAUDE.md`'s startup section forbids in front
+        // of page one (ADR 0623, and ADR 0214 for the rule).
+        if self.presented {
+            self.attend();
+        }
+    }
+
+    /// This host, weakly, for a callback that has to reach it after the borrow that armed it ends.
+    pub(crate) fn me(&self) -> Weak<RefCell<Self>> {
+        self.me.clone()
+    }
+
+    /// What to call the document, which is the file's own name.
+    pub(crate) fn named(&self) -> String {
+        named(&self.path)
+    }
+
+    /// What the title bar says about the page, which is what the window is called after the name.
+    pub(crate) fn caption(&self) -> &str {
+        &self.caption
     }
 
     /// The shapes the chrome layer draws, gathered from the four questions that answer them.
@@ -2050,7 +2115,7 @@ fn taken_from(entry: &gtk4::PasswordEntry) -> viewer_core::Secret {
 ///
 /// A callback that arrives while the host is already borrowed is a callback GTK raised from
 /// inside one of this host's own writes — dropping it is right, and saying so is trap 5.
-fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
+pub(crate) fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
     let Some(host) = me.upgrade() else {
         return;
     };

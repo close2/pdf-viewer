@@ -40,6 +40,7 @@
 //! (ADR 0194). A build that quietly did nothing would be the failure that precedent exists to
 //! prevent.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
 use accesskit::{Action, ActionData, Node, NodeId, Rect, TextDirection, TextPosition, TreeUpdate};
@@ -116,6 +117,14 @@ pub struct Bridge {
     current: Arc<Mutex<Option<TreeUpdate>>>,
     /// What clients have asked for and the host has not yet drained.
     asked: mpsc::Receiver<Asked>,
+    /// Whether an assistive technology has ever asked this program for its tree.
+    ///
+    /// Set on the adapter's own thread, in [`ActivationHandler::request_initial_tree`], which is
+    /// the one moment a client's arrival is visible to this crate — `accesskit_unix` publishes
+    /// nothing and asks for nothing until `org.a11y.Status.IsEnabled` says one is there, and it
+    /// exposes no state of its own. [`Self::attended`] is what a host reads it back through, and
+    /// why it exists is on that method.
+    attended: Arc<AtomicBool>,
     /// The platform adapter, where this platform has one.
     #[cfg(target_os = "linux")]
     adapter: accesskit_unix::Adapter,
@@ -146,11 +155,18 @@ struct Asked {
 struct Activation {
     /// The same lock [`Bridge::current`] holds.
     current: Arc<Mutex<Option<TreeUpdate>>>,
+    /// The same flag [`Bridge::attended`] holds.
+    attended: Arc<AtomicBool>,
 }
 
 #[cfg(target_os = "linux")]
 impl accesskit::ActivationHandler for Activation {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+        // This call *is* the arrival of an assistive technology, and it is the only signal of one
+        // this crate gets. It is recorded whether or not there is a tree to answer with, because
+        // the question it lets a host ask is "is anybody listening" rather than "was anybody
+        // answered".
+        self.attended.store(true, Ordering::Relaxed);
         // A poisoned lock means a panic while a tree was being stored, which under this
         // workspace's `panic = "abort"` cannot happen — and if it somehow did, answering `None`
         // is what the trait documents for "not ready yet": the adapter waits and asks again.
@@ -215,12 +231,14 @@ impl Bridge {
     #[must_use]
     pub fn new(wake: impl Fn() + Send + 'static) -> Self {
         let current = Arc::new(Mutex::new(None));
+        let attended = Arc::new(AtomicBool::new(false));
         let (asking, asked) = mpsc::channel();
         #[cfg(target_os = "linux")]
         {
             let adapter = accesskit_unix::Adapter::new(
                 Activation {
                     current: Arc::clone(&current),
+                    attended: Arc::clone(&attended),
                 },
                 Actions {
                     asking: asking.clone(),
@@ -232,6 +250,7 @@ impl Bridge {
             Self {
                 current,
                 asked,
+                attended,
                 adapter,
             }
         }
@@ -252,10 +271,67 @@ impl Bridge {
             Self {
                 current,
                 asked,
+                attended,
                 _asking: asking,
             }
         }
     }
+
+    /// Whether an assistive technology has attached to this program.
+    ///
+    /// Once true it stays true. A client that goes away is
+    /// [`accesskit::DeactivationHandler::deactivate_accessibility`] and the adapter asks for the
+    /// tree again when the next one arrives, so a host that stopped watching on the first
+    /// departure would stop noticing the second.
+    #[must_use]
+    pub fn attended(&self) -> bool {
+        self.attended.load(Ordering::Relaxed)
+    }
+
+    /// How long a host with no cross-thread wake should wait before draining, in milliseconds.
+    ///
+    /// **This exists because two of the three hosts cannot be woken from another thread**, and the
+    /// honest answer to that is a poll rather than a [`Self::new`] `wake` closure that does nothing
+    /// (ADR 0623). `viewer-ui` has winit's `EventLoopProxy`, which is `Send`, so it never asks this
+    /// question; `viewer-gtk` cannot carry a `Weak<RefCell<Host>>` across a thread and `viewer-qt`
+    /// would need a second hand-written `unsafe` token to reach `QApplication` from one. Neither
+    /// `glib` nor `gio` offers a safe UNIX-descriptor source in the versions this tree binds, so a
+    /// self-pipe is not open either.
+    ///
+    /// **Two intervals, and the slow one is what closes a hole a single fast one would hide.** The
+    /// question a host cannot answer for itself is *when a client arrives*: `accesskit_unix`
+    /// publishes nothing until `org.a11y.Status.IsEnabled` says one is there and exposes no state
+    /// of its own, so the only sign is [`accesskit::ActivationHandler::request_initial_tree`] being
+    /// called on the adapter's thread. Until then this answers [`Self::LISTEN_MILLIS`] — slow
+    /// enough to be nothing on an idle window, quick enough that a screen reader started *after*
+    /// the document was opened is noticed. After it, [`Self::POLL_MILLIS`], which is the latency
+    /// between a client asking for a scroll and the page moving.
+    ///
+    /// A window with no bridge yet is not asking this at all, so there is no third answer.
+    #[must_use]
+    pub fn wait_millis(&self) -> i32 {
+        if self.attended() {
+            Self::POLL_MILLIS
+        } else {
+            Self::LISTEN_MILLIS
+        }
+    }
+
+    /// How often to drain once an assistive technology is there.
+    ///
+    /// Bounded below by nothing a clause states: AT-SPI's `DoAction` is not a real-time interface,
+    /// and a tenth of a second is under the threshold at which a person attributes a delay to the
+    /// program rather than to their own action.
+    pub const POLL_MILLIS: i32 = 100;
+
+    /// How often to look for one arriving, before any has.
+    ///
+    /// Two seconds is a wakeup that does an atomic load and returns, twice a minute — and what it
+    /// buys is that a person who starts a screen reader while this program is already on the
+    /// screen does not have to touch the window before it answers them. That case is exactly the
+    /// one a faster-only poll would have hidden, because a client's *first* act is an AT-SPI call
+    /// and an AT-SPI call is what would not be drained.
+    pub const LISTEN_MILLIS: i32 = 2_000;
 
     /// What this build cannot do, in a sentence a host prints.
     ///
@@ -314,6 +390,16 @@ impl Bridge {
         self.adapter.update_if_active(|| update);
         #[cfg(not(target_os = "linux"))]
         drop(update);
+    }
+
+    /// Publishes what [`crate::Reading::of`] gathered, which is what a host calls.
+    ///
+    /// **The one entry point three hosts use**, so that what a screen reader is told does not
+    /// depend on which of this project's windows a person opened the document in (ADR 0623).
+    /// [`Self::publish`] is the borrowed form underneath it and stays public for a host that has
+    /// assembled the view some other way — the headless harness and this crate's own tests.
+    pub fn speak(&mut self, reading: &crate::Reading) {
+        reading.with_view(|view| self.publish(view));
     }
 
     /// Tells the platform where the window is, which is what X11 needs to place a node.

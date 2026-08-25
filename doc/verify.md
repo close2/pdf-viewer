@@ -383,6 +383,16 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # `Link` elements opens both URIs. **Read the *viewer's* stdout beside the bus**: `--trace=access`
 # prints one line per request carried out, and a request this host cannot place is printed by name
 # instead — which is the half of trap 5 the actions did not change.
+# **And since ADR 0623 the recipe applies to all three windows** — `./target/pdf-viewer`,
+# `./target/pdf-viewer-gtk` and `./target/pdf-viewer-qt` each publish §14.7's tree, so the same walk
+# run three times is what says they agree. Two things a native host adds to the reading. **The
+# desktop lists two applications per process**, both named for the binary: `accesskit_unix` embeds a
+# root of its own beside the toolkit's, so a walker that took the first application it found would
+# be reading GTK's widgets or Qt's and reporting them as this program's structure — find the one
+# whose window holds a `DocumentFrame`. And **`--trace=access` is the other half of the
+# instrument**: it prints what was published, what a client asked for, and — on a native host — the
+# refusal for a click that landed on a §12.7 widget the window delegates, which is a thing
+# `DoAction` answers `true` to and which changes nothing.
 # **Orca is not installed on this machine**, so
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,

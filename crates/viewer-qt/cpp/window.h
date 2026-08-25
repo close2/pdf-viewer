@@ -297,6 +297,22 @@ private:
     /// is a clause's question rather than a toolkit's. A `-1` stops the timer outright, so a
     /// window that is not presenting has nothing armed at all.
     void pumpPresentation();
+    /// Drains what an assistive technology has asked for, at whatever interval the host asks for.
+    ///
+    /// `pumpPresentation`'s shape and for a related reason: the interval is a *pull*, so this side
+    /// owns the timer and Rust owns the decision. `accesskit_unix` calls the host back from its own
+    /// D-Bus thread and there is no path from a foreign thread into `QApplication::exec` that would
+    /// not cost `viewer-qt` a second hand-written `unsafe` token — so a request waits on a timer
+    /// that does not exist until a client has attached. `-1` means nobody is listening, which is
+    /// the overwhelmingly common case and arms nothing at all. ADR 0623.
+    void pumpAccessibility();
+    /// Tells the host where this window is on the screen, which AT-SPI needs to place a node.
+    ///
+    /// `QWidget::frameGeometry` and `QWidget::geometry` are both in screen coordinates, which is
+    /// the thing GTK4 exposes nowhere — so this is the one place the two native hosts genuinely
+    /// differ about ISO 32000-2 §14.7, and it is a difference between two platforms rather than
+    /// between two programs.
+    void reportPlacement();
     /// One tree, built once and filled thereafter.
     QTreeView* buildTree(unsigned char which);
     /// ISO 32000-2 §12.3.4's panel: a `QListView` of miniatures, built once and filled on demand.
@@ -312,6 +328,10 @@ private:
 protected:
     /// What a key means is `src/keys.rs`'s, so this carries the `Qt::Key` number and no meaning.
     void keyPressEvent(QKeyEvent* event) override;
+    /// The window moved, so every node's screen coordinates moved with it.
+    void moveEvent(QMoveEvent* event) override;
+    /// The window's frame changed size, which moves the contents' origin inside it.
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
 
@@ -342,6 +362,8 @@ private:
     /// One timer rather than a chain of `singleShot`s, because `applyUpdates` runs after every
     /// key press as well as after every tick: a one-shot armed from there would multiply.
     QTimer* clock_ = nullptr;
+    /// The timer draining an assistive technology's requests, stopped whenever nobody is listening.
+    QTimer* access_ = nullptr;
     /// Set while this window is writing values into its own controls, so that the write is not
     /// mistaken for a person typing. The same flag `viewer-gtk` calls `suppress`.
     bool writing_ = false;
