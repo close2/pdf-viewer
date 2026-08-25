@@ -235,6 +235,114 @@ fn a_trailing_type_byte_with_no_row_keeps_what_decoded() {
     );
 }
 
+/// ISO 32000-2 §7.4.1: every filter Table 6 names is supported, under both of its spellings.
+///
+/// **Errata Collection 3's Issue #216 is what makes this an obligation rather than an
+/// observation.** The clause described a *file* — "PDF files support a standard set of filters
+/// that fall into two main categories" — and the erratum strikes *files*, writing *processors
+/// shall* in its place, so the sentence becomes a requirement on whatever reads the document.
+/// The erratum's replacement is in italics rather than in a blockquote because an inserted word
+/// is in no clause of `doc/md/`, which is what the conformance gate verifies a quotation
+/// against.
+///
+/// Seventeen spellings rather than ten: §8.9.7's Table 92 abbreviates seven of Table 6's names
+/// for an inline image, and `filter::decode_reported` admits both forms. What a name is entitled
+/// to differ in is its *route* — five are byte-to-byte and decode here; `Crypt` is a
+/// pass-through, because by the time a chain runs §7.6.2 has already decrypted the bytes; and
+/// four produce image samples, which a function handing back a byte slice cannot describe, so
+/// they are recognised for the image pipeline to run rather than decoded here.
+///
+/// **What it discriminates is a name falling off a match arm**, which nothing else in this
+/// crate could see. Every filter in Table 6 has a test of its own *output* and not one of them
+/// asks whether the table is covered, so a name dropped from `decode_reported` or from
+/// `is_image_codec` becomes `FilterRefusal::Unsupported` — indistinguishable from a name no
+/// table states — with every other test in the crate green.
+#[test]
+fn every_filter_table_6_names_is_supported_under_both_of_its_spellings() {
+    use pdf_syntax::filter::{decode_reported, is_image_codec};
+    use pdf_syntax::{FilterRefusal, Limits};
+
+    // Table 6's ten, each with Table 92's abbreviation where it has one. `JBIG2Decode` and
+    // `JPXDecode` have none because §8.9.7 forbids both in an inline image, and `Crypt` has
+    // none because an inline image carries no `/Filter` a security handler could name.
+    let table_6: [(&[u8], Option<&[u8]>); 10] = [
+        (b"ASCIIHexDecode", Some(b"AHx")),
+        (b"ASCII85Decode", Some(b"A85")),
+        (b"LZWDecode", Some(b"LZW")),
+        (b"FlateDecode", Some(b"Fl")),
+        (b"RunLengthDecode", Some(b"RL")),
+        (b"CCITTFaxDecode", Some(b"CCF")),
+        (b"JBIG2Decode", None),
+        (b"DCTDecode", Some(b"DCT")),
+        (b"JPXDecode", None),
+        (b"Crypt", None),
+    ];
+
+    // Four probes rather than one, so that the two spellings of a name are compared on data
+    // each filter answers differently: nothing, a hexadecimal string, a base-85 group of four
+    // zero bytes, and a run-length literal run followed by its end-of-data byte.
+    let probes: [&[u8]; 4] = [b"", b"48656C6C6F>", b"z~>", b"\x04Hello\x80"];
+    let answer =
+        |filter: &[u8], probe: &[u8]| match decode_reported(filter, probe, None, Limits::DEFAULT) {
+            Ok(decoded) => format!("{:?} {:?}", decoded.data, decoded.damage),
+            Err(refusal) => format!("{refusal:?}"),
+        };
+
+    for (name, abbreviated) in table_6 {
+        let spelling = String::from_utf8_lossy(name).into_owned();
+        if is_image_codec(name) {
+            assert_eq!(
+                decode_reported(name, b"", None, Limits::DEFAULT).err(),
+                Some(FilterRefusal::Unsupported),
+                "{spelling} produces image samples, so this module must decline it and leave \
+                 it to the image pipeline"
+            );
+        } else {
+            for probe in probes {
+                assert_ne!(
+                    answer(name, probe),
+                    format!("{:?}", FilterRefusal::Unsupported),
+                    "{spelling} is one of Table 6's byte-to-byte filters and must be decoded here"
+                );
+            }
+        }
+        let Some(abbreviated) = abbreviated else {
+            continue;
+        };
+        let short = String::from_utf8_lossy(abbreviated).into_owned();
+        assert_eq!(
+            is_image_codec(abbreviated),
+            is_image_codec(name),
+            "{short} is {spelling} written the way Table 92 abbreviates it, so it takes the \
+             same route"
+        );
+        for probe in probes {
+            assert_eq!(
+                answer(abbreviated, probe),
+                answer(name, probe),
+                "{short} and {spelling} are one filter and must answer alike"
+            );
+        }
+    }
+
+    // The probes are not vacuous: at least one of them decodes, so a comparison of two
+    // spellings is a comparison of two decodes rather than of two identical refusals.
+    assert_eq!(
+        &*decode_reported(b"AHx", b"48656C6C6F>", None, Limits::DEFAULT)
+            .expect("Table 92's abbreviation of ASCIIHexDecode")
+            .data,
+        b"Hello",
+        "Table 92's `AHx` decodes what `ASCIIHexDecode` decodes"
+    );
+    assert_eq!(
+        &*decode_reported(b"Crypt", b"Hello", None, Limits::DEFAULT)
+            .expect("Crypt is a pass-through here")
+            .data,
+        b"Hello",
+        "§7.4.10's filter passes the bytes through: §7.6.2 decrypted them before the chain ran"
+    );
+}
+
 /// Deflates with the same library the decoder uses, which is what a producer would have done.
 fn deflate(data: &[u8]) -> Vec<u8> {
     use std::io::Write as _;
