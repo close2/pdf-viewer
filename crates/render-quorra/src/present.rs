@@ -908,6 +908,52 @@ impl QuorraWindowRenderer {
         chrome.map(|_| ())
     }
 
+    /// Draws the page lane alone — no chrome — into one texture the host owns.
+    ///
+    /// This exists for the settled sharpening pass (ADR 0699): a frame rendered at a
+    /// multiple of the window's size and presented scaled down, so a page's abutting
+    /// fills stop leaking backdrop at their seams. The chrome must not ride along —
+    /// it is presented at window resolution by its own quad and would only thrash its
+    /// lane's scene key with a size no presented chrome frame has.
+    ///
+    /// The texture must have been made by [`Self::layer_texture`] on this device and
+    /// must be exactly `frame.width` by `frame.height`. Costs land in
+    /// [`Self::last_frame`] exactly as a window frame's page lane does — including the
+    /// atlas pressure a second glyph scale exerts, which is this pass's real price and
+    /// the reason [`FrameCost::atlas_repacked`] is worth watching where it runs.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the page lane's translation, eviction or device call refused.
+    pub fn render_page_only(
+        &mut self,
+        frame: PresentFrame<'_>,
+        into: &quorra_gpu::wgpu::Texture,
+    ) -> Result<(), QuorraRasterError> {
+        let began = std::time::Instant::now();
+        self.last = FrameCost::default();
+        if frame.width == 0 || frame.height == 0 {
+            return Ok(()); // minimised: nothing to draw into
+        }
+        let drawn = self.page.slot.render(
+            &mut self.device,
+            &mut self.page.caches,
+            Some(self.medium),
+            &PresentFrame {
+                overlays: &[],
+                ..frame
+            },
+            quorra_gpu::Target::Texture(into),
+            &mut Reported {
+                cost: &mut self.last,
+                functions: &mut self.functions,
+                phases: &mut self.phases,
+            },
+        );
+        self.last.total = began.elapsed();
+        drawn.map(|_| ())
+    }
+
     /// A texture this device can render a window layer into **and** sample afterwards.
     ///
     /// **Both usages, which is the trap quorra's `LayerProblem::NotSampleable` exists to name**:

@@ -232,7 +232,7 @@ impl Placed {
     /// **The `Arc`'s address and the target, which is the exact question** — see [`Picture`] for
     /// why the retained layer asks a different one. `render-quorra` reuses a scene by the same
     /// address for the same ABA reason (ADR 0351).
-    fn is(&self, other: &Self) -> bool {
+    pub(crate) fn is(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.list, &other.list) && self.target == other.target
     }
 }

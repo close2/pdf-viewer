@@ -212,6 +212,7 @@ fn main() {
         fragment,
         restrictions,
         proxy_pages,
+        supersample,
     } = arguments(launch.began);
     launch.mark("arguments");
 
@@ -283,6 +284,7 @@ fn main() {
         trace,
         processor,
         proxy_pages,
+        supersample,
         backend,
         backend_asked_for,
         cursor: (0.0, 0.0),

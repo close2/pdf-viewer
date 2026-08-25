@@ -122,6 +122,16 @@ pub(crate) struct Arguments {
     /// become a `Command`, a field of a boundary type or anything a gate could link to. So it is
     /// the host's, exactly as `--cpu`, `--backend` and `--no-sandbox` are.
     pub(crate) proxy_pages: usize,
+    /// The factor the settled frame is drawn above the window's resolution at, from
+    /// `--supersample`: 2 by default, 1 for off.
+    ///
+    /// **The cure `doc/todo/11` item 5 priced and declined — made affordable by scheduling
+    /// rather than by a new measurement** (ADR 0699). The objection there was N² on the
+    /// latency path; this pass runs on the idle drawing thread only after the real frame
+    /// has landed, so the launch path and every gesture pay nothing. Only 2 is offered
+    /// beside off, because the presenter's bilinear tap at half scale is an *exact* 2×2
+    /// box average and anything higher would be a filter this host does not have.
+    pub(crate) supersample: u32,
 }
 
 /// Reads the command line, applies the two settings that must be applied before anything opens a
@@ -139,6 +149,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut opens_at = None;
     let mut restrictions = RestrictionLevel::On;
     let mut proxy_pages = crate::stale::PROXY_PAGES;
+    let mut supersample = 2_u32;
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
         if argument == "--licences" || argument == "--licenses" {
@@ -189,6 +200,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             backend_asked_for = true;
         } else if argument == "--proxy-pages" {
             proxy_pages = retained_pages(arguments.next());
+        } else if argument == "--supersample" {
+            supersample = supersample_factor(arguments.next());
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
             // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
             // prints has to name a word every host's parser takes — and for two hosts of three it
@@ -242,6 +255,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         fragment,
         restrictions,
         proxy_pages,
+        supersample,
     }
 }
 
@@ -261,6 +275,23 @@ fn retained_pages(word: Option<std::ffi::OsString>) -> usize {
         std::process::exit(2);
     };
     pages
+}
+
+/// The factor `--supersample` asked the settled frame to be drawn at: 1 (off) or 2.
+///
+/// Refused rather than defaulted, for `retained_pages`'s reason — and refused for any
+/// other number too, because only a factor of 2 has an exact downfilter in the presenter
+/// (one bilinear tap at half scale is a 2×2 box average; at 4 it would silently skip
+/// samples and *look* like the feature working).
+fn supersample_factor(word: Option<std::ffi::OsString>) -> u32 {
+    let read = word.and_then(|value| value.to_string_lossy().parse::<u32>().ok());
+    match read {
+        Some(factor @ (1 | 2)) => factor,
+        _ => {
+            eprintln!("--supersample wants 1 (off) or 2 (default 2)");
+            std::process::exit(2);
+        }
+    }
 }
 
 /// What this *build* cannot do, said before anything is opened.
@@ -381,6 +412,13 @@ fn usage() {
     eprintln!("                than the window's background. 0 turns it off; each page costs one");
     eprintln!("                render on the idle drawing thread and under a megabyte. It works");
     eprintln!("                the same way with --cpu, which has a thread of its own.");
+    eprintln!("  --supersample N");
+    eprintln!("                1 or 2 (default 2): once a view has settled, draw it again at N");
+    eprintln!("                times the window's resolution and show that, box-filtered down —");
+    eprintln!("                so abutting fills stop leaking backdrop at their shared edges");
+    eprintln!("                when a page is viewed small. Costs one extra render per settled");
+    eprintln!("                view and a texture four times the window; gestures, the launch");
+    eprintln!("                path and --cpu are untouched.");
     eprintln!("  --backend B   which driver stack talks to the GPU, not which GPU: vulkan, dx12,");
     eprintln!("                metal or gl. What to reach for when one stack on this machine is");
     eprintln!("                broken and another is not. Refused, rather than quietly ignored,");
