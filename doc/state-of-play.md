@@ -251,7 +251,10 @@ stable package carries the field arithmetic without the signature scheme. The se
 asymmetry: a mismatch is decisive, a match is the absence of one kind of evidence, and a
 certificate that arrived in the same file as the signature it verifies proves the two are
 consistent with each other and nothing about who made either. **Nothing here says a signature is
-valid.**
+valid.** **And where the file marks the part this program does not do**, it says that too: Table
+255's `/V 1` states that "the Reference dictionary shall be considered critical to the validation
+of the signature", and this program evaluates no transform method, so the note that names the
+questions it answered now names that one as well (ADR 0637).
 
 **And it speaks a page.** `viewer-accessibility` maps §14.8.4's standard structure types onto
 `accesskit::Role`, and `accesskit_unix` puts the result on AT-SPI — where a real client walks it

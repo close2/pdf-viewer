@@ -392,6 +392,22 @@ fn about_one(
             }
         }
         verdicts(signature, document, notes);
+        // **Table 255's `/V` is the file saying which part of the validation matters**, and it is
+        // the one sentence of that entry addressed to whoever validates: "[t]he value is 1 if the
+        // Reference dictionary shall be considered critical to the validation of the signature"
+        // (§12.8.1). This program evaluates no transform method — §12.8.2.2.2's comparison of two
+        // revisions is what that would take and the ledger records it as not done — so on a file
+        // that writes `/V 1` the closing paragraph's "answers two of the three questions" is
+        // weaker than it sounds, and the file itself is what says so. The condition is the
+        // entry's own and nothing is added to it (trap 11); `/V` absent is the table's default 0.
+        if signature.reference_is_critical() {
+            notes.push(
+                "that signature states /V 1, so this file requires its signature reference \
+                 dictionary to be considered critical to validating it (Table 255) — and this \
+                 program evaluates no transform method, so nothing said above took it into account"
+                    .to_owned(),
+            );
+        }
         // §12.8.3.4's rules on a PAdES signature that need no certificate to check. Silent for
         // every other `/SubFilter`, which is §12.8.3.4.1's own scope.
         if let Ok(cms) = signature.signed_data() {
@@ -824,6 +840,55 @@ mod tests {
                 .join("\n")
                 .contains("carries revocation information"),
             "a signature with no signed attributes carries none"
+        );
+    }
+
+    /// Table 255's `/V 1` is said, and a signature that omits the entry is told nothing.
+    ///
+    /// **No corpus document states the entry**, so the witness is hand-built (trap 8) and the
+    /// population is measured rather than guessed: `pdf-model`'s
+    /// `examples/signature_algorithm_census` counts Table 255's `/V` over every document this
+    /// tree can reach, and the `CC-MAIN-2021-31` crawl is where the two files that write `/V 1`
+    /// are — both of them certification signatures carrying a `DocMDP` and a `FieldMDP`
+    /// reference dictionary, which is exactly the material this program does not evaluate.
+    ///
+    /// The other two signatures are the calibration the sweep rule asks for: the same reference
+    /// dictionary under an explicit `/V 0` — which six crawled files write — and under no `/V` at
+    /// all, and the sentence must appear for neither. A guard widened to "the entry is present"
+    /// fails on the first of those, and one removed altogether fails on the third.
+    #[test]
+    fn a_signature_calling_its_reference_dictionary_critical_says_so() {
+        let document = document(&[
+            "<< /Type /Catalog /Pages 2 0 R \
+             /AcroForm << /Fields [4 0 R 6 0 R 8 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Critical) /V 5 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /V 1 \
+             /Name (A. Author) /ByteRange [0 10 20 10] /Contents <00> /Reference [10 0 R] >>",
+            "<< /FT /Sig /T (Stated) /V 7 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /V 0 \
+             /Name (B. Author) /ByteRange [0 10 20 10] /Contents <00> /Reference [10 0 R] >>",
+            "<< /FT /Sig /T (Silent) /V 9 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /Name (C. Author) /ByteRange [0 10 20 10] /Contents <00> /Reference [10 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP \
+             /TransformParams << /Type /TransformParams /P 2 /V /1.2 >> >>",
+        ]);
+        let said = about(&document);
+        let critical: Vec<_> = said
+            .iter()
+            .filter(|note| note.contains("considered critical to validating it (Table 255)"))
+            .collect();
+        assert_eq!(
+            critical.len(),
+            1,
+            "one of the three signatures states /V 1: {said:?}"
+        );
+        assert!(
+            critical[0].contains("this program evaluates no transform method"),
+            "the sentence names what was not done rather than only what the file asked for: \
+             {critical:?}"
         );
     }
 

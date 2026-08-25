@@ -162,6 +162,23 @@ pub struct Signature {
     /// §12.8.1 makes this what a *certification* signature is: its dictionary "shall contain a
     /// signature reference dictionary … that has a `DocMDP` transform method".
     pub certification: bool,
+    /// `/V`, Table 255's version of the signature dictionary format — and the one sentence of
+    /// that entry addressed to whoever *validates* rather than to whoever signs (§12.8.1).
+    ///
+    /// > The value is 1 if the Reference dictionary shall be considered critical to the
+    /// > validation of the signature.
+    ///
+    /// So a file writing `/V 1` is saying that the transform methods in its `/Reference` array
+    /// are part of what makes the signature good, and a validator that ignores them has not
+    /// finished. This program does not evaluate a transform method at all — §12.8.2.2.2's
+    /// comparison of two revisions is what that would take, and the ledger records it as not
+    /// done — so the entry is read in order to be *said*, by [`Self::reference_is_critical`],
+    /// rather than to change an answer. Table 255 gives the default as 0.
+    ///
+    /// Kept as the file's own integer rather than as a `bool`, because the entry is a version
+    /// number: 0 and 1 are the two the standard gives meanings to and a third value is a claim
+    /// about a format edition nobody here has read.
+    pub format_version: Option<i64>,
 }
 
 /// What a signature's `/ByteRange` covers, measured against the file.
@@ -527,6 +544,7 @@ impl std::fmt::Debug for Signature {
             .field("contact", &self.contact)
             .field("changes", &self.changes)
             .field("certification", &self.certification)
+            .field("format_version", &self.format_version)
             .finish()
     }
 }
@@ -555,6 +573,21 @@ impl Signature {
             self.sub_filter.as_deref(),
             Some("ETSI.CAdES.detached" | "ETSI.RFC3161")
         )
+    }
+
+    /// Whether the file marks its signature reference dictionary critical to validating this
+    /// signature — Table 255's `/V 1`, and the entry's own condition (§12.8.1).
+    ///
+    /// > The value is 1 if the Reference dictionary shall be considered critical to the
+    /// > validation of the signature.
+    ///
+    /// The condition is the entry's and nothing is added to it: `/V` absent is Table 255's
+    /// default of 0, and any other value says nothing about criticality. What the answer is
+    /// *for* is a sentence rather than a verdict — this program evaluates no transform method,
+    /// so a `true` here names the part of the validation it does not do, on the file's own say-so.
+    #[must_use]
+    pub fn reference_is_critical(&self) -> bool {
+        self.format_version == Some(1)
     }
 
     /// What this signature's range covers of a file `length` bytes long.
@@ -1421,6 +1454,7 @@ pub fn read(document: &Document, dict: &Dictionary) -> Option<Signature> {
         contact: text("ContactInfo"),
         changes: changes(document, dict),
         certification: has_transform(document, dict, b"DocMDP"),
+        format_version: document.get_key(dict, "V").as_integer(),
     })
 }
 
@@ -2207,6 +2241,51 @@ mod tests {
         assert!(permissions(&doc).usage_rights.is_none());
     }
 
+    /// Table 255's `/V 1` says the reference dictionary is critical, and the field's `/V` does not.
+    ///
+    /// **Two entries one letter apart, and the outer one is what a signature is reached through.**
+    /// Table 226 makes a field's `/V` its value — for a signature field, the signature dictionary
+    /// itself — while Table 255 makes the *signature dictionary's* `/V` an integer format version
+    /// whose 1 means "the Reference dictionary shall be considered critical to the validation of
+    /// the signature" (§12.8.1). Reading the wrong one would answer with a dictionary where an
+    /// integer belongs, so this fixture states both: `/V 1` inside a signature that is itself the
+    /// `/V` of its field.
+    ///
+    /// The second field is the control the entry's own default asks for — Table 255 gives `/V` a
+    /// default of 0, so a signature stating nothing states nothing about criticality.
+    #[test]
+    fn a_signature_states_whether_its_reference_dictionary_is_critical() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R 6 0 R] /SigFlags 3 >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Critical) /V 5 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /V 1 \
+             /ByteRange [0 10 20 10] /Contents <00> /Reference [8 0 R] >>",
+            "<< /FT /Sig /T (Silent) /V 7 0 R >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0 10 20 10] /Contents <00> /Reference [8 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /FieldMDP /Data 4 0 R \
+             /TransformParams << /Type /TransformParams /Action /All /V /1.2 >> >>",
+        ]);
+
+        let found = signatures(&doc);
+        let [critical, silent] = found.as_slice() else {
+            panic!("two signatures, got {found:?}");
+        };
+        assert_eq!(
+            critical.format_version,
+            Some(1),
+            "the signature dictionary's own /V, not the field's"
+        );
+        assert!(critical.reference_is_critical());
+        assert_eq!(silent.format_version, None);
+        assert!(
+            !silent.reference_is_critical(),
+            "Table 255 defaults /V to 0, which says nothing about criticality"
+        );
+    }
+
     /// A prepared but unsigned signature field is not a signature.
     ///
     /// The common shape in a blank form: the field exists so that somebody can sign it, and its
@@ -2685,6 +2764,7 @@ mod tests {
             contact: None,
             changes: None,
             certification: false,
+            format_version: None,
         }
     }
 
@@ -2725,6 +2805,7 @@ mod tests {
             contact: None,
             changes: None,
             certification: false,
+            format_version: None,
         };
         assert_eq!(
             signature.authenticity(file),
@@ -2916,6 +2997,7 @@ mod tests {
             contact: None,
             changes: None,
             certification: false,
+            format_version: None,
         }
     }
 
@@ -2954,6 +3036,7 @@ mod tests {
             contact: None,
             changes: None,
             certification: false,
+            format_version: None,
         };
         assert_eq!(
             signature.authenticity(file),
@@ -3006,6 +3089,7 @@ mod tests {
             contact: None,
             changes: None,
             certification: false,
+            format_version: None,
         };
         assert_eq!(
             signature.authenticity(file),
