@@ -158,6 +158,25 @@ their controls from left one item in its place, below. Plus the standing note ab
   options are drawn and the unmarked selection is reported. What is left on the page is the mark,
   which no clause states and which this tree will not invent; a host draws it from
   `ChoiceControl::selected`, as it draws a text selection, in its own colour.
+- **Both native windows rasterise on the event thread, so neither can stop a draw** — open, found
+  by asking which hosts ADR 0657's interrupt policy has. `viewer-gtk` and `viewer-qt` both call
+  `self.rasterizer.rasterize(&request.list, request.target)` **inside** their `Event::NeedsRender`
+  arm, on the toolkit's main thread. `pdf_render::Interrupt` is a flag *another* thread raises, so
+  in those two there is no other thread to raise it and nothing for it to interrupt but the loop
+  that would do the raising: a page written to draw for 27.6 s (ADR 0650) takes the window with
+  it — no repaint, no key, no way to say stop.
+
+  **The answer is not a watchdog**, and that is worth writing down so a later round does not reach
+  for one: a thread whose only job is to raise the flag after a fixed duration is precisely the
+  automatic deadline ADR 0657 §1 measured and refused, and it would refuse legitimate pages while
+  a document that chose its cost passed. What these two need is `viewer-ui`'s arrangement — the
+  draw on a thread of its own (`crate::composer`, ADR 0461) — after which they get the policy
+  unchanged and it moves into `viewer-host`, which is where it belongs the moment there are two
+  hosts to write it twice.
+
+  `viewer-ffi` is the third and the case is different: a C caller is *told* to move the request to
+  a thread of its own, so the structure is already right and what is missing is an ABI entry point
+  to raise a flag with. That is a header change and a levelness question of its own.
 
 ## Three hosts, and what turned out not to be a toolkit's
 

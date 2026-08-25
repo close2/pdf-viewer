@@ -2,13 +2,13 @@
 
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
 its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640) and the
-host's own draw made stoppable (ADR 0650).** The
+host's own draw made stoppable (ADR 0650) and the stopping decided (ADR 0657).** The
 machinery exists and is verified
 against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; a
 frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
 confined process can both compute; and a page shipped as marks is **not drawn at all**, which is
 what the choice was for. The tier change is complete. What it left behind was one *host-side* debt
-whose mechanism is now built and whose *policy* is what remains, below.
+whose mechanism and policy are now both built; what remains of it is the owner's abort, below.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
@@ -118,16 +118,34 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
   either: that budget is the *device's resources*, not the frame's cost. `examples/host_draw` is
   the instrument and carries the finding.
 
-  **What is left is the policy**, which is a host's and has no host yet: nothing decides *when* to
-  raise one, because `viewer-ui` is not on this boundary (`doc/todo/34` §2's last line). The shape
-  it takes is the owner's brief in [`10`](10-bounds-that-cap-size.md) — a callback that warns and
-  does not block — and ADR 0650 §2 is why it has to be driven by a clock read *while* drawing.
+  **The policy is decided and built** (ADR 0657), and the two sentences this entry used to carry
+  here were both wrong in the same way — they assumed the interrupt's question belongs to *this*
+  boundary. It does not. It is asked wherever a display list this program did not write is drawn
+  by `render-cpu`, and `viewer-ui`'s `--cpu` window has been such a host since ADR 0461 gave it a
+  composing thread. So the policy has a host today and is wired into that one.
 
-  **And the policy owes one message besides the decision**, found by reading `doc/todo/37`'s
-  machinery rather than assuming it: `Stale::plan` stands in for a view until a rendering lands,
-  and an interrupted draw never lands. A host that raises one has to say the render *failed*, or
-  the stand-in becomes permanent and the person is left looking at a frozen approximation with
-  nothing to explain it.
+  - **The rule reads no clock**: a draw is interrupted where finishing it would produce a picture
+    the program has already decided it will never show — `crate::stale::could_stand_in`, which is
+    `doc/todo/37`'s own question asked of a frame not yet drawn. A page turn, a resize, a
+    re-interpretation and a zoom of a column are interrupted; a scroll and a zoom of a single page
+    are **not**, because their frame is the next stand-in's base.
+  - **A deadline was priced and refused, on a stronger measurement than ADR 0650's.** That one
+    says the tree cannot predict a draw's cost; this one says the cost is not the question. At
+    twice device scale, 6.1% of `doc/pdf.js`'s first pages take longer than one 60 Hz period and
+    the slowest of 957 takes 252 ms, while the amplification fixture takes 27.6 s — and a
+    document's author picks where in that gap to sit.
+  - **The message this entry said was owed is not owed**, and the reading that found it is in ADR
+    0657 §3: `viewer_core::Rendered::Failed` records a page as *answered* and stops the scheduler,
+    deliberately, so a host saying it about a draw it abandoned itself would freeze that page. An
+    abandoned draw produces no `Rendered` at all, and `viewer-core`'s
+    `a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked` pins both halves.
+
+  **What is left of it is the owner's callback** — *"warn the user and allow the user to abort,
+  however don't block"* ([`10`](10-bounds-that-cap-size.md)) — and it is now a convenience rather
+  than the thing standing between a document and the machine, because the rule above already keeps
+  the window responsive while a hostile page draws. It needs an input, and an input is
+  `viewer_host::keys`' table, which [`30`](30-a-native-host.md)'s levelness rule makes all three
+  windows' at once.
 - **The cancel path proven from the host**, not only from a test: the owner's brief says the
   callback may not block, and the `Canceller` is already about a millisecond.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the

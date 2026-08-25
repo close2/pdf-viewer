@@ -171,12 +171,18 @@ pass.
   along — **and that drawing is stoppable too, by a different mechanism with a different name**
   (ADR 0650): `pdf_render::Interrupt` is *raised* and honoured between commands, where a
   `Canceller` *ends a process*, and it works there because on the host's side the loop is this
-  tree's own rather than the document's. What is left is a *policy* for raising one, and there is
-  no host on this boundary yet to hold it; `doc/todo/15` has that. **A
+  tree's own rather than the document's. **And it is raised by a policy** (ADR 0657), which turned
+  out to belong to a host that already exists rather than to this boundary: a draw is abandoned
+  exactly where finishing it would produce a picture the program has already decided it will never
+  show, which is `doc/todo/37`'s own stand-in question asked of a frame not yet drawn. It reads no
+  clock, because a deadline separates nothing — a document picks its own cost, and the corpus and
+  the amplification fixture are two orders of magnitude apart with legitimate pages on both sides
+  of anything between them. `viewer-ui` under `--cpu` raises them; the two native windows
+  rasterise on their event thread and cannot (`doc/todo/30`). **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
   own last line to the host rather than a bare signal number. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650; `doc/todo/34`, `doc/todo/15`.
+  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650, 0657; `doc/todo/34`, `doc/todo/15`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three

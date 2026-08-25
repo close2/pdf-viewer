@@ -847,6 +847,61 @@ fn taking_one_pages_list_does_not_lift_the_raster_budget() {
 }
 
 #[test]
+fn a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked() {
+    // **What a host that interrupts its own draw has to know about this crate**, and the reason
+    // ADR 0657's rule 3 is a rule rather than a preference. Both halves are deliberate here and
+    // neither was written down anywhere a host could read it.
+    //
+    // `Rendered::Failed` records the request as answered — `shown` becomes the pending target and
+    // revision — so the scheduler stops asking. That is right for a page that will not rasterise,
+    // which would refuse again at the same size; it is wrong for a draw the *host* abandoned,
+    // which says nothing about the page. A host reporting one as the other marks the page shown
+    // for good, and nothing but a view change ever asks for it again.
+    let (mut viewer, events) = opened(800, 1000);
+    let token = request(&events).token;
+    let refused: Vec<Event> = viewer
+        .handle(Command::RenderReady {
+            token,
+            rendered: Rendered::Failed("the processor would not draw this page".to_owned()),
+        })
+        .collect();
+    assert!(
+        refused
+            .iter()
+            .any(|event| matches!(event, Event::Reported { .. })),
+        "a refusal is reported rather than swallowed: {refused:?}"
+    );
+    assert!(
+        !refused
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "and it is final for this view: without that the two spin — ask, refuse, ask: {refused:?}"
+    );
+    // The other half, and the one that makes answering *nothing* the right thing for an abandoned
+    // draw rather than a leak: an outstanding token holds the page's place, so a host that stays
+    // silent about one is not asked twice either. What re-asks is the question changing.
+    let silent: Vec<Event> = viewer.handle(Command::Tick { millis: 16 }).collect();
+    assert!(
+        !silent
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "nothing about a tick changes what is being asked for: {silent:?}"
+    );
+    let moved: Vec<Event> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(1.5),
+            at: None,
+        })
+        .collect();
+    assert!(
+        moved
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "and a view change is what asks again, which is the recovery a person has: {moved:?}"
+    );
+}
+
+#[test]
 fn a_page_the_host_took_the_list_for_leaves_its_neighbours_answerable() {
     use pdf_model::viewer_preferences::PageLayout;
 

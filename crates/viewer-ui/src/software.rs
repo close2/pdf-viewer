@@ -25,7 +25,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use pdf_render::{
-    DisplayList, Medium, Raster, RasterFormat, Rasterizer as _, TargetSpec, Transform,
+    DisplayList, Interrupt, Medium, Raster, RasterFormat, Rasterizer as _, TargetSpec, Transform,
 };
 use render_cpu::{CpuRasterError, CpuRasterizer};
 use winit::window::Window;
@@ -193,6 +193,29 @@ fn pixels(raster: &Raster) -> usize {
 /// [`SoftwareError::NoExtent`] where the arrangement places no page at all, and
 /// [`SoftwareError::Page`] where one would not rasterise.
 pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, SoftwareError> {
+    compose_pages_interruptibly(pages, None)
+}
+
+/// [`compose_pages`], with a flag another thread can raise to take the drawing thread back.
+///
+/// **What the interrupt is for is the *host's* decision and not this function's** — ADR 0657 has
+/// the policy and `pdf_render::Interrupt` the mechanism. What is decided here is only that the
+/// flag reaches every page of Table 29's arrangement rather than the first: a two-page spread is
+/// two rasterisations and a `None` on the second would make a raise wait for a whole page.
+///
+/// The arrangement's pages are drawn in order, so an interrupt raised part way through leaves the
+/// pages before it drawn and the rest not. Nothing here composes that partial picture: the whole
+/// call refuses, because a window frame that is right about one page of two is a window with a
+/// hole in it, and the caller's answer to a refusal is to show what it had (`doc/todo/37`).
+///
+/// # Errors
+///
+/// As [`compose_pages`], plus [`SoftwareError::Page`] carrying
+/// `pdf_render::BackendError::Interrupted` where the flag was raised.
+pub fn compose_pages_interruptibly(
+    pages: &[(&DisplayList, TargetSpec)],
+    interrupt: Option<&Interrupt>,
+) -> Result<Raster, SoftwareError> {
     /// Which page of the arrangement refused, counting from one.
     fn refused(index: usize) -> impl Fn(CpuRasterError) -> SoftwareError {
         move |problem| SoftwareError::Page {
@@ -200,12 +223,23 @@ pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, Sof
             problem,
         }
     }
+    /// A rasteriser that honours `interrupt`, or the plain one where there is none to honour.
+    ///
+    /// Built per page rather than cloned, which is what the existing shape already did, and the
+    /// `Option` is what keeps a caller that hands none over on the path every gate in this tree
+    /// runs — 867 instructions a draw against 0.18%, ADR 0650 section 5.
+    fn drawing(interrupt: Option<&Interrupt>, medium: Medium) -> CpuRasterizer {
+        let rasterizer = CpuRasterizer::new().with_medium(medium);
+        match interrupt {
+            Some(interrupt) => rasterizer.interruptible(interrupt.clone()),
+            None => rasterizer,
+        }
+    }
     let Some(((first, target), rest)) = pages.split_first() else {
         return Err(SoftwareError::NoExtent);
     };
     let medium = Medium::WINDOW;
-    let mut composed = CpuRasterizer::new()
-        .with_medium(medium)
+    let mut composed = drawing(interrupt, medium)
         .rasterize(first, *target)
         .map_err(refused(0))?;
     match composed.format {
@@ -214,8 +248,7 @@ pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, Sof
     for (index, (list, placed)) in rest.iter().enumerate() {
         // Its own 𝑊 and no surround: this is a layer over what is already drawn, and the
         // ground between the pages was painted once by the page below.
-        let over = CpuRasterizer::new()
-            .with_medium(medium.on_transparency())
+        let over = drawing(interrupt, medium.on_transparency())
             .rasterize(list, *placed)
             .map_err(refused(index.saturating_add(1)))?;
         match over.format {
@@ -224,6 +257,31 @@ pub fn compose_pages(pages: &[(&DisplayList, TargetSpec)]) -> Result<Raster, Sof
         source_over(&mut composed, &over);
     }
     Ok(composed)
+}
+
+/// Whether a [`SoftwareError`] is the caller's own interrupt coming back rather than a refusal.
+///
+/// **A refusal is a fact about the document and this is a decision the host made about its own
+/// thread**, which is why the two may not be reported alike: `viewer_core::Rendered::Failed`
+/// records a page as answered for and stops the scheduler asking again (ADR 0657), and a host
+/// that said it about a draw it abandoned itself would mark the page shown for good.
+///
+/// **Both variants that can carry the rasteriser's refusal are named**, although only
+/// [`compose_pages_interruptibly`] hands an interrupt over today and an overlay is drawn without
+/// one. It classifies an *error* rather than a call site: a later round that made the chrome
+/// interruptible would otherwise get `false` here and report the abandonment as a failure, which
+/// is precisely the confusion this exists to prevent.
+#[must_use]
+pub fn was_interrupted(problem: &SoftwareError) -> bool {
+    matches!(
+        problem,
+        SoftwareError::Page {
+            problem: CpuRasterError::Target(pdf_render::BackendError::Interrupted),
+            ..
+        } | SoftwareError::Overlay(CpuRasterError::Target(
+            pdf_render::BackendError::Interrupted
+        ))
+    )
 }
 
 /// A window with no page on it at all, in [`pdf_render::SURROUND`].
@@ -360,11 +418,11 @@ mod tests {
     use std::sync::Arc;
 
     use pdf_render::{
-        BlendMode, Color, Command, DisplayList, Paint, Path, PathCommand, Point, Raster,
-        RasterFormat, Size,
+        BlendMode, Color, Command, DisplayList, Interrupt, Paint, Path, PathCommand, Point, Raster,
+        RasterFormat, Size, TargetSpec,
     };
 
-    use super::compose;
+    use super::{compose, compose_pages, compose_pages_interruptibly, was_interrupted};
 
     /// A window-sized opaque page, one colour throughout.
     fn page(width: u32, height: u32, colour: [u8; 4]) -> Raster {
@@ -404,6 +462,41 @@ mod tests {
             blend: BlendMode::Normal,
         });
         list
+    }
+
+    /// A raised interrupt reaches the arrangement, and it is legible as itself afterwards.
+    ///
+    /// **The second half is the one that matters** (ADR 0657): the host's answer to the core turns
+    /// on telling an interrupt apart from a refusal, so `was_interrupted` is asserted rather than
+    /// the error merely being an error. And a second arm with no interrupt at all, because the
+    /// same call is what every frame of a `--cpu` run makes.
+    #[test]
+    fn a_raised_interrupt_refuses_the_arrangement_and_says_which_refusal_it_is() {
+        let list = left_half(16, 8, Color::rgb(0.0, 0.0, 0.0));
+        let target = TargetSpec {
+            width: 16,
+            height: 8,
+            transform: pdf_render::Transform::IDENTITY,
+        };
+        let pages = [(&list, target)];
+
+        let interrupt = Interrupt::new();
+        interrupt.raise();
+        let problem = compose_pages_interruptibly(&pages, Some(&interrupt))
+            .expect_err("a raised interrupt is honoured before the first command");
+        assert!(
+            was_interrupted(&problem),
+            "a host that read this as a refusal would tell the core the page cannot be drawn: \
+             {problem}"
+        );
+
+        let drawn = compose_pages_interruptibly(&pages, Some(&Interrupt::new()))
+            .expect("an unraised interrupt draws the arrangement");
+        assert_eq!(
+            drawn,
+            compose_pages(&pages).expect("and so does no interrupt at all"),
+            "handing one over changes nothing about the pixels"
+        );
     }
 
     /// No overlays is the page itself: the identity of the composition, which is what a
@@ -475,17 +568,16 @@ mod tests {
         );
         // The second page placed four pixels to the right of the first, which is what a column's
         // second entry is: the same list at a different origin.
-        let whole = pdf_render::TargetSpec {
+        let whole = TargetSpec {
             width: 8,
             height: 4,
             transform: pdf_render::Transform::IDENTITY,
         };
-        let moved = pdf_render::TargetSpec {
+        let moved = TargetSpec {
             transform: pdf_render::Transform::translate(4.0, 0.0),
             ..whole
         };
-        let composed =
-            super::compose_pages(&[(&first, whole), (&second, moved)]).expect("two pages");
+        let composed = compose_pages(&[(&first, whole), (&second, moved)]).expect("two pages");
         assert_eq!(&composed.data[0..4], &[0, 0, 0, 255], "the first page");
         assert_eq!(
             &composed.data[5 * 4..6 * 4],
@@ -499,7 +591,7 @@ mod tests {
     #[test]
     fn no_pages_is_not_a_frame() {
         assert!(matches!(
-            super::compose_pages(&[]),
+            compose_pages(&[]),
             Err(super::SoftwareError::NoExtent)
         ));
     }

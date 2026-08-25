@@ -649,6 +649,18 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
 - **Wall-clock benchmarks lie under load; count instructions instead.** One change measured as a
   24% regression and an 8.5% improvement twenty minutes apart. **A/B in one sitting**, and measure
   the baseline on this machine rather than trusting a number in this file.
+- **One sitting is not enough when the arms are minutes apart and the answer is a duration — take a
+  ratio *inside* each run.** Some things cannot be counted with callgrind: a window's response to a
+  gesture is two threads, an event loop and a display server, and instructions do not answer it. The
+  seven-hundred-and-forty-ninth session measured one such thing over four alternating runs while the
+  load average went from 3.7 to 72, and in **seconds** the change read as a small regression — the
+  second *before* run came to rest in a median of 0.89 s and the first *after* run in 0.92. The
+  frames those runs were made of cost 0.39 s and 0.59 s, so the comparison was of the machine. The
+  same runs expressed as *how many frames of work the window waited*, each divided by its own run's
+  frame cost, separate completely: every before cycle above 2.18 and every after cycle below 1.68.
+  **So when the quantity is a latency, find the unit the run itself provides** — a frame, a refresh,
+  a page — and divide by it; a ratio between two durations of the same run has no machine in it.
+  ADR 0657 section 7.
 - **Take the *before* half with a patch file, never with `git stash`.** The stash stack belongs to
   the clone and not to the worktree, so every parallel round pushes onto the same one: a neighbour's
   `git stash` landing between a round's own push and pop makes the pop apply *their* diff and lets

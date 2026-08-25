@@ -723,16 +723,33 @@ impl App {
             return Some(Rendered::Failed(problem));
         }
         let overlays = chrome.lists();
-        let drawing = {
+        let (drawing, superseded) = {
             let composer = self.composer()?;
             // **Read before the ask below**, and that is not an ordering accident — see
             // [`Self::on_the_device`], where the same line has the same reason.
             let was_drawing = composer.drawing();
+            let mut superseded = false;
             if !composer.depicts(pages) {
+                // **ADR 0657's rule 1, and it is asked before the ask rather than instead of
+                // it.** A raise does not free the thread this instant — the command in progress
+                // finishes first, measured at 1.3 to 2.1 ms against a 2.76 ms command (ADR 0650)
+                // — so the job it clears the way for is sent by the tick that collects it, one
+                // period later. Asking here is what makes that one period rather than the
+                // remainder of a frame.
+                superseded = composer.superseded(pages);
                 composer.ask(pages.to_vec(), now);
             }
-            was_drawing
+            (was_drawing, superseded)
         };
+        if superseded {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "the frame being drawn is of a view this one could not stand in with, so the \
+                     composing thread was interrupted and will draw this view instead"
+                ),
+            );
+        }
         if !stand_in || !self.stale.has_rendering() {
             // The clock stays armed, so page one arrives on the tick after it is drawn rather than
             // waiting for an event that is not coming.
@@ -797,6 +814,30 @@ impl App {
         let landed = self
             .composer()
             .and_then(crate::composer::Composer::collect)?;
+        // **ADR 0657's rule 3, and trap 20: an abandoned draw is answered to nobody.** It is not a
+        // refusal — `Rendered::Failed` would set the core's `shown` for this page and stop the
+        // scheduler asking again, which is right for a page that will not rasterise and would
+        // freeze one this host merely chose not to finish. It is not a settled view either: no
+        // pixels of it exist, so recording it as the base would have `Stale` reproject from a
+        // picture that was never drawn and feed rule 5's prediction a frame that did not land.
+        //
+        // **And `stages.composed` stays unset**, which is a measurement decision rather than a
+        // tidy-up: it is a row of the summary's percentiles (`crate::timing::SUMMARY_ROWS`) and
+        // what those describe is what a *frame* costs the composing thread. A draw stopped part
+        // way through is a sample of nothing, and letting it into the distribution would pull that
+        // number down by however far through the page the interrupt landed. What it cost is said
+        // in a line of its own instead.
+        if landed.abandoned {
+            self.trace.say(
+                Topic::Frames,
+                format_args!(
+                    "the interrupted frame came back after {:.1} ms, drawn and dropped; nothing \
+                     is reported and the view it was of is not recorded as settled",
+                    landed.cost.as_secs_f64() * 1e3
+                ),
+            );
+            return None;
+        }
         stages.composed = landed.cost;
         if landed.refused.is_some() {
             return landed.refused;
