@@ -22,13 +22,15 @@ rather than about the standard (ADR 0455).
 vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
 an account of the requirement that is not the clause's — which is the half no sweep reads, because
 a claim that nothing is owed has no missing thing to grep for (ADR 0465).
-**Eighteen sweeps** — fifteen of them here, a sixteenth over the corpus (ADR 0405), a
-seventeenth in `tools/spec-errata`, where the errata are (ADR 0426), and **an eighteenth built in
+**Twenty-two sweeps** — nineteen of them here, one over the corpus (ADR 0405), one
+in `tools/spec-errata`, where the errata are (ADR 0426), and **the twenty-second built in the
+seven-hundred-and-sixty-ninth, the only one whose right-hand side is the workspace's own
+membership** (ADR 0698). **The eighteenth was built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
 against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
 declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
 contradicted, all three noise, and it would not have printed that round's own §9.8 because a denial
-generalises where an assertion enumerates (ADR 0481) — **thirteen of them are committed
+generalises where an assertion enumerates (ADR 0481) — **seventeen of them are committed
 programs and run every round**, one was run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
@@ -292,6 +294,34 @@ with the reading, which is this file. Every bullet below is unchanged.
   populations it names rather than counts**: a page whose figure and bound print identically at
   the gate's two decimals, so its own line cannot say what its verdict rests on; and a
   contradicted page sitting in no note at all.
+- **One asks a question about *this tree* rather than about the standard, and it is the newest**:
+  `cargo run --release -p conformance --bin parts`, a fraction of a second, over `ledger.toml`, the
+  source roots and every Markdown document under `doc/` bar `doc/history/` — the twenty-second
+  sweep and the seventeenth to be a program (ADR 0698). The tenth sweep reads a cardinal only where
+  it governs one of the ledger's own words for a *row*; this reads one governing one of this tree's
+  own **parts** — `backend`, `rasteriser`, `crate`, `host`, `worker`, `submodule` — and answers it
+  with the workspace's own membership, read off the member directories, each package's `src/bin/`
+  and `.gitmodules`. **It is a decay detector rather than a mistake detector**, and that is the
+  whole of how to read it: "both backends" was true until the tree grew a third rasteriser, so most
+  of the population it walks is correct sentences and what it offers is an ordering.
+  **Two rules decide what it reads at all, and each removes a larger population than it keeps.**
+  The noun follows the number *immediately*, so "both **native** hosts" — right about two of three
+  — is never read; and the form must **presuppose** the size (`both`, `neither`, `either`, or a
+  cardinal under a definite article), because "two backends draw the seam" counts two of them and
+  claims nothing about how many there are. Reading bare cardinals as well put **293 further
+  disagreements** in the first run and the sample was counts of a subset every time.
+  Three rungs, closest first: the place is a crate the **whole population depends on**, where no
+  pair can be meant — `pdf-render` is that crate for the backends and is where 767's defect was;
+  the ledger or an undated document, which speaks about the tree; and a **dated** record
+  (`doc/adr/`, whose number is a date, the nineteenth sweep's rule) or a place inside the
+  population, which is counted rather than listed because a cross-backend test naming its pair is
+  the dominant shape by a factor of six. The noise it leaves: a modifier that *follows* the noun
+  ("four submodules under `doc/corpora/`", right about the four there), this project's own
+  aphorisms repeated verbatim — trap 2's "a decision either backend can make alone is a decision
+  neither has made" arrives as half a dozen hits that are one sentence — and a round's own record
+  of running it, which the ninth sweep has too. Calibrated per trap 13 against **767's live
+  defect** rather than a plant: `Image::is_smoothed`'s doc comment is rung 1 today, and correcting
+  it to name three takes it off the rung and moves the agreeing count by one.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the
@@ -333,6 +363,36 @@ with the reading, which is this file. Every bullet below is unchanged.
   requirement word (`Optional`, `Required`, `Deprecated`). `doc/errata-read.md` has what each run found,
   and what this tree does about a number an erratum has moved. A round implementing a clause runs
   `emit` on that document **before** it writes, and not `check` afterwards alone.
+
+## A twenty-third that is not built, and the reason is that its two sides agree
+
+**A parent restating a child's *refusal* and dropping the condition the child stated it under**, and
+it is not ADR 0481's mirror: there both rows take opposite stances and the population was fourteen
+term-mentions; here both rows **deny**, and the question is whether the parent's denial is the wider
+of the two. The seven-hundred-and-sixty-seventh session found one by reading and proposed the sweep;
+the seven-hundred-and-sixty-ninth measured it and declined it, and the measurement is one line.
+
+Restore the three §8.9.6 rows to what they said before 767 corrected them and read the operative
+words:
+
+- §8.9.6 (parent): "§8.9.6.2 refuses a stencil under a *graphics-state* soft mask, which would be
+  two masks on one command"
+- §8.9.6.1 (parent): the same clause, **word for word**
+- §8.9.6.2 (child): "One case is still refused by name: a stencil under a *graphics-state* soft
+  mask, which would be two masks on one command."
+
+**There is no widening to detect.** The three sentences state one claim in identical words, so a
+program comparing a parent's denial with its child's would count them as agreeing — which they do.
+What bounded the refusal was two paragraphs *earlier in the child's note*, about the pattern
+recomposition that needs the mask slot, and the condition was never in the refusal sentence at all.
+767 found it by reading `content::image`'s own `if`, and no sweep whose two sides are ledger rows
+can reach that: the correct answer was in the **code**, not in another row.
+
+So the shape is real and the instrument is not. **A ledger-internal sweep would not have printed
+the finding that motivated it**, which is session 701's clincher arriving for a second sweep, and it
+is a stronger reason to decline than a small population is. Revisit this if a note is ever written
+that states a refusal's condition *in the refusal sentence*, because then the two sides differ and
+there is something to compare.
 
 ## Why
 
