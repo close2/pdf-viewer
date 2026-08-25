@@ -1430,3 +1430,67 @@ column of Table D.2" — a font encoding keyed by glyph name, in `pdf-font` — 
 `text_string.rs` holds is Table D.3's code-to-Unicode column. No instrument could print it: the ninth
 sweep reads `Table NNN` citations against the entries ISO 32000-2 puts in that table, and an annex
 table's number is outside its population.
+
+## §9.6.4's NOTE 2, and the operator category a row said this tree could not run — the seven-hundred-and-sixtieth
+
+The successor rule's sixth use, and the second run of its fourth step. Over live rows the head is
+§14.8.5.3 with seven annotations — the same plateau the third, fourth and fifth uses left standing,
+because none of the three took its row from that list. Over **every** row §D.3 is gone (755 read it)
+and the head is **§9.6.4 with eleven annotations under four issues**, `implemented`; §7.4.1 with
+eight is second. Both figures reproduce what 750 measured from outside before the step existed,
+which is what said the arithmetic was right before it was trusted. ADR 0681.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §9.6.4 opening sentence, NOTE 2 | 332 | #111 | **corrects, and is the one that moved the row** | A strike at `[236.683 417.989 289.271 430.409]` over the `operators.` that `-bbox` puts at (239.98, 410.30)–288.29, ending "In Type 3 fonts, glyphs shall be defined by streams of PDF graphics operators", with a caret at `[281.508 418.072 290.45 425.358]` writing *objects*. Three `Text` notes below it insert *NOTE 2 Type 3 glyphs can use any PDF operator from any operator category (see "Table 50 - Operator categories" and "Figure 9 - Graphics objects") subject to additional restrictions described in this clause.*, a paragraph reading *Implementations also need to avoid potential infinite recursion if a Type 3 glyph description refers to itself directly or indirectly. The result in all such cases is implementation-dependent.*, and an EDITOR NOTE that the remaining NOTEs will be renumbered. `check` is blind to the strike for the second-listed reason — one word, under the four-word floor — and `crates/pdf-model/src/type3.rs`'s module comment quoted the sentence it retires. The recursion paragraph is `draw_type3_glyph`'s `MAX_FORM_DEPTH`, written from principle 3's budgets before the clause said it, and *reported* where the clause permits anything. What NOTE 2 was worth is below. |
+| §9.6.4 Table 111, `d0` and `d1` | 335 | #43 | cites | Six bare `Caret`s, `Review/Completed`, and the **sixth family of `Caret` with no `StrikeOut`** this file records. `[172.136 647.931 180.166 654.475]` and `[475.327 636.173 483.358 642.716]` sit at the starts of `d0`'s "wx denotes the horizontal displacement…" and "wy shall be 0…", `[172.136 474.547 180.166 481.091]` and `[475.327 462.788 483.358 469.332]` at the same two sentences under `d1`, and `[172.136 436.274 180.166 442.817]` and `[433.365 436.274 441.395 442.817]` ahead of "llx and lly denote…" and "urx and ury denote…". Each writes *The number*, *The numbers* or *the numbers*. Grammar: the sentences named a symbol where a noun belongs. `run.rs` quotes the half of the first one the carets do not reach — "it shall be consistent with the corresponding width in the font's Widths array" — and is unaffected. |
+| §9.6.4 EXAMPLE | 336 | #144 | **vindicates a fixture** | A strike at `[175.7 259.107 193.964 266.35]` over the `104` that `-bbox` puts at (177.62, 574.20)–192.04, on the EXAMPLE's `/LastChar 104`, with a caret at `[189.436 259.154 194.652 263.405]` writing *98*. The same object states `/FirstChar 97`, `/Differences [97 /square /triangle]` and `/Widths [1000 1000]`, so the published number contradicted three of its own neighbours. `crates/pdf-model/tests/type3.rs` builds its fixture from this EXAMPLE and has written `/LastChar 98` since the tenth session — the transcription was corrected on the way in, before there was an erratum to correct it. |
+| §9.6.3 (filed under §9.6.4) | 332, 21 | #553 | untouched | A caret at `[515.898743 692.721497 525.958923 700.918701]`, at the end of the `system.` that `-bbox` puts at (482.78, 134.61)–518.38 — the last of §9.6.3's bullets on deriving a PostScript language name — writing *An Adobe technical note provides a specification for Postscript name generation that can be used for instance fonts derived from variable fonts. See Adobe Technical Note #5902: "PostScript Name Generation for Variation Fonts".*, with a `Text` note on page 21 adding that note to clause 2's normative references. It tells a *writer* how to name an instance of a variable font; `/BaseFont` is a substitution request here and no name is derived from anything. Filed under §9.6.4 because page 332 carries the end of one clause and the start of the next, which is this file's page-straddle for the fifth round running. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**NOTE 2 states a permission, and §9.6.4's row denied exactly one of the categories it covers.** The
+row said, from the tenth session until this one:
+
+> A glyph description whose marks are an inline image draws nothing yet and reports, which is §8.9.7's
+> gap rather than this one's: 10 corpus documents are in that position.
+
+All three claims were false, and for all but one of those sessions. `pdf_model::inline_image` landed
+in the **eleventh** (ADR 0019) and §8.9.7 has been `implemented` since, so there was no gap to
+attribute a refusal to; measured, a `d0` description's inline image is drawn, at the matrix the
+description's own `cm` gives it, and nothing is reported. It is the ledger section of `doc/habits.md`'s
+third shape — a capability that arrived and announced nothing — and it stood for seven hundred and
+fifty rounds because nothing in this project compares a row's *denial* against a sibling row's
+status. The corpus figure is withdrawn rather than re-derived: it counted documents exercising a debt
+that does not exist.
+
+**A settled row's erratum finds the evidence weaker than the row**, which is the fifth use's lesson
+holding for a second row and a different reason. There it was a gate that could not fail; here the
+clause's own restriction on the permission — Table 111's "the glyph description shall not include an
+image; however, an image mask is acceptable" and §8.6.8's "unless painting an image mask, all image
+painting operators shall be ignored" — was implemented in `content/image.rs` with no test either
+side of it. `an_inline_image_is_a_glyph_description_s_marks_like_any_other_operator` and
+`a_d1_glyph_description_drops_an_image_and_keeps_an_image_mask` hold both now, calibrated against
+three plants: images dropped inside a description, which **no pre-existing test in the file could
+see**; the font matrix lost; and the image-mask exception removed.
+
+**And trap 13 sprang on the calibration itself, in its own words.** The first transpose plant —
+swapping `b` and `c` of the glyph's transform — passed, because the font matrix composed with the
+text rendering matrix is diagonal and a diagonal matrix agrees with its own transpose. The fixture's
+glyph description now states `750 0 200 375 0 0 cm`, whose shear makes the placed matrix disagree
+with its transpose, and the same plant fails. A rectangle is not asymmetric enough.
+
+### And an erratum's *added* text cannot be a rustdoc blockquote
+
+Recorded because it cost this round a red gate and will cost the next one the same. `doc/errata-read.md`
+has said since its second table that a corrected quotation keeps the published wording, "because
+`doc/md/` is what the gate verifies against". The mirror of that rule had never been written down:
+`cargo test -p conformance`'s `every_quotation_is_the_standards_own_words` reads every rustdoc
+blockquote under `crates/` and asks `doc/md/` for it, and an erratum's **inserted** sentence is in no
+clause of that conversion — so quoting NOTE 2 as a blockquote fails the gate, correctly, with *§9.6.4
+does not contain … as written*. The convention that already exists is `measurement.rs`'s for Issue
+#534: an erratum's replacement text goes in *italics*, naming the issue, never between `> ` or between
+quotation marks. Both places this round wrote it now do.

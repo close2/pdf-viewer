@@ -9,6 +9,18 @@
 //! dictionary. Drawing one therefore means running the content interpreter, which lives
 //! here, so `pdf_font::LoadedFont::load` refuses a Type 3 font and this module picks it up.
 //!
+//! **Errata Collection 3 strikes the last word of that quotation and writes *objects* in its
+//! place** (Issue #111, `/State` `Review` `Accepted`). The published wording is kept above
+//! because `doc/md/` is what the quotation gate reads; the strike is one word, so
+//! `spec-errata check`'s four-word floor cannot see a quotation resting on it. The same
+//! erratum inserts a NOTE saying what the substitution is for — *NOTE 2 Type 3 glyphs can use
+//! any PDF operator from any operator category (see "Table 50 - Operator categories" and
+//! "Figure 9 - Graphics objects") subject to additional restrictions described in this
+//! clause.* So a glyph description is a content stream with nothing withheld from it, and the
+//! restrictions are §9.6.4's own — Table 111's `d1` colour rule and §8.6.8's, which
+//! `crate::content` applies. Nothing about *this* module moves: it was already the whole
+//! interpreter that ran a description, which is the reason the module is here at all.
+//!
 //! # What is different about a Type 3 glyph
 //!
 //! Three things, and each of them is a defect if it is missed:
