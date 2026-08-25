@@ -42,6 +42,26 @@
 //! finished a refresh before the frame lands or it is a picture nobody sees and a frame that is
 //! late by the difference*. ADR 0461.
 //!
+//! # When the event thread takes this one back — ADR 0657
+//!
+//! `pdf_render::Interrupt` exists because nothing bounds the *number* of commands in a display
+//! list (ADR 0650): 1567 bytes of PDF amplify to ten thousand page-covering fills and 27.6 s of
+//! drawing. Until this module took one, nothing in the tree decided when to raise it.
+//!
+//! **The policy is one rule and it reads no clock.** A frame in flight is interrupted exactly
+//! where a finished picture of it could be neither presented nor stood in with —
+//! [`crate::stale::could_stand_in`] — which is a page turn, a resize, a re-interpretation or a
+//! zoom of a column, and never a scroll or a zoom of a single page. What that costs is the
+//! remainder of a frame nobody would have looked at; what a *deadline* would cost is legitimate
+//! pages, because nothing predicts a draw and a document chooses its own cost: at twice device
+//! scale 6.1% of `doc/pdf.js`'s first pages take longer than one 60 Hz period, the slowest of 957
+//! takes 252 ms, and the amplification fixture takes 27 600 ms — so no threshold separates them.
+//!
+//! And the *answer* is the other half of the rule. An abandoned frame is reported to nobody:
+//! `viewer_core::Rendered::Failed` marks a page shown and stops the scheduler asking again, which
+//! is right for a page that will not rasterise and would freeze a page this host merely chose not
+//! to finish. See [`Drawn`], and `crate::surface`'s `adopt_composed`.
+//!
 //! # What this thread does when nothing is asked of it
 //!
 //! The same thing [`crate::renderer`]'s does: one whole page at [`crate::stale::PROXY_EDGE`] per
@@ -52,7 +72,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pdf_render::{DisplayList, Raster, TargetSpec, Transform};
+use pdf_render::{DisplayList, Interrupt, Raster, TargetSpec, Transform};
 use viewer_ui::software::{SoftwareError, SoftwareSurface};
 
 /// One window frame the event thread asks the composing thread to draw.
@@ -64,19 +84,56 @@ use viewer_ui::software::{SoftwareError, SoftwareSurface};
 struct Job {
     /// Every page of Table 29's arrangement and where each goes, in the window's own pixels.
     pages: Vec<crate::stale::Placed>,
+    /// The flag the event thread raises to take this thread back — see [`InFlight`].
+    interrupt: Interrupt,
+}
+
+/// The job the composing thread is inside, as the event thread remembers it.
+///
+/// **What is new here is the last field**, and it is the whole of ADR 0657's mechanism on this
+/// side: the pages so that this thread can ask whether the frame being drawn is still worth
+/// anything, and the interrupt so that it can say no.
+#[derive(Debug)]
+struct InFlight {
+    /// When it was asked for, which is what [`Landed::waited`] is measured from.
+    asked: Instant,
+    /// The arrangement it is drawing, for [`crate::stale::could_stand_in`].
+    pages: Vec<crate::stale::Placed>,
+    /// Raised where that answers `false`, and never otherwise.
+    interrupt: Interrupt,
+}
+
+/// What became of a frame the composing thread was given.
+///
+/// **Three outcomes rather than a `Result`, because the third is not a failure**, and reporting it
+/// as one would be wrong in a way the person sees. `viewer_core::Rendered::Failed` records a page
+/// as answered for — `Viewer::rendered` sets `shown` to the request's own target and revision — so
+/// the scheduler stops asking, deliberately, because a rasteriser that refused this page at this
+/// size will refuse it again. That premise is true of [`Self::Refused`] and false of
+/// [`Self::Abandoned`], which says nothing about the page at all: it is a decision this host made
+/// about its own thread, and the frame that replaces it is already being asked for. ADR 0657.
+#[derive(Debug)]
+enum Drawn {
+    /// The window's own pixels, in the arrangement's placements.
+    Frame(Box<Raster>),
+    /// A page of the arrangement would not rasterise, in the processor's own words.
+    Refused(String),
+    /// The event thread raised the interrupt it handed over, and this thread honoured it.
+    Abandoned,
 }
 
 /// One finished window frame, on its way back to the thread that will present it.
 #[derive(Debug)]
 struct Done {
     pages: Vec<crate::stale::Placed>,
-    /// The window's own pixels, or what refused to draw them.
+    /// The window's own pixels, what refused to draw them, or the interrupt coming back.
     ///
-    /// A `Result` rather than an `Option` because a page that will not rasterise is a fact about
-    /// the document that the core has to be told: it becomes `Rendered::Failed` on the tick that
-    /// adopts this, exactly as it did when the frame was drawn inside `App::present`.
-    drawn: Result<Raster, String>,
-    /// What drawing it cost on this thread.
+    /// A page that will not rasterise is a fact about the document that the core has to be told:
+    /// it becomes `Rendered::Failed` on the tick that adopts this, exactly as it did when the
+    /// frame was drawn inside `App::present`. An abandoned draw is not, and [`Drawn`] says why the
+    /// two may not share a variant.
+    drawn: Drawn,
+    /// What drawing it cost on this thread — the whole of it, abandoned or not.
     cost: Duration,
 }
 
@@ -134,6 +191,12 @@ pub(crate) struct Landed {
     pub(crate) waited: Duration,
     /// What refused, where the page would not draw at all.
     pub(crate) refused: Option<String>,
+    /// Whether this was the interrupt the event thread raised, coming back.
+    ///
+    /// Separate from [`Self::refused`] rather than a third string, because the caller does two
+    /// different things with them: a refusal is answered to the core and an abandonment is not
+    /// answered at all. See [`Drawn`].
+    pub(crate) abandoned: bool,
 }
 
 /// This window's half of the arrangement: the surface, the pixels it is showing, and a handle on
@@ -160,12 +223,12 @@ pub(crate) struct Composer {
     /// channel.
     proxies: crate::stale::Proxies<Arc<Raster>>,
     thread: Option<Link>,
-    /// When the frame now being drawn was asked for, or `None` when the thread is idle.
+    /// The frame now being drawn, or `None` when the thread is idle.
     ///
     /// **One job in flight at a time**, exactly as on the other surface: a queue would fill at the
     /// tick rate while a frame takes tens of ticks, and every job in it would be answering a view
     /// the person had already left.
-    in_flight: Option<Instant>,
+    in_flight: Option<InFlight>,
     /// Whether the pixels on hand have reached the window at all, in any form.
     ///
     /// **The window may hold a rendering it has never shown, and that is what this exists to
@@ -235,6 +298,35 @@ impl Composer {
             })
     }
 
+    /// **ADR 0657's rule 1**: takes the drawing thread back where finishing would buy nothing.
+    ///
+    /// Asked once a tick, before [`Self::ask`], with the arrangement this tick wants. It raises
+    /// the interrupt on the frame in flight exactly when [`crate::stale::could_stand_in`] says a
+    /// finished picture of that frame could be neither presented nor stood in with — a page turn,
+    /// a resize, a re-interpretation, a zoom of a column — and never on a scroll or a zoom of a
+    /// single page, whose frame is still a base for the view being asked for.
+    ///
+    /// **Why the condition is that one and not a clock.** Nothing in this tree predicts what a
+    /// display list will cost to draw (ADR 0650 section 2), and the corpus says a deadline could
+    /// not separate the two populations even if something did: at twice device scale 6.1% of
+    /// `doc/pdf.js`'s first pages draw for longer than one 60 Hz period and the slowest of the 957
+    /// takes 252 ms, while a 1567-byte document written to be expensive takes 27.6 s — so a
+    /// deadline anywhere between them refuses legitimate pages and admits a document that chose
+    /// its cost to sit under it. This condition asks nothing about cost. It asks whether the
+    /// answer is still wanted, which is a question this host can answer exactly.
+    ///
+    /// Answers whether it raised one, for the trace.
+    pub(crate) fn superseded(&mut self, wanted: &[crate::stale::Placed]) -> bool {
+        let Some(in_flight) = self.in_flight.as_ref() else {
+            return false;
+        };
+        if in_flight.interrupt.raised() || crate::stale::could_stand_in(&in_flight.pages, wanted) {
+            return false;
+        }
+        in_flight.interrupt.raise();
+        true
+    }
+
     /// Takes whatever the composing thread has finished, and keeps the newest of it.
     ///
     /// **Newest rather than each in turn**: a frame that has been overtaken is a picture nobody
@@ -264,30 +356,36 @@ impl Composer {
         let waited = self
             .in_flight
             .take()
-            .map_or(Duration::ZERO, |began| began.elapsed());
+            .map_or(Duration::ZERO, |in_flight| in_flight.asked.elapsed());
         let mut refused = None;
+        let mut abandoned = false;
         match done.drawn {
-            Ok(raster) => {
-                self.held.keep(raster);
+            Drawn::Frame(raster) => {
+                self.held.keep(*raster);
                 self.shown.clone_from(&done.pages);
                 self.presented = false;
             }
             // The pixels on hand are left alone: a page that would not draw says nothing about the
             // picture already on the window, and replacing it with a blank one would be this
             // program throwing away the last true thing it had.
-            Err(problem) => refused = Some(problem),
+            Drawn::Refused(problem) => refused = Some(problem),
+            // The same treatment of the pixels on hand and a different answer to the core: see
+            // [`Drawn`], and `crate::surface::adopt_composed` for the half that is the difference.
+            Drawn::Abandoned => abandoned = true,
         }
         Some(Landed {
             pages: done.pages,
             cost: done.cost,
             waited,
             refused,
+            abandoned,
         })
     }
 
     /// Asks for a frame, spawning the composing thread if this is the first.
     ///
-    /// Does nothing while one is already being drawn — see [`Self::in_flight`].
+    /// Does nothing while one is already being drawn — see [`Self::in_flight`], and
+    /// [`Self::superseded`] for what takes the thread back so that this can send.
     pub(crate) fn ask(&mut self, pages: Vec<crate::stale::Placed>, now: Instant) {
         if self.in_flight.is_some() || pages.is_empty() {
             return;
@@ -300,10 +398,21 @@ impl Composer {
         let Some(link) = self.thread.as_ref() else {
             return;
         };
+        // **One interrupt per job**, never one per composer: a flag that outlived the draw it was
+        // raised on would abandon the frame after it before that frame had drawn a command.
+        let interrupt = Interrupt::new();
+        let job = Job {
+            pages: pages.clone(),
+            interrupt: interrupt.clone(),
+        };
         // A send that fails is a thread that has ended; the frame is not in flight, so the window
         // keeps presenting what it has and asks again.
-        if link.jobs.send(Job { pages }).is_ok() {
-            self.in_flight = Some(now);
+        if link.jobs.send(job).is_ok() {
+            self.in_flight = Some(InFlight {
+                asked: now,
+                pages,
+                interrupt,
+            });
         }
     }
 
@@ -486,14 +595,21 @@ fn compose_until_told_to_stop(proxy_pages: usize, jobs: &Receiver<Job>, done: &S
 /// stand-in put fresh chrome over an old page, and what makes the raster this hands back the
 /// window's own picture *without* the chrome, which is exactly what the other surface's base is.
 fn compose(job: Job) -> Done {
-    let Job { pages } = job;
+    let Job { pages, interrupt } = job;
     let began = Instant::now();
     let drawn = {
         let borrowed: Vec<(&DisplayList, TargetSpec)> = pages
             .iter()
             .map(|placed| (placed.list.as_ref(), placed.target))
             .collect();
-        viewer_ui::software::compose_pages(&borrowed).map_err(|problem| problem.to_string())
+        match viewer_ui::software::compose_pages_interruptibly(&borrowed, Some(&interrupt)) {
+            Ok(raster) => Drawn::Frame(Box::new(raster)),
+            // **Asked of the error rather than of the flag**, and that is not fastidiousness: the
+            // flag can be raised in the moment between the last command and the return, and a
+            // frame that was finished before it went up is a frame this window can present.
+            Err(problem) if viewer_ui::software::was_interrupted(&problem) => Drawn::Abandoned,
+            Err(problem) => Drawn::Refused(problem.to_string()),
+        }
     };
     Done {
         cost: began.elapsed(),

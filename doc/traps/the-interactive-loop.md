@@ -88,3 +88,30 @@ this host's trace line fired on the count of windows it placed, so a document wh
 zero area printed nothing at all — the same silence as a document with no windows. It fires on what
 the *answer* held, which is trap 11 pointed at the one line that would otherwise say nothing about
 a refusal. ADR 0613.
+
+### 20. `Rendered::Failed` marks a page as answered, so it is not the word for "I gave up on this draw"
+
+The core's `Viewer::rendered` sets `on_screen.shown` for a `Rendered::Failed` exactly as it does for
+a raster. That is deliberate and its comment says why — a rasteriser that refused this page at this
+size will refuse it again, and without it the two spin, ask-refuse-ask, for as long as the page is
+shown. What changes the answer is the *question* changing: another page, another zoom, another
+interpretation.
+
+So the variant carries two claims and only the first is on the label: *this could not be drawn*,
+and *do not ask me for it again at this target and revision*. Both are true of a rasteriser's
+refusal. Only the second is true of a draw a **host** abandoned — `pdf_render::Interrupt`, ADR 0650
+— and a host that reports one as the other freezes that page for the rest of the view: the person
+is left with `doc/todo/37`'s stand-in, permanently, and a status line blaming the document for a
+decision the host made about its own thread.
+
+ADR 0650 section 6 predicted the opposite in writing — that a host raising an interrupt would *have*
+to say the render failed or the stand-in would become permanent — and it is the stand-in becoming
+permanent that saying so causes. The prediction was reasonable and reading `viewer.rs` is what
+settled it (ADR 0657 section 3).
+
+**The rule: a host answers `Rendered::Failed` for what the document or the machine refused, and
+answers nothing at all for what it decided.** Nothing is safe because an outstanding token holds the
+page's place — `settle` skips a page whose `pending` already matches the target and revision — so
+silence is not a leak and the frame that supersedes it is what answers.
+`viewer-core/tests/headless.rs::a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked`
+asserts both halves, because neither was written down anywhere a host could read it.

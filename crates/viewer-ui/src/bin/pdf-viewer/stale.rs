@@ -1133,18 +1133,6 @@ struct Settled {
     pages: Vec<Placed>,
 }
 
-impl Settled {
-    /// The extent of the window this picture is of, or `None` where it is of no page at all.
-    ///
-    /// Read off the first placement rather than kept beside them: every page of one frame was
-    /// drawn into the same window-sized target, so they all state it and one is the answer.
-    fn extent(&self) -> Option<(u32, u32)> {
-        self.pages
-            .first()
-            .map(|placed| (placed.target.width, placed.target.height))
-    }
-}
-
 /// Whether the picture held already depicts the arrangement being asked for.
 ///
 /// The same pages, in the same order, at the same placements — all three, because Table 29's
@@ -1451,18 +1439,7 @@ impl Stale {
     /// stopped deciding the whole frame: a base that does not carry used to mean a window that
     /// showed nothing, and now means a window drawn from the blurrier layer alone.
     fn carries(settled: &Settled, pages: &[Placed]) -> Result<(), Refusal> {
-        // A resize changes what the window is as well as where the pages are in it, and what is
-        // held is that window's whole picture — see [`Refusal::Resized`] for why the chrome in it
-        // makes this an impossibility rather than the revealed edge under another name. It is not
-        // an impossibility for the retained pages, which are pictures of a *page* and know nothing
-        // about the window: a resize is one of the cases they now answer.
-        let extent = pages
-            .first()
-            .map(|placed| (placed.target.width, placed.target.height));
-        if extent.is_some() && settled.extent() != extent {
-            return Err(Refusal::Resized);
-        }
-        one_placement(&settled.pages, pages).map(|_| ())
+        carrying(&settled.pages, pages).map(|_| ())
     }
 
     /// **Rule 4.** Whether standing in buys at least the refresh it costs, on this surface.
@@ -1719,14 +1696,48 @@ impl Stale {
         let Some(settled) = self.settled.as_ref() else {
             return Err(Refusal::NothingRendered);
         };
-        let extent = pages
-            .first()
-            .map(|placed| (placed.target.width, placed.target.height));
-        if extent.is_some() && settled.extent() != extent {
-            return Err(Refusal::Resized);
-        }
-        one_placement(&settled.pages, pages)
+        carrying(&settled.pages, pages)
     }
+}
+
+/// Whether a picture of `drawn` carries onto `wanted`, and where it goes.
+///
+/// **The whole of what makes a rendering usable for a view it is not of**, stated once and asked
+/// from three places: [`Stale::carries`] plans a frame with it, [`Stale::reproject`] takes the
+/// placement out of it, and [`could_stand_in`] asks it of a frame that has not been drawn yet.
+///
+/// A resize changes what the window is as well as where the pages are in it, and what is held is
+/// that window's whole picture — see [`Refusal::Resized`] for why the chrome in it makes this an
+/// impossibility rather than the revealed edge under another name. It is not an impossibility for
+/// the retained pages, which are pictures of a *page* and know nothing about the window: a resize
+/// is one of the cases they now answer.
+fn carrying(drawn: &[Placed], wanted: &[Placed]) -> Result<Carried, Refusal> {
+    /// The window a picture of these pages is of, read off the first placement.
+    fn extent(pages: &[Placed]) -> Option<(u32, u32)> {
+        pages
+            .first()
+            .map(|placed| (placed.target.width, placed.target.height))
+    }
+    let asked = extent(wanted);
+    if asked.is_some() && extent(drawn) != asked {
+        return Err(Refusal::Resized);
+    }
+    one_placement(drawn, wanted)
+}
+
+/// Whether a frame *now being drawn* of `drawn` would be worth anything once it landed.
+///
+/// **This is the one question ADR 0657's policy turns on**, and it is deliberately this module's
+/// rather than [`crate::composer`]'s: what makes a superseded frame worth finishing is that its
+/// pixels can still stand in for the view the person has moved to, and the rules deciding that are
+/// the five in this file. A frame that answers `false` here will be neither presented — the view
+/// has moved — nor used as a base, so the thread drawing it is spending itself on pixels this
+/// program has already decided it will never show.
+///
+/// `true` where it carries and `true` where the view has not moved at all, which is the common
+/// case and the one a caller must not interrupt.
+pub(crate) fn could_stand_in(drawn: &[Placed], wanted: &[Placed]) -> bool {
+    depicts(drawn, wanted) || carrying(drawn, wanted).is_ok()
 }
 
 #[cfg(test)]
@@ -3223,6 +3234,67 @@ mod tests {
             found.is_empty(),
             "a reprojection belongs to the presenter and to nothing else, but these name one: \
              {found:?}"
+        );
+    }
+
+    /// **ADR 0657's rule 1, in the four cases that decide it.** The condition
+    /// [`crate::composer::Composer::superseded`] raises an interrupt on is the negation of this,
+    /// so what it must not answer `false` to is a view change whose frame is still a base — and
+    /// interrupting one of those would throw away pixels the next stand-in was going to use.
+    #[test]
+    fn a_frame_is_worth_finishing_exactly_where_its_pixels_could_still_stand_in() {
+        let sheet = page();
+        let next = page();
+        let drawn = alone(&sheet, 1.0);
+        assert!(
+            super::could_stand_in(&drawn, &drawn),
+            "the view has not moved at all, which is every frame of a document nobody is touching"
+        );
+        assert!(
+            super::could_stand_in(&drawn, &alone(&sheet, 1.5)),
+            "a zoom of a single page is one placement of itself, so the frame being drawn is a \
+             base for the view being asked for and finishing it is not waste"
+        );
+        assert!(
+            !super::could_stand_in(&drawn, &alone(&next, 1.0)),
+            "a page turn is not: nothing about the outgoing page's pixels is true of the \
+             incoming one, at any placement"
+        );
+        assert!(
+            !super::could_stand_in(
+                &drawn,
+                &at(
+                    &sheet,
+                    TargetSpec {
+                        width: 640,
+                        height: 480,
+                        transform: Transform::IDENTITY,
+                    },
+                ),
+            ),
+            "and a resize is not, because what is drawn is the whole window's picture"
+        );
+    }
+
+    /// The case that separates rule 1 from *interrupt whenever the view moved*, which is the
+    /// simpler policy it was chosen over.
+    ///
+    /// A scroll of a column is the commonest view change there is, and its frame carries onto the
+    /// view that superseded it to within [`AGREEMENT`] — so the pixels are a base and the draw is
+    /// worth finishing. A zoom of a column is the case `Refusal::Rearranged` exists for: no one
+    /// affine carries it, the frame will be neither presented nor reprojected from, and the
+    /// thread is better spent on the view being asked for.
+    #[test]
+    fn a_scroll_of_a_column_is_worth_finishing_and_a_zoom_of_one_is_not() {
+        let pages = [page(), page(), page()];
+        let drawn = column(&pages, 1.0, 0.0);
+        assert!(
+            super::could_stand_in(&drawn, &column(&pages, 1.0, 137.0)),
+            "every page moves by the same distance, so one placement carries the picture"
+        );
+        assert!(
+            !super::could_stand_in(&drawn, &column(&pages, 1.1, 0.0)),
+            "the gap between rows does not scale with the magnification, so no one affine does"
         );
     }
 }

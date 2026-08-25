@@ -224,6 +224,27 @@ on being drawn sharp says nothing and asserts something false. The memory bound 
   column of three, and `stale::AGREEMENT` with 609's test and the measurement they carry. A later
   round may still take it; it starts from that price rather than from this sentence.
 
+## The same question, asked of a frame that has not been drawn — 749
+
+`crate::stale::could_stand_in` is a third caller of what this file has always decided, and it is
+worth knowing because it puts a *scheduling* decision on these five rules rather than on a clock.
+ADR 0657's interrupt policy asks whether a frame the composing thread is **inside** would be worth
+anything once it landed, and the answer is exactly this file's: a picture is worth something if it
+is the view being asked for or if one placement carries it onto that view. Where it is neither —
+a page turn, a resize, a re-interpretation, a zoom of a column — `pdf_render::Interrupt` is raised
+and the thread draws the view the person is actually looking at instead.
+
+Two consequences for anyone changing the rules above:
+
+- **A scroll must go on carrying.** It is the commonest gesture there is, and its frame is thrown
+  away as a *present* and kept as a *base* — every stand-in until the next real frame is drawn from
+  it. A rule change that made a scroll refuse would not merely blur a picture; it would have the
+  composing thread abandon a frame per tick for the length of every scroll.
+- **A refusal now has a cost on the other side too.** `Refusal::Rearranged` and `Refusal::Resized`
+  are the two that decide an interrupt, so widening either — the placement-per-page change priced
+  and declined in ADR 0461, for instance — takes work off the composing thread as well as sharpening
+  a stand-in.
+
 ## What is deliberately not here
 
 Not progressive rendering (`doc/todo/16`'s road C), not a page turn — nothing about the outgoing
