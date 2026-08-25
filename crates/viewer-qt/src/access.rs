@@ -172,20 +172,14 @@ impl Host {
             match means {
                 Act::Show { at } => self.show(at),
                 // A press and a release at one point, which is what a mouse click already is
-                // here — **except over §12.7's own widgets, which this host delegates.** A real
-                // `QCheckBox` is what a person's click lands on and a synthetic press at a page
-                // coordinate goes past it to the page underneath, so the click is refused by name
-                // rather than appearing to work (ADR 0623).
+                // here — **with §12.7.5.2's toggling in front of it, which is what a click on a
+                // check box or a radio button *is*.** A real `QCheckBox` is what a person's click
+                // lands on and a synthetic press at a page coordinate goes past it to the page
+                // underneath, so the value is given to the field directly: the same
+                // `Edit::SetField` `Host::toggle_control` sends, decided by the same function
+                // (ADR 0630).
                 Act::Click { at } => {
-                    if let viewer_core::Answer::Field { name, .. } =
-                        self.viewer.query(viewer_core::Query::FieldAt(at))
-                    {
-                        let said = viewer_host::delegated_click(name.shown());
-                        self.trace
-                            .say(Topic::Access, format_args!("refused: {said}"));
-                        eprintln!("note: {said}");
-                        continue;
-                    }
+                    self.click_page(at);
                     self.dispatch(Command::Pointer {
                         at,
                         action: PointerAction::Pressed,
@@ -217,6 +211,52 @@ impl Host {
             }
             self.trace
                 .say(Topic::Access, format_args!("carried out {:?}", one.action));
+        }
+    }
+
+    /// §12.7.5.2's half of a click, at a point of the page's own viewport.
+    ///
+    /// **The other half of the delegated click, and it needed no message and no C++** (ADR 0630).
+    /// A person's click on a check box lands on a `QCheckBox` this host placed and reaches
+    /// [`Host::toggle_control`] through the toolkit's `toggled` signal; an assistive technology
+    /// names a §14.8.4.7.2 `Form` element, which [`viewer_accessibility::Act::Click`] resolves to a
+    /// *point on the page* — under the control rather than on it. So the value goes to the field
+    /// directly, decided by the same [`viewer_host::clicked`] the other route uses, and the
+    /// `QCheckBox` follows on the next `applyUpdates`, which writes a toggle's state back from
+    /// `Query::Fields`. Nothing crosses the bridge in the forbidden direction: this is Rust
+    /// deciding and Rust dispatching, called *from* C++ as `accessibility_pump` already was.
+    ///
+    /// **The match is exhaustive in all three windows**, which is what makes a case added to
+    /// [`viewer_host::Clicked`] a compile error in three places rather than a silent no-op in two.
+    fn click_page(&mut self, at: (f32, f32)) {
+        let clicked = viewer_host::clicked(&self.viewer, at);
+        // `true`: this host places a real control over every widget, so a synthetic press at a
+        // page coordinate is exactly what cannot reach one. Trap 5 — the refusal is by name.
+        if let Some(said) = clicked.note(true) {
+            self.trace
+                .say(Topic::Access, format_args!("refused: {said}"));
+            eprintln!("note: {said}");
+        }
+        match clicked {
+            viewer_host::Clicked::Toggles { name, value } => {
+                self.trace.say(
+                    Topic::Access,
+                    format_args!("setting the field {} to {value}", name.shown()),
+                );
+                self.dispatch(Command::Edit(viewer_core::Edit::SetField {
+                    field: name.qualified,
+                    value: viewer_core::Entered::Text(value),
+                }));
+            }
+            // Said above, or the pointer's: §12.6.3's triggers and §12.5.5's appearance are what
+            // a click on a push button, a signature or the page itself comes to, and the press
+            // and release below carry those in every host.
+            viewer_host::Clicked::ReadOnly { .. }
+            | viewer_host::Clicked::Stays { .. }
+            | viewer_host::Clicked::Unnamed { .. }
+            | viewer_host::Clicked::Pointed { .. }
+            | viewer_host::Clicked::Aimed { .. }
+            | viewer_host::Clicked::Page => {}
         }
     }
 

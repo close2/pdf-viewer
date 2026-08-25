@@ -890,7 +890,7 @@ impl Host {
                 let (minimum_width, ..) = placed.widget.measure(gtk4::Orientation::Horizontal, -1);
                 let (minimum_height, ..) = placed.widget.measure(gtk4::Orientation::Vertical, -1);
                 fit.record((asked_width, asked_height), (minimum_width, minimum_height));
-                write_back(placed, field.value.as_ref());
+                write_back(placed, field, widget);
             }
         }
         self.suppress.set(false);
@@ -2137,8 +2137,32 @@ pub(crate) fn with(me: &Weak<RefCell<Host>>, what: impl FnOnce(&mut Host)) {
 /// `password: false` in the pattern below, which is this host inferring from the control's kind
 /// what the answer now states; `ShownValue::obscured` is the statement, and a control kind that
 /// stopped agreeing with it would have been a silent bug in exactly the place this one was found.
-fn write_back(placed: &Placed, value: Option<&pdf_model::view::ShownValue>) {
-    let Some(shown) = value else {
+///
+/// **§12.7.5.2's two toggling kinds arrived here in the seven-hundred-and-thirty-fifth session**
+/// (ADR 0630), and their absence was a defect this host had shipped since ADR 0244 and `viewer-qt`
+/// never had: a `GtkCheckButton`'s state was set when the control was *built* and never again. So
+/// a value the field acquired any other way — an undo, an imported §12.7.8 data set, a click an
+/// assistive technology asked for, or the other button of a radio set going on — left the picture
+/// saying one thing and `/V` another. §12.7.5.2.4 is what makes the last of those a clause rather
+/// than an untidiness: with `RadiosInUnison` clear, "at most one radio button in a field shall be
+/// set at a time", and two of this host's buttons showed a tick together.
+fn write_back(placed: &Placed, field: &FormField, widget: &viewer_core::FormWidget) {
+    if let Some(button) = placed.widget.downcast_ref::<gtk4::CheckButton>() {
+        // The same expression `controls::toggle` builds the button with, re-derived from what
+        // `Query::Fields` says *now*: a widget is on when the field's value names its appearance
+        // state, and a widget whose `/AP` names no on state at all falls back to the field's own.
+        let on = widget.on
+            || (matches!(
+                viewer_host::control_kind(&field.control),
+                viewer_host::form::ControlKind::Check { on: true }
+                    | viewer_host::form::ControlKind::Radio { on: true, .. }
+            ) && widget.on_state.is_none());
+        if button.is_active() != on {
+            button.set_active(on);
+        }
+        return;
+    }
+    let Some(shown) = field.value.as_ref() else {
         return;
     };
     if shown.obscured {

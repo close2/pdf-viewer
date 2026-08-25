@@ -31,9 +31,38 @@ pub fn bounds(quad: [f32; 8]) -> (f32, f32, f32, f32) {
     (left, top, right - left, bottom - top)
 }
 
+/// Whether a quadrilateral the viewer answered with covers a point of the same viewport.
+///
+/// The **bounding box** of the four corners, and for the shape this is asked about that is exact
+/// rather than an approximation: [`viewer_core::FormWidget::quad`] is built out of §12.5.2's
+/// `/Rect`, which "shall be two opposite corners" of an upright rectangle, through §7.7.3.3's
+/// `/Rotate` — and that entry's value "shall be a multiple of 90", so the rectangle is still
+/// upright on the screen. A quadrilateral this test would get wrong is one no page can state.
+///
+/// Here rather than in a host because [`crate::form::clicked`] needs it and `viewer-ui` had
+/// written it, which is this module's own rule one function later: the third copy is where two
+/// hosts stop agreeing about which widget a press landed on.
+#[must_use]
+pub fn covers(quad: [f32; 8], (x, y): (f32, f32)) -> bool {
+    let (left, top, width, height) = bounds(quad);
+    (left..=left + width).contains(&x) && (top..=top + height).contains(&y)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::bounds;
+    use super::{bounds, covers};
+
+    /// A point inside the upright box the corners span, and one outside it.
+    #[test]
+    fn a_widget_covers_the_points_of_its_own_rectangle() {
+        let quad = [10.0, 20.0, 40.0, 20.0, 40.0, 50.0, 10.0, 50.0];
+        assert!(covers(quad, (25.0, 35.0)));
+        // The edges belong to the widget: a `/Rect`'s corner is inside the rectangle it states.
+        assert!(covers(quad, (10.0, 20.0)));
+        assert!(covers(quad, (40.0, 50.0)));
+        assert!(!covers(quad, (9.0, 35.0)));
+        assert!(!covers(quad, (25.0, 51.0)));
+    }
 
     #[test]
     fn an_upright_rectangle_is_its_own_bound() {
