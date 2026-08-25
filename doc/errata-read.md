@@ -1300,3 +1300,48 @@ before did not have: `doc/HAYRO_ISSUES.md` and `doc/HAYRO_ISSUES_FOR_QUORRA.md` 
 read above. A grep for the number alone answers "recorded" on every one of them, from a document
 about a different tracker. So the population is bounded on both sides and `doc/todo/01` now says how
 to take it: the prefixed grep, plus this file's own numbers, minus the numeric character references.
+
+## The four on Table 269, and the matrix a published table only counted — the seven-hundred-and-forty-sixth
+
+The successor rule's third use. Run as `doc/todo/01` now writes it — the prefixed grep unioned with
+this file's own bare column — three rows tie for the head at seven annotations apiece: §7.7.4,
+§12.10.2 and §14.8.5.3. §12.10.2 was taken, and the tie-break is stated in `doc/todo/01`: the other
+two rows' errata substitute words, and this one's change a requirement level and an entry's meaning.
+ADR 0653.
+
+Every placement is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on a page 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §12.10.2 Table 269 `/PCSM` | 618 | #534 | **implements** | The one that moved the row. A two-run strike at `[429.68 680.52 520.95 692.19]` and `[187.58 692.28 222.03 703.95]` takes `projected coordinate` off the end of one line and `system.` off the start of the next, and a caret at `[217.49 698.04 226.57 705.44]` writes *the projected coordinate system. This array represents a 4x4 affine transformation matrix in row order. The XObject position coordinates are represented as a 1x4 matrix, [ x y z 1 ], where the z value is non-zero only in the context of a Geospatial3D-enabled annotation.  PCSM only applies when GCS is a projected coordinate system.* The published table says how many numbers `/PCSM` holds and nothing about what they mean; this says what they are. Its last sentence is `Geospatial::matrix_has_priority` already, written from the published table's contrapositive — a second erratum vindicating code rather than correcting it. |
+| §12.10.2 Table 269 `/LPTS` | 618 | #533 | cites | `Optional` struck at `[191.29 550.89 227.26 562.68]`, over the word `-bbox` puts at `187.58–229.84` as `(Optional;` on the `/LPTS` row, with a caret at `[222.72 556.65 231.80 564.05]` writing *Required*. Nothing here turns on the level: the entry's own description — the array "shall contain the same number of number pairs as the GPTS array" — is what `Geospatial::registration` reads, and a `/GPTS` with no `/LPTS` states coordinates with nothing to attach them to whatever the cell says. Recorded on the field. |
+| §12.10.2 Table 269 `/PCSM` | 618 | #358 | untouched | `real` struck at `[437.79 670.47 454.39 680.43]`, in `A 12-element transformation matrix of real numbers`. The same issue strikes `real` on page 849 at `[337.63 235.30 354.23 245.26]`, in the OPI `Inks` entry's "each tint is a real number in the range 0.0 to 1.0" — filed under §14.12.1 by the page-straddle this file has recorded since its second table. Editorial: §7.3.3 calls the thing a number. |
+| §12.10.2 Table 269 `/GPTS`, `/LPTS` | 618 | #284 | **declined** | ×2, and both are one word of insertion. A caret at `[494.04 479.13 503.12 486.53]` sits at the end of `/GPTS`'s `… (requirement type Geospatial3D) in a 3D` and one at `[312.43 627.12 321.51 634.52]` between `3D` and `annotation` on `/LPTS`'s line, each writing *or RichMedia*. The condition they widen is the one that makes those arrays triples rather than pairs — and Table 333, a RichMedia annotation's, states no `/GEO` entry until the same erratum adds one. `measurement.rs` reaches a geospatial measure dictionary through §12.9's `/VP` alone, so the erratum widens clause 13's excluded population and not this one. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**§12.10's row said the transformation needs the EPSG registry, and that is two legs of a journey
+charged to the second one.** The sentence was "[t]urning a page coordinate into a latitude means a
+geodesy library and that registry", and the same claim stood in `Geospatial`'s own doc comment.
+Table 269 gives `/PCSM` priority over `/GPTS` where a file states one, and #534 says what its twelve
+numbers are — so on such a file the leg from the object's coordinates to the projected system is a
+matrix multiplication with nothing outside the standard in it. What the registry owns is
+projected-to-geographic alone.
+
+**Twelve numbers for a 4×4 matrix is §8.3.4's own convention one dimension up**, which is why the
+erratum is enough to implement and not merely enough to quote. There a point is "expressed in vector
+form as [ x y 1]", the matrix is 3-by-3, and "[b]ecause a transformation matrix has only six elements
+that can be changed, in most cases in PDF it shall be specified as the six-element array [a b c d e
+f]" — three rows, their third column elided as 0, 0, 1. Four rows with a last column of 0, 0, 0, 1
+leave twelve, and the erratum's "row order" and "1x4 matrix, [ x y z 1 ]" say the vector is on the
+left, exactly as §8.3.4's is. `Geospatial::projected_position` is that multiplication and no corpus
+document states a `/PCSM` to check it against, so its fixture is hand-built and its matrix is
+asymmetric on purpose (trap 8, trap 13).
+
+**And the entry condition the row had no reader for is `Geospatial3D`'s triples.** Table 269 requires
+`/GPTS` and `/LPTS` "to hold 3D point coordinates as triples rather than pairwise" under that
+requirement type, and `pairs` chunks by two unconditionally under a row claiming "Table 269 entire".
+It is declined rather than owed, on where the dictionary sits: Table 309's `/GEO` puts it "within a
+3D Annotation" and #284 puts the same entry in Table 333, which is a RichMedia annotation's and states none, both of which are
+clause 13's and both excluded. The erratum that could have opened it is the one that closes it.
