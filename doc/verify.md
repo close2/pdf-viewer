@@ -98,7 +98,14 @@ cargo run --release -p pdf-model --example clip_chain_census -- [file.pdf] [page
   # nothing is shared), the mask bytes both ways against `MASK_BUDGET`, and how many of a shading
   # fill's pixels its clip can admit. Written for `doc/todo/40`, and what it answered was
   # `doc/todo/40`'s neighbour: 3490 `sh` operators shading 10.4 M pixels a render to keep 85 608
-  # (ADR 0236). A profile cannot see either number — it counts commands, not what a command covers
+  # (ADR 0236). A profile cannot see either number — it counts commands, not what a command covers.
+  # **It prints three arms and a fourth count since ADR 0656**, which is what turned that item from
+  # an open question into a priced choice: `today`, `exact` — reuse restricted to the prefixes whose
+  # band equals their child's, the ones reusable byte for byte — and `full`, the whole proposal with
+  # ADR 0219's departure in it; plus how many chain steps state a rectangle that admits every pixel
+  # of the band, which is the saving that needs no departure at all and is now taken. Scanned mask
+  # *rows* rather than operations, because a fill over a 792-row band and one over four are not one
+  # unit
 cargo run --release -p pdf-model --example content_budget_census -- doc doc/pdf.js doc/corpora
   # what a page's content costs in the three quantities `doc/todo/10`'s bounds name: operators,
   # lexer tokens, and decoded bytes. It counts both of the first two in one pass, which is what

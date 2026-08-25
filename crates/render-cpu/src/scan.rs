@@ -902,6 +902,56 @@ pub(crate) fn stroke(
 ///
 /// [`Exact::Shared`] goes to [`mask_shared_rectangles`] instead, because a pixel two portions reach
 /// is covered by their *sum* and taking the larger of the two would understate it.
+/// Whether [`mask_fill`] would write a whole pixel's coverage at **every** pixel of a mask this
+/// size — so that filling it produces [`u8::MAX`] throughout and intersecting it changes nothing.
+///
+/// ISO 32000-2 §10.7.4 states a clipping region as "the set of pixels that would be included by a
+/// fill operation", so a clip whose fill would include every pixel of the band is the whole band as
+/// a set, and a chain step stating it states nothing. Declining that step is not an approximation
+/// of the chain — no scan conversion is reused and none is shifted, which is what separates this
+/// from [`doc/todo/40`](../../../doc/todo/40-mask-chain-crop.md)'s reuse of a *parent's* rows and
+/// keeps ADR 0219's arithmetic out of it entirely.
+///
+/// The answer lives here rather than beside its caller because it is a claim about what
+/// [`mask_fill`] writes, and the two would otherwise drift. On [`mask_rectangle`]'s branch it is
+/// arithmetic: the interior run spans every column and every row, both boundary columns fall
+/// outside that run, and each row's overlap is a whole pixel — so the level written is
+/// `expressible_coverage(1.0)`, which is 255.
+///
+/// # Why it does not ask [`Exact::usable`], which is where most of what it finds is
+///
+/// A rectangle **outside** [`SUPERSAMPLED_LIMIT`] does not take that branch: `mask_fill` sends it
+/// to `tiny-skia`'s converter with anti-aliasing off, because the library's fixed point cannot hold
+/// the coordinate. **Every pixel is still inside the rectangle**, which is the only thing this
+/// predicate claims — and a page-covering clip stated as a rectangle thousands of pages across is
+/// what the corpus's worst page wraps every one of its 3551 chains in, so restricting this to the
+/// expressible range would decline one step in three of what it finds.
+///
+/// Answering from the rectangle rather than from the converter is also the more defensible of the
+/// two: §10.7.4 defines the region as "the set of pixels that would be included by a fill
+/// operation", and for a rectangle containing the mask that set is every pixel by containment,
+/// whatever a scan converter that cannot express the coordinate would have produced.
+/// `a_rectangle_beyond_the_expressible_range_still_fills_every_pixel` pins that the two agree here
+/// today, so this is a saving rather than a correction.
+///
+/// [`Exact::Several`] and [`Exact::Shared`] are declined rather than unioned: their rectangles are
+/// portions of one path, and whether their union covers a pixel is a question about *area* that
+/// [`mask_shared_rectangles`] answers by summing. A cheap containment test cannot stand in for it.
+pub(crate) fn admits_every_pixel(exact: &Exact, (width, height): (u32, u32)) -> bool {
+    // `pdf_render::device_rectangles` produces this variant only for a rectangle whose corners are
+    // finite and whose sides are positive, so the four comparisons below are the whole question.
+    let Exact::One(rect) = exact else {
+        return false;
+    };
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a mask's own extent, which `rasterize` bounds by MAX_EXTENT = 2^24, and every \
+                  integer below that is exact in f32"
+    )]
+    let (right, bottom) = (width as f32, height as f32);
+    rect.left() <= 0.0 && rect.top() <= 0.0 && rect.right() >= right && rect.bottom() >= bottom
+}
+
 pub(crate) fn mask_fill(
     mask: &mut tiny_skia::Mask,
     path: &tiny_skia::Path,
@@ -1208,6 +1258,99 @@ mod tests {
             );
         }
         mask.data().to_vec()
+    }
+
+    /// A rectangle of `mask_fill`'s own vocabulary, given as both the path and the closed form.
+    fn covering_rectangle(ltrb: (f32, f32, f32, f32)) -> (tiny_skia::Path, Exact) {
+        let rect = tiny_skia::Rect::from_ltrb(ltrb.0, ltrb.1, ltrb.2, ltrb.3).expect("a rectangle");
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.push_rect(rect);
+        (builder.finish().expect("a rectangle"), Exact::One(rect))
+    }
+
+    /// The mask `mask_fill` writes for `shape` over an 8 × 4 mask.
+    fn mask_of(shape: &(tiny_skia::Path, Exact)) -> Vec<u8> {
+        let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
+        super::mask_fill(
+            &mut mask,
+            &shape.0,
+            tiny_skia::FillRule::Winding,
+            true,
+            (tiny_skia::Transform::identity(), &shape.1),
+        );
+        mask.data().to_vec()
+    }
+
+    /// The claim [`super::admits_every_pixel`] rests on, and the reason it is pinned here rather
+    /// than left to a page: a rectangle containing the mask on all four sides is scan-converted to
+    /// the *last* level at every pixel, so `min(kept, 255)` is `kept` and a chain step stating one
+    /// may be declined instead of composed. Nothing a document draws could tell the two apart —
+    /// what would break the optimisation is `mask_rectangle` writing 254 somewhere, and this is the
+    /// only instrument that sees it. ADR 0656.
+    #[test]
+    fn a_rectangle_containing_the_mask_is_filled_to_the_last_level() {
+        let covering = covering_rectangle((-3.0, -3.0, 11.0, 7.0));
+        assert!(super::admits_every_pixel(&covering.1, (8, 4)));
+        assert!(
+            mask_of(&covering).iter().all(|&level| level == u8::MAX),
+            "a covering rectangle left a pixel below the last level: {:?}",
+            mask_of(&covering)
+        );
+    }
+
+    /// The same claim for the rectangles this predicate mostly finds, which are the ones
+    /// [`super::mask_rectangle`]'s closed form declines: past [`super::SUPERSAMPLED_LIMIT`]
+    /// `mask_fill` hands the path to the library with anti-aliasing off, and the level it writes
+    /// there is the whole of what makes declining the step a saving rather than a change. Both
+    /// settings of `anti_alias` are asked, because the caller's is a rasteriser-wide flag and this
+    /// predicate no longer reads it. ADR 0656.
+    #[test]
+    fn a_rectangle_beyond_the_expressible_range_still_fills_every_pixel() {
+        let huge = covering_rectangle((-40_000.0, -40_000.0, 40_000.0, 40_000.0));
+        assert!(
+            !huge.1.usable(),
+            "the rectangle has to be outside the expressible range for this to be the case it is              about"
+        );
+        assert!(super::admits_every_pixel(&huge.1, (8, 4)));
+        for anti_alias in [true, false] {
+            let mut mask = tiny_skia::Mask::new(8, 4).expect("a mask");
+            super::mask_fill(
+                &mut mask,
+                &huge.0,
+                tiny_skia::FillRule::Winding,
+                anti_alias,
+                (tiny_skia::Transform::identity(), &huge.1),
+            );
+            assert!(
+                mask.data().iter().all(|&level| level == u8::MAX),
+                "with anti_alias={anti_alias} a rectangle containing the mask left a pixel below                  the last level: {:?}",
+                mask.data()
+            );
+        }
+    }
+
+    /// The other side of it: the predicate says no wherever the fill would leave a pixel short,
+    /// including by a fraction of one — a mask a hair narrower than the region is exactly the case
+    /// dropping the step would get wrong, and `TargetSpec::for_page` rounds a page's extent up, so
+    /// it is the common case rather than a contrived one.
+    #[test]
+    fn a_rectangle_short_of_the_mask_admits_less_than_every_pixel() {
+        for short in [
+            (-3.0, -3.0, 7.75, 7.0),
+            (-3.0, -3.0, 11.0, 3.5),
+            (0.25, -3.0, 11.0, 7.0),
+            (-3.0, 0.25, 11.0, 7.0),
+        ] {
+            let shape = covering_rectangle(short);
+            assert!(
+                !super::admits_every_pixel(&shape.1, (8, 4)),
+                "{short:?} was called covering"
+            );
+            assert!(
+                mask_of(&shape).iter().any(|&level| level < u8::MAX),
+                "{short:?} filled every pixel to the last level after all"
+            );
+        }
     }
 
     /// §10.7.4's clipping paragraph: a clip is a set of pixels, and a set intersected with

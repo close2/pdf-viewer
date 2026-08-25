@@ -35,6 +35,9 @@ use pdf_render::{ClipId, Command, DisplayList, Paint, Rect, TargetSpec, Transfor
 struct Node {
     /// Rows of the target the chain ending here can mark.
     rows: u32,
+    /// The first of those rows, which is what decides whether a parent's mask may be reused
+    /// verbatim: see [`band`].
+    top: u32,
     /// How many steps from the root, counting the root as one.
     depth: usize,
 }
@@ -84,10 +87,19 @@ fn intersect(a: Rect, b: Rect) -> Option<Rect> {
 /// The rows of a `height`-row target that `bounds` reaches, the way `Band::covering` counts
 /// them: outset by a row, rounded outward, clamped.
 fn rows(bounds: Rect, height: u32) -> u32 {
+    band(bounds, height).1
+}
+
+/// The first row and the row count that `bounds` reaches, the way `Band::covering` counts them.
+///
+/// The pair rather than the count, because `doc/todo/40`'s exactness question is about the
+/// *whole* band: `Surface::to_device` composes a band's first row into the translation, so two
+/// chains rasterise identically only where their bands agree in both numbers.
+fn band(bounds: Rect, height: u32) -> (u32, u32) {
     let top = (bounds.min.y - 1.0).floor().max(0.0);
     let bottom = (bounds.max.y + 1.0).ceil().min(height as f32);
     if bottom <= top {
-        return 0;
+        return (0, 0);
     }
     #[expect(
         clippy::cast_possible_truncation,
@@ -95,7 +107,105 @@ fn rows(bounds: Rect, height: u32) -> u32 {
         reason = "clamped to 0..=height, which is a u32"
     )]
     {
-        (bottom - top) as u32
+        (top as u32, (bottom - top) as u32)
+    }
+}
+
+/// Whether one clip node's path is a device rectangle covering every pixel of the target.
+///
+/// Such a node admits everything: `mask_rectangle` writes a whole pixel's coverage at every
+/// pixel of the mask, so filling it produces 255 everywhere and intersecting it takes
+/// `min(kept, 255)`, which is `kept`. It is therefore droppable from a chain without any
+/// departure at all — the arithmetic ADR 0219 prices never enters, because no scan conversion
+/// is reused, one is *declined*.
+fn covers_the_target(
+    list: &DisplayList,
+    id: ClipId,
+    to_device: Transform,
+    target: TargetSpec,
+) -> bool {
+    let Some(clip) = list.clip(id) else {
+        return false;
+    };
+    let Some(pdf_render::DeviceRectangles::One(rect)) =
+        pdf_render::device_rectangles(&clip.path, clip.transform.then(to_device))
+    else {
+        return false;
+    };
+    rect.min.x <= 0.0
+        && rect.min.y <= 0.0
+        && rect.max.x >= target.width as f32
+        && rect.max.y >= target.height as f32
+}
+
+/// What building a page's clip masks costs, in operations and in the rows each touches.
+///
+/// Rows rather than operations alone because a fill and an intersect are both a scan
+/// conversion over the band, so a count on its own ranks a 792-row band with a 4-row one.
+#[derive(Default)]
+struct Cost {
+    /// Masks opened by filling a root path.
+    fills: usize,
+    /// Paths intersected into a mask already open.
+    intersects: usize,
+    /// Masks copied verbatim from an ancestor's.
+    clones: usize,
+    /// Band rows summed over `fills`.
+    fill_rows: u64,
+    /// Band rows summed over `intersects`.
+    intersect_rows: u64,
+    /// Band rows summed over `clones`.
+    clone_rows: u64,
+}
+
+impl Cost {
+    /// The scan conversions, which are what a rasteriser spends: a clone is a copy and is
+    /// counted apart.
+    fn scans(&self) -> u64 {
+        self.fill_rows + self.intersect_rows
+    }
+}
+
+/// Simulates `doc/todo/40`'s proposal, restricted to the steps that cost no departure.
+///
+/// A chain may start from an ancestor's cached mask *byte for byte* only where the two share a
+/// band, because `Surface::to_device` composes a band's first row into the translation and ADR
+/// 0219 measured what shifting it does to `y·sy + ty`. Where the bands differ the node is built
+/// from its root exactly as today, so this is a floor on what an exact implementation saves
+/// rather than an estimate of the full proposal.
+fn build_exact(
+    list: &DisplayList,
+    nodes: &HashMap<ClipId, Node>,
+    id: ClipId,
+    built: &mut HashSet<ClipId>,
+    cost: &mut Cost,
+) {
+    if !built.insert(id) {
+        return;
+    }
+    let Some(node) = nodes.get(&id) else {
+        return;
+    };
+    let shared = list
+        .clip(id)
+        .expect("the list holds every clip it names")
+        .parent
+        .filter(|parent| {
+            nodes
+                .get(parent)
+                .is_some_and(|above| above.top == node.top && above.rows == node.rows)
+        });
+    if let Some(parent) = shared {
+        build_exact(list, nodes, parent, built, cost);
+        cost.clones += 1;
+        cost.clone_rows += u64::from(node.rows);
+        cost.intersects += 1;
+        cost.intersect_rows += u64::from(node.rows);
+    } else {
+        cost.fills += 1;
+        cost.fill_rows += u64::from(node.rows);
+        cost.intersects += node.depth - 1;
+        cost.intersect_rows += u64::from(node.rows) * (node.depth - 1) as u64;
     }
 }
 
@@ -188,8 +298,10 @@ fn main() {
         while let Some(this) = id {
             depth += 1;
             if let Some((bounds, from_root)) = chain(&list, this, target.transform, &mut known) {
+                let (top, height) = band(bounds, target.height);
                 nodes.entry(this).or_insert(Node {
-                    rows: rows(bounds, target.height),
+                    rows: height,
+                    top,
                     depth: from_root,
                 });
             }
@@ -216,6 +328,84 @@ fn main() {
         entry.1 += u64::from(node.rows) * width;
     }
 
+    let mut today = Cost::default();
+    for leaf in distinct_leaves.iter().filter_map(|id| nodes.get(id)) {
+        today.fills += 1;
+        today.fill_rows += u64::from(leaf.rows);
+        today.intersects += leaf.depth - 1;
+        today.intersect_rows += u64::from(leaf.rows) * (leaf.depth - 1) as u64;
+    }
+    let mut exact = Cost::default();
+    let mut built = HashSet::new();
+    for &leaf in &distinct_leaves {
+        build_exact(&list, &nodes, leaf, &mut built, &mut exact);
+    }
+    // The proposal without the exactness restriction: every node built once from its parent's
+    // mask, cropped to its own band. Where the two bands differ that crop is not the prefix's
+    // contribution in the child's band — it is the parent's rasterisation reused — which is the
+    // departure ADR 0219 prices and the `exact` arm above declines.
+    let mut full = Cost::default();
+    for node in nodes.values() {
+        if node.depth == 1 {
+            full.fills += 1;
+            full.fill_rows += u64::from(node.rows);
+        } else {
+            full.clones += 1;
+            full.clone_rows += u64::from(node.rows);
+            full.intersects += 1;
+            full.intersect_rows += u64::from(node.rows);
+        }
+    }
+    // The third question, and the one that needs no departure: a chain node whose path is a
+    // device rectangle covering the whole target admits everything, so the step that scan-converts
+    // it is work with no result. A chain made only of those admits everything too.
+    let mut covering: HashMap<ClipId, bool> = HashMap::new();
+    for &id in nodes.keys() {
+        let answer = covers_the_target(&list, id, target.transform, target);
+        covering.insert(id, answer);
+    }
+    let covered_steps: usize = distinct_leaves
+        .iter()
+        .flat_map(|&leaf| {
+            let mut chain = Vec::new();
+            let mut id = Some(leaf);
+            while let Some(this) = id {
+                chain.push(this);
+                id = list
+                    .clip(this)
+                    .expect("the list holds every clip it names")
+                    .parent;
+            }
+            chain
+        })
+        .filter(|id| covering.get(id).copied().unwrap_or_default())
+        .count();
+    let unclipped_references = leaves
+        .iter()
+        .filter(|&&leaf| {
+            let mut id = Some(leaf);
+            while let Some(this) = id {
+                if !covering.get(&this).copied().unwrap_or_default() {
+                    return false;
+                }
+                id = list
+                    .clip(this)
+                    .expect("the list holds every clip it names")
+                    .parent;
+            }
+            true
+        })
+        .count();
+    let shareable = nodes
+        .iter()
+        .filter(|(id, node)| {
+            list.clip(**id)
+                .and_then(|clip| clip.parent)
+                .and_then(|parent| nodes.get(&parent))
+                .is_some_and(|above| above.top == node.top && above.rows == node.rows)
+        })
+        .count();
+
     println!(
         "{path} page {index}, target {}x{}",
         target.width, target.height
@@ -235,6 +425,41 @@ fn main() {
         "  mask bytes: leaves only {leaf_bytes} ({:.1} MB), every node {all_bytes} ({:.1} MB)",
         leaf_bytes as f64 / 1e6,
         all_bytes as f64 / 1e6
+    );
+    println!(
+        "  nodes sharing their parent's band {shareable} of {} non-root",
+        nodes.len().saturating_sub(1)
+    );
+    println!(
+        "  today  {} fills + {} intersects, {} scanned rows",
+        today.fills,
+        today.intersects,
+        today.scans()
+    );
+    println!(
+        "  exact  {} fills + {} intersects + {} clones, {} scanned rows ({:+.1}%), \
+         {} cloned rows",
+        exact.fills,
+        exact.intersects,
+        exact.clones,
+        exact.scans(),
+        100.0 * (exact.scans() as f64 - today.scans() as f64) / today.scans().max(1) as f64,
+        exact.clone_rows
+    );
+    println!(
+        "  full   {} fills + {} intersects + {} clones, {} scanned rows ({:+.1}%), \
+         {} cloned rows",
+        full.fills,
+        full.intersects,
+        full.clones,
+        full.scans(),
+        100.0 * (full.scans() as f64 - today.scans() as f64) / today.scans().max(1) as f64,
+        full.clone_rows
+    );
+    println!(
+        "  covering rectangles: {covered_steps} of {steps} chain steps admit everything, \
+         {unclipped_references} of {} clip references admit the whole target",
+        leaves.len()
     );
     println!(
         "  shading fills {shadings}: path pixels {path_pixels}, within their clips \
