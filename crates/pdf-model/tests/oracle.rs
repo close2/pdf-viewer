@@ -302,7 +302,14 @@ const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 0] = [];
 
 /// Contradicted, and **we are the ones who are right**: an image sample at the pixel's centre.
 ///
-/// 1 page, moved out of [`CONTRADICTED_PAGE_ROUNDING`] in the four-hundred-and-forty-third
+/// **Empty since the seven-hundred-and-twenty-ninth session, and the page is still `colorkeymask.pdf`'s.**
+/// It is `ambiguous` now, in [`AMBIGUOUS_DIVIDED_CONSENSUS`], because the references reached two
+/// readings of it and only one of them contradicts us (ADR 0617). Everything below is the reading
+/// of the page and none of it is a reading of the verdict, so it stays here rather than moving:
+/// what §10.7.4 says about a one-to-one image placement does not depend on which pair the gate
+/// took, and the last section is what that pair turned out to be.
+///
+/// 1 page until then, moved out of [`CONTRADICTED_PAGE_ROUNDING`] in the four-hundred-and-forty-third
 /// session, where it had been filed since the sixth on a raster size that is not ours.
 ///
 /// `colorkeymask.pdf` is nine commands: a §8.7.3 tiling pattern whose cell draws one
@@ -357,18 +364,27 @@ const CONTRADICTED_COINCIDENT_CLIP_EDGES: [&str; 0] = [];
 /// The sentence above says "`poppler` — which votes with `mupdf`" and that is the whole of what it
 /// says about the pair. **`ghostscript` and `mupdf` also agree on this page**, within every class
 /// bound, and neither of those two pairs contains the other: `poppler` and `ghostscript` are what
-/// differ. So the page carries two maximal consensuses, `pdfref::decide` takes the one whose
-/// subset bitmask is smaller, and this page's verdict is that choice — the rival pair contains a
-/// renderer our raster is **byte-identical to**, so it accepts us and would have called the page
-/// agreement (the seven-hundred-and-twenty-seventh session, ADR 0616, [`DIVIDED_CONSENSUS`]).
+/// differ. So the page carries two maximal consensuses, `pdfref::decide` took the one whose
+/// subset bitmask is smaller, and this page's verdict was that choice — the rival pair contains a
+/// renderer our raster is **byte-identical to**, so it accepts us (the seven-hundred-and-twenty-seventh
+/// session, ADR 0616).
 ///
 /// **It changes no line of the reading above and it changes what the verdict is worth.** Every
 /// number in this note was measured against the file and the clause rather than against the pair,
 /// which is why none of them moves; what moves is that "the specification answers against the two
 /// renderers that agree" now has to say *which* two, and the other two answer with the
-/// specification and with us. Nothing was moved off this list: what rule should replace an
-/// enumeration order is ADR 0616's question and not this note's.
-const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 1] = ["colorkeymask.pdf page 1"];
+/// specification and with us.
+///
+/// # And the rule that replaced the enumeration order took the page off this list
+///
+/// A verdict is one **every** maximal consensus reaches (ADR 0617), and the two here do not
+/// concur, so the page is `ambiguous` and named in [`AMBIGUOUS_DIVIDED_CONSENSUS`]. The control
+/// that settles it is one line of arithmetic already above: our raster *is* `ghostscript`'s, so
+/// the worst tile of 5.03 that contradicts us is `ghostscript`'s distance from `poppler` — the
+/// set that decided this page contradicts a voting reference, in the same numbers, while the
+/// other set accepts them both. Nothing in the clause reading changes, including the part this
+/// project cares about most: the specification answers this page, and it answers for us.
+const CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE: [&str; 0] = [];
 
 /// Contradicted, where the difference was said to be a *spectrum of edge softness*.
 ///
@@ -2558,10 +2574,20 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// `examples/compare_rasters` between two references rather than a figure the gate prints — and
 /// neither that pair nor the one the gate took contains the other, since `ghostscript` and `mupdf`
 /// are the two that part, at 5.16%. Under `{poppler, ghostscript}` the bound widens to twice
-/// 4.815% and our 6.24% is inside it, so the page would have agreed. Which pair decides it is the order the subsets are
-/// enumerated in (ADR 0616, [`DIVIDED_CONSENSUS`]). The face measurements above are unaffected,
+/// 4.815% and our 6.24% is inside it. Which pair decided it was the order the subsets are
+/// enumerated in (ADR 0616). The face measurements above are unaffected,
 /// because none of them was taken against the pair; what is affected is the sentence a verdict
 /// makes, and here the pair the note already called suspect is the pair that was kept.
+///
+/// **The page left this list in the seven-hundred-and-twenty-ninth session and is the one member of
+/// [`AMBIGUOUS_DIVIDED_CONSENSUS`] the new rule does not flatter** (ADR 0617). A verdict is one every
+/// maximal consensus reaches and these two do not concur, so it is `ambiguous` — but the division
+/// here is of *width* rather than of camps: `poppler` is in both sets, and we sit 6.24%, 6.14% and
+/// 5.20% of channels from `poppler`, `mupdf` and `ghostscript`, **further from every reference than
+/// any two of them are from each other**. What takes the page out of `contradicted` is that
+/// `{poppler, ghostscript}`'s own 4.815% spread doubles to a bound admitting us, and nothing about
+/// this render improved. The cap-height measurement above is the diagnosis and it stands unchanged;
+/// this group is where the page is read, whatever bucket the verdict puts it in.
 ///
 /// The advances are untouched by it, which is the half Table 109 does state and which was checked
 /// on the same rasters: `issue7580.pdf`'s ink spans 1463 device columns against 1461 and 1462,
@@ -2744,10 +2770,9 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// happens to sit further apart and the bound derived from it is wider. That is trap 12 read from
 /// the other end, and it is the reason this group's membership is a measurement and never a
 /// verdict.
-const CONTRADICTED_SUBSTITUTED_FONT: [&str; 12] = [
+const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
-    "issue11403_reduced.pdf page 1",
     "issue15716.pdf page 1",
     "issue6069.pdf page 1",
     "issue6108.pdf page 1",
@@ -3540,10 +3565,9 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// — which is the order [`Reference`]'s variants are declared in. Under `{ghostscript, mupdf}`
 /// the widened structural bound is tighter than the class floor, so the floor of 0.9900 applies,
 /// and our worst structural similarity against that pair is `ghostscript`'s **0.99627** on page 1
-/// and **0.99336** on page 2 — inside it, with the other three measures inside as well, so **both
-/// pages would have agreed**. The seven-hundred-and-twenty-seventh session made the gate count and name
-/// this population; [`DIVIDED_CONSENSUS`] holds the four pages it decides and ADR 0616 has the
-/// three candidate rules and what each would cost.
+/// and **0.99336** on page 2 — inside it, with the other three measures inside as well. The
+/// seven-hundred-and-twenty-seventh session made the gate count and name this population, and ADR
+/// 0616 has the three candidate rules and what each would cost.
 ///
 /// **Nothing above is withdrawn by it and one thing is sharpened.** The closed forms, the ranking
 /// against the geometry and the structural-similarity table are measurements against the page's
@@ -3552,11 +3576,21 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// two of its three pages to be a bound derived from two agreeing references **where a third pair
 /// agreed more closely and was discarded**, which is trap 12 with a second half nobody had
 /// written down.
-const CONTRADICTED_TIGHT_CONSENSUS: [&str; 3] = [
-    "issue7891_bc1.pdf page 1",
-    "colors.pdf page 1",
-    "colors.pdf page 2",
-];
+///
+/// # Both `colors.pdf` pages left this list in the seven-hundred-and-twenty-ninth session
+///
+/// A verdict is one every maximal consensus reaches (ADR 0617), and the two here do not concur, so
+/// both pages are `ambiguous` and named in [`AMBIGUOUS_DIVIDED_CONSENSUS`]. **What moves them is
+/// the control clause four paragraphs up, applied to the references instead of to us**: "taking us
+/// out of the room does not rescue the bound, because two other renderers fail it too" is a true
+/// sentence about `{poppler, ghostscript}`'s bound, and `mupdf` — one of the two renderers that
+/// fail it — is a member of a maximal consensus of its own, which fails `poppler` right back. Each
+/// of the two is contradicted by the other's set on both pages. There is no ranking between two
+/// coincidences of the same standing, and the group keeps the pages' whole reading either way.
+///
+/// `issue7891_bc1.pdf` is untouched by any of this and is why the group still exists: one pair, one
+/// reading, a bound tighter than eight-bit arithmetic, and no rival set at all.
+const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.
@@ -4096,58 +4130,75 @@ const JUDGED_WITHOUT_A_THIRD_READING: [&str; 6] = [
     "pr6531_2.pdf page 1",
 ];
 
-/// The pages whose verdict was settled by which consensus the enumeration reached first.
+/// Ambiguous because the references reached **two** readings of the page, one accepting our
+/// render and one not.
 ///
-/// **Agreement is not transitive, and nothing in this tree had said so out loud until the
-/// seven-hundred-and-twenty-seventh session** (ADR 0616). `pdfref::decide` takes the largest set
-/// of references that all agree with one another; with three references, `a` agreeing with `b`
-/// and `b` with `c` while `a` and `c` differ leaves **two** maximal sets of two, neither
-/// contained in the other and neither a majority in any sense the other is not. The loop that
-/// found them skipped a subset no larger than the best so far, so the second was discarded
-/// without being counted — and the one kept is the one whose bitmask is smaller, which is the
-/// order [`Reference`]'s variants happen to be declared in.
+/// 4 pages, and the group is a verdict rule rather than a mechanism of this tree's. **Agreement
+/// is not transitive**, so a page can carry two maximal agreeing sets, neither contained in the
+/// other — `a` with `b` and `b` with `c` while `a` and `c` part. The seven-hundred-and-twenty-seventh
+/// session found that `pdfref::decide` counted one where a page had two and that the survivor was
+/// the order [`Reference`]'s variants happen to be declared in (ADR 0616); the
+/// seven-hundred-and-twenty-ninth replaced that order with a rule (ADR 0617): **a verdict about our
+/// render is one every maximal consensus reaches**, and where they reach different ones there is no
+/// answer to hold us to, which is what `ambiguous` means.
 ///
-/// The census prints how many pages carry more than one, which is a fact about how often three
-/// other programs fail to reach one reading and is the gate's to print rather than this comment's.
-/// What is listed here is the far smaller population where it *decided* something: **the sets
-/// reach different verdicts about our render**, so the page is contradicted on the strength of an
-/// enumeration order. All four are contradicted today and all four would have agreed under the set
-/// that was discarded.
+/// It is `pdfref`'s own second rule applied at the granularity the first is stated in. Two
+/// unrelated implementations arriving at *the* answer is the evidence a contradiction rests on;
+/// where they arrive at two, each backed by a coincidence of the same standing and neither set
+/// contained in the other, mutual agreement — the only ranking this design has — ranks neither.
+///
+/// **The control is what makes that a measurement rather than a preference**, and it is ADR
+/// 0497's sixth criterion pointed at the room instead of at us: put each *reference* where our
+/// render stands and ask what the maximal consensuses it is not a member of conclude about it.
+/// On all four pages the set that used to decide the verdict contradicts a voting reference that
+/// is itself a member of a consensus — `ghostscript` on two of them, and on both `colors.pdf`
+/// pages `poppler` and `mupdf` each contradicted by the other's set. So **on a divided page no
+/// renderer in the room, ours or a reference's, is outside every reading the references have**,
+/// and a rule holding us to each set in turn would condemn the implementations whose agreement is
+/// the evidence it runs on.
+///
+/// The four, each with the note that holds its reading and the bound it used to fail:
 ///
 /// - **`colorkeymask.pdf page 1`** — [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`], which
-///   fails on the **worst tile** and nothing else, and the sharpest of the four: our render is
-///   **byte-identical to `ghostscript`'s** over the whole 595 × 842 page, `ghostscript` and
-///   `mupdf` agree, and the gate took `poppler` and `mupdf` instead. A consensus containing a
-///   renderer indistinguishable from us is a consensus that cannot contradict us, and one was
-///   available.
+///   failed on the **worst tile** and nothing else, 5.03 against 5.00. The sharpest of the four
+///   and the one needing no tolerance arithmetic: our render is **byte-identical to
+///   `ghostscript`'s** over the whole 595 × 842 page, so `{mupdf, ghostscript}` accepts us by
+///   identity while `{poppler, mupdf}` rejects us — and rejects `ghostscript` in the same
+///   numbers, since they are the same numbers. That note reads §10.7.4 against the file and
+///   concludes the specification answers *for* us; nothing in it moves.
 /// - **`colors.pdf` pages 1 and 2** — [`CONTRADICTED_TIGHT_CONSENSUS`], both failing on
-///   **structural similarity** and nothing else. The taken pair is `poppler` and `ghostscript` at
-///   ssim 0.99431 and 0.99201; `ghostscript` and `mupdf` agree **more closely** on three of the
-///   four measures on each page (0.99625 and 0.99278 in structural similarity, and on mean and
-///   worst tile on page 1 where it is mean and differing on page 2) and accept us. So the set
-///   that decides these two pages is not the tightest on the page, which is worth stating in a
-///   group named for a tight consensus.
-/// - **`issue11403_reduced.pdf page 1`** — [`CONTRADICTED_SUBSTITUTED_FONT`], failing on the
-///   **differing fraction** and nothing else, and whose own note already records that the taken
-///   pair "differs by a mark one of them invented": `mupdf` draws a stray acute accent 32 device
-///   columns to the left of the line. The rival is `poppler` and `ghostscript`, whose differing
-///   fraction of 4.815% clears the 5.00% class bound by less than two tenths of a point — so this
-///   one is rescued by the *looser* pair, where `colors.pdf` is rescued by the tighter one. Both
-///   directions occur, which is why no rule was adopted here.
+///   **structural similarity** and nothing else. `{poppler, ghostscript}` set the bound at
+///   0.98862 and 0.98402; `{mupdf, ghostscript}` agree more closely still — 0.99625 and 0.99278
+///   against 0.99431 and 0.99201 — and accept us at 0.99627 and 0.99336. Here the division is a
+///   division of *camps*: our render and `mupdf`'s compare at 0.99989 and 0.99974 of structural
+///   identity — `examples/compare_rasters` between two rasters rather than a figure the gate
+///   prints, which is why it is written finer than a per-page line is — while `ghostscript`
+///   straddles, and `poppler` is what parts from both. Under each set the other's outer member is
+///   contradicted, which is that note's own control clause arriving on the reference it was
+///   measured against.
+/// - **`issue11403_reduced.pdf page 1`** — [`CONTRADICTED_SUBSTITUTED_FONT`], which failed on the
+///   **differing fraction**, 6.24% against a class bound of 5.00%. **This one is not flattered by
+///   the rule and the group would misread it if the entry did not say so.** The division here is
+///   of *width* rather than of camps: `poppler` is in both sets, and we sit 6.24%, 6.14% and 5.20%
+///   of channels from `poppler`, `mupdf` and `ghostscript` — further from every reference than any
+///   two of them are from each other. The page leaves `contradicted` because `{poppler,
+///   ghostscript}` part from `mupdf` at 5.16% and their own 4.815% spread doubles to a bound that
+///   admits us, not because anything about our render improved; and `mupdf`'s membership of the
+///   set that used to decide it is a stray acute accent 32 device columns to the left of the line,
+///   which its note recorded before any of this. The cap-height measurement is the page's
+///   diagnosis and it is unchanged: Liberation Sans at 0.6875 em against `NimbusSans` at 0.729167.
 ///
-/// **Nothing was moved.** Three rules are order-independent and each has a hazard: holding us to
-/// *every* maximal consensus never forgives and changes no verdict today; calling the page
-/// `ambiguous` where the sets disagree is what that bucket's own definition says and costs four
-/// diagnosed pages; taking the *tightest* set makes "consensus" mean what trap 12 means by it and
-/// still moves three. A verdict moves on an argument rather than on a discovery, and ADR 0499 set
-/// that precedent for this gate. ADR 0616 has the three rules and what each would cost.
-const DIVIDED_CONSENSUS: [&str; 4] = [
+/// **`issue19633.pdf page 1` is the page that shows the rule discriminating** and is deliberately
+/// not here: it carries two maximal consensuses as well, and both of them reject us, so it stays
+/// contradicted. The condition is the sets *disagreeing*, never their number —
+/// `pdfref::tests::two_maximal_consensuses_that_concur_still_reach_a_verdict` is that property
+/// held against a fixture.
+const AMBIGUOUS_DIVIDED_CONSENSUS: [&str; 4] = [
     "colorkeymask.pdf page 1",
     "colors.pdf page 1",
     "colors.pdf page 2",
     "issue11403_reduced.pdf page 1",
 ];
-
 /// Every page fewer than two references produced a comparable picture of, in one list.
 fn not_comparable_expected() -> Vec<&'static str> {
     NOT_COMPARABLE_ENCRYPTION_TWO_REFERENCES_DECLINE
@@ -10115,6 +10166,7 @@ fn diagnosed_ambiguous() -> Vec<&'static str> {
         .chain(&AMBIGUOUS_PAGE_DRAWN_IN_INK)
         .chain(&AMBIGUOUS_ICC_MATRIX_PROFILE)
         .chain(&AMBIGUOUS_A_REFERENCE_DECODED_THE_IMAGE_WRONG)
+        .chain(&AMBIGUOUS_DIVIDED_CONSENSUS)
         .copied()
         .collect()
 }
@@ -10956,38 +11008,34 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     }
 }
 
-/// What a maximal consensus the gate did **not** take concludes, where it differs from the one
-/// it did.
+/// The two maximal consensuses that reach different conclusions about our render.
 ///
-/// The gate takes the first of `pdfref::Triangulation::consensuses` and always has. That is
-/// only a choice where there is more than one, and only a *consequential* choice where the
-/// others reach a different verdict about us — so this reports the second condition and the
-/// summary counts the first. Written as a sentence rather than as a flag because the pages it
-/// fires on have to be read one at a time: which references form the rival set is the whole of
-/// what the reading is about. ADR 0616.
+/// Since ADR 0617 such a page is `ambiguous`, and this is the sentence that says why: **both**
+/// sets, each with what it concludes, because a page whose readings divide is a page a reader has
+/// to see both readings of. Before that rule the first of the two was the verdict and the second
+/// was invisible, which is ADR 0616's finding.
+///
+/// Written as a sentence rather than as a flag for the reason the group note gives: which
+/// references form each set is the whole of what such a page is about.
 fn divided_by(triangulation: &pdfref::Triangulation) -> Option<String> {
-    let taken = triangulation.consensuses.first()?;
-    let agrees =
-        |consensus: &pdfref::Consensus| matches!(consensus.outcome, Outcome::Agrees { .. });
-    let rival = triangulation
-        .consensuses
-        .iter()
-        .skip(1)
-        .find(|consensus| agrees(consensus) != agrees(taken))?;
-    let names: Vec<String> = rival
-        .references
-        .iter()
-        .map(|reference| format!("{reference}"))
-        .collect();
-    Some(format!(
-        "{} would have {}",
-        names.join(" and "),
-        if agrees(rival) {
-            "agreed"
-        } else {
-            "contradicted"
-        }
-    ))
+    let (taken, rival) = triangulation.divided()?;
+    let describe = |consensus: &pdfref::Consensus| {
+        let names: Vec<String> = consensus
+            .references
+            .iter()
+            .map(|reference| format!("{reference}"))
+            .collect();
+        format!(
+            "{} {}",
+            names.join(" and "),
+            if consensus.agrees_with_us() {
+                "agree with us"
+            } else {
+                "contradict us"
+            }
+        )
+    };
+    Some(format!("{}, {}", describe(taken), describe(rival)))
 }
 
 /// How far the closest pair of references sits outside the bound, in multiples of it.
@@ -11182,7 +11230,16 @@ fn verdict_of(triangulation: &pdfref::Triangulation, outvoted: Option<&str>) -> 
             ))
         }
         Outcome::Ambiguous => {
-            Verdict::Ambiguous(format!("{}{note}", measurements(triangulation, None)))
+            // A divided page and a page nobody agrees on are one `Outcome` and two very
+            // different readings — on the first every renderer in the room is inside somebody's
+            // consensus and on the second nobody is — so the page's own line says which it is
+            // rather than leaving that to the census fifty lines below (ADR 0617).
+            let divided = divided_by(triangulation)
+                .map_or_else(String::new, |sets| format!(" [two readings: {sets}]"));
+            Verdict::Ambiguous(format!(
+                "{}{divided}{note}",
+                measurements(triangulation, None)
+            ))
         }
         Outcome::NotEnoughReferences { available } if !triangulation.abstained.is_empty() => {
             // The abstaining renderers ran and returned a raster of one colour, which a
@@ -11762,21 +11819,28 @@ fn name_the_pages_judged_without_a_third_reading(results: &[Examined]) {
     }
 }
 
-/// Where the references formed more than one consensus, and where the two disagree about us.
+/// Where the references formed more than one consensus, and where those sets disagree about us.
 ///
 /// **Agreement is not transitive**, and until the seven-hundred-and-twenty-seventh session
 /// nothing in this tree had said so out loud. `pdfref::decide` takes the largest mutually
 /// agreeing set of references; where two sets tie for largest — `poppler` with `ghostscript`
 /// and `ghostscript` with `mupdf`, on a page where `poppler` and `mupdf` differ — it took
 /// whichever the subset enumeration reached first and discarded the other without counting it.
-/// On a page where the two reach different verdicts about our render, that is a verdict decided
-/// by the order the `Reference` values are declared in.
+/// On a page where the two reach different verdicts about our render, that was a verdict decided
+/// by the order the `Reference` values are declared in (ADR 0616). Since ADR 0617 a verdict is
+/// one every maximal consensus reaches and such a page is `ambiguous`, which is what these lines
+/// report.
 ///
 /// Printed rather than ratcheted, on the same argument as the abstention line above: the count
 /// is a fact about how often three other programs fail to form one answer, which is not this
 /// tree's to hold. What a round owes is a *name* for each page it fires on, which is why the
-/// pages are listed rather than summed (`doc/todo/02` §6) — [`DIVIDED_CONSENSUS`] is that list
-/// and carries the reading of each. ADR 0616.
+/// pages are listed rather than summed (`doc/todo/02` §6) — [`AMBIGUOUS_DIVIDED_CONSENSUS`] is
+/// that list and carries the reading of each.
+///
+/// **The third number is the one that says the rule is not a one-way ratchet**: pages carrying
+/// several sets that *concur* in agreeing with us. Every one of them is a page a moved pixel can
+/// divide, and dividing it costs an agreement — which is the direction none of the population
+/// this rule was adopted on was in.
 fn name_the_pages_with_a_divided_consensus(results: &[Examined]) {
     let several = results
         .iter()
@@ -11786,20 +11850,27 @@ fn name_the_pages_with_a_divided_consensus(results: &[Examined]) {
         .iter()
         .filter(|examined| examined.divided_by.is_some())
         .collect();
+    let concurring_agreements = results
+        .iter()
+        .filter(|examined| examined.consensuses > 1 && examined.divided_by.is_none())
+        .filter(|examined| matches!(examined.verdict, Verdict::Agrees))
+        .count();
     println!(
         "  the references formed more than one maximal consensus on {several} pages, and on {} of \
-         those the sets disagree about us, so the verdict is the enumeration's",
+         those the sets disagree about us, so the page is ambiguous rather than judged by either; \
+         on {concurring_agreements} of the rest the sets concur in agreeing with us, and a moved \
+         pixel that divided one would cost that agreement",
         divided.len()
     );
     for examined in divided {
-        let rival = examined.divided_by.as_deref().unwrap_or("");
-        let listed = if DIVIDED_CONSENSUS.contains(&examined.name.as_str()) {
+        let sets = examined.divided_by.as_deref().unwrap_or("");
+        let listed = if AMBIGUOUS_DIVIDED_CONSENSUS.contains(&examined.name.as_str()) {
             ""
         } else {
             " — ON NO LIST, so nobody has read it"
         };
         println!(
-            "    {}: {} — {rival}{listed}",
+            "    {}: {} — {sets}{listed}",
             examined.name,
             examined.verdict.label()
         );

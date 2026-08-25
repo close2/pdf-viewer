@@ -672,10 +672,21 @@ smaller — the order `Reference`'s variants are declared in. The gate now count
 more than one and names those where the sets **disagree about us**; all of the second population is
 contradicted, and every one of them would have *agreed* under the set that was thrown away.
 `colorkeymask.pdf` page 1 is the sharpest, because the discarded pair contains `ghostscript` and our
-raster is byte-identical to `ghostscript`'s over the whole page. `DIVIDED_CONSENSUS` is the list and
-carries the reading of each; **no verdict was moved**, because what should replace an enumeration
-order is a decision with three candidate rules and a hazard in each, which is ADR 0499's precedent
-about this gate arriving a second time.
+raster is byte-identical to `ghostscript`'s over the whole page. No verdict was moved on the finding,
+because what should replace an enumeration order is a decision of its own, which is ADR 0499's
+precedent about this gate arriving a second time.
+
+**The seven-hundred-and-twenty-ninth session took that decision** (ADR 0617): **a verdict about our
+render is one every maximal consensus reaches**, and where they reach different ones the page is
+`ambiguous`. It is ADR 0005's second rule applied at the granularity its first is stated in — *two
+unrelated implementations reaching **the** answer* is what a contradiction rests on, and where they
+reach two, each backed by a coincidence of the same standing, mutual agreement ranks neither. The
+control that settles it is the sixth criterion's, pointed at the room instead of at us: put each
+*reference* where our render stands, and on all four pages the set that used to decide the verdict
+contradicts a voting reference **that is itself in a consensus**. So on a divided page no renderer,
+ours or a reference's, is outside every reading the references have.
+`AMBIGUOUS_DIVIDED_CONSENSUS` is the list and carries the reading of each, including the one the
+rule does not flatter.
 
 With both notes written, that session's run reports **every** failing bound in the pool named by
 the note that holds its page — the first time the sixth criterion has been answered for the whole

@@ -15,7 +15,11 @@ pairs the other three bounds admit — it rejects **29.4%** of them, where its t
 0.0%, 1.2% and 0.5%. The same measure on vector pages rejects 2.8% and is unremarkable, so this is
 one number in one class rather than a problem with counting channels.
 
-**38 of the oracle's 68 contradicted pages fail this bound and no other**, 37 of them text.
+**Most of the oracle's contradicted pages fail this bound and no other**, and almost all of those are
+text. The share is a count and therefore not written here: it said *38 of 68* for long enough to be
+wrong twice, once when the pool shrank under it and once when this round moved four pages out. The
+gate's own per-page lines print `ours at worst … ; bound …` for each of the four measures, which is
+where the current figure is.
 
 Re-run the derivation at any time:
 
@@ -63,7 +67,7 @@ file's, and a page judged on two is held tighter rather than more leniently. The
 be about why the third reference could not read the document, which is `doc/oracle-and-corpus.md`
 §3g.
 
-## A second neighbouring question, asked and left **open** — *which* pair forms the consensus
+## A second neighbouring question, asked and **answered** — *which* pair forms the consensus
 
 **From the seven-hundred-and-twenty-seventh session** (ADR 0616), and it is this item's code rather
 than its number: `Tolerance::accepts` decides whether two references form a consensus, and
@@ -73,19 +77,31 @@ no larger than the best so far, so the second was discarded without being counte
 is the one whose subset bitmask is smaller — the order `Reference`'s variants are declared in.
 
 `Triangulation::consensuses` now holds them all and the gate counts the pages carrying more than
-one, naming those where the sets reach **different verdicts about us**. `DIVIDED_CONSENSUS` in
-`oracle.rs` is that list with the reading of each page. Every member of it is contradicted and every
-one would have agreed under the set that was thrown away, including a page whose discarded pair
-contains a renderer our raster is byte-identical to.
+one, naming those where the sets reach **different verdicts about us**. `AMBIGUOUS_DIVIDED_CONSENSUS`
+in `oracle.rs` is that list with the reading of each page. Every member of it was contradicted and
+every one would have agreed under the set that was thrown away, including a page whose discarded
+pair contains a renderer our raster is byte-identical to.
 
-**No verdict was moved**, and the work owed is the rule. Three are order-independent and ADR 0616
-has the hazard in each: hold us to *every* maximal consensus (costs nothing today and keeps four
-verdicts nobody can defend on the merits); call the page `ambiguous` where the sets disagree (whose
-hazard is that a page can be rescued by the *looser* pair, which is one of the four); or take the
-tightest set (which needs an order over four measures that do not rank the same way). Whoever takes
-it should measure the second and third columns over the corpus rather than over four pages — the
-census makes that a run — and should say what happens to a page whose rival consensus arrives after
-a pixel moves, which is the direction none of the four is in today.
+**The seven-hundred-and-twenty-ninth session took the rule** (ADR 0617): **a verdict about our
+render is one every maximal consensus reaches**, and where they reach different ones the page is
+`ambiguous`. That is ADR 0005's second rule at the granularity its first is stated in, and what
+disqualified the two alternatives is a control rather than a preference — put each *reference* where
+our render stands, and on all four pages the set that used to decide the verdict contradicts a voting
+reference **that is itself in a consensus**. Holding us to every set would therefore condemn the
+implementations whose agreement is the evidence; taking the tightest set is undefined over four
+measures that do not rank together and ranks readings by the quantity trap 9 says shared code
+manufactures. Four pages moved, contradicted → ambiguous, and nothing else in 1945 did.
+
+Two things it left, and neither is this item's number:
+
+- **A *width* division and a *camp* division are treated alike**, and `issue11403_reduced.pdf` page 1
+  is the witness: one reference is in both sets, we are further from all three than any two are from
+  each other, and what takes the page out of `contradicted` is the rival pair's own spread doubling.
+  Separating the two needs a reason a rival set's widening should count for less than the taken
+  set's — and there is none today, because a page whose *only* consensus is that rival is judged by
+  exactly that bound and agrees. Which is `widened_to` again, one line below.
+- **36 pages carry sets that concur in agreeing with us**, printed by the gate. Each is an agreement
+  a moved pixel could cost by dividing them, which is the direction none of the four was in.
 
 It is *not* the same question as the one above: this one is about which pair the bound is derived
 from, not about how wide the bound then is. They meet in `widened_to`, which is why both are here.

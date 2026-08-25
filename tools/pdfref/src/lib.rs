@@ -22,6 +22,22 @@
 //! That distinction is the whole design. A comparison suite that cries wolf gets
 //! switched off, and a switched-off suite catches nothing.
 //!
+//! # The two rules above can both apply to one page, and which one wins is stated here
+//!
+//! Agreement is not transitive, so a page can carry **two** maximal agreeing sets, neither
+//! contained in the other — `a` with `b` and `b` with `c` while `a` and `c` part. Then two or
+//! more references agree *and* the references disagree among themselves, and the first rule's
+//! justification is what settles it: two unrelated implementations arriving at **the** answer.
+//! Where they arrive at two, each backed by a coincidence of the same standing, there is no
+//! ranking between them — mutual agreement is the only ranking this design has, and neither set
+//! is contained in the other.
+//!
+//! So **a verdict about our render is one every maximal consensus reaches**, and where they
+//! reach different ones the page is [`Outcome::Ambiguous`]. That is not a third rule but the
+//! second one applied at the granularity the first is stated in: on such a page no renderer in
+//! the room, ours or a reference's, is outside every reading the references have. ADR 0617 has
+//! the argument, the corpus measurement and the two rules it rejected.
+//!
 //! # The one picture that carries no evidence
 //!
 //! The rule above rests on two unrelated implementations arriving at the same answer being
@@ -332,6 +348,13 @@ pub enum Outcome {
         agreeing: Vec<Reference>,
     },
     /// The references disagree among themselves, so there is no answer to hold us to.
+    ///
+    /// Two shapes reach it. No two references agree at all, which is what this variant has
+    /// always meant; or they agree in **two** maximal sets that reach different conclusions
+    /// about our render, which is the module documentation's third bullet and has been a
+    /// verdict of its own since ADR 0617. [`Triangulation::divided`] separates them, and the
+    /// second is worth separating: those pages have a reading each renderer is inside, where
+    /// the first shape has none.
     Ambiguous,
     /// Fewer than two references produced a picture, so nothing can be triangulated.
     ///
@@ -474,9 +497,14 @@ pub fn consensus_abstentions(
 /// references `a` agreeing with `b` and `b` with `c` while `a` and `c` differ leaves **two**
 /// maximal agreeing pairs — `{a, b}` and `{b, c}` — neither of which contains the other and
 /// neither of which is a majority in any sense the other is not. [`Triangulation::consensuses`]
-/// holds them all; the verdict rests on the first, which is what [`decide`] has always taken.
+/// holds them all.
 ///
-/// ADR 0616 has the argument and the measurement.
+/// **The verdict is the one they all reach** (ADR 0617). Where they reach different ones the
+/// page is [`Outcome::Ambiguous`]; where they concur it is what the first of them concludes,
+/// which is what [`decide`] took unconditionally until the seven-hundred-and-twenty-ninth
+/// session and which was the enumeration order's choice on the pages where they did not.
+///
+/// ADR 0616 has the finding and the measurement, ADR 0617 the rule.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Consensus {
     /// The references, every pair of which is within the class tolerance of the other.
@@ -515,10 +543,41 @@ pub struct Triangulation {
     pub between_references: Vec<(Reference, Reference, Comparison)>,
     /// Every maximal agreeing set of references on this page, largest first.
     ///
-    /// Empty where no two references agree. **The first is the one [`Self::outcome`] and
-    /// [`Self::judged_by`] rest on**, and a page holding more than one is a page whose verdict
-    /// was settled by which set the enumeration reached first — see [`Consensus`].
+    /// Empty where no two references agree. Where they all conclude the same thing about us
+    /// that conclusion is [`Self::outcome`] and the first set's bounds are [`Self::judged_by`];
+    /// where they do not, the page is [`Outcome::Ambiguous`] and [`Self::divided`] names the two
+    /// that part — see [`Consensus`].
     pub consensuses: Vec<Consensus>,
+}
+
+impl Triangulation {
+    /// The two maximal consensuses that reach different conclusions about our render, if any.
+    ///
+    /// `None` on every page whose agreeing sets concur — which is every page carrying one, and
+    /// most of those carrying two. Where it is `Some`, the page is [`Outcome::Ambiguous`] for
+    /// that reason rather than for the usual one, and the pair is what a reader has to see: which
+    /// references form each set is the whole of what such a page is about.
+    ///
+    /// The first element is the set at the head of [`Self::consensuses`], so a caller printing
+    /// them prints the one every earlier session's verdict rested on first. ADR 0617.
+    #[must_use]
+    pub fn divided(&self) -> Option<(&Consensus, &Consensus)> {
+        let first = self.consensuses.first()?;
+        let rival = self
+            .consensuses
+            .iter()
+            .skip(1)
+            .find(|consensus| consensus.agrees_with_us() != first.agrees_with_us())?;
+        Some((first, rival))
+    }
+}
+
+impl Consensus {
+    /// Whether this set of references accepts our render.
+    #[must_use]
+    pub fn agrees_with_us(&self) -> bool {
+        matches!(self.outcome, Outcome::Agrees { .. })
+    }
 }
 
 /// Applies the triangulation rule to one page, judging us against the fixed bounds.
@@ -613,12 +672,16 @@ pub fn triangulate_with(
 /// [`Judgement::RelativeToReferences`] they are derived from the page and a reader cannot
 /// otherwise tell what a verdict meant.
 ///
-/// The third return is **every** maximal agreeing set rather than the one the verdict rests
-/// on, which is the first of it. Agreement is not transitive, so a page can carry two maximal
-/// sets neither of which contains the other; before the seven-hundred-and-twenty-seventh
-/// session the second was discarded without being counted, and on a page where the two reach
-/// different conclusions about us the verdict was the enumeration's rather than the page's
-/// (ADR 0616). Nothing about which one is *taken* changed with the counting.
+/// The third return is **every** maximal agreeing set rather than one. Agreement is not
+/// transitive, so a page can carry two maximal sets neither of which contains the other; before
+/// the seven-hundred-and-twenty-seventh session the second was discarded without being counted,
+/// and on a page where the two reach different conclusions about us the verdict was the
+/// enumeration's rather than the page's (ADR 0616).
+///
+/// **A verdict is now the one every maximal consensus reaches**, and a page whose sets divide is
+/// [`Outcome::Ambiguous`] — the module documentation has the argument and ADR 0617 the
+/// measurement. Where they concur, which is every page carrying one set and most of those
+/// carrying two, the outcome and the bounds are the first set's exactly as before.
 fn decide(
     references: &[(Reference, Raster)],
     abstained: &[Reference],
@@ -650,6 +713,16 @@ fn decide(
 
     match consensuses.first() {
         None => (Outcome::Ambiguous, *tolerance, consensuses),
+        Some(first)
+            if consensuses
+                .iter()
+                .any(|other| other.agrees_with_us() != first.agrees_with_us()) =>
+        {
+            // The class bounds rather than any set's widened ones, which is what the arm above
+            // returns and for the same reason: no set judged this page, so quoting one set's
+            // bound beside the verdict would name a judgement that was not made.
+            (Outcome::Ambiguous, *tolerance, consensuses)
+        }
         Some(first) => (first.outcome.clone(), first.judged_by, consensuses),
     }
 }
@@ -1079,8 +1152,10 @@ mod tests {
     /// from each other, so each agrees with the middle one and they do not agree with one
     /// another. Both `{poppler, mupdf}` and `{mupdf, ghostscript}` are maximal — neither is
     /// contained in the other and neither is a majority the other is not — and here they reach
-    /// **opposite** verdicts about the same render. Which one the gate takes is the order the
-    /// subsets are enumerated in. ADR 0616.
+    /// **opposite** verdicts about the same render. Which one the gate took used to be the order
+    /// the subsets are enumerated in (ADR 0616); since ADR 0617 neither is taken and the page is
+    /// [`Outcome::Ambiguous`], which is what this asserts alongside both sets still being
+    /// computed and both conclusions still being readable.
     #[test]
     fn two_maximal_consensuses_can_disagree_about_us() {
         let poppler = banded(1, GREY);
@@ -1126,9 +1201,62 @@ mod tests {
             "the second calls us right"
         );
         assert_eq!(
-            result.outcome, result.consensuses[0].outcome,
-            "the verdict is the first consensus's, which is what it has always been"
+            result.outcome,
+            Outcome::Ambiguous,
+            "two readings of the page, one accepting us and one not, is no reading to hold us to"
         );
+        assert_eq!(
+            result.judged_by, tolerance,
+            "no set judged the page, so the bounds reported are the class's rather than a set's"
+        );
+        let (taken, rival) = result.divided().expect("the two sets that part");
+        assert_eq!(taken.references, vec![Reference::Poppler, Reference::MuPdf]);
+        assert_eq!(
+            rival.references,
+            vec![Reference::MuPdf, Reference::Ghostscript]
+        );
+    }
+
+    /// The rule fires on the sets *disagreeing*, not on there being two of them.
+    ///
+    /// The same three panels a step apart, with our render four steps past the far end of them:
+    /// both maximal pairs are still there and neither contains the other, and both reject us. A
+    /// page like that is contradicted, because every reading the references have puts us outside
+    /// it — which is what stops [`Outcome::Ambiguous`] from swallowing the population rather than
+    /// the pages ADR 0617 is about. `issue19633.pdf` page 1 is the corpus's instance.
+    #[test]
+    fn two_maximal_consensuses_that_concur_still_reach_a_verdict() {
+        let poppler = banded(1, GREY);
+        let mupdf = banded(3, GREY);
+        let ghostscript = banded(5, GREY);
+        let ours = banded(64, GREY);
+
+        let step = raster_compare::compare(&poppler, &mupdf).expect("same size");
+        let tolerance = Tolerance {
+            max_mean: step.mean_error * 1.2,
+            max_worst_tile: step.worst_tile_error * 1.2,
+            max_differing_fraction: step.differing_fraction * 1.2,
+            min_structural_similarity: -1.0,
+        };
+        let refs = vec![
+            (Reference::Poppler, poppler),
+            (Reference::MuPdf, mupdf),
+            (Reference::Ghostscript, ghostscript),
+        ];
+
+        let result = triangulate(&ours, &refs, &tolerance).expect("comparable");
+        assert_eq!(result.consensuses.len(), 2, "still two maximal pairs");
+        assert!(
+            result.consensuses.iter().all(|c| !c.agrees_with_us()),
+            "and both of them reject us: {:?}",
+            result.consensuses
+        );
+        assert!(result.divided().is_none(), "concurring sets do not divide");
+        assert_eq!(
+            result.outcome, result.consensuses[0].outcome,
+            "so the verdict is theirs, and it is the first set's bounds it was reached under"
+        );
+        assert_eq!(result.judged_by, result.consensuses[0].judged_by);
     }
 
     /// Where all three agree, the pairs inside that set are not separate consensuses.

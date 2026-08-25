@@ -343,11 +343,25 @@ without counting it, so the survivor was the one whose subset bitmask is smaller
 is `poppler` + `ghostscript` at ssim 0.99431 and 0.99201 while `ghostscript` + `mupdf` agree at
 0.99625 and 0.99278 and **accept us**; on `colorkeymask.pdf` the discarded pair contains a renderer
 our raster is byte-identical to. Four contradicted pages turn on it, all four would have agreed
-under the set thrown away, and `DIVIDED_CONSENSUS` names them with the reading of each. **The tell
+under the set thrown away. **The tell
 costs one command**: run `examples/compare_rasters` over all three reference pairs, not only the one
 the gate printed — a third pair sitting inside the same class bounds is a second consensus, and
-which one decided the page was never argued. No verdict was moved on the finding, and ADR 0616 has
-the three candidate rules and the hazard in each.
+which one decided the page was never argued. ADR 0616 has the finding.
+
+**And the rule that replaced the enumeration order is worth knowing before you read a verdict**
+(ADR 0617): **a verdict is one every maximal consensus reaches**, so a page whose sets divide about
+us is `ambiguous` and named in `AMBIGUOUS_DIVIDED_CONSENSUS`. Two things follow for a round reading
+this bucket. First, `ambiguous` now covers two different pictures — nobody agreed, or two sets agreed
+and parted — and on the second **every renderer in the room, ours included, is inside somebody's
+reading**, which the first never is; the page's own line says which it is. Second, the control that
+settled the rule is the one to copy when a divided page turns up: **put each reference where our
+render stands and ask what the sets it is not a member of conclude about it.** On all four corpus
+pages the set that used to decide the verdict contradicts a voting reference that is itself in a
+consensus — on `colorkeymask.pdf` that reference is `ghostscript`, whose raster is ours to the byte,
+so the numbers accusing us are literally `ghostscript`'s distance from `poppler`. What the rule does
+**not** distinguish is a division of *camps* from a division of *width*: on `issue11403_reduced.pdf`
+one reference is in both sets and we are further from all three than any two are from each other, so
+`ambiguous` there is the absence of a verdict rather than an acquittal.
 
 **And a bound derived from an aggregate is not a bound on the pixels the aggregate is made of.**
 `calrgb.pdf` page 1's consensus pair differs by 4.41%, so the gate holds us to 8.82%. Over the

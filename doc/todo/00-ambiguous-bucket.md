@@ -38,6 +38,17 @@ instrument was built to see and is now the only thing it has left to do. Step 7 
 it is the half of the work no ranking can perform, and it is re-run after any round that changes what
 gets drawn.
 
+**And a page can now arrive here without anything about it changing at all, which is a third way in
+and is new in the seven-hundred-and-twenty-ninth session** (ADR 0617). A verdict is one *every*
+maximal consensus reaches; agreement between references is not transitive, so a page can carry two
+maximal agreeing sets that reach different conclusions about our render, and such a page has no
+reading to hold us to and is therefore `ambiguous`. Four pages entered this bucket that way, off the
+contradicted list, with no pixel moved. **They are diagnosed on arrival** — `AMBIGUOUS_DIVIDED_CONSENSUS`
+carries the reading of each and is chained into `diagnosed_ambiguous()` — so the queue this item is
+about did not grow, and that is deliberate: a verdict rule that emptied a watched list into an
+unwatched one would be this item's own failure mode. The bucket is 4 larger and the *undiagnosed*
+population is unchanged.
+
 **And every one of the gate's seven verdicts is held by name now.** This item carried the other
 unwatched buckets until the five-hundred-and-seventy-ninth session: `no render` was diagnosed and
 ratcheted in the five-hundred-and-seventy-fifth (ADR 0410), and `not comparable` and
