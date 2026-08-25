@@ -1504,3 +1504,125 @@ fn confined_probe() {
 
     std::process::exit(if permitted { ALLOWED } else { REFUSED });
 }
+
+/// Every first page of a handful of real documents, written down and read back unchanged.
+///
+/// ADR 0607 decided that a display list is what crosses this boundary once the window is on it.
+/// This is that codec against the artefact it exists for — a page `pdf_model::interpret`
+/// produced, rather than a fixture built to suit the encoder. `DisplayList`'s own `PartialEq`
+/// compares both tables, every command and the clip index, so the assertion is exact.
+///
+/// The documents are the committed one plus whatever of the corpus is checked out; a corpus that
+/// is not there says so rather than passing in silence.
+#[test]
+fn a_real_pages_display_list_survives_the_round_trip() {
+    let mut pages = vec![("PDF20_AN001-BPC.pdf".to_owned(), specification_bytes())];
+    for name in [
+        "issue17492.pdf",
+        "issue12963.pdf",
+        "alphatrans.pdf",
+        "issue7891.pdf",
+    ] {
+        if let Some(bytes) = corpus_bytes(name) {
+            pages.push((name.to_owned(), bytes));
+        }
+    }
+    if pages.len() == 1 {
+        eprintln!("only the committed document: doc/pdf.js is not checked out");
+    }
+
+    for (name, bytes) in pages {
+        let document = pdf_syntax::Document::open(bytes)
+            .unwrap_or_else(|error| panic!("{name} opens: {error}"));
+        let page = pdf_model::Pages::new(&document)
+            .get(0)
+            .unwrap_or_else(|| panic!("{name} has a first page"));
+        let list = pdf_model::interpret(&document, &page).display_list;
+
+        let encoded = match viewer_confined::wire::encode_display_list(&list) {
+            Ok(encoded) => encoded,
+            // The two deferred producers ADR 0607 leaves to the raster arm. Named rather than
+            // skipped in silence: a refusal is a payload choice and this says which page made it.
+            Err(refusal) => {
+                eprintln!("{name}: crosses as pixels — {refusal}");
+                continue;
+            }
+        };
+        let back = viewer_confined::wire::display_list(&encoded)
+            .unwrap_or_else(|error| panic!("{name}'s list decodes: {error}"));
+        assert_eq!(back, list, "{name}'s list changed on the way across");
+    }
+}
+
+/// And the page it draws is the same page, to the byte.
+///
+/// The stronger half of the test above and the one trap 1 asks for: two lists comparing equal is
+/// an assertion about a data structure, and what a reader sees is pixels. The host under ADR
+/// 0607 rasterises a list it did not interpret, so this rasterises the decoded list with the
+/// same backend and the same target as the original and compares the samples.
+#[test]
+fn a_page_drawn_from_a_decoded_list_is_the_page_that_was_sent() {
+    let document = pdf_syntax::Document::open(specification_bytes()).expect("the committed note");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the committed note has a first page");
+    let list = pdf_model::interpret(&document, &page).display_list;
+
+    let encoded = viewer_confined::wire::encode_display_list(&list).expect("a codable page");
+    let back = viewer_confined::wire::display_list(&encoded).expect("what this build wrote");
+
+    let target =
+        pdf_render::TargetSpec::for_page(&list, 1.0, 1 << 26).expect("a page-sized target");
+    let mut rasterizer = CpuRasterizer::new().with_strips(1);
+    let sent = rasterizer.rasterize(&list, target).expect("the page draws");
+    let received = rasterizer.rasterize(&back, target).expect("the page draws");
+    assert_eq!((sent.width, sent.height), (received.width, received.height));
+    assert_eq!(
+        sent.data, received.data,
+        "the page drawn from the decoded list is not the page that was sent"
+    );
+}
+
+/// What ADR 0607 predicted, re-derived here rather than quoted.
+///
+/// The seven-hundred-and-twenty-fourth session priced a list by walking it and summing what an
+/// encoder *must* write; this is the encoder, so the price is now a measurement. Printed rather
+/// than asserted against a constant — a byte count is a property of this build's format and
+/// pinning it would fail on every change to the format for no reason anybody could act on. What
+/// *is* asserted is the direction the whole decision rests on: the committed note's list is a
+/// small fraction of its raster at a window's scale.
+#[test]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "test code: a ratio printed to four decimals out of two byte counts, both well \
+              inside an f64's exact integer range for any page a target admits"
+)]
+fn a_lists_price_beside_its_raster_is_printed() {
+    let document = pdf_syntax::Document::open(specification_bytes()).expect("the committed note");
+    let page = pdf_model::Pages::new(&document)
+        .get(0)
+        .expect("the committed note has a first page");
+    let list = pdf_model::interpret(&document, &page).display_list;
+
+    for scale in [1.0_f32, 1.333, 2.0] {
+        let target =
+            pdf_render::TargetSpec::for_page(&list, scale, 1 << 28).expect("a page-sized target");
+        let raster = u64::from(target.width) * u64::from(target.height) * 4;
+        match viewer_confined::wire::crossing(&list, raster) {
+            viewer_confined::Crossing::List(bytes) => {
+                println!(
+                    "PDF20_AN001-BPC.pdf p1 at {scale}: list {} B, raster {raster} B, {:.4}",
+                    bytes.len(),
+                    bytes.len() as f64 / raster as f64
+                );
+                assert!(
+                    (bytes.len() as u64) * 4 < raster,
+                    "a sparse page's list should be a small fraction of its pixels"
+                );
+            }
+            refused @ viewer_confined::Crossing::Raster(_) => {
+                panic!("a sparse page crosses as a list, not as {refused:?}")
+            }
+        }
+    }
+}

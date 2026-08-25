@@ -17,6 +17,9 @@ libfuzzer-sys = "0.4"
 pdf-syntax = { path = "../crates/pdf-syntax" }
 pdf-font = { path = "../crates/pdf-font" }
 pdf-model = { path = "../crates/pdf-model" }
+# ADR 0607's payload is a `pdf_render::DisplayList`, so the target that fuzzes its decoder needs
+# the vocabulary to state what a decoded list must satisfy — see `display_list.rs`.
+pdf-render = { path = "../crates/pdf-render" }
 # The confined viewer's transport, whose *decoders* this fuzzes. A fuzz target cannot reach a
 # private module, which is why `viewer_confined::wire` is public — see that module.
 viewer-confined = { path = "../crates/viewer-confined" }
@@ -113,6 +116,13 @@ bench = false
 [[bin]]
 name = "confined_wire"
 path = "fuzz_targets/confined_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "display_list"
+path = "fuzz_targets/display_list.rs"
 test = false
 doc = false
 bench = false

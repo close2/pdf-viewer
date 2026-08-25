@@ -62,7 +62,7 @@ is `Command::Activate(item.id)`, which follows §12.6's action machinery inside 
 Worth knowing rather than fixing; it becomes a question the day a panel wants to print a number
 beside a row.
 
-### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled in the seven-hundred-and-twenty-fourth session
+### 2. ~~The window is a tier-2 host and this boundary is tier 1~~ — settled in the seven-hundred-and-twenty-fourth session, and the codec built in the seven-hundred-and-thirty-second
 
 `viewer-ui` hands back `Rendered::Presented` and draws on the graphics device; a confined process
 draws on the processor and hands over a raster, so putting the window on this boundary is a change
@@ -84,7 +84,22 @@ allow-list**, `/dev/dri/renderD128` with 25 distinct DRM request numbers and abo
 frame, the shader cache read *and written*, 56 driver manifests parsed, and a socket connected to
 `/tmp/.X11-unix/X0` on a headless run.
 
-**What decides the first way out is one number this entry never had**: how big a display list is
+**The codec is built and the number is now a measurement** (ADR 0626).
+`viewer_confined::wire::{encode_display_list, display_list, crossing}` is both sides, with four
+tables interned by `Arc` identity — paths, image samples, shading *kinds* and shadings, the third
+of which ADR 0607's accounting did not separate and which is what turns
+`bug1721218_reduced.pdf`'s 3576 mesh paints back into three geometries. The tables precede the
+body, so every identifier is bounds-checked against a length the decoder read rather than one the
+message asserts; a clip table that cannot be rebuilt as the message numbers it is refused, because
+`add_clip` deduplicates and a region stated twice would renumber every identifier after it.
+`fuzz/fuzz_targets/display_list.rs` is the target, and `examples/list_over_the_wire` is the
+instrument that replaces the prediction below with what the encoder writes.
+
+**What is left of this item is the wiring rather than the codec**, and `doc/todo/15` holds it: the
+frame's payload arm, which host rasterises, and the `MAGIC` bump that goes with changing what a
+frame carries.
+
+**What decided the first way out is one number this entry never had**: how big a display list is
 beside the pixels it produces. `viewer-confined`'s `examples/list_against_raster` is that
 instrument — byte counts, so it is load-immune — and over `doc/pdf.js`'s first pages a list is
 **about 2% of its raster at the median** at a window's scale, exceeding it on **4%** of pages,

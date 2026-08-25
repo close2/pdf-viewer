@@ -34,6 +34,7 @@ use viewer_core::{
 
 use crate::Reply;
 
+pub(crate) mod display_list;
 mod panels;
 
 /// Greeting bytes, changed whenever this format changes incompatibly.
@@ -176,6 +177,35 @@ pub enum ProtocolError {
         /// How many bytes it needed.
         bytes: usize,
     },
+    /// An index into a table larger than the table the message stated.
+    ///
+    /// A display list is mostly indices — a clip identifier, a soft mask identifier, a path,
+    /// a shading — and every one of them is checked against a table this decoder has already
+    /// read *whole*, never against a length the message asserts. This is that refusal. See
+    /// [`display_list`], whose tables precede its command stream for exactly this reason.
+    #[error("{what} names entry {index} of a table holding {held}")]
+    OutOfTable {
+        /// Which table.
+        what: &'static str,
+        /// The index the message stated.
+        index: usize,
+        /// How many entries the table read before it holds.
+        held: usize,
+    },
+    /// The message is well formed and describes a value that cannot exist.
+    ///
+    /// **Not a truncation and not an unknown discriminant.** Every field was there and every
+    /// discriminant was one this build defines; what the fields *say* is something the type
+    /// they describe does not admit — an image whose dimensions and samples disagree, a clip
+    /// table whose numbering cannot be rebuilt, a blending grid that is not `side⁴` samples.
+    /// A host that accepted one would hand a rasteriser a value no interpreter can produce.
+    #[error("{what} could not be rebuilt: {why}")]
+    Unbuildable {
+        /// Which value.
+        what: &'static str,
+        /// Why it is not one.
+        why: &'static str,
+    },
 }
 
 /// Appends fields to a message.
@@ -193,6 +223,16 @@ impl Writer {
     /// What has been written.
     pub(crate) fn finish(self) -> Vec<u8> {
         self.out
+    }
+
+    /// Puts another message's bytes on the end of this one.
+    ///
+    /// Exists for [`display_list`], whose *tables* have to precede the command stream that
+    /// indexes into them while the interning that fills those tables happens as the commands
+    /// are written. So the commands go into a second writer and arrive here, once.
+    fn append(&mut self, other: &Self) -> &mut Self {
+        self.out.extend_from_slice(&other.out);
+        self
     }
 
     fn u8(&mut self, value: u8) -> &mut Self {
@@ -363,6 +403,16 @@ impl<'a> Reader<'a> {
     /// A reader over a whole message.
     pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Self { rest: bytes }
+    }
+
+    /// How many bytes are still unread.
+    ///
+    /// The denominator of every "is this count a length or a claim?" question, which is why it
+    /// is exposed rather than each check reaching for the field: [`display_list`]'s tables
+    /// multiply it by the smallest record they can hold, which is a tighter bound than
+    /// [`Self::list`]'s one-byte-per-element assumption.
+    fn remaining(&self) -> usize {
+        self.rest.len()
     }
 
     /// Refuses unless everything was consumed.

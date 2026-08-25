@@ -19,6 +19,18 @@ use crate::soft_mask::{SoftMask, SoftMaskId};
 pub struct ClipId(u32);
 
 impl ClipId {
+    /// Creates an identifier for the clip at `index`.
+    ///
+    /// Only [`DisplayList::add_clip`] should mint one — it is what keeps the table and the
+    /// identifiers in step, and it is what deduplicates a region already there. This exists,
+    /// as [`SoftMaskId::new`] does, for the two callers that are handed a *table* and have to
+    /// name entries in it: a backend's tests, and a decoder rebuilding a list that crossed a
+    /// process boundary. Neither is minting an identifier so much as reading one back.
+    #[must_use]
+    pub fn new(index: u32) -> Self {
+        Self(index)
+    }
+
     /// Returns the index this identifier refers to.
     #[must_use]
     pub fn index(self) -> usize {
