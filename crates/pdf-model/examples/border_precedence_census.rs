@@ -9,7 +9,9 @@
 //!   of the entry `/BS` has no equivalent for.
 //! - **Placement.** "If present, the border shall be drawn completely inside the annotation
 //!   rectangle", which is a statement about every style in Table 168 and not only the rectangular
-//!   ones.
+//!   ones. **This census counts what states a border and cannot say where the ink went**, because
+//!   that is a fact about a raster rather than about a dictionary; `border_overhang_census` is the
+//!   one that measures it, over this tree's render and a reference's together.
 //!
 //! Both are counted **only where an annotation states no `/AP`**, because §12.5.2 hands a stored
 //! appearance the whole job and a border this crate never constructs cannot be misplaced by it.

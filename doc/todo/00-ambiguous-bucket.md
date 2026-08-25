@@ -284,6 +284,23 @@ were re-run:
 **The instrument to copy is the removal.** A ratio's two halves can be the same mechanism, and the
 only way to see that is to make the mechanism unable to act and re-measure *both*.
 
+**And `bug766086.pdf`'s row was taken one step further in the seven-hundred-and-fifty-sixth session,
+which is what the row was for** (ADR 0675). Whether the border ours and `poppler` disagree about by
+one pixel goes inside `/Rect` or across its edge is a question for §12.5.4 and not for a ratio, and
+the clause answers it: the border "shall be drawn completely inside the annotation rectangle", so
+its path is inset by half its width, and there is no width-1 case anywhere in the subclause. Ours is
+that. `poppler` puts the path *on* the boundary — five units outside on all four sides at a width of
+10, measured, and one pixel on two of four at a width of 1 because it snaps a thin line to the grid.
+`crates/pdf-model/examples/border_overhang_census.rs` says it over a population rather than a
+witness, and the exemption on this page is therefore **a documented departure of the reference's**.
+
+Two things that round found by reading a *neighbouring* page of the same clause are worth the
+pointer. Our own oversized border was drawing the wrong shape and three documents said otherwise
+(ADR 0674, and `doc/traps/pixels-and-rasterisers.md` trap 1's new paragraph). And fixing it moved
+`bug1552113.pdf` from no printed list to **second on this one**, because the two references nearest
+us there are nearest by drawing no border at all — the numerator moving *away* from a shared gap
+looks exactly like a regression on this ranking and is the opposite of one.
+
 ## The bucket is two camps, and the camp that votes is the one that cannot agree with itself
 
 **Measured in the five-hundred-and-eighteenth over all 786 pages**, every one of the ten renderer

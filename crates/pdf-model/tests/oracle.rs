@@ -6142,6 +6142,29 @@ const AMBIGUOUS_RADIAL_CONE: [&str; 2] =
 /// width of 1 instead of 112 — the same renderer centring the stroke on the rectangle's edge — and
 /// at that width the ink cannot see it while the similarity can.
 ///
+/// # And it is a reference's departure rather than a page's, which is a population's answer
+///
+/// Re-measured in the seven-hundred-and-fifty-sixth session, which reproduces every column and row
+/// above and then asks the question a single page cannot answer. §12.5.4 states no width-1 case:
+/// the only sentence naming 1 is Table 168's default `/W`, which says how wide a border is and
+/// nothing about where it goes. A stroke straddles its path, so a border whose ink is entirely
+/// inside `/Rect` has its path inset by half its width, at every width.
+///
+/// The mechanism is unreadable at one pixel and plain at ten. A link with `/Border [0 0 10]` on
+/// `/Rect [20 20 120 80]`, one device pixel per unit: **ours covers device 20…119 by 20…79, and
+/// `poppler` covers 15…124 by 15…84** — five units beyond `/Rect` on all four sides, which is half
+/// the width exactly. At width 1 `poppler` snaps a thin line to the pixel grid, so which sides show
+/// it depends on where the rectangle's edges fall: two of four here, and **none** on
+/// `issue12750.pdf`, whose `/Rect` is `[178.019 654.247 265.051 668.194]` and whose border lands on
+/// the same columns as ours. That is rounding on top of the placement, not a second placement.
+///
+/// `crates/pdf-model/examples/border_overhang_census.rs` is what says so over a population rather
+/// than a witness — both renders of every page whose annotation states a border this tree strokes
+/// and no `/AP`, asking how far outside `/Rect` ink of the border's *stated* colour reaches. Its
+/// counts are its own to print (ADR 0281); the shape of them is that on the comparisons whose
+/// border is in a colour of the page's own, `poppler` reaches further outside than this tree on
+/// three quarters and this tree reaches further on **none**. ADR 0675.
+///
 /// # And the ratio that ranks this page measures the same annotation twice
 ///
 /// It is the head of `rank_the_pages_we_are_alone_on` at **5.68×**, ours 2.58 over 0.45 between
@@ -8901,16 +8924,51 @@ const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
 /// > If present, the border shall be drawn completely inside the annotation rectangle.
 ///
 /// A `shall`, and it decides the picture entirely: a border that wide, drawn inside that
-/// rectangle, *is* the rectangle. Ours fills it. **`poppler` strokes 112 units centred on the
-/// rectangle's edge**, so its blue covers most of the page — ink **201.31** against ours 29.64,
-/// and the document's own text says "this text should be visible". `mupdf` 17.06,
-/// `ghostscript` 17.33 and `hayro` 16.85 draw no link border at all, for
-/// `CONTRADICTED_LINK_BORDER`'s reasons.
+/// rectangle, *is* the rectangle. **`poppler` strokes 112 units centred on the
+/// rectangle's edge**, so its blue covers most of the page — ink **201.32**, and the document's
+/// own text says "this text should be visible". `mupdf` 17.06 and `hayro` draw no link border at
+/// all, for `CONTRADICTED_LINK_BORDER`'s reasons; `ghostscript` 18.50 draws none either and is
+/// being asked to print.
 ///
 /// So four renderers disagree three ways and the clause names one of them. This is the shape
-/// step 1 calls everybody-against-us read the other way round: the page reached 1.90 bounds
+/// step 1 calls everybody-against-us read the other way round: the page reached its distance
 /// because *one* reference is very far off, and the printed distance from the nearest is the
-/// number that accuses us — 1.90 here, against 19.33 from the furthest.
+/// number that accuses us.
+///
+/// # "Ours fills it" was this note's own sentence and the raster refused it
+///
+/// It read that way for a hundred and sixty sessions, and so did the comment on `Border::inset`
+/// one crate over: "the inset stops at the centre line, which fills the rectangle solid". What
+/// this tree actually drew for `/Border [0 0 112]` on a 150 × 20 rectangle was a **38 × 20 block
+/// in the middle of it** — ink **29.65** — because a stroke of the inset path cannot state that
+/// region once the path degenerates in one axis, and past *both* dimensions it drew nothing at
+/// all. Since the seven-hundred-and-fifty-sixth session a border whose width reaches either
+/// dimension is *filled*, which is what the region is; ours is **67.21** and the sentence above is
+/// now a description. ADR 0674, and `tests/annotations.rs`'s
+/// `a_border_as_wide_as_its_rectangle_covers_it_and_no_more` is what holds it.
+///
+/// These are `doc/todo/00` step 5's inks, `magick`'s and not this gate's, which is why they carry
+/// two decimals the gate does not print.
+///
+/// # And obeying the clause moved us **away** from the references, which is the cost stated
+///
+/// Our nearest was **1.90** bounds before that fix and is **5.98** after it, which puts this page
+/// second in `rank_the_pages_we_are_alone_on` at 5.60× where it was on no printed list. Nothing
+/// about that is a regression and the verdict does not move: the two references nearest us,
+/// `mupdf` and `ghostscript`, are nearest because they draw **no link border at all**, so every
+/// unit of the border this clause requires is a unit further from them. It is
+/// `AMBIGUOUS_LINK_BORDER`'s divisor argument on the numerator — trap 9's shared *gap*, which
+/// flatters a reader that shares it and accuses one that does not (ADR 0663) — and a ranking that
+/// promoted this page for becoming more correct is the instrument working as designed rather than
+/// a reason to stop.
+///
+/// **And `poppler`'s side of this page is a population rather than a page**, which is the other
+/// half of the same session: it puts an annotation border's path *on* `/Rect`'s boundary at every
+/// width, so half the stroke is outside — five units at a width of 10, 56 here — and
+/// `crates/pdf-model/examples/border_overhang_census.rs` measures that over every corpus page
+/// stating a border and no `/AP`. `issue12750.pdf` is the honest limit of the instrument at a width
+/// of 1: a `/Rect` on fractional coordinates puts `poppler`'s snapped thin line on the same columns
+/// as ours, so the overhang is there in the geometry and not in any whole pixel. ADR 0675.
 const AMBIGUOUS_OVERSIZED_BORDER: [&str; 1] = ["bug1552113.pdf page 1"];
 
 /// Ambiguous, and it is what four renderers construct for a widget the file left to them.
