@@ -88,7 +88,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | §7.6.4.4.1, §7.6.5.1 | 97, 101 | #24 | quotes | ×3. "with an initialization vector of zero" struck from all three **ECB** occurrences, where it was nonsense. `perms_block`'s comment said so on its own line before the erratum could be read; the quotation marks are gone. The **CBC** occurrences keep the phrase and `crypt.rs:1075` still quotes them correctly. |
 | §7.6.7 Unencrypted wrapper | 110 | #529 | untouched | "the EmbeddedFiles name tree shall contain exactly one entry" deleted. Nothing enforced it. |
 | §7.7.2 Catalog | 114, 115 | #106 | cites | ×3. Indirect-reference requirements relaxed; `Document::get_key` resolves either shape. |
-| §7.7.3.3 Page objects | 121 | #106 | cites | "; indirect reference preferred" struck. |
+| §7.7.3.3 Page objects | 121 | #106, #619 | cites | "; indirect reference preferred" struck from Table 31's `/ID` by #106, and "; Deprecated in PDF 2.0" inserted into the same parenthetical by #619 — the two compose rather than collide, leaving "(Optional; PDF 1.3; Deprecated in PDF 2.0)". `/ID` is unread here under either printing. |
 | §7.9.4 Dates | 133 | #251 | quotes `[416]` | Two sentences retired; `Date::instant` was right for the surviving reason. |
 | §7.12.3 Developer extensions | 157 | #732 | quotes | `/URL` becomes **Required**. The ledger called it optional — corrected. `DeveloperExtension::read` still answers an extension without one, now as a stated choice. |
 | §7.12.6 URL | 158 | #399 | cites | The `/BaseVersion` version comparison, which this reader does not perform. |
@@ -96,6 +96,7 @@ objects prints twice. The multiplicities below sum to the 79.
 | §8.6.5.8 Rendering intents | 212 | #63 | cites | The NOTE's licence to support fewer than four intents is withdrawn. Nothing here leant on it; the existing `partial` gap is unchanged and slightly less excusable. |
 | §8.6.8 Colour operators | 232 | #551 | cites | Table 74's `CS` row no longer says the resource entry "shall be an array"; `colour::parse_at` already accepted a name first. |
 | §8.9.5.1 General | 274 | #366 | untouched | "if a predictor function is used" struck from Table 87's `/BitsPerComponent`. Predictors never reach the image dictionary here. |
+| §8.9.5.1 General | 275 | #619 | untouched | "; Deprecated in PDF 2.0" inserted into Table 87's `/ID` row, which is the caret the section below had filed as Table 143's alone. `/ID` is unread here under either printing. |
 | §8.9.5.4 Alternate images | 279 | #79 | **implements** | The algorithm is rewritten and three of its steps contradict `alternate_image`. See the finding below. **Amended algorithm implemented in the five-hundred-and-fortieth, ADR 0375.** |
 | §8.9.7 Inline images | 283 | #20 | untouched | "one of its filters" → "its final or only filter". `inline_image` skips one white-space byte unconditionally and never applies the test in either form. |
 | §8.10.2 Form dictionaries | 287 | #292 | cites | `/Resources` becomes "Sometimes required" and independence becomes required from PDF 2.0. The page-resource fallback this tree has rests on §7.8.3, which the erratum leaves standing. |
@@ -905,7 +906,27 @@ entries are ignored in a soft-mask image dictionary under either printing, and �
 already records them unread. What the erratum repairs is an inconsistency between two tables —
 Table 87's `/OPI` row already carries the same notice and its `/ID` row does not, while §14.10.1
 opens by saying that the features of Web capture — the feature `/ID` belongs to — are deprecated
-with PDF 2.0. Table 143 states it for both entries now and Table 87 still states it for one.
+with PDF 2.0.
+
+**That paragraph ended "Table 143 states it for both entries now and Table 87 still states it for
+one", and the seven-hundred-and-thirtieth session found the erratum repairs Table 87 as well.**
+Issue #619 carries **four** carets and the two on page 436 are half of it: one sits on page 275 in
+Table 87's own `/ID` row and one on page 121 in Table 31's, so the issue deprecates `/ID` wherever
+the three tables state it and leaves nothing uneven behind. The arithmetic is this section's own and
+took a minute apiece. Page 275's rect is `[390.62046 176.32236 399.6965 183.71765]`, which is 658.2
+to 665.6 from the top of an 841.92-tall page, where `stext` puts the `/ID` row's value cell at 654.9
+and `pdftotext -bbox` ends the word `preferred)` at x 399.2 — the caret's centre at x 395.2 is one
+glyph short of that, which is the insertion point before the closing parenthesis. Page 121's is
+`[284.3599 256.12236 293.43595 263.51765]`, 578.4 to 585.8 from the top, on the cell `stext` puts at
+575.1, with `1.3;` ending at x 291.5 and its centre at 288.9 landing before that row's semicolon.
+
+**The lesson is about the instrument rather than about `/ID`.** `emit` files an annotation by the
+page it is on, so an issue whose carets are scattered across three tables prints as three separate
+entries hundreds of lines apart, and a round reading one page reads a third of the issue. The
+correction it left standing here was not stale — it was **wrong when written**, from facts that were
+right, because the reasoning stopped at the page in front of it. A round recording what an erratum
+does asks `emit` for the *issue number* across the whole document before it concludes what the issue
+leaves alone. ADR 0621.
 
 ### The finding: Issue #134 names which resource dictionary remaps a group's device space
 
