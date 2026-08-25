@@ -166,6 +166,14 @@ cargo run --release -p pdf-model --example group_shape_census -- doc/pdf.js/test
   # Written to answer one line of a dependency's question and kept because it is how the two proofs
   # are compared: 162 groups over the 964 first pages, 135 carrying shape, 61 of them beyond a
   # command-list proof and none the other way (ADR 0554)
+cargo run --release -p render-quorra --example filtered_edge_colour
+  # what each of the three backends' image filters does to the *colour* of a partly transparent
+  # sample — §8.9.6.2's "smooth the edges of the mask, not … the painted colour values", which is
+  # the difference between filtering premultiplied and filtering straight. One scene, because it is
+  # the only shape that separates them: every image in both cross-backend suites is opaque, and on
+  # an opaque raster the two arithmetics agree. The CPU backend and vello depart from the painted
+  # colour by 0 and quorra by 131 of 255, which is the shipped rasteriser (ADR 0697,
+  # `doc/todo/55`, `doc/QUORRA_FEEDBACK.md` §39)
 cargo run --release -p render-quorra --example sampled_lane_column -- [--scale N] doc/pdf.js/test/pdfs/*.pdf
   # the population quorra's sampled coverage lane would give back to the processor if it diverted
   # every mark whose width is not a multiple of its sample pitch. Defaults to ten times

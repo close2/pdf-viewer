@@ -790,3 +790,68 @@ fn the_same_display_list_asks_for_the_mask_at_the_scale_it_is_drawn() {
         (0, 0, 0)
     );
 }
+
+/// A stencil under the *graphics state's* soft mask is drawn through both, and says nothing.
+///
+/// §11.6.4.3, of an image's own `/SMask` and of the explicit or colour-key mask its `/Mask`
+/// entry states:
+///
+/// > Either form of mask in the image dictionary shall override, for this image object only,
+/// > the current soft mask in the graphics state.
+///
+/// Two forms, both of them entries of the image dictionary, and `/ImageMask` is neither:
+/// it says the samples carry no *colour*, not that they carry an opacity. So the mask in force
+/// stays in force and the two compose, which is what this test rasterises.
+///
+/// **It is here because three ledger rows said the opposite.** §8.9.6, §8.9.6.1 and §8.9.6.2
+/// each named "a stencil under a graphics-state soft mask" among the family's residue, and
+/// the refusal in `content::image` is narrower than that by one condition: it is a stencil
+/// whose current colour is a *pattern*, where the recomposition of §8.9.6.2 needs the mask
+/// slot the state is already using. An ordinary stencil needs no such slot, and nothing in
+/// this tree had ever asked.
+///
+/// The fixture pairs the stencil with a luminosity group white over the left half of the page
+/// and black over the right, so the mask cuts a cell the stencil marks. A reader that dropped
+/// the state's mask paints that cell, and one that refused the pair paints nothing at all.
+#[test]
+fn a_stencil_under_the_graphics_states_soft_mask_is_drawn_through_both() {
+    let content = "/GS gs 1 0 0 rg 40 0 0 40 0 0 cm /Im Do";
+    let group = "0 g 0 0 40 40 re f 1 g 0 0 20 40 re f";
+    let objects = vec![
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n".to_vec(),
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n".to_vec(),
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] \
+          /Resources << /XObject << /Im 5 0 R >> /ExtGState << /GS 6 0 R >> >> \
+          /Contents 4 0 R >>\nendobj\n"
+            .to_vec(),
+        stream_object(4, "", content.as_bytes()),
+        stream_object(
+            5,
+            "/Type /XObject /Subtype /Image /Width 4 /Height 2 /ImageMask true",
+            PATTERN,
+        ),
+        b"6 0 obj\n<< /Type /ExtGState /SMask << /S /Luminosity /G 7 0 R >> >>\nendobj\n".to_vec(),
+        stream_object(
+            7,
+            "/Type /XObject /Subtype /Form /BBox [0 0 40 40] \
+             /Group << /S /Transparency /CS /DeviceGray >>",
+            group.as_bytes(),
+        ),
+    ];
+    // `render` asserts the page drew completely, which is half of what this test is for.
+    let raster = render(assemble(&objects));
+
+    // The bottom row marks its first three cells. The first two are under the white half of
+    // the mask and survive; the third is under the black half and is cut out.
+    assert!(marked(&raster, 5, 5), "bottom row, first cell, mask white");
+    assert!(
+        marked(&raster, 15, 5),
+        "bottom row, second cell, mask white"
+    );
+    assert!(
+        cut_out(&raster, 25, 5),
+        "bottom row, third cell: the stencil marks it and the state's mask cuts it"
+    );
+    // And the cell the stencil leaves alone stays unmarked whatever the mask says.
+    assert!(!marked(&raster, 35, 5), "bottom row, fourth cell, unmarked");
+}

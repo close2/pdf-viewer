@@ -1447,3 +1447,105 @@ fn cpu_and_gpu_agree_on_a_fill_with_no_area() {
         );
     }
 }
+
+/// A stencil's edges smooth without pulling the painted colour towards black.
+///
+/// ISO 32000-2 §8.9.6.2's last sentence, which is a `shall` and is about a different noun
+/// from the one it is easy to read it as:
+///
+/// > If image interpolation (see 8.9.5.3, "Image interpolation") is requested during stencil
+/// > masking, the effect shall be to smooth the edges of the mask, not to interpolate the
+/// > painted colour values.
+///
+/// A stencil decodes to the fill colour where its bits mark and `[0, 0, 0, 0]` where they do
+/// not, so what a filter does with those four components decides which of the two the clause
+/// names happens. Premultiplied, the cleared samples contribute nothing but their zero
+/// coverage and every partly covered pixel carries the painted colour exactly; straight, the
+/// black those samples are stored with is averaged into the colour and the whole edge comes
+/// out half dark. `pdf_render::Image::average_block` states the same rule for the reduction
+/// this crate performs itself.
+///
+/// **This scene exists because every other image in this suite is opaque**, and on an opaque
+/// raster the two filters are the same arithmetic — so the rule had nothing holding it in any
+/// backend. It is calibrated against a live failure rather than a plant: the third rasteriser
+/// in this tree filters straight alpha, and `render-quorra`'s `filtered_edge_colour` example
+/// prints this scene's partly covered pixels for all three (ADR 0697).
+#[test]
+fn cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour() {
+    use pdf_render::{BlendMode, Command, DisplayList, Image, Size, Transform};
+
+    /// The colour the marked samples carry, and the one every partly covered pixel owes back.
+    const PAINTED: [u8; 4] = [255, 0, 0, 255];
+
+    let mut data = Vec::with_capacity(4 * 4 * 4);
+    for row in 0..4u32 {
+        for column in 0..4u32 {
+            if (row + column) % 2 == 0 {
+                data.extend_from_slice(&PAINTED);
+            } else {
+                data.extend_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+    }
+
+    let mut list = DisplayList::new(Size::new(200.0, 200.0));
+    list.push(Command::Image {
+        image: Image {
+            width: 4,
+            height: 4,
+            data: data.into(),
+            // §8.9.5.3's entry, which is the condition the sentence above is stated under.
+            interpolate: true,
+        }
+        .into(),
+        transform: Transform::scale(160.0, 160.0).then(Transform::translate(20.0, 20.0)),
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    // `Medium::NONE` on both, so what is read back is the mark's own colour rather than the
+    // mark composited over a background, which would hide the difference inside the blend.
+    let cpu = CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported");
+    let gpu = gpu()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported");
+
+    for (name, raster) in [("cpu", &cpu), ("gpu", &gpu)] {
+        let mut partly_covered = 0u32;
+        for row in 20..180u32 {
+            for x in 20..180u32 {
+                let at = ((row * raster.width + x) * 4) as usize;
+                let pixel = [
+                    raster.data[at],
+                    raster.data[at + 1],
+                    raster.data[at + 2],
+                    raster.data[at + 3],
+                ];
+                // A fully covered or fully clear pixel says nothing about the filter.
+                if pixel[3] <= 24 || pixel[3] >= 232 {
+                    continue;
+                }
+                partly_covered += 1;
+                assert!(
+                    pixel[0] >= 250 && pixel[1] <= 4 && pixel[2] <= 4,
+                    "{name}: a smoothed stencil edge at ({x}, {row}) is the painted colour at \
+                     partial coverage, not {pixel:?}"
+                );
+            }
+        }
+        // A backend that filtered nothing at all would have no partly covered pixel to check,
+        // and would pass the loop above vacuously.
+        assert!(
+            partly_covered > 1000,
+            "{name}: the scene has to be filtered for this test to measure anything, and only \
+             {partly_covered} pixels came out partly covered"
+        );
+    }
+}

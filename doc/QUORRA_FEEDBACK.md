@@ -4728,3 +4728,92 @@ Nothing is blocked on you. What would help, in the order we would value it:
    your two lanes disagree about *placement* at all, beyond the quarter-pixel lattice your §3
    states. If you know of some, we would like to hear it, because we spent four sessions believing
    there was.
+
+## 39. `image.wgsl` filters straight alpha, so every partly covered edge of an image carries its transparent samples' **colour** — **an ask, with the clause that names it**
+
+Written at the end of this viewer's seven-hundred-and-sixty-seventh session. It is one ask, it is
+four lines of one shader, and it is the first finding this document has made from **a sentence in
+ISO 32000-2 rather than from a corpus page** — which is also why nothing either of us runs could
+see it.
+
+### 39.1 The rule, and where the standard states it
+
+§8.9.6.2, of a stencil mask, and it is a `shall`:
+
+> If image interpolation (see 8.9.5.3, "Image interpolation") is requested during stencil masking,
+> the effect shall be to smooth the edges of the mask, not to interpolate the painted colour
+> values.
+
+A stencil is `/ImageMask true`: its samples carry no colour of their own and designate "places on
+the page that should either be marked with the current colour or masked out". This tree decodes one
+into RGBA the way it decodes every image, so the marked samples carry the current colour at full
+alpha and the masked ones are `[0, 0, 0, 0]` — a **black** the clause says is not there. Filtering
+those four components as they stand mixes that black into the painted colour; filtering them
+premultiplied does not, and gives the painted colour at partial coverage exactly. That is the
+clause's own distinction between smoothing the mask and interpolating the colour, and it is why the
+sentence names two nouns instead of one.
+
+### 39.2 What we measured
+
+`crates/render-quorra/examples/filtered_edge_colour` draws one scene — a 4 × 4 image alternating
+between opaque red and cleared samples, `interpolate: true`, magnified forty-fold onto a 200 × 200
+page over `Medium::NONE` — and prints, for each backend, how far the partly covered pixels of one
+scanline depart from the colour that was painted:
+
+```text
+   cpu: 160 partly covered pixels, worst departure from the painted colour 0 at x=0 ([0, 0, 0, 0])
+ vello: 160 partly covered pixels, worst departure from the painted colour 0 at x=0 ([0, 0, 0, 0])
+quorra: 160 partly covered pixels, worst departure from the painted colour 131 at x=75 ([124, 0, 0, 125])
+```
+
+All three backends filter — the alpha ramps identically in all three, and every one produces the
+same 160 partly covered pixels, so this is not a disagreement about *whether* to smooth. It is
+about what comes out: `[255, 0, 0, α]` from two of them and `[~126, 0, 0, α]` from the third, which
+is the painted colour halfway to black at every edge of every stencil.
+
+### 39.3 Where it is, and what we think the fix is
+
+`crates/quorra-gpu/src/shaders/image.wgsl`, `fs_main`:
+
+```wgsl
+sample = textureSampleLevel(image_tex, image_sampler, tex_uv, 0.0);
+…
+// Straight-alpha samples premultiply here (§3: premultiplied internally); …
+return vec4f(sample.rgb * sample.a, sample.a) * (shape * params.inv1.z * soft_mask_at(p));
+```
+
+The comment is right about the boundary and the premultiplication is one step too late: the sampler
+has already blended four straight-alpha texels by the time `sample.rgb * sample.a` runs, so the
+product is `mean(rgb) * mean(a)` where the correct answer is `mean(rgb * a)`. The two agree exactly
+when every texel of the neighbourhood has the same alpha, which is why an opaque image is
+unaffected — and why we could not see this.
+
+Two ways we can see to close it, and the choice is yours:
+
+- **Premultiply on upload.** `upload_image` stores `rgb * a`, the sampler's blend is then already
+  the right quantity, and `fs_main` returns `sample * (shape * …)` with no further multiply. It
+  costs one pass over the texels once per image rather than per fragment, and it makes the texture
+  match §3's "premultiplied internally" outright. It changes `ImageSpec`'s contract, which is why
+  it is an ask rather than something we could do on our side — we cannot pre-multiply the bytes we
+  hand you without the shader then multiplying by alpha a second time.
+- **Sample premultiplied in the shader.** Four `textureLoad`s and the bilinear weights by hand,
+  premultiplying each tap. No contract change, more work per fragment.
+
+We have no preference between them and no measurement that would decide it.
+
+### 39.4 What this side has done meanwhile
+
+Nothing that changes a byte we send you. The scene above is now a gate over the two backends that
+satisfy the clause (`render-gpu/tests/headless_gpu.rs::cpu_and_gpu_smooth_a_stencils_edges_without_darkening_its_colour`),
+the example that prints all three is checked in, and this tree's conformance ledger records the
+departure against §8.9.6.2 rather than claiming the requirement is met — which is what it did claim,
+in two rows, for three hundred and twenty-five sessions. ADR 0697 has the reading.
+
+**And the reach is wider than the clause that named it.** A stencil is where ISO 32000-2 states the
+rule, because it is where a transparent sample's stored colour is most obviously not the picture.
+But every image this tree hands you with a partly transparent sample is in the same position: an
+image carrying an `/SMask` (§11.6.5.2), one under an explicit mask (§8.9.6.3), one with a colour-key
+range cut out of it (§8.9.6.4), and a JPEG 2000 image with an opacity channel. All of them arrive as
+straight-alpha RGBA whose cleared samples are black, and all of them get that black smeared into
+their edges wherever the filter is on — which, by `Image::is_smoothed`, is every reduction as well
+as every image whose file asks for interpolation.
