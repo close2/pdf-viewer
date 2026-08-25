@@ -61,9 +61,27 @@ for a rule that is a property of the whole file. One stable sort and one bulk bu
 cross-reference streams are a compressed table, and a processor that wants object 12 must find its
 entry — which does not require materialising the other 101 317. Whether this tree can defer that is
 a question about `xref.rs`'s `Option<Location>` map (ADR 0100), and the answer changes what
-`was_recovered` and the writer can promise. The measured floor now: 76.6 M instructions, of which
-inflating the two cross-reference streams is 18 M and nothing can remove it, so the remaining
-ceiling on this route is roughly a further 40%.
+`was_recovered` and the writer can promise.
+
+**The floor this paragraph quoted was four hundred and eighty rounds old, and its *ranking* was
+what had rotted** — the total having been re-taken in the meantime and the composition not. It read
+"76.6 M instructions, of which inflating the two cross-reference streams is 18 M and nothing can
+remove it, so the remaining ceiling on this route is roughly a further 40%", and two rounds have now
+gone at the three quarters it dismissed in a subordinate clause. ADR 0667 took §7.4.4.4's predictor
+(−11.15%) and ADR 0677 took §7.5.8.2's `/W`, re-derived once per stream instead of once per record
+(−10.49%, and the whole of it inside `read_section`). **Both were larger than the inflation the
+sentence called irreducible**, and neither was on any list.
+
+So the number a round should re-derive rather than read is what `callgrind_open` prints today, and
+the two lessons this paragraph earned are worth more than any figure:
+
+- **A composition decays faster than a total**, because a total is what a later round re-takes.
+  Whoever re-runs a floor re-runs the attribution under it, or the ranking that decides the next
+  move is the ranking of a tree that no longer exists.
+- **`#[inline(never)]` on one function is the attribution instrument here.** Under this profile's
+  fat link, callgrind reports a hot callee's cost against its caller's name with the inlined
+  library code filed under `uint_macros.rs` and `slice/index.rs`; one temporary attribute and one
+  rebuild turn that into a row. ADR 0677 §"How this was found".
 
 ### 1a. …and what was left of it is now *beside* the window rather than in front of it
 

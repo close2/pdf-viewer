@@ -496,6 +496,94 @@ fn a_zero_first_field_width_defaults_every_entry_to_type_one() {
     assert!(document.get_key(&catalog, "Pages").as_dict().is_some());
 }
 
+/// ISO 32000-2 §7.5.8.2, Table 17: a field is as wide as `/W` says, and `/W` has no maximum.
+///
+/// > The sum of the items shall be the total length of each entry; it can be used with the Index
+/// > array to determine the starting position of each subsection.
+///
+/// Nothing in the clause bounds an element of `/W` at the width of any particular integer, so a
+/// nine-byte offset field is a thing a file may state and a reader must read. The pair below
+/// writes object 4's offset in nine bytes twice, differing only in the leading byte the extra
+/// width makes room for:
+///
+/// - `00` — the same number an eight-byte field would have carried, and the object is there;
+/// - `01` — the same number plus 2^64, which is no offset in any file.
+///
+/// The second is where the clause stops and a choice begins, and this project's choice is
+/// recorded beside the code that makes it (`xref::big_endian`): **the value clamps rather than
+/// wrapping**, so the entry states an offset past the end of every file. A reader that let the
+/// arithmetic wrap would land on the object, believe the table and say nothing — which is why
+/// the two arms are one test. An assertion about the first alone passes for a reader that does
+/// not read the ninth byte at all.
+#[test]
+fn a_field_wider_than_a_u64_clamps_rather_than_wrapping_round_to_a_plausible_offset() {
+    let build = |leading: u8| {
+        let (out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+        let mut bytes = out.into_bytes();
+        let stream_at = bytes.len();
+
+        // `/W [1 9 2]`, so the middle field is written by hand: the helper above right-aligns a
+        // `u64`, which has one byte too few for this.
+        let mut data = Vec::new();
+        for (kind, offset, third) in [
+            (0u8, 0u64, 65535u16),
+            (1, offset_of(offsets[0]), 0),
+            (1, offset_of(offsets[1]), 0),
+            (1, offset_of(offsets[2]), 0),
+            (1, offset_of(offsets[3]), 0),
+            (1, offset_of(stream_at), 0),
+        ] {
+            data.push(kind);
+            // Object 4 is the one whose ninth byte the arms differ in; every other entry keeps
+            // the zero that makes nine bytes state what eight would have.
+            data.push(if offset == offset_of(offsets[3]) {
+                leading
+            } else {
+                0
+            });
+            data.extend_from_slice(&offset.to_be_bytes());
+            data.extend_from_slice(&third.to_be_bytes());
+        }
+
+        let dict = format!(
+            "5 0 obj\n<< /Type /XRef /Size 6 /Index [0 6] /W [1 9 2] /Root 1 0 R \
+             /Length {} >>\nstream\n",
+            data.len()
+        );
+        bytes.extend_from_slice(dict.as_bytes());
+        bytes.extend_from_slice(&data);
+        bytes.extend_from_slice(b"\nendstream\nendobj\n");
+        bytes.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+        bytes
+    };
+
+    let exact = open(build(0));
+    assert_eq!(
+        object(&exact, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "a nine-byte field whose leading byte is zero states the offset an eight-byte one would"
+    );
+    assert!(
+        exact.misfiled_objects().is_empty(),
+        "and the table is believed, because it is right"
+    );
+
+    let overlong = open(build(1));
+    assert_eq!(
+        object(&overlong, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "the object is still reachable — `Document::load_by_header` repairs a disproved entry"
+    );
+    assert_eq!(
+        overlong.misfiled_objects(),
+        vec![4],
+        "and it is repaired *out loud*: a clamped field is an offset no object is at, so the \
+         entry is disproved and reported. A reader whose arithmetic wrapped would land on the \
+         object, believe the table and report nothing, which is the whole difference the ninth \
+         byte makes"
+    );
+}
+
 /// ISO 32000-2 §7.5.8.3: an entry type the standard does not define resolves to null.
 ///
 /// > In PDF 1.5 through PDF 2.0, only types 0, 1, and 2 are allowed. Any other value shall be
