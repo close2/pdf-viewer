@@ -334,6 +334,14 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   halves**: a denominator that does not move is a denominator that was never about the page. ADR
   0663.
 
+  **And the gate says which ratios are worth that removal**, since the seven-hundred-and-sixty-first
+  session (ADR 0684). `[widened: outside]` on a row of that list means our nearest is outside the
+  bound `Judgement::CORPUS` would have set from the closest pair's own spread — twice it, floored —
+  where every other row is outside the class *floor* only, which is what `pdfref::decide` returns
+  *because* no consensus formed. Unmarked, a consensus at that spread would have accepted us, and
+  the ratio is measuring how closely two references happen to agree rather than anything about the
+  page.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is
