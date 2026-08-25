@@ -132,3 +132,26 @@ reader already knows it has read `max_stream_len` decoded bytes out of one strea
 is that fact travelling one hop back to `Document`, for the single-part case where the stream it is
 about is unambiguous (`Window::single`, which is every one of §7.8.2's nested content streams).
 Whoever takes it owes the hop, not a new number — and the witness and both arms are ADR 0587's.
+
+**Taken in the seven-hundred-and-forty-second session, and the hop was one fact short.** ADR 0646
+has the measurement and the argument: 14.32–17.99 s against 186.16–287.23 µs on ADR 0586's own
+witness rebuilt to the byte, at unchanged peak resident memory, and +0.0031% instructions over ISO
+32000-2's 1023 pages. What the paragraph above got wrong is worth keeping, because it is the
+difference between a memo and a page drawn by a memo: **a window hands over everything up to the
+bound and only then says it stopped**, so "too large" alone is not a fact a second read may be
+answered from — a stream whose prefix marked the page owes those marks to every later read.
+What travels is *too large **and empty***, which is exactly reproducible and which
+`Interpreter::run` is the one place able to see both halves of. It is the rule
+`Outcome::Decoded`'s `damage` field already states for the other half of this cache.
+
+Two lines are left, and neither is the one that was owed:
+
+- **A refusal whose encoded bytes exceed `DECODED_BUDGET` is still not remembered** — the second
+  row of ADR 0646's table, unchanged at about 14–17 s. That is ADR 0586's argued refusal and it
+  stands: `DecodedStreams::keep` declines what it cannot hold beside its own key, and letting one
+  entry past the budget would let the bomb evict everything around it.
+- **`NestedContent::damage` still drives a pump to the end**, once per read, which is a gibibyte on
+  such a stream. §12.5.5's appearance is the caller and ADR 0359 is why the question is asked where
+  the stream is read; the method has no `&Document` to record against, and what it asks is a
+  different question from the one above — *is this stream damaged*, not *is it too large*. Whoever
+  takes it should check first whether §12.5.5's route still needs the answer before the run.

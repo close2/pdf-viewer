@@ -41,8 +41,8 @@ pub mod xref;
 pub use crypt::Permissions;
 pub use date::Date;
 pub use document::{
-    CompressedRecovery, DecodedStreamCache, Document, ImageStream, ObjectsLost, StreamRefusal,
-    StreamSource,
+    CompressedRecovery, DecodedStreamCache, Decoding, Document, ImageStream, ObjectsLost,
+    StreamRefusal, StreamSource,
 };
 pub use error::{SyntaxError, SyntaxResult};
 pub use filter::{

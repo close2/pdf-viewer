@@ -128,6 +128,8 @@ impl Interpreter<'_> {
         form_depth: usize,
     ) {
         let mut reader = content.reader();
+        // What the run has to have produced *nothing* against, for the one fact below to travel.
+        let operations = self.operations;
         // ISO 32000-2 §11.6.7 gives a shading pattern's definition "the graphics state that was in
         // effect at the beginning of the content stream in which the shading pattern is set to be
         // the current colour", so a *nested* stream is a new beginning and the parameters it
@@ -142,8 +144,28 @@ impl Interpreter<'_> {
         );
         self.run_reader(&mut reader, resources, initial, form_depth);
         self.pattern_initial = outer;
+        let mut reached = None;
         for issue in reader.take_issues() {
+            if let crate::page::ContentIssue::TooLarge { limit, .. } = issue {
+                reached = Some(limit);
+            }
             self.note_nested(issue, content.detail());
+        }
+        // **The one hop `doc/todo/41` was left owing** (ADR 0646). A window makes no
+        // `FilterRefusal::TooLarge` of its own — it has nothing allocated to bound — so a bomb
+        // the memo would keep beside its encoded bytes was re-inflated to `max_stream_len` on
+        // every one of §7.8.2's re-reads, while the buffered route had remembered the same
+        // refusal since ADR 0437. This is where both halves of the fact are visible at once:
+        // the reader knows it reached the bound, and the interpreter knows the run added not
+        // one operation. **Both halves are required.** A window delivers everything up to the
+        // bound before it says it stopped, so a run that had drawn something would owe those
+        // marks to its second read as well, and a memory that silenced them would make the page
+        // a function of the cache — which is the failure `Outcome::Decoded`'s `damage` field
+        // already exists to prevent for the other half of this memo.
+        if let (Some(limit), Some(decoding)) = (reached, content.decoding())
+            && self.operations == operations
+        {
+            self.document.window_found_nothing(decoding, limit);
         }
     }
 
