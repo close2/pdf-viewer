@@ -29,8 +29,8 @@ use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use pdf_render::{
-    BackendError, ClipId, Command, DisplayList, MAX_EXTENT, MAX_GROUP_DEPTH, Medium, Paint, Path,
-    Raster, RasterFormat, Rasterizer, SoftMaskId, Stroke, TargetSpec, Transform,
+    BackendError, ClipId, Command, DisplayList, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Medium,
+    Paint, Path, Raster, RasterFormat, Rasterizer, SoftMaskId, Stroke, TargetSpec, Transform,
 };
 
 /// Every paint this backend hands `tiny-skia` asks for its high-precision pipeline, ISO 32000-2
@@ -73,6 +73,7 @@ pub struct CpuRasterizer {
     medium: Medium,
     anti_alias: bool,
     strips: Option<u32>,
+    interrupt: Option<Interrupt>,
 }
 
 impl CpuRasterizer {
@@ -93,7 +94,36 @@ impl CpuRasterizer {
             medium: Medium::PAGE_ONLY,
             anti_alias: true,
             strips: None,
+            interrupt: None,
         }
+    }
+
+    /// Hands the rasteriser a flag another thread can raise to abandon the draw.
+    ///
+    /// **This is what a host taking display lists across the confinement owns.** Since ADR 0633 a
+    /// page usually crosses `viewer-confined` as marks and the host draws them, so the drawing of
+    /// a document written to be expensive happens in the *unconfined* process — where the
+    /// worker's cancel, which is a kill, reaches nothing (`doc/todo/34` §3). Without this there
+    /// is no way to get that thread back at all.
+    ///
+    /// # What it is worth, and what it costs
+    ///
+    /// The flag is read once per command in [`CpuRasterizer::encode`], which is the loop nothing
+    /// bounds: 1567 bytes of PDF amplify to ten thousand page-covering fills, 990 kB of marks and
+    /// **27.6 s** of drawing at a 900x1165 window, and raising it returns the thread in 1.3 to
+    /// 2.1 ms. What it cannot interrupt is one command's own scan conversion and the per-pixel
+    /// pass after the drawing, both bounded by the target's area — see [`Interrupt`].
+    ///
+    /// The load is `Relaxed`, and what it costs was counted rather than assumed. Under callgrind,
+    /// ISO 32000-2 page 101 — the densest page in this tree, 3007 commands — drawn twenty times:
+    /// **5 441 579 467** instruction references before this method existed, **5 441 596 808** with
+    /// no interrupt handed over, and **5 451 627 652** with one handed over and never raised. So
+    /// the path every gate in this tree runs is unchanged and a caller that asks to be able to
+    /// stop pays **0.18%**. ADR 0650 section 5.
+    #[must_use]
+    pub fn interruptible(mut self, interrupt: Interrupt) -> Self {
+        self.interrupt = Some(interrupt);
+        self
     }
 
     /// Asks for a fixed number of horizontal strips instead of one per available core.
@@ -136,6 +166,15 @@ impl CpuRasterizer {
     pub fn with_anti_alias(mut self, anti_alias: bool) -> Self {
         self.anti_alias = anti_alias;
         self
+    }
+
+    /// Whether a caller has asked for this draw to be abandoned.
+    ///
+    /// `None` where no interrupt was handed over, which is every gate in this tree — and where the
+    /// question costs 867 instructions a page rather than one check per command, which is the
+    /// middle figure in [`CpuRasterizer::interruptible`]'s costing.
+    fn interrupted(&self) -> bool {
+        self.interrupt.as_ref().is_some_and(Interrupt::raised)
     }
 
     /// Builds the `tiny-skia` paint for a resolved paint and blend mode.
@@ -202,6 +241,12 @@ impl Rasterizer for CpuRasterizer {
     }
 
     fn rasterize(&mut self, list: &DisplayList, target: TargetSpec) -> Result<Raster, Self::Error> {
+        // Before the pixmap, because a target may be a gibibyte and an interrupt already raised
+        // is an allocation nobody wants the answer to.
+        if self.interrupted() {
+            return Err(BackendError::Interrupted.into());
+        }
+
         // Checked here rather than assumed, because [`Band`] converts a row index to
         // `f32` and that is lossless only below 2^24. `TargetSpec::for_page` already
         // enforces this, but the struct's fields are public, so a hand-built spec can
@@ -639,6 +684,17 @@ impl CpuRasterizer {
         compose: Compose,
     ) -> Result<(), CpuRasterError> {
         for command in commands {
+            // **The one place a draw already in progress can be interrupted**, and it is per
+            // command rather than per strip because a strip is not a unit of time: a page whose
+            // curves forbid every cut is one strip, and the amplification fixture's ten thousand
+            // page-covering fills are one command each. Every recursion — a group, a shaped pair,
+            // a soft mask's own list — comes back through this loop, so one check covers all of
+            // them. See [`CpuRasterizer::interruptible`] for what it buys and what it cannot
+            // reach.
+            if self.interrupted() {
+                return Err(BackendError::Interrupted.into());
+            }
+
             // A command whose extent misses this surface marks nothing, and saying so here is
             // what makes a strip cost what its own rows cost: without it every strip would
             // build every command's path and compile every command's pipeline, which session

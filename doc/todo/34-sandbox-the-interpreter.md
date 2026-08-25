@@ -146,8 +146,18 @@ host has is the ability to decide, on its own grounds.
 **And since ADR 0640 the cancel's scope is worth stating exactly**, because it is easy to read as
 larger than it is: it ends the worker, so what it stops is what the worker is doing. On the pixel
 arm that is the interpretation *and* the rasterisation; on the marks arm the worker does not
-rasterise, so it is the interpretation alone and the drawing is the host's. `doc/todo/15` carries
-what the host then owes. `tests/support/amplification.rs` is five levels deep rather than four for
+rasterise, so it is the interpretation alone and the drawing is the host's.
+
+**The other half of that sentence has an answer since the seven-hundred-and-forty-fifth session,
+and it is a different object with a different name** (ADR 0650). `pdf_render::Interrupt` is
+*raised* and *honoured* where a `Canceller` *ends a process*, and the reason a cooperative flag is
+enough there and not here is one line: on the host's side **the loop is ours**. A hostile document
+arrives in `render-cpu` as a `DisplayList`, which is data — it can make the command loop long, and
+it cannot make an iteration of it decline to check. Inside the confinement there is no such loop
+to appeal to, because what is running is the document's own content stream.
+`doc/todo/15` carries what the host still owes, which is the policy rather than the mechanism.
+
+`tests/support/amplification.rs` is five levels deep rather than four for
 this reason and says so: four levels' marks are smaller than a window's pixels, so that document
 crossed as marks and there was nothing left for the cancel test to cancel.
 

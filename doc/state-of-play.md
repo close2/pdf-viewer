@@ -168,11 +168,15 @@ pass.
   about one page rather than about the viewer, so the raster budget stays on inside the
   confinement and `Query::Frame` goes on answering for the pages that must cross as pixels. What
   the cancel then covers on that arm is the interpretation, the drawing having been the host's all
-  along; `doc/todo/15` holds what a host taking marks owes. **A
+  along — **and that drawing is stoppable too, by a different mechanism with a different name**
+  (ADR 0650): `pdf_render::Interrupt` is *raised* and honoured between commands, where a
+  `Canceller` *ends a process*, and it works there because on the host's side the loop is this
+  tree's own rather than the document's. What is left is a *policy* for raising one, and there is
+  no host on this boundary yet to hold it; `doc/todo/15` has that. **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
   own last line to the host rather than a bare signal number. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626, 0633, 0640; `doc/todo/34`, `doc/todo/15`.
+  0235, 0241, 0597, 0607, 0626, 0633, 0640, 0650; `doc/todo/34`, `doc/todo/15`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three

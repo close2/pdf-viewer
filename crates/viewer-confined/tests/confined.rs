@@ -19,9 +19,10 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use pdf_render::Rasterizer as _;
+use pdf_render::{Interrupt, Rasterizer as _};
 use render_cpu::CpuRasterizer;
 use viewer_confined::{Canceller, Confined, ConfinedError, Reply};
 use viewer_core::{Answer, Command, DocumentId, Event, PageTarget, Query, Rendered, Viewer, Zoom};
@@ -1179,6 +1180,134 @@ fn a_page_whose_marks_cross_is_shipped_without_being_drawn() {
     assert!(
         took < UNDRAWN,
         "the worker took {took:?}, which is long enough to have drawn the page it did not send"
+    );
+}
+
+/// How long the **host's** draw has to still be going before the interrupt is raised.
+///
+/// One-sided, exactly as [`UNFINISHED`] is one level up: what it establishes is that there was a
+/// draw to interrupt. Two seconds against the 27.6 s that draw takes in release, so a machine
+/// under load moves it in the safe direction.
+const HOST_UNFINISHED: Duration = Duration::from_secs(2);
+
+/// How long the drawing thread may take to come back once the interrupt is raised.
+///
+/// Generous for [`AFTER_CANCEL`]'s reason and one more of its own: the flag is read *between*
+/// commands, so the wait includes finishing the page-covering fill already in progress. What is
+/// being asserted is bounded against unbounded, and a tight bound here would be a test of the
+/// scheduler. Measured at 1.3–2.1 ms over three runs in release (ADR 0650 section 4).
+const AFTER_INTERRUPT: Duration = Duration::from_secs(30);
+
+/// **The other half of the cancel, and the half no kill reaches: the host interrupts its own
+/// draw.**
+///
+/// ADR 0650. Since ADR 0633 a page usually crosses this boundary as *marks*, and since ADR 0640
+/// the worker does not draw them — so on that arm the expensive thing happens in the **host**,
+/// outside the confinement, where `Canceller::cancel` has nothing to end. This is the same
+/// document as the cancel test one level shallower, which is what puts it on that arm.
+///
+/// Four claims, and the last is what makes an interrupt a different object from a cancel. The
+/// page crosses as **marks** — checked, never assumed, for the reason the test above states. The
+/// host's draw **had not finished** after [`HOST_UNFINISHED`], so there was something to
+/// interrupt. The drawing thread **came back**, refused by name rather than with a raster. And
+/// the confined worker is **untouched**: it was never told, the document is still open, and a
+/// question still answers — where a cancel would have taken the worker and the document with it.
+#[test]
+fn a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw() {
+    let levels = amplification::LEVELS.saturating_sub(1);
+    let bytes = amplification::document(levels, amplification::BRANCH);
+    assert!(
+        matches!(
+            crosses_as(bytes.clone(), WIDE),
+            viewer_confined::Crossing::List(_)
+        ),
+        "this test is about the drawing the host owns, so the page has to cross as marks"
+    );
+
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: WIDE.0,
+            height: WIDE.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds a frame for the page on the screen");
+    };
+    let [shown] = frames.as_slice() else {
+        panic!("a single-page arrangement crosses as one frame: {frames:?}")
+    };
+    let viewer_confined::Payload::List { list, target } = &shown.payload else {
+        panic!(
+            "{} fills are smaller as marks than as pixels: {shown:?}",
+            amplification::fills(levels)
+        )
+    };
+    let (list, target) = (Arc::clone(list), *target);
+
+    let interrupt = Interrupt::new();
+    let held = interrupt.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let drawing = std::thread::spawn(move || {
+        let drawn = CpuRasterizer::new()
+            .interruptible(held)
+            .rasterize(&list, target);
+        // What happened rather than the value, because a raster does not need to cross a channel
+        // for this test to read it: a refusal by name, or the size of the pixels that arrived.
+        let _ = sender.send(match drawn {
+            Err(refused) => (true, refused.to_string()),
+            Ok(raster) => (false, format!("{} B of pixels", raster.data.len())),
+        });
+    });
+
+    assert!(
+        receiver.recv_timeout(HOST_UNFINISHED).is_err(),
+        "the host's draw finished in {HOST_UNFINISHED:?}, so this test interrupts nothing"
+    );
+
+    let at = Instant::now();
+    interrupt.raise();
+    let (refused, said) = receiver
+        .recv_timeout(AFTER_INTERRUPT)
+        .expect("the drawing thread comes back once the interrupt is raised");
+    let took = at.elapsed();
+    drawing.join().expect("the drawing thread ends");
+
+    assert!(
+        refused,
+        "the draw came back with {said} rather than a refusal"
+    );
+    assert!(
+        said.contains("interrupted"),
+        "and it says which refusal it is: {said}"
+    );
+    assert!(
+        took < AFTER_INTERRUPT,
+        "the interrupt took {took:?}, which is not taking the thread back"
+    );
+    println!(
+        "{} page-covering fills, interrupted {:.3} ms after the flag was raised",
+        amplification::fills(levels),
+        took.as_secs_f64() * 1e3
+    );
+
+    // The worker never heard about any of this, which is the whole difference from a cancel.
+    assert!(
+        !confined.is_cancelled(),
+        "an interrupt is about one draw in this process, not about the worker"
+    );
+    assert!(
+        matches!(confined.query(Query::PageCount), Ok(Reply::Count(1))),
+        "and the document the worker holds is still open"
     );
 }
 

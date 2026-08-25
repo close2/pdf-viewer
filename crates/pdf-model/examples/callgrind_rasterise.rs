@@ -28,6 +28,12 @@
 //! function evaluated per device pixel — and twenty of those under callgrind is an hour where
 //! one is a minute. Lower it for such a page and say so beside the number; the count is part
 //! of the invocation, so two arms are only comparable when they share it.
+//!
+//! A fourth argument, `--interruptible`, hands the rasteriser a `pdf_render::Interrupt` nobody
+//! raises. That is what a host drawing a confined worker's marks pays for the ability to abandon
+//! the draw (ADR 0650), and it is here rather than in a wall-clock example for this file's own
+//! reason: the difference being asked about is one relaxed atomic load per command, which is
+//! below the noise of a loaded machine and exact under callgrind.
 #[expect(
     clippy::expect_used,
     clippy::arithmetic_side_effects,
@@ -49,6 +55,7 @@ fn main() {
     let repeats = args
         .next()
         .map_or(20, |n| n.parse::<usize>().expect("a repeat count"));
+    let interruptible = args.next().is_some_and(|flag| flag == "--interruptible");
 
     let bytes = std::fs::read(&path).expect("the document is readable");
     let document = pdf_syntax::Document::open(bytes).expect("valid PDF");
@@ -65,12 +72,19 @@ fn main() {
     // run of this example panic while callgrind dutifully counted the panic.
     let target = pdf_render::TargetSpec::for_page(&list, 1.0, 1 << 30).expect("a valid target");
 
+    // Made once, outside the loop, and never raised: what is being counted is the *checking*,
+    // which is what a draw that is never abandoned pays.
+    let interrupt = pdf_render::Interrupt::new();
     // Summing a byte of every raster keeps the optimiser from discarding the work, and is
     // cheap enough beside rasterisation not to distort the count.
     let mut ink = 0u64;
     for _ in 0..repeats {
+        let mut rasteriser = render_cpu::CpuRasterizer::new();
+        if interruptible {
+            rasteriser = rasteriser.interruptible(interrupt.clone());
+        }
         let raster = <render_cpu::CpuRasterizer as pdf_render::Rasterizer>::rasterize(
-            &mut render_cpu::CpuRasterizer::new(),
+            &mut rasteriser,
             &list,
             target,
         )

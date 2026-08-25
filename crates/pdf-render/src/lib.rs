@@ -41,7 +41,8 @@ pub mod strips;
 pub mod sub_pixel;
 
 pub use backend::{
-    BackendError, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer, TargetSpec,
+    BackendError, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer,
+    TargetSpec,
 };
 pub use blending::{BlendingSpace, resolve as resolve_blending};
 pub use collapsed::{CollapsedFill, split_collapsed_fill};
