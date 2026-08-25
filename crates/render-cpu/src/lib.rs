@@ -2971,6 +2971,11 @@ struct Shape<'a> {
     /// because the band is not known until every clip in the chain has been measured.
     transform: Transform,
     fill_rule: tiny_skia::FillRule,
+    /// This shape's transform composed with the band's, filled in once the band is known.
+    at: Transform,
+    /// What [`rectangular_mark`] says this shape is under `at`, computed once: the answer decides
+    /// both whether the shape states anything at all and how it is scan-converted if it does.
+    mark: scan::Exact,
 }
 
 /// A built clip mask, the band it covers, and the device rectangle it can mark within.
@@ -3545,6 +3550,20 @@ impl MaskCache {
     ///   therefore *nearly* the prefix's contribution for the child's band, and this backend is
     ///   the oracle. Taking the item means either building intermediates in the child's band or
     ///   proving the difference away.
+    ///
+    /// **A fourth thing was measured in the seven-hundred-and-forty-seventh, and it is why the
+    /// `retain_mut` below is here rather than any of the three above** (ADR 0656). The exactness
+    /// question has a *price*, and it is nearly the whole item: restricted to the prefixes a
+    /// parent shares a band with — the ones reusable byte for byte, which is half the corpus's
+    /// worst page's nodes — the proposal saves **5.6%** of that page's scanned mask rows where
+    /// taking the departure saves **51.1%** (`pdf-model/examples/clip_chain_census`, which prints
+    /// both arms). So there was never a cheap exact version of *reuse*.
+    ///
+    /// What the same census found instead is that reuse was the wrong question on that page:
+    /// **three chain steps in four state a rectangle that admits every pixel of the band they are
+    /// converted into**, and a step that admits everything can be *declined* rather than reused.
+    /// That costs no departure of any kind — nothing is shifted between bands, so ADR 0219's
+    /// arithmetic never enters — and it is what [`scan::admits_every_pixel`] answers.
     fn build(
         &self,
         list: &DisplayList,
@@ -3589,6 +3608,8 @@ impl MaskCache {
                 source: &clip.path,
                 transform: clip.transform,
                 fill_rule: convert::fill_rule(clip.fill_rule),
+                at: Transform::IDENTITY,
+                mark: scan::Exact::default(),
             });
         }
 
@@ -3597,9 +3618,9 @@ impl MaskCache {
         // caller expresses by having no clip at all, and silently drawing unclipped here
         // would be exactly the plausible-looking wrong page this backend refuses to
         // produce.
-        let Some((root, nested)) = shapes.split_first() else {
+        if shapes.is_empty() {
             return Err(CpuRasterError::UnknownClip(id));
-        };
+        }
         let band = match bounds {
             Some(bounds) => match Band::covering(bounds, self.surface) {
                 Some(band) => band,
@@ -3629,6 +3650,22 @@ impl MaskCache {
             .filter(|admits| !self.covers_the_surface(*admits));
 
         let to_band = self.surface.to_device(band);
+        let extent = (self.surface.width(), band.height);
+        // §10.7.4 says a clipping region "consists of the set of pixels that would be included by
+        // a fill operation", so a region is measured by the rule a mark is: the same
+        // [`rectangular_mark`], for the same reason `clip_intersection.rs` exists — a mark painted
+        // at its exact area under a region measured to a quarter breaks `S ∩ C = S`.
+        //
+        // **And a step whose fill would include every pixel of this band states nothing**, so it
+        // is dropped here rather than scan-converted and then composed with `min`. That is the one
+        // saving in this function that costs no departure at all — see [`scan::admits_every_pixel`]
+        // — and on the corpus's worst page it is three chain steps in four
+        // (`pdf-model/examples/clip_chain_census`). ADR 0656.
+        shapes.retain_mut(|shape| {
+            shape.at = to_band.of(shape.transform);
+            shape.mark = rectangular_mark(shape.source, shape.at);
+            !scan::admits_every_pixel(&shape.mark, extent)
+        });
         let mut mask = tiny_skia::Mask::new(self.surface.width(), band.height).ok_or(
             CpuRasterError::Allocation {
                 width: self.surface.width(),
@@ -3636,17 +3673,25 @@ impl MaskCache {
             },
         )?;
         // A fresh mask blocks everything, so filling the root path is what opens it.
-        // §10.7.4 says a clipping region "consists of the set of pixels that would be included by
-        // a fill operation", so a region is measured by the rule a mark is: the same
-        // [`rectangular_mark`], for the same reason `clip_intersection.rs` exists — a mark painted
-        // at its exact area under a region measured to a quarter breaks `S ∩ C = S`.
-        let exact = |shape: &Shape<'_>| rectangular_mark(shape.source, to_band.of(shape.transform));
+        let Some((root, nested)) = shapes.split_first() else {
+            // Every step admitted the whole band, so the chain's region is the whole band: what
+            // the fills above would have written, pixel for pixel, is the level a whole pixel's
+            // coverage takes.
+            mask.data_mut().fill(u8::MAX);
+            return Ok(Some(Built {
+                mask,
+                band,
+                admits,
+                outside: 0,
+                value: None,
+            }));
+        };
         scan::mask_fill(
             &mut mask,
             &root.path,
             root.fill_rule,
             self.anti_alias,
-            (convert::transform(to_band.of(root.transform)), &exact(root)),
+            (convert::transform(root.at), &root.mark),
         );
         if !nested.is_empty() {
             // One scratch mask for the whole chain, allocated from the same width and height as
@@ -3666,10 +3711,7 @@ impl MaskCache {
                     &shape.path,
                     shape.fill_rule,
                     self.anti_alias,
-                    (
-                        convert::transform(to_band.of(shape.transform)),
-                        &exact(shape),
-                    ),
+                    (convert::transform(shape.at), &shape.mark),
                 );
             }
         }
@@ -3805,6 +3847,61 @@ mod tests {
         }
         let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
         (list, ids, target)
+    }
+
+    /// A clip chain whose steps admit the whole band builds the mask the remaining steps alone
+    /// build — bytes, band and rectangle alike.
+    ///
+    /// The saving `MaskCache::build`'s `retain_mut` takes is byte-identical by arithmetic, so no
+    /// page can discriminate it and this is what stands in for one: a bar wrapped in two
+    /// page-covering rectangles against the same bar wrapped in nothing. What it protects against
+    /// is not the arithmetic — `scan`'s own tests pin that — but a future condition that drops a
+    /// step which does *not* admit everything, which would erase pixels the clip rejects with
+    /// every gate in this tree still green on the pages that have no such chain. ADR 0656.
+    #[test]
+    fn a_chain_step_admitting_the_whole_band_changes_no_byte_of_the_mask() {
+        let mut list = DisplayList::new(Size::new(200.0, 200.0));
+        let rectangle = |ltrb: (f32, f32, f32, f32)| {
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(Point::new(ltrb.0, ltrb.1)));
+            path.push(PathCommand::LineTo(Point::new(ltrb.2, ltrb.1)));
+            path.push(PathCommand::LineTo(Point::new(ltrb.2, ltrb.3)));
+            path.push(PathCommand::LineTo(Point::new(ltrb.0, ltrb.3)));
+            path.push(PathCommand::Close);
+            path
+        };
+        let mut add = |path: Path, parent: Option<ClipId>| {
+            list.add_clip(Clip {
+                path,
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent,
+            })
+            .expect("under the clip limit")
+        };
+        // The bar's edge is fractional on purpose: a whole-pixel one would be 0 or 255 everywhere
+        // and could not tell a mask that was composed from one that was not.
+        let bar = rectangle((0.0, 40.25, 200.0, 44.75));
+        let alone = add(bar.clone(), None);
+        let outer = add(rectangle((-5.0, -5.0, 205.0, 205.0)), None);
+        let inner = add(rectangle((-1.0, -1.0, 201.0, 201.0)), Some(outer));
+        let wrapped = add(bar, Some(inner));
+
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
+        let mut cache = MaskCache::new(Surface::whole(target), true, MASK_BUDGET);
+        let read = |cache: &mut MaskCache, id| {
+            cache
+                .get(&list, id)
+                .expect("a rectangular chain builds")
+                .map(|built| (built.band, built.admits, built.mask.data().to_vec()))
+                .expect("the chain admits rows")
+        };
+        let (band, admits, bytes) = read(&mut cache, alone);
+        assert!(
+            bytes.iter().any(|&level| level > 0 && level < u8::MAX),
+            "the bar's edge must be partly covered for this to discriminate"
+        );
+        assert_eq!(read(&mut cache, wrapped), (band, admits, bytes));
     }
 
     /// The bound is the whole point of the cache, so it is checked directly rather than
