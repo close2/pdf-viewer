@@ -95,6 +95,14 @@ struct Counts {
     /// signature values" in one and "four corpus documents" in the other, which are not even the
     /// same denominator. This is the command that settles which is which.
     indefinite_lengths: usize,
+    /// Table 255's `/V`, as the file states it — the format version, keyed by its own integer.
+    ///
+    /// The entry's 1 means "the Reference dictionary shall be considered critical to the
+    /// validation of the signature" (§12.8.1), which is a sentence addressed to a validator and
+    /// therefore the size of what a program that evaluates no transform method is not doing.
+    /// Counted because the row that names it states a population, and a population belongs to
+    /// the command that produces it.
+    format_versions: BTreeMap<String, usize>,
     /// §12.8.2.2's certification signatures: a `/Perms /DocMDP`, keyed by the `/P` it states.
     ///
     /// §12.8.2.2's row calls one out by name — "[t]he corpus's one certification signature states
@@ -124,6 +132,7 @@ impl Counts {
         self.witnesses.append(&mut other.witnesses);
         for (map, theirs) in [
             (&mut self.certifications, other.certifications),
+            (&mut self.format_versions, other.format_versions),
             (&mut self.unreadable, other.unreadable),
             (&mut self.sub_filters, other.sub_filters),
             (&mut self.signature_algorithms, other.signature_algorithms),
@@ -292,6 +301,17 @@ fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
             .unwrap_or_else(|| "(none)".into());
         let slot = counts.sub_filters.entry(sub_filter).or_default();
         *slot = slot.saturating_add(1);
+        let version = signature.format_version.map_or_else(
+            || "(absent, so Table 255's default 0)".to_owned(),
+            |value| value.to_string(),
+        );
+        let slot = counts.format_versions.entry(version).or_default();
+        *slot = slot.saturating_add(1);
+        if signature.reference_is_critical() {
+            counts.witnesses.push(format!(
+                "{path}: Table 255 /V 1, reference dictionary critical"
+            ));
+        }
         if signature.timestamp {
             counts.timestamps = counts.timestamps.saturating_add(1);
             counts
@@ -460,6 +480,10 @@ fn main() {
     report(
         "§12.8.2.2 certification signatures, by Table 257 /P",
         &counts.certifications,
+    );
+    report(
+        "Table 255 /V, the signature dictionary format version (1 = reference dictionary critical)",
+        &counts.format_versions,
     );
     report("what stopped the rest", &counts.unreadable);
     report("/SubFilter", &counts.sub_filters);

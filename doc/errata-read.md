@@ -1234,3 +1234,69 @@ two occurrences, in ADR 0484's comparison table. A search for `#124` finds them.
 number in the collection that a plain grep cannot answer honestly is exactly the one that went
 unrecorded on a page a round had opened. The rule that comes out of it is `doc/todo/01`'s:
 **ask whether an issue is recorded with the `Issue #` prefix, not with the number alone.**
+
+## The five §12.8.1 was holding, and the entry that says which part of a validation matters — the seven-hundred-and-thirty-ninth
+
+The successor rule's second use. `doc/todo/01`'s recipe ranks a live ledger row by the errata
+annotations on it whose issue number this tree names nowhere, and at this base §12.8.1 is the head:
+nine annotations carrying **five** issue numbers, none recorded here. They are read whole below, and
+one of them reaches across two clause headings. ADR 0637.
+
+Every placement is the caret's or strikeout's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on a page 841.92 points tall; the rectangles are quoted with
+`y` measured from the top, which is the orientation `mutool run`'s `getBounds` prints and the one
+`-bbox` uses.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §12.8.1 Table 256 `/DigestMethod` | 587 | #117 | **quotes** | `(Required)` struck at `[241.76 602.05 285.17 613.25]`, over the word `-bbox` puts at `(241.0, 601.0)–(286.0, 612.6)` on the `DigestMethod` row of Table 256, and a caret at `[278.17 606.60 286.23 613.18]` writing **Optional; deprecated in PDF 2.0** in its place. §12.8.1's ledger row quoted the retired `(Required)` as the opening of that entry. Corrected. |
+| §12.8.1 Table 255 `/Filter` | 584 | #121 | **cites** | `; inheritable` struck at `[251.65 199.75 302.22 209.71]`, over `(Required;` `inheritable)` on Table 255's `/Filter` row, leaving `(Required)`. **The erratum vindicates the code**: `signature::read` asks `Document::get_key`, which resolves an indirect reference and inherits nothing, so `/Filter` has never been looked for up a field's `/Parent` chain — and until this erratum the table said it should be. Inheritance in this standard is §7.7.3.4's four page attributes and §12.7.4.1's field entries; a signature dictionary is neither. |
+| §12.8.1 Table 255 `/SubFilter`, §7.6.5.2 Table 20 `/SubFilter` | 584, 102 | #219 | untouched | ×7, and this is the issue that had to be reassembled. Four annotations under §12.8.1 and three under §7.6.5.2, all of them PDF version markers on `/SubFilter` values. Table 255 loses its blanket `(PDF 1.6)` (struck at `[210.41 379.18 252.29 389.14]`) and gains `(PDF 1.3)` after `adbe.x509.rsa_sha1`, `(PDF 1.3)` after `adbe.pkcs7.detached` and `(PDF 1.4)` after `adbe.pkcs7.sha1`; Table 20 gains `(PDF 1.3)`, `(PDF 1.4)` and `(PDF 1.5)` after `adbe.pkcs7.s3`, `s4` and `s5`. Each caret's centre falls within a point or two of its value's last glyph. Nothing here compares a value against a version: `Signature::must_cover_whole_file` matches the two ETSI names and `crypt.rs` refuses a public-key handler before Table 20 is read. |
+| §12.8.5 (filed under §12.8.1) | 583 | #55 | cites | A lone caret at `[350.78 726.03 359.68 733.28]`, whose line `-bbox` puts at `y 720–731` — the **document timestamp** bullet's last line, `value of a signature field and shall contain a ByteRange entry.` — inserting " These shall follow the certification signature if one is present." The identical sentence already stands in the *approval signature* bullet 80 points above, at `y 619–644`, so the erratum extends an ordering rule to a third kind of signature rather than repeating one. It is a rule about how a file is put together and this program builds no file; what a validator could do with it is report a timestamp that precedes a certification signature, and §12.8.5's row records neither a `/DocTimeStamp` in the corpus nor a reason to rank one. |
+| §12.7.9 (filed under §12.8.1) | 582 | #54 | untouched | A one-character strike at `[430.63 235.90 436.75 246.94]`, over the `0` in `attrib0ute` — §12.7.9's last sentence, "Non-interactive forms are defined by the PrintField attrib0ute". `doc/md/` carries the typo and nothing in this tree quotes the sentence. Filed under §12.8.1 because page 582's outline entry is §12.8.1, which is the page-straddle this file has recorded since its second table. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**§12.8.1's row said "Table 255 entire" and named thirteen of the table's eighteen entries.** #121
+is on the `/Filter` row, so the table had to be read against the row, and five entries turned out to
+have no reader at all: `/R`, `/V`, `/Prop_Build`, `/Prop_AuthTime` and `/Prop_AuthType`. Four of the
+five say nothing to a reader and are declined in the row with the entries' own words. The fifth was
+work:
+
+> The value is 1 if the Reference dictionary shall be considered critical to the validation of the
+> signature.
+
+That is Table 255's `/V`, and it is the one sentence of the entry addressed to whoever *validates*.
+This program evaluates no transform method — §12.8.2.2.2's comparison of two revisions is what that
+would take — so a file writing `/V 1` is naming the part of its own validation that this program
+skips, and nothing here read the entry. `Signature::format_version` reads it,
+`Signature::reference_is_critical` applies the entry's own condition, and `viewer_core::notes` says
+it beside the paragraph that names the questions which went unanswered. The population is the
+crawl's and `examples/signature_algorithm_census` is the command: no curated document states the
+entry at all, and the two `CC-MAIN-2021-31` files that write `/V 1` each carry a `DocMDP` and a
+`FieldMDP` reference dictionary, which is exactly the material the sentence is about.
+
+**#117's strike is one word, which is why no gate could see it.** `spec-errata check` filters
+strikeouts below four words, so a quotation resting on a retired `(Required)` reads as a live one —
+the third blindness this file lists, met in the one population that has a gate. The correction is
+more than the words: an entry that was *required* and unread is a debt, and an entry PDF 2.0
+deprecates and makes optional is one a reader meets on older files alone. The strike also leaves
+the NOTE beneath it — "The DigestMethod key was also corrected to be required as no default value
+is defined" — reporting a correction the erratum has since undone. A NOTE is informative and a
+table cell is not, so the cell decides; this is the second place in this file where the collection
+does not agree with the document it amends, after Table 161's letters.
+
+### And a correction to the rule's own second step
+
+The recipe's grep asks for the `Issue #` prefix, for the `&#124;` reason the round before recorded.
+**It under-counts what this tree names, and the shortfall is in this file.** Every row of the tables
+above writes its issue number bare, in a column — `#680`, `#158`, `#685` — so the prefixed grep
+answers *nowhere* for issues that carry a verdict here. Measured at this base: the prefixed grep
+finds 113 of the 351 issues that carry an annotation, and this file alone records 159.
+
+**A bare-number grep is not the repair**, and the reason is a second collision family the round
+before did not have: `doc/HAYRO_ISSUES.md` and `doc/HAYRO_ISSUES_FOR_QUORRA.md` are lists of
+*another project's* GitHub issues, and they name `#54`, `#55`, `#680` and `#681` — four of the five
+read above. A grep for the number alone answers "recorded" on every one of them, from a document
+about a different tracker. So the population is bounded on both sides and `doc/todo/01` now says how
+to take it: the prefixed grep, plus this file's own numbers, minus the numeric character references.

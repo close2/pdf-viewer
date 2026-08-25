@@ -4047,35 +4047,78 @@ tree named then, against the same `emit` output, since the PDF does not change:
 
 At this base the whole population is **241 issue numbers named nowhere** of the **356** carrying an
 annotation, and **63** of those change the text and land on a `partial`, `reported`, `silent` or
-`unreviewed` row, over **41** rows.
+`unreviewed` row, over **41** rows. **Both figures are over-estimates and the step-2 note below says
+by how much**: they were taken with the prefixed grep alone, which cannot see the bare numbers
+`doc/errata-read.md`'s own tables record a verdict under.
 
 ### The recipe, as commands
 
 ```sh
 # 1. the annotations, keyed to page and clause. Not committable: ADR 0187.
 cargo run --release -p spec-errata -- emit doc/ISO_32000-2_sponsored_EC3.pdf > /tmp/emit.md
-# 2. every issue number this tree names, with the prefix — see the trap below
+# 2. every issue number this tree names. Two greps, because neither is right alone — see below.
 grep -rhoIE 'Issues? #[0-9]+(,? (and )?#[0-9]+)*' crates doc tools fuzz \
   --exclude-dir=md --exclude-dir=pdf.js --exclude-dir=corpora \
   --exclude-dir=arlington-pdf-model --exclude-dir=safedocs | grep -oE '#[0-9]+' | sort -u
+sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the record's own column
 # 3. the ranking: for each `## <clause>` heading in the emit, attribute its annotations to the
 #    nearest ledger row at or above that clause number, keep the rows whose status is live, drop
 #    the issues step 2 found and the ones carrying neither a StrikeOut nor a Caret, and rank by
 #    annotations. Then read one issue *whole*, across every heading it appears under.
 ```
 
-**Step 2's prefix is not decoration, and this is the trap.** A numeric character reference is a `#`
-and digits: `&#124;` is how a Markdown table cell escapes a pipe, and it is the only one anywhere
-under `crates/`, `doc/` or `tools/` — two of them, in ADR 0484. A search for the bare number `124`
-finds them and answers *recorded*. **Issue #124 is one of the two this rule's first use found
-unread**, on a page the seven-hundred-and-tenth had opened. One collision exists in the whole tree
-and it is on the issue that went unrecorded.
+**Step 2 is two greps and neither is right alone, which the second use found by running it.** The
+prefixed search is not decoration and it is not sufficient:
+
+- **Why the prefix.** A numeric character reference is a `#` and digits: `&#124;` is how a Markdown
+  table cell escapes a pipe, and there are a handful under `crates/`, `doc/` and `tools/` — ADR 0484
+  first, and now the documents describing this trap. A search for the bare number `124` finds them
+  and answers *recorded*. **Issue #124 is one of the two this rule's first use found unread**, on a
+  page the seven-hundred-and-tenth had opened.
+- **Why one grep is not enough.** `doc/errata-read.md` — the tree's own record of every erratum it
+  has read — writes the issue number **bare, in a table column**, so the prefixed grep answers
+  *nowhere* for issues that carry a verdict there. The shortfall is large: at the seven-hundred-and-
+  thirty-ninth's base the prefixed grep found 113 of the 351 issues carrying an annotation while that
+  one file records 159. So the population 734 measured is an over-estimate, and the head it named
+  moves under the repair — §12.7.5.5 loses two of its four and §12.8.1 becomes the head.
+- **Why a bare-number grep over the tree is not the repair either.** `doc/HAYRO_ISSUES.md` and
+  `doc/HAYRO_ISSUES_FOR_QUORRA.md` list *another project's* GitHub issues and name `#54`, `#55`,
+  `#680` and `#681` among others, all of which are live errata numbers. A number-only search answers
+  "recorded" from a document about a different tracker. Two greps, unioned, and the numeric character
+  references removed from the second.
 
 **Not built as a sweep, and the reason is the tool's rather than the rule's**: `emit`'s output is
 derived from documents this project may not redistribute, so a program that consumed it would take
 the same argument `--bin quoted` and `--bin unpriced` take. That is the shape it would have if a
 round decides it is worth building; what it would buy over the recipe is the attribution in step 3,
 which is twenty lines of arithmetic and the only part a person can get wrong.
+
+## The rule's second use, in the seven-hundred-and-thirty-ninth, and it corrected its own step 2
+
+Run as written, the recipe put §12.7.5.5 at the head with §12.8.1 one behind it. Run with step 2
+repaired — `doc/errata-read.md`'s own bare column unioned in — **§12.8.1 is the head and had never
+moved off it**, which is what 734's reconstruction across nine bases predicted. Both of §12.7.5.5's
+top two issues turned out to be recorded already, in that file, in a table row.
+
+**The head paid.** §12.8.1 carries nine annotations under five issue numbers, and reading them
+together took the round to Table 255 — where the row's own claim, *Table 255 entire*, was standing
+over five entries with no reader. Four of the five say nothing to a reader and are declined in the
+row with the entries' own words; the fifth, `/V`, states the one thing in that table addressed to
+whoever validates: "[t]he value is 1 if the Reference dictionary shall be considered critical to the
+validation of the signature". A file writing it is naming the part of its own validation that this
+program does not perform, and nothing here was reading the entry. ADR 0637; `doc/errata-read.md` has
+the five errata with their rectangles.
+
+**Two things about the rule itself, both from running it:**
+
+- **The step-2 shortfall above is the finding to carry forward**, because it is not a detail of one
+  round: an issue *recorded* is recorded in `doc/errata-read.md`, and that is exactly the file the
+  prefixed grep is blind to. A rule whose population is measured by a search that cannot see its own
+  record will keep re-offering read ground, which is the failure it was built to replace.
+- **The two blindnesses this round met are the ones already on the list**, and meeting them is
+  evidence they are the right list: #117's strike is one word, under `check`'s four-word floor, on a
+  quotation in `ledger.toml` — the population that has a gate; and #219 had to be reassembled across
+  two clause headings, seven annotations on two tables in two clauses.
 
 ## What is still owed, named
 
