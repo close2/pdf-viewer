@@ -116,6 +116,20 @@ paragraph up — *what a click on a button field means* is one clause and `GtkCh
 against `QAbstractButton::toggled` against a point on a page is what a toolkit is. It deleted the
 third copy on its way in, and the three copies had already stopped agreeing about Table 227 (ADR
 0630).
+**And the seven-hundred-and-fortieth broke the run — one *outcome*, and it is the first change to
+`Rendered` since this vocabulary was frozen**: `Rendered::Listed` means *the host took this
+request's own list*, which is the answer to the question the last section of this file had been
+holding. What made it a change here rather than a message is that `Rendered::Presented` is a
+statement about the **viewer** — it holds for every page at once — and the confined worker is the
+first host that keeps *some* pages' marks and hands *others* back as pixels. So the page holds its
+place, the viewer holds no pixels of it, and `holds_rasters` does not move: `MAX_PIXELS` goes on
+bounding every request and `Query::Frame` goes on answering for the page's neighbours, which is
+exactly what reusing `Presented` would have cost. The three mechanisms this file prefers were all
+checked first and none fits — a field on `RenderRequest` cannot say what the host did *after* the
+request, a variant changing shape would mean two different facts carried at one width, and a
+`Query` is no use for an answer that arrives unasked. One consumer failed to compile —
+`viewer-ui`, the only one that matches `Rendered` exhaustively — `PDFV_EVENT_KIND_COUNT` stayed
+where it is, because an outcome is not an event, and the C ABI gained no entry point (ADR 0640).
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -288,8 +302,12 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   pointer equality of the list in `zooming_rasterises_again_without_interpreting_again`.
 - **A stale token is dropped**, so a page turned mid-render cannot be overwritten by the frame
   the previous page produced.
-- `Rendered::{Raster, Presented, Failed}` is where tier 1 and tier 2 differ and the only place
-  they do: a host drawing onto its own surface has no raster to hand back and has not failed.
+- `Rendered::{Raster, Presented, Listed, Failed}` is where tier 1 and tier 2 differ and the only
+  place they do: a host drawing onto its own surface has no raster to hand back and has not failed.
+  **`Listed` is the fourth and it is one page's**, since the seven-hundred-and-fortieth: two of the
+  four say the viewer holds no pixels, and they are not the same statement — `Presented` is
+  remembered for the life of the viewer and takes `MAX_PIXELS` with it, `Listed` is forgotten with
+  the page and leaves the budget alone (ADR 0640).
 
 #### What is still owed
 
@@ -620,15 +638,25 @@ this makes the choice a measurement rather than a tier.
 vocabulary nothing at all — the fourth time that has been the whole answer. The payload choice is
 `viewer_confined::Framed::payload`, on the *transport's* side of the boundary and not on this one,
 because which of two encodings a page crosses in is a fact about a pipe and not about what a host
-may ask. What the round found instead is the one thing this vocabulary now owes it: **`Rendered` is
-per viewer where it needs to be per page.** A confined worker that answered `Rendered::Presented`
+may ask. What the round found instead is the one thing this vocabulary owed it: **`Rendered` was
+per viewer where it needed to be per page.** A confined worker that answered `Rendered::Presented`
 for the page it ships as marks would set `holds_rasters` false for every page, so `Query::Frame`
 would go silent about the pages that must still cross as pixels and `MAX_PIXELS` would stop
 bounding what a *confined* process is asked to draw — and inside a confinement an unbounded raster
-is an abort rather than a refusal. So the worker draws a page whose pixels it does not send, and
-what would remove that is an outcome meaning *the host took the request's own list*. It is the
-first thing in ten sessions of building on this boundary that has needed a change here rather than
-a message; `doc/todo/15` holds it.
+is an abort rather than a refusal. So the worker drew a page whose pixels it did not send.
+
+**`Rendered::Listed` is what removed it, in the seven-hundred-and-fortieth** (ADR 0640), and it is
+the change this file's opening section records: the host took the request's own list, said about a
+page. The worker no longer rasterises anything it does not send — a sparse page's open falls from
+8.7 ms to 2.8 ms and a hostile one's from 26.5 s to 18 ms, with the two pixel-arm documents flat
+beside them as the control. The merge stayed on the transport's side for ADR 0633's own reason:
+`viewer_confined::protocol::Marks` holds each page's origin, from `Query::PageGeometry`, and
+`encode_answer` joins the pixels the viewer holds to the marks the store holds. `Answer::Frame`
+did **not** change shape, and that was the alternative worth refusing — it would have shipped an
+unreachable arm to four hosts that never answer `Listed`, and a C frame with a size and no bytes.
+**What it costs is written down rather than discovered**: a cancel stops the work the *worker*
+does, so on the marks arm it covers the interpretation and not the drawing — which was already the
+host's, and which the worker had merely been duplicating and discarding.
 
 What the prediction did not say, and what building it showed: **`viewer-core` needed no change at
 all**. The five rules below are a description of a confined process — no filesystem, no clock, no

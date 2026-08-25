@@ -120,8 +120,13 @@ fn main() {
             fragment: None,
         })
         .expect("an open crosses");
+    // **"Drew" is only half true since ADR 0640**, and the wording says so rather than flattering
+    // the number: the confined worker rasterises a page only where the page's *pixels* are the
+    // payload that crosses. A page whose marks are smaller is interpreted, measured and shipped
+    // undrawn — so on that arm this line is an interpretation and a pipe, and the drawing appears
+    // below, once, on the host's side where it always had to happen anyway.
     println!(
-        "opened, interpreted and drew page 1 in {:.3} ms",
+        "opened, interpreted and readied page 1 in {:.3} ms",
         at.elapsed().as_secs_f64() * 1e3
     );
     for event in &events {
@@ -161,6 +166,9 @@ fn main() {
     // raster of the same target would have been. The host draws the list itself, which is what
     // the second timing below is — a cost this side of the boundary did not use to pay and which
     // belongs in the same run as the saving it buys.
+    //
+    // **Since ADR 0640 that draw is the only one there is.** The worker used to do it too and
+    // throw the pixels away; the line above is what fell when it stopped.
     let raster = match &shown.payload {
         Payload::Raster(raster) => {
             println!(

@@ -993,6 +993,19 @@ fn a_document_that_will_not_finish_is_cancelled_and_the_host_gets_its_thread_bac
         "the point is the amplification: {} bytes",
         bytes.len()
     );
+    // **The premise, checked rather than assumed.** What this cancels is a *rasterisation*, and
+    // since ADR 0640 the confined worker rasterises a page only where the page's pixels are the
+    // payload that crosses: a page whose marks are smaller is shipped undrawn, so its drawing is
+    // never work this cancel could be about. A level count that slipped under the raster's size
+    // would leave this test racing a pipe instead — which is what it did the day the round that
+    // stopped the wasted render ran it.
+    assert!(
+        matches!(
+            crosses_as(bytes.clone(), VIEWPORT),
+            viewer_confined::Crossing::Raster(_)
+        ),
+        "the hostile page has to be one the worker draws, or there is nothing to cancel"
+    );
 
     let canceller = Canceller::new();
     let mut confined = Confined::start_with(&canceller).expect("a confined viewer starts");
@@ -1055,6 +1068,117 @@ fn a_document_that_will_not_finish_is_cancelled_and_the_host_gets_its_thread_bac
     assert!(
         took < AFTER_CANCEL,
         "the cancel took {took:?}, which is not taking control back"
+    );
+}
+
+/// Which arm of ADR 0607's payload choice a document's first page takes at a given viewport.
+///
+/// The same two numbers the confined worker compares, computed in this process: the display list
+/// is the interpreter's, and the raster's byte count is the target's pixel count times four. It
+/// is what lets a test *check* which arm it is about rather than assume one — and since ADR 0640
+/// the two arms differ in more than a payload, because the worker draws the page on only one of
+/// them.
+fn crosses_as(bytes: Vec<u8>, viewport: (u32, u32)) -> viewer_confined::Crossing {
+    let mut viewer = Viewer::new(viewport.0, viewport.1, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = events
+        .iter()
+        .find_map(|event| match event {
+            Event::NeedsRender(request) => Some(request.clone()),
+            _ => None,
+        })
+        .expect("opening a document asks for its first page");
+    let raster = u64::from(request.target.width)
+        .saturating_mul(u64::from(request.target.height))
+        .saturating_mul(4);
+    viewer_confined::wire::crossing(&request.list, raster)
+}
+
+/// The window the test below uses, where the amplified page's marks are the smaller payload.
+///
+/// Larger than [`VIEWPORT`] on purpose: the raster it is compared against grows with the window,
+/// so a wider window is what keeps a hundredfold-amplified page on the *marks* arm while making
+/// the rasterisation this test says does not happen more expensive, not less.
+const WIDE: (u32, u32) = (900, 1200);
+
+/// What the open below is allowed to take, against a page that costs tens of seconds to draw.
+///
+/// A clock, and honestly so: what is being asserted is a *render that does not happen*, and the
+/// difference between happening and not is three orders of magnitude with nothing in between.
+/// Measured on this machine in release, one strip as the worker uses: the page draws in **26.5
+/// s** at [`WIDE`], and the open below is an interpretation and a pipe — tens of milliseconds.
+/// A debug worker, which is what this gate builds, is slower still on the side being excluded.
+const UNDRAWN: Duration = Duration::from_secs(3);
+
+/// **The render that does not happen: a page whose marks cross is never drawn by the worker.**
+///
+/// ADR 0640, and the whole of what it buys. The same generator the cancel test uses, one level
+/// shallower — ten thousand page-covering fills rather than a hundred thousand — which puts the
+/// marks under the raster and so on the arm the host draws for itself. Before the round that
+/// added `viewer_core::Rendered::Listed` the worker drew this page anyway and threw the pixels
+/// away, because the only outcome meaning *no pixels here* was a statement about the whole
+/// viewer and would have taken `MAX_PIXELS` off a confined process's raster.
+///
+/// Two assertions and they are separate claims. The page crosses as **marks**, which is
+/// structural — the pixels win the merge in `encode_answer`, so a worker that still drew this
+/// page would ship the raster it drew. And the open **returns in milliseconds**, which is the
+/// only evidence a test can offer that the drawing did not happen anyway.
+#[test]
+fn a_page_whose_marks_cross_is_shipped_without_being_drawn() {
+    let levels = amplification::LEVELS.saturating_sub(1);
+    let bytes = amplification::document(levels, amplification::BRANCH);
+    assert!(
+        matches!(
+            crosses_as(bytes.clone(), WIDE),
+            viewer_confined::Crossing::List(_)
+        ),
+        "this test is about the marks arm, so the page has to take it"
+    );
+
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: WIDE.0,
+            height: WIDE.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    let at = Instant::now();
+    confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: None,
+            fragment: None,
+        })
+        .expect("an open crosses");
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds a frame for the page on the screen");
+    };
+    let took = at.elapsed();
+    let [shown] = frames.as_slice() else {
+        panic!("a single-page arrangement crosses as one frame: {frames:?}")
+    };
+    assert!(
+        matches!(shown.payload, viewer_confined::Payload::List { .. }),
+        "{} fills are a smaller message than a window's pixels: {shown:?}",
+        amplification::fills(levels)
+    );
+    println!(
+        "{} page-covering fills opened, shipped and never drawn in {:.0} ms",
+        amplification::fills(levels),
+        took.as_secs_f64() * 1e3
+    );
+    assert!(
+        took < UNDRAWN,
+        "the worker took {took:?}, which is long enough to have drawn the page it did not send"
     );
 }
 
@@ -1648,6 +1772,10 @@ fn a_lists_price_beside_its_raster_is_printed() {
 /// arm — which is what makes them good comparisons and useless as a statement that ADR 0607's
 /// choice is switched on at all. This one says which arm a sparse page took, and prints the two
 /// byte counts the choice was made from.
+///
+/// **Since ADR 0640 it is also the structural guard on the render that does not happen.** The
+/// pixels win the merge in `encode_answer`, so a worker that drew this page anyway would be
+/// holding a raster of it and would ship that raster; the assertion below is what fails.
 #[test]
 fn a_sparse_page_crosses_the_confinement_as_marks_rather_than_as_pixels() {
     let (mut confined, _events) = opened();

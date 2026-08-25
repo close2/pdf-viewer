@@ -1,10 +1,12 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
-its codec built (ADR 0626) and wired into the frame path (ADR 0633).** The machinery exists and is verified
-against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; and a
-frame now carries either the pixels or the marks, chosen per page by comparing two byte counts the
-confined process can both compute. What is left of the tier change is one `viewer-core` outcome,
+its codec built (ADR 0626), wired into the frame path (ADR 0633) and paid for (ADR 0640).** The
+machinery exists and is verified
+against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; a
+frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
+confined process can both compute; and a page shipped as marks is **not drawn at all**, which is
+what the choice was for. The tier change is complete. What it left behind is one *host-side* debt,
 below.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
@@ -87,17 +89,25 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
   `Reply::Frame` carries a `Payload` per page and a host draws the marks with whatever backend it
   has. `MAGIC` moved once, `PDFVCF03` → `PDFVCF04`.
 
-  **What remains is a `viewer-core` outcome that is per page rather than per viewer**, and it is
-  the one thing standing between this boundary and the whole of ADR 0607's saving. The confined
-  worker still *draws* every page, including the ones it ships as marks, because
-  `Rendered::Presented` is a statement about the **viewer**: it sets `holds_rasters` false for all
-  of them, `Query::Frame` then answers `Answer::None` for the pages that must cross as pixels, and
-  `raster_budget()` becomes `u64::MAX` — so `MAX_PIXELS` stops bounding what a confined process is
-  asked to draw, and inside a confinement an unbounded raster is the abort ADR 0597 spent a round
-  turning back into a sentence. The shape of the fix is an outcome meaning *the host took the
-  request's own list*: it holds the page's place, keeps the budget, and keeps `Query::Frame`
-  answering for its neighbours. It is a `doc/ui-boundary.md` change and therefore a round of its
-  own.
+  **And the `viewer-core` outcome that was per viewer where it needed to be per page is
+  `Rendered::Listed`** (ADR 0640). It says *the host took this request's own list*, about one page:
+  the page holds its place, the viewer holds no pixels of it, and `holds_rasters` does **not** move
+  — so `MAX_PIXELS` goes on bounding every request a confined process makes and `Query::Frame` goes
+  on answering for the page's neighbours, which is precisely what reusing `Rendered::Presented`
+  would have cost. The worker draws nothing it does not send: a sparse page's open falls from 8.7
+  ms to 2.8 ms, ISO 32000-2's densest first page by about 8.5 ms, and a 1.5 kB document amplifying
+  to ten thousand page-covering fills from **26.5 s to 18 ms**, with the two pixel-arm documents
+  flat beside them as the control.
+
+- **What that leaves is a *host-side* debt and it is new here rather than caused here.** A cancel
+  stops the work the worker does, and on the marks arm the worker does not rasterise — so the
+  drawing of a page that will not finish is the host's, outside the confinement, with no cancel.
+  It always was: since ADR 0633 the marks are what crosses, and the host has to draw them whatever
+  the worker did with its own copy. What ADR 0640 removed is the duplicate, and what it exposes is
+  that **a host taking marks owns their draw** and needs an answer for a page whose *cost* its
+  size said nothing about. `tests/support/amplification.rs` is the witness — a document a producer
+  can write in a few hundred bytes — and `render-quorra`'s own budget refusals are the nearest
+  thing this tree has to an answer.
 - **The cancel path proven from the host**, not only from a test: the owner's brief says the
   callback may not block, and the `Canceller` is already about a millisecond.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the

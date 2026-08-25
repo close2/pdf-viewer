@@ -794,6 +794,108 @@ fn a_host_that_draws_its_own_frames_may_zoom_past_the_raster_budget() {
 }
 
 #[test]
+fn taking_one_pages_list_does_not_lift_the_raster_budget() {
+    // **The discriminating half of `Rendered::Listed`.** The test above is this one with
+    // `Rendered::Presented` in its place, and the two must not agree. A host that presented has
+    // said it draws *every* page onto its own surface at its own size, so `MAX_PIXELS` has
+    // nothing left to bound; a host that took one page's display list has said nothing at all
+    // about the next page, and may hand that one back as pixels this crate has to hold.
+    //
+    // `viewer-confined`'s worker is that host, and it is why the distinction is worth a variant:
+    // it runs under an address-space ceiling where an unbounded raster is a kill rather than a
+    // refusal (ADR 0640).
+    let (mut viewer, events) = opened(800, 1000);
+    let token = request(&events).token;
+    let after: Vec<_> = viewer
+        .handle(Command::RenderReady {
+            token,
+            rendered: Rendered::Listed,
+        })
+        .collect();
+    assert!(
+        after.iter().any(|event| matches!(event, Event::Damage(_))),
+        "a page whose marks the host has is a page somebody still has to put on a screen: \
+         {after:?}"
+    );
+    assert!(
+        !after
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "and it holds its place, so the scheduler does not ask for it again: {after:?}"
+    );
+
+    // The same A4-at-40× zoom the tier-2 test above sails through.
+    let refused: Vec<_> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(40.0),
+            at: None,
+        })
+        .collect();
+    assert!(
+        refused
+            .iter()
+            .any(|event| matches!(event, Event::Reported { .. })),
+        "the budget is still on, and a page over it is named rather than drawn at a scale \
+         nobody chose: {refused:?}"
+    );
+    assert!(
+        !refused
+            .iter()
+            .any(|event| matches!(event, Event::NeedsRender(_))),
+        "so nothing is asked for that could not be handed back: {refused:?}"
+    );
+}
+
+#[test]
+fn a_page_the_host_took_the_list_for_leaves_its_neighbours_answerable() {
+    use pdf_model::viewer_preferences::PageLayout;
+
+    // The other half of the same distinction, and the half `Rendered::Presented` could not
+    // express at all: it sets one flag for the whole viewer, so a column showing two pages would
+    // go silent about *both* the moment a host took one page's list. `Query::Frame` has to go on
+    // answering for the page whose pixels this crate is actually holding.
+    let mut viewer = arranged(PageLayout::OneColumn);
+    // A magnification nothing has been drawn at yet, so every page on the screen is asked for
+    // again and this test chooses each answer separately.
+    let events: Vec<Event> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(0.51),
+            at: None,
+        })
+        .collect();
+    let asked = requests(&events);
+    let ([taken], held) = asked.split_at(1) else {
+        panic!("a column at half size asks for more than one page: {asked:?}");
+    };
+    assert!(
+        !held.is_empty(),
+        "the case needs a neighbour to be answerable about: {asked:?}"
+    );
+    viewer
+        .handle(Command::RenderReady {
+            token: taken.token,
+            rendered: Rendered::Listed,
+        })
+        .for_each(drop);
+    for request in held {
+        serve(&mut viewer, request);
+    }
+
+    let Answer::Frame(frames) = viewer.query(Query::Frame) else {
+        panic!("a host this crate is holding pixels for is one it answers for");
+    };
+    let answered: Vec<usize> = frames.iter().map(|frame| frame.page).collect();
+    let neighbours: Vec<usize> = held.iter().map(|request| request.page).collect();
+    assert_eq!(
+        answered, neighbours,
+        "the page whose list the host took is not in the answer, and its neighbours are"
+    );
+    // Both are still on the screen, which is what the frame answer is *silent* about rather than
+    // ignorant of: where a page sits is a different question from what this crate holds of it.
+    assert!(placed(&viewer, taken.page).is_some());
+}
+
+#[test]
 fn closing_the_last_document_leaves_nothing_to_answer_with() {
     let (mut viewer, _) = opened(800, 1000);
     let events: Vec<_> = viewer.handle(Command::Close(DOCUMENT)).collect();

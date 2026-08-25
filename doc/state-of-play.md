@@ -144,8 +144,9 @@ pass.
   `Command`/`Event` and `Query`/`Reply` to it over a pipe and **either the pixels or the marks**
   coming back — chosen per page, in the confined process, by comparing two byte counts. That is
   principle 3's other half, owed since ADR 0014 confined the three image codecs and left the
-  document, the interpreter and the rasteriser in process. **Nothing in `viewer-core` had to
-  change**: rules 2, 3 and 4 already forbid it a filesystem, a clock and threads it was not
+  document, the interpreter and the rasteriser in process. **One outcome in `viewer-core` had to
+  change and nothing else did** — `Rendered::Listed`, ADR 0640, below: rules 2, 3 and 4 already
+  forbid that crate a filesystem, a clock and threads it was not
   handed, which is a description of a confined process. Verified by drawing a page byte-identical
   to this process's, and by asking the *kernel* rather than the source whether the worker can open
   a file, open a socket or start a program. **Every `Query` crosses**, including the eleven a
@@ -162,13 +163,16 @@ pass.
   by name into the raster arm, and a fuzz target — **and it is what a frame carries** (ADR 0633):
   `Framed::payload` is the marks or the pixels, the target crosses beside the marks so no host
   rebuilds one, and the decoder refuses a target past what a render request is held to — the one
-  length on this boundary with no bytes behind it. What the confined process still does that it
-  need not is *draw* a page it ships as marks, because `viewer-core` has one tier per viewer and
-  not one per page; `doc/todo/15` holds that. **A
+  length on this boundary with no bytes behind it. **And a page it ships as marks is not drawn at
+  all** (ADR 0640): `viewer_core::Rendered::Listed` says *the host took this request's own list*
+  about one page rather than about the viewer, so the raster budget stays on inside the
+  confinement and `Query::Frame` goes on answering for the pages that must cross as pixels. What
+  the cancel then covers on that arm is the interpretation, the drawing having been the host's all
+  along; `doc/todo/15` holds what a host taking marks owes. **A
   document too large for the ceiling is refused by name instead of killing the worker**, on a budget
   the worker derives from the ceiling it was given, and a worker that is killed anyway carries its
   own last line to the host rather than a bare signal number. ADRs 0218, 0223,
-  0235, 0241, 0597, 0607, 0626, 0633; `doc/todo/34`, `doc/todo/15`.
+  0235, 0241, 0597, 0607, 0626, 0633, 0640; `doc/todo/34`, `doc/todo/15`.
 - **`viewer-gtk`'s `pdf-viewer-gtk`**, a real GTK4 application on the same boundary: the panels in
   a `GtkListView` over a `GtkTreeListModel`, §12.7's fields as native widgets placed over the
   page, the selection and §12.5.1's focus ring drawn in the theme's own colour, and the three

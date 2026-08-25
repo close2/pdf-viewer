@@ -1345,6 +1345,11 @@ impl App {
             (Some(Rendered::Presented), _) => "presented".to_owned(),
             (Some(Rendered::Failed(why)), _) => format!("failed: {why}"),
             (Some(Rendered::Raster(_)), _) => "a raster".to_owned(),
+            // Neither of the last two is this host's, and both are written out rather than
+            // swept into a catch-all, which is what nothing in `viewer-core` being
+            // `#[non_exhaustive]` is for: this window presents on its own device, so it never
+            // hands back pixels and never keeps a page's list for itself.
+            (Some(Rendered::Listed), _) => "a list the host kept".to_owned(),
         };
         let trace = self.trace;
         self.frames.frame(trace, &stages, &outcome_said);
@@ -1360,10 +1365,11 @@ impl App {
         // `Rendered` is deliberately not `Clone` — tier 1's variant carries a whole page of
         // pixels — so what is repeated is the *answer* rather than the value. This host is tier 2
         // and the only two it can produce are a present and a refusal; `Rendered::Raster` is tier
-        // 1's and nothing here builds one.
+        // 1's and `Rendered::Listed` belongs to a host that keeps a page's marks rather than
+        // drawing them, and nothing here builds either.
         let refused = match &rendered {
             Rendered::Failed(why) => Some(why.clone()),
-            Rendered::Presented | Rendered::Raster(_) => None,
+            Rendered::Presented | Rendered::Raster(_) | Rendered::Listed => None,
         };
         for token in std::mem::take(&mut self.unacknowledged) {
             let rendered = refused

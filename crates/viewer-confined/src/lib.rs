@@ -13,6 +13,15 @@
 //! all. It is still one protocol: `Rendered::{Raster, Presented}` was already a payload choice on
 //! this boundary, and this makes the choice a comparison of two byte counts.
 //!
+//! **And a page on the marks arm is not drawn here at all**, since ADR 0640: the worker answers
+//! [`viewer_core::Rendered::Listed`], which says *the host took this request's own list* about
+//! one page rather than about the viewer, so `viewer_core::MAX_PIXELS` goes on bounding every
+//! request this process makes and `Query::Frame` goes on answering for the pages that must still
+//! cross as pixels. One consequence is worth stating rather than discovering: **the cancel is
+//! about the work this process does**, so on the marks arm it covers the interpretation and there
+//! is no rasterisation of ours for it to stop. Drawing the marks is the host's, as it always was
+//! — the worker was drawing a second copy and throwing it away.
+//!
 //! # The shape of it
 //!
 //! ```text
@@ -29,9 +38,12 @@
 //! ```
 //!
 //! **The confined process is a host of `viewer-core`, and this crate's caller is a host of
-//! pixels.** That is the whole design, and it is why nothing in `viewer-core` had to change:
+//! pixels.** That is the whole design, and it is why so little in `viewer-core` had to change:
 //! rules 2, 3 and 4 already forbid it a filesystem, a clock and threads it was not handed, so a
-//! process with none of those three is exactly the environment it was written for.
+//! process with none of those three is exactly the environment it was written for. **One
+//! outcome** in all of it — [`viewer_core::Rendered::Listed`], ADR 0640 — and it was needed
+//! because this host is the first that keeps *some* pages' marks and hands *others* back as
+//! pixels, which nothing in that vocabulary could say.
 //!
 //! Two messages therefore never cross, and both because the confined side answers them itself:
 //! [`viewer_core::Event::NeedsRender`] and [`viewer_core::Command::RenderReady`]. **Everything
