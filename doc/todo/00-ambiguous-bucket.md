@@ -134,6 +134,22 @@ session is that the tree is far enough along for this to be the work.
   than the population — how many of the listed pages have a closest pair inside all three bounds
   while we are outside one.
 
+  **And the rows carry a mark saying where the list's head ends**, since the
+  seven-hundred-and-sixty-first (ADR 0684). 751's requirement is a threshold against the class
+  *floor*, which is what `pdfref::decide` returns because no consensus formed — the weakest bound
+  in the gate, and most of this list is outside it while the references are further outside it than
+  we are. `[widened: outside]` marks the pages where our nearest is outside the bound
+  `Judgement::CORPUS` would have set **from that pair's own spread**, twice it and floored, which is
+  the bound the gate applies on every page where a consensus does form. Below the mark a consensus
+  at that spread would have accepted us, so the page is alone against a constant. The list prints
+  ten rows or the whole marked head, whichever is longer, because a count naming a head a reader
+  cannot open is the defect ADR 0643 found in two columns.
+
+  A ratio of 2 or more is the readable sufficient condition for the mark and not the same test: both
+  sides of the printed ratio are a maximum over three measures, so a page whose *worst* measure and
+  the pair's *worst* measure are different measures can be marked at a ratio well under 2 — two of
+  the marked pages are.
+
 ## What the two rankings say when read together
 
 **Taken in the five-hundred-and-eighteenth session over all 786.** The gate's own ranking is in
@@ -380,6 +396,24 @@ directory over.
    annotation removed our number falls from 2.58 bounds to 0.43 while the divisor is byte-identical,
    because the two references it is taken between do not draw the annotation at all. **Take the
    mechanism out of the document and re-measure both sides**, before reading a high ratio as ours.
+
+   **Where to stop, which is a criterion rather than a budget** (ADR 0684). Work down the marked
+   rows — `[widened: outside]`, our nearest outside the bound a consensus at the closest pair's own
+   spread would have set — and stop at the first unmarked one. Below the mark the gate's own
+   widening would have accepted us, so what a high ratio there measures is how closely two
+   references happen to agree, and the answer is in the divisor rather than in the page. The
+   seven-hundred-and-sixty-first session read the mark's head to the end and every page of it is
+   now priced against the *measure* its own number is taken on; the two the mark added to the
+   readable cut, `freeculture.pdf` page 1 and `copy_paste_ligatures.pdf`, are both pages where our
+   worst measure is the structural similarity and the pair's is the mean.
+
+   **A page below the mark is still worth opening when its own note disclaims it**, and that is the
+   one exception. `freeculture.pdf` page 255 sat at 1.35× under a group note saying in as many
+   words that whatever the page is, it is not that group's diagnosis — while a table four hundred
+   sessions older in *the same comment* had measured it and cleared it on ink. Both were true: the
+   ink was right and answers *how much*, and the page's whole disagreement is *where*. It is
+   `AMBIGUOUS_IMAGE_REDUCTION`'s (ADR 0685). **A disclaimer inside a group note is a page nobody is
+   holding**, and `grep` finds those in a second.
 2. **Read the file's bibliography before opening anything.** Every pdf.js fixture is named after
    the issue that introduced it — `issueNNNN…pdf` → `github.com/mozilla/pdf.js/issues/NNNN`,
    `bugNNNNNNN…pdf` → `bugzilla.mozilla.org/show_bug.cgi?id=NNNNNNN` — and the issue says what

@@ -4697,7 +4697,106 @@ const AMBIGUOUS_SHARED_JBIG2_DECODER: [&str; 1] = ["bitmap-halftone-refine.pdf p
 /// form answers "how much" and is silent on "where"; this is the page where only the pixel count
 /// speaks. The pairwise distances say the same and say the outlier is not us: ours is 0.143 of 255
 /// from `hayro` and 0.152 from `mupdf`, while every pair involving `poppler` exceeds 1.26.
-const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
+/// # The book's second cartoon, and the page a neighbouring group said it could not explain
+///
+/// `freeculture.pdf` page 255 arrived here in the seven-hundred-and-sixty-first session off
+/// [`rank_the_pages_we_are_alone_on`], where it sits **below** that list's widened-bound mark —
+/// the row shape ADR 0684 says is a question about the divisor rather than about us. It had been
+/// `AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE`'s since the book was diagnosed as a population, and that
+/// group's own note had already refused it in as many words: *it is in this list and it has never
+/// been opened; whatever it is, it is not the diagnosis these paragraphs make*. It is this
+/// group's, for the same reason page 171 is, and page 171 is the sentence one paragraph long that
+/// this one measures (ADR 0685).
+///
+/// **The page is one image.** `pdfimages -list` reports a single `CCITTFaxDecode` stencil,
+/// **9258 × 12259** at 2182 ppi, drawn onto 397 × 595 device pixels — a reduction of about 23 in
+/// each axis, so every device pixel is the average of some five hundred source samples. The only
+/// text on it is a running foot and the margin's line numbers; `pdftotext` returns *BALANCES 247*
+/// and the digits 1 to 33. Nothing about it is dense text at book size.
+///
+/// **Four ink ladders, and they converge on one number:**
+///
+/// ```text
+///                    72 dpi    288 dpi   576 dpi
+/// ours (1x/4x/8x)   36.0541    36.1299   36.1291
+/// poppler           36.0913    36.0787   36.1436
+/// mupdf             36.0617    36.1426   36.1485
+/// ghostscript       36.2774          -   36.0832
+/// ```
+///
+/// Four limits inside **0.066 of 255**, ours between `ghostscript`'s and `poppler`'s, and at the
+/// page's own scale all five are inside 0.74 (`hayro` 36.7909 is the widest). *How much* ink the
+/// page states is agreed by four independent programs to a fifteenth of a level. **The two-hundred
+/// -and-thirty-third session had already measured that** and wrote it into the group this page is
+/// leaving — `36.144 / 36.149` for the two reference limits against ours, `hayro`'s, `poppler`'s,
+/// `mupdf`'s and `ghostscript`'s panels — and every figure of it reproduces here to the
+/// thousandth, five hundred rounds later. What the gate
+/// measures is *where* it lands, and on a 23-to-1 reduction of a bilevel scan that is the choice
+/// of reduction rule and nothing else — this group's subject exactly.
+///
+/// **And the renderer that is alone is not us.** `examples/compare_rasters` over the gate's own
+/// panels, all ten pairs, mean of 255 and structural similarity. **These are that example's numbers
+/// and not this gate's** — the gate's line is our render against the *worst* member of a consensus
+/// and every row below is one named pair, which is why `--bin quoted` reports the whole table and
+/// is right to (ADR 0663):
+///
+/// ```text
+/// ours vs poppler          7.7509  0.89105        poppler vs mupdf        5.0690  0.95142
+/// ours vs mupdf            6.8331  0.90454        poppler vs hayro        9.5472  0.84007
+/// ours vs hayro            6.4309  0.92111        mupdf vs hayro          9.9300  0.83218
+/// ours vs ghostscript     16.6313  0.75319        poppler vs ghostscript 16.2858  0.73813
+///                                                 mupdf vs ghostscript   15.1531  0.78301
+///                                                 ghostscript vs hayro   16.0906  0.75754
+/// ```
+///
+/// Averaged over the other three, **ours is the most central of the four smooth renderers** — 7.00
+/// against `mupdf`'s 7.28, `poppler`'s 7.46 and `hayro`'s 8.64 — while `ghostscript` is 15.2 to
+/// 16.6 from every one of them. `magick identify -format '%k'` says why in one number: the other
+/// four panels carry 255 or 256 distinct levels and `ghostscript`'s carries **20**, so it is
+/// quantising the reduction where they average it. The page is `ambiguous` because the four that
+/// average do not agree with each other either, and the closest two of the voting three —
+/// `poppler` and `mupdf` at 1.01 floors — are what the ranking divides by.
+/// # The book's cover, which is on the same ranking's head and has never been priced
+///
+/// `freeculture.pdf` page 1 has been in this group without a measurement of its own, and the
+/// seven-hundred-and-sixty-first session took it because it is **marked `[widened: outside]`** on
+/// [`rank_the_pages_we_are_alone_on`] — 11.69 ours over 6.39 between `poppler` and `mupdf`, which
+/// is 1.83× and below that list's readable cut while the per-measure test fires (ADR 0684).
+///
+/// It is one 1366 × 2048 `DCTDecode` photograph at 201 ppi under an `/SMask` that is white
+/// everywhere, drawn onto 490 × 735 — a reduction of 2.79 in each axis. The cover art is a field
+/// of near-horizontal rules whose period is 38 to 41 source rows over four sampled columns, so
+/// about **14 device rows**, and the lettering is inside the JPEG.
+///
+/// **Two things about the numbers follow from that last clause and are worth having in this order.**
+/// The page carries no glyphs, so `Interpretation::glyphs` earns it the **vector** tolerance — mean
+/// 1.00, worst tile 5.00, similarity 0.99 — and a page that is nothing but high-contrast image
+/// edges is then held to the bounds measured on flat fills. Every pair on the page is outside them,
+/// which is why it also heads [`rank_the_manufactured_ambiguity`] at 18.33. And the measure our own
+/// number is taken on is the **similarity**, against `mupdf`: 0.88307, where the pair the ratio
+/// divides by is at 0.94337 and misses on its *mean* instead. Numerator and denominator are two
+/// different measures of one reduction. (Both figures are `examples/compare_rasters`' over the
+/// gate's own panels, one named pair each, and not the gate's line — ADR 0663.)
+///
+/// ```text
+///                     72 dpi    288 dpi   576 dpi
+/// ours (1x/4x/8x)    166.119    166.364   166.607
+/// poppler            166.499    166.770   166.774
+/// mupdf              164.939    166.844   166.620
+/// ghostscript        166.589          -   166.096
+/// ```
+///
+/// Four limits inside **0.68 of 255**, ours between `ghostscript`'s and `mupdf`'s. At the page's
+/// own scale ours is 0.49 under its own limit where `mupdf` is 1.68 under and `ghostscript` 0.49
+/// over, so of the four this tree is the *second* nearest the geometry it converges on. Taking each
+/// renderer's mean distance of 255 from the other three, ours and `mupdf` are joint most central at
+/// **14.55**, `poppler` is 17.49 and `ghostscript` 27.19 — on the page a ratio calls ours.
+///
+/// **And the picture says the same and says where.** Differencing the panels pairwise leaves ink on
+/// the rules' edges and on the letterforms' edges and nowhere else, and ours-against-`mupdf` and
+/// `poppler`-against-`mupdf` leave the *same* pattern. This group's sentence, on a page where every
+/// pixel is an edge.
+const AMBIGUOUS_IMAGE_REDUCTION: [&str; 18] = [
     "issue4379.pdf page 1",
     "issue12841_reduced.pdf page 1",
     "issue269_2.pdf page 1",
@@ -4710,6 +4809,11 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
     // and the ladders put ours between the two references' limits: ours 15.5059 at 8x against
     // `poppler` 15.4710 and `mupdf` 15.5141 at 576 dpi.
     "freeculture.pdf page 171",
+    // Taken out of the same book in the seven-hundred-and-sixty-first, and by the group note that
+    // had it rather than by a band: it said in as many words that whatever page 255 is, it is not
+    // dense text at book size. It is the book's other full-page cartoon — one 9258x12259 CCITT
+    // stencil reduced 23 to 1 — and the section above has its four ladders (ADR 0685).
+    "freeculture.pdf page 255",
     "bug1799927.pdf page 1",
     // Arrived in the judged set in the two-hundred-and-eighteenth session, when the stencil it
     // is made of stopped being refused: a 421x320 one-bit CCITT scan drawn into 252x191 points
@@ -4721,6 +4825,9 @@ const AMBIGUOUS_IMAGE_REDUCTION: [&str; 17] = [
     // Back in the six-hundred-and-eighty-eighth session, on the halftone reduction it always had:
     // the `/Background` it left over is painted now and marks nothing, for the reason above.
     "issue13372.pdf page 1",
+    // Priced in the seven-hundred-and-sixty-first session, having been in this group unmeasured:
+    // the cover, one 1366x2048 JPEG of horizontal rules reduced 2.79 to 1, held to the vector
+    // tolerance because its lettering is inside the image. The section above has the ladders.
     "freeculture.pdf page 1",
     "issue5747.pdf page 1",
     "issue7229.pdf page 1",
@@ -6381,7 +6488,7 @@ const AMBIGUOUS_OUTLINED_TEXT: [&str; 1] = ["issue12213.pdf page 1"];
 /// pattern. `doc/todo/00` carries the caveat.
 const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 
-/// Ambiguous, and the reason this file's 320 pages are here is not the one that was written down.
+/// Ambiguous, and the reason this file's pages are here is not the one that was written down.
 ///
 /// `freeculture.pdf` is one of the two long books that make up half §3a's bucket, and this
 /// project's handover explained both of them the same way for many sessions: "two long books set
@@ -6395,18 +6502,28 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// of nothing but small glyphs is a page where five rasterisers cannot agree closely enough for
 /// any of them to be called wrong, and the bound is doing exactly what it was measured to do.
 ///
-/// The two on the ranking, with the closed form:
+/// The one on the ranking, with the closed form:
 ///
 /// ```text
 ///                  limit             ours     hayro    poppler   mupdf    ghostscript
-/// page 255        36.144 / 36.149   36.206   36.791   36.091   36.062   36.252
 /// page 333        12.515 / 12.549   12.435   12.141   12.434   12.437   12.529
 /// ```
 ///
-/// Ours is 0.06 over the geometry on the first and 0.10 under it on the second, and on both the
-/// five renderers are inside 0.7 of 255 of one another. **Nobody here is drawing anything anybody
-/// else is not**, which is the finding: these pages are ambiguous by the tolerance's design and
-/// not by any defect, and the tail of the ranking below 1.4 is mostly this book.
+/// Ours is 0.10 under the geometry and the five renderers are inside 0.4 of 255 of one another.
+/// **Nobody here is drawing anything anybody else is not**, which is the finding: these pages are
+/// ambiguous by the tolerance's design and not by any defect, and the tail of the ranking below
+/// 1.4 is mostly this book.
+///
+/// **That table had a second row, and it is the reason this note contradicted itself for four
+/// hundred sessions.** `page 255  36.144 / 36.149  36.206  36.791  36.091  36.062  36.252` stood
+/// here from the two-hundred-and-thirty-third session, and the paragraph about the band added
+/// later said of the same page that *it has never been opened*. Both were in this comment at once.
+/// The measurement is sound and reproduces — the seven-hundred-and-sixty-first session re-took it
+/// and every figure lands to the thousandth — and it answers the wrong question: **the ink says
+/// how much and is silent about where**, and page 255 is a 23-to-1 reduction of a bilevel stencil
+/// whose whole disagreement is placement. It is `AMBIGUOUS_IMAGE_REDUCTION`'s now (ADR 0685). A
+/// closed form that clears a page for the measure it can see is not a diagnosis of a page failing
+/// the measures it cannot.
 ///
 /// # Four more, and the whole head of the ranking with them
 ///
@@ -6484,28 +6601,31 @@ const AMBIGUOUS_TILED_STROKES: [&str; 1] = ["issue2177.pdf page 1"];
 /// # The band, over all 364, and the one page it caught
 ///
 /// A sample is a sample, so the *whole* population's printed metrics were read as well. Re-derived
-/// from the gate's own per-page lines over the list as it stands (ADR 0495): `freeculture`'s 318
-/// sit at mean 2.43 to 8.99, worst tile 11.60 to 29.05, similarity 0.7210 to 0.9648 **once page
-/// 255 is set aside**, and `pdkids`'s 52 at mean 5.80 to 11.67, worst tile 28.27 to 39.45,
-/// similarity 0.8075 to 0.9033. One band, no gaps, and the text tolerance — 0.90 similarity,
-/// measured over 153 reference-against-reference pairs — running through the middle of it.
+/// from the gate's own per-page lines over the list as it stands (ADR 0495, ADR 0685):
+/// `freeculture`'s 317 sit at mean 2.43 to 8.99, worst tile 11.60 to 29.05, differing 5.61% to
+/// 15.37% and similarity 0.7210 to 0.9648, and `pdkids`'s 52 at mean 5.80 to 11.67, worst tile
+/// 28.27 to 39.45, similarity 0.8075 to 0.9033. One band, no gaps, and the text tolerance — 0.90
+/// similarity, measured over 153 reference-against-reference pairs — running through the middle
+/// of it.
 ///
-/// **`freeculture.pdf` page 255 is a second page outside the band, and this note did not name it
-/// until the twentieth sweep contradicted the band's own ends.** Mean 16.63 where nothing else in
-/// the book reaches 9, a worst tile of 51.93 against a next-highest 29.05, and 19.98% of pixels
-/// differing. It is in this list and it has never been opened. Whatever it is, it is not the
-/// diagnosis these paragraphs make, which is the same lesson the paragraph below draws: **a band
-/// is a claim about every member, and re-deriving one is how a member that stopped belonging is
-/// found.**
+/// **Two pages stood outside that band and neither was ours, and both were cartoons.**
+/// `freeculture.pdf` page 171 has a worst tile of 81.57 where nothing else in the book exceeds
+/// 29.09; its cartoon is a one-bit stencil, `ghostscript` thresholds it to a black blob where the
+/// other four draw a grey halftone, and the page is `AMBIGUOUS_IMAGE_REDUCTION`'s subject rather
+/// than this group's. That is the argument for reading the band before claiming the population:
+/// **a diagnosis by sampling would have buried it**, and what found it was one number over three
+/// hundred pages and then the picture.
 ///
-/// **One page stood outside the band and it was not ours.** `freeculture.pdf` page 171 has a
-/// worst tile of 81.57 where nothing else in the book exceeds 29.09; its cartoon is a one-bit
-/// stencil, `ghostscript` thresholds it to a black blob where the other four draw a grey
-/// halftone, and the page is `AMBIGUOUS_IMAGE_REDUCTION`'s subject rather than this group's.
-/// That is the argument for reading the band before claiming the population: **a diagnosis by
-/// sampling would have buried it**, and what found it was one number over three hundred pages
-/// and then the picture.
-const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 370] = [
+/// **Page 255 is the second, and this note carried it for four hundred sessions while saying it
+/// could not explain it.** It was the extreme member on three of the four measures at once — mean
+/// 16.63 against a next-highest 8.99, worst tile 51.93 against 29.05, 19.98% differing against
+/// 15.37% — and the sentence that stood here said *whatever it is, it is not the diagnosis these
+/// paragraphs make*. It is the book's other full-page cartoon: one 9258 × 12259 `CCITTFaxDecode`
+/// stencil reduced 23 to 1, with a running foot for text. It is in `AMBIGUOUS_IMAGE_REDUCTION`
+/// now, beside page 171, with the four ladders that settle it (ADR 0685). **A disclaimer inside a
+/// group note is a page nobody is holding**, and the honest form of it is a page in the group that
+/// describes it.
+const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 369] = [
     "freeculture.pdf page 2",
     "freeculture.pdf page 7",
     "freeculture.pdf page 10",
@@ -6734,7 +6854,6 @@ const AMBIGUOUS_DENSE_TEXT_AT_BOOK_SIZE: [&str; 370] = [
     "freeculture.pdf page 252",
     "freeculture.pdf page 253",
     "freeculture.pdf page 254",
-    "freeculture.pdf page 255",
     "freeculture.pdf page 256",
     "freeculture.pdf page 257",
     "freeculture.pdf page 258",
@@ -8907,6 +9026,36 @@ const AMBIGUOUS_GRADIENT_QUANTISATION: [&str; 2] =
 /// its excess at the page's own scale is scan conversion of an embedded `TimesNewRomanPSMT`
 /// subset and not a substituted face, which the four-panel strip invites and the ladder
 /// refuses. Nothing is reported and no warning is printed.
+///
+/// # Which bound `copy_paste_ligatures.pdf` is alone on, which the ink above cannot say
+///
+/// It is **marked `[widened: outside]`** on [`rank_the_pages_we_are_alone_on`] — 2.81 ours over
+/// 1.71 between `poppler` and `mupdf`, 1.65× and below that list's readable cut while the
+/// per-measure test fires (ADR 0684) — and the paragraphs above price the page in ink, which is
+/// not the measure any of that is taken on. `examples/compare_rasters` over the gate's own panels,
+/// whose figures are **that example's and not this gate's**, one named pair per row where the
+/// gate's line is our render against a consensus's worst member (ADR 0663):
+///
+/// ```text
+/// at the gate's own 143 x 14
+/// ours vs mupdf          mean 14.0709  ssim 0.85082      poppler vs mupdf        mean  8.5400  ssim 0.94612
+/// ours vs poppler        mean 15.8362  ssim 0.83136      poppler vs ghostscript  mean 29.6598  ssim 0.62435
+/// ours vs ghostscript    mean 39.6009  ssim 0.39894      mupdf vs ghostscript    mean 33.5215  ssim 0.56207
+/// ```
+///
+/// Our own number is the **mean** against `mupdf`, 14.0709 of a text bound of 5.00, which is the
+/// 2.81 the list prints; the pair's is the mean too, 8.5400, which is its 1.71. Widen that bound
+/// by `Judgement::CORPUS`'s factor and the mean goes *inside* — 14.0709 against 17.08 — while the
+/// **similarity** does not: 0.85082 against a widened 0.89224. So the measure that puts this page
+/// above the mark is the one the ink cannot reach, on a raster of 143 × 14 where §10.7.4's licence
+/// for a different glyph algorithm is worth the whole page.
+///
+/// **And the camps are the sharpest in the bucket.** `hayro`'s raster is 142 wide, so it is not in
+/// the comparison above and both were cropped to 142 × 14 for this one: ours against it is mean
+/// **4.3906** and similarity **0.98537**, closer than any two voting references are to each other,
+/// where the closest voting pair is 8.5400 and 0.94612. That is `doc/todo/00`'s two-camp reading at
+/// its extreme, and it is evidence about the verdict rather than about us
+/// (`Reference::independence`).
 const AMBIGUOUS_GLYPH_COVERAGE: [&str; 3] = [
     "copy_paste_ligatures.pdf page 1",
     "endchar.pdf page 1",
@@ -10741,6 +10890,16 @@ struct Examined {
     ///
     /// `None` on exactly the pages [`Self::consensus_missed_by`] is `None` on.
     consensus_missed_in_three_measures: Option<f64>,
+    /// Whether our nearest reference is outside the bound the *closest pair* would have set.
+    ///
+    /// The two fields above are both measured against the class floor, which is what
+    /// `pdfref::decide` returns where no consensus formed. This is the same comparison against
+    /// the bound a consensus at that pair's own spread would have applied — the criterion
+    /// [`rank_the_pages_we_are_alone_on`] marks its head with, and the one a round diagnosing
+    /// that list stops at. See [`outside_what_the_closest_pair_would_allow`].
+    ///
+    /// `None` on exactly the pages [`Self::consensus_missed_in_three_measures`] is `None` on.
+    outside_what_the_closest_pair_would_allow: Option<bool>,
     /// How far outside its own bound a contradicted page sits, in multiples of that bound.
     ///
     /// `None` on every verdict but `CONTRADICTED`, which is trap 11 rather than tidiness: on an
@@ -10804,6 +10963,7 @@ impl Examined {
             nearest_on_every_measure: None,
             consensus_missed_by: None,
             consensus_missed_in_three_measures: None,
+            outside_what_the_closest_pair_would_allow: None,
             outside_the_bound: None,
             abstentions: 0,
             absent: Vec::new(),
@@ -11292,6 +11452,8 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
     let nearest_on_every_measure = nearest_on_every_measure(&triangulation);
     let consensus_missed_by = consensus_missed_by(&triangulation);
     let consensus_missed_in_three_measures = consensus_missed_in_three_measures(&triangulation);
+    let outside_what_the_closest_pair_would_allow =
+        outside_what_the_closest_pair_would_allow(&triangulation);
     let outside_the_bound = outside_the_bound(&triangulation);
     if matches!(verdict, Verdict::Agrees) {
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
@@ -11324,6 +11486,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         nearest_on_every_measure,
         consensus_missed_by,
         consensus_missed_in_three_measures,
+        outside_what_the_closest_pair_would_allow,
         outside_the_bound,
         abstentions: triangulation.abstained.len(),
         absent,
@@ -11409,6 +11572,71 @@ fn consensus_missed_in_three_measures(triangulation: &pdfref::Triangulation) -> 
         .fold(None::<f64>, |best, missed| {
             Some(best.map_or(missed, |b: f64| b.min(missed)))
         })
+}
+
+/// Whether our nearest reference is outside the bound the closest *pair* would have set.
+///
+/// [`consensus_missed_in_three_measures`] says how far apart the closest two references are and
+/// [`Distance::nearest`] how far we are from the nearest of them; both are measured against the
+/// class floor, because `pdfref::decide` returns the floor unwidened where no consensus formed.
+/// This asks the counterfactual the gate answers on every *other* page in the corpus: **had those
+/// two references agreed closely enough to be a consensus, would the bounds they set have accepted
+/// us?** [`Judgement::CORPUS`] widens a consensus's bounds to twice its members' own spread, so the
+/// question is `Tolerance::widened_to` applied to the closest pair's comparison and our nearest
+/// comparison measured against the result.
+///
+/// # Why this is the head of `rank_the_pages_we_are_alone_on` rather than a second ranking
+///
+/// The seven-hundred-and-fifty-first session required that list's numerator to be outside the
+/// **floor**, on the argument that below it the nearest reference would have accepted the page. The
+/// floor is where that argument stops: a page can be outside the floor while the references
+/// themselves are further outside it than we are, and 751's own filter admits every page whose
+/// ratio is above 1.0. This is the same argument taken to the bound the gate actually applies —
+/// below it a consensus *at this pair's own spread* would have accepted us, so the page is alone
+/// against a constant rather than against the references. ADR 0684.
+///
+/// **The ratio ≥ 2 is the readable sufficient condition and this is the exact one.** Both sides of
+/// the printed ratio are a maximum over three normalised measures, so a page whose ratio reaches
+/// [`Judgement::CORPUS`]'s factor is certainly outside the widened bound — our worst measure then
+/// exceeds twice the pair's worst, which exceeds twice the pair's on that same measure. The
+/// converse does not hold: our worst measure and theirs can be different measures, and there this
+/// test fires where the ratio does not. That is why the gate prints it per page rather than leaving
+/// a reader to divide.
+///
+/// `None` where fewer than two references were compared with each other, or where we were compared
+/// with none — exactly where [`consensus_missed_in_three_measures`] and [`Distance::of`] are.
+fn outside_what_the_closest_pair_would_allow(
+    triangulation: &pdfref::Triangulation,
+) -> Option<bool> {
+    let bounds = &triangulation.judged_by;
+    let (_, _, closest) = triangulation.between_references.iter().min_by(|a, b| {
+        outside_by_in_three_measures(&a.2, bounds)
+            .partial_cmp(&outside_by_in_three_measures(&b.2, bounds))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })?;
+    let widened = bounds.widened_to(closest, corpus_widening_factor());
+    let nearest = triangulation
+        .ours
+        .iter()
+        .map(|(_, comparison)| outside_by_in_three_measures(comparison, &widened))
+        .fold(None::<f64>, |nearest, ours| {
+            Some(nearest.map_or(ours, |n: f64| n.min(ours)))
+        })?;
+    Some(nearest > 1.0)
+}
+
+/// The multiple of a consensus's own spread that [`Judgement::CORPUS`] still counts as agreement.
+///
+/// Read off the judgement this gate runs under rather than written down a second time: a number
+/// stated in two places is a number that will disagree with itself, and this one is the whole of
+/// [`outside_what_the_closest_pair_would_allow`]'s argument.
+fn corpus_widening_factor() -> f64 {
+    match Judgement::CORPUS {
+        Judgement::RelativeToReferences { factor } => factor,
+        // `Judgement::Absolute` widens by nothing, and a variant added later has to be read here
+        // rather than assumed. Either way the honest reading of "not a widening" is 1.
+        _ => 1.0,
+    }
 }
 
 /// Our distance from the nearest reference over **all four** of [`Tolerance::accepts`]' measures.
@@ -12699,6 +12927,27 @@ fn rank_the_manufactured_ambiguity(results: &[Examined]) {
 /// are exactly `doc/todo/00` step 1's queue: we fail the floor against every reference and the
 /// closest two references pass it against each other. That is the shape worth opening, and the
 /// count is printed for it rather than for the population it was drawn from.
+///
+/// # Where the head ends, which is the marker on the rows
+///
+/// 751's filter is a threshold against the class **floor**, and the floor is the weakest bound in
+/// the gate: it is what `pdfref::decide` returns because no consensus formed, not a judgement
+/// anybody made about this page. So a page can be on this list while the references are further
+/// outside that floor than we are, and most of the list is. The bound the gate *applies* wherever a
+/// consensus does form is [`Judgement::CORPUS`]'s — twice the consensus's own spread, floored — and
+/// asking that question of the closest pair separates the list into two:
+///
+/// - **`[widened: outside]`** — we are outside the bound a consensus at that pair's spread would
+///   have set. Whatever the page is, no reading of these references forgives it, and the answer is
+///   a clause or a mechanism in the divisor.
+/// - **unmarked** — a consensus at that spread would have accepted us. The page is alone against a
+///   constant, and the ratio is measuring how closely two references happen to agree.
+///
+/// [`outside_what_the_closest_pair_would_allow`] has the arithmetic and the reason the printed
+/// ratio is only a sufficient condition for it. The seven-hundred-and-sixty-first session stopped
+/// there and said so: below the mark, `freeculture.pdf` page 255 is four ink ladders inside 0.066
+/// of 255 with our render the most central of the five (ADR 0685), which is what an unmarked row
+/// looks like when it is opened.
 fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
     let pool: Vec<&Examined> = results
         .iter()
@@ -12743,11 +12992,25 @@ fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
         alone.len(),
         pool.len(),
     );
-    for (examined, ours, missed) in alone.iter().take(10) {
+    let outside_the_widened_bound =
+        |examined: &Examined| examined.outside_what_the_closest_pair_would_allow == Some(true);
+    let widened_outside = alone
+        .iter()
+        .filter(|(examined, _, _)| outside_the_widened_bound(examined))
+        .count();
+    // Ten by this file's convention, and never fewer rows than the criterion's head: a count that
+    // names a head of thirteen under a list of ten is a queue a reader cannot open, which is the
+    // shape ADR 0643 found in two columns and ADR 0663 in a dropped population.
+    for (examined, ours, missed) in alone.iter().take(widened_outside.max(10)) {
         println!(
-            "    {:>6.2}× — {ours:5.2} ours over {missed:5.2} between them  {}",
+            "    {:>6.2}× — {ours:5.2} ours over {missed:5.2} between them  {}{}",
             ours / missed,
-            examined.name
+            examined.name,
+            if outside_the_widened_bound(examined) {
+                "  [widened: outside]"
+            } else {
+                ""
+            }
         );
     }
 
@@ -12763,6 +13026,16 @@ fn rank_the_pages_we_are_alone_on(results: &[Examined]) {
          pages of the pool are further from every reference than the closest two are from each \
          other with our own nearest inside every bound, and are not listed, because there the \
          ratio measures how closely the references agree (ADR 0663)",
+        alone.len(),
+    );
+    // The head, marked page by page above. Below it a consensus at the closest pair's own spread
+    // would have accepted us, so the page is alone against the class floor rather than against the
+    // references — which is a weaker sentence than the list's name, and is where a round reading
+    // this list downward stops (ADR 0684).
+    println!(
+        "    and on {widened_outside} of the {} our nearest is outside the bound Judgement::CORPUS \
+         would have widened to from that pair's own spread — marked `[widened: outside]` above, \
+         and the head this list is read from downward (ADR 0684)",
         alone.len(),
     );
 }
