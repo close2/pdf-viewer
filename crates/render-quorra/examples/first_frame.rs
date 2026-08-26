@@ -89,6 +89,7 @@ fn main() {
         match coverage {
             quorra_gpu::Coverage::Cpu => "cpu",
             quorra_gpu::Coverage::Gpu => "gpu",
+            quorra_gpu::Coverage::Compute => "compute",
         }
     );
     println!("  bring-up          {bring_up:8.2} ms");

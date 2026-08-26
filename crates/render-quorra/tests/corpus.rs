@@ -956,6 +956,7 @@ fn lane_name(coverage: quorra_gpu::Coverage) -> &'static str {
     match coverage {
         quorra_gpu::Coverage::Cpu => "cpu",
         quorra_gpu::Coverage::Gpu => "gpu",
+        quorra_gpu::Coverage::Compute => "compute",
     }
 }
 
