@@ -151,6 +151,9 @@ pub(crate) struct App {
     /// visible to the tree that judges pictures. It sits beside [`Self::processor`] and
     /// [`Self::backend`] for the same reason those do.
     pub(crate) proxy_pages: usize,
+    /// Which coverage lane draws the page, from `--coverage`: the magnification
+    /// policy, or one lane pinned for a measuring session.
+    pub(crate) coverage: crate::arguments::CoverageChoice,
     /// The settled frame's resolution factor, from `--supersample`: 1 off, 2 on.
     ///
     /// A host's setting for [`Self::proxy_pages`]'s reason: what it changes is how a

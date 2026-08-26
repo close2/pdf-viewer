@@ -213,6 +213,7 @@ fn main() {
         restrictions,
         proxy_pages,
         supersample,
+        coverage,
     } = arguments(launch.began);
     launch.mark("arguments");
 
@@ -285,6 +286,7 @@ fn main() {
         processor,
         proxy_pages,
         supersample,
+        coverage,
         backend,
         backend_asked_for,
         cursor: (0.0, 0.0),

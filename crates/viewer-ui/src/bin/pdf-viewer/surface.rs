@@ -55,7 +55,13 @@ const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 /// transform is a scale, a y flip and a translation, and §7.7.3.3's page rotation puts
 /// the same factor into `b` and `c` instead of `a` and `d` — so its square root is the
 /// number to compare, and it is right for a rotated page as well.
-pub(crate) fn coverage_for(transform: Transform) -> quorra_gpu::Coverage {
+pub(crate) fn coverage_for(
+    transform: Transform,
+    choice: crate::arguments::CoverageChoice,
+) -> quorra_gpu::Coverage {
+    if let crate::arguments::CoverageChoice::Fixed(lane) = choice {
+        return lane;
+    }
     let magnification = transform
         .a
         .mul_add(transform.d, -(transform.b * transform.c))
@@ -219,7 +225,7 @@ impl App {
         self.adopt(now, stages);
         // The magnification is the arrangement's rather than one page's: every page of a column
         // is placed at the same magnification by `viewer_core::layout`, so the first states it.
-        let coverage = coverage_for(pages.first()?.target.transform);
+        let coverage = coverage_for(pages.first()?.target.transform, self.coverage);
         let overlays = chrome.owned();
         let drawing = {
             let window = self.device_window()?;
@@ -672,6 +678,7 @@ impl App {
             // with the same call for the same reason.
             self.adopt(now, stages);
             let asked = {
+                let chrome_coverage = coverage_for(Transform::IDENTITY, self.coverage);
                 let window = self.device_window()?;
                 // The same test `on_the_device` makes, with the page half of it answered by there
                 // being no page: a frame of exactly these overlays over nothing needs no successor.
@@ -680,7 +687,7 @@ impl App {
                 if of_this_view {
                     false
                 } else {
-                    window.ask(Vec::new(), owned, coverage_for(Transform::IDENTITY), now);
+                    window.ask(Vec::new(), owned, chrome_coverage, now);
                     true
                 }
             };
@@ -1104,6 +1111,7 @@ impl App {
             (size.width.max(1), size.height.max(1)),
             self.proxy_pages,
             self.supersample,
+            self.coverage,
             self.waker.clone(),
         ) {
             Ok(ungrounded) => ungrounded,
@@ -1516,17 +1524,17 @@ mod tests {
                 .then(Transform::translate(0.0, 842.0 * magnification))
         };
         assert_eq!(
-            coverage_for(page(8.0)),
+            coverage_for(page(8.0), crate::arguments::CoverageChoice::Auto),
             quorra_gpu::Coverage::Cpu,
             "below the atlas cliff the cached lane is cheaper"
         );
         assert_eq!(
-            coverage_for(page(12.0)),
+            coverage_for(page(12.0), crate::arguments::CoverageChoice::Auto),
             quorra_gpu::Coverage::Gpu,
             "above it the CPU lane rasterises every glyph on every frame"
         );
         assert_eq!(
-            coverage_for(page(GPU_COVERAGE_MAGNIFICATION)),
+            coverage_for(page(GPU_COVERAGE_MAGNIFICATION), crate::arguments::CoverageChoice::Auto),
             quorra_gpu::Coverage::Gpu,
             "the threshold itself belongs to the lane it names"
         );
@@ -1548,7 +1556,8 @@ mod tests {
             e: 0.0,
             f: 0.0,
         };
-        assert_eq!(coverage_for(upright), coverage_for(turned));
-        assert_eq!(coverage_for(turned), quorra_gpu::Coverage::Gpu);
+        let auto = crate::arguments::CoverageChoice::Auto;
+        assert_eq!(coverage_for(upright, auto), coverage_for(turned, auto));
+        assert_eq!(coverage_for(turned, auto), quorra_gpu::Coverage::Gpu);
     }
 }
