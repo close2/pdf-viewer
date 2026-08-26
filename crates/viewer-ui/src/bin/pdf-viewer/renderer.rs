@@ -298,6 +298,8 @@ pub(crate) struct Window {
     sharp_news: Option<Duration>,
     /// `--supersample`'s factor: 1 off, 2 on. Carried to the render thread with the spawn.
     supersample: u32,
+    /// `--coverage`'s choice, for the idle work this thread's counterpart draws.
+    coverage: crate::arguments::CoverageChoice,
     /// What wakes the event loop when idle work lands while it is at rest. Without it a
     /// sharp picture would sit in the channel until the next input.
     waker: Option<winit::event_loop::EventLoopProxy<()>>,
@@ -452,6 +454,7 @@ impl Window {
         size: (u32, u32),
         proxy_pages: usize,
         supersample: u32,
+        coverage: crate::arguments::CoverageChoice,
         waker: Option<winit::event_loop::EventLoopProxy<()>>,
     ) -> Result<Ungrounded, Box<QuorraWindowRenderer>> {
         let description = renderer.adapter_description().to_owned();
@@ -477,6 +480,7 @@ impl Window {
             sharp: None,
             sharp_news: None,
             supersample,
+            coverage,
             waker,
             in_flight: None,
             serial: 0,
@@ -635,6 +639,7 @@ impl Window {
                 renderer,
                 self.proxies.extent(),
                 self.supersample,
+                self.coverage,
                 self.waker.clone(),
             ));
         }
@@ -788,6 +793,7 @@ fn spawn(
     renderer: QuorraWindowRenderer,
     proxy_pages: usize,
     supersample: u32,
+    coverage: crate::arguments::CoverageChoice,
     waker: Option<winit::event_loop::EventLoopProxy<()>>,
 ) -> Link {
     let (jobs, incoming) = channel::<Job>();
@@ -802,6 +808,7 @@ fn spawn(
                 renderer,
                 proxy_pages,
                 supersample,
+                coverage,
                 waker.as_ref(),
                 &incoming,
                 &outgoing,
@@ -825,6 +832,7 @@ fn draw_until_told_to_stop(
     mut renderer: QuorraWindowRenderer,
     proxy_pages: usize,
     supersample: u32,
+    coverage: crate::arguments::CoverageChoice,
     waker: Option<&winit::event_loop::EventLoopProxy<()>>,
     jobs: &Receiver<Job>,
     done: &Sender<Finished>,
@@ -876,7 +884,7 @@ fn draw_until_told_to_stop(
         // where a proxy is for a view change that has not happened yet.
         if supersample >= 2 && !sharpened && !showing.is_empty() {
             sharpened = true;
-            if let Some(sharp) = draw_sharp(&mut renderer, &showing, shown_size) {
+            if let Some(sharp) = draw_sharp(&mut renderer, &showing, shown_size, coverage) {
                 if done.send(Finished::Sharp(Box::new(sharp))).is_err() {
                     return;
                 }
@@ -927,6 +935,7 @@ fn draw_sharp(
     renderer: &mut QuorraWindowRenderer,
     showing: &[crate::stale::Placed],
     size: (u32, u32),
+    coverage: crate::arguments::CoverageChoice,
 ) -> Option<Sharpened> {
     let began = Instant::now();
     let (width, height) = (size.0.saturating_mul(2), size.1.saturating_mul(2));
@@ -948,12 +957,12 @@ fn draw_sharp(
         .collect();
     // The lane is this magnification's own choice, not the window frame's: doubling the
     // transform can carry a view past the crossover the 1× frame was under.
-    let coverage = doubled
+    let lane = doubled
         .first()
         .map_or(quorra_gpu::Coverage::Cpu, |(_, target)| {
-            crate::surface::coverage_for(target.transform)
+            crate::surface::coverage_for(target.transform, coverage)
         });
-    renderer.set_coverage(coverage);
+    renderer.set_coverage(lane);
     // A fresh texture per pass rather than a pooled one: the one it replaces is still on
     // the window until the event thread adopts this, and a sharp pass happens once per
     // settled view rather than once per frame — the pool that keeps `Pair` cheap would

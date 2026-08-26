@@ -122,6 +122,16 @@ pub(crate) struct Arguments {
     /// become a `Command`, a field of a boundary type or anything a gate could link to. So it is
     /// the host's, exactly as `--cpu`, `--backend` and `--no-sandbox` are.
     pub(crate) proxy_pages: usize,
+    /// Which coverage lane draws the page, from `--coverage`: the magnification
+    /// policy by default, or one lane pinned for a session that measures it.
+    ///
+    /// A host's setting for `--backend`'s reason: it changes which of several
+    /// equally-correct producers runs, and the honest way to compare them is to be
+    /// able to hold one still. `compute` is quorra's device lane (their ADR 0080/0081)
+    /// — bytes identical to the CPU lane's, cost flat across magnifications, no atlas
+    /// in front of it — and pinning it is how its zoom behaviour is seen before the
+    /// policy that mixes the lanes is designed.
+    pub(crate) coverage: CoverageChoice,
     /// The factor the settled frame is drawn above the window's resolution at, from
     /// `--supersample`: 2 by default, 1 for off.
     ///
@@ -139,6 +149,8 @@ pub(crate) struct Arguments {
 ///
 /// Separate from `main` because the sandbox decision is one of them: it decides *where* this
 /// document's images are decoded, and a policy applied halfway through is not a policy.
+#[allow(clippy::too_many_lines)] // one loop, one arm per flag: the length is the
+// option count, and a split would put half the command line out of sight of the other
 pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut path = None;
     let mut sandbox = true;
@@ -150,6 +162,7 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
     let mut restrictions = RestrictionLevel::On;
     let mut proxy_pages = crate::stale::PROXY_PAGES;
     let mut supersample = 2_u32;
+    let mut coverage = CoverageChoice::Auto;
     let mut arguments = std::env::args_os().skip(1);
     while let Some(argument) = arguments.next() {
         if argument == "--licences" || argument == "--licenses" {
@@ -202,6 +215,8 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
             proxy_pages = retained_pages(arguments.next());
         } else if argument == "--supersample" {
             supersample = supersample_factor(arguments.next());
+        } else if argument == "--coverage" {
+            coverage = coverage_choice(arguments.next());
         } else if argument == viewer_host::IGNORE_RESTRICTIONS {
             // The word is `viewer-host`'s rather than this file's, because the sentence a refusal
             // prints has to name a word every host's parser takes — and for two hosts of three it
@@ -255,7 +270,33 @@ pub(crate) fn arguments(began: std::time::Instant) -> Arguments {
         fragment,
         restrictions,
         proxy_pages,
+        coverage,
         supersample,
+    }
+}
+
+/// Which coverage lane `--coverage` pinned, or the magnification policy where it
+/// did not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CoverageChoice {
+    /// The magnification policy (`crate::surface::coverage_for`'s own).
+    Auto,
+    /// One lane, held for the whole session.
+    Fixed(quorra_gpu::Coverage),
+}
+
+/// The lane `--coverage` asked for. Refused rather than defaulted, for
+/// `retained_pages`'s reason.
+fn coverage_choice(word: Option<std::ffi::OsString>) -> CoverageChoice {
+    match word.and_then(|value| value.into_string().ok()).as_deref() {
+        Some("auto") => CoverageChoice::Auto,
+        Some("cpu") => CoverageChoice::Fixed(quorra_gpu::Coverage::Cpu),
+        Some("gpu") => CoverageChoice::Fixed(quorra_gpu::Coverage::Gpu),
+        Some("compute") => CoverageChoice::Fixed(quorra_gpu::Coverage::Compute),
+        _ => {
+            eprintln!("--coverage wants auto, cpu, gpu or compute (default auto)");
+            std::process::exit(2);
+        }
     }
 }
 
@@ -285,12 +326,11 @@ fn retained_pages(word: Option<std::ffi::OsString>) -> usize {
 /// samples and *look* like the feature working).
 fn supersample_factor(word: Option<std::ffi::OsString>) -> u32 {
     let read = word.and_then(|value| value.to_string_lossy().parse::<u32>().ok());
-    match read {
-        Some(factor @ (1 | 2)) => factor,
-        _ => {
-            eprintln!("--supersample wants 1 (off) or 2 (default 2)");
-            std::process::exit(2);
-        }
+    if let Some(factor @ (1 | 2)) = read {
+        factor
+    } else {
+        eprintln!("--supersample wants 1 (off) or 2 (default 2)");
+        std::process::exit(2);
     }
 }
 
@@ -419,6 +459,11 @@ fn usage() {
     eprintln!("                when a page is viewed small. Costs one extra render per settled");
     eprintln!("                view and a texture four times the window; gestures, the launch");
     eprintln!("                path and --cpu are untouched.");
+    eprintln!("  --coverage L  which lane rasterises coverage: auto (the magnification policy),");
+    eprintln!("                cpu (exact area with the glyph atlas), gpu (sampled winding), or");
+    eprintln!("                compute (the device runs the exact rasteriser from resident");
+    eprintln!("                outlines - the same bytes as cpu, at a cost that does not grow");
+    eprintln!("                with the magnification). For measuring; auto is right otherwise.");
     eprintln!("  --backend B   which driver stack talks to the GPU, not which GPU: vulkan, dx12,");
     eprintln!("                metal or gl. What to reach for when one stack on this machine is");
     eprintln!("                broken and another is not. Refused, rather than quietly ignored,");
