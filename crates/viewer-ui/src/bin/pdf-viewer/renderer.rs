@@ -955,14 +955,21 @@ fn draw_sharp(
             )
         })
         .collect();
-    // The lane is this magnification's own choice, not the window frame's: doubling the
-    // transform can carry a view past the crossover the 1× frame was under.
-    let lane = doubled
-        .first()
-        .map_or(quorra_gpu::Coverage::Cpu, |(_, target)| {
-            crate::surface::coverage_for(target.transform, coverage)
-        });
-    renderer.set_coverage(lane);
+    // The sharp pass is a moved view by construction — twice the shown transform — so
+    // `auto` takes the compute lane, which also keeps the 2× tiles out of the glyph
+    // atlas (the thrash ADR 0699 priced) because that lane has no atlas at all. On a
+    // software adapter the dispatch loses (`lane_for`'s reason) and the pass keeps the
+    // processor's lanes.
+    renderer.set_coverage(match coverage {
+        crate::arguments::CoverageChoice::Fixed(lane) => lane,
+        crate::arguments::CoverageChoice::Auto => {
+            if crate::surface::software_adapter(renderer.adapter_description()) {
+                quorra_gpu::Coverage::Cpu
+            } else {
+                quorra_gpu::Coverage::Compute
+            }
+        }
+    });
     // A fresh texture per pass rather than a pooled one: the one it replaces is still on
     // the window until the event thread adopts this, and a sharp pass happens once per
     // settled view rather than once per frame — the pool that keeps `Pair` cheap would
