@@ -200,6 +200,8 @@ fn open_document(
     (viewer, events)
 }
 
+#[allow(clippy::too_many_lines)] // the launch path, in launch order: a split would
+// scatter the sequence whose ordering is the whole of CLAUDE.md's startup rule
 fn main() {
     let mut launch = Launch::new();
     let Arguments {
@@ -287,6 +289,8 @@ fn main() {
         proxy_pages,
         supersample,
         coverage,
+        lane: None,
+        atlas_saw: Vec::new(),
         backend,
         backend_asked_for,
         cursor: (0.0, 0.0),

@@ -55,6 +55,89 @@ const GPU_COVERAGE_MAGNIFICATION: f32 = 10.0;
 /// transform is a scale, a y flip and a translation, and §7.7.3.3's page rotation puts
 /// the same factor into `b` and `c` instead of `a` and `d` — so its square root is the
 /// number to compare, and it is right for a rotated page as well.
+/// Which lane `auto` picks for one frame, from what the window is already showing.
+///
+/// Three cases, each a measurement (quorra's ADR 0080/0081, this tree's ADR 0700):
+///
+/// - **The view moved** — any coefficient of the arrangement's transform differs from
+///   the shown frame's — so every cached tile is cold, which is the regime the compute
+///   lane wins on both page shapes measured (a 58k-fill page: ~150 ms against ~270; a
+///   dense text page's cold sweep: 0.93 ms of encode against 8.84).
+/// - **The view is the one being shown** — a chrome-only ask — so the frame replays
+///   its retained encode, *if* the lane does not move: quorra keys a retained encode on
+///   the lane, so the choice is **sticky** here, and flipping it would turn a selection
+///   change into a full re-encode.
+/// - **There is no shown frame** — the launch path — which keeps the lane the
+///   time-to-first-page gates were measured on ([`coverage_for`]'s magnification rule);
+///   the compute lane's first frame pays its pipeline compile and its segment
+///   residency, and the launch path pays for nothing it can defer.
+///
+/// The sampled [`Gpu`](quorra_gpu::Coverage::Gpu) lane is deliberately absent from the
+/// moved-view case: the compute lane beats it on the cold sweep (0.93 against 9.8 ms),
+/// matches it held at 100×, and is exact where §10.7.4 records it non-conformant. It
+/// stays reachable by `--coverage gpu`, and in the launch rule until a first-frame
+/// measurement moves it.
+pub(crate) fn lane_for(
+    asked: Transform,
+    shown: Option<Transform>,
+    last: Option<quorra_gpu::Coverage>,
+    seen_by_the_atlas: &[[u32; 4]],
+    software: bool,
+    choice: crate::arguments::CoverageChoice,
+) -> quorra_gpu::Coverage {
+    if let crate::arguments::CoverageChoice::Fixed(lane) = choice {
+        return lane;
+    }
+    // A software adapter runs the dispatch on the processor without the scanline
+    // rasteriser's shape, and loses: 600 against 229 ms on the worst page's zoom step
+    // under llvmpipe. The compute lane is for machines with a device worth the name.
+    if software {
+        return coverage_for(asked, choice);
+    }
+    match (shown, last) {
+        (Some(drawn), Some(lane)) if same_transform(drawn, asked) => lane,
+        // A magnification the atlas has drawn before is a magnification it still
+        // holds: quorra's tiles are keyed by the linear part and evicted only by a
+        // repack, so a revisit — zooming back to the fit, the other window size of a
+        // pair — hits, and the hit is worth 69 against the compute lane's 130 ms on
+        // the worst page (the loop measurement in ADR 0700). A repack in between costs
+        // one cold CPU frame, which is the bounded downside of remembering.
+        (Some(_), _) if seen_by_the_atlas.contains(&linear_bits_of(asked)) => {
+            quorra_gpu::Coverage::Cpu
+        }
+        (Some(_), _) => quorra_gpu::Coverage::Compute,
+        _ => coverage_for(asked, choice),
+    }
+}
+
+/// The linear part as the bits the atlas keys tiles by — the same reading quorra
+/// makes, so "seen" here and "resident" there mean the same magnification.
+pub(crate) fn linear_bits_of(transform: Transform) -> [u32; 4] {
+    [
+        transform.a.to_bits(),
+        transform.b.to_bits(),
+        transform.c.to_bits(),
+        transform.d.to_bits(),
+    ]
+}
+
+/// Whether this adapter is a software rasteriser, read from the description quorra
+/// formats as `"{name} ({device_type:?}, {backend:?})"` (their `construct.rs`) — a
+/// string test with a named source, to be replaced by a typed accessor when quorra
+/// grows one.
+pub(crate) fn software_adapter(description: &str) -> bool {
+    description.contains("(Cpu,")
+}
+
+/// Bit equality of the six coefficients — the same reading quorra's retained-frame key
+/// makes, so "the view moved" here and "the encode survives" there cannot disagree.
+fn same_transform(a: Transform, b: Transform) -> bool {
+    [a.a, a.b, a.c, a.d, a.e, a.f]
+        .iter()
+        .zip([b.a, b.b, b.c, b.d, b.e, b.f])
+        .all(|(a, b)| a.to_bits() == b.to_bits())
+}
+
 pub(crate) fn coverage_for(
     transform: Transform,
     choice: crate::arguments::CoverageChoice,
@@ -223,12 +306,25 @@ impl App {
     ) -> Option<Rendered> {
         let now = std::time::Instant::now();
         self.adopt(now, stages);
-        // The magnification is the arrangement's rather than one page's: every page of a column
-        // is placed at the same magnification by `viewer_core::layout`, so the first states it.
-        let coverage = coverage_for(pages.first()?.target.transform, self.coverage);
         let overlays = chrome.owned();
+        let choice = self.coverage;
+        let last_lane = self.lane;
+        let self_seen = self.atlas_saw.clone();
         let drawing = {
             let window = self.device_window()?;
+            // The magnification is the arrangement's rather than one page's: every page of a
+            // column is placed at the same magnification by `viewer_core::layout`, so the first
+            // states it — and the lane follows what the window already shows (ADR 0700).
+            let coverage = lane_for(
+                pages.first()?.target.transform,
+                window
+                    .shown()
+                    .and_then(|shown| Some(shown.pages.first()?.target.transform)),
+                last_lane,
+                &self_seen,
+                software_adapter(window.description()),
+                choice,
+            );
             // **Read before the ask below, and that is not an ordering accident.** Rule 5's
             // observation is "a render asked for at an *earlier* tick is still out", and a render
             // dispatched two lines further down has missed nothing yet. Reading it afterwards
@@ -256,8 +352,25 @@ impl App {
             if !of_this_view {
                 window.ask(pages.to_vec(), overlays, coverage, now);
             }
-            was_drawing
+            (was_drawing, coverage)
         };
+        // What the sticky half of `lane_for` reads next tick: the lane this view was
+        // (or already had been) asked in — and, for the revisit rule, which
+        // magnifications the atlas has drawn (a short ring; older entries age out as
+        // the atlas's own tiles do, by being forgotten).
+        self.lane = Some(drawing.1);
+        if drawing.1 == quorra_gpu::Coverage::Cpu
+            && let Some(first) = pages.first()
+        {
+            let bits = linear_bits_of(first.target.transform);
+            if !self.atlas_saw.contains(&bits) {
+                if self.atlas_saw.len() >= 8 {
+                    self.atlas_saw.remove(0);
+                }
+                self.atlas_saw.push(bits);
+            }
+        }
+        let drawing = drawing.0;
         // A transition is a picture of two pages moving and no transform of it is any view of
         // either, so the newest is put up at the identity and nothing about it is approximated.
         // A window that has never drawn is the other case with no stand-in to consider: it is not
@@ -1447,6 +1560,87 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+
+    /// **The `auto` policy in its three cases** (ADR 0700): a moved view takes the
+    /// compute lane, an unchanged view keeps the lane it was drawn in — quorra keys a
+    /// retained encode on the lane, so a flip would cost a selection change a full
+    /// re-encode — and a window with nothing shown keeps the launch rule.
+    #[test]
+    fn the_lane_follows_the_view_and_sticks_where_it_stands() {
+        use crate::arguments::CoverageChoice;
+        let auto = CoverageChoice::Auto;
+        let at = |scale: f32| Transform::scale(scale, -scale);
+        assert_eq!(
+            super::lane_for(
+                at(1.5),
+                Some(at(1.0)),
+                Some(quorra_gpu::Coverage::Cpu),
+                &[],
+                false,
+                auto
+            ),
+            quorra_gpu::Coverage::Compute,
+            "a zoom is cold tiles everywhere, which is the compute lane's regime"
+        );
+        assert_eq!(
+            super::lane_for(
+                at(1.0),
+                Some(at(1.0)),
+                Some(quorra_gpu::Coverage::Compute),
+                &[],
+                false,
+                auto
+            ),
+            quorra_gpu::Coverage::Compute,
+            "an unchanged view keeps its lane, or the replay dies with the flip"
+        );
+        assert_eq!(
+            super::lane_for(at(1.0), Some(at(1.0)), Some(quorra_gpu::Coverage::Cpu), &[], false, auto),
+            quorra_gpu::Coverage::Cpu,
+            "sticky in both directions: the lane is the shown frame's, not a favourite"
+        );
+        assert_eq!(
+            super::lane_for(at(1.0), None, None, &[], false, auto),
+            quorra_gpu::Coverage::Cpu,
+            "the launch path keeps the rule its gates were measured on"
+        );
+        assert_eq!(
+            super::lane_for(at(1.5), Some(at(1.0)), Some(quorra_gpu::Coverage::Cpu), &[], true, auto),
+            quorra_gpu::Coverage::Cpu,
+            "a software adapter loses on the dispatch and keeps the processor's lanes"
+        );
+        assert!(
+            super::software_adapter("llvmpipe (LLVM 22.1.8, 256 bits) (Cpu, Vulkan)"),
+            "the format quorra's construct.rs states"
+        );
+        assert!(!super::software_adapter(
+            "AMD Radeon 890M Graphics (RADV STRIX1) (IntegratedGpu, Vulkan)"
+        ));
+        assert_eq!(
+            super::lane_for(
+                at(1.0),
+                Some(at(1.5)),
+                Some(quorra_gpu::Coverage::Compute),
+                &[super::linear_bits_of(at(1.0))],
+                false,
+                auto
+            ),
+            quorra_gpu::Coverage::Cpu,
+            "a magnification the atlas has drawn is a revisit, and the atlas holds it"
+        );
+        assert_eq!(
+            super::lane_for(
+                at(1.5),
+                Some(at(1.0)),
+                Some(quorra_gpu::Coverage::Cpu),
+                &[],
+                false,
+                CoverageChoice::Fixed(quorra_gpu::Coverage::Gpu)
+            ),
+            quorra_gpu::Coverage::Gpu,
+            "a pinned lane is pinned"
+        );
+    }
     use pdf_render::Transform;
     use quorra_gpu::SurfaceProblem;
     use render_quorra::Uncaptured;
