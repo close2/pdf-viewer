@@ -11,6 +11,16 @@ can and cannot open a window on, and where the build lands.
   Evaluate if installing something globally by asking the human or creating a user local
   copy / installation automatically is the better choice.
 - If a proposed fix looks wrong for this setup, say so instead of running it.
+- **A session may depend on the local quorra checkout during development** (owner,
+  2026-08-26): a temporary `[patch."https://github.com/close2/quorra"]` section in
+  `Cargo.toml` pointing at `/home/cl/projects/render-lib` is the fast loop for work
+  that spans both trees. It is reverted before any commit — CI has no sibling checkout
+  — and the committed dependency stays the git pin.
+- **The byte-for-byte determinism contract is officially relaxed** (owner, 2026-08-26;
+  quorra's ADR 0082): a close best effort from a device lane is good enough, and a
+  cross-adapter or CPU-versus-device difference is a tolerance to state and bound. The
+  CPU oracle stays the correctness reference; what relaxed is how exactly a device
+  lane must match it, never whether §-derived expected values bind.
 - Verify claims by running them. Report failures with their output; never assert that
   something works without having checked.
 - **A commit that lands on `main` keeps its body.** Four commits arrived by cherry-pick carrying
