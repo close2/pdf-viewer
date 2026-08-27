@@ -1,7 +1,8 @@
 //! Strokes: what quorra draws, and what is settled here first.
 //!
-//! quorra expands caps, joins and miters itself, and — since the §4.5 amendment of
-//! 2026-08-27 (ADR 0701, quorra's ADR 0085) — resolves the device width itself, per
+//! quorra expands caps, joins and miters itself, and — since the amendment of the
+//! brief's section 4.5 on 2026-08-27 (ADR 0701, quorra's ADR 0085) — resolves the
+//! device width itself, per
 //! placement, from the scene-space width and §10.7.5's `adjust` flag this module now
 //! passes through unresolved. It does not dash, and it does not re-take the other
 //! decisions `pdf-render` owns. So this module runs the same shared machinery the
