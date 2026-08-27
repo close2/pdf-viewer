@@ -1,9 +1,11 @@
 //! Strokes: what quorra draws, and what is settled here first.
 //!
-//! quorra expands caps, joins and miters itself from a resolved **device** width —
-//! `RENDER_LIBRARY.md` section 4.5's contract — but it does not dash, and it does not
-//! re-take the decisions `pdf-render` already owns. So this module runs the same
-//! shared machinery the other backends run, in the same order:
+//! quorra expands caps, joins and miters itself, and — since the §4.5 amendment of
+//! 2026-08-27 (ADR 0701, quorra's ADR 0085) — resolves the device width itself, per
+//! placement, from the scene-space width and §10.7.5's `adjust` flag this module now
+//! passes through unresolved. It does not dash, and it does not re-take the other
+//! decisions `pdf-render` owns. So this module runs the same shared machinery the
+//! other backends run, in the same order:
 //!
 //! 1. [`pdf_render::split_degenerate`]: ISO 32000-2 §8.5.3.2's zero-length
 //!    subpaths become dots (or nothing), decided by one implementation.
@@ -81,7 +83,6 @@ pub(crate) fn encode(
     // anisotropy decides the route below.
     let to_device = transform.then(enc.target().transform);
     let path_width = s.device_width(to_device);
-    let width = path_width * to_device.max_stretch();
 
     // §10.7.4's substitution for a mark whose area is under what the raster can hold, decided
     // in `pdf-render` for all three backends (trap 2). Two conditions withhold it, and both are
@@ -150,7 +151,12 @@ pub(crate) fn encode(
                 outline,
                 at,
                 quorra_scene::Stroke {
-                    width,
+                    // Scene-space since quorra's ADR 0085 (this tree's ADR 0701): the
+                    // width travels as the file stated it, and the encode applies
+                    // §8.4.3.2's zero and §10.7.5's adjustment per placement — the
+                    // amendment that lets one scene be true at every magnification.
+                    width: s.width,
+                    adjust: s.adjust,
                     cap: cap(s.cap),
                     join: join(s.join),
                     // §8.4.3.5 defines the limit as a ratio of at least 1; a
