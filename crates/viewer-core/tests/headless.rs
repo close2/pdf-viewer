@@ -5509,6 +5509,15 @@ fn a_no_zoom_annotation_is_the_one_thing_a_zoom_re_interprets() {
         "the annotation's size is a function of the zoom, so the page is read again"
     );
     assert!(second.target.width > first.target.width);
+    // The re-interpretation is the view's, not the ink's: the same layers are on and the same
+    // values are in the fields, so a host holding a picture of the old magnification may stand
+    // in with it while this request renders. A superseded ink here froze every zoom of such a
+    // page for the length of the real frame, because a host refuses to show a picture of other
+    // ink — which is right, and why the ink must not move for a zoom.
+    assert_eq!(
+        first.ink, second.ink,
+        "a zoom re-interprets the page without superseding its ink"
+    );
 }
 
 /// The same fixture as `pdf-model`'s: a 100×100 page and one 30×30 `Square` at `/F 12`.

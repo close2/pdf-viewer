@@ -692,6 +692,29 @@ impl Open {
         self.readbacks.clear();
     }
 
+    /// The display lists go and the ink stays: a re-interpretation the *view* asked for.
+    ///
+    /// **The one caller is §12.5.3's magnification path, and the distinction is what a host may
+    /// show while the new interpretation renders.** A `NoZoom` annotation's placement is a
+    /// function of the magnification, so a zoom re-interprets the page — but nothing about the
+    /// document or [`Self::view`]'s ink moved: the same layers are on, the same values are in
+    /// the fields, the same appearance is under the pointer. A picture of the old magnification
+    /// is therefore still a picture of this page's ink, approximately placed — exactly what a
+    /// stand-in is, and the opposite of the superseded-ink case [`Self::stale`] exists for,
+    /// where a sharp picture of switched-off ink would assert something false. Bumping
+    /// [`Self::ink`] here made every zoom of such a page freeze for the length of the real
+    /// frame, because a host correctly refuses to show a picture of other ink.
+    ///
+    /// The readbacks go with the lists — not because the text moved, but because the two are
+    /// invalidated together everywhere else and a cache with two lifetimes needs an argument
+    /// this one has not earned: re-interpretation repopulates it on the next pass.
+    pub(crate) fn reinterpret(&mut self) {
+        for on_screen in &mut self.on_screen {
+            on_screen.interpreted = None;
+        }
+        self.readbacks.clear();
+    }
+
     /// The arrangement's entry for a page, where the arrangement shows it.
     pub(crate) fn on(&self, page: usize) -> Option<&OnScreen> {
         self.on_screen

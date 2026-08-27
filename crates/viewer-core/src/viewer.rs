@@ -2202,6 +2202,14 @@ impl Viewer {
         // keeps the display list's promise: 923 of the 974 corpus documents have no such
         // annotation and pay nothing for this, and the 51 that do pay exactly what the clause
         // asks for.
+        //
+        // `reinterpret` and not `stale`, because the ink did not move: a zoom changes where
+        // §12.5.3 puts the annotation, not what the document's state is, and a host holding a
+        // picture of the old magnification may go on standing in with it while the new
+        // interpretation renders. `stale` here superseded the ink, so a host refused that
+        // picture as "of another ink" and every zoom step of such a page froze for the length
+        // of the real frame — the owner's "zooming is laggy", traced to 234 such refusals in
+        // one gesture.
         let magnification = open
             .magnification(viewport, scale)
             .map(|device| device / scale);
@@ -2213,7 +2221,7 @@ impl Viewer {
                     .is_some_and(|interpreted| interpreted.view_dependent)
             })
         {
-            open.stale();
+            open.reinterpret();
         }
 
         // §6.3.2.2's "unless otherwise instructed", carried to whichever document is on screen.
