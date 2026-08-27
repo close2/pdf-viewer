@@ -378,6 +378,19 @@ share and the two that break it:
   rewrites a group note names the bound its pages fail on, in the gate's own words.** Five rounds
   had recorded this as owed and each of their thirteen diagnoses began by reading the failing
   bound off a log by hand.
+- **One asks about *this tree* rather than about the standard, and it is the newest**: `--bin
+  parts`, the twenty-second sweep (ADR 0709). Every other sweep here judges a claim against the
+  specification, the ledger or the tree's own prose; this one judges a **cardinal counting this
+  tree's own parts** — backends, rasterisers, crates, hosts, workers, submodules — against the
+  workspace's own membership, read off the member directories, each package's `src/bin/` and
+  `.gitmodules`. It exists because "both backends" was true until the tree grew a third rasteriser,
+  and no instrument read that population at all: a `shall` was met by two backends out of three
+  under a sentence that said *both*, for three hundred and twenty-five sessions (ADR 0697). **It is
+  a decay detector, so most of what it walks is correct sentences** — read the closest rung, which
+  is a crate the whole population depends on, and know that the rung it does not list is a
+  cross-backend test naming its pair. **The rule it comes with: a round that adds a part to this
+  tree runs it**, because that is the moment every sentence counting the old population goes wrong
+  at once.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in
