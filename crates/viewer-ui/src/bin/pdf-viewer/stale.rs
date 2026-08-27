@@ -1295,11 +1295,34 @@ fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusa
             continue;
         };
         let target = &placed.target;
-        let Some(moved) = was
-            .transform
-            .invert()
-            .map(|back| back.then(target.transform))
-        else {
+        // A scroll changes only the translation, and the linear parts say so by bit
+        // equality — so the placement is *constructed* as the exact translation
+        // `t2 − t1` rather than computed through an inverse whose round-trip would
+        // leave the scale at 0.99999994 and the whole window resampled for it. This
+        // is what lets the snap below recognise a scroll with no tolerance anywhere.
+        let same_linear = [
+            (was.transform.a, target.transform.a),
+            (was.transform.b, target.transform.b),
+            (was.transform.c, target.transform.c),
+            (was.transform.d, target.transform.d),
+        ]
+        .iter()
+        .all(|(then, now)| then.to_bits() == now.to_bits());
+        let moved = if same_linear {
+            Some(Transform {
+                a: 1.0,
+                b: 0.0,
+                c: 0.0,
+                d: 1.0,
+                e: target.transform.e - was.transform.e,
+                f: target.transform.f - was.transform.f,
+            })
+        } else {
+            was.transform
+                .invert()
+                .map(|back| back.then(target.transform))
+        };
+        let Some(moved) = moved else {
             return Err(Refusal::NoPlacement);
         };
         if ![moved.a, moved.b, moved.c, moved.d, moved.e, moved.f]
@@ -1327,7 +1350,10 @@ fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusa
         }
     }
     agreed
-        .map(|placement| Carried { placement, within })
+        .map(|placement| Carried {
+            placement: snapped(placement),
+            within,
+        })
         .ok_or(Refusal::AnotherPage)
 }
 
@@ -1756,6 +1782,31 @@ impl Stale {
     }
 }
 
+/// A pure translation snapped to whole device pixels; anything else unchanged.
+///
+/// A scroll's stand-in used to move the base by the scroll's own fractional offset,
+/// and a bilinear tap at a fractional offset resamples every texel — the owner's
+/// report, verbatim: *"scrolling with the mouse still shows blurry text"*. Snapping
+/// costs at most half a pixel of position for the one refresh the stand-in lives,
+/// and buys text that stays text while it moves. Exact comparisons, deliberately:
+/// the translation this recognises was *constructed* as one (`one_placement`), so
+/// the identity coefficients are the literals written there, not survivors of an
+/// inverse.
+fn snapped(placement: Transform) -> Transform {
+    let pure_translation = placement.a.to_bits() == 1.0_f32.to_bits()
+        && placement.d.to_bits() == 1.0_f32.to_bits()
+        && placement.b.to_bits() == 0.0_f32.to_bits()
+        && placement.c.to_bits() == 0.0_f32.to_bits();
+    if !pure_translation {
+        return placement;
+    }
+    Transform {
+        e: placement.e.round(),
+        f: placement.f.round(),
+        ..placement
+    }
+}
+
 /// Whether a picture of `drawn` carries onto `wanted`, and where it goes.
 ///
 /// **The whole of what makes a rendering usable for a view it is not of**, stated once and asked
@@ -2114,6 +2165,51 @@ mod tests {
     /// view moved, the page did not, and the machine will be most of a second.
     fn slow(stale: &mut Stale, page: &Sheet) {
         stale.settled(&alone(page, 1.0), Duration::from_millis(700), true);
+    }
+
+    /// A scroll's stand-in moves texels without resampling them: the reprojection of
+    /// a translation-only view change is constructed as the exact translation and
+    /// snapped to whole device pixels — the owner's "scrolling with the mouse still
+    /// shows blurry text", fixed at the placement rather than in the sampler. The
+    /// half-pixel it costs lives one refresh; the blur it removes covered every glyph.
+    #[test]
+    fn a_scroll_stand_in_lands_on_whole_pixels() {
+        let page = page();
+        let mut stale = Stale::default();
+        let magnification = 1.3_f32;
+        stale.settled(
+            &alone(&page, magnification),
+            Duration::from_millis(700),
+            true,
+        );
+        // The same magnification, scrolled by a fraction of a pixel: only the
+        // translation moves, which is what a wheel tick does.
+        let mut scrolled = view(magnification);
+        scrolled.transform.f += 37.4;
+        let carried = stale
+            .reproject(&at(&page, scrolled))
+            .expect("a scroll carries");
+        assert_eq!(
+            (carried.placement.a, carried.placement.b),
+            (1.0, 0.0),
+            "constructed as the exact translation, not an inverse's survivor"
+        );
+        assert_eq!((carried.placement.c, carried.placement.d), (0.0, 1.0));
+        assert_eq!(
+            carried.placement.f, 37.0,
+            "snapped to the pixel row, so the bilinear tap resamples nothing"
+        );
+        assert_eq!(carried.placement.e, 0.0);
+        // A zoom is not snapped: its stand-in is scaled and resampled either way, and
+        // moving it would add error for nothing.
+        let zoomed = stale
+            .reproject(&alone(&page, 1.45))
+            .expect("a zoom carries");
+        assert!(
+            (zoomed.placement.a - 1.45 / 1.3).abs() < 1e-5,
+            "the scale survives untouched: {}",
+            zoomed.placement.a
+        );
     }
 
     /// Rule 1. A reprojection is never the state the window settles in, and what enforces that is
