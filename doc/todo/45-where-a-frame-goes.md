@@ -88,6 +88,12 @@ before it is worth the lines.
 scene's size. Nothing inside it is visible from here, which is what §13 asks for — an instrument
 before an optimisation, the same argument the existing three phases won.
 
+**The encode item has moved on and lives in [`47-the-encode-term.md`](47-the-encode-term.md)
+now** — the three-phase instrument was built and read (ADR 0368), record replay was built and
+measured no-win, and the current numbers are a fraction of this table's. This file keeps the
+measurement that opened the question; that one carries its present state and the revisit
+condition.
+
 **`elsewhere` was decided and the decision is a retraction.** It is not a duration: `execute` comes
 from the adapter's own timestamp queries and `device` is a host `Instant`, so the remainder carries
 whatever the two clocks disagree by along with the acquire, the present and the readback. The
