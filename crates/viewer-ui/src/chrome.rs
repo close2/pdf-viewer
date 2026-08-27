@@ -1273,6 +1273,18 @@ fn tab_at(x: f32, scale: f32) -> Tab {
 /// and the clause says such files "shall be treated as associated with the root folder" — so they
 /// are drawn at depth zero, above the folders, which is where the root's own files belong.
 ///
+/// **Every embedded file is on the screen, and the clause says so twice** — a document that states
+/// no `/Folders` gets a flat list, because "[i]f no folder structure is specified, interactive PDF
+/// processors should show all files in the collection in a flat list", and a key naming a folder
+/// identifier the tree does not state is drawn at the root, because "[w]hen folders are used, all
+/// files in the `EmbeddedFiles` name tree … shall be treated as members of the folder structure by
+/// an interactive PDF processor". Such a key conforms to the naming rules, so the clause's own
+/// root-folder sentence does not reach it; what it contradicts is "[t]he value shall correspond to
+/// a folder ID", a requirement on the producer for which the clause states no remedy. Both cases
+/// dropped the file from this panel altogether until the seven-hundred-and-seventy-second session
+/// (ADR 0707). `viewer_host::panel::collection_rows` is the same two rules for the other two
+/// windows.
+///
 /// # §12.3.5.1's `/D`, and what "presented" means for a panel over a page
 ///
 /// Table 153's `/D` "identif[ies] an entry in the `EmbeddedFiles` name tree, determining the
@@ -1307,13 +1319,29 @@ fn collection_rows(
         .collect();
     columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
 
+    // Which folder identifiers the tree actually states, which is what makes a key naming one
+    // that it does not a file with nowhere else to go but the root.
+    let mut stated = std::collections::BTreeSet::new();
+    let mut stack: Vec<&pdf_model::collection::Folder> = collection.folders.iter().collect();
+    while let Some(folder) = stack.pop() {
+        stated.insert(folder.id);
+        stack.extend(folder.children.iter());
+    }
+
     let mut under = |folder: Option<u32>, out: &mut Vec<Row>, depth: usize| {
         for file in files {
             let (id, name) = match pdf_model::collection::folder_of(&file.name) {
                 Some((id, name)) => (Some(id), name.to_owned()),
                 None => (None, file.name.clone()),
             };
-            if id != folder {
+            // The root level takes the files no *stated* folder claims, which is the clause's own
+            // rule for a non-conforming key and this program's choice for a conforming key naming
+            // an identifier nobody wrote. With no folder tree at all, the level takes everything.
+            let here = match folder {
+                Some(folder) => id == Some(folder),
+                None => id.is_none_or(|id| !stated.contains(&id)),
+            };
+            if !here {
                 continue;
             }
             let mut row = Row::plain(depth, file.file_name.clone().unwrap_or(name));

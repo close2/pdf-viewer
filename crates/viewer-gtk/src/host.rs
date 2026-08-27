@@ -1183,10 +1183,7 @@ impl Host {
                     "This document states no optional content.",
                 )],
             }),
-            Tab::Files => Panel::Rows(match self.viewer.query(Query::Attachments) {
-                Answer::Attachments(files) if !files.is_empty() => panel::attachment_rows(&files),
-                _ => vec![panel::PanelRow::saying("This document embeds no files.")],
-            }),
+            Tab::Files => Panel::Rows(self.file_rows()),
             Tab::Articles => Panel::Rows(match self.viewer.query(Query::Articles) {
                 Answer::Articles(threads) => panel::article_rows(&threads),
                 _ => panel::article_rows(&[]),
@@ -1199,6 +1196,34 @@ impl Host {
                 _ => panel::property_rows(&pdf_model::metadata::Information::default(), None),
             }),
         }
+    }
+
+    /// §7.11.4's embedded files, arranged as §12.3.5 says to where the document states a
+    /// collection.
+    ///
+    /// > If this dictionary is present in a PDF document, the interactive PDF processor shall
+    /// > present the document as a portable collection.
+    ///
+    /// The collection is asked for *first* because it decides how this same list is shown: a
+    /// document stating one gets §12.3.5.2's folder tree and Table 155's columns, and every other
+    /// document gets the `/EmbeddedFiles` tree's own order. Both mappings are
+    /// `viewer_host::panel`'s, so this window and `viewer-qt` present a collection identically.
+    fn file_rows(&self) -> Vec<panel::PanelRow> {
+        let files = match self.viewer.query(Query::Attachments) {
+            Answer::Attachments(files) => files,
+            _ => Vec::new(),
+        };
+        if let Answer::Collection {
+            collection,
+            initial,
+        } = self.viewer.query(Query::Collection)
+        {
+            return panel::collection_rows(&collection, &initial, &files);
+        }
+        if files.is_empty() {
+            return vec![panel::PanelRow::saying("This document embeds no files.")];
+        }
+        panel::attachment_rows(&files)
     }
 
     /// Builds every panel from its own answer.

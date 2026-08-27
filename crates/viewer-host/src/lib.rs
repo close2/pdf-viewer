@@ -26,9 +26,10 @@
 //!
 //! - [`arrangement`] — moving between Table 29's six `/PageLayout` values, which the clause states
 //!   and says nothing about cycling. The third host would have been the third copy.
-//! - [`panel`] — §12.3.3's outline, §8.11.4.3's `/Order`, §7.11.4's embedded files, §12.4.3's
-//!   article threads and §14.3.3's document information, as one [`PanelRow`] tree with a
-//!   [`RowAction`] per row. Five answers, five types, one shape a platform tree can hold. §12.3.4's
+//! - [`panel`] — §12.3.3's outline, §8.11.4.3's `/Order`, §7.11.4's embedded files, §12.3.5's
+//!   portable collection, §12.4.3's article threads and §14.3.3's document information, as one
+//!   [`PanelRow`] tree with a [`RowAction`] per row. Six answers, six types, one shape a platform
+//!   tree can hold. §12.3.4's
 //!   miniatures are the sixth panel and the one that is not a row, so what is shared for them is
 //!   [`page_entry`] and the picture stays each toolkit's. [`Tab`] is the list of the six itself,
 //!   which is what makes `doc/todo/30`'s "all three hosts stay level" a thing a compiler checks.
@@ -124,7 +125,7 @@ pub use geometry::{bounds, covers};
 pub use keys::{Key, Meaning, Mode, WindowAct, meaning};
 pub use panel::{
     Held, KEPT_MINIATURES, Miniatures, PageEntry, PanelRow, RowAction, Tab, article_rows,
-    attachment_rows, layer_rows, outline_rows, page_entry, property_rows, stamp,
+    attachment_rows, collection_rows, layer_rows, outline_rows, page_entry, property_rows, stamp,
 };
 pub use password::{Ask, Asking, Supplied, Wording};
 pub use policy::{

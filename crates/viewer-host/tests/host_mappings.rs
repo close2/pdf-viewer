@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use pdf_model::form::{Choice, ChoiceControl, Control, TextControl};
 use viewer_core::{Answer, Command, DocumentId, Extraction, Query, Viewer};
 use viewer_host::{
-    Clicked, ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, control_kind,
-    layer_rows, may_write_extracted, outline_rows, resolve_import,
+    Clicked, ControlKind, ImportRefusal, PanelRow, RowAction, attachment_rows, collection_rows,
+    control_kind, layer_rows, may_write_extracted, outline_rows, resolve_import,
 };
 
 /// The identity these tests give the one document they open.
@@ -608,4 +608,261 @@ fn the_value_a_click_decides_on_reaches_the_field_and_comes_back() {
             value: "Off".to_owned(),
         }
     );
+}
+
+/// A document with a `/Collection`, its two files, its schema and its one folder.
+///
+/// Written here because **not one of the 974 pdf.js documents states a `/Collection`** and the one
+/// that does is under `doc/corpora/`, which is optional in the strong sense: a test that skipped
+/// itself where that submodule is absent would leave §12.3.5's `shall` ungated on every machine
+/// and on CI. Trap 8's converse — a corpus finds what documents contain, not what the
+/// specification says.
+///
+/// `initial` is Table 153's `/D`, `folders` its `/Folders` and `folder_id` Table 159's `/ID` on
+/// the one folder, all written in so that the four outcomes, an absent tree and a key naming a
+/// folder nobody wrote can each be varied by the tests below.
+fn a_collection(initial: &str, folders: &str, folder_id: u32) -> Vec<u8> {
+    use std::fmt::Write as _;
+
+    let objects: [String; 10] = [
+        "<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles << /Names \
+         [(<3>report.pdf) 4 0 R (readme.txt) 6 0 R] >> >> /Collection 8 0 R >>"
+            .to_owned(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>".to_owned(),
+        "<< /Type /Filespec /UF (report.pdf) /Desc (the third chapter) /EF << /UF 5 0 R >> >>"
+            .to_owned(),
+        "<< /Length 5 /Params << /Size 5 >> >>\nstream\nhello\nendstream".to_owned(),
+        "<< /Type /Filespec /UF (readme.txt) /Desc (read me) /EF << /UF 7 0 R >> >>".to_owned(),
+        "<< /Length 5 /Params << /Size 5 >> >>\nstream\nthere\nendstream".to_owned(),
+        format!("<< /Type /Collection {initial} /Schema 9 0 R {folders} >>"),
+        // Table 155: `/O` orders the columns, `/V` says which are shown at all, and `/N` is the
+        // name a person reads. `HD` states the *lowest* `/O` and `/V false`, so a panel obeying
+        // `/O` alone would put it first.
+        "<< /FN << /Subtype /F /N (File) /O 1 /V true >> /ZZ << /Subtype /Desc /N (About) >> \
+         /HD << /Subtype /Size /N (Hidden) /O 0 /V false >> >>"
+            .to_owned(),
+        format!("<< /Type /Folder /ID {folder_id} /Name (Chapters) /Desc (the parts of it) >>"),
+    ];
+    let mut out = String::from("%PDF-2.0\n");
+    let mut offsets = Vec::new();
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        let number = index.saturating_add(1);
+        let _ = write!(out, "{number} 0 obj\n{body}\nendobj\n");
+    }
+    let at = out.len();
+    let size = objects.len().saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// The two answers a host holds when it fills the files panel.
+fn collection_and_files(
+    bytes: Vec<u8>,
+) -> (
+    pdf_model::collection::Collection,
+    pdf_model::collection::Initial,
+    Vec<pdf_model::attachment::Attachment>,
+) {
+    let viewer = opened(bytes);
+    let Answer::Collection {
+        collection,
+        initial,
+    } = viewer.query(Query::Collection)
+    else {
+        panic!("the fixture's catalog states a /Collection");
+    };
+    let Answer::Attachments(files) = viewer.query(Query::Attachments) else {
+        panic!("the fixture embeds two files");
+    };
+    (collection, initial, files)
+}
+
+/// §12.3.5: a collection is the same files *arranged*, and a native host now shows the arrangement.
+///
+/// > If this dictionary is present in a PDF document, the interactive PDF processor shall present
+/// > the document as a portable collection.
+///
+/// The `shall` is addressed to a viewer. `viewer_core::Query::Collection` has carried Table 153
+/// whole since the three-hundred-and-fifty-second session and neither native host asked it, so
+/// both drew a collection as `attachment_rows`' flat list — which this test asserts alongside the
+/// new shape, because the difference between the two *is* the defect that was closed.
+#[test]
+fn a_collection_becomes_a_folder_tree_with_the_schemas_columns() {
+    let (collection, initial, files) =
+        collection_and_files(a_collection("/D (<3>report.pdf)", "/Folders 10 0 R", 3));
+
+    // What both native hosts showed before: two files, side by side, and no folder anywhere.
+    let flat = attachment_rows(&files);
+    assert_eq!(flat.len(), 2, "the /EmbeddedFiles tree has two entries");
+    assert!(
+        flat.iter().all(|row| row.children.is_empty()),
+        "a flat list has no arrangement in it: {flat:?}"
+    );
+
+    let rows = collection_rows(&collection, &initial, &files);
+
+    // §12.3.5.2: a key that does not name a folder "shall be treated as associated with the root
+    // folder", so `readme.txt` is a top-level row — above the folders, where the root's own files
+    // belong — and the folder is the other one.
+    assert_eq!(rows.len(), 2, "one rootless file and one folder: {rows:?}");
+    assert_eq!(rows[0].label, "readme.txt");
+    assert_eq!(
+        rows[0].action,
+        RowAction::Extract {
+            name: "readme.txt".to_owned()
+        }
+    );
+    assert_eq!(rows[1].label, "Chapters", "Table 159's /Name");
+    assert_eq!(rows[1].detail.as_deref(), Some("the parts of it"), "/Desc");
+    assert!(
+        rows[1].expanded,
+        "a folder tree arrives open or says nothing"
+    );
+    assert_eq!(
+        rows[1].action,
+        RowAction::Inert,
+        "a folder has no bytes to take out, so its row acts through its children"
+    );
+
+    // `<3>report.pdf` is *report.pdf* in folder 3, and the row still carries the **tree's** key,
+    // folder number and all, because that is what `Command::Extract` names a file by.
+    assert_eq!(rows[1].children.len(), 1);
+    let inside = &rows[1].children[0];
+    assert_eq!(inside.label, "report.pdf", "Table 43's /UF, not the key");
+    assert_eq!(
+        inside.action,
+        RowAction::Extract {
+            name: "<3>report.pdf".to_owned()
+        }
+    );
+
+    // Table 155's `/V` decides which columns are shown and `/O` in what order. `HD` states the
+    // lowest `/O` and is hidden, so a panel reading `/O` alone would have put it first.
+    assert_eq!(
+        inside.detail.as_deref(),
+        Some("File: report.pdf  ·  About: the third chapter"),
+        "the visible fields, /O before the one that states none"
+    );
+    assert!(
+        flattened(&rows)
+            .iter()
+            .all(|row| !row.detail.as_deref().unwrap_or("").contains("Hidden")),
+        "a field the schema hides is a field no row draws"
+    );
+
+    // §12.3.5.1's `/D` names one of them, and exactly one row is set apart.
+    assert!(inside.emphasis, "Table 153's /D names <3>report.pdf");
+    assert_eq!(
+        flattened(&rows).iter().filter(|row| row.emphasis).count(),
+        1
+    );
+}
+
+/// §12.3.5.1's remaining `/D` outcomes, as a panel over a page obeys them.
+///
+/// Table 153's `/D` "identif[ies] an entry in the `EmbeddedFiles` name tree, determining the
+/// document that shall be initially presented in the user interface", and the clause states three
+/// fallbacks as `shall`s. The clause states no *appearance*, so what is checkable is which row is
+/// marked — and that the container case marks none, because the container is what is already on
+/// the screen.
+#[test]
+fn the_document_a_collection_opens_on_is_the_row_set_apart() {
+    let marked = |initial: &str, folders: &str| {
+        let (collection, initial, files) = collection_and_files(a_collection(initial, folders, 3));
+        let rows = collection_rows(&collection, &initial, &files);
+        flattened(&rows)
+            .iter()
+            .filter(|row| row.emphasis)
+            .map(|row| row.label.clone())
+            .collect::<Vec<_>>()
+    };
+
+    // "If the D entry is missing or is not a valid byte string, the initial document shall be the
+    // one that contains the collection dictionary" — which is on the screen, so no row is marked.
+    assert!(marked("", "/Folders 10 0 R").is_empty());
+    assert!(
+        marked("/D /report", "/Folders 10 0 R").is_empty(),
+        "a name is not a byte string"
+    );
+
+    // "the interactive PDF processor shall select the first item from the list of files to display
+    // in its user interface" — the first in the order the rows are *shown*, which is the rootless
+    // file, not the first entry of the name tree.
+    assert_eq!(
+        marked("/D (missing.pdf)", "/Folders 10 0 R"),
+        ["readme.txt"]
+    );
+
+    // "If no folder structure is specified, interactive PDF processors should show all files in
+    // the collection in a flat list" — so the order is the name tree's own, `<3>report.pdf` first,
+    // and neither file is dropped for naming a folder the document never wrote.
+    assert_eq!(marked("/D (missing.pdf)", ""), ["report.pdf"]);
+    assert_eq!(marked("/D (readme.txt)", ""), ["readme.txt"]);
+}
+
+/// A collection with nothing in it says so rather than drawing an empty panel.
+///
+/// §12.3.5.1's fourth outcome is "an empty preview window", and a panel that drew nothing for it
+/// would be indistinguishable from one this program failed to fill — which is the whole reason
+/// `PanelRow::saying` exists.
+#[test]
+fn a_collection_holding_no_files_says_so() {
+    let collection = pdf_model::collection::Collection::default();
+    let rows = collection_rows(&collection, &pdf_model::collection::Initial::Empty, &[]);
+    assert_eq!(rows.len(), 1);
+    assert!(
+        rows[0].note,
+        "a sentence about the document, not a thing in it"
+    );
+    assert_eq!(rows[0].action, RowAction::Inert);
+}
+
+/// §12.3.5.2: every embedded file is on the screen, however oddly its key is written.
+///
+/// Two sentences of the clause say so, and this panel obeyed neither until the
+/// seven-hundred-and-seventy-second session — a file whose key named a folder the document did not
+/// state, and every file of a collection with no `/Folders` at all, were dropped from the list
+/// rather than placed. A panel drawing fewer files than the document embeds is the shape trap 5
+/// exists for: it looks exactly like a document that embeds fewer files.
+#[test]
+fn every_embedded_file_is_shown_whatever_its_key_names() {
+    let listed = |folders: &str, folder_id: u32| {
+        let (collection, initial, files) =
+            collection_and_files(a_collection("", folders, folder_id));
+        assert_eq!(files.len(), 2, "the fixture embeds two files either way");
+        let rows = collection_rows(&collection, &initial, &files);
+        let mut names: Vec<String> = flattened(&rows)
+            .iter()
+            .filter_map(|row| match &row.action {
+                RowAction::Extract { name } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        names.sort();
+        names
+    };
+    let both = ["<3>report.pdf".to_owned(), "readme.txt".to_owned()];
+
+    // "If no folder structure is specified, interactive PDF processors should show all files in
+    // the collection in a flat list."
+    assert_eq!(listed("", 3), both);
+
+    // The document states folder 3 and one key names it: the ordinary case.
+    assert_eq!(listed("/Folders 10 0 R", 3), both);
+
+    // The document states folder 9 and a key names folder 3, which is the producer contradicting
+    // "[t]he value shall correspond to a folder ID". The file is still a member of the structure —
+    // "[w]hen folders are used, all files in the EmbeddedFiles name tree … shall be treated as
+    // members of the folder structure by an interactive PDF processor" — so it is drawn at the
+    // root rather than dropped.
+    assert_eq!(listed("/Folders 10 0 R", 9), both);
 }

@@ -79,6 +79,12 @@ pub mod ffi {
         /// threads". Qt says it by clearing `Qt::ItemIsEnabled`, which is the platform's own way
         /// of saying a row is not a thing to act on; GTK says it with a `dim-label`.
         note: bool,
+        /// Whether the document asked for this row to be presented first.
+        ///
+        /// `viewer_host::PanelRow::emphasis` — §12.3.5.1's `/D`, "the document that shall be
+        /// initially presented in the user interface". The clause states no appearance, so Qt
+        /// says it with a bold `Qt::FontRole` and GTK with a `heading` class.
+        emphasis: bool,
     }
 
     /// One row of §12.3.4's panel: a page's label, and its miniature where the page states one.

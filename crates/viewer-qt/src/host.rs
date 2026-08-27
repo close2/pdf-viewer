@@ -1945,7 +1945,7 @@ impl Host {
     /// is `viewer_host::Key`'s mechanism applied to the other thing a window shows (ADR 0526).
     fn panel_of(&self, tab: Tab) -> Vec<PanelRow> {
         use viewer_host::panel::{
-            article_rows, attachment_rows, layer_rows, outline_rows, property_rows,
+            article_rows, attachment_rows, collection_rows, layer_rows, outline_rows, property_rows,
         };
         match tab {
             Tab::Contents => match self.viewer.query(Query::Outline) {
@@ -1961,10 +1961,28 @@ impl Host {
                     "This document states no optional content.",
                 )],
             },
-            Tab::Files => match self.viewer.query(Query::Attachments) {
-                Answer::Attachments(files) if !files.is_empty() => attachment_rows(&files),
-                _ => vec![PanelRow::saying("This document embeds no files.")],
-            },
+            // §12.3.5: "[i]f this dictionary is present in a PDF document, the interactive PDF
+            // processor shall present the document as a portable collection." The collection is
+            // asked for first because it decides how this same list is shown — §12.3.5.2's folder
+            // tree and Table 155's columns where a document states one, the `/EmbeddedFiles`
+            // tree's own order where it does not. Both mappings are `viewer_host::panel`'s, so
+            // this window and `viewer-gtk` present a collection identically.
+            Tab::Files => {
+                let files = match self.viewer.query(Query::Attachments) {
+                    Answer::Attachments(files) => files,
+                    _ => Vec::new(),
+                };
+                match self.viewer.query(Query::Collection) {
+                    Answer::Collection {
+                        collection,
+                        initial,
+                    } => collection_rows(&collection, &initial, &files),
+                    _ if files.is_empty() => {
+                        vec![PanelRow::saying("This document embeds no files.")]
+                    }
+                    _ => attachment_rows(&files),
+                }
+            }
             Tab::Articles => match self.viewer.query(Query::Articles) {
                 Answer::Articles(threads) => article_rows(&threads),
                 _ => article_rows(&[]),
@@ -2248,6 +2266,7 @@ fn push_rows(rows: &[PanelRow], depth: u32, into: &mut Vec<Flat>) {
                 on,
                 locked,
                 note: row.note,
+                emphasis: row.emphasis,
             },
             action: row.action.clone(),
         });
@@ -2630,12 +2649,14 @@ mod tests {
                     locked: true,
                 },
                 note: false,
+                emphasis: false,
                 children: vec![PanelRow {
                     label: "under".to_owned(),
                     detail: Some("said".to_owned()),
                     expanded: false,
                     action: RowAction::Inert,
                     note: false,
+                    emphasis: false,
                     children: Vec::new(),
                 }],
             },
@@ -2647,6 +2668,9 @@ mod tests {
                     name: "a.txt".to_owned(),
                 },
                 note: false,
+                // §12.3.5.1's `/D` crosses the bridge like every other row flag, and this one
+                // carries it so that the bold row is the one the *document* named.
+                emphasis: true,
                 children: Vec::new(),
             },
         ];
@@ -2663,6 +2687,11 @@ mod tests {
         // shown as the document set it and is not a person's to move.
         assert!(flat[0].row.on && flat[0].row.locked);
         assert_eq!(flat[1].row.detail, "said");
+        // §12.3.5.1's mark travels with the row it is on and with no other.
+        assert_eq!(
+            flat.iter().map(|one| one.row.emphasis).collect::<Vec<_>>(),
+            vec![false, false, true]
+        );
     }
 
     /// Every control kind has a number, and the two the clause gives no control to have none.
