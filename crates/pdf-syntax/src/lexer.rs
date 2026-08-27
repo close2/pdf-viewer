@@ -325,10 +325,25 @@ impl<'a> Lexer<'a> {
 
     /// Reads a literal string, having consumed the opening parenthesis.
     ///
-    /// Handles nested parentheses, backslash escapes, octal escapes and line
-    /// continuations. An unterminated string ends at end of input rather than failing:
-    /// truncated files are common, and returning what was read lets the caller salvage
-    /// the rest of the document.
+    /// Handles nested parentheses, backslash escapes, octal escapes, line continuations and
+    /// ISO 32000-2 §7.3.4.2's end-of-line rule. An unterminated string ends at end of input
+    /// rather than failing: truncated files are common, and returning what was read lets the
+    /// caller salvage the rest of the document.
+    ///
+    /// > An end-of-line marker appearing within a literal string without a preceding REVERSE
+    /// > SOLIDUS shall be treated as a byte value of (0Ah), irrespective of whether the
+    /// > end-of-line marker was a CARRIAGE RETURN (0Dh), a LINE FEED (0Ah), or both.
+    ///
+    /// **That sentence is the one this function did not implement**, and it is a `shall` about
+    /// the *bytes* a string object holds rather than about how they are displayed: a literal
+    /// string is one of the two forms every byte string may be written in — Errata Collection 3
+    /// Issue #276 inserts "[u]nless otherwise stated in this document, a byte string may be
+    /// either a literal string (see 7.3.4.2, "Literal strings") or a hexadecimal string (see
+    /// 7.3.4.3, "Hexadecimal strings")" into §7.9.2.4 — so a CARRIAGE RETURN kept as itself is
+    /// a `/U`, a `/Perms` or an `/ID` one byte different from what the file states, and inside a
+    /// content stream it is a different glyph code. Escaped end-of-line markers are untouched:
+    /// Table 3 gives `\r` and `\n` their own byte values, and a REVERSE SOLIDUS immediately
+    /// before an end-of-line marker is the line continuation above.
     fn read_literal_string(&mut self) -> Vec<u8> {
         let mut out = Vec::new();
         let mut depth = 1usize;
@@ -394,6 +409,15 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                     out.push(b')');
+                }
+                // §7.3.4.2's end-of-line rule, quoted above. A CARRIAGE RETURN followed by a
+                // LINE FEED is one marker and therefore one byte; a LINE FEED followed by a
+                // CARRIAGE RETURN is two markers and reaches here twice.
+                b'\r' => {
+                    if self.peek() == Some(b'\n') {
+                        self.position = self.position.saturating_add(1);
+                    }
+                    out.push(b'\n');
                 }
                 other => out.push(other),
             }
@@ -1061,6 +1085,49 @@ mod tests {
             tokens(b"(a\\\nb)"),
             vec![Token::String(b"ab".to_vec())],
             "a backslash before a newline is a line continuation"
+        );
+    }
+
+    /// §7.3.4.2's end-of-line rule, which nothing here asked for until the
+    /// seven-hundred-and-seventy-first session.
+    ///
+    /// The clause makes an unescaped end-of-line marker *one byte*, 0Ah, whichever of the three
+    /// forms it was written in — so the four cases that matter are a bare CARRIAGE RETURN, a
+    /// bare LINE FEED, the pair in that order, and the pair in the other order, which is two
+    /// markers rather than one. The escaped forms are the control: Table 3 gives `\r` its own
+    /// byte and a REVERSE SOLIDUS before a marker is a continuation, and neither is what this
+    /// rule is about.
+    #[test]
+    fn an_unescaped_end_of_line_in_a_literal_string_is_one_line_feed() {
+        assert_eq!(
+            tokens(b"(a\rb)"),
+            vec![Token::String(b"a\nb".to_vec())],
+            "a bare carriage return is a line feed"
+        );
+        assert_eq!(
+            tokens(b"(a\nb)"),
+            vec![Token::String(b"a\nb".to_vec())],
+            "a bare line feed stays one line feed"
+        );
+        assert_eq!(
+            tokens(b"(a\r\nb)"),
+            vec![Token::String(b"a\nb".to_vec())],
+            "carriage return and line feed are one marker, so one byte"
+        );
+        assert_eq!(
+            tokens(b"(a\n\rb)"),
+            vec![Token::String(b"a\n\nb".to_vec())],
+            "line feed then carriage return is two markers, so two bytes"
+        );
+        assert_eq!(
+            tokens(b"(a\\rb)"),
+            vec![Token::String(b"a\rb".to_vec())],
+            "an escaped carriage return is Table 3's byte and is left alone"
+        );
+        assert_eq!(
+            tokens(b"(a\\\r\nb)"),
+            vec![Token::String(b"ab".to_vec())],
+            "a backslash before the marker is still the line continuation"
         );
     }
 

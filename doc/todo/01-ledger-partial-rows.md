@@ -4353,6 +4353,50 @@ its own record.**
   filters can be windowed. `--bin counts` is right not to see it: a cardinal is a claim about a family
   there only where it governs one of the ledger's own words for a row.
 
+
+## The rule's eighth use, in the seven-hundred-and-seventy-first, and the head was a tie the tie-break settled
+
+**The two rankings tied at the head for the first time, and step 4's last clause is what decided
+it.** Over live rows the head is §7.6.4.1 and §7.6.6 with six annotations apiece — unmoved from the
+seventh use, because no round has taken either. Over **every** row the head is those two and
+§12.6.4.17 at six, `out-of-scope`, and "preferring the settled row where they tie" is the whole of
+why a round read a clause-13 row. §7.4.1 has left both rankings, the seventh use having read it.
+ADR 0708; `doc/errata-read.md` has the five errata with their rectangles.
+
+**The settled head paid nothing and the row below it paid.** §12.6.4.16's two issues — a Table 220
+row naming the wrong action type for the type it defines, and the action widened to a RichMedia
+annotation — are inside `CLAUDE.md`'s multimedia exclusion from end to end, and `action.rs` refuses
+the keyword whatever the target is. That is a legitimate outcome for this rule and worth saying
+plainly: the population decays by two, the row's claim is confirmed rather than moved, and the round
+carries on down the ranking. The next settled row, §7.9.2.4 at five and `implemented`, is where the
+work was — the erratum there makes a *literal* string one of the two forms every byte string may be
+written in, and §7.3.4.2's end-of-line rule turned out to be unimplemented under an `implemented`
+row whose note enumerated everything else the reader took.
+
+**Three things about the rule itself, from running it:**
+
+- **A tie at the head is not a coin toss, and the argument for the tie-break survives the round that
+  cashed it.** The settled row won and paid nothing; two live rows would each have paid something,
+  because a `partial` row's erratum names a debt by construction. What the tie-break buys is not a
+  better expected value on one round — it is that the *only* signal this project has for a decayed
+  settled claim gets read at all, and a rule that broke ties the other way would never read one. So
+  the round did both: the head to a verdict, then the ranking downward until a row paid. **That is
+  the practice to keep**, and it is cheaper than it sounds: reading a settled head to a verdict is
+  minutes when the answer is an exclusion the standard's own words fall inside.
+- **A settled row's evidence was weaker than its claim for a fourth time, by a fourth mechanism.**
+  755 found a round trip that could not fail, 760 a sentence about a sibling row's status, 765 a set
+  with no closure check; this found a row claiming **two written forms** with a test of one. §7.9.2.4
+  is `implemented` and its whole test list was a hexadecimal-string test, and the erratum is precisely
+  the sentence that makes the literal form the other half of the claim. The four share nothing but the
+  status.
+- **The mis-filing the fourth step inherits is the outline's, and it decided this round's head.**
+  `emit` attributes an annotation by the outline section for its *page*, so a page holding two
+  subclause openings files everything under the later one — all six of §12.6.4.16's annotations print
+  under §12.6.4.17. It cost nothing here, both rows being settled under one exclusion, and it is the
+  four-hundred-and-twenty-ninth's finding reached from the ranking's side. **A round whose head is a
+  row it did not expect reads the annotation text before the heading**: the strike says which sentence
+  it is over, and the heading only says which page it was on.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
