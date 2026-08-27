@@ -401,9 +401,11 @@ impl FrameSlot {
         let key = SceneKey::of(frame, medium, &mut self.rasters);
         let page_space = page_space(medium, frame);
         let mut release_error: Option<quorra_gpu::DeviceError> = None;
+        let mut rebuilt = false;
         let held = match &mut self.held {
             Some(held) if held.draws(frame, &key) => held,
             slot => {
+                rebuilt = true;
                 // Settling first, and with the cache's clock still on the scene being replaced:
                 // that keeps `evict_settled`'s rule exactly what it was — an entry the *current*
                 // scene used is never evicted — while moving it off the frames that reuse one.
@@ -469,10 +471,16 @@ impl FrameSlot {
         // The two are disjoint by construction — a rebuild does one and then the other, a reuse
         // does neither — so this reports what the trace's columns have always reported.
         cost.scene = began.elapsed().saturating_sub(cost.settle);
-        // A subdivision of the line above rather than a phase beside it: `begin_frame` zeroes it,
-        // and a frame that reused its scene never reached one, so a reuse reports zero for both.
-        cost.handover = caches.handed();
-        cost.outline_segments = caches.segments();
+        // A subdivision of the line above rather than a phase beside it. Read only on a
+        // rebuild: `begin_frame` zeroes the accumulators and only a rebuild reaches one,
+        // so on a reuse they still hold the *last* rebuild's numbers — reported as this
+        // frame's, they would charge a frame that uploaded nothing with the whole
+        // handover of the frame that built the scene. Found the day ADR 0702 made
+        // reuse the common case for a moved view; a reuse reports zero for both.
+        if rebuilt {
+            cost.handover = caches.handed();
+            cost.outline_segments = caches.segments();
+        }
 
         let submitted = std::time::Instant::now();
         // For a baked scene the target transform is inside every command
