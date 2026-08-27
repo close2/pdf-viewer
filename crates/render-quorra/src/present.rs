@@ -261,6 +261,13 @@ struct SceneKey {
 #[derive(Debug)]
 struct Retained {
     key: SceneKey,
+    /// Whether this scene was built in page space (ADR 0702): geometry without the
+    /// placement, the viewport carrying it at render.
+    page_space: bool,
+    /// Whether the build read no view (ADR 0702): a page-space scene that did not is
+    /// true at every viewport, and [`Retained::draws`] then ignores the placement and
+    /// the frame's extent — the scene survives every zoom, scroll and resize.
+    view_free: bool,
     /// The pages this scene was built from — **the identities, and the pins that make them ones**.
     ///
     /// Their addresses are what [`Self::draws`] compares, and holding the `Arc`s is what stops the
@@ -300,7 +307,19 @@ impl Retained {
     /// The pages need no length check of their own: [`SceneKey::pages`] holds one placement per
     /// page, so a key that compared equal has already said the two frames show as many.
     fn draws(&self, frame: &PresentFrame<'_>, key: &SceneKey) -> bool {
-        self.key == *key
+        let keyed = if self.view_free {
+            // ADR 0702: a view-free page-space scene is true at every placement and
+            // every window size, so only what reaches its pixels is compared — the
+            // medium, the absence of a raster, and the page count (the identities
+            // below carry which page).
+            self.key.medium == key.medium
+                && self.key.raster.is_none()
+                && key.raster.is_none()
+                && self.key.pages.len() == key.pages.len()
+        } else {
+            self.key == *key
+        };
+        keyed
             && self
                 .pages
                 .iter()
@@ -380,6 +399,7 @@ impl FrameSlot {
         } = reported;
         let began = std::time::Instant::now();
         let key = SceneKey::of(frame, medium, &mut self.rasters);
+        let page_space = page_space(medium, frame);
         let mut release_error: Option<quorra_gpu::DeviceError> = None;
         let held = match &mut self.held {
             Some(held) if held.draws(frame, &key) => held,
@@ -418,18 +438,23 @@ impl FrameSlot {
                 cost.uploads = caches
                     .stored()
                     .saturating_add(u32::try_from(transient.len()).unwrap_or(u32::MAX));
-                if let Err(problem) = built {
-                    // Nothing will draw this scene, so its resources go back now rather than
-                    // waiting for a replacement that will never be asked for.
-                    for id in transient {
-                        if let Err(error) = device.release(id) {
-                            release_error.get_or_insert(error);
+                let consumed_view = match built {
+                    Ok(consumed) => consumed,
+                    Err(problem) => {
+                        // Nothing will draw this scene, so its resources go back now rather
+                        // than waiting for a replacement that will never be asked for.
+                        for id in transient {
+                            if let Err(error) = device.release(id) {
+                                release_error.get_or_insert(error);
+                            }
                         }
+                        return Err(problem);
                     }
-                    return Err(problem);
-                }
+                };
                 slot.insert(Retained {
                     key,
+                    page_space,
+                    view_free: page_space && !consumed_view,
                     pages: frame
                         .pages
                         .iter()
@@ -450,11 +475,25 @@ impl FrameSlot {
         cost.outline_segments = caches.segments();
 
         let submitted = std::time::Instant::now();
-        // The target transform is baked into every command at translation (`Encoder::placed`),
-        // so the viewport itself is identity — which is also why a scroll or a zoom reaches this
-        // slot's key rather than quorra's: quorra sees one unchanging viewport.
-        let viewport =
-            quorra_gpu::Viewport::full(frame.width, frame.height, quorra_scene::Affine::IDENTITY);
+        // For a baked scene the target transform is inside every command
+        // (`Encoder::placed`) and the viewport is identity. For a page-space scene
+        // (ADR 0702) the viewport IS the placement — which is what lets a view-free
+        // scene survive a zoom: same scene, new affine, quorra re-encodes and nothing
+        // here rebuilds or re-uploads anything.
+        let viewport = if held.page_space {
+            quorra_gpu::Viewport::full(
+                frame.width,
+                frame.height,
+                crate::scene::affine(
+                    frame
+                        .pages
+                        .first()
+                        .map_or(Transform::IDENTITY, |(_, target)| target.transform),
+                ),
+            )
+        } else {
+            quorra_gpu::Viewport::full(frame.width, frame.height, quorra_scene::Affine::IDENTITY)
+        };
         let rendered = device.render_retained(&mut held.scene, &viewport, into);
         cost.device = submitted.elapsed();
         cost.retained_bytes = held.scene.retained_bytes();
@@ -1069,6 +1108,22 @@ pub(crate) struct Reported<'a> {
     pub(crate) phases: &'a mut Vec<(&'static str, std::time::Duration)>,
 }
 
+/// Whether this frame builds in page space (ADR 0702): one page, over a medium, no
+/// fallback raster, no overlays — the viewport then carries the placement, and a build
+/// that read no view survives every view change.
+///
+/// The chrome lane (no medium), the multi-page arrangements, the raster fallback, and
+/// any frame with overlays (they are stated in window pixels, which a page-space
+/// viewport would move) keep the baked path. One predicate rather than a parameter,
+/// asked identically by [`FrameSlot::render`] and [`build`], so the two can never
+/// disagree about which space a scene is in.
+fn page_space(medium: Option<Medium>, frame: &PresentFrame<'_>) -> bool {
+    medium.is_some()
+        && frame.pages.len() == 1
+        && frame.raster.is_none()
+        && frame.overlays.is_empty()
+}
+
 /// Assembles the frame's scene: medium, page (or its raster stand-in), overlays.
 ///
 /// A free function rather than a method because there are two kinds of device that draw a
@@ -1093,10 +1148,15 @@ pub(crate) fn build(
     frame: &PresentFrame<'_>,
     transient: &mut Vec<ResourceId>,
     functions: &mut FunctionPaints,
-) -> Result<(), QuorraRasterError> {
+) -> Result<bool, QuorraRasterError> {
+    let page_space = page_space(medium, frame);
     // The surround first, where there is one: a window frame has no compositor behind it to
     // impose on, so what lies outside every page is the bottom of the scene itself.
-    if let Some(medium) = medium {
+    //
+    // **Except in page space (ADR 0702)**: the surround is the window's, not the page's, and a
+    // page-space scene must state nothing of the window — the presenter's own medium layer is
+    // under the base already, and shows through wherever this scene left transparency.
+    if !page_space && let Some(medium) = medium {
         #[expect(
             clippy::cast_precision_loss,
             reason = "window dimensions are far below f32's exact integer range"
@@ -1105,6 +1165,7 @@ pub(crate) fn build(
         fill(builder, 0.0, 0.0, w, h, medium.surround)?;
     }
 
+    let mut consumed_view = false;
     // One encoder per page, in the order the arrangement placed them. Table 29's `SinglePage` is
     // the one-element case and is what this loop was before ADR 0442; the pages of a column do
     // not overlap, so the order is the arrangement's rather than a compositing decision.
@@ -1112,9 +1173,19 @@ pub(crate) fn build(
         // §11.4.7's 𝑊 under *this* page and nowhere else. Drawn as part of the scene rather than
         // imposed afterwards for the reason `QuorraRasterizer::rasterize_frame` states: a window
         // has no compositor behind it, so the bottom of the scene is the medium. Its extent is
-        // `pdf_render::page_area`, which every backend asks the same question of.
+        // `pdf_render::page_area`, which every backend asks the same question of — in page
+        // space against the identity, because the viewport carries the placement (ADR 0702).
         if let Some(medium) = medium {
-            let area = pdf_render::page_area(list, *target);
+            let spec = if page_space {
+                TargetSpec {
+                    width: target.width,
+                    height: target.height,
+                    transform: Transform::IDENTITY,
+                }
+            } else {
+                *target
+            };
+            let area = pdf_render::page_area(list, spec);
             fill(
                 builder,
                 area.min.x,
@@ -1124,13 +1195,16 @@ pub(crate) fn build(
                 medium.page,
             )?;
         }
-        let mut encoder = Encoder::new(device, list, *target, caches, transient, functions);
+        let mut encoder = Encoder::with_placement(
+            device, list, *target, page_space, caches, transient, functions,
+        );
         // §14.11.2.1's clip, hung under every chain this page's commands carry. A window is
         // larger than its page, so without it the marks a stream made outside the page's own
         // boundary draw over the ground beside it and over the next page of a column — the one
         // place this program showed ink the standard says shall not be displayed.
         encoder.crop_to_page(builder)?;
         encoder.commands(builder, list.commands())?;
+        consumed_view |= encoder.consumed_view();
     }
     if let Some(raster) = frame.raster {
         // Through the same clock as every other upload (`Encoder::handing_over`): a fallback
@@ -1179,7 +1253,7 @@ pub(crate) fn build(
         Encoder::new(device, list, spec, caches, transient, functions)
             .commands(builder, list.commands())?;
     }
-    Ok(())
+    Ok(consumed_view)
 }
 
 /// One flat rectangle in window pixels, which is what both halves of the medium are.

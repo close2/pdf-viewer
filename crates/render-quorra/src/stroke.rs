@@ -110,11 +110,21 @@ pub(crate) fn encode(
         &mut dots,
         &mut coverage,
     );
+    if split.is_some() || dashed.is_some() {
+        // §8.5.3.2's dots and zero-length dash marks are sized on this view's pixel
+        // grid. The dashes themselves are cut in path space and would survive a view
+        // change, but telling a marked dash from a plain one is not worth the audit
+        // yet: either splitting marks the scene (ADR 0702).
+        enc.consume_view();
+    }
     let solid: &Path = dashed.as_ref().unwrap_or(geometry);
 
     let at = enc.placed(transform);
     if !solid.is_empty() {
         if anisotropy(to_device) > MAX_ISOTROPY_ERROR {
+            // The expansion below happens in device space, on this view's transform
+            // (ADR 0702).
+            enc.consume_view();
             let outline = expanded(
                 enc,
                 Expansion {
@@ -172,19 +182,44 @@ pub(crate) fn encode(
             )?;
         }
     }
-    if !dots.is_empty() {
-        let outline = enc.transient_outline(&dots)?;
-        builder.fill(
-            outline,
-            at,
-            quorra_scene::FillRule::NonZero,
-            faint(quorra_paint, coverage),
-            clip,
-            blend_mode(blend),
-            quorra_scene::Compose::SrcOver,
-            mask,
-        )?;
+    fill_dots(
+        enc,
+        builder,
+        &dots,
+        at,
+        faint(quorra_paint, coverage),
+        (clip, mask, blend),
+    )
+}
+
+/// Fills §8.5.3.2's dots — the marks the degenerate and zero-length-dash splits made —
+/// with the stroke's paint at the coverage the split answered for.
+fn fill_dots(
+    enc: &mut Encoder<'_>,
+    builder: &mut SceneBuilder,
+    dots: &Path,
+    at: quorra_scene::Affine,
+    paint: quorra_scene::Paint,
+    (clip, mask, blend): (
+        Option<quorra_scene::ClipId>,
+        Option<quorra_scene::MaskId>,
+        BlendMode,
+    ),
+) -> Result<(), QuorraRasterError> {
+    if dots.is_empty() {
+        return Ok(());
     }
+    let outline = enc.transient_outline(dots)?;
+    builder.fill(
+        outline,
+        at,
+        quorra_scene::FillRule::NonZero,
+        paint,
+        clip,
+        blend_mode(blend),
+        quorra_scene::Compose::SrcOver,
+        mask,
+    )?;
     Ok(())
 }
 

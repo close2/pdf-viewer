@@ -36,7 +36,23 @@ const WHOLE: (u32, u32) = (1, 1);
 pub(crate) struct Encoder<'a> {
     device: &'a mut quorra_gpu::Device,
     list: &'a DisplayList,
+    /// The real device target, read by every *resolution* decision — mesh and function
+    /// sampling, an image's filter, a stroke's split — each of which marks the scene
+    /// view-consuming ([`Encoder::consumed_view`], ADR 0702).
     target: TargetSpec,
+    /// What [`Encoder::placed`] composes geometry with: the real target where the
+    /// placement is baked (the multi-page path), the identity where the scene is built
+    /// in page space and the viewport carries the placement (ADR 0702).
+    place: Transform,
+    /// Whether anything in this scene read the view — a device-resolution decision
+    /// whose answer is baked into the built scene. A scene that never did is true at
+    /// every viewport and survives view changes (ADR 0702); one that did is rebuilt
+    /// per view, exactly as every scene was before that ADR.
+    consumed_view: bool,
+    /// Whether the scene is built in page space (ADR 0702): geometry placed without
+    /// the target, the viewport carrying it — and the one behavioural fork, §14.11.2.1's
+    /// crop, emitted unconditionally because its early-out reads the view.
+    page_space: bool,
     caches: &'a mut ResourceCaches,
     transient: &'a mut Vec<ResourceId>,
     functions: &'a mut FunctionPaints,
@@ -206,10 +222,31 @@ impl<'a> Encoder<'a> {
         transient: &'a mut Vec<ResourceId>,
         functions: &'a mut FunctionPaints,
     ) -> Self {
+        Self::with_placement(device, list, target, false, caches, transient, functions)
+    }
+
+    /// As [`Encoder::new`], but `page_space` builds the scene in page space (ADR 0702):
+    /// geometry placed without the target, the viewport carrying the placement.
+    pub(crate) fn with_placement(
+        device: &'a mut quorra_gpu::Device,
+        list: &'a DisplayList,
+        target: TargetSpec,
+        page_space: bool,
+        caches: &'a mut ResourceCaches,
+        transient: &'a mut Vec<ResourceId>,
+        functions: &'a mut FunctionPaints,
+    ) -> Self {
         Self {
             device,
             list,
             target,
+            place: if page_space {
+                Transform::IDENTITY
+            } else {
+                target.transform
+            },
+            consumed_view: false,
+            page_space,
             caches,
             transient,
             functions,
@@ -218,6 +255,12 @@ impl<'a> Encoder<'a> {
             knockouts: 0,
             root: None,
         }
+    }
+
+    /// Whether this scene read the view while it was built (ADR 0702): true means the
+    /// built scene is only correct at the target it was built for.
+    pub(crate) fn consumed_view(&self) -> bool {
+        self.consumed_view
     }
 
     /// Hangs every clip chain in this list from §14.11.2.1's boundary.
@@ -246,7 +289,10 @@ impl<'a> Encoder<'a> {
         &mut self,
         builder: &mut SceneBuilder,
     ) -> Result<(), QuorraRasterError> {
-        if pdf_render::crop_area(self.list, self.target).is_none() {
+        // The early-out reads the view — "does any pixel of *this* target lie outside
+        // the boundary" — so a page-space scene, which must be true at every view,
+        // states the clip unconditionally (ADR 0702). It is one rectangle.
+        if !self.page_space && pdf_render::crop_area(self.list, self.target).is_none() {
             return Ok(());
         }
         let Some(region) = self.list.content_clip() else {
@@ -597,6 +643,11 @@ impl<'a> Encoder<'a> {
         // own rule is: a mark is a shape in its own right, and adding it to an
         // even-odd path's winding would punch a hole in what it should draw.
         let split = pdf_render::split_collapsed_fill(path, transform.then(self.target.transform));
+        if split.is_some() {
+            // §10.7.4's bands are sized and placed on this view's pixel grid, so a
+            // scene holding them is only true here (ADR 0702).
+            self.consume_view();
+        }
         if let Some(split) = split {
             if !split.marks.is_empty() {
                 let marks = self.transient_outline(&split.marks)?;
@@ -974,6 +1025,7 @@ impl<'a> Encoder<'a> {
         // target can sample, so no backend picks either for itself (`Shading::sampled_at`,
         // ADR 0408). Transient for the deferred image's reason: the grid is this placement's
         // and its `Arc` is this frame's, so there is no identity for a cache to be keyed by.
+        self.consume_view(); // the grid is this placement's (ADR 0702)
         let grid = shading
             .sampled_at(
                 self.target.transform,
@@ -1046,6 +1098,9 @@ impl<'a> Encoder<'a> {
         };
         let mask = self.mask_id(builder, mask)?;
         let placement = transform.then(self.target.transform);
+        // The filter, the reduction and any deferred sampling below are all read off
+        // this view's scale, and the scene carries their answers (ADR 0702).
+        self.consume_view();
 
         // Samples the display list deferred are produced here, where the device scale is
         // known — §11.6.5.2's mask on a grid of its own, at the grid `pdf_render` derives from
@@ -1156,6 +1211,7 @@ impl<'a> Encoder<'a> {
         if dr.mul_add(-dr, dx.mul_add(dx, dy * dy)) <= 0.0 {
             return Ok(None);
         }
+        self.consume_view(); // the raster is this view's pixels (ADR 0702)
         let Some(raster) = pdf_render::RadialRaster::build(
             pdf_render::Radial {
                 start: *start,
@@ -1191,6 +1247,7 @@ impl<'a> Encoder<'a> {
         shading: &Shading,
         within: (u32, u32, u32, u32),
     ) -> Result<Option<quorra_scene::MeshId>, QuorraRasterError> {
+        self.consume_view(); // the raster is this view's pixels (ADR 0702)
         let Some(raster) = pdf_render::ShadingRaster::build(
             shading,
             self.target.transform,
@@ -1219,6 +1276,7 @@ impl<'a> Encoder<'a> {
         shading_transform: Transform,
     ) -> Result<Option<quorra_scene::MeshId>, QuorraRasterError> {
         let to_device = shading_transform.then(self.target.transform);
+        self.consume_view(); // the mesh raster is this view's pixels (ADR 0702)
         // An empty raster is `None`, and the caller draws nothing — not a
         // refusal: pdf.js's issue #17848 traced such a mesh to a defective
         // document, and both sibling backends already skip it silently.
@@ -1477,7 +1535,14 @@ impl<'a> Encoder<'a> {
     /// which is what lets one scene carry the page, a fallback raster and
     /// window-pixel overlays at their own placements ([`crate::QuorraWindowRenderer`]).
     pub(crate) fn placed(&self, t: Transform) -> quorra_scene::Affine {
-        affine(t.then(self.target.transform))
+        affine(t.then(self.place))
+    }
+
+    /// Marks this scene as having read the view (ADR 0702): a device-resolution
+    /// decision — sampling, a filter, a split — whose answer the built scene now
+    /// carries, so the scene is only true at the target it was built for.
+    pub(crate) fn consume_view(&mut self) {
+        self.consumed_view = true;
     }
 }
 
