@@ -1,4 +1,4 @@
-# ADR 0707 — The arrangement two windows could not see, and the files all three lost
+# ADR 0711 — The arrangement two windows could not see, and the files all three lost
 
 Status: accepted, 2026-08-25. Session 772, a general-improvement round choosing its own subject.
 

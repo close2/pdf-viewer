@@ -320,7 +320,7 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
 ///   malformed file, made to keep the `shall` above rather than to invent an arrangement.
 ///
 /// Both cases lost the file entirely until the seven-hundred-and-seventy-second session (ADR
-/// 0707), which is a panel drawing less than the document embeds.
+/// 0711), which is a panel drawing less than the document embeds.
 ///
 /// # The columns
 ///

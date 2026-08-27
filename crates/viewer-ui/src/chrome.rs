@@ -1282,7 +1282,7 @@ fn tab_at(x: f32, scale: f32) -> Tab {
 /// root-folder sentence does not reach it; what it contradicts is "[t]he value shall correspond to
 /// a folder ID", a requirement on the producer for which the clause states no remedy. Both cases
 /// dropped the file from this panel altogether until the seven-hundred-and-seventy-second session
-/// (ADR 0707). `viewer_host::panel::collection_rows` is the same two rules for the other two
+/// (ADR 0711). `viewer_host::panel::collection_rows` is the same two rules for the other two
 /// windows.
 ///
 /// # §12.3.5.1's `/D`, and what "presented" means for a panel over a page

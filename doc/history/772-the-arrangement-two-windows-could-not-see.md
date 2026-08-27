@@ -1,6 +1,6 @@
 # 772 — The arrangement two windows could not see
 
-General-improvement round, subject chosen by argument (ADR 0707): `tools/state.sh quick`'s own
+General-improvement round, subject chosen by argument (ADR 0711): `tools/state.sh quick`'s own
 host-vocabulary reading named `Query::Collection` **"a debt, with the sharpest clause here"** —
 §12.3.5's "shall present the document as a portable collection", a `shall` addressed to a viewer,
 met by one window of three. Spec-driven track, correctness rather than performance, no contact with
@@ -22,7 +22,7 @@ the three siblings' subjects (ledger-prose sweeps, font cache, errata rows).
   copies; the orphaned-identifier case is a documented choice (root), since the producer broke
   "[t]he value shall correspond to a folder ID" and the clause states no remedy.
 - Ledger: §12.3.5, §12.3.5.1, §12.3.5.2 rows extended with the new code, tests and the defect's
-  record; `tools/state.sh`'s reading now says "not a debt, since ADR 0707".
+  record; `tools/state.sh`'s reading now says "not a debt, since ADR 0711".
 
 ## Calibration and the look at the page
 

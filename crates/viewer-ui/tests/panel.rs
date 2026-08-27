@@ -624,7 +624,7 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
 /// §12.3.5.2: no embedded file falls out of the panel, however oddly its key is written.
 ///
 /// Two sentences of the clause say so and this panel obeyed neither until the
-/// seven-hundred-and-seventy-second session (ADR 0707): "[i]f no folder structure is specified,
+/// seven-hundred-and-seventy-second session (ADR 0711): "[i]f no folder structure is specified,
 /// interactive PDF processors should show all files in the collection in a flat list", and
 /// "[w]hen folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as
 /// members of the folder structure by an interactive PDF processor". A key naming a folder the
