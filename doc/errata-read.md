@@ -1567,3 +1567,66 @@ prefix" and say how many, never which. The two this round found are left in the 
 purpose, in the form the greps already read, and they will be at the head of the live ranking again
 the moment somebody looks — which is where they belong, since no round has yet given either a
 verdict.
+
+## The clause an action refuses, and the end-of-line rule a byte string made load-bearing — the seven-hundred-and-seventy-first
+
+The successor rule's eighth use. Over live rows the head is **§7.6.4.1 and §7.6.6 with six
+annotations apiece**, unmoved, because no round has taken either. Over **every** row the head is a
+three-way tie at six between those two and **§12.6.4.17, `out-of-scope`**, which the fourth step's
+tie-break settles in the settled row's favour. §7.4.1 is gone from both, the seven-hundred-and-
+sixty-fifth having read it, which is the decay working for the fourth use in a row. ADR 0708.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §12.6.4.16, opening sentence and Table 220 | 541 | #282 | **inside the exclusion, and recorded so that the row is not read again** | Four carets, `Review/Completed`. The first at `[259.276 711.053 268.29 718.397]` — (259.28, 123.52)–(268.29, 130.87) from the top — sits exactly between the `3D` at (248.04, 117.45)–(261.46, 130.39) and the `annotation` at (263.89, …)–(315.24, …) in "identifies a 3D annotation and specifies a view for the annotation to use", and writes *or RichMedia*. The other three widen `/V`: *or Views* beside the `VA` array, and twice *, or the Views array of the RichMediaContent dictionary (see "Table 341 - Entries in a RichMediaContent dictionary"), as appropriate for the specified annotation*. §13.7's ground, which `CLAUDE.md`'s multimedia exclusion already names. |
+| §12.6.4.16, Table 220's `/S` row | 541 | #265 | **corrects a self-reference, and reaches nothing here** | A strike at `[255.543 592.197 303.604 603.401]` over the `transition` that `-bbox` puts at (258.51, 237.43)–(300.63, 249.10) in "shall be GoTo3DView for a transition action", with a caret at `[296.6 592.271 304.668 598.845]` writing *Go-To-3D-View*. The published row names the *wrong action type* for the type it defines, §12.6.4.15's rather than its own. `action.rs` matches the keyword `GoTo3DView`, which neither annotation touches. |
+| §7.9.2.4, the whole example paragraph | 132 | #276 | **corrects, and is the one that moved a row two clauses away** | A strike at `[68.7318 97.0593 550.841 179.219]` — (68.73, 662.70)–(550.84, 744.86) from the top, four lines — over the old "For example, byte strings are used to define a file identifier …" paragraph, with a caret at `[280.669 97.1422 289.612 104.428]` writing the replacement, and a second at `[93.9407 72.2497 102.424 79.1618]` writing *2* to renumber the NOTE below it. The replacement opens with the sentence this round was worth: *Unless otherwise stated in this document, a byte string may be either a literal string (see 7.3.4.2, "Literal strings") or a hexadecimal string (see 7.3.4.3, "Hexadecimal strings").* Then the identifier as an EXAMPLE, and *NOTE 1 The Contents entry of a Signature dictionary can be required to be a hexadecimal string (see "Table 255 - Entries in a signature dictionary").* |
+| §7.9.2.2.1, NOTE 5 | 132 | #96 | **deletes an informative NOTE, and a ledger citation of it retired with it** | A strike at `[72.024 644.076 535.452 666.996]` — (72.02, 174.92)–(535.45, 197.84) from the top — over the whole of 'NOTE 5 It is important not to confuse UTF-16BE with UCS2 (i.e. wchar_t). UTF-16 is not a fixed width encoding scheme.' No replacement. §7.9.2.2.1's row cited that NOTE as what the surrogate-pairing decoder 'is there to warn against'; the reason the decoder pairs surrogates is the clause's own normative sentence about supplementary characters, so the row now cites that and the NOTE in the past tense. |
+| §7.9.2.2.1, NOTE 4 | 132 | #161 | **corrects a NOTE, and the NOTE is informative** | A strike at `[118.551 726.576 160.267 738.456]` over the `dieresis,` that `-bbox` puts at (121.70, 102.31)–(159.28, 114.68) in "precludes beginning a string using PDFDocEncoding with the three characters dieresis, guillemotright, questiondown", with a caret at `[152.841 726.655 161.395 733.625]` writing *idieresis*. The UTF-8 marker is EF BB BF and Table D.2 gives 357 octal to `idieresis`, so the published NOTE named the character for BFh's neighbour rather than for EFh. Nothing decodes from a NOTE. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #276 tells a settled row which syntax its bytes may arrive in, and the row had evidence for
+one of the two.** §7.9.2.4 is `implemented`; its whole test list was
+`hex_strings_ignore_junk_and_pad_an_odd_digit`. The erratum makes the literal form the standard's
+own alternative for *every* byte string — so the row's claim covers §7.3.4.2 as well, and §7.3.4.2
+is where the question had to go.
+
+**§7.3.4.2's end-of-line rule was not implemented and nothing asked for it.** The clause states:
+
+> An end-of-line marker appearing within a literal string without a preceding REVERSE SOLIDUS shall
+> be treated as a byte value of (0Ah), irrespective of whether the end-of-line marker was a CARRIAGE
+> RETURN (0Dh), a LINE FEED (0Ah), or both.
+
+`Lexer::read_literal_string` handled all eight of Table 3's escapes, the octal form and the line
+continuation, and let an *unescaped* end-of-line marker through as itself: a bare CARRIAGE RETURN
+became 0Dh, and a CARRIAGE RETURN with a LINE FEED behind it became two bytes where the clause
+states one. §7.3.4.2's own row enumerated what the reader took and that `shall` was not on the list,
+which is why neither the row nor the code could be read against the other and find it.
+
+It is not a rule about display. A byte string's *bytes* are what §7.6's algorithms hash and compare,
+so a `/U`, a `/Perms` or an `/OE` written as a literal string with an unescaped marker in it was one
+byte longer than the file states; a `/ID` compared for equality could differ from itself under
+§7.5.6; and one lexer serves the content streams, so inside a text-showing operator the same byte is
+a glyph code and a different byte is a different glyph.
+`an_unescaped_end_of_line_in_a_literal_string_is_one_line_feed` asks all four unescaped forms —
+including a LINE FEED followed by a CARRIAGE RETURN, which is *two* markers and therefore two bytes
+— and the two escaped controls that must not move. Calibrated per trap 13: each of the four fails
+against the code that preceded it, and against a plant writing 0Dh in place of 0Ah.
+
+### Two things about the instrument, and neither is new
+
+**The settled tie-break was decided by a row whose annotations belong to its neighbour.**
+`spec-errata emit` attributes an annotation by the *outline section for its page*, and page 541
+opens §12.6.4.16 and reaches §12.6.4.17 before it ends — so all six of §12.6.4.16's annotations
+print under §12.6.4.17. Here it changed nothing: both rows are `out-of-scope` under the same
+exclusion, and the tie-break wanted a settled row. It is the same coarseness the four-hundred-and-
+twenty-ninth session recorded, arriving from the ranking's side rather than from `check`'s.
+
+**And a settled row's erratum found the evidence weaker than the row for a fourth time, by a fourth
+mechanism.** 755 found a round trip that could not fail; 760 a sentence about a sibling row's
+status; 765 a set with no closure check; this one a row whose claim covers two written forms and
+whose evidence covered one. What the four share is only the status.
