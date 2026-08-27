@@ -1263,10 +1263,18 @@ const AGREEMENT: f32 = 0.5;
 /// **This is what replaced a single page's `settled⁻¹ ∘ asked` when a column arrived**. The window
 /// presents its pages as *one* texture under *one* placement, so a reprojection is defensible only
 /// where one affine is true of every page in the picture. For each page in both the settled
-/// arrangement and the one being asked for — matched by the `Arc`'s address, which is what
-/// identifies a page here — this composes that page's own `settled⁻¹ ∘ asked`, and answers only
-/// where they all agree to within [`AGREEMENT`], which is where they all put the picture in the
-/// same pixels.
+/// arrangement and the one being asked for — matched by [`Picture`], what the page's picture is
+/// *of*, and not by the `Arc`'s address — this composes that page's own `settled⁻¹ ∘ asked`, and
+/// answers only where they all agree to within [`AGREEMENT`], which is where they all put the
+/// picture in the same pixels.
+///
+/// The match used to be `Arc::ptr_eq` on the list, and that was the same defect ADR 0457 removed
+/// from the retained pages, at the other gate: §12.5.3 makes a `NoZoom` page re-interpret on
+/// every magnification change, a re-interpretation is a new `Arc` over the same ink, and pairing
+/// by address turned every zoom of such a page into [`Refusal::AnotherPage`] — no stand-in, a
+/// window frozen for the length of the real frame. [`Picture`] carries the ink, so what the
+/// address test actually guarded — a picture of superseded ink standing in — still refuses here,
+/// as the page turn it amounts to.
 ///
 /// The three ways it refuses are three different facts, and the caller tells them apart:
 ///
@@ -1289,7 +1297,7 @@ fn one_placement(settled: &[Placed], asked: &[Placed]) -> Result<Carried, Refusa
     for placed in asked {
         let Some(was) = settled
             .iter()
-            .find(|settled| Arc::ptr_eq(&settled.list, &placed.list))
+            .find(|settled| settled.of == placed.of)
             .map(|settled| settled.target)
         else {
             continue;
@@ -2448,6 +2456,49 @@ mod tests {
             stale.reproject(&alone(&second, 1.3)).unwrap_err(),
             Refusal::AnotherPage,
             "a rendering of the outgoing page places nothing of the incoming one"
+        );
+    }
+
+    /// §12.5.3's re-interpretation: a zoom of a `NoZoom` page makes a new `Arc` over the same
+    /// ink, and that is this page moved — not another page. The pairing is by [`Picture`], so
+    /// the address does not decide it in either direction: a fresh list of the same picture
+    /// carries, and the old list of a superseded ink refuses, which is what the address test
+    /// was actually guarding.
+    #[test]
+    fn a_reinterpretation_of_the_same_picture_is_still_this_page() {
+        let page = page();
+        let mut stale = Stale::default();
+        slow(&mut stale, &page);
+        // The re-interpretation: same picture, another list over its commands.
+        let reinterpreted = Sheet {
+            of: page.of,
+            list: Arc::new(DisplayList::new(Size::new(595.0, 842.0))),
+        };
+        assert!(
+            stale
+                .plan(
+                    &alone(&reinterpreted, 1.3),
+                    NONE_HELD,
+                    REFRESH,
+                    LANDED,
+                    QUADS
+                )
+                .stands_in(),
+            "a new list over the same ink is this page zoomed, and it stands in"
+        );
+        assert!(
+            stale.reproject(&alone(&reinterpreted, 1.3)).is_ok(),
+            "and the placement comes out of the same gate"
+        );
+        // The ink moved: a picture of the old ink may not stand in, whatever its address.
+        let other_ink = Sheet {
+            of: Picture::new(DocumentId(1), page.of.page(), 1),
+            list: Arc::clone(&page.list),
+        };
+        assert_eq!(
+            stale.plan(&alone(&other_ink, 1.3), NONE_HELD, REFRESH, LANDED, QUADS),
+            Plan::Refused(Refusal::AnotherPage),
+            "the same address over superseded ink is not a picture of this page any more"
         );
     }
 
