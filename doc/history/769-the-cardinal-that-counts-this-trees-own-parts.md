@@ -5,7 +5,7 @@ would have predicted one of its own findings; this round measured both, built on
 other with the numbers written down.
 
 Date: 2026-08-25.
-ADR: [0698](../adr/0698-the-cardinal-that-counts-this-trees-own-parts.md).
+ADR: [0709](../adr/0709-the-cardinal-that-counts-this-trees-own-parts.md).
 
 Touched: `tools/conformance/src/parts.rs` (new), `tools/conformance/src/bin/parts.rs` (new),
 `tools/conformance/src/lib.rs` (one module line), `doc/todo/01-ledger-partial-rows.md`,
@@ -123,7 +123,7 @@ output — with a diff that looked exactly like a finding. The tell was a file t
 hours old. Redone in a directory created for the purpose, which is the same rule trap 16 states for
 a build directory.
 
-**This sweep fires on prose written in this round**, as the ninth does: ADR 0698's own paragraphs
+**This sweep fires on prose written in this round**, as the ninth does: ADR 0709's own paragraphs
 count backends and hosts, and they are on rung 3 where they are counted rather than listed.
 
 ## The cardinal this sweep cannot see, corrected by hand

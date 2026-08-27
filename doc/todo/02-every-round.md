@@ -379,7 +379,7 @@ share and the two that break it:
   had recorded this as owed and each of their thirteen diagnoses began by reading the failing
   bound off a log by hand.
 - **One asks about *this tree* rather than about the standard, and it is the newest**: `--bin
-  parts`, the twenty-second sweep (ADR 0698). Every other sweep here judges a claim against the
+  parts`, the twenty-second sweep (ADR 0709). Every other sweep here judges a claim against the
   specification, the ledger or the tree's own prose; this one judges a **cardinal counting this
   tree's own parts** — backends, rasterisers, crates, hosts, workers, submodules — against the
   workspace's own membership, read off the member directories, each package's `src/bin/` and

@@ -25,7 +25,7 @@ a claim that nothing is owed has no missing thing to grep for (ADR 0465).
 **Twenty-two sweeps** — nineteen of them here, one over the corpus (ADR 0405), one
 in `tools/spec-errata`, where the errata are (ADR 0426), and **the twenty-second built in the
 seven-hundred-and-sixty-ninth, the only one whose right-hand side is the workspace's own
-membership** (ADR 0698). **The eighteenth was built in
+membership** (ADR 0709). **The eighteenth was built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
 against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
 declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
@@ -297,7 +297,7 @@ with the reading, which is this file. Every bullet below is unchanged.
 - **One asks a question about *this tree* rather than about the standard, and it is the newest**:
   `cargo run --release -p conformance --bin parts`, a fraction of a second, over `ledger.toml`, the
   source roots and every Markdown document under `doc/` bar `doc/history/` — the twenty-second
-  sweep and the seventeenth to be a program (ADR 0698). The tenth sweep reads a cardinal only where
+  sweep and the seventeenth to be a program (ADR 0709). The tenth sweep reads a cardinal only where
   it governs one of the ledger's own words for a *row*; this reads one governing one of this tree's
   own **parts** — `backend`, `rasteriser`, `crate`, `host`, `worker`, `submodule` — and answers it
   with the workspace's own membership, read off the member directories, each package's `src/bin/`

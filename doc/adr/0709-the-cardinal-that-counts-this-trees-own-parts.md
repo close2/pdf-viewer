@@ -1,4 +1,4 @@
-# ADR 0698 — The cardinal that counts this tree's own parts, and the mirror whose two sides agree
+# ADR 0709 — The cardinal that counts this tree's own parts, and the mirror whose two sides agree
 
 Status: accepted.
 Session: the seven-hundred-and-sixty-ninth, a sweep round under `doc/todo/01`'s binding rule.
