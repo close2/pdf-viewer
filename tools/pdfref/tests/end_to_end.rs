@@ -270,8 +270,13 @@ fn a_renderer_that_writes_an_empty_file_has_produced_no_output() {
         "an empty output is no output, and is the failure a cache may remember: {error}"
     );
     let said = error.to_string();
+    // The claim is that the error carries the renderer's *own* first line, not what
+    // that line is: mupdf 1.23 says "cannot find version marker", newer builds say
+    // "cannot draw '<path>'", and both are its own diagnosis of the same file. An
+    // assertion pinned to one spelling failed on a runner-image upgrade with the
+    // harness working exactly as designed.
     assert!(
-        said.contains("cannot find version marker"),
+        said.contains("cannot find version marker") || said.contains("cannot draw"),
         "the renderer's own first line is what says why: {said}"
     );
 }
