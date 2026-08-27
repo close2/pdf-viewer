@@ -135,6 +135,10 @@ struct Done {
     drawn: Drawn,
     /// What drawing it cost on this thread — the whole of it, abandoned or not.
     cost: Duration,
+    /// When this thread finished it — the end of [`Landed::waited`]'s span, for the
+    /// reason `crate::renderer`'s `Done::finished` states: measuring to collection
+    /// quantised every wait up to a refresh.
+    finished: Instant,
 }
 
 /// What the composing thread sends back: a window frame, or a page it drew while it was idle.
@@ -187,7 +191,8 @@ pub(crate) struct Landed {
     pub(crate) pages: Vec<crate::stale::Placed>,
     /// What drawing it cost on the composing thread — the frame line's own number.
     pub(crate) cost: Duration,
-    /// How long the event thread waited for it, which is what rule 5 predicts the next one by.
+    /// How long the frame took from the ask to the composing thread finishing it, which
+    /// is what rule 5 predicts the next one by. Not "until collected": see [`Done::finished`].
     pub(crate) waited: Duration,
     /// What refused, where the page would not draw at all.
     pub(crate) refused: Option<String>,
@@ -279,8 +284,12 @@ impl Composer {
     }
 
     /// Whether a frame is being drawn right now — rule 5's second way of knowing that one missed.
-    pub(crate) fn drawing(&self) -> bool {
-        self.in_flight.is_some()
+    /// How long the frame asked for at an earlier tick has been out, or `None` where
+    /// none is — rule 5's observation, as `crate::renderer`'s `out_for` states it.
+    pub(crate) fn out_for(&self) -> Option<Duration> {
+        self.in_flight
+            .as_ref()
+            .map(|in_flight| in_flight.asked.elapsed())
     }
 
     /// Whether the pixels on hand are of exactly this arrangement, at exactly these placements.
@@ -353,10 +362,9 @@ impl Composer {
             self.proxies.keep(page);
         }
         let done = newest?;
-        let waited = self
-            .in_flight
-            .take()
-            .map_or(Duration::ZERO, |in_flight| in_flight.asked.elapsed());
+        let waited = self.in_flight.take().map_or(Duration::ZERO, |in_flight| {
+            done.finished.saturating_duration_since(in_flight.asked)
+        });
         let mut refused = None;
         let mut abandoned = false;
         match done.drawn {
@@ -615,6 +623,7 @@ fn compose(job: Job) -> Done {
         cost: began.elapsed(),
         pages,
         drawn,
+        finished: Instant::now(),
     }
 }
 

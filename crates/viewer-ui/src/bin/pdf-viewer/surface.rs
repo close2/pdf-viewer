@@ -326,11 +326,12 @@ impl App {
                 choice,
             );
             // **Read before the ask below, and that is not an ordering accident.** Rule 5's
-            // observation is "a render asked for at an *earlier* tick is still out", and a render
-            // dispatched two lines further down has missed nothing yet. Reading it afterwards
-            // would make every view change observe its own dispatch as a miss, and the prediction
-            // — the half that decides whether a quick frame is waited for — would never be asked.
-            let was_drawing = window.drawing();
+            // observation is "a render asked for at an *earlier* tick is out past a refresh",
+            // and a render dispatched two lines further down has missed nothing yet. Reading it
+            // afterwards would make every view change observe its own dispatch as a miss, and
+            // the prediction — the half that decides whether a quick frame is waited for —
+            // would never be asked.
+            let was_out = window.out_for();
             // A rendering of exactly these lists at exactly these targets needs no successor. Each
             // page is compared by the `Arc` that makes its address mean something, because a page
             // turn at an unchanged magnification is a different picture at the same placement;
@@ -352,7 +353,7 @@ impl App {
             if !of_this_view {
                 window.ask(pages.to_vec(), overlays, coverage, now);
             }
-            (was_drawing, coverage)
+            (was_out, coverage)
         };
         // What the sticky half of `lane_for` reads next tick: the lane this view was
         // (or already had been) asked in — and, for the revisit rule, which
@@ -370,7 +371,7 @@ impl App {
                 self.atlas_saw.push(bits);
             }
         }
-        let drawing = drawing.0;
+        let out_for = drawing.0;
         // A transition is a picture of two pages moving and no transform of it is any view of
         // either, so the newest is put up at the identity and nothing about it is approximated.
         // A window that has never drawn is the other case with no stand-in to consider: it is not
@@ -386,13 +387,14 @@ impl App {
         // a page turn is a refusal or a blurred picture depends on it (ADR 0443).
         let under = self.device_window()?.underlay(pages);
         // Every rule that makes an approximation defensible is in `crate::stale` rather than
-        // here. The period is the one number rule 5 is measured against (ADR 0384), and `drawing`
-        // is its second way of knowing that a frame has missed (ADR 0391).
+        // here. The period is the one number rule 5 is measured against (ADR 0384), and how
+        // long the in-flight render has been out is its second way of knowing that a frame
+        // has missed (ADR 0391).
         let planned = self.stale.plan(
             pages,
             under.len(),
             self.cadence.period(),
-            drawing,
+            out_for,
             // Three textured quads, issued while `crate::renderer` draws on a thread of its own:
             // they take nothing from the frame they stand in for (ADR 0391).
             crate::stale::Standing::Quads,
@@ -450,6 +452,7 @@ impl App {
             None
         };
         stages.approximated = Some(stand.from);
+        stages.missed = Some(stand.missed);
         self.put_up(base, &under, stages)
     }
 
@@ -615,11 +618,13 @@ impl App {
         self.trace.say(
             Topic::Frames,
             format_args!(
-                "{}: this view's frame is expected to cost {:.1} ms against a {:.1} ms refresh, \
-                 so it misses, and {} of {retained} retained low-resolution page(s) stand in \
-                 under composed placements (present {:.2} ms); the real frame is being drawn",
+                "{}: {} against a {:.1} ms refresh, so it misses, and {} of {retained} \
+                 retained low-resolution page(s) stand in under composed placements \
+                 (present {:.2} ms); the real frame is being drawn",
                 from.word(),
-                expected.as_secs_f64() * 1e3,
+                stages
+                    .missed
+                    .unwrap_or(crate::stale::Missed::Predicted { frame: expected }),
                 period.as_secs_f64() * 1e3,
                 under.len(),
                 began.elapsed().as_secs_f64() * 1e3,
@@ -857,11 +862,11 @@ impl App {
             return Some(Rendered::Failed(problem));
         }
         let overlays = chrome.lists();
-        let (drawing, superseded) = {
+        let (out_for, superseded) = {
             let composer = self.composer()?;
             // **Read before the ask below**, and that is not an ordering accident — see
             // [`Self::on_the_device`], where the same line has the same reason.
-            let was_drawing = composer.drawing();
+            let was_out = composer.out_for();
             let mut superseded = false;
             if !composer.depicts(pages) {
                 // **ADR 0657's rule 1, and it is asked before the ask rather than instead of
@@ -873,7 +878,7 @@ impl App {
                 superseded = composer.superseded(pages);
                 composer.ask(pages.to_vec(), now);
             }
-            (was_drawing, superseded)
+            (was_out, superseded)
         };
         if superseded {
             self.trace.say(
@@ -897,7 +902,7 @@ impl App {
             pages,
             under.len(),
             self.cadence.period(),
-            drawing,
+            out_for,
             // A resample of a window of pixels, on the thread that presents: beside the frame it
             // stands in for, as on the other surface, but not free (ADR 0461).
             crate::stale::Standing::Resample,
@@ -937,6 +942,7 @@ impl App {
             None
         };
         stages.approximated = Some(stand.from);
+        stages.missed = Some(stand.missed);
         self.stand_in_composed(pages, base, &under, &overlays, stages)
     }
 
@@ -1093,12 +1099,14 @@ impl App {
         self.trace.say(
             Topic::Frames,
             format_args!(
-                "{}: this view's frame is expected to cost {:.1} ms against a {:.1} ms refresh, \
-                 so it misses, and {} of {retained} retained low-resolution page(s) stand in \
-                 under composed placements (resample {:.2} ms, present {:.2} ms — rule 4 judges \
-                 their sum); the real frame is being drawn",
+                "{}: {} against a {:.1} ms refresh, so it misses, and {} of {retained} \
+                 retained low-resolution page(s) stand in under composed placements \
+                 (resample {:.2} ms, present {:.2} ms — rule 4 judges their sum); the real \
+                 frame is being drawn",
                 from.word(),
-                self.stale.expected().as_secs_f64() * 1e3,
+                stages.missed.unwrap_or(crate::stale::Missed::Predicted {
+                    frame: self.stale.expected(),
+                }),
                 self.cadence.period().as_secs_f64() * 1e3,
                 under.len(),
                 resample.as_secs_f64() * 1e3,
@@ -1595,7 +1603,14 @@ mod tests {
             "an unchanged view keeps its lane, or the replay dies with the flip"
         );
         assert_eq!(
-            super::lane_for(at(1.0), Some(at(1.0)), Some(quorra_gpu::Coverage::Cpu), &[], false, auto),
+            super::lane_for(
+                at(1.0),
+                Some(at(1.0)),
+                Some(quorra_gpu::Coverage::Cpu),
+                &[],
+                false,
+                auto
+            ),
             quorra_gpu::Coverage::Cpu,
             "sticky in both directions: the lane is the shown frame's, not a favourite"
         );
@@ -1605,7 +1620,14 @@ mod tests {
             "the launch path keeps the rule its gates were measured on"
         );
         assert_eq!(
-            super::lane_for(at(1.5), Some(at(1.0)), Some(quorra_gpu::Coverage::Cpu), &[], true, auto),
+            super::lane_for(
+                at(1.5),
+                Some(at(1.0)),
+                Some(quorra_gpu::Coverage::Cpu),
+                &[],
+                true,
+                auto
+            ),
             quorra_gpu::Coverage::Cpu,
             "a software adapter loses on the dispatch and keeps the processor's lanes"
         );
@@ -1728,7 +1750,10 @@ mod tests {
             "above it the CPU lane rasterises every glyph on every frame"
         );
         assert_eq!(
-            coverage_for(page(GPU_COVERAGE_MAGNIFICATION), crate::arguments::CoverageChoice::Auto),
+            coverage_for(
+                page(GPU_COVERAGE_MAGNIFICATION),
+                crate::arguments::CoverageChoice::Auto
+            ),
             quorra_gpu::Coverage::Gpu,
             "the threshold itself belongs to the lane it names"
         );
