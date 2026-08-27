@@ -197,10 +197,12 @@ section_counts() {
 #
 # **The strip is not fussiness; it is trap 11 caught in the act.** The first run of
 # `section_windows` reported both native hosts reaching §12.3.5's collection, on the evidence of
-# one line in `viewer-host/src/panel.rs` that reads *"a different answer ([`Query::Collection`])
+# one line in `viewer-host/src/panel.rs` that read *"a different answer ([`Query::Collection`])
 # that this host does not yet ask"*. A rustdoc link is a sentence about a question, not a call —
 # so a count whose condition is "the name appears" reported the exact opposite of what the
-# sentence said. Both sections below strip `//` to end of line before matching.
+# sentence said. Both sections below strip `//` to end of line before matching. (That sentence is
+# gone since ADR 0711, which made it true the other way; the trap is not, and it is why the strip
+# stays.)
 #
 # **And the `\b` is the same trap a second time, one round on** (ADR 0603). Without it
 # `Command::[A-Za-z]+` matches the *tail* of `PathCommand::Close` — `pdf_render`'s path-closing
@@ -299,7 +301,7 @@ Query:Caret|not a debt|a delegation. Both native hosts place a real GtkEntry or 
 Query:Offset|not a debt|the same delegation: a click placing the cursor inside a toolkit's own entry is the toolkit's arithmetic.
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
-Query:Collection|a debt, with the sharpest clause here|"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection" (§12.3.5) — a shall addressed to a viewer. viewer-ui shows it and the two native hosts do not. No corpus document states one, which is why nobody has driven it and why it is not first.
+Query:Collection|not a debt, since ADR 0711|"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection" (§12.3.5) — a shall addressed to a viewer, and the sharpest clause this reading ever named. All three windows present one now: viewer_host::panel::collection_rows is the mapping and both native hosts ask this question before Query::Attachments, because a collection is those same files arranged. A window that names neither would be a window with no files panel at all.
 READING
 }
 

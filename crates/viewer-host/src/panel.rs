@@ -9,11 +9,12 @@
 //!
 //! The answers are §12.3.3's outline ([`viewer_core::Query::Outline`]), §8.11.4.3's `/Order`
 //! ([`viewer_core::Query::Layers`]), §7.11.4's embedded files
-//! ([`viewer_core::Query::Attachments`]), §12.4.3's article threads
-//! ([`viewer_core::Query::Articles`]) and §14.3.3's document information with §14.3.2's metadata
-//! beside it ([`viewer_core::Query::Properties`]). They arrive as five different types, because
-//! they *are* five different things, and a platform tree wants one row type — so this is where a
-//! host pays for that, once.
+//! ([`viewer_core::Query::Attachments`]), §12.3.5's portable collection
+//! ([`viewer_core::Query::Collection`], which is those same files *arranged*), §12.4.3's article
+//! threads ([`viewer_core::Query::Articles`]) and §14.3.3's document information with §14.3.2's
+//! metadata beside it ([`viewer_core::Query::Properties`]). They arrive as six different types,
+//! because they *are* six different things, and a platform tree wants one row type — so this is
+//! where a host pays for that, once.
 //!
 //! # §12.3.4's miniatures are the one answer that is not a row
 //!
@@ -33,6 +34,7 @@
 
 use pdf_model::article::Thread;
 use pdf_model::attachment::Attachment;
+use pdf_model::collection::{Collection, Field, FieldKind, Initial};
 use pdf_model::metadata::{Information, Trapped};
 use pdf_model::outline::{Item, Outline};
 use pdf_model::viewer_preferences::PageMode;
@@ -102,6 +104,18 @@ pub struct PanelRow {
     ///
     /// [`Qt::ItemIsEnabled`]: https://doc.qt.io/qt-6/qt.html#ItemFlag-enum
     pub note: bool,
+    /// Whether this row is the one the *document* asked to be presented first.
+    ///
+    /// §12.3.5.1's `/D` is the only thing in this file that sets it: Table 153's entry
+    /// "identif[ies] an entry in the `EmbeddedFiles` name tree, determining the document that
+    /// shall be initially presented in the user interface", and a panel over a page obeys that
+    /// by setting one row apart rather than by opening a second window. **The clause states no
+    /// appearance for it**, so which mark each toolkit makes is that toolkit's — a bold label
+    /// here, a bold [`Qt::FontRole`] there — and *which row it is* is the one decision, which is
+    /// why it is a field rather than a rule each host applies to [`RowAction::Extract`].
+    ///
+    /// [`Qt::FontRole`]: https://doc.qt.io/qt-6/qt.html#ItemDataRole-enum
+    pub emphasis: bool,
     /// The rows underneath it.
     pub children: Vec<PanelRow>,
 }
@@ -116,6 +130,7 @@ impl PanelRow {
             expanded: false,
             action: RowAction::Inert,
             note: false,
+            emphasis: false,
             children: Vec::new(),
         }
     }
@@ -148,6 +163,7 @@ fn row_of_item(item: &Item) -> PanelRow {
         expanded: item.open,
         action: RowAction::Activate(item.id),
         note: false,
+        emphasis: false,
         children: item.children.iter().map(row_of_item).collect(),
     }
 }
@@ -184,6 +200,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
                 locked: *locked,
             },
             note: false,
+            emphasis: false,
             children: Vec::new(),
         },
         Layer::Collection { label, children } => PanelRow {
@@ -192,6 +209,7 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
             expanded: true,
             action: RowAction::Inert,
             note: false,
+            emphasis: false,
             children: children.iter().map(row_of_layer).collect(),
         },
     }
@@ -201,7 +219,9 @@ fn row_of_layer(layer: &Layer) -> PanelRow {
 ///
 /// Flat, because the `/EmbeddedFiles` name tree is a mapping rather than a hierarchy — §12.3.5's
 /// `/Collection` is what arranges files into folders, and it is a different answer
-/// ([`viewer_core::Query::Collection`]) that this host does not yet ask.
+/// ([`viewer_core::Query::Collection`]) that [`collection_rows`] presents. A host asks that
+/// query first and falls back to this one, because a collection is *these same files* arranged
+/// rather than a second population of them.
 #[must_use]
 pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
     attachments
@@ -229,6 +249,7 @@ pub fn attachment_rows(attachments: &[Attachment]) -> Vec<PanelRow> {
                 name: attachment.name.clone(),
             },
             note: false,
+            emphasis: false,
             children: Vec::new(),
         })
         .collect()
@@ -248,6 +269,265 @@ fn detail_of(attachment: &Attachment) -> Option<String> {
         (Some(media), None) => Some(media.clone()),
         (None, Some(size)) => Some(format!("{size} bytes")),
         (None, None) => None,
+    }
+}
+
+/// §12.3.5's portable collection, as rows: the same files, in folders, with the schema's columns.
+///
+/// > If this dictionary is present in a PDF document, the interactive PDF processor shall present
+/// > the document as a portable collection.
+///
+/// That sentence is a `shall` addressed to a *viewer*, and it is why this function exists at all:
+/// [`viewer_core::Query::Collection`] has carried Table 153 whole since the
+/// three-hundred-and-fifty-second session and no native host asked it, so two of the three windows
+/// showed a collection as a flat list of its files — the arrangement the document states, dropped.
+///
+/// **It is the files tab rather than a seventh panel.** A collection is how a document says its
+/// embedded files are arranged, not a second population of them, so the tab a person already looks
+/// in for [`attachment_rows`]'s list is where the arrangement belongs.
+///
+/// **The container's own pages stay on the screen**, which is the one decision the clause leaves
+/// open: it says to present the document as a collection and does not say *instead of what*.
+/// §7.6.7's unencrypted wrapper settles it — a wrapper's whole purpose is a page saying the
+/// payload is encrypted, and Table 153's `/View H` is how such a document asks for the list to
+/// start hidden — so a window that replaced the page with a file browser would hide the sentence
+/// the wrapper exists to show. ADR 0202 took that decision for `viewer-ui`; this is the same
+/// decision reaching the other two windows.
+///
+/// # Which file is in which folder
+///
+/// §12.3.5.2 gives the association no entry: it is written into the name-tree *key*, so
+/// `<3>report.pdf` is *report.pdf* in folder 3 and [`pdf_model::collection::folder_of`] reads it.
+/// A key that does not conform names no folder, and the clause says such files "shall be treated
+/// as associated with the root folder" — so they are the top-level rows, above the folders, which
+/// is where the root's own files belong. The row still carries the *tree's* key in its
+/// [`RowAction::Extract`], folder number and all, because that is what
+/// [`viewer_core::Command::Extract`] names a file by.
+///
+/// **Every embedded file is on the screen, and the clause says so twice.** A file cannot fall out
+/// of this panel by being filed oddly:
+///
+/// - a document that states no `/Folders` gets a flat list of all of them — "[i]f no folder
+///   structure is specified, interactive PDF processors should show all files in the collection in
+///   a flat list";
+/// - and a key naming a folder identifier the tree does not state is drawn at the root, because
+///   "[w]hen folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as
+///   members of the folder structure by an interactive PDF processor". The key conforms to the
+///   naming rules, so the clause's own "shall be treated as associated with the root folder" does
+///   not reach it; what it contradicts is "[t]he value shall correspond to a folder ID", which is
+///   a requirement on the *producer*. The clause states no remedy, and the root is the one place
+///   in the structure that admits a file no folder claims — so this is a documented choice for a
+///   malformed file, made to keep the `shall` above rather than to invent an arrangement.
+///
+/// Both cases lost the file entirely until the seven-hundred-and-seventy-second session (ADR
+/// 0711), which is a panel drawing less than the document embeds.
+///
+/// # The columns
+///
+/// Table 155's `/O` is "[t]he relative order of the field name in the user interface", and `/V`
+/// its "initial visibility" — so the hidden fields are dropped and the rest sort by `/O`, with a
+/// field stating none after those that do, by key, which is the only order left when the file
+/// states nothing. They become the row's one detail line, which is what a two-line tree row has
+/// in place of a table's columns.
+///
+/// Only Table 155's **file-related** subtypes are answered. The other three read §7.11.6's
+/// collection item on the file specification's `/CI`, which [`Attachment`] does not carry; that
+/// is a gap recorded here rather than papered over, and it is the same gap `viewer_ui::chrome`
+/// records.
+///
+/// # `/D`, and what "presented first" means for a panel over a page
+///
+/// [`pdf_model::collection::Initial`] is §12.3.5.1's four outcomes, resolved by `viewer-core`
+/// because the name tree is the document's. A panel over a page obeys them the only way it can:
+/// the initial document's row carries [`PanelRow::emphasis`], an empty tree says so instead of
+/// drawing nothing, and the container case marks no row — the container is what is already on the
+/// screen.
+///
+/// **This is written twice in this tree and that is deliberate**, on the same division as
+/// [`outline_rows`] and [`layer_rows`]: `viewer_ui::chrome` builds its own rows for every panel
+/// whose row is a *widget* — an expander, a switch, a miniature — and shares the ones that are
+/// text. The decisions are the clause's and are stated in both places; what differs is the row
+/// type each toolkit draws.
+#[must_use]
+pub fn collection_rows(
+    collection: &Collection,
+    initial: &Initial,
+    attachments: &[Attachment],
+) -> Vec<PanelRow> {
+    let mut columns: Vec<(&String, &Field)> = collection
+        .schema
+        .iter()
+        .filter(|(_, field)| field.visible)
+        .collect();
+    columns.sort_by_key(|(key, field)| (field.order.unwrap_or(i64::MAX), (*key).clone()));
+
+    let mut rows = match collection.folders.as_ref() {
+        Some(root) => {
+            let stated = &stated_ids(root);
+            let mut rows = files_where(attachments, &columns, &|id| {
+                id.is_none_or(|id| !stated.contains(&id))
+            });
+            rows.push(folder_row(root, attachments, &columns));
+            rows
+        }
+        None => files_where(attachments, &columns, &|_| true),
+    };
+
+    mark_initial(&mut rows, initial);
+
+    if rows.is_empty() {
+        // §12.3.5.1's "an empty preview window", and the case a document with a `/Collection` and
+        // no `/EmbeddedFiles` tree is in. An empty panel and a panel this program failed to fill
+        // look identical; only one of them is the file being quiet.
+        rows.push(PanelRow::saying("This collection lists no files."));
+    }
+    rows
+}
+
+/// Every folder identifier the tree states, which is what decides whether a key names one.
+fn stated_ids(root: &pdf_model::collection::Folder) -> std::collections::BTreeSet<u32> {
+    let mut ids = std::collections::BTreeSet::new();
+    let mut stack = vec![root];
+    while let Some(folder) = stack.pop() {
+        ids.insert(folder.id);
+        stack.extend(folder.children.iter());
+    }
+    ids
+}
+
+/// The files whose name-tree key names `folder`, as rows.
+fn files_in(
+    folder: u32,
+    attachments: &[Attachment],
+    columns: &[(&String, &Field)],
+) -> Vec<PanelRow> {
+    files_where(attachments, columns, &|id| id == Some(folder))
+}
+
+/// The files whose key's folder identifier — `None` where the key names none — `wanted` admits.
+fn files_where(
+    attachments: &[Attachment],
+    columns: &[(&String, &Field)],
+    wanted: &dyn Fn(Option<u32>) -> bool,
+) -> Vec<PanelRow> {
+    attachments
+        .iter()
+        .filter_map(|attachment| {
+            let (id, name) = match pdf_model::collection::folder_of(&attachment.name) {
+                Some((id, name)) => (Some(id), name),
+                None => (None, attachment.name.as_str()),
+            };
+            if !wanted(id) {
+                return None;
+            }
+            Some(PanelRow {
+                detail: columns_of(columns, attachment).or_else(|| detail_of(attachment)),
+                action: RowAction::Extract {
+                    name: attachment.name.clone(),
+                },
+                ..PanelRow::item(
+                    attachment
+                        .file_name
+                        .clone()
+                        .unwrap_or_else(|| name.to_owned()),
+                )
+            })
+        })
+        .collect()
+}
+
+/// One folder, with its files and its child folders under it.
+///
+/// Open, because a collection that arrived closed would be a folder tree presented as one row —
+/// which is §12.3.5's `shall` obeyed in the letter and not at all in what a person sees. The
+/// nesting is bounded by [`pdf_model::collection::Collection::read`], which walks `/Child` and
+/// `/Next` forward only and visits each object once.
+fn folder_row(
+    folder: &pdf_model::collection::Folder,
+    attachments: &[Attachment],
+    columns: &[(&String, &Field)],
+) -> PanelRow {
+    let mut children = files_in(folder.id, attachments, columns);
+    children.extend(
+        folder
+            .children
+            .iter()
+            .map(|child| folder_row(child, attachments, columns)),
+    );
+    PanelRow {
+        detail: folder.description.clone(),
+        expanded: true,
+        // A folder is not a file: it has no bytes to take out, so its row acts through its
+        // children.
+        action: RowAction::Inert,
+        children,
+        ..PanelRow::item(folder.name.clone())
+    }
+}
+
+/// Sets §12.3.5.1's initial document apart, in the order a person reads the tree.
+///
+/// Depth first, because that is the order the rows are shown in and therefore what the clause's
+/// "the first item from the list of files to display in its user interface" points at.
+fn mark_initial(rows: &mut [PanelRow], initial: &Initial) {
+    let wanted = match initial {
+        Initial::Embedded(name) => Some(name.clone()),
+        Initial::FirstFile => None,
+        // The container's own pages are on the screen already, so there is no row to mark; an
+        // empty tree has no rows at all and says so instead.
+        Initial::Container | Initial::Empty => return,
+    };
+    let mut done = false;
+    mark_first(rows, wanted.as_deref(), &mut done);
+}
+
+/// The first extractable row matching `wanted`, or the first of any where it is `None`.
+fn mark_first(rows: &mut [PanelRow], wanted: Option<&str>, done: &mut bool) {
+    for row in rows {
+        if *done {
+            return;
+        }
+        if let RowAction::Extract { name } = &row.action
+            && wanted.is_none_or(|asked| asked == name)
+        {
+            row.emphasis = true;
+            *done = true;
+            return;
+        }
+        mark_first(&mut row.children, wanted, done);
+    }
+}
+
+/// The schema's columns for one file, as `name: value` joined — the detail line of its row.
+///
+/// Table 47's `/P` prefix is concatenated with the *value* and not with the name, which is what
+/// the table says it is for: "[a] prefix string that shall be concatenated with the text string
+/// presented to the user".
+fn columns_of(columns: &[(&String, &Field)], attachment: &Attachment) -> Option<String> {
+    let shown: Vec<String> = columns
+        .iter()
+        .filter_map(|(_, field)| {
+            let value = column_value(field, attachment)?;
+            Some(format!("{}: {value}", field.name))
+        })
+        .collect();
+    (!shown.is_empty()).then(|| shown.join("  ·  "))
+}
+
+/// One column's value for one file.
+///
+/// Table 155's `/Subtype` decides *where the value lives*, which is the distinction
+/// [`pdf_model::collection::FieldKind`] exists for: the first three kinds read §7.11.6's
+/// collection item and the file-related ones read the file specification a host already has.
+/// Only the second group can be answered from an [`Attachment`].
+fn column_value(field: &Field, attachment: &Attachment) -> Option<String> {
+    match field.kind {
+        FieldKind::FileName => attachment.file_name.clone(),
+        FieldKind::Description => attachment.description.clone(),
+        FieldKind::Size => attachment.size.map(|size| format!("{size}")),
+        FieldKind::ModificationDate => attachment.modified.clone(),
+        FieldKind::CreationDate => attachment.created.clone(),
+        _ => None,
     }
 }
 

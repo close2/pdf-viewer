@@ -621,6 +621,84 @@ fn a_collection_puts_its_files_in_folders_with_the_schemas_columns() {
     );
 }
 
+/// §12.3.5.2: no embedded file falls out of the panel, however oddly its key is written.
+///
+/// Two sentences of the clause say so and this panel obeyed neither until the
+/// seven-hundred-and-seventy-second session (ADR 0711): "[i]f no folder structure is specified,
+/// interactive PDF processors should show all files in the collection in a flat list", and
+/// "[w]hen folders are used, all files in the `EmbeddedFiles` name tree … shall be treated as
+/// members of the folder structure by an interactive PDF processor". A key naming a folder the
+/// document never wrote contradicts "[t]he value shall correspond to a folder ID" — the producer's
+/// requirement — and the clause states no remedy, so the root is the choice made here.
+///
+/// A panel drawing fewer files than the document embeds looks exactly like a document that embeds
+/// fewer files, which is why this is a defect rather than a presentation question.
+#[test]
+fn no_embedded_file_is_lost_because_its_key_names_a_folder_that_is_not_there() {
+    use pdf_model::collection::{Collection, Folder, Initial, Item};
+
+    let chrome = Chrome::new().expect("§9.6.2.2's fourteen are compiled in");
+    let outline = Outline::default();
+    let files = vec![
+        attachment("<3>report.pdf", 4096),
+        attachment("readme.txt", 12),
+    ];
+    let both = |collection: &Collection| {
+        let content = Content {
+            outline: &outline,
+            layers: &[],
+            attachments: &files,
+            articles: &[],
+            collection: Some(viewer_ui::chrome::Presentation {
+                collection,
+                initial: &Initial::Container,
+            }),
+            information: &NOTHING,
+            metadata: None,
+            page_count: 0,
+            pages: None,
+        };
+        let mut panel = Sidebar::default();
+        panel.toggle();
+        assert_eq!(panel.click((tab(3), 8.0), content, 1.0), Some(Hit::Redraw));
+        // Every row this panel draws that a click takes a file out of, in the order it draws them.
+        let mut taken = Vec::new();
+        let mut row = 36.0;
+        while row < f64::from(HEIGHT) {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a row's midpoint in the panel"
+            )]
+            if let Some(Hit::Extract(name)) = panel.click((80.0, row as f32), content, 1.0) {
+                taken.push(name);
+            }
+            row += 20.0;
+        }
+        // And the rows are drawn rather than merely counted, which is trap 1 one panel over.
+        assert!(ink(&panel.draw(&chrome, content, HEIGHT, 1.0), 26..46) > 40);
+        taken.sort();
+        taken
+    };
+    let expected = ["<3>report.pdf".to_owned(), "readme.txt".to_owned()];
+
+    // No `/Folders`: a flat list of all of them, which is the clause's own `should`.
+    assert_eq!(both(&Collection::default()), expected);
+
+    // A `/Folders` stating folder 9 only, while a key names folder 3.
+    let elsewhere = Collection {
+        folders: Some(Folder {
+            id: 9,
+            name: "Chapters".to_owned(),
+            description: None,
+            item: Item::default(),
+            has_thumbnail: false,
+            children: Vec::new(),
+        }),
+        ..Collection::default()
+    };
+    assert_eq!(both(&elsewhere), expected);
+}
+
 /// §12.3.5.1's `/D`: the row of the initial document is set apart, and an empty tree says so.
 ///
 /// ISO 32000-2 Table 153's `/D` determines "the document that shall be initially presented in the

@@ -270,6 +270,15 @@ QVariant PanelModel::data(const QModelIndex& index, int role) const
     if (role == Qt::CheckStateRole && index.column() == 0 && row.action == 2) {
         return row.on ? Qt::Checked : Qt::Unchecked;
     }
+    // `viewer_host::PanelRow::emphasis` — §12.3.5.1's `/D`, "the document that shall be initially
+    // presented in the user interface". The clause states no appearance for it, so this is Qt's
+    // own way of setting one row before the others; GTK adds a `heading` class and `viewer-ui`
+    // draws the label bold. Which row it is, is the one shared decision.
+    if (role == Qt::FontRole && row.emphasis) {
+        QFont bold;
+        bold.setBold(true);
+        return bold;
+    }
     if (role == Qt::ToolTipRole && !row.detail.empty()) {
         return text(row.detail);
     }

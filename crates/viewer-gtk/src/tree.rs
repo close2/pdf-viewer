@@ -137,6 +137,14 @@ fn bind(item: &glib::Object, act: &Rc<dyn Fn(&RowAction)>) {
     if row.note {
         label.add_css_class("dim-label");
     }
+    // `PanelRow::emphasis` is §12.3.5.1's `/D` — "the document that shall be initially presented
+    // in the user interface" — and the clause states no appearance for it. Adwaita's `heading`
+    // class is what this platform has for "this row before the others"; `viewer-qt` says it with
+    // a bold `Qt::FontRole` and `viewer-ui` with a bold face. Which row it is, is the one shared
+    // decision (`viewer_host::panel::collection_rows`).
+    if row.emphasis {
+        label.add_css_class("heading");
+    }
     text.append(&label);
     if let Some(detail) = row.detail.as_deref() {
         let second = gtk4::Label::new(Some(detail));
