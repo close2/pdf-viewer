@@ -86,5 +86,7 @@ pub mod viewer_preferences;
 pub mod x509;
 pub mod xmp;
 
-pub use content::{Interpretation, Unsupported, interpret};
+pub use content::{
+    FONT_BUDGET, FontCache, FontCacheReport, Interpretation, Unsupported, interpret,
+};
 pub use page::{MediaBoxSubstitution, Page, Pages};

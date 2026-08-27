@@ -53,6 +53,7 @@ mod text;
 mod transparency;
 mod xobject;
 
+pub use font::{FONT_BUDGET, FontCache, FontCacheReport};
 pub use report::{
     ArtifactSpan, ContentStream, DamagedStream, Interpretation, MarkedSpan, Placed, Shortfall,
     UnnamedCodes, Unsupported, named_sequences,
@@ -427,6 +428,30 @@ pub fn interpret_with(
     page: &Page,
     state: &crate::view::ViewState,
 ) -> Interpretation {
+    interpret_with_fonts(document, page, state, &FontCache::new())
+}
+
+/// Interprets a page, reusing the fonts an earlier interpretation of the same document loaded.
+///
+/// The same as [`interpret_with`] except that §9.6's font loading may be answered out of
+/// `fonts` and adds to it. **The `Interpretation` is the same one either way**, and that is a
+/// property to state rather than a hope: a loaded font is a pure function of the document and
+/// the font dictionary, an [`ObjectId`](pdf_syntax::ObjectId) names one dictionary in one file,
+/// and [`FontCache`] refuses to answer for a document other than the one it was filled from.
+/// `content::tests::a_kept_font_changes_what_a_page_costs_and_not_what_it_says` is what checks
+/// it, over the corpus's multi-page documents, against the planted defect it would take to
+/// break it.
+///
+/// [`interpret_with`] is this function with a cache of its own, which is why §11.4.7's
+/// subtractive pair below shares one: the two runs of one page load one set of fonts between
+/// them rather than two. ADR 0710 has the measurements.
+#[must_use]
+pub fn interpret_with_fonts(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    fonts: &FontCache,
+) -> Interpretation {
     // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
     // compositing shall be done in the default blending colour space of the page" — and where
     // that space is `DeviceCMYK` this tree draws the page in it rather than on the device's
@@ -445,6 +470,7 @@ pub fn interpret_with(
             state,
             Compositing::Subtractive(crate::colour::Half::Chromatic, Arc::clone(&press)),
             &presses,
+            fonts,
         );
         if drawable {
             let (black, _) = interpret_into(
@@ -453,6 +479,7 @@ pub fn interpret_with(
                 state,
                 Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press)),
                 &presses,
+                fonts,
             );
             // The two runs differ only in what a colour resolves to, so their geometry is
             // identical by construction — and this is what checks it, because the halves are
@@ -469,7 +496,7 @@ pub fn interpret_with(
             }
         }
     }
-    interpret_into(document, page, state, Compositing::Device, &presses).0
+    interpret_into(document, page, state, Compositing::Device, &presses, fonts).0
 }
 
 impl<'a> Interpreter<'a> {
@@ -485,6 +512,7 @@ impl<'a> Interpreter<'a> {
         state: &'a crate::view::ViewState,
         compositing: Compositing,
         presses: &'a crate::colour::Presses,
+        across: &'a FontCache,
     ) -> Self {
         let size = displayed_size(page);
         // §6.3.2.2's "unless otherwise instructed", asked once per page and only where a host
@@ -516,6 +544,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_character: UnnamedCodes::default(),
             operations: 0,
             fonts: BTreeMap::new(),
+            across,
             text: String::new(),
             described: Vec::new(),
             artifacts: Vec::new(),
@@ -582,6 +611,7 @@ fn interpret_into(
     state: &crate::view::ViewState,
     compositing: Compositing,
     presses: &crate::colour::Presses,
+    fonts: &FontCache,
 ) -> (Interpretation, bool) {
     // **The page's `/Contents` is read through a window and never assembled into one buffer**,
     // which is road D of `doc/todo/10` §5 and ADR 0365. What it buys, measured: a
@@ -591,7 +621,7 @@ fn interpret_into(
     // to interpret an ordinary page, and one report arriving late: a part damaged half way
     // through is met half way through, so the reader is asked twice, here and after the run.
     let mut reader = reader::ContentReader::for_page(document, page);
-    let mut interpreter = Interpreter::for_page(document, page, state, compositing, presses);
+    let mut interpreter = Interpreter::for_page(document, page, state, compositing, presses, fonts);
 
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
@@ -960,11 +990,26 @@ struct Interpreter<'a> {
     /// `Interpretation::codes_without_a_character`.
     codes_without_a_character: UnnamedCodes,
     operations: usize,
-    /// Fonts already loaded, keyed by resource name.
+    /// Fonts already loaded during *this* interpretation, by the object each dictionary is.
     ///
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,
     /// so this is what keeps text rendering from being dominated by font loading.
+    ///
+    /// **This comment said "keyed by resource name" for six hundred and forty rounds after that
+    /// stopped being true**, which is the shape `doc/habits.md`'s ledger section is about one
+    /// directory over: the hundred-and-twenty-seventh session moved the key to the object's
+    /// identity precisely because a name conflated a page's `/F1` with a form's, and the line
+    /// describing it did not move. See [`FontKey`].
+    ///
+    /// It holds a *failure* as well as a font, which [`Self::across`] deliberately does not.
     fonts: BTreeMap<FontKey, Option<Font>>,
+    /// Fonts loaded out of this document by an *earlier* interpretation, where the caller kept
+    /// them (§9.6, ADR 0710).
+    ///
+    /// Empty and unshared for every caller that does not, which is [`interpret`] and
+    /// [`interpret_with`] — those build one per call, so the two runs of §11.4.7's subtractive
+    /// pair below share a cache and nothing else does.
+    across: &'a FontCache,
     /// Maps PDF user space to page space.
     ///
     /// Pattern space is defined relative to the page's default coordinates rather than to
@@ -1428,8 +1473,138 @@ fn apply_dash(array: Vec<f32>, phase: f32, stroke: &mut Stroke) {
 mod tests {
     use pdf_render::Point;
 
-    use super::{base_transform, displayed_size};
+    use super::{FontCache, base_transform, displayed_size, interpret_with, interpret_with_fonts};
     use crate::page::Page;
+
+    /// Corpus documents with more than one page, and one that §11.4.7 interprets twice.
+    ///
+    /// The first four each draw twenty-odd fonts across their pages and reuse nearly all of
+    /// them, which is what makes the equality below worth asserting; `bug1755507.pdf` sets a
+    /// `DeviceCMYK` blending space, so `interpret_with` runs the subtractive pair over one page
+    /// and the two halves share one cache — the *other* population a kept font reaches.
+    const REUSING_PAGES: [&str; 5] = [
+        "tracemonkey_annotation_on_page_8.pdf",
+        "comments.pdf",
+        "issue12337.pdf",
+        "issue19239.pdf",
+        "bug1755507.pdf",
+    ];
+
+    /// The whole of an interpretation, as a string two arms can be compared by.
+    ///
+    /// The `Debug` rendering rather than [`pdf_render::DisplayList::geometry_digest`], which
+    /// hashes the *geometry* and would pass a difference in a paint — and a font decides a
+    /// glyph's outline, so a wrong font is exactly a difference this must not miss.
+    /// `examples/display_list_digest` compares two revisions the same way.
+    fn everything(interpretation: &super::Interpretation) -> String {
+        format!(
+            "{:?}|{:?}|{}|{}|{}",
+            interpretation.display_list,
+            interpretation.unsupported,
+            interpretation.text,
+            interpretation.glyphs,
+            interpretation.view_dependent,
+        )
+    }
+
+    /// ADR 0710. A font kept from an earlier page must change what the next page *costs* and
+    /// nothing about what it says — the property `CLAUDE.md` rests the oracle's comparison on.
+    ///
+    /// **Each assertion was calibrated against the defect it is about** (trap 13), and what that
+    /// found is the reason there are three rather than one:
+    ///
+    /// - Against a `FontCache::get` that answers with *any* held font instead of the keyed one,
+    ///   the comparison fails on page 2 of the first document. So the equality catches a key
+    ///   confusion **inside** a document, which is what it is for.
+    /// - Against a `FontCache::bind` stubbed never to rebind, it **passes**, and only the
+    ///   `rebound` assertion fails. Four documents' font dictionaries simply do not land on the
+    ///   same object numbers, so a cache that answered across files would not be caught by
+    ///   comparing pictures — which is exactly why the binding is asserted directly rather than
+    ///   trusted to show up as a wrong glyph.
+    /// - Without `hits > 0` the whole comparison could pass with the cache never consulted.
+    #[test]
+    fn a_kept_font_changes_what_a_page_costs_and_not_what_it_says() {
+        let corpus =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs");
+        let shared = FontCache::new();
+        let mut compared = 0_usize;
+        for name in REUSING_PAGES {
+            let Ok(bytes) = std::fs::read(corpus.join(name)) else {
+                continue;
+            };
+            let Ok(document) = pdf_syntax::Document::open(bytes) else {
+                continue;
+            };
+            let state = crate::view::ViewState::of(&document);
+            let pages = crate::Pages::new(&document);
+            for index in 0..pages.len().min(5) {
+                let Some(page) = pages.get(index) else { break };
+                // Alone first: a fresh cache per call is what every other caller in this
+                // workspace does, and it is the answer the kept one has to reproduce.
+                let alone = everything(&interpret_with(&document, &page, &state));
+                let kept = everything(&interpret_with_fonts(&document, &page, &state, &shared));
+                assert_eq!(
+                    alone,
+                    kept,
+                    "{name} page {} differs when a font is kept",
+                    index + 1
+                );
+                compared = compared.saturating_add(1);
+            }
+        }
+        assert!(compared > 0, "no multi-page corpus document was readable");
+        let report = shared.report();
+        assert!(
+            report.hits > 0,
+            "the cache answered nothing, so the comparison above tested nothing: {report:?}"
+        );
+        assert!(
+            report.rebound > 0,
+            "one cache walked several documents without rebinding once: {report:?}"
+        );
+        assert!(
+            report.bytes <= report.budget,
+            "the budget was exceeded: {report:?}"
+        );
+    }
+
+    /// A budget smaller than one font holds nothing, and answers exactly as an empty cache does.
+    ///
+    /// The eviction path, which no document this project owns reaches at [`super::FONT_BUDGET`]
+    /// — `examples/font_cache_budget` is where that is measured — and which is therefore
+    /// otherwise unexercised. `pdf_syntax::DecodedStreams::with_budget` exists for this reason
+    /// and this test is the same shape.
+    #[test]
+    fn a_budget_too_small_for_one_font_keeps_none_and_changes_no_answer() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/tracemonkey_annotation_on_page_8.pdf");
+        let Ok(bytes) = std::fs::read(path) else {
+            return;
+        };
+        let Ok(document) = pdf_syntax::Document::open(bytes) else {
+            return;
+        };
+        let state = crate::view::ViewState::of(&document);
+        let pages = crate::Pages::new(&document);
+        let starved = FontCache::with_budget(64);
+        for index in 0..pages.len().min(3) {
+            let Some(page) = pages.get(index) else { break };
+            let alone = everything(&interpret_with(&document, &page, &state));
+            let kept = everything(&interpret_with_fonts(&document, &page, &state, &starved));
+            assert_eq!(
+                alone,
+                kept,
+                "page {} differs under a starved cache",
+                index + 1
+            );
+        }
+        let report = starved.report();
+        assert_eq!(report.fonts, 0, "a 64-byte budget kept a font: {report:?}");
+        assert_eq!(
+            report.hits, 0,
+            "a 64-byte budget answered a lookup: {report:?}"
+        );
+    }
 
     /// A page 400 wide and 200 tall, with no crop offset, at `rotate` degrees.
     fn landscape(rotate: u16) -> Page {
