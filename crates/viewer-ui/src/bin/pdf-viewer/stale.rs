@@ -2180,6 +2180,12 @@ mod tests {
     /// snapped to whole device pixels — the owner's "scrolling with the mouse still
     /// shows blurry text", fixed at the placement rather than in the sampler. The
     /// half-pixel it costs lives one refresh; the blur it removes covered every glyph.
+    #[expect(
+        clippy::float_cmp,
+        reason = "snapping to whole device pixels is the behaviour under test, so the expected \
+                  values are exact in binary and a tolerance would hide a snap that stopped \
+                  snapping"
+    )]
     #[test]
     fn a_scroll_stand_in_lands_on_whole_pixels() {
         let page = page();
