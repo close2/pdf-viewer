@@ -392,8 +392,8 @@ These are settled in `pdf-render` precisely so that two backends cannot answer t
 
 | decision | where | what you do |
 |---|---|---|
-| `Image::is_smoothed` | §8.9.5.3's `/Interpolate` | honour the flag; do not choose a filter yourself |
-| `Image::area_averaged` | a documented departure from §10.7.4 | honour it |
+| `Image::is_smoothed` | §8.9.5.3's `/Interpolate` | **amended 2026-08-27 (ADR 0706, quorra's 0089): the flag crosses as `ImageFilter::Auto` and you resolve the filter per placement, mirrored from our rule** |
+| `Image::area_averaged` | a documented departure from §10.7.4 | **amended with the row above: you resolve the factors and hold the reduced variant resident, byte-identical to ours** |
 | `Stroke::device_width` | §8.4.3.2 with §10.7.5 — a `0 w` line is **one device pixel** | **amended 2026-08-27 (ADR 0701, quorra's 0085): resolve it yourself, per placement, from the scene-space width and the `adjust` flag** |
 | degenerate subpaths | §8.5.3.2 — a zero-length subpath is a dot under round caps and *nothing* under butt or square | we pre-split them; draw what you are given |
 | collapsed fills | §10.7.4 — a fill's subpath with no extent along one axis paints the whole pixel run its line lies in; "no shape ever disappears" | **amended 2026-08-27 (ADR 0703, quorra's 0086): yours now — the collapse table is found at upload, the encode places the marks per placement, and we stopped pre-splitting at your boundary** |

@@ -1072,38 +1072,45 @@ impl<'a> Encoder<'a> {
         };
         let mask = self.mask_id(builder, mask)?;
         let placement = transform.then(self.target.transform);
-        // The filter, the reduction and any deferred sampling below are all read off
-        // this view's scale, and the scene carries their answers (ADR 0702).
+        let deferred = matches!(source, ImageSource::AtDeviceScale(_));
+        // Since quorra's ADR 0089 (this tree's ADR 0706), an ordinary image crosses
+        // the boundary as its own samples plus §8.9.5.3's flag, and quorra's encode
+        // resolves the filter and the area-averaging reduction per placement —
+        // mirrored statement for statement from `pdf_render`, whose originals the
+        // oracle keeps. The command therefore reads nothing of the view, and a page
+        // with pictures on it keeps its scene across a zoom (ADR 0702).
+        if !deferred {
+            let resolved = source.at(placement);
+            let image: &Image = &resolved;
+            let id = self.cached_image(image)?;
+            builder.image(
+                id,
+                self.placed(transform),
+                alpha,
+                quorra_scene::ImageFilter::Auto {
+                    interpolate: image.interpolate,
+                },
+                clip,
+                blend_mode(blend),
+                mask,
+            )?;
+            return Ok(());
+        }
+        // Samples the display list deferred are produced here, where the device scale
+        // is known — §11.6.5.2's mask on a grid of its own, at the grid `pdf_render`
+        // derives from the placement so that no backend picks its own. Those stay
+        // *transient*: the samples are made for this placement and their `Arc` is this
+        // frame's, so there is no identity for a cache to be keyed by. The grid is
+        // this view's, so the scene carries its answer (ADR 0702).
         self.consume_view();
-
-        // Samples the display list deferred are produced here, where the device scale is
-        // known — §11.6.5.2's mask on a grid of its own, at the grid `pdf_render` derives from
-        // the placement so that no backend picks its own. Those stay *transient*: the samples
-        // are made for this placement and their `Arc` is this frame's, so there is no identity
-        // for a cache to be keyed by and an entry would be a leak with a lookup on it.
         let resolved = source.at(placement);
         let image: &Image = &resolved;
-        let deferred = matches!(source, ImageSource::AtDeviceScale(_));
-
-        // The two decisions RENDER_LIBRARY.md section 4.5 settles on this side of the boundary: area
-        // averaging for minification, and the resolved smoothing for the placement.
-        let (id, smoothed) = if deferred {
-            let reduced = image.area_averaged(placement);
-            let uploaded: &Image = reduced.as_ref().unwrap_or(image);
-            let uploaded_spec = spec(uploaded);
-            let id = self.handing_over(|device| device.upload_image(&uploaded_spec))?;
-            self.transient.push(id.into());
-            (id, uploaded.is_smoothed(placement))
-        } else {
-            match image.reduction(placement) {
-                Some(reduction) => (
-                    self.reduced_image(image, placement, reduction)?,
-                    reduction.smoothed,
-                ),
-                None => (self.cached_image(image)?, image.is_smoothed(placement)),
-            }
-        };
-        let filter = if smoothed {
+        let reduced = image.area_averaged(placement);
+        let uploaded: &Image = reduced.as_ref().unwrap_or(image);
+        let uploaded_spec = spec(uploaded);
+        let id = self.handing_over(|device| device.upload_image(&uploaded_spec))?;
+        self.transient.push(id.into());
+        let filter = if uploaded.is_smoothed(placement) {
             quorra_scene::ImageFilter::Linear
         } else {
             quorra_scene::ImageFilter::Nearest
@@ -1330,43 +1337,6 @@ impl<'a> Encoder<'a> {
         let whole = spec(image);
         let id = self.handing_over(|device| device.upload_image(&whole))?;
         self.caches.store_image(&image.data, WHOLE, id);
-        Ok(id)
-    }
-
-    /// The reduced grid `reduction` describes, uploaded once and kept under the *source's*
-    /// identity together with the factors that produced it.
-    ///
-    /// **This raster used to be transient, and that was 57% of a scrolled page's frame.**
-    /// [`pdf_render::Image::area_averaged`] costs one pass over the *source* samples, so on a
-    /// scanned page it is the largest thing in the frame and it does not shrink with the
-    /// window: 8.5 to 9.8 ms of a 12.7 to 16.8 ms redraw of one 2700×3450 page, recomputed
-    /// identically on every scroll step because the page, the scale and the samples were all
-    /// unchanged (ADR 0297, `doc/todo/45`'s witness). Keying it needs no new memory argument:
-    /// the entry's own bytes are the device's and are already inside `evict_settled`'s budget,
-    /// and its pin is released the frame after the display list holding those samples goes.
-    ///
-    /// What it costs in readability is this function and one wider key — against
-    /// `Image::reduction`, which is the whole of the exactness argument: every byte of the
-    /// raster is a function of the source samples and the two factors, both of which are in
-    /// the key.
-    fn reduced_image(
-        &mut self,
-        image: &Image,
-        placement: Transform,
-        reduction: pdf_render::Reduction,
-    ) -> Result<quorra_scene::ImageId, QuorraRasterError> {
-        if let Some(id) = self.caches.image(&image.data, reduction.factors) {
-            return Ok(id);
-        }
-        // `Image::reduction` answered `Some`, so `area_averaged` does too — they ask one
-        // function. Written as "the reduced grid, or the samples themselves" rather than as an
-        // unreachable branch, because that is the sentence the fallback would mean anyway and
-        // it draws the same picture at a finer grid.
-        let reduced = image.area_averaged(placement);
-        let uploaded: &Image = reduced.as_ref().unwrap_or(image);
-        let reduced = spec(uploaded);
-        let id = self.handing_over(|device| device.upload_image(&reduced))?;
-        self.caches.store_image(&image.data, reduction.factors, id);
         Ok(id)
     }
 

@@ -3508,7 +3508,7 @@ dependencies = [
 [[package]]
 name = "quorra-gpu"
 version = "0.1.0"
-source = "git+https://github.com/close2/quorra#34353d74559979563ab723b3e5712c73ce40adf3"
+source = "git+https://github.com/close2/quorra#873e7ac297a1272cc4d2ae270554342382a9def4"
 dependencies = [
  "pollster",
  "quorra-scene",
@@ -3519,7 +3519,7 @@ dependencies = [
 [[package]]
 name = "quorra-scene"
 version = "0.1.0"
-source = "git+https://github.com/close2/quorra#34353d74559979563ab723b3e5712c73ce40adf3"
+source = "git+https://github.com/close2/quorra#873e7ac297a1272cc4d2ae270554342382a9def4"
 
 [[package]]
 name = "quote"
