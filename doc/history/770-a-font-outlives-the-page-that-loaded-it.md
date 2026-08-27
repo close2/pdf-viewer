@@ -1,7 +1,7 @@
 # 770 — A font outlives the page that loaded it
 
 2026-08-28. The question 766 named and declined, assigned to this round.
-Decision: [ADR 0701](../adr/0701-a-font-outlives-the-page-that-loaded-it.md).
+Decision: [ADR 0710](../adr/0710-a-font-outlives-the-page-that-loaded-it.md).
 
 ## What was asked and what was answered
 

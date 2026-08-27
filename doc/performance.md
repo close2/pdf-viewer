@@ -730,7 +730,7 @@ codes through the list where the page shows a few dozen — 67 200 `text_for` ca
 loses (+0.22%) is measured there rather than assumed.
 
 **And the question 766 left — whether a font cache can outlive an interpretation — was taken in
-the seven-hundred-and-seventieth** (ADR 0701). What repeats is the same font *object* across the
+the seven-hundred-and-seventieth** (ADR 0710). What repeats is the same font *object* across the
 pages of one document — 62.4% of all font loads in the corpus's multi-page documents are re-loads
 — so `viewer_core::Open` now holds a `pdf_model::FontCache` beside its document and passes it to
 `interpret_with_fonts`; every other caller computes through a fresh cache per call and the answer

@@ -322,7 +322,7 @@ fn outlines(
 /// and `examples/callgrind_interpret`, one sitting, two arms from one tree: **+0.468%** on fifty
 /// interpretations of page 101 of ISO 32000-2 and **+0.140%** over twenty distinct pages of it,
 /// the display lists identical command for command. What it buys is `pdf_model::FontCache`
-/// and −14.9% of interpreting those same twenty pages. ADR 0701.
+/// and −14.9% of interpreting those same twenty pages. ADR 0710.
 pub struct LoadedFont {
     /// The embedded font program, which the reader borrows from on each use.
     data: Arc<[u8]>,
@@ -1186,7 +1186,7 @@ impl LoadedFont {
     /// `CMap`s, the glyph names and the outlines built on demand sit beside it — and this
     /// deliberately does not guess at those. It is the term that dominates and the only one
     /// that is exact; what the rest add is measured rather than estimated, as peak resident
-    /// memory over a sweep (ADR 0701).
+    /// memory over a sweep (ADR 0710).
     #[must_use]
     pub fn program_bytes(&self) -> usize {
         self.data.len()

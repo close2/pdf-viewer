@@ -189,7 +189,7 @@ pub(super) enum FontKey {
 /// deliberately does not charge for. At 2 MiB the same sweep costs **+2.0 MB**, which is the
 /// budget and nothing else: the charge tracks the process here and understates it by about half
 /// one doubling later. A bound whose accounting stops being true above it is a bound to stay
-/// below. ADR 0701.
+/// below. ADR 0710.
 pub const FONT_BUDGET: usize = 2 * 1024 * 1024;
 
 /// Fonts loaded out of one open document, kept across interpretations of its pages.
@@ -200,7 +200,7 @@ pub const FONT_BUDGET: usize = 2 * 1024 * 1024;
 /// [`Interpreter`] that lives for one page pays §9.6's whole load again on the next: seven of
 /// them on page 101 of ISO 32000-2, and 213 of the 240 loads in its first forty pages are of a
 /// font an earlier page had already loaded. Twenty distinct pages of that document interpret in
-/// **−14.86%** of the instructions with this than without (ADR 0701).
+/// **−14.86%** of the instructions with this than without (ADR 0710).
 ///
 /// # What it changes, and what it does not
 ///
@@ -289,7 +289,7 @@ struct Entry {
     /// The term that dominates and the only one that is exactly knowable at this point: the
     /// widths, the `CMap`s and the outlines a font builds beside its program are smaller and
     /// grow after the charge is taken. What they add is not estimated here but *measured*, as
-    /// peak resident memory over a sweep at this budget — ADR 0701 has the figure.
+    /// peak resident memory over a sweep at this budget — ADR 0710 has the figure.
     bytes: usize,
     used: u64,
 }

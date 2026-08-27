@@ -444,7 +444,7 @@ pub fn interpret_with(
 ///
 /// [`interpret_with`] is this function with a cache of its own, which is why §11.4.7's
 /// subtractive pair below shares one: the two runs of one page load one set of fonts between
-/// them rather than two. ADR 0701 has the measurements.
+/// them rather than two. ADR 0710 has the measurements.
 #[must_use]
 pub fn interpret_with_fonts(
     document: &Document,
@@ -1004,7 +1004,7 @@ struct Interpreter<'a> {
     /// It holds a *failure* as well as a font, which [`Self::across`] deliberately does not.
     fonts: BTreeMap<FontKey, Option<Font>>,
     /// Fonts loaded out of this document by an *earlier* interpretation, where the caller kept
-    /// them (§9.6, ADR 0701).
+    /// them (§9.6, ADR 0710).
     ///
     /// Empty and unshared for every caller that does not, which is [`interpret`] and
     /// [`interpret_with`] — those build one per call, so the two runs of §11.4.7's subtractive
@@ -1507,7 +1507,7 @@ mod tests {
         )
     }
 
-    /// ADR 0701. A font kept from an earlier page must change what the next page *costs* and
+    /// ADR 0710. A font kept from an earlier page must change what the next page *costs* and
     /// nothing about what it says — the property `CLAUDE.md` rests the oracle's comparison on.
     ///
     /// **Each assertion was calibrated against the defect it is about** (trap 13), and what that

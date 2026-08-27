@@ -1,4 +1,4 @@
-# ADR 0701 — A font outlives the page that loaded it
+# ADR 0710 — A font outlives the page that loaded it
 
 Status: accepted, 2026-08-28 (session 770).
 
