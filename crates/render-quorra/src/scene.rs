@@ -634,44 +634,18 @@ impl<'a> Encoder<'a> {
             return Ok(());
         };
         let mask = self.mask_id(builder, mask)?;
-        // ISO 32000-2 §10.7.4: no shape may disappear, and a subpath with no
-        // extent along one axis has zero area for every coverage rasteriser. The
-        // split — which subpaths enclose area, which become one-device-pixel
-        // marks — is `pdf-render`'s, stated once for every backend (the viewer's
-        // ADR 0154; QUORRA_FEEDBACK.md section 1 was a page of ruling lines drawn
-        // blank). Marks fill under the **non-zero** rule whatever the command's
-        // own rule is: a mark is a shape in its own right, and adding it to an
-        // even-odd path's winding would punch a hole in what it should draw.
-        let split = pdf_render::split_collapsed_fill(path, transform.then(self.target.transform));
-        if split.is_some() {
-            // §10.7.4's bands are sized and placed on this view's pixel grid, so a
-            // scene holding them is only true here (ADR 0702).
-            self.consume_view();
-        }
-        if let Some(split) = split {
-            if !split.marks.is_empty() {
-                let marks = self.transient_outline(&split.marks)?;
-                self.emit_fill(
-                    builder,
-                    (marks, transform, FillRule::NonZero),
-                    paint,
-                    (clip, mask, blend),
-                    path,
-                )?;
-            }
-            if split.filled.is_empty() {
-                return Ok(());
-            }
-            let filled = self.transient_outline(&split.filled)?;
-            return self.emit_fill(
-                builder,
-                (filled, transform, rule),
-                paint,
-                (clip, mask, blend),
-                path,
-            );
-        }
-
+        // ISO 32000-2 §10.7.4: no shape may disappear, and a subpath with no extent
+        // along one axis has zero area for every coverage rasteriser. Until ADR 0703
+        // this crate split such subpaths out here through
+        // `pdf_render::split_collapsed_fill` — marks sized and floored on *this*
+        // view's pixel grid, so a scene holding them was true at exactly one
+        // placement, and one hairline ruling cost a page-space scene its survival
+        // (ADR 0702's measured finding). Since quorra's ADR 0086 the collapse table
+        // is resident on the outline and quorra's encode places the marks per
+        // viewport, mirrored statement for statement from `pdf_render::collapsed` —
+        // which remains the oracle's own path, so the cross-backend gates compare
+        // the two implementations continuously. The whole original path crosses the
+        // boundary, which is also what keeps its `Arc` cache identity.
         let outline = self.outline(path)?;
         self.emit_fill(
             builder,
