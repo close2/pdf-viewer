@@ -399,6 +399,7 @@ impl FrameLog {
         // exactly the inference quorra's `EncodeSource` exists so that nobody has to make.
         let source = match stages.gpu.encode_source {
             Some(quorra_gpu::EncodeSource::Replayed) => " replayed",
+            Some(quorra_gpu::EncodeSource::RecordReplayed) => " re-placed",
             Some(quorra_gpu::EncodeSource::Encoded) => " encoded",
             None => "",
         };

@@ -110,11 +110,16 @@ pub(crate) fn encode(
         &mut dots,
         &mut coverage,
     );
-    if split.is_some() || dashed.is_some() {
-        // §8.5.3.2's dots and zero-length dash marks are sized on this view's pixel
-        // grid. The dashes themselves are cut in path space and would survive a view
-        // change, but telling a marked dash from a plain one is not worth the audit
-        // yet: either splitting marks the scene (ADR 0702).
+    if !dots.is_empty() || coverage < 1.0 {
+        // §8.5.3.2's dots and zero-length dash marks are sized — and §10.7.4's
+        // substitution for them decided — on this view's pixel grid, so a scene
+        // holding any is true only here (ADR 0702). **The splits alone are not that**
+        // (ADR 0705): which subpaths are degenerate is the path's own geometry, the
+        // dash pattern cuts in path space with no width in the arithmetic, and the
+        // stroke that survives both carries its scene-space width to quorra, which
+        // resolves §8.4.3.2 and §10.7.5 per placement (ADR 0701). So a dashed table
+        // border or a stroke that merely *lost* its degenerate subpaths keeps its
+        // scene across every zoom, and only marks actually made consume the view.
         enc.consume_view();
     }
     let solid: &Path = dashed.as_ref().unwrap_or(geometry);
