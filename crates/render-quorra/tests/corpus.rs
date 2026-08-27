@@ -346,20 +346,27 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// living in the 4× list and going stale while nobody ran that lane, cannot recur.
 const REFUSED_BEFORE_THE_SCENE: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
 
-/// Documents whose first page **the device** refuses at [`SCALE`], by name — and there are none.
+/// Documents whose first page **the device** refuses at [`SCALE`], by name.
 ///
-/// The second of the two stages, and the empty half of it. A refusal here is raised inside
-/// quorra at render time, against a capability or a budget the adapter states: a page that
-/// translated into a scene, went to the device, and could not be drawn there. **An empty array
-/// is a statement rather than an omission** — at a page's own resolution, which is what a
-/// document opens at, nothing in this corpus asks the adapter for more than it has.
+/// The second of the two stages. A refusal here is raised inside quorra at render time, against
+/// a capability or a budget the adapter states: a page that translated into a scene, went to
+/// the device, and could not be drawn there. This array held nothing — "at a page's own
+/// resolution, nothing in this corpus asks the adapter for more than it has" — until the
+/// owner-merged GPU arc took quorra's `5fb011a` and rebuilt the scene in page space (ADR 0702),
+/// after which `issue1905.pdf` is over the frame's scene-byte budget at 1× as well as over the
+/// coverage-sheet texture ceiling at 4×: *frame refused: frame needs 272158852 scene-derived
+/// bytes, over the stated budget of 268435456* — 1.4% over. The merge round that pinned it
+/// (773) ran this gate at the arc's own head with the four merged rounds absent and got the
+/// identical refusal, byte for byte, so the name is the arc's and not the merge's; the CPU
+/// backend draws the page and says so, which is `CLAUDE.md`'s rule for a budget refusal. The
+/// upstream ask, with the run's message, is `doc/QUORRA_FEEDBACK.md` section 40.
 ///
 /// **What a departure from this list means.** A name arriving is a page a person could open at
 /// 100% and not see: it is quorra's to move, or this adapter's, and the round that finds one
 /// reports it upstream with the message the run prints rather than adding a construction here.
 /// A name leaving is an allocation, a tiling or a ceiling that changed upstream, which is
 /// exactly what [`REFUSED_BY_THE_DEVICE_AT_FOUR`]'s own note records happening twice.
-const REFUSED_BY_THE_DEVICE: [&str; 0] = [];
+const REFUSED_BY_THE_DEVICE: [&str; 1] = ["issue1905.pdf"];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///

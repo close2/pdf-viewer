@@ -4817,3 +4817,28 @@ range cut out of it (§8.9.6.4), and a JPEG 2000 image with an opacity channel. 
 straight-alpha RGBA whose cleared samples are black, and all of them get that black smeared into
 their edges wherever the filter is on — which, by `Image::is_smoothed`, is every reduction as well
 as every image whose file asks for interpolation.
+
+## 40. `issue1905.pdf` crosses the frame's scene-byte budget at 1× on `5fb011a` — a report with the message, not an ask for a larger budget
+
+Found by the merge round that integrated the page-space scene work (this tree's ADR 0702) with
+your `5fb011a`: the corpus gate's 1× lane, which had never had a device refusal, now has one.
+
+```
+refused: issue1905.pdf: frame refused: frame needs 272158852 scene-derived bytes,
+         over the stated budget of 268435456
+```
+
+1.4% over. The page is the corpus's heaviest and you know it well — it is the one your ADR 0057
+measured against the 16 384 × 16 384 coverage-sheet ceiling at 4×, and it stays refused there.
+What is new is the 1× refusal, and it is exactly reproducible with and without this tree's four
+most recent rounds merged, so the growth is between `3b105847` and `5fb011a` plus the page-space
+scene, not anything newer on our side.
+
+We have pinned the name in the gate's `REFUSED_BY_THE_DEVICE` list with this section cited, and
+the CPU backend draws the page, reported out loud, which is our standing rule for a budget
+refusal. We are deliberately not asking for the budget to move: a budget raised to admit one page
+is a budget chosen by that page — the same sentence we wrote when `22060_A1_01_Plans.pdf` was in
+this position, and the answer then was that the bytes were being spent wrongly, not that the
+budget was small. If the scene-byte spend at `5fb011a` is as intended, this section is only a
+record; if 272 MB for this page's scene is more than the encode means to spend, the run's message
+above is the reproduction.
