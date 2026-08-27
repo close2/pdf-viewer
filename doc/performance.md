@@ -729,6 +729,22 @@ codes through the list where the page shows a few dozen — 67 200 `text_for` ca
 8 850 the page asks for. ADR 0694 has both, and the arm where the second one's own extra cell
 loses (+0.22%) is measured there rather than assumed.
 
+**And the question 766 left — whether a font cache can outlive an interpretation — was taken in
+the seven-hundred-and-seventieth** (ADR 0701). What repeats is the same font *object* across the
+pages of one document — 62.4% of all font loads in the corpus's multi-page documents are re-loads
+— so `viewer_core::Open` now holds a `pdf_model::FontCache` beside its document and passes it to
+`interpret_with_fonts`; every other caller computes through a fresh cache per call and the answer
+is unchanged by construction and by test. The instrument had to be built, because fifty
+repetitions of one page *contain* the repetition a cross-page cache removes:
+`examples/callgrind_pages` walks distinct pages with both arms in one binary. Twenty distinct
+pages of ISO 32000-2 interpret at **−14.86%**, the page-101-fifty-times population `Open::stale`
+actually re-interprets at **−31.32%**, and the keep-nothing arm the oracle and gates run in pays
+**+0.536%** for the `Send` conversion that made a `LoadedFont` shareable. The budget is 2 MiB of
+font program, least-recently-used, both halves derived in `FONT_BUDGET`'s own doc comment with
+`examples/font_cache_budget` printing peak resident memory beside each row — and the reason it is
+not 4 MiB is the accounting's honesty rather than the arithmetic: above 2 MiB the uncharged
+tables beside the programs overtake the charge.
+
 **The decompression item is priced and it is small** (session 128). Over one interpretation of
 every corpus page: 6220 inflations of 38.08 MB; among the streams above 4 KB — 722 calls, 35.0 MB,
 92% of the bytes — **35 are repeats costing 925 KB, 2.6%**, so a decoded-data cache is worth about

@@ -277,6 +277,21 @@ pub(crate) struct Open {
     /// is a string comparison rather than a thousand interpretations. `crate::readback::BUDGET`
     /// is the ceiling and [`Self::stale`] is the one place that empties it.
     pub(crate) readbacks: crate::readback::Readbacks,
+    /// §9.6's fonts this document's pages have already loaded, under a byte budget.
+    ///
+    /// **Beside the document rather than inside `interpret`**, which is where ADR 0256 put the
+    /// readback and for the same reason: `pdf_model::content::interpret_with_fonts` is still a
+    /// pure function of a document, a page and a view state, and a cache changes what that costs
+    /// rather than what it says. What is different from the readback is the *direction* — this
+    /// one is an input to the interpretation rather than an output of it — which is why it is
+    /// passed in rather than filled from the answer. `pdf_model::FONT_BUDGET` is the ceiling.
+    ///
+    /// **[`Self::stale`] deliberately does not empty it.** Everything that makes a display list
+    /// stale is a move of the *view state* — a layer switched, a value typed, an appearance under
+    /// the pointer — and a loaded font is a function of the document alone, so a font that was
+    /// right before the layer switch is right after it. Dropping it there would make every layer
+    /// switch re-read the page's font programs for no change in any answer.
+    pub(crate) fonts: pdf_model::FontCache,
     /// How many objects lost to a damaged object stream this document has already been told about.
     ///
     /// §7.5.7's losses are discovered when an object inside such a stream is first asked for,
@@ -662,6 +677,7 @@ impl Open {
             highlights: Vec::new(),
             popups: BTreeMap::new(),
             readbacks: crate::readback::Readbacks::default(),
+            fonts: pdf_model::FontCache::new(),
             losses_said: 0,
         }
     }
@@ -1722,7 +1738,8 @@ fn fitted(viewport: u32, extent: f32) -> f32 {
 /// The interpretation of a page, with its reports already worded.
 pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Vec<String>, Page)> {
     let page = open.page(index)?;
-    let interpretation = pdf_model::content::interpret_with(&open.document, &page, &open.view);
+    let interpretation =
+        pdf_model::content::interpret_with_fonts(&open.document, &page, &open.view, &open.fonts);
     let reports = interpretation
         .unsupported
         .iter()

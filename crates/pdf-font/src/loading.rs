@@ -12,9 +12,9 @@
 //! what the document says a code is wide is [`crate::metrics`]'s.
 
 use std::borrow::Cow;
-use std::cell::{OnceCell, RefCell};
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
 
 use pdf_render::{Path, PathCommand, Point};
 use pdf_syntax::{Dictionary, Document, Object};
@@ -293,7 +293,36 @@ pub struct CharacterGlyph {
     pub advance: f32,
 }
 
+/// Reads [`LoadedFont::outlines`] past a lock a panicking thread poisoned.
+///
+/// The same reasoning `pdf_syntax::Document`'s five locks are read under and for the same
+/// reason: this holds no invariant across fields. It is a memoisation of a pure function of
+/// the glyph index, every write is one `insert`, and the worst a poisoned map can cost is a
+/// glyph built twice. Propagating a `PoisonError` would turn a panic anywhere in the process
+/// into a font that can no longer draw.
+fn outlines(
+    lock: &Mutex<BTreeMap<u16, Option<Arc<Path>>>>,
+) -> std::sync::MutexGuard<'_, BTreeMap<u16, Option<Arc<Path>>>> {
+    lock.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// A font ready to produce glyph outlines.
+///
+/// # Shareable between threads, and *outliving* one page
+///
+/// The four memos below were `RefCell` and `OnceCell` until the seven-hundred-and-seventieth
+/// session, which is what confined a loaded font to the interpretation that loaded it: a
+/// `Rc<LoadedFont>` cannot cross a thread, and `viewer_core`'s per-document state does cross
+/// one — ADR 0182 opens the document on a thread of its own and moves the whole viewer back, so
+/// anything held beside the document has to be `Send`. That is the only reason these are locks;
+/// nothing in this crate uses more than one thread.
+///
+/// **It is not free and the price was measured rather than assumed.** `examples/callgrind_pages`
+/// and `examples/callgrind_interpret`, one sitting, two arms from one tree: **+0.468%** on fifty
+/// interpretations of page 101 of ISO 32000-2 and **+0.140%** over twenty distinct pages of it,
+/// the display lists identical command for command. What it buys is `pdf_model::FontCache`
+/// and −14.9% of interpreting those same twenty pages. ADR 0701.
 pub struct LoadedFont {
     /// The embedded font program, which the reader borrows from on each use.
     data: Arc<[u8]>,
@@ -358,7 +387,7 @@ pub struct LoadedFont {
     notdef: Option<u16>,
     /// Cached outlines: a page reuses the same few dozen glyphs constantly, and
     /// re-extracting each one would dominate the render.
-    outlines: RefCell<BTreeMap<u16, Option<Arc<Path>>>>,
+    outlines: Mutex<BTreeMap<u16, Option<Arc<Path>>>>,
     /// The inverse of the code-to-character mapping, built on first use by [`Self::code_for`].
     ///
     /// Lazy rather than built at load time because nothing on a page needs it: only a
@@ -368,7 +397,7 @@ pub struct LoadedFont {
     /// `None` inside the cell is the answer for a font that cannot be addressed this way at all
     /// — see [`Self::addressable_codes`] — and is cached like any other, because the walk that
     /// establishes it is the expensive one.
-    codes_by_character: OnceCell<Option<BTreeMap<char, Code>>>,
+    codes_by_character: OnceLock<Option<BTreeMap<char, Code>>>,
     /// Each code's character through the Adobe Glyph List, resolved once.
     ///
     /// §9.10.2's second method — a glyph name looked up in the AGL — runs for every character
@@ -399,7 +428,7 @@ pub struct LoadedFont {
     /// **+0.22%** on that page, and it is paid because the page whose fonts all reach this
     /// route is the arm where it loses: the eager array would allocate and zero 8 KiB at load
     /// for a font whose `/ToUnicode` answers every code and that never arrives here at all.
-    agl_by_code: OnceCell<Box<[OnceCell<Option<String>>; 256]>>,
+    agl_by_code: OnceLock<Box<[OnceLock<Option<String>>; 256]>>,
     /// §9.10.2's last resort: what the *program* calls each glyph it defines.
     ///
     /// Keyed by glyph index rather than by character code, which is what lets one table serve
@@ -407,7 +436,7 @@ pub struct LoadedFont {
     /// font by CID through its `CMap` and `/CIDToGIDMap`. Built once and only for a font that
     /// reaches this far — see [`LoadedFont::text_from_program`], which is the only reader and
     /// explains the choice the clause permits.
-    program_by_glyph: OnceCell<BTreeMap<u16, char>>,
+    program_by_glyph: OnceLock<BTreeMap<u16, char>>,
 }
 
 impl std::fmt::Debug for LoadedFont {
@@ -616,10 +645,10 @@ impl LoadedFont {
             symbolic_set: requested.and_then(|request| symbolic_set(request.family)),
             glyph_names: names,
             notdef,
-            outlines: RefCell::new(BTreeMap::new()),
-            codes_by_character: OnceCell::new(),
-            agl_by_code: OnceCell::new(),
-            program_by_glyph: OnceCell::new(),
+            outlines: Mutex::new(BTreeMap::new()),
+            codes_by_character: OnceLock::new(),
+            agl_by_code: OnceLock::new(),
+            program_by_glyph: OnceLock::new(),
         })
     }
 
@@ -769,10 +798,10 @@ impl LoadedFont {
             // statements about one glyph — which is the comparison `substitute_stretch` is.
             // ADR 0358 states the restriction and what would lift it.
             stretch: NO_STRETCH,
-            outlines: RefCell::new(BTreeMap::new()),
-            codes_by_character: OnceCell::new(),
-            agl_by_code: OnceCell::new(),
-            program_by_glyph: OnceCell::new(),
+            outlines: Mutex::new(BTreeMap::new()),
+            codes_by_character: OnceLock::new(),
+            agl_by_code: OnceLock::new(),
+            program_by_glyph: OnceLock::new(),
         })
     }
 
@@ -845,7 +874,7 @@ impl LoadedFont {
         };
         let cells = self
             .agl_by_code
-            .get_or_init(|| Box::new(std::array::from_fn(|_| OnceCell::new())));
+            .get_or_init(|| Box::new(std::array::from_fn(|_| OnceLock::new())));
         let Some((slot, name)) = usize::try_from(code.value())
             .ok()
             .and_then(|index| cells.get(index).zip(names.get(index)))
@@ -1146,6 +1175,23 @@ impl LoadedFont {
             / 1000.0
     }
 
+    /// How many bytes the glyph program this font draws from occupies.
+    ///
+    /// What a caller keeping fonts across pages charges itself for — `pdf_model::FontCache` is
+    /// the one, and its `FONT_BUDGET` is what it bounds. The *decoded*
+    /// program rather than the stream in the file, because that is what is held; and for a
+    /// substituted font it is the face this crate stood in with, which is held just the same.
+    ///
+    /// **The program is not the whole of what a loaded font retains** — the widths, the
+    /// `CMap`s, the glyph names and the outlines built on demand sit beside it — and this
+    /// deliberately does not guess at those. It is the term that dominates and the only one
+    /// that is exact; what the rest add is measured rather than estimated, as peak resident
+    /// memory over a sweep (ADR 0701).
+    #[must_use]
+    pub fn program_bytes(&self) -> usize {
+        self.data.len()
+    }
+
     /// Whether this font is shown in §9.2.4's writing mode 1, one glyph below the next.
     ///
     /// Set by the `CMap`'s `/WMode` (§9.7.5.1) and available only to a composite font, which
@@ -1217,11 +1263,11 @@ impl LoadedFont {
     /// without a code and must not build a second cache to do it: a face drawing an interface's
     /// own text reuses the same few dozen glyphs exactly as a page does.
     fn cached_outline(&self, glyph: u16) -> Option<Arc<Path>> {
-        if let Some(cached) = self.outlines.borrow().get(&glyph) {
+        if let Some(cached) = outlines(&self.outlines).get(&glyph) {
             return cached.clone();
         }
         let built = self.build_outline(glyph);
-        self.outlines.borrow_mut().insert(glyph, built.clone());
+        outlines(&self.outlines).insert(glyph, built.clone());
         built
     }
 
