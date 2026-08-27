@@ -157,6 +157,14 @@ struct Done {
     function_refusals: Vec<String>,
     /// What compiling the pipelines cost, once quorra's own background thread has finished.
     pipelines: Option<Duration>,
+    /// When the render thread finished this frame — the end of [`Landed::waited`]'s span.
+    ///
+    /// Taken on the thread that drew, not at collection: a finished frame sits in the
+    /// channel until the next tick reads it, and measuring to *that* moment quantised
+    /// every wait up to roughly one refresh — so rule 5's prediction sat just over the
+    /// period on frames that took half of one, and every view change of a quick page
+    /// was stood in for instead of waited for (found on the owner's 120 Hz display).
+    finished: Instant,
 }
 
 /// The settled view drawn again at twice the window's resolution, presented box-filtered
@@ -241,7 +249,8 @@ pub(crate) struct Landed {
     pub(crate) pages: Vec<crate::stale::Placed>,
     /// What the whole frame cost on the render thread, in the parts quorra measures it in.
     pub(crate) cost: FrameCost,
-    /// How long the event thread waited for it — which is what rule 5 predicts the next one by.
+    /// How long the frame took from the ask to the render thread finishing it — which is
+    /// what rule 5 predicts the next one by. Not "until collected": see [`Done::finished`].
     pub(crate) waited: Duration,
     pub(crate) fell_back: Option<String>,
     pub(crate) refused: Option<String>,
@@ -541,6 +550,13 @@ impl Window {
         self.in_flight.is_some()
     }
 
+    /// How long the render asked for at an earlier tick has been out, or `None` where
+    /// none is. Rule 5's observation is measured from this, against the period: a
+    /// render out for two milliseconds has missed nothing yet, whatever is in flight.
+    pub(crate) fn out_for(&self) -> Option<Duration> {
+        self.in_flight.map(|began| began.elapsed())
+    }
+
     /// What the window is currently able to draw, and what it is a picture of.
     pub(crate) fn shown(&self) -> Option<&Shown> {
         self.shown.as_ref()
@@ -588,10 +604,9 @@ impl Window {
             self.sharp = None;
         }
         self.pipelines = self.pipelines.or(done.pipelines);
-        let waited = self
-            .in_flight
-            .take()
-            .map_or(Duration::ZERO, |began| began.elapsed());
+        let waited = self.in_flight.take().map_or(Duration::ZERO, |began| {
+            done.finished.saturating_duration_since(began)
+        });
         // The pair being displaced goes back to the render thread with the next job; the one
         // displaced before it, if the host never asked again, is simply dropped.
         self.spare = self
@@ -1130,5 +1145,6 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         refused,
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
         pipelines: renderer.startup().pipeline_compilation,
+        finished: Instant::now(),
     }
 }

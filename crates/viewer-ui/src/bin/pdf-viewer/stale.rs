@@ -86,10 +86,13 @@
 //! **Rule 5: a miss is a frame that does not land inside one refresh, and it is now known two
 //! ways.** By *prediction*, from what the last frame that had to build a picture cost, which is
 //! what answers the very first tick of a view change before anything has been asked for; and by
-//! *observation*, because a render that is still being drawn when the next tick comes round has
-//! missed that refresh whatever anybody predicted. The observation needs no calibration and cannot
-//! be wrong; the prediction is what keeps the first tick of a gesture from being a frozen one.
-//! Neither has a constant in it. ADR 0384, extended by ADR 0391.
+//! *observation*, because a render that has been out for **more than one period** has missed a
+//! refresh whatever anybody predicted. The bound is the period's own, not a constant, and it is
+//! load-bearing (ADR 0704): "still being drawn" alone made the tick between the ask and the
+//! collect observe a two-millisecond-old render as late, so every view change of a quick page
+//! was stood in for — one blurred refresh, every gesture, bought nothing. The observation needs
+//! no calibration and cannot be wrong; the prediction is what keeps the first tick of a gesture
+//! from being a frozen one. Neither has a constant in it. ADR 0384, extended by ADR 0391.
 //!
 //! # A reprojection may follow a reprojection, and the shape of that is the whole of `doc/todo/36`
 //!
@@ -287,6 +290,40 @@ pub(crate) struct Stand {
     /// a zoom in a column — and it is still a refusal of the *sharp* layer, so it is said out loud
     /// and counted ([`Stale::without_base`]). What it is no longer is a blank window.
     pub(crate) instead_of_the_base: Option<Refusal>,
+    /// Which way rule 5 knew the frame had missed, for the trace to say truthfully.
+    pub(crate) missed: Missed,
+}
+
+/// How rule 5 knew the frame this stand-in covers for had missed its refresh.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Missed {
+    /// By prediction: the last built frame's cost exceeds the period.
+    Predicted {
+        /// What the frame this view is waiting for is expected to cost.
+        frame: Duration,
+    },
+    /// By observation: the render asked for at an earlier tick is out past one period.
+    Observed {
+        /// How long it has been out.
+        out: Duration,
+    },
+}
+
+impl std::fmt::Display for Missed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Predicted { frame } => write!(
+                formatter,
+                "this view's frame is expected to cost {:.1} ms",
+                frame.as_secs_f64() * 1e3
+            ),
+            Self::Observed { out } => write!(
+                formatter,
+                "the render asked for {:.1} ms ago is still out",
+                out.as_secs_f64() * 1e3
+            ),
+        }
+    }
 }
 
 /// Which of the two approximate layers filled the picture — rule 3's distinction.
@@ -1413,14 +1450,18 @@ impl Stale {
     /// of the surface, so the comparison is against [`crate::cadence::Cadence::period`] and
     /// against nothing this module invented.
     ///
-    /// **Two ways of knowing, and the second is the one that cannot be wrong.** `drawing` says
-    /// that a render asked for at an earlier tick is *still* being drawn — so it has already
-    /// missed this refresh, whatever anybody predicted, and nothing needs calibrating to see it.
-    /// The prediction from [`Self::expected`] is what answers the first tick of a view change,
-    /// before anything has been asked for and while there is nothing yet to observe; without it
-    /// every gesture would begin with one frozen refresh.
-    fn missed(&self, period: Duration, drawing: bool) -> bool {
-        drawing || self.expected() > period
+    /// **Two ways of knowing, and the second is the one that cannot be wrong.** `out_for`
+    /// says how long the render asked for at an earlier tick has been out — and only one
+    /// out for *more than a period* has missed a refresh. The bare fact of being in
+    /// flight is not a miss: on the owner's 120 Hz display a view change's render is
+    /// typically collected one tick after it was asked for, so a boolean here made the
+    /// tick in between observe a two-millisecond-old render as late and stand in for a
+    /// frame that landed well inside the refresh. The prediction from [`Self::expected`]
+    /// is what answers the first tick of a view change, before anything has been asked
+    /// for and while there is nothing yet to observe; without it every gesture would
+    /// begin with one frozen refresh.
+    fn missed(&self, period: Duration, out_for: Option<Duration>) -> bool {
+        out_for.is_some_and(|out| out > period) || self.expected() > period
     }
 
     /// What to do about this view change, and why.
@@ -1467,7 +1508,7 @@ impl Stale {
         pages: &[Placed],
         covered: usize,
         period: Duration,
-        drawing: bool,
+        out_for: Option<Duration>,
         standing: Standing,
     ) -> Plan {
         let Some(settled) = self.settled.as_ref() else {
@@ -1509,12 +1550,24 @@ impl Stale {
         //
         // It gates the retained pages exactly as it gates the base, and for the same reason: a
         // blurred page shown for one refresh and replaced is worse than the refresh spent waiting.
-        if !self.missed(period, drawing) {
+        if !self.missed(period, out_for) {
             return Plan::Refused(Refusal::InsideTheRefresh {
                 frame: self.expected(),
                 period,
             });
         }
+        // Which way the miss was known, so the trace can say the truth: "expected to
+        // cost X, so it misses" on a tick where the prediction was under the period and
+        // the *observation* fired was a sentence about the wrong number.
+        let missed = if self.expected() > period {
+            Missed::Predicted {
+                frame: self.expected(),
+            }
+        } else {
+            Missed::Observed {
+                out: out_for.unwrap_or_default(),
+            }
+        };
         // Rule 4, and it is a question again on exactly one surface (ADR 0457). On the window with
         // a device this reads nothing and refuses nothing — the render is on another thread and
         // what standing in costs it is zero, which ADR 0391 is right that no bound improves. On
@@ -1528,14 +1581,17 @@ impl Stale {
             Ok(()) if covered > 0 => Stand {
                 from: Source::LastFrameOverPages,
                 instead_of_the_base: None,
+                missed,
             },
             Ok(()) => Stand {
                 from: Source::LastFrame,
                 instead_of_the_base: None,
+                missed,
             },
             Err(why) => Stand {
                 from: Source::RetainedPages,
                 instead_of_the_base: Some(why),
+                missed,
             },
         })
     }
@@ -1749,7 +1805,7 @@ mod tests {
     use viewer_core::DocumentId;
 
     use super::{
-        AGREEMENT, Picture, Placed, Plan, Proxies, Refusal, Retained, Source, Stale, Stand,
+        AGREEMENT, Missed, Picture, Placed, Plan, Proxies, Refusal, Retained, Source, Stale, Stand,
         Standing,
     };
 
@@ -2044,10 +2100,15 @@ mod tests {
     ///
     /// The state of the *first* tick of a view change, which is the one only the prediction can
     /// answer — nothing is out yet, so there is nothing to observe having missed.
-    const LANDED: bool = false;
+    const LANDED: Option<Duration> = None;
 
-    /// A render asked for at an earlier tick is still being drawn, so it has missed that refresh.
-    const DRAWING: bool = true;
+    /// A render asked for at an earlier tick is out past one refresh, so it has observably
+    /// missed it — whatever the prediction said.
+    const DRAWING: Option<Duration> = Some(Duration::from_secs(1));
+
+    /// A render is in flight but has been out for well under one refresh: nothing has been
+    /// observed to miss yet, so the prediction alone decides.
+    const JUST_ASKED: Option<Duration> = Some(Duration::from_millis(2));
 
     /// A frame that missed the refresh by a long way, which is the case the feature is for: the
     /// view moved, the page did not, and the machine will be most of a second.
@@ -2141,10 +2202,19 @@ mod tests {
             "the prediction says this one lands in time, so the first tick waits for it"
         );
         assert!(
+            !stale
+                .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, JUST_ASKED, QUADS)
+                .stands_in(),
+            "a render out for two milliseconds has missed nothing: the observation is \
+             'out past one refresh', not 'in flight' — a boolean here made the tick \
+             between the ask and the collect stand in for a frame that landed well \
+             inside the refresh (found on the owner's 120 Hz display, ADR 0704)"
+        );
+        assert!(
             stale
                 .plan(&alone(&page, 1.2), NONE_HELD, REFRESH, DRAWING, QUADS)
                 .stands_in(),
-            "and the tick after it, with the render still out, has watched it miss"
+            "and once it is out past a whole refresh, it has been watched missing"
         );
     }
 
@@ -2718,6 +2788,9 @@ mod tests {
             Plan::Approximate(Stand {
                 from: Source::RetainedPages,
                 instead_of_the_base: Some(Refusal::AnotherPage),
+                missed: Missed::Predicted {
+                    frame: stale.expected(),
+                },
             }),
             "the sharp layer is still impossible and says so; the window still moves"
         );
@@ -2790,6 +2863,9 @@ mod tests {
                     Err(rearranged @ Refusal::Rearranged { .. }) => rearranged,
                     other => panic!("a zoom of a column rearranges: {other:?}"),
                 }),
+                missed: Missed::Predicted {
+                    frame: stale.expected(),
+                },
             }),
         );
     }

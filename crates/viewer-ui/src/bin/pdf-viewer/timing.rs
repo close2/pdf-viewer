@@ -245,6 +245,11 @@ pub(crate) struct Stages {
     /// approximate layers now and they are different amounts of wrong: a frame line that said
     /// only `approximated` for both had stopped saying what it was showing.
     pub(crate) approximated: Option<crate::stale::Source>,
+    /// Which way rule 5 knew the frame this stand-in covers for had missed — set exactly
+    /// where [`Self::approximated`] is, so the trace's sentence states the reason that
+    /// actually fired rather than always printing the prediction (which, on a tick where
+    /// the observation fired, was a sentence about the wrong number).
+    pub(crate) missed: Option<crate::stale::Missed>,
     /// Whether this frame put anything on the window at all.
     ///
     /// `doc/todo/36`'s sixth rule counts *presents*, and the two things that are not one are a
