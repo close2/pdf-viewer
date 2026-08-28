@@ -538,6 +538,27 @@ impl<'a> Lexer<'a> {
         // (ADR 0341). `from_utf8` refuses only a run holding a byte above 127, which no
         // numeric form contains; both parses below would refuse such a run anyway, so
         // falling straight through to the salvage is the same answer without the detour.
+        //
+        // **`str::parse` reads a third form the two sentences above do not have, and that is
+        // deliberate.** §7.3.3's last paragraph names it and forbids exactly one party:
+        //
+        // > A PDF writer shall not use the PostScript language syntax for numbers with
+        // > non-decimal radices (such as 16#FFFE) or in exponential format (such as 6.02E23).
+        //
+        // The `shall not` is the *writer's*, and the clause states nothing at all for a reader
+        // that meets one — while naming the syntax and glossing its value in the same breath,
+        // so `1e2` is a hundred by the standard's own example rather than by our invention.
+        // Reading it is therefore the §7.3.10 answer one clause family along: a producer's
+        // spelling of a number is not a question about what the number is, and refusing would
+        // lose a mark to a requirement no sentence places on us. It is a *departure* all the
+        // same, and one nothing here said until the eight-hundredth session — the two
+        // blockquotes above are about digits, and the line under them quietly accepted an
+        // exponent. `pdf-model/examples/numeric_form_census` counts the population it decides;
+        // `sci-notation.pdf` is the pdf.js corpus's only witness, one run in 964 documents.
+        //
+        // `inf` and `NaN` are the other two spellings `f64::from_str` has and §7.3.3 does not,
+        // and neither reaches here: both hold no decimal digit, so the condition above returns
+        // each as the keyword it lexically is (ADR 0303).
         if let Ok(text) = std::str::from_utf8(raw) {
             if !text.contains('.')
                 && let Ok(value) = text.parse::<i64>()
@@ -545,11 +566,7 @@ impl<'a> Lexer<'a> {
                 return Token::Integer(value);
             }
             if let Ok(value) = text.parse::<f64>() {
-                return if value.is_finite() {
-                    Token::Real(value)
-                } else {
-                    Token::Integer(0)
-                };
+                return Token::Real(within_the_representation(value));
             }
         }
 
@@ -764,10 +781,52 @@ fn salvage_number(text: &[u8]) -> Option<f64> {
     if !seen_digit {
         return None;
     }
-    cleaned
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite())
+    cleaned.parse::<f64>().ok().map(within_the_representation)
+}
+
+/// Brings a magnitude the file states, and a double cannot hold, inside the representation.
+///
+/// ISO 32000-2 §7.3.3 anticipates this and says what a processor's answer rests on:
+///
+/// > The range and precision of numbers may be limited by the internal representations used
+/// > in the computer on which the PDF processor is running; Annex C, "Advice on maximising
+/// > portability", gives these limits for typical implementations.
+///
+/// So *having* a limit is the clause's own permission, and what is left to decide is which
+/// value the limit is. This returns the largest finite double carrying the sign the file
+/// wrote — the nearest value the representation holds to the one stated. Annex C is
+/// informative and states no figure: its Table C.1 says only that reals are "often" IEEE 754
+/// single or double, which is the representation this bound is of.
+///
+/// **It returned zero until the eight-hundredth session, and zero is the worst value
+/// available.** It is the smallest magnitude where the largest was written, it inverts the
+/// ordering of every comparison the number then takes part in, and — unlike a refusal — it
+/// *draws*: a coordinate at the origin, a font size of nought, a width of nothing, in place of
+/// a mark the producer put off the sheet. That is the plausible fallback trap 5 forbids and
+/// the same shape ADR 0303 took out of the run holding no digit at all, surviving one
+/// condition below it because no corpus document exercises it — 964 pdf.js documents and an
+/// 8300-document sample of the crawl state over seven hundred million runs in §7.3.3's own two
+/// forms and **not one** of them overflows a double
+/// (`pdf-model/examples/numeric_form_census`). A refusal is not the
+/// alternative here and a `Keyword` would be the wrong one: the run in front of it is often a
+/// perfectly conforming number, four hundred decimal digits and no sign of PostScript, and
+/// saying "this is not a number" of it would be false.
+///
+/// A magnitude too *small* for a double is not this case and is not touched: zero is the
+/// correctly rounded value of `1e-400` rather than a substitute for it.
+fn within_the_representation(value: f64) -> f64 {
+    if value.is_finite() {
+        return value;
+    }
+    // An infinity, and never a `NaN`: every caller arrives from a parse of a run holding a
+    // decimal digit, and the two spellings that parse to `NaN` hold none — they are returned
+    // as keywords one condition earlier. The sign test is still total, so a `NaN` that found a
+    // route here would be bounded rather than propagated.
+    if value.is_sign_negative() {
+        -f64::MAX
+    } else {
+        f64::MAX
+    }
 }
 
 /// Returns the numeric value of a hexadecimal digit.
@@ -880,6 +939,95 @@ mod tests {
             tokens(b"-9223372036854775808"),
             vec![Token::Integer(i64::MIN)]
         );
+    }
+
+    /// **§7.3.3's exponential format is the writer's `shall not`, and the value is still read.**
+    ///
+    /// > A PDF writer shall not use the PostScript language syntax for numbers with non-decimal
+    /// > radices (such as 16#FFFE) or in exponential format (such as 6.02E23).
+    ///
+    /// Errata Collection 3's Issue #327 closes the grammar the other way round, with a railroad
+    /// diagram of each form above its EXAMPLE: an optional sign, decimal digits, one PERIOD for
+    /// the real form, and no other production in either figure. So a run carrying an exponent is
+    /// outside both forms and this reader takes it anyway — the clause places its prohibition on
+    /// the producer, states nothing for a reader, and glosses the value in the same sentence it
+    /// forbids the spelling. `sci-notation.pdf` writes `/F1 1e2 Tf`, which is a font size of a
+    /// hundred or nothing at all.
+    #[test]
+    fn the_exponential_format_is_read_as_the_value_the_clause_glosses() {
+        // The clause's own example, and the corpus's.
+        assert_eq!(tokens(b"6.02E23"), vec![Token::Real(6.02e23)]);
+        assert_eq!(tokens(b"1e2"), vec![Token::Real(100.0)]);
+        // Both signs, in both places, and a leading point — the forms `str::parse` composes.
+        assert_eq!(tokens(b"-1e-2"), vec![Token::Real(-0.01)]);
+        assert_eq!(tokens(b"+1E+2"), vec![Token::Real(100.0)]);
+        assert_eq!(tokens(b".5e1"), vec![Token::Real(5.0)]);
+        // An exponent with no digits after it is not this form at all: the salvage takes the
+        // leading number and drops the rest, which is what it does for every other malformed run.
+        assert_eq!(tokens(b"1e"), vec![Token::Integer(1)]);
+    }
+
+    /// **A magnitude beyond a double is the representation's limit, never zero.**
+    ///
+    /// §7.3.3 permits the limit and leaves its value open:
+    ///
+    /// > The range and precision of numbers may be limited by the internal representations used
+    /// > in the computer on which the PDF processor is running; Annex C, "Advice on maximising
+    /// > portability", gives these limits for typical implementations.
+    ///
+    /// Zero is the one answer that is both wrong and quiet — the smallest magnitude in place of
+    /// the largest, and a value that draws. The first assertion below is the one that matters
+    /// most, because its input is a **conforming** §7.3.3 integer: four hundred decimal digits
+    /// with no sign of PostScript in them, which this reader used to hand back as `0`.
+    #[test]
+    fn a_magnitude_beyond_a_double_is_the_limit_rather_than_zero() {
+        let four_hundred_nines = vec![b'9'; 400];
+        assert_eq!(tokens(&four_hundred_nines), vec![Token::Real(f64::MAX)]);
+        let mut negative = vec![b'-'];
+        negative.extend_from_slice(&four_hundred_nines);
+        assert_eq!(tokens(&negative), vec![Token::Real(-f64::MAX)]);
+        // The same magnitude in the real form, so the `.` route overflows too.
+        let mut fractional = four_hundred_nines.clone();
+        fractional.extend_from_slice(b".5");
+        assert_eq!(tokens(&fractional), vec![Token::Real(f64::MAX)]);
+        // And through the exponent, which is how a file would ever reach it in practice.
+        assert_eq!(tokens(b"1e400"), vec![Token::Real(f64::MAX)]);
+        assert_eq!(tokens(b"-1e400"), vec![Token::Real(-f64::MAX)]);
+        // A magnitude too *small* is not the same question: zero is the correctly rounded
+        // value of this decimal rather than a substitute for it.
+        assert_eq!(tokens(b"1e-400"), vec![Token::Real(0.0)]);
+        // The salvage path reaches the same bound: `--` collapses to one sign, and what is left
+        // still overflows.
+        let mut salvaged = vec![b'-', b'-'];
+        salvaged.extend_from_slice(&four_hundred_nines);
+        assert_eq!(tokens(&salvaged), vec![Token::Real(-f64::MAX)]);
+    }
+
+    /// **`inf` and `NaN` are `str::parse`'s and not §7.3.3's, and they never reach the parse.**
+    ///
+    /// Both forms of the clause are "one or more decimal digits", so a run holding none is the
+    /// keyword it lexically is (ADR 0303) — which is what keeps `f64::from_str`'s two extra
+    /// spellings out of the numbers this lexer hands back. The parser refuses such a token where
+    /// an object was expected and the interpreter reports it as an operator it does not know.
+    #[test]
+    fn the_spellings_str_parse_has_and_the_clause_does_not_are_keywords() {
+        for spelling in [
+            &b"inf"[..],
+            b"Inf",
+            b"infinity",
+            b"-inf",
+            b"+inf",
+            b"NaN",
+            b"nan",
+            b"-NaN",
+        ] {
+            assert_eq!(
+                tokens(spelling),
+                vec![Token::Keyword(spelling)],
+                "{} is not a numeric object",
+                String::from_utf8_lossy(spelling)
+            );
+        }
     }
 
     /// **§7.2.3's token boundary: a run of regular characters is one token.**

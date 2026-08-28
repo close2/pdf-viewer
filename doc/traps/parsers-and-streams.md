@@ -170,3 +170,28 @@ of files differing only in the rule.
   reading that settled it is on §9.10.2's ledger row: all three methods are walked, per code, in
   the clause's order, and the second and third cannot be tried out of order because no font can
   satisfy both conditions.
+
+- **A standard-library parser is a grammar you did not write, and the difference is yours to
+  enumerate.** `str::parse::<f64>` accepts an exponent, `inf`, `infinity` and `NaN`; ISO 32000-2
+  §7.3.3 has none of the four, and its two forms are closed — Errata Collection 3's Issue #327 adds
+  a railroad diagram of each above its EXAMPLE, with no production either figure lacks. Reaching
+  for the library parser under a comment quoting the clause is how a departure gets written down as
+  a conformance. **The rule is not "do not use it"** — three of those four spellings never arrive
+  here, because both of §7.3.3's forms are "one or more decimal digits" and the condition ADR 0303
+  added returns a run holding none as the keyword it lexically is, so the digit test is what keeps
+  a library grammar inside a clause's. The rule is that the *difference* is enumerated by
+  experiment, decided per item, and written beside the parse. `pdf_syntax::lexer::read_number` and
+  `pdf_model::function::compile_token` are the two places in this tree where a Rust parse stands
+  for a §7 grammar at all; every other one — §7.9.4's dates, `startxref`, §12.3.5.2's folder key,
+  `Hn`, Annex O's fragment parameters — gates the digits itself first, which is why the sweep for
+  this pattern is short. ADR 0733, session 800.
+
+- **And what the parser does at the *edge* of its range is a second question the clause answers.**
+  An overflow to infinity was mapped to `Integer(0)`, which is the smallest magnitude in place of
+  the largest and — unlike a refusal — draws: a coordinate at the origin, a font size of nought.
+  §7.3.3 says the range "may be limited by the internal representations used in the computer on
+  which the PDF processor is running", so a limit is the clause's permission and the *value* of the
+  limit is what a reader owes; it is now the largest finite double with the file's own sign. The
+  run reaching it is often a perfectly conforming number — four hundred decimal digits — so this
+  was not a malformed-file tolerance but a conforming number silently replaced, and no corpus
+  document exercises it, which is exactly why it survived.

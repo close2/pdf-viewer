@@ -2101,12 +2101,34 @@ fn set_jump(out: &mut [Instruction], at: usize, target: usize) -> Result<(), Fun
 /// reads it as a real rather than refusing the whole function over a lexical detail with one
 /// obvious meaning. And an integer too large for an `i32` becomes a real, which is what §7.3.3's
 /// own sentence about the limits of the machine leaves a processor to do.
+///
+/// **A third edge was not a choice and was not read, until the eight-hundredth session.**
+/// `f32::from_str` also accepts `inf`, `infinity` and `NaN`, and until then `{ inf }` compiled to
+/// a pushed infinity: §7.3.3 has no such form, Table 42 has no operator of any of those names, so
+/// the token is neither a literal nor an operator and the function is malformed. Requiring a
+/// decimal digit is §7.3.3's own test — both of its forms are "one or more decimal digits" — and
+/// it sends such a token to the operator match below, which refuses it and says so. It is the
+/// same reading `pdf_syntax::Lexer` makes of a run holding no digit (ADR 0303), and the reason it
+/// matters more here than there is that a function is a mapping over a whole domain: an infinity
+/// pushed onto the stack leaves through the arithmetic as a `NaN` in a colour component.
 fn compile_token(token: &str) -> Result<Instruction, FunctionError> {
-    if let Ok(value) = token.parse::<i32>() {
-        return Ok(Instruction::Push(Value::Integer(value)));
-    }
-    if let Ok(value) = token.parse::<f32>() {
-        return Ok(Instruction::Push(Value::Real(value)));
+    if token.bytes().any(|byte| byte.is_ascii_digit()) {
+        if let Ok(value) = token.parse::<i32>() {
+            return Ok(Instruction::Push(Value::Integer(value)));
+        }
+        if let Ok(value) = token.parse::<f32>() {
+            // §7.3.3 says the range "may be limited by the internal representations used in the
+            // computer", so a magnitude beyond this one is bounded rather than propagated —
+            // `pdf_syntax::lexer`'s `within_the_representation` makes the same reading of the
+            // same sentence, and an infinity here would reach a colour component as a `NaN`.
+            return Ok(Instruction::Push(Value::Real(if value.is_finite() {
+                value
+            } else if value.is_sign_negative() {
+                -f32::MAX
+            } else {
+                f32::MAX
+            })));
+        }
     }
     let operator = match token {
         "abs" => Operator::Abs,
@@ -3145,6 +3167,36 @@ mod tests {
             matches!(&error, FunctionError::Malformed { detail } if detail.contains("boolean")),
             "{error:?}"
         );
+    }
+
+    /// **`inf` and `NaN` are `f32::from_str`'s spellings and belong to neither §7.3.3 nor Table
+    /// 42, so a program stating one is malformed.**
+    ///
+    /// §7.10.5.2 sends the operand syntax to §7.3.3 — "[t]he operand syntax for Type 4 functions
+    /// shall follow PDF conventions rather than PostScript language conventions" — and both of
+    /// §7.3.3's forms are one or more decimal digits. Table 42 lists the operators, and none of
+    /// them is called `inf`, `infinity` or `NaN`. A token that is neither is therefore a refusal,
+    /// and until the eight-hundredth session `{ inf }` compiled to a pushed infinity that left
+    /// through the arithmetic as a `NaN` in a colour component.
+    #[test]
+    fn a_token_spelling_infinity_is_no_more_a_number_than_an_operator() {
+        for source in ["{ inf }", "{ infinity }", "{ -inf }", "{ NaN }", "{ nan }"] {
+            let error = compile_postscript(source.as_bytes()).expect_err(source);
+            assert!(
+                matches!(&error, FunctionError::Malformed { .. }),
+                "{source}: {error:?}"
+            );
+        }
+        // A magnitude past `f32` is a different question and keeps the clause's own answer: the
+        // range "may be limited by the internal representations used in the computer", so it is
+        // bounded rather than refused or turned into an infinity.
+        assert_eq!(
+            typed("{ 1e40 }", &[]),
+            vec![Value::Real(f32::MAX)],
+            "a value beyond the representation is the representation's limit"
+        );
+        // And the exponent itself is still read, which is this function's older choice.
+        assert_eq!(typed("{ 1e-8 }", &[]), vec![Value::Real(1e-8)]);
     }
 
     /// A pop from an empty operand stack is the integer zero, and `not` is what says so.
