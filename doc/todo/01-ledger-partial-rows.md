@@ -4584,6 +4584,48 @@ and the reject-everything plant fails the older tests that assert a valid tag is
   plateau of one-issue rows reads it out — fourteen issues left the population this round, the
   rule's largest single decay — and expects the work one rank down.
 
+## The rule's twelfth use, in the seven-hundred-and-ninety-fourth, and the head plateau was four rows deep on both sides
+
+**Both rankings top out at four annotations, so the plateau is the head twice over.** Over live
+rows exactly one row reaches four — §12.5.6.2, `partial` — and over **every** row eight do, seven
+of them settled. Step 4 prefers the settled row where the two tie, and the third use's tie-break
+picks §14.8.5.4.2 out of the seven: its two issues rewrite table cells where the rest of the
+plateau moves typography, a URL, a step letter and a version marker. It confirmed its row and paid
+nothing, which is the eighth use's practice for the fourth consecutive use. **The walk downward
+paid on the live head one rank along**, whose two errata are quoted three times under `crates/`
+and twice in the row itself. ADR 0728; `doc/errata-read.md` has all twelve errata with their
+rectangles.
+
+**The head paid with a sentence that now says who it is addressed to.** §12.5.6.2's paragraph
+rule — a carriage return, not a line feed, between paragraphs — is written in the passive, and
+this tree accepts a line feed as well, in the popup window and in a free text annotation's layout,
+on the argument that a reader enforcing a writer's rule would draw a producer's paragraph break as
+a space. Issue #90's caret makes the sentence open *providing the Contents key, if*, which names
+the act of writing the entry: the inference becomes the clause's own scoping, and the entry it
+scopes to is the one both readers lay out. Issue #297 re-dates the grouping sentence in the same
+row from PDF 1.6 to PDF 1.5 and marks the `/RT` entry as the later half — two struck words, under
+`check`'s four-word floor, quoted in `markup.rs`'s module blockquote, in
+`examples/annotation_group_census.rs` and in the row.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the third consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 85 named nowhere,
+  which is the eleventh use's 99 less its fourteen verdicts, and the multi-issue parse's 310 and
+  87 reproduce the same way. Three uses running is the record behaving as a record; a closing
+  figure is still a derivation and the greps are still the instrument.
+- **The outline's page-straddle placed seven of this round's twelve issues, and twice it moved the
+  row.** The settled head's own annotations belong to the clause *above* the one the ranking named
+  — both `inapplicable`, so the reading was the same either way — and the four filed under an
+  `implemented` §7.6.4.4.3 belong to its `partial` neighbour, which is the ranking naming a
+  settled row for a live row's errata. The ninth use's rule did most of this round's work before
+  a verdict was written.
+- **`check`'s fourth blind spot is a caret with no strikeout**, and it is the mechanism the
+  round's finding arrived by: an insertion into a sentence this tree quotes *correctly* leaves no
+  retired text for any quotation to land on, so the only instrument that can see one is `emit`
+  read against the rectangle. The other three are an addition over text nobody has quoted, a
+  strike under the four-word floor, and a spelling `doc/md/` writes differently.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

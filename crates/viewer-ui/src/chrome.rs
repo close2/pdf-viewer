@@ -1995,7 +1995,11 @@ const POPUP_PAPER: Color = Color {
 ///   separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for example,
 ///   a LINE FEED character (0Ah)" — so a carriage return starts a paragraph here, and a line feed
 ///   is accepted as one too, because a reader that obeyed the writer's rule as if it were its own
-///   would show a paragraph break as a space.
+///   would show a paragraph break as a space. **Errata Collection 3 says whose rule it is**, Issue
+///   #90, `/State` `Review` `Completed`: a caret inserts *providing the Contents key, if* after
+///   the sentence's opening *When*, so the amended rule opens by naming the act of writing that
+///   entry. The quotation keeps the published wording, and the reason for accepting a line feed
+///   stops being an inference about who is addressed and becomes what the clause says.
 ///
 /// **A character this interface's own font has no glyph for is counted and said out loud.**
 /// [`Chrome::text`] draws a box for one (ADR 0195), which says *that* something is there and

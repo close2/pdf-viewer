@@ -618,6 +618,15 @@ fn user_key_matches(key: &[u8], input: &AuthenticateLegacy<'_>) -> bool {
 }
 
 /// §7.6.4.4.6, Algorithm 7 steps (a) and (b): unwraps `/O` into the user password.
+///
+/// **Which step of Algorithm 2 does the padding is a question the published standard answers
+/// two ways, and Errata Collection 3 settles it.** §7.6.4.4.2's Algorithm 3 — whose steps (a) to
+/// (d) this runs — says to pad or truncate the password "as described in step (b)" of
+/// §7.6.4.3.2, where step (b) initialises the MD5 hash function and the padding string is
+/// printed under step (a). Issue #643, `/State` `Review` `Accepted`, strikes the `b` of that
+/// cross-reference and of step (e)'s copy of it, and writes *a*. [`pad_password`], which is what
+/// hands this function its `padded` argument, has cited step (a) since it was written: the
+/// erratum vindicates the reading rather than changing it.
 fn unwrap_owner_entry(padded: &[u8; 32], input: &AuthenticateLegacy<'_>) -> Option<[u8; 32]> {
     // (a) is Algorithm 3 steps (a) to (d): MD5 of the padded owner password, hashed fifty
     // more times at revision 3 or greater, truncated to the key length.

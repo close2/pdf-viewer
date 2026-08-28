@@ -8,6 +8,11 @@
 //! > an IRT entry, and one or more subordinate annotations, which shall have an IRT entry that
 //! > refers to the primary annotation and an RT entry whose value is Group .
 //!
+//! (Errata Collection 3's Issue #297 strikes that sentence's *PDF 1.6* and writes *PDF 1.5*,
+//! inserting *(PDF 1.6)* after the `RT` instead: the grouping is PDF 1.5's, the `/RT` entry is
+//! the later half. The blockquote keeps the published wording the quotation gate reads, and this
+//! census counts what documents state rather than what their headers claim.)
+//!
 //! and then says what a subordinate's own entries are worth:
 //!
 //! > Some entries in the primary annotation are treated as "group attributes" that shall apply to

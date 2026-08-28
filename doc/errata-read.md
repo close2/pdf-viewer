@@ -1810,3 +1810,71 @@ plateau* was the repeated-substitution shape and the work sat under it.
   issues is what the head looks like when the decayed rows are gone; reading it out is what
   moves the next real requirement to the top, and the one requirement in reach this round was
   sitting one rank below it.
+
+## The rule the writer is named by, and seven filings the outline got one clause late — the seven-hundred-and-ninety-fourth
+
+The successor rule's twelfth use. Both rankings top out at **four annotations**, so the plateau is
+the head twice over: over live rows one row reaches four, **§12.5.6.2**, `partial`; over **every**
+row eight do, seven of them settled. Step 4 prefers the settled row where the two tie, and the
+third use's tie-break — a cell ahead of a word in prose — takes **§14.8.5.4.2** out of the seven,
+whose two issues rewrite table cells where the rest of the plateau moves typography, a URL, a step
+letter and a version marker. The settled head confirmed its row and paid nothing, for the fourth
+consecutive use; **the walk downward paid on the live head**, whose two errata are quoted in three
+places under `crates/` and twice in the row itself. The base population reproduces the eleventh
+use's closing arithmetic exactly: 302 issue numbers carry a strike or a caret under the recipe's
+own single-issue line parse and 85 were named nowhere. Twelve gain verdicts this round. ADR 0728.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §14.8.5.4.1, Table 377's `Structure Elements` column | 789, 790 | #223 | **rewrites two cells and confirms the row** | Two StrikeOut/Caret pairs, `Review/Completed`. A strike at `[58.9739 60.2865 121.049 71.4914]` — (770.4)–(781.6) from the top, over the *Vertical text* that `-bbox` puts at (58.97, 769.3) — with a caret writing *Any structure element containing text whose inline-progression direction is top to bottom or bottom to top.*; and one at `[91.3739 708.987 141.118 720.192]` on the next page — (121.7)–(133.0), over the *Ruby text* at (91.37, 120.6) — with a caret writing *RB, RT, RP (Ruby text)*. Each names the population an attribute applies to: `/GlyphOrientationVertical` gets a definition where the published cell gave a genre, and the ruby attributes get the three element types by name. Both attributes are §14.8.5.4.4's and unread here, and this clause's single `shall` binds whoever *defines* an attribute object. **The second pair is filed under §14.8.5.4.2** — page 790 carries the tail of Table 377 above that clause's heading at (205.3) — so the ranking's head named the row below the one the annotations belong to, and both are `inapplicable`. |
+| §14.8.5.4.2, Table 378's `/Placement` and `/WritingMode` | 791, 792 | #189 | cites | Two carets, `Review/Completed`, each writing *(see 14.8.3.3, "Progression direction")*: one at `[403.153 678.397 411.105 684.878]` — (157.0)–(163.5) from the top, at the end of the *content.* that `-bbox` puts at (374.43, 151.2)–(409.27, 151.2) in `/Placement`'s description — and one at `[469.917 685.597 477.869 692.078]` on the next page — (149.8)–(156.3), after the *(block progression).* at (418.52, 144.0) in `/WritingMode`'s. A cross-reference to the clause that defines terms both cells already used; neither states a requirement, and the row's reason — every entry in the table describes what the page already shows — is untouched. |
+| **§12.5.6.2, the paragraph rule** | 493 | #90 | **quotes, and names whose rule it is** | A single Caret at `[65.3787 373.036 74.3432 380.34]` — (461.6)–(468.9) from the top, under the gap between the *When* at (39.60, 455.3)–(67.45) and the *separating* at (69.83) — writing *providing the Contents key, if*. So the sentence becomes: when providing the Contents key, if separating text into paragraphs, a CARRIAGE RETURN (0Dh) shall be used and not, for example, a LINE FEED character (0Ah). **A pure insertion, which `check` cannot see at all**: there is no struck text for a quotation to land on, which is #293's and #236's blindness met a third way. This tree accepts a line feed as a paragraph break as well, in `viewer_ui::chrome`'s popup window and in `variable_text::encode`'s free text alike, and argued it as an inference about who the sentence addresses; the amended sentence opens by naming the act of writing the entry, so the inference becomes the clause's own scoping. Quoted in `chrome.rs` and in the ledger row; both now carry the amendment. |
+| **§12.5.6.2, the grouping sentence** | 495 | #297 | **quotes — two struck words under `check`'s floor, in three places** | A StrikeOut at `[48.4297 500.689 91.38 513.109]` — (328.8)–(341.2) from the top, exactly over the *PDF* at (51.72, 327.6)–(71.23) and the *1.6,* at (73.59)–(90.35) — with a Caret writing *PDF 1.5*, and a second Caret at `[139.494 456.434 148.507 463.778]` — (378.1)–(385.5), between the *RT* at (127.46, 372.0)–(141.72) and the *entry* at (144.14) — writing *(PDF 1.6)*. Grouping by `/IRT` is PDF 1.5's; the `/RT` entry that says *Group* is the PDF 1.6 part, which is what Table 172's own `/RT` row has always said. Two words struck, under the four-word floor `check` filters on, and the sentence is a rustdoc blockquote in `markup.rs`, the same blockquote in `examples/annotation_group_census.rs`, and a quotation in §12.5.6.2's row. All three keep the published wording the quotation gate verifies and carry the amendment beside it; ADR 0315's copy stays as the record of a decision. Nothing here gates on a version, so no behaviour moves. |
+| §7.6.4.4.2, Algorithm 3 steps (a) and (e) | 98 | #643 | **cites — and the erratum vindicates the code** | Two StrikeOut/Caret pairs, `Review/Accepted`, each striking one letter. At `[377.45216 450.85914 383.49104 463.798]` — (378.1)–(391.1) from the top, over the `b` inside the *(b)* that `-bbox` puts at (373.49, 378.1) in step (a)'s "as described in step (b) of 7.6.4.3.2" — and at `[367.96705 310.79914 374.00593 323.738]` — (518.1)–(531.1), over step (e)'s copy at (364.00, 518.2) — each caret writing *a*. Algorithm 2's step (b) initialises the MD5 hash function; its step (a) is where the padding string is printed, so the published cross-references sent an implementer to a step that pads nothing. `crypt.rs`'s `PAD` has been "[t]he padding string of §7.6.4.3.2 step (a)" since it was written and `unwrap_owner_entry` pads through `pad_password`, so the amended reference was this reader's all along. **Filed under §7.6.4.4.3**: page 98 opens §7.6.4.4.2 at (310.0) and reaches §7.6.4.4.3 at (684.2), and both strikes are above the second heading. |
+| §14.7.5.3, Table 358's `/Pg` | 749 | #339 | **cites — and it is a second erratum on a sentence the tree records under the first** | A StrikeOut at `[377.229 315.697 403.437 326.901]` — (515.0)–(526.2) from the top, over the *used* at (380.20, 513.9)–(400.47) — with a Caret writing *required*, so "it shall be used if the structure element has no such entry" becomes *it shall be required if*. **Issue #431 rewrites the same run wholesale** — its own strike at `[163.1 304.55888 505.2857 327.992]` covers both lines with a caret writing *.  This entry is required if the structure element containing the object reference has no Pg entry.* — and the two overlap in text while agreeing in meaning, which is Table 161's shape with the disagreement removed. `destination.rs` credited #431 with both halves and now names each; nothing here changes, the requirement being the writer's. Filed under §14.7.5.4, whose heading is at (673.1) on the same page. |
+| §14.7.5.4, the parent tree's own sentence | 750 | #343 | **quotes — three struck words under `check`'s floor** | A StrikeOut at `[335.5157 709.24917 389.00453 722.188]` — (119.7)–(132.7) from the top, exactly over the *at* (335.52, 119.7), *least* (347.01) and *one* (371.59) before *structure element* — with a Caret writing *a*. The second *at least one*, before *marked-content sequence*, is untouched. The sentence is a rustdoc blockquote in `content/marked.rs` and a quotation in §14.7.5.4's row, both of which rest on its second half and on Table 359 for what makes the route per stream: the amended quantifier moves nothing and both now say so. |
+| §12.10.3, the opening paragraph and the EPSG database | 619 | #321 | **removes a contradiction inside the clause** | Two StrikeOut/Caret pairs, `Review/Completed`. One at `[36.3078 680.479 517.562 707.779]` — (134.1)–(161.4) from the top, spanning the *either* at (486.12, 132.9) and the *or both* at (39.60, 147.8)–(74.13) — with a Caret at `[69.662 680.562 78.6044 687.848]` writing *any*; and one at `[376.458 353.429 483.871 365.849]` — (476.1)–(488.5), over the *http://www.epsg.org* at (379.75, 474.9) — with a Caret writing *https://epsg.org*. The published paragraph said the system "shall be described in either or both of two well-established standards" while each of Table 270's two rows forbids the other entry and the closing sentence asks for exactly one: **the clause contradicted its own table, and the erratum takes the *both* out.** `CoordinateSystem::is_stated` reads the table rather than the paragraph, which is why nothing moves. Both are filed under §12.10.4, whose heading is at (529.8) below the first of them. |
+| §12.11.2, Table 275's `U3D` and `PRC` | 623, 624 | #195 | **inside the exclusion** | Two StrikeOut/Caret pairs, `Review/Completed`, each over a *shall apply* broken across two lines — at `[149.33 162.426 515.992 185.271]`, (656.7)–(679.5) from the top, from the *shall* at (492.84, 655.6) to the *apply* at (152.30, 667.2), and at `[181.73 700.947 547.659 723.911]` on the next page — with carets writing *applies*. A requirement word demoted in two cells whose subject is clause 13's 3D streams, which `CLAUDE.md`'s multimedia exclusion names; `Kind::unmet`'s reason for each of the pair names the missing player rather than the table's verb. |
+| §7.10.5.2, Table 42 and the brace sentence | 146 | #269, #669 | untouched | Two pairs. #269 (`Review/Completed`) strikes the capital *If* of the conditional-operators cell at `[245.84 365.376 258.507 376.581]` — (465.3)–(476.5) from the top, on the *Conditional If ifelse* row at (464.3) — and writes *if*, which is the spelling `function.rs` parses. #669 (`Review/Accepted`) strikes the *07hD* at `[299.81236 234.56912 325.33686 247.50801]` — (594.4)–(607.4), in "RIGHT CURLY BRACE (07hD)" at (594.4) — and writes *7Dh*. Two corrections to this clause's own printing; neither reaches the language. Filed under §7.10.5.3, whose heading is at (712.6) below both. |
+| §12.5.5, the check-box EXAMPLE | 491 | #422 | untouched | Two StrikeOut/Caret pairs, `Review/Accepted`, at `[72.01344 707.56918 75.35856 720.508]` and `[157.61074 707.56918 160.95586 720.508]` — (121.4)–(134.4) from the top, each over the leading `f` of the *formXObject1* at (72.01, 121.4) and the *formXObject2* at (157.61) — with carets writing *f (italic)*. Typography in an example. Filed under §12.5.6.1, whose heading is at (388.5) below it. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #90 is the round's finding, and what it settles is who a sentence is addressed to.**
+§12.5.6.2's paragraph rule is written in the passive — a carriage return *shall be used* — and a
+reader that enforced it would show a producer's paragraph break as a space, so this tree accepts a
+line feed as well and argued that in two places as an inference about whom the `shall` binds. The
+caret makes the sentence open by naming the act of writing the entry, which is the same answer with
+the standard's authority instead of ours. It is the vindication shape the tenth use met on
+`/Descent`, and it arrives by the one mechanism `check` can never report: **a caret with no
+strikeout leaves no retired text for a quotation to land on.** The instrument's blind spots are now
+four — an addition over unquoted text, a strike under the four-word floor, a spelling `doc/md/`
+writes differently, and a pure insertion into a sentence this tree quotes correctly.
+
+**And the errata that pay are not the ones that change the most words.** Of the twelve read here,
+the two that moved something in this tree are a caret of five words and a strike of two; the four
+that rewrote whole cells confirmed their rows and cost minutes. The ranking's unit is the
+annotation and it cannot see this, which is why step 4's practice — head to a verdict, then
+downward until a row pays — is what does the work rather than the count.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the third consecutive use**: 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 85 named nowhere —
+  the eleventh use's 99 less its fourteen verdicts — and the multi-issue parse's 310 and 87
+  reproduce the same way. Three uses running; the greps stay the instrument.
+- **The page-straddle was the majority case, not the exception.** Seven of the twelve issues are
+  filed one clause late by the outline — #643, #339, #321 twice, #269, #669, #422 and half of
+  #223 — so the ninth use's rule did most of this round's placing: a verdict written under a
+  heading is a claim about a page until the rectangle has been placed. Two of the seven moved a
+  row: the settled head's own annotations turned out to be the row *above* the one the ranking
+  named, and §7.6.4.4.3's four belong to a `partial` neighbour rather than to an `implemented`
+  one.
+- **Two accepted errata can overlap in text and still agree**, which is Table 161's pair without
+  the contradiction: #431 replaces a whole clause of Table 358's `/Pg` sentence and #339 strikes
+  one word inside the run it replaces, and both land on *required*. The collection being
+  inconsistent once is a reason to check whether a second annotation over the same words disagrees
+  — not a reason to expect that it does.

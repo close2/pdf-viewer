@@ -9,7 +9,17 @@
 //! > an IRT entry, and one or more subordinate annotations, which shall have an IRT entry that
 //! > refers to the primary annotation and an RT entry whose value is Group .
 //!
-//! and then says what a subordinate's own copies of nine entries are worth:
+//! **Errata Collection 3 re-dates that sentence and splits the date in two**, Issue #297,
+//! `/State` `Review` `Completed`: the *PDF 1.6* it opens with is struck and replaced by *PDF 1.5*,
+//! and *(PDF 1.6)* is inserted after the `RT` three lines down — so grouping by `/IRT` is PDF
+//! 1.5's and the `/RT` entry that says the relationship is *Group* is the PDF 1.6 part, which is
+//! also what Table 172's own `/RT` row has always said. The blockquote keeps the published
+//! wording, because `doc/md/` is what `cargo test -p conformance` verifies it against. Nothing
+//! below gates on a version: a file states `/IRT` and `/RT` or it does not, and reading them from
+//! a file whose header claims an earlier one is the same reader's tolerance every other version
+//! marker gets here.
+//!
+//! and ISO 32000-2 §12.5.6.2 then says what a subordinate's own copies of nine entries are worth:
 //!
 //! > Some entries in the primary annotation are treated as "group attributes" that shall apply to
 //! > the group as a whole; the corresponding entries in the subordinate annotations shall be
