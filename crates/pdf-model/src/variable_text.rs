@@ -1708,8 +1708,12 @@ impl DefaultAppearance {
             leading: None,
             character_spacing: 0.0,
             word_spacing: 0.0,
-            // §9.3.5's `Tz` is "a percentage of the normal width", and Table 102's initial
-            // value is 100.
+            // §9.3.4's `Tz` is "a percentage of the normal width", and Table 102's initial
+            // value is 100. Issue #376 says the same thing from the operand's side — Th is the
+            // normalized value of Tz's operand, whose default of 100% is a scaling value of 1.0
+            // — which is what this field holds. **The clause number said §9.3.5**, which is
+            // leading, and a citation that names a clause the standard *has* passes the
+            // conformance gate however wrong it is.
             horizontal_scaling: 1.0,
         };
 
