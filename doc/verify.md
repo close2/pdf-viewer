@@ -317,12 +317,30 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # `which cargo-fuzz` reports nothing and `cargo fuzz` fails with "no such subcommand" — which is
 # a statement about `PATH` and not about the disk. Sessions 425 and 426 wrote "cargo-fuzz is not
 # installed here" from exactly that check, and left a target unwritten on the strength of it
-# (ADR 0264). Prefix the run: `PATH=$HOME/.cargo/bin:$PATH cargo +nightly fuzz …`.
+# (ADR 0264). Prefix the run: `PATH=$HOME/.cargo/bin:$PATH cargo +nightly fuzz …`, or use the
+# wrapper below, which does it.
 #
-# **The fuzz crate is its own workspace, so neither §2 gate sees it.** Two commands do, and
-# neither costs a nightly build:
-rustfmt --edition 2024 --check fuzz/fuzz_targets/*.rs   # `cargo fmt --all` does not reach these
-cd fuzz && cargo clippy --all-targets                   # nor does `clippy --workspace`
+# **The fuzz crate is its own workspace, and `doc/todo/02` §2 has both of its lines** — a `cargo
+# fmt` and a `cargo clippy`, each naming `fuzz/Cargo.toml`, because `--all` and `--workspace` stop
+# at the workspace boundary. Those two lines used to be stated here as well, which is two documents
+# stating one command; §2 owns them and `tools/conformance/tests/workspaces.rs` checks that every
+# workspace in the tree is named by both (ADRs 0739, 0742).
+#
+# **A fuzz run's exit status says nothing about whether it fuzzed**, which is why the lines below
+# have a wrapper. `tools/fuzz.sh <target>` runs *this file's own invocation* for that target — the
+# line is the population, so the two cannot drift — and adds the two questions the bare command
+# does not answer: it refuses to start a target whose corpus is empty, and it fails a run whose
+# final `ft:` is zero. `tools/fuzz.sh --list` prints every target with the seeds it has here, which
+# is how a round finds out that one has none before spending an hour on it. ADR 0742.
+#
+# **`fuzz/corpus` and `fuzz/artifacts` are gitignored, so whether a target is seeded is a fact
+# about this disk and not about the repository** — no gate can read it out of the tree, which is
+# why the wrapper asks the directory. Two consequences a round meets. A **fresh worktree had
+# neither directory at all** until `tools/worktree.sh` was taught to link them, so every fuzz run a
+# parallel round made started from nothing and said nothing about it. And a **clone has to
+# re-seed**, from the scripts in `fuzz/` and the recipes under each target below; a corpus is not
+# recoverable from the history because it was never in it.
+tools/fuzz.sh lexer                               # or, without the two questions, by hand:
 cd fuzz && cargo +nightly fuzz run lexer         -- -runs=50000   # needs nightly
 cd fuzz && cargo +nightly fuzz run cmap          -- -runs=50000   # §9.7's CMap parser
 cd fuzz && cargo +nightly fuzz run crypt         -- -runs=50000   # §7.6's algorithms

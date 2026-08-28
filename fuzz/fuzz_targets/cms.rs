@@ -27,10 +27,19 @@
 //! pass cannot see.
 
 #![no_main]
+#![expect(
+    clippy::expect_used,
+    reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message here names the property rather than the call"
+)]
 
 use libfuzzer_sys::fuzz_target;
 use pdf_model::cms::signed_data;
 use pdf_model::der::{MAX_VALUE, Reader};
+
+/// `cms`'s own ceiling on a signer's attribute lists, which is private to that module and is
+/// restated here so this target checks the bound rather than trusting it — and so that
+/// `attributes_truncated` must say so whenever either list is at it.
+const MAX_ATTRIBUTES: usize = 64;
 
 fuzz_target!(|data: &[u8]| {
     // The reader beneath, walked whole: `signed_data` stops at the first thing it does not need,
@@ -88,9 +97,6 @@ fuzz_target!(|data: &[u8]| {
         );
     }
     let _ = cms.algorithm();
-    // `MAX_ATTRIBUTES` is private to `cms`, restated here so the target checks the bound rather
-    // than trusting it — and `attributes_truncated` must say so whenever either list is at it.
-    const MAX_ATTRIBUTES: usize = 64;
     assert!(cms.signed_attribute_types.len() <= MAX_ATTRIBUTES);
     assert!(cms.unsigned_attribute_types.len() <= MAX_ATTRIBUTES);
     assert!(

@@ -32,6 +32,11 @@
 //! `Ok(true)` here would be a defect in the comparison rather than a lucky input.
 
 #![no_main]
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message here names the property rather than the call"
+)]
 
 use libfuzzer_sys::fuzz_target;
 use pdf_model::cms::Digest;
@@ -110,8 +115,16 @@ fuzz_target!(|data: &[u8]| {
                 data,
                 &[][..],
                 &[0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01],
-                &vec![0x11; 2 * key.curve.field_octets()],
+                // Saturating, for the reason `lexer.rs` states: overflow checks are on in this
+                // crate's release profile, so arithmetic in the *target* aborts rather than
+                // wraps. A curve's field is tens of octets, so the ceiling is unreachable and
+                // this is the same length either way.
+                &vec![0x11; key.curve.field_octets().saturating_mul(2)],
             ] {
+                #[expect(
+                    clippy::match_same_arms,
+                    reason = "`Ok(false)` and a named refusal are two different answers with the same consequence for this target, and the comment on each says which is which — merging the arms would delete that"
+                )]
                 match ecdsa::verify(key, signature, &digest) {
                     Ok(false) => {}
                     Ok(true) => {
@@ -127,6 +140,10 @@ fuzz_target!(|data: &[u8]| {
         PublicKey::Ed25519(key) => {
             inside(key.key);
             for signature in [data, &[][..], &[0u8; 64][..]] {
+                #[expect(
+                    clippy::match_same_arms,
+                    reason = "`Ok(false)` and a named refusal are two different answers with the same consequence for this target, and the comment on each says which is which — merging the arms would delete that"
+                )]
                 match eddsa::verify(key, signature, &[b"a message nobody signed"]) {
                     Ok(false) => {}
                     Ok(true) => {
@@ -186,6 +203,10 @@ fuzz_target!(|data: &[u8]| {
                 mgf_hash: Digest::Sha256,
                 salt_length,
             };
+            #[expect(
+                clippy::match_same_arms,
+                reason = "`Ok(false)` and a named refusal are two different answers with the same consequence for this target, and the comment on each says which is which — merging the arms would delete that"
+            )]
             match pss::verify(key, signature, parameters, &digest) {
                 Ok(false) => {}
                 Ok(true) => {

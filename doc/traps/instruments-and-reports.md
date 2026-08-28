@@ -428,6 +428,47 @@ Three things to carry:
   population from cargo rather than listing it — so the next crate kept out of the workspace fails
   on the day it is added. It does not hold the module-graph half closed, and nothing does.
 
+**And a lint level is a second thing that stops at the boundary, by a different road.** `[lints]
+workspace = true` resolves against *this* workspace, and cargo offers no way to point one
+workspace's packages at another's table — so a second workspace either restates the levels or has
+none. `fuzz/` had none until the eight-hundred-and-tenth session, and `clippy` had therefore never
+judged a fuzz target at all: thirty-three findings, five of them arithmetic in a target's own
+counters under a profile that keeps overflow checks on, which is an abort waiting to be filed as a
+crash in the parser under test. The gate now demands a `cargo clippy` line per root **and** compares
+the tables, because closing one without the other closes nothing (ADR 0742).
+
+### 24. A fuzz target's exit status answers *did it crash*, never *did it run*
+
+The eight-hundredth session watched `page` execute 86 912 iterations at `cov: 0 ft: 0 corp: 0` and
+exit 0. The eight-hundred-and-tenth measured what that is worth: from an empty corpus `page` reaches
+**cov 103, ft 182 — the same two figures `document` reaches, to the unit**, because the two targets
+share a prefix and diverge only once a document parses well enough to have a page tree. Identical
+figures mean `page` never entered `pdf_model::interpret`, which is the entire reason ADR 0264 built
+it. With this disk's corpus the same target reaches cov 37 083 and ft 169 360.
+
+**No amount of wall clock closes that gap**, and that is the part worth carrying: a fuzzer will not
+invent a header, a cross-reference section, a page tree and a resource dictionary that agree with
+each other. A target over documents whose corpus is not documents is a target testing the recovery
+scanner.
+
+Three things to carry:
+
+- **Read libFuzzer's own last line, not the exit status.** `cov:` and `ft:` are what say whether
+  anything was exercised. `tools/fuzz.sh` does both halves — it refuses to start a target whose
+  corpus directory is empty, and it fails a run whose final `ft` is zero — and it takes the
+  invocation out of `doc/verify.md` so that the two cannot drift. **`ft: 0` is a fork-mode figure**:
+  an ordinary run always reaches the harness on the empty input, so a zero there is a *parent*
+  reporting an empty shared corpus, which is what round 800 was looking at and why `page` is the
+  target it happens to.
+- **`fuzz/corpus` and `fuzz/artifacts` are gitignored, so "is this target seeded" is a fact about
+  the disk and not about the repository.** No gate can read it out of the tree. A fresh worktree had
+  neither directory at all until `tools/worktree.sh` was taught to link them, so *every* fuzz run a
+  parallel round made started from nothing and said nothing about it — which is trap 23's sentence
+  with a different instrument in it.
+- **The general shape is wider than fuzzing.** An instrument whose input is gitignored can be empty
+  without the instrument saying so, and it will still exit 0. Ask what the instrument read, and how
+  much of it, before believing what it reported.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic

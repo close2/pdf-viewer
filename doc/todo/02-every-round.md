@@ -47,7 +47,7 @@ RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets   # `RUSTFLAGS` i
 cargo nextest run --workspace
 cargo test --workspace --doc                # the one doctest nextest does not run
 cargo fmt --manifest-path fuzz/Cargo.toml --check                            # `fuzz/` is not a workspace member
-RUSTFLAGS="-D warnings" cargo check --manifest-path fuzz/Cargo.toml --bins   # nor is it here
+RUSTFLAGS="-D warnings" cargo clippy --manifest-path fuzz/Cargo.toml --all-targets   # nor is it here
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
@@ -262,9 +262,19 @@ here:
   `["crates/*", "tools/*"]` and `fuzz/Cargo.toml` declares a `[workspace]` table of its own, which
   is what makes it a separate workspace: `cargo-fuzz` builds it with its own sanitiser and profile
   settings, and a member would apply those to the whole tree. So `--workspace` reaches neither the
-  fuzz crate nor any of its binaries, and the check line above is the whole fix. It is a `check`,
-  not a `build`: it costs seconds, wants no nightly and no sanitiser, and answers the only question
-  a round can get wrong by accident — *do the targets still compile against the tree they fuzz?*
+  fuzz crate nor any of its binaries, and the second `fuzz/` line above is the whole fix. It is not
+  a `build`: it wants no nightly and no sanitiser, and it answers the question a round gets wrong
+  by accident — *do the targets still compile against the tree they fuzz?*
+
+  **That line was a `cargo check` until the eight-hundred-and-tenth session, and the difference is
+  the tree's lint levels.** `fuzz/Cargo.toml` took no `[lints] workspace = true`, so `clippy` had
+  never judged a fuzz target at all: `pedantic`, `arithmetic_side_effects` and the rest stopped at
+  the workspace boundary exactly as `--all` did. Thirty-three findings were sitting there, five of
+  them arithmetic in a target's *own* counters — and the fuzz profile keeps overflow checks on, so
+  each of those was an abort libFuzzer would have filed as a crash in the parser under test. The
+  levels cannot be inherited (cargo resolves `workspace = true` against *this* workspace, and there
+  is no way to point at another's), so `fuzz/Cargo.toml` restates them and the gate below compares
+  the two tables. ADR 0742.
 
   **`--all` is the same word in the formatting line, and it had the same hole for longer.**
   `cargo fmt --all --check` reads every package of *this* workspace and not one file under `fuzz/`;
@@ -278,10 +288,12 @@ here:
   **What keeps it closed is `tools/conformance/tests/workspaces.rs`**, and it is derived rather
   than listed: `cargo locate-project --workspace` is asked, for every tracked `Cargo.toml`, which
   workspace root governs it, and every root that comes back must be named by a `cargo fmt` line of
-  this section *and* by one of its `cargo clippy`, `cargo check` or `cargo build` lines. A third
-  workspace added to this tree fails that gate on the day it is added rather than on the day
-  somebody notices (ADR 0739, and `doc/traps/instruments-and-reports.md`'s trap 23 for the general
-  shape — a workspace-scoped flag is a claim about the manifest graph, not about the directory).
+  this section, by one of its `cargo clippy`, `cargo check` or `cargo build` lines, and — since the
+  eight-hundred-and-tenth session — by a `cargo clippy` line under `RUSTFLAGS="-D warnings"`, while
+  stating the same lint levels the tree's own root does. A third workspace added to this tree fails
+  that gate on the day it is added rather than on the day somebody notices (ADRs 0739 and 0742, and
+  `doc/traps/instruments-and-reports.md`'s trap 23 for the general shape — a workspace-scoped flag
+  is a claim about the manifest graph, not about the directory).
 
   **They did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped `Answer::Frame`
   to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility answer the same

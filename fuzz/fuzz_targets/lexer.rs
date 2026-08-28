@@ -21,7 +21,11 @@ fuzz_target!(|data: &[u8]| {
         assert!(now > last, "the lexer failed to advance at byte {last}");
         last = now;
 
-        tokens += 1;
+        // Saturating rather than `+=`: `fuzz/Cargo.toml` keeps overflow checks on in the release
+        // profile, so a counter that wrapped would abort *inside the target* and libFuzzer would
+        // file it as a crash in the lexer. Saturation hides nothing, because the assert below
+        // still fails at the ceiling.
+        tokens = tokens.saturating_add(1);
         // One token per byte is the theoretical maximum.
         assert!(tokens <= data.len(), "more tokens than bytes");
     }

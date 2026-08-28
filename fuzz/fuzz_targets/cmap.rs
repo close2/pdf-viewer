@@ -44,7 +44,10 @@ fuzz_target!(|data: &[u8]| {
         let _ = map.notdef_cid(code);
 
         rest = rest.get(taken.min(rest.len())..).unwrap_or_default();
-        codes += 1;
+        // Saturating rather than `+=`, and for the reason `lexer.rs` states: overflow checks are
+        // on in this crate's release profile, so a wrapped counter would abort in the target and
+        // be filed as a crash in the CMap parser. The assert below still fails at the ceiling.
+        codes = codes.saturating_add(1);
         assert!(codes <= data.len(), "more codes than bytes");
     }
 

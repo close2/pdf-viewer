@@ -33,8 +33,13 @@ fuzz_target!(|data: &[u8]| {
     let read = Fragment::parse(text);
 
     let separators = text.matches('&').count();
+    // Saturating on both sides, for the reason `lexer.rs` states: overflow checks are on in this
+    // crate's release profile, and an abort inside the assertion's own arithmetic would be filed
+    // as a crash in the fragment reader. Neither saturation can weaken the bound — the left side
+    // saturating only makes the assert *more* likely to fail, and `separators` is at most
+    // `text.len()`, so the right side cannot reach the ceiling at all.
     assert!(
-        read.parameters.len() + read.unread.len() <= separators + 1,
+        read.parameters.len().saturating_add(read.unread.len()) <= separators.saturating_add(1),
         "{} parameters and {} unread out of {} separators",
         read.parameters.len(),
         read.unread.len(),

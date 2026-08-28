@@ -26,7 +26,21 @@ builds=/home/AI/cargo-target
 
 # The gitignored data every gate reads. Symlinked rather than copied: `doc/md` alone is large, the
 # corpora are submodules, and a round has no business writing to any of them.
-linked=(doc/md doc/pdf.js doc/arlington-pdf-model corpus-cache)
+#
+# `fuzz/corpus` and `fuzz/artifacts` joined the list in the eight-hundred-and-tenth session, and
+# what they cost by being absent is the point of ADR 0742: they are gitignored, so a fresh worktree
+# had *no fuzz corpus at all* and every fuzz run a parallel round made started from nothing. That
+# is not a slower run, it is a different one — measured on the `page` target, the whole corpus
+# reaches 28 535 edges and an empty directory reaches 182 features, the same 182 the `document`
+# target reaches, because a fuzzer will not invent a header, a page tree and a resource dictionary
+# that agree with each other. A round in a worktree fuzzed the recovery scanner and reported it as
+# having fuzzed the interpreter, and exited 0.
+#
+# These two are *written* to, unlike everything else here, which is what a corpus is for: libFuzzer
+# appends the units it finds, and two rounds appending to one corpus is what `-jobs` does inside
+# one. A crasher found in a worktree lands where the next round will see it, which is the behaviour
+# principle 3 asks for and the opposite of what a per-worktree copy would give.
+linked=(doc/md doc/pdf.js doc/arlington-pdf-model corpus-cache fuzz/corpus fuzz/artifacts)
 
 # Every gitlink this script has replaced by a symlink, listed by git rather than by hand.
 #
