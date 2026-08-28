@@ -5,6 +5,7 @@ ADR: [0752](../adr/0752-the-populations-our-own-instruments-assume.md).
 Touched: `tools/round.sh`, `tools/worktree.sh`, `tools/state.sh`, `doc/environment.md`,
 `doc/todo/02-every-round.md` (§5a), `doc/traps/instruments-and-reports.md` (new trap 25),
 `doc/HANDOVER.md` (the trap index), and two new files, `doc/adr/0752` and this one.
+Two commits: the three instruments, then `state.sh`'s own reading table.
 
 ## The subject, and why it was taken
 
@@ -65,6 +66,26 @@ seconds.
 A fourth instance was found while editing and is the same trap at its smallest: `worktree.sh`'s
 usage text was `sed -n '3,20p'` of its own header, four lines past the block it meant, printing
 `set -euo pipefail` at a reader. It reads comment lines until the first that is not one.
+
+## And one the same question found in `state.sh`'s own table
+
+`tools/state.sh windows` counts how much of `viewer-core`'s vocabulary each window reaches and
+carries a hand-written *reading* beside the count — one line per unreached variant saying whether
+it is a debt — with a check in both directions, so a variant with no reason is named as owing one.
+It was naming two: `Command::View` and `Query::View`, printed twice as **UNREAD — this round owes
+a reading, in this table**.
+
+They are not a debt, and the reason is this round's own subject one level down. **`Query::View` is
+reached — by `pdf-viewer-confined`, which asks it per frame** and echoes the answer back as
+`Command::View` so that a worker that dies is one page's breach rather than the document's end
+(ADRs 0734, 0737). That window is *deliberately* outside this section's population, being a second
+window inside `viewer-ui`'s crate, and the same exclusion keeps `trace.rs` out. So an exclusion
+taken for a good reason — do not let a tracer or a second window inflate a parity count — made a
+variant a real window does reach print as reached by nobody, and then the table demanded a reading
+of a non-debt. Both lines are written now, each naming the exclusion as the reason, and the
+condition for deleting them is stated: a *counted* window gaining a worker it can lose.
+
+Nothing else in that table was `UNREAD`, and nothing was `SPENT`.
 
 ## What the tree already knew
 
