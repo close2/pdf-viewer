@@ -4538,6 +4538,52 @@ does, calibrated per trap 13 against exactly that plant.
   alternative. The mechanism is not a property of settled statuses; it is what "evidence" means
   when a claim is met without anything that could miss.
 
+## The rule's eleventh use, in the seven-hundred-and-eighty-ninth, and the head was a plateau the work sat under
+
+**Both rankings topped out in plateaus, and the paying row was below both.** Over every row the
+head is a settled pair tied at five — §7.5.4, `implemented`, and §13.6.3.1, `out-of-scope` — and
+over live rows a four-way tie at five. Step 4 took the settled pair; both confirmed and paid
+nothing, §7.5.4's five annotations being three of an example-typography issue and two of a
+strike the outline had filed a clause late (it is §7.5.2's binary-marker sentence, tightened for
+whoever writes a header — which this tree does not), and §13.6.3.1's five sitting inside
+`CLAUDE.md`'s multimedia exclusion. The walk downward crossed the whole live plateau — §7.5.5,
+§12.5.6.5, §12.7.5.5, §14.7.2, each confirming its row — and paid one rank further down, on
+**§7.7.2 at four annotations under four distinct issues**. ADR 0724;
+`doc/errata-read.md` has all fourteen errata with their rectangles.
+
+**The head paid with a recovery the standard states in exactly one place.** Table 29's `/Lang`
+entry gains *or invalid (see 14.9.2, "Natural language specification")* in its last sentence, so
+an invalid catalog language identifier is unknown exactly as an absent one — and this reader was
+carrying an invalid tag to every consumer as if it named a language, because the published entry
+stated the recovery for absence alone. `structure::document_language` now answers `None` for a
+tag that fails BCP 47's grammar, judged as well-formedness (RFC 5646 section 2.1, no registry) and
+applied to the catalog entry alone, because no other clause states a reader's recovery and
+inventing one for elements would also cancel §14.9.2.3's inheritance. Calibrated per trap 13:
+the no-validation plant passes every pre-existing accessibility test and fails only the new one,
+and the reject-everything plant fails the older tests that assert a valid tag is carried.
+
+**Three things about the rule itself, from running it:**
+
+- **A row's stated *reason* can overstate a requirement's cost, and no sweep reads a reason's
+  logic.** §14.9.2.2's row declined the parse as "a judgement about a registry this program does
+  not hold" — one sentence conflating BCP 47's two judgements, well-formedness (a grammar,
+  self-contained) and validity (the registry). The erratum made the first one a reader's job and
+  it cost eighty lines. The seventh sweep asks whether a named thing exists and the fourteenth
+  whether a debt's noun is absent; neither can see a reason that is wrong *internally*, and the
+  only instrument that put a round in front of the sentence was this ranking.
+- **The base count reproduced the closing arithmetic for the second consecutive use** — 302
+  issues carrying a strike or a caret under the recipe's own single-issue line parse, 99 named
+  nowhere, the tenth use's 104 less its five verdicts; the multi-issue parse's 310 and 101
+  reproduce the tenth's figures the same way. A closing figure is still a derivation and the
+  greps are still the instrument.
+- **A whole head plateau can be the repeated-substitution shape, and the tie-break already
+  prices it — inside a tie.** The five plateau rows' twenty-five annotations were example
+  typography, version markers, an informative NOTE stating the code's own construction, and
+  writer-side completeness rules; §7.7.2's four annotations were four distinct issues and two
+  of them were requirements. The ranking's unit is the annotation. A round that reaches a
+  plateau of one-issue rows reads it out — fourteen issues left the population this round, the
+  rule's largest single decay — and expects the work one rank down.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

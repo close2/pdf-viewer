@@ -281,6 +281,26 @@ fn an_empty_language_identifier_states_nothing() {
     assert_eq!(runs(&drawn.speech()), vec![("quoi", Some("fr"))]);
 }
 
+/// A catalog `/Lang` that is not a BCP 47 tag is unknown, exactly as an absent one is.
+///
+/// Errata Collection 3 (Issue #105) inserts *or invalid (see 14.9.2, "Natural language
+/// specification")* into Table 29's `/Lang` entry, so its last sentence reads: if this entry
+/// is absent or invalid, the language shall be considered unknown. §14.9.2.2 is what "invalid"
+/// means — not the empty string and not a BCP 47 `Language-Tag` — and the fixture's value is
+/// the shape real producers write there: prose naming the language to a person, which no
+/// locale matches and no screen reader should be handed as an identifier.
+#[test]
+fn an_invalid_catalog_language_is_unknown() {
+    let drawn = interpret(
+        "BT /F1 12 Tf 10 50 Td (was?) Tj ET",
+        "/Lang (German, not a tag)",
+        "",
+        "",
+    );
+    assert_eq!(drawn.language, None);
+    assert_eq!(runs(&drawn.speech()), vec![("was?", None)]);
+}
+
 /// §14.9.4: two consecutive replacement texts have no word break between them.
 ///
 /// > If each of two (or more) consecutive structure or marked-content sequences has an
