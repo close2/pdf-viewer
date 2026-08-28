@@ -1817,6 +1817,13 @@ fn usage_rights(document: &Document, signature: &Dictionary) -> Option<UsageRigh
 }
 
 /// Table 257's `/P`, found through the signature's `/Reference` chain.
+///
+/// The entry is an *integer* — Errata Collection 3 (Issue #152) rewrites Table 257's type cell
+/// from `number` to `integer`, which is the type this function has always asked for. A `/P`
+/// written as a real is therefore a malformed statement of a level, and it takes the table's
+/// default rather than its numeric value: a restriction is obeyed as the file states it, and a
+/// value the amended table does not admit restricts no further than an absent one — the same
+/// stance as reading a level outside 1..=3 as [`Modification::Unknown`], which permits.
 fn modification(document: &Document, signature: &Dictionary) -> Option<Modification> {
     let references = document.get_key(signature, "Reference");
     let references = references.as_array()?.to_vec();
@@ -2239,6 +2246,34 @@ mod tests {
             "/P 2 permits form filling and signing"
         );
         assert!(permissions(&doc).usage_rights.is_none());
+    }
+
+    /// A `/P` written as a real takes Table 257's default instead of being read as its value.
+    ///
+    /// Errata Collection 3 (Issue #152) makes the entry's type *integer* — the published cell
+    /// said `number` — so `1.0` is not a level the amended table admits. Reading it numerically
+    /// would let a malformed value restrict harder than the default; reading it as absent is the
+    /// same stance `Modification::Unknown` takes for an integer outside 1..=3. Only this test
+    /// separates `as_integer` from a numeric read: every other fixture writes the level as the
+    /// integer it is.
+    #[test]
+    fn a_docmdp_level_written_as_a_real_takes_the_tables_default() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] /SigFlags 3 >> \
+             /Perms << /DocMDP 5 0 R >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /Unused true >>",
+            "<< /FT /Sig /T (Signature1) /V 5 0 R /Subtype /Widget >>",
+            "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached \
+             /ByteRange [0 840 960 240] /Contents <00> /Reference [6 0 R] >>",
+            "<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 1.0 >> >>",
+        ]);
+
+        assert_eq!(
+            permissions(&doc).doc_mdp,
+            Some(Modification::FormFilling),
+            "a real is not Table 257's integer, so the default level 2 stands"
+        );
     }
 
     /// Table 255's `/V 1` says the reference dictionary is critical, and the field's `/V` does not.

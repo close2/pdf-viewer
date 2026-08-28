@@ -503,13 +503,19 @@ const TOLERANCE: f32 = 2.0;
 /// > The maximum depth below the baseline reached by glyphs in this font. The value shall be a
 /// > negative number.
 ///
+/// Errata Collection 3 (Issue #190) strikes *negative* from that second sentence and appends
+/// *less than or equal to zero* after *number*, so the amended entry reads *[t]he value shall be
+/// a number less than or equal to zero*. The blockquote above stays as the published text,
+/// which is what the quotation gate verifies against `doc/md/`.
+///
 /// Three conditions follow, in order:
 ///
 /// - **the ascent is above the baseline.** A "maximum height above the baseline reached by
 ///   glyphs" that is zero or negative describes a font whose glyphs reach nothing above the
 ///   baseline, which is not a font anybody sets text in;
-/// - **the descent is not above it.** Zero is accepted as the statement that no glyph goes below
-///   the baseline, which is a thing a face can be;
+/// - **the descent is not above it.** Zero is the statement that no glyph goes below the
+///   baseline, which is a thing a face can be — and since Issue #190 it is the entry's own
+///   floor rather than this crate's reading of a depth against a sign convention;
 /// - **the line the two describe is within [`TOLERANCE`] of [`REASONABLE_LINE`]**, which is the
 ///   height the standard itself calls reasonable for a line, computed the way the standard
 ///   itself computes it.
@@ -533,6 +539,14 @@ const TOLERANCE: f32 = 2.0;
 /// it is that a file which meant something else by a positive descent gets a box the band already
 /// tolerates for anybody. Nothing here reads the *rendering* of a page, so a mistaken repair
 /// cannot move a glyph.
+///
+/// Issue #190's inserted NOTE corroborates the diagnosis without changing the rule: *[w]hile
+/// different font programs may define descender metrics using either positive or negative
+/// numbers (e.g. OpenType usWinDescent …), PDF always expects negative values* (Errata
+/// Collection 3, an addition rather than published text). A positive `/Descent` is a producer
+/// copying its font program's convention where PDF states the other one, which is exactly what
+/// this repair reads it as — and the sign expectation survives the amendment, so the repair
+/// stays a repair of a malformed file rather than becoming a second legal form.
 ///
 /// Public because two other things ask the same question the interpreter does: the gate over
 /// `pdf-model`'s selection geometry, and `font_metric_census`, which counts what the corpus
@@ -924,7 +938,9 @@ mod measured_extent_tests {
     #[test]
     fn a_pair_is_believed_where_it_could_be_a_measurement() {
         assert_eq!(measured_extent(718.0, -207.0), Some((0.718, -0.207)));
-        // Table 120 permits a face no glyph of which goes below the baseline.
+        // A face no glyph of which goes below the baseline. Accepting zero was this crate's
+        // reading until Errata Collection 3 (Issue #190) rewrote `/Descent`'s floor as "less
+        // than or equal to zero", which makes it Table 120's own permission.
         assert_eq!(measured_extent(1000.0, 0.0), Some((1.0, 0.0)));
 
         assert_eq!(measured_extent(0.0, -205.0), None, "zero_descent.pdf");
