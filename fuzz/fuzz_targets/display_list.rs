@@ -92,7 +92,11 @@ fn check(list: &DisplayList) {
 /// One command and everything under it.
 fn walk(command: &Command, clips: usize, masks: usize) {
     if let Some(clip) = command.clip() {
-        assert!(clip.index() < clips, "a command names clip {} of {clips}", clip.index());
+        assert!(
+            clip.index() < clips,
+            "a command names clip {} of {clips}",
+            clip.index()
+        );
     }
     if let Some(mask) = command.mask() {
         assert!(

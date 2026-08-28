@@ -46,7 +46,8 @@ cargo fmt --all --check
 RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets   # `RUSTFLAGS` is not optional
 cargo nextest run --workspace
 cargo test --workspace --doc                # the one doctest nextest does not run
-RUSTFLAGS="-D warnings" cargo check --manifest-path fuzz/Cargo.toml --bins   # `fuzz/` is not a workspace member
+cargo fmt --manifest-path fuzz/Cargo.toml --check                            # `fuzz/` is not a workspace member
+RUSTFLAGS="-D warnings" cargo check --manifest-path fuzz/Cargo.toml --bins   # nor is it here
 cargo build --profile gates -p pdf-sandbox --bins   # trap 10: Cargo will not do this for you
 cargo test  --profile gates -p pdf-model      --test corpus          -- --ignored --nocapture
 cargo build --profile gates -p hayro-compare --bin pdfref-hayro      # trap 10 again, see below
@@ -84,8 +85,11 @@ one command is how they drift, so one owns it.
 
 **The first four lines are the core and every round runs them**, whatever it touched — they are
 about a tenth of the sequence's cost and they are the only thing that sees a lint, a broken
-doctest or a test somewhere else in the workspace. The rest is chosen by what the change can
-reach, and *reach* is the crate graph rather than the file's own crate:
+doctest or a test somewhere else in the workspace. **The two `fuzz/` lines are core as well**, and
+this sentence said "the first four" while five were owed for as long as the second of them has
+existed: `--all` and `--workspace` mean *every package in **this** workspace*, so neither of the
+four reads a line of `fuzz/`, and what covers it has to name its manifest. The rest is chosen by
+what the change can reach, and *reach* is the crate graph rather than the file's own crate:
 
 | a change in | is under | so run, beyond the core |
 |---|---|---|
@@ -255,10 +259,29 @@ here:
   isolation it buys is worth having as a second column and not as the only one.
 
 - **`fuzz/` is not in the workspace, so nothing above it builds the targets.** `members` is
-  `["crates/*", "tools/*"]`; `--workspace` reaches neither the fuzz crate nor its fourteen binaries,
-  and the line added above is the whole fix. It is a `check`, not a `build`: it costs seconds, wants
-  no nightly and no sanitiser, and answers the only question a round can get wrong by accident —
-  *do the targets still compile against the tree they fuzz?*
+  `["crates/*", "tools/*"]` and `fuzz/Cargo.toml` declares a `[workspace]` table of its own, which
+  is what makes it a separate workspace: `cargo-fuzz` builds it with its own sanitiser and profile
+  settings, and a member would apply those to the whole tree. So `--workspace` reaches neither the
+  fuzz crate nor any of its binaries, and the check line above is the whole fix. It is a `check`,
+  not a `build`: it costs seconds, wants no nightly and no sanitiser, and answers the only question
+  a round can get wrong by accident — *do the targets still compile against the tree they fuzz?*
+
+  **`--all` is the same word in the formatting line, and it had the same hole for longer.**
+  `cargo fmt --all --check` reads every package of *this* workspace and not one file under `fuzz/`;
+  it does not say so, and it exits 0. The eight-hundred-and-seventh session found two rustfmt diffs
+  sitting there under a green formatting gate, and the fix is the line beside the check —
+  `cargo fmt --manifest-path fuzz/Cargo.toml --check`, which costs a fraction of a second over a
+  crate this small. **A formatting gate blind to files in the tree is not a weaker
+  gate but a gate with a hole**, and the hole is invisible from the gate's own output, which is the
+  failure mode this project cares most about.
+
+  **What keeps it closed is `tools/conformance/tests/workspaces.rs`**, and it is derived rather
+  than listed: `cargo locate-project --workspace` is asked, for every tracked `Cargo.toml`, which
+  workspace root governs it, and every root that comes back must be named by a `cargo fmt` line of
+  this section *and* by one of its `cargo clippy`, `cargo check` or `cargo build` lines. A third
+  workspace added to this tree fails that gate on the day it is added rather than on the day
+  somebody notices (ADR 0739, and `doc/traps/instruments-and-reports.md`'s trap 23 for the general
+  shape — a workspace-scoped flag is a claim about the manifest graph, not about the directory).
 
   **They did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped `Answer::Frame`
   to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility answer the same

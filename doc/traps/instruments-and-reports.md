@@ -397,6 +397,37 @@ Two things generalise, and the second is the one worth carrying:
   arrives as silence, and silence is read as a different failure. `tests/confined.rs`'s
   `a_confined_worker_cannot_write_a_diagnostic_to_a_file` pins this one on a single write.
 
+### 23. `--all` and `--workspace` are scoped to a workspace, not to the tree
+
+`cargo fmt --all --check` has never read a line of `fuzz/fuzz_targets/`. It does not say so. It
+exits 0. Two rustfmt diffs sat there under a green formatting gate until the
+eight-hundred-and-seventh session went looking (ADR 0739).
+
+The mechanism is one sentence of cargo's: **a manifest with a `[workspace]` table of its own is a
+workspace root, not a member of the one above it**, and `--all` and `--workspace` mean *every
+package in **this** workspace*. `fuzz/Cargo.toml` declares one deliberately, so that `cargo-fuzz`'s
+sanitiser and profile settings stay off the tree — a good decision whose consequence is that every
+workspace-scoped command owes a second invocation naming that manifest.
+
+§2 had learned this once already, for compiling, after fourteen rounds in which the fuzz targets did
+not build against the tree they fuzz. It did not generalise the lesson to the command one line
+above, because **a gate that is silent looks exactly like a gate that is clean** — which is this
+group's whole subject and is why the trap is here rather than beside the build ones.
+
+Three things to carry:
+
+- **A workspace-scoped flag is a claim about the manifest graph, not about the directory tree.**
+  Before believing a `--workspace` or `--all` run covered something, ask which workspace the file is
+  in. `cargo locate-project --workspace --manifest-path <manifest>` answers it in milliseconds.
+- **The module graph is the other way a file escapes a tool.** rustfmt walks `mod` declarations from
+  each target's root, so a `.rs` file nothing declares is unformatted however the workspaces are
+  arranged. This tree has none, and what says so is a measurement rather than an argument:
+  `cargo fmt --all -- --emit stdout` prints every file rustfmt formats, and the set difference
+  against `git ls-files '*.rs'` is the answer.
+- **`tools/conformance/tests/workspaces.rs` holds the workspace half closed**, by deriving the
+  population from cargo rather than listing it — so the next crate kept out of the workspace fails
+  on the day it is added. It does not hold the module-graph half closed, and nothing does.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
