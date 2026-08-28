@@ -3,8 +3,8 @@
 Status: **draft**
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — the write path this proposal saves through),
-RFC 0003 (file-system faces), RFC 0004 (print). Numbering may be reconciled by the merge
-round; references here are by title as well as number for that reason.
+RFC 0003 (file-system faces), RFC 0004 (print). Numbering was reconciled at merge
+(round 788); the numbers here are final.
 
 **The owner's framing, verbatim in force**: this RFC is not limited by the project's current
 rules. Where a standing rule is relevant it is named as a *current restriction with its

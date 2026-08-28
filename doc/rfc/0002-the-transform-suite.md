@@ -1,12 +1,10 @@
 # RFC 0002 — The transform suite
 
-Status: draft. Owner-decides.
-Round: 785.
-
-> **Header note.** Round 784 designs `doc/rfc/` conventions in a parallel worktree; this file
-> deliberately carries a minimal header, and the merge round reconciles it with whatever 784
-> established. If the number 0002 collides at merge time, renumbering this RFC is one file rename
-> plus link edits — no other document cites it by number yet, and it cites no RFC by number.
+Status: **draft**
+Round: 785, commissioned by the owner
+Companions: RFC 0001 (the survey this argues from), RFCs 0003–0005 (file-system faces,
+print, text editing — each consumes the transform layer proposed here). The number 0002
+held at merge (round 788); no collision arose.
 
 **Commissioned by the owner**, with an explicit directive quoted here because it changes how this
 document must be read:

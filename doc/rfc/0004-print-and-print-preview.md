@@ -3,8 +3,8 @@
 Status: **draft**
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — page ranges and any spool-shaping derivative
-go through it), RFC 0003 (file-system faces), RFC 0005 (text editing). Numbering may be
-reconciled by the merge round; references are by title as well as number.
+go through it), RFC 0003 (file-system faces), RFC 0005 (text editing). Numbering was
+reconciled at merge (round 788); the numbers here are final.
 
 **Registers, kept apart deliberately in this RFC more than the others**: what GTK, Qt,
 CUPS, Evince and Okular do is evidence about *interface convention and plumbing*. What a

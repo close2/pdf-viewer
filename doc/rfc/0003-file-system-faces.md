@@ -3,8 +3,8 @@
 Status: **draft**
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — every write below goes through it), RFC 0004
-(print), RFC 0005 (text editing). Numbering may be reconciled by the merge round;
-references are by title as well as number for that reason.
+(print), RFC 0005 (text editing). Numbering was reconciled at merge (round 788); the
+numbers here are final and the index in `README.md` matches them.
 
 **The owner's framing, verbatim in force**: this RFC is not limited by the project's
 current rules; where a rule is relevant it is named as a current restriction with its
@@ -130,7 +130,7 @@ Format decisions, made rather than left open:
   file renders alone. This is the flagship: `cp` *is* page extraction.
 - **`renders/`** offers fixed named resolutions rather than a mount-time knob, because a
   KIO URL has no mount options and two faces must show one tree. 150 dpi (poppler's
-  `pdftoppm` default) and 300 dpi (the de-facto print-grade default, RFC 0004 §5) to
+  `pdftoppm` default) and 300 dpi (the de-facto print-grade default, RFC 0004 §3) to
   start; the set is the core's to define.
 - **`images/`**: pass the original stream through untouched where it is already a
   complete image file (DCTDecode, JPXDecode — re-encoding would be a lie about the

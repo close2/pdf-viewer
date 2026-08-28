@@ -37,6 +37,7 @@ the RFC stays here as the argument that started it.
 | RFC | title | status | owner round |
 |---|---|---|---|
 | [0001](0001-the-survey.md) | The survey — what PDF tools provide, what users ask for, and where the gaps are | proposed | 784 |
-| 0002 | The transform suite — split, merge, page surgery, compression, extraction, and a CLI (reserved) | draft | 785 |
-| 0003 | File-system faces — a KIO worker and a FUSE plugin over one abstraction (reserved) | draft | 786 |
-| 0004 | Print, print preview, and text editing without reflow (reserved) | draft | 786 |
+| [0002](0002-the-transform-suite.md) | The transform suite | draft | 785 |
+| [0003](0003-file-system-faces.md) | File-system faces — a KIO worker and a FUSE filesystem over one core | draft | 786 |
+| [0004](0004-print-and-print-preview.md) | Print support and print preview | draft | 786 |
+| [0005](0005-text-editing-without-reflow.md) | Basic text editing, without reflow | draft | 786 |

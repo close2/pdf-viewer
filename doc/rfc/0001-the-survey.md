@@ -3,8 +3,8 @@
 Status: **proposed**
 Round: 784, commissioned by the owner
 Decides nothing. This is the *collect* half of a three-round arc: RFC 0002 (transform
-suite, round 785) and RFCs 0003/0004 (KIO/FUSE and print/editing, round 786) will make the
-design arguments. This document gathers the evidence they will argue from.
+suite, round 785) and RFCs 0003–0005 (file-system faces, print, and text editing, round
+786) make the design arguments. This document gathers the evidence they argue from.
 
 **Two registers, kept apart.** Everything below is evidence about *demand and convention*:
 what products sell, what users file, what interfaces the field converged on. None of it is
