@@ -4499,6 +4499,45 @@ population of 115 after five verdicts, and one of its five had carried a verdict
 and this round's base count under the recipe's own parse is 111. A closing figure is a derivation,
 and the greps are the instrument.
 
+## The rule's tenth use, in the seven-hundred-and-seventy-ninth, and the base count reproduced the closing one for the first time
+
+**The two heads split, and step 4 took the settled one.** Over live rows the head is §9.8.1 with
+six annotations under three issues — the ninth use read both members of the pair that had led
+since the seventh, so the live head moved for the first time in five uses, by decay rather than
+by choice. Over **every** row the head is Annex L with seven under two issues, `writer-side` —
+the fifth time the full ranking has out-ranked the live one. The eighth use's practice held: the
+settled head was read to a verdict, confirmed its row and paid nothing — Table L.2 amended in two
+places, one of them a cell whose published value the legend never defined — and the walk downward
+paid on §9.8.1 three times. ADR 0716; `doc/errata-read.md` has the five errata with their
+rectangles.
+
+**The head paid with a floor the code was already standing on and a type a read was already
+asking for.** Issue #190 rewrites `/Descent`'s "negative number" as *less than or equal to zero*:
+three rustdoc blockquotes — one of them gated — quoted the struck sentence, the strike is one
+word and under `check`'s floor, and the zero-descent acceptance `measured_extent` argued as its
+own reading is the entry's own permission now. Issue #152 makes Table 257's `/P` an *integer*,
+which `signature::modification` has always asked for — and under the published `number` cell a
+conforming `/P 1.0` was read as absent, the default level 2 in place of the level 1 it wrote.
+No test could separate the integer read from a numeric one until this round wrote the one that
+does, calibrated per trap 13 against exactly that plant.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the previous use's closing arithmetic exactly** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 104 named nowhere,
+  which is the ninth use's 111 less its seven verdicts — the first time the two figures have
+  agreed since the record started carrying them. The two corrections that preceded it (the eighth
+  use's off-by-one, the ninth's verification) are why; a closing figure is still a derivation and
+  the greps are still the instrument.
+- **The outline's page-straddle reached two of one issue's three strikes**, filing Table 257's
+  under §12.8.2.3 and Table 380's under §14.8.5.4.5. The ninth use's rule — a verdict written
+  under a heading is a claim about a page until the rectangle has been placed — was applied
+  before any verdict was written, and both mis-filed rows' notes now name the straddle.
+- **A live family showed the settled-row mechanism's shape**: a read satisfied by construction —
+  `as_integer` against a type cell that said `number` — with no fixture that could fail its
+  alternative. The mechanism is not a property of settled statuses; it is what "evidence" means
+  when a claim is met without anything that could miss.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

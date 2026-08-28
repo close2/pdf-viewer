@@ -839,6 +839,10 @@ impl Metrics {
     /// > The maximum depth below the baseline reached by glyphs in this font. The value shall be
     /// > a negative number.
     ///
+    /// Errata Collection 3 (Issue #190) amends that second sentence to *[t]he value shall be a
+    /// number less than or equal to zero*; the blockquote keeps the published wording the
+    /// quotation gate verifies.
+    ///
     /// Both are in glyph space, whose unit §9.2.4 makes one thousandth of a text space unit.
     /// Both are required of every font descriptor and a descriptor is required of every font but
     /// the standard 14 — which is exactly the case a `/DA` usually names, so the fallback is the

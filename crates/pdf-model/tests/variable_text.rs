@@ -2391,7 +2391,10 @@ fn a_fields_baseline_follows_a_descriptor_the_band_believes() {
 /// read as the pair the first states — and the strongest form of that claim is that it draws
 /// *identically* to the same file with the sign put back. The old guard refused it and the split
 /// stood in, 2.3 points away. **A choice and not a clause**, argued in ADR 0216 and shared with a
-/// field's baseline here.
+/// field's baseline here. Errata Collection 3 (Issue #190) keeps both sentences' shape — the
+/// amended floor is *less than or equal to zero*, and its inserted NOTE says font programs
+/// write descenders in either sign while *PDF always expects negative values* — so the file
+/// this fixture models is still malformed and the repair is still a repair.
 #[test]
 fn a_fields_baseline_reads_a_positive_descent_as_the_depth_it_states() {
     let unsigned = ink_top(field_with_descriptor("/Ascent 905 /Descent 211"));
@@ -2404,6 +2407,8 @@ fn a_fields_baseline_reads_a_positive_descent_as_the_depth_it_states() {
 
 /// A `/Descent` of zero is a face whose glyphs stop at the baseline, not a face that said nothing.
 ///
+/// Since Errata Collection 3 (Issue #190) that is the entry's own floor — *less than or equal to
+/// zero* — rather than this program's reading of the published "negative number".
 /// The old guard asked for `descent < 0` and fell back on `/Ascent 1000 /Descent 0`, which states
 /// a line of exactly one em — §9.2.2's own nominal line, "arranged so that the nominal height of
 /// tightly spaced lines of text is 1 unit". `A + D` is 1.0 against the split's 0.5, so believing

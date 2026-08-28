@@ -1688,3 +1688,60 @@ this is the first time it reached a recorded verdict.
   this file's tables since the four-hundred-and-eighteenth session, so only four newly left the
   population and the count at this round's base is 111. A round quoting the previous round's
   closing figure is quoting a derivation, and the greps are the instrument.
+
+## The undefined cell in a normative matrix, and the floor a descent was already standing on — the seven-hundred-and-seventy-ninth
+
+The successor rule's tenth use. Over live rows the head is **§9.8.1 with six annotations under
+three issues** — §7.6.4.1 and §7.6.6 both left when the ninth use read them, which is the decay
+working for a fifth consecutive use. Over **every** row the head is **Annex L with seven under
+two issues, `writer-side`** — the fifth time the full ranking has out-ranked the live one — so
+step 4 takes the settled head, and the eighth use's practice follows: the head to a verdict,
+then downward until a row pays. The settled head confirmed its row and paid nothing, exactly as
+the eighth use's did; the live head paid three times. The base population reproduces the ninth
+use's closing arithmetic exactly: 302 issue numbers carry a strike or a caret under the
+recipe's own single-issue line parse and 104 were named nowhere. Five gain verdicts this round.
+ADR 0716.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| Annex L, the opening NOTE and Table L.2's P section | 962 | #83 | **amends the matrix, and confirms the row** | A Text note at `[31.686 490.426 51.686 508.426]` inserting *NOTE 2 Table is now permitted as a child of P. Table is now indicated as a valid child of P with a 0..n relationship and, in the Table section, P is listed as a valid parent also with a 0..n relationship.*, with a StrikeOut at `[68.875 642.576 101.52 654.456]` — (187.5) from the top, over the `NOTE` of "NOTE This annex was corrected (2020)." — and a caret writing *NOTE 1*. The published sections list the pair in neither direction: P's children table (p. 969) runs NonStruct to content item with no `Table`, and Table's parents table (p. 981) runs Document to Artifact with no `P`. Two FileAttachment annotations on the same page carry the corrected informative matrix, naming five issues in one field — which is the multi-issue line the recipe's single-issue parse skips. Nothing here reads a cell of Table L.2; the row is `writer-side` and says a checker of tagged PDF would, and that checker takes the amended matrix. |
+| Annex L, Table L.2's WP and Figure sections | 979, 985 | #440 | **defines two cells the legend never could, and confirms the row** | Two StrikeOut/Caret pairs, `Review/Accepted`. A strike at `[147.98 594.46 152.193 604.42]` — (237.5) from the top — over the `c` in WP's *children* column beside `Figure`, and one at `[348.55 440.14 352.763 450.1]` — (391.8) — over the `c` in Figure's *parents* column beside `WP`, each caret writing *0..n*. Table L.1's legend defines ø, ø*, 0..n, 1..n, 0..1, ‡, [a] and [b] — **no `c`** — so the published matrix constrained the WP/Figure pair with a value the annex gives no meaning. The erratum makes the pair symmetric and defined. A normative table stating an undefined value is a defect in the published standard itself; the correction binds the checker the row names, and nothing here. |
+| §9.8.1, Table 120's `/Descent` | 359 | #190 | **quotes — three blockquotes stood on a one-word strike, and the code's stated choice becomes the entry's own floor** | A strike at `[453.165 325.919 489.44 335.879]` — (506.0) from the top — over the `negative` of "The value shall be a negative number.", a caret at `[230.352 313.814 238.305 320.294]` — (521.6), after the `number.` that `-bbox` puts at (200.3, 516.1) — writing *less than or equal to zero*, and a Text note inserting *NOTE While different font programs may define descender metrics using either positive or negative numbers (e.g. OpenType usWinDescent …), PDF always expects negative values.* So the amended entry reads *[t]he value shall be a number less than or equal to zero*. Three rustdoc blockquotes quoted the struck sentence — `pdf-font/src/metrics.rs::measured_extent`, `pdf-model/src/variable_text.rs::Metrics::read` and `pdf-model/tests/variable_text.rs` — and the strike is one word, under `check`'s four-word floor: the fourth of this rule's uses to find quoted text on a strike below it. `measured_extent`'s acceptance of a zero descent was argued in place as this program's reading of a depth against a sign convention, and its own test credited Table 120 with a permission the published table did not state; the erratum makes both the entry's own words. And the inserted NOTE names the mechanism behind the corpus's 42 positive descents — a producer copying its font program's sign convention — corroborating the ADR 0216 repair without legalising the form, since PDF still *expects* negative values. All three blockquotes keep the published wording the gate verifies and carry the amendment beside it. |
+| §9.8.1, Table 120's `/FontWeight` | 359 | #474 | **cites — the value set widens and the threshold reads both printings** | A caret at `[462.202 700.082 471.278 707.478]` — (134.4) from the top, between the `shall` and `be` of "If present, the value shall be one of 100, 200, …, 900" — writing *be between 1 and 1000 inclusive, and should*. The nine hundreds become a `should` inside a `shall` of 1..=1000, which is OpenType's usWeightClass range and what a variable font's instance states. `substitute.rs` thresholds the entry at 600 — the same line PANOSE's Demi draws — which reads every conforming value under either printing; no code here enumerates the nine. |
+| §9.8.1, §12.8.2.2 and §14.8.5.4.4, one type cell each | 359, 589, 802 | #152 | **implements — and one of the three strikes closed a misread window** | Three StrikeOut/Caret pairs, each over a `number` and each caret writing *integer*. On p. 359 at `[125.69 712.706 165.504 723.911]` — (118.0) from the top — Table 120's `/FontWeight` type cell; `substitute.rs` reads it `as_number`, wider than the amended type, now stated as a reader's tolerance. On p. 589 at `[124.25 657.987 164.064 669.192]` — (172.7), the `number` at (127.2, 171.6) — **Table 257's `/P`**, which `signature::modification` has always read `as_integer`: under the published cell a conforming file could write `/P 1.0` and be read as stating nothing — the table's default, level 2, in place of the level 1 it wrote, a permission-widening misread of a conforming file. The amended cell makes that file malformed and the integer read exact; `a_docmdp_level_written_as_a_real_takes_the_tables_default` pins the recovery, calibrated per trap 13 against the numeric-read plant, which passes every pre-existing signature test and fails only the new one. On p. 802 at `[205.88 708.987 245.694 720.192]` — (121.7) — Table 380's `/GlyphOrientationVertical`, which nothing here reads. **Two of the three strikes are filed one clause late by the outline's page-straddle**: p. 589 prints under §12.8.2.3 for Table 257, which is §12.8.2.2's, and p. 802 under §14.8.5.4.5 for Table 380, which is §14.8.5.4.4's — the ninth use's coarseness met twice inside one issue, and both rows now say so. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #190 is the round's finding, and it is the vindication shape three times over.** The
+zero-descent acceptance was a documented choice standing on an argument about magnitudes and
+conventions; the amended entry states the floor outright, and a clause that says a thing is a
+stronger answer than one that implies it (`CLAUDE.md` principle 5). The positive-descent repair —
+42 of the corpus's 1629 font dictionaries — gains the standard's own account of its mechanism in
+the inserted NOTE. And the misread the published sentence invited — a test comment crediting
+Table 120 with permitting zero — was true of the amended table before it was true of the
+published one, which is the direction this rule exists to catch.
+
+**Issue #152's Table 257 strike is the one that moved code evidence.** `as_integer` was the
+amended clause's read before the amendment existed, and no test could see the difference: swap it
+for a numeric read and every signature, restriction and forms test stays green, because every
+fixture wrote the level as the integer it is. That is the settled-row mechanism's shape on a
+*live* family — a read satisfied by construction with no fixture that could fail its alternative
+— and the new test is the one place the two reads part.
+
+### Three things about the rule itself, from running it
+
+- **The two heads split the eighth use's way and the practice held.** A settled head that pays
+  nothing is a legitimate outcome — the population decays by two, a claim is confirmed rather
+  than moved — and the walk downward is where the work was, on the first live row under it.
+- **The outline's page-straddle is now the expected case for a multi-clause issue, not the
+  surprise.** Two of one issue's three strikes were filed one clause late; the ninth use's rule —
+  a verdict written under a heading is a claim about a page, not about a clause, until the
+  rectangle has been placed — was applied here before any verdict was written, which is what it
+  is for.
+- **A normative table can be wrong in a way no reader of this tree could ever meet**, and the
+  ranking still surfaces it: Annex L's `c` constrained nobody because it meant nothing, and the
+  only consumer it binds is the checker a `writer-side` row promises. Reading it cost minutes and
+  the row's note now carries the amended cells for whoever builds that checker.

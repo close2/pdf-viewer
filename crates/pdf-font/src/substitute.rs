@@ -131,6 +131,12 @@ impl Request {
         // `/Flags` is a bitfield producers set carelessly (see `family_of`).
         let panose = descriptor.and_then(|d| panose(document, d));
 
+        // Table 120's `/FontWeight` is an integer between 1 and 1000 inclusive since Errata
+        // Collection 3 — Issue #474 widens the value set from the published nine hundreds,
+        // which become a `should`, and Issue #152 makes the type integer. A threshold at 600
+        // (Demi, the same line PANOSE draws) reads every conforming value under either
+        // printing; `as_number` is wider than the amended type on purpose, a reader's
+        // tolerance for a file writing `700.0`.
         let bold = folded.contains("bold")
             || folded.contains("black")
             || folded.contains("heavy")
