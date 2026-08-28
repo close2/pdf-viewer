@@ -3,8 +3,9 @@
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
 its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640), the
 host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657), the boundary has
-its first host (ADR 0713), that host draws on the graphics device (ADR 0725) — and the owner's
-warn-and-abort has reached the three established windows (ADR 0729)**:
+its first host (ADR 0713), that host draws on the graphics device (ADR 0725), the owner's
+warn-and-abort has reached the three established windows (ADR 0729) — and a breach is a refusal
+of the page rather than of the document (ADR 0734)**:
 `pdf-viewer-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
 arms, presented through `render-quorra` — which is what the marks cross the pipe *for* — with
 Escape ending the worker *and* taking back the drawing thread, and `--cpu` the window with no
@@ -199,8 +200,23 @@ measurement asks for more.
   key offered for it would name a key that does nothing. `--cpu` is the surface with the
   interruptible thread. Whether quorra should have one at all is a question for that dependency,
   not a debt of this item.
-- **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the
-  work rather than declared by a sender. It still ends the worker; what it now does is arrive with
-  the worker's own sentence attached rather than as a bare signal number. Making it a *refusal*
-  needs a fallible allocation on a path this crate does not own.
+- ~~**A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by
+  the work rather than declared by a sender. It still ends the worker … making it a *refusal* needs
+  a fallible allocation on a path this crate does not own~~ — **it is a refusal since the
+  eight-hundred-and-first** (ADR 0734), and the entry was answering the wrong question. That
+  sentence is about a refusal the **worker** makes, which is still true and still needs the fallible
+  allocation. What the *reader* needs is a refusal of the **page**, and that costs nothing inside
+  the confinement: `viewer_confined::Resuming` decides which errors are worth another worker and
+  how many in a row, and `pdf-viewer-confined` starts one, opens the file again — it is on this
+  side by rule 2 — and goes back to the page the reader was on without re-sending the command that
+  killed the last one. The budget is **consecutive**, put back by every frame that reaches the
+  screen, so what it bounds is a recovery that is not working rather than the length of a reading.
+
+  What that leaves is smaller and is named rather than implied: **the magnification and the
+  position on the page are not restored**, because nothing on this boundary asks the viewer what
+  they are — no `Query` asks for the magnification or the offset — so a host can only replay what
+  it issued, and `Zoom::In`/`Out` and `Scroll` are relative commands the viewer clamps, which makes
+  a replay inexact rather than long. Restoring them exactly is a *question* on the boundary (a
+  `Query::View`, answered by the viewer, held by the host per frame), and that is the next piece
+  here. Until it exists the window says the sentence.
 - `doc/todo/10` §6's four rules, which bind every road.

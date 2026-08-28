@@ -77,6 +77,17 @@
 //! a signal it cannot decline — beside the address-space ceiling the confinement already
 //! installs. ADR 0241 argues both halves.
 //!
+//! # And what a host does once the worker is gone
+//!
+//! A worker dies for reasons the document chose — the ceiling refusing an allocation, the filter
+//! firing — and until [`Resuming`] existed the only host on this boundary read every one of them
+//! as the end of the document. **It is the end of one worker.** The confinement is what makes
+//! another one cheap and safe: the process held nothing but the document's bytes, which are the
+//! host's by rule 2, so a host starts a second worker, opens the file again, goes back to the page
+//! the reader was on, and does not send the command that killed the first. `Resuming` owns the
+//! part two confined hosts must not disagree about — which errors are worth another worker, and
+//! how many in a row are enough — and nothing else, because the file and the window are a host's.
+//!
 //! # What this is not, yet
 //!
 //! It is not on the flagship's launch path: `pdf-viewer`, `pdf-viewer-gtk` and `pdf-viewer-qt`
@@ -91,10 +102,12 @@
 // Landlock through safe wrappers, and everything else in this crate is bytes and pipes.
 
 mod protocol;
+mod resume;
 mod worker;
 
 pub use protocol::display_list::{Crossing, RasterReason, Uncodable};
 pub use protocol::{ProtocolError, Uncarried};
+pub use resume::{RESTARTS, Reopen, Resume, Resuming};
 pub use worker::{WorkerLimits, confine, serve};
 
 /// The decoders on their own, without the process that produced the bytes.

@@ -30,6 +30,19 @@
 //! a file the document asks for, a URI it wants resolved — is refused **by name**, on the screen
 //! and on standard error, never quietly.
 //!
+//! # When the worker dies without being asked to
+//!
+//! A ceiling breach, the seccomp filter firing, an allocation deep inside the interpreter that
+//! `RLIMIT_AS` refuses: each ends the worker, and each is one page's breach rather than the
+//! document's end. **This window starts another worker, opens the file again and goes back to the
+//! page the reader was on**, without sending the command that killed the last one —
+//! [`viewer_confined::Resuming`] decides whether a refusal is worth that and how many in a row are
+//! enough, so that a second host on this boundary cannot answer it differently. What is *not*
+//! restored is the magnification and the position on the page: those are the confined viewer's own
+//! state, nothing on this boundary asks for them, and a window that replayed them would be
+//! guessing — so the view returns to the document's opening one and the window says so. A worker
+//! the **reader** ended (Escape, below) is never started again; that is what pressing it meant.
+//!
 //! # §7.6.4.1's prompt, and which way the password goes
 //!
 //! An encrypted document is not a refusal here (ADR 0718; it was under ADR 0713's first scope):
@@ -77,7 +90,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use render_quorra::QuorraWindowRenderer;
-use viewer_confined::{Canceller, Confined, Payload, Reply};
+use viewer_confined::{
+    Canceller, Confined, ConfinedError, Payload, Reopen, Reply, Resume, Resuming,
+};
 use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Zoom};
 use viewer_host::drawing::Drawing;
 use viewer_host::trace::{Topic, Trace};
@@ -215,6 +230,21 @@ struct Host {
     chrome: Option<Chrome>,
     /// `q` was pressed; the loop exits at its next turn, where it holds the `ActiveEventLoop`.
     leaving: bool,
+    /// Which page of the document is in front of the reader, zero-based.
+    ///
+    /// Kept because a resume has to go back to it, and because only this side ever learns it: it
+    /// arrives as [`Event::PageChanged`] and the worker that stated it may be gone by the time it
+    /// is wanted.
+    page: usize,
+    /// What has already been tried for this document — [`viewer_confined::Resuming`]'s count.
+    resuming: Resuming,
+    /// A worker to start at the next turn of the event loop, set by [`Host::died`].
+    ///
+    /// **Deferred rather than done where the death was seen**, because a resume issues commands
+    /// and a command can see the *next* death: recovering inside a recovery would nest one
+    /// restart inside another and make the depth of this program's stack a document's to choose.
+    /// At the loop's turn there is nothing of the failed exchange left on the stack.
+    resume: Option<Reopen>,
 }
 
 /// What puts this window's pixels up (ADR 0725): the graphics device, or the processor.
@@ -256,6 +286,9 @@ impl Host {
             password: PasswordCard::default(),
             chrome: None,
             leaving: false,
+            page: 0,
+            resuming: Resuming::new(),
+            resume: None,
         }
     }
 
@@ -270,6 +303,114 @@ impl Host {
         self.stopped = Some(said);
         self.confined = None;
         self.retitle();
+    }
+
+    /// The confined viewer answered with a refusal instead of a message: another worker, or not.
+    ///
+    /// **A dead worker is one page's breach, not the document's end**, and this is where that is
+    /// decided. `viewer_confined::Resuming` owns the decision — which refusals are worth another
+    /// worker, and how many in a row — because it is the part two confined hosts must not disagree
+    /// about; what is here is what only a host has: the file, the window, and the page.
+    ///
+    /// The dead handle is dropped now rather than at the resume, for the reason [`Host::stop`]
+    /// drops it: a `Confined` reaps its worker where a `Canceller` only kills, and a window with
+    /// a `<defunct>` process beside it is what the first abort in this program's life left behind.
+    fn died(&mut self, problem: &ConfinedError) {
+        match self.resuming.after(problem) {
+            Resume::Stop => self.stop(problem.to_string()),
+            Resume::Reopen(reopen) => {
+                self.confined = None;
+                eprintln!(
+                    "{problem}; starting another and returning to page {} — attempt {} of {}. \
+                     The magnification and the position on the page return to the document's \
+                     opening view, because this side does not hold them.",
+                    reopen.page.saturating_add(1),
+                    reopen.attempt,
+                    reopen.of
+                );
+                self.heading = format!(
+                    "{} — restarting the confined viewer ({} of {})",
+                    self.name(),
+                    reopen.attempt,
+                    reopen.of
+                );
+                self.retitle();
+                self.resume = Some(reopen);
+            }
+        }
+    }
+
+    /// Starts another worker for the same document and puts the reader back on their page.
+    ///
+    /// The pages already on the screen are left exactly where they are — `doc/todo/37`'s
+    /// show-what-it-had, and the reason nothing here forgets them: they are pixels and marks this
+    /// side already holds, and a window that blanked while it recovered would tell the reader
+    /// something worse than the truth. The next frame replaces them, page by page, when it lands.
+    ///
+    /// The command that killed the last worker is *not* among these: the resume sends the extent,
+    /// the document and the page, and stops. If the document's own open is what kills a worker,
+    /// this fails again and `Resuming`'s budget ends it.
+    fn reopen(&mut self, reopen: Reopen) {
+        if self.stopped.is_some() {
+            return;
+        }
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(problem) => {
+                self.stop(format!("cannot read {}: {problem}", self.path.display()));
+                return;
+            }
+        };
+        // A canceller of its own, because a cancellation holds the worker it was made for: the
+        // old one names a process that has already been reaped, and Escape must reach the new one.
+        let canceller = Canceller::new();
+        let starting = Instant::now();
+        let confined = match Confined::start_with(&canceller) {
+            Ok(confined) => confined,
+            Err(problem) => {
+                self.stop(problem.to_string());
+                return;
+            }
+        };
+        self.trace.say(
+            Topic::Launch,
+            format_args!(
+                "worker started again and confined in {:.1} ms",
+                starting.elapsed().as_secs_f64() * 1e3
+            ),
+        );
+        // Asked of the new worker rather than assumed from the old one: a kernel's answer is
+        // about the process that asked, and a person relying on the sandbox is owed each one.
+        if let Some(short) = confined.confinement().shortfall() {
+            eprintln!("confinement shortfall: {short}");
+        }
+        self.canceller = canceller;
+        self.confined = Some(confined);
+
+        if let Some(window) = self.window.as_ref() {
+            let extent = window.inner_size();
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a display's scale factor is a small ratio"
+            )]
+            let scale = window.scale_factor() as f32;
+            self.dispatch(&Command::Resize {
+                width: extent.width,
+                height: extent.height,
+                scale,
+            });
+        }
+        self.dispatch(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            // The password is deliberately not kept on this side (`password_answered` says why),
+            // so an encrypted document asks for it again — §7.6.4.1's card, exactly as at launch.
+            password: None,
+            fragment: None,
+        });
+        if reopen.page != 0 {
+            self.dispatch(&Command::GoTo(PageTarget::Index(reopen.page)));
+        }
     }
 
     /// The file's own name, for the title.
@@ -300,7 +441,7 @@ impl Host {
                 }
                 self.pull_frame();
             }
-            Err(problem) => self.stop(problem.to_string()),
+            Err(problem) => self.died(&problem),
         }
     }
 
@@ -317,6 +458,9 @@ impl Host {
             Event::Opened { pages, .. } => {
                 // The next document's attempts start from nothing (`Asking::opened`'s rule).
                 self.asking.opened();
+                // A document opens where its own view says, which the viewer states as a
+                // `PageChanged` when it is not the first page. Until it does, this is page one.
+                self.page = 0;
                 self.heading = format!("{} — {pages} page(s)", self.name());
                 self.retitle();
             }
@@ -373,6 +517,7 @@ impl Host {
             Event::PageChanged {
                 index, label, of, ..
             } => {
+                self.page = index;
                 let name = self.name();
                 self.heading = match label {
                     Some(label) => {
@@ -449,12 +594,16 @@ impl Host {
                     ),
                 );
                 self.screen.take(frames, &mut self.drawing);
+                // A frame crossed for this page, so this is where a resume goes back to — and
+                // the restart budget starts again from here, because what it bounds is a
+                // recovery that is not working rather than the length of the reading.
+                self.resuming.showing(self.page);
                 self.ask_frame();
                 self.redraw();
             }
             // No document is focused — before the open, or after a failed one.
             Ok(_) => {}
-            Err(problem) => self.stop(problem.to_string()),
+            Err(problem) => self.died(&problem),
         }
     }
 
@@ -973,6 +1122,11 @@ impl ApplicationHandler for Host {
             event_loop.exit();
             return;
         }
+        // The one place a worker is started again, and it is here rather than where the death
+        // was seen so that no restart runs inside another one ([`Host::resume`]).
+        if let Some(reopen) = self.resume.take() {
+            self.reopen(reopen);
+        }
         let mut changed = false;
         for finished in self.drawing.collect() {
             changed |= self.screen.landed(finished);
@@ -1022,6 +1176,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::Instant;
 
+    use viewer_confined::ConfinedError;
     use viewer_core::{DocumentId, Event};
     use winit::keyboard::{Key, NamedKey};
 
@@ -1115,6 +1270,84 @@ mod tests {
             host.heading.contains("cannot re-read"),
             "the missing file is said, was {:?}",
             host.heading
+        );
+    }
+
+    /// A worker that died leaves the window open with a restart owed, and the restart goes back
+    /// to the page the reader was on.
+    ///
+    /// The behaviour this replaces is a `stop`: from ADR 0713 until ADR 0734 every death ended the
+    /// document, so the discriminating assertions are `stopped.is_none()` and the page.
+    #[test]
+    fn a_dead_worker_leaves_a_restart_owed_at_the_readers_page() {
+        let mut host = a_host();
+        host.event(Event::PageChanged {
+            document: DocumentId(0),
+            index: 4,
+            label: None,
+            of: 9,
+            section: None,
+        });
+        host.resuming.showing(host.page);
+        host.died(&ConfinedError::WorkerDied {
+            detail: "killed by signal 6".to_owned(),
+        });
+        assert!(host.stopped.is_none(), "the document was not given up on");
+        assert_eq!(
+            host.resume.map(|reopen| reopen.page),
+            Some(4),
+            "the restart goes back to where the reader was"
+        );
+        assert!(
+            host.heading.contains("restarting"),
+            "and the window says so, was {:?}",
+            host.heading
+        );
+    }
+
+    /// A refusal that leaves the worker alive is not a death: nothing is restarted and the window
+    /// reports it, which is the old behaviour and must stay the old behaviour.
+    #[test]
+    fn a_refusal_the_worker_survived_is_not_restarted_from() {
+        let mut host = a_host();
+        host.died(&ConfinedError::Refused {
+            detail: "a raster in a second pixel layout".to_owned(),
+        });
+        assert!(host.resume.is_none(), "nothing to start again");
+        assert!(host.stopped.is_some(), "and it is reported");
+    }
+
+    /// The reader's own abort is never restarted from: a `Cancelled` viewer is one somebody
+    /// ended on purpose (ADR 0241), and a second worker would undo the key press.
+    #[test]
+    fn the_readers_abort_is_not_undone_by_a_restart() {
+        let mut host = a_host();
+        host.died(&ConfinedError::Cancelled);
+        assert!(host.resume.is_none(), "Escape meant Escape");
+        assert!(host.stopped.is_some());
+    }
+
+    /// A restart cannot fire once the window has stopped for another reason — the reader aborted
+    /// between the death and the loop's next turn, which is a race a deferred resume can lose.
+    #[test]
+    fn an_abort_between_the_death_and_the_restart_wins() {
+        let mut host = a_host();
+        host.died(&ConfinedError::WorkerDied {
+            detail: "killed by signal 6".to_owned(),
+        });
+        let owed = host.resume.take().expect("a restart is owed");
+        host.abort();
+        host.reopen(owed);
+        assert!(
+            host.confined.is_none(),
+            "no worker was started for a window the reader had ended"
+        );
+        assert!(
+            host.stopped
+                .as_deref()
+                .is_some_and(|said| said.contains("aborted")),
+            "and the abort is still what the window says, was {:?}",
+            host.stopped
         );
     }
 }
