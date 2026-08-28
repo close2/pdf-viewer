@@ -1745,3 +1745,68 @@ fixture wrote the level as the integer it is. That is the settled-row mechanism'
   ranking still surfaces it: Annex L's `c` constrained nobody because it meant nothing, and the
   only consumer it binds is the checker a `writer-side` row promises. Reading it cost minutes and
   the row's note now carries the amended cells for whoever builds that checker.
+
+## The recovery one entry states, and the grammar a reason had confused with a registry — the seven-hundred-and-eighty-ninth
+
+The successor rule's eleventh use. Over **every** row the head is a settled pair tied at five —
+**§7.5.4, `implemented`, and §13.6.3.1, `out-of-scope`** — the sixth time the full ranking has
+out-ranked or tied the live one; over live rows the head is a four-way tie at five, §7.5.5,
+§12.5.6.5, §12.7.5.5 and §14.7.2. Step 4 took the settled pair, both were read to verdicts, and
+both confirmed their rows and paid nothing — the eighth use's practice for the third time. The
+walk downward then crossed the whole live plateau, all four confirming, and paid one rank
+further down: **§7.7.2 at four annotations under four distinct issues**, one of which changed
+what this reader answers. ADR 0724.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §7.5.2, the binary-marker sentence | 70 | #272 | **cites — and the outline filed it under §7.5.4** | A StrikeOut at `[198.465 413.399 314.750 424.439]` — (417.5)–(428.5) from the top, exactly over the `comment line containing` that `-bbox` puts at (198.47, 415.58)–(314.75, 428.52) — with a Caret writing *line containing only a comment that starts with*. So §7.5.2's sentence becomes: the header line shall be immediately followed by a line containing only a comment that starts with at least four binary characters. Filed under §7.5.4 because page 70 opens §7.5.2 and reaches §7.5.4 — the straddle again, placed before any verdict was written. Every word binds whoever writes a whole file; this tree writes §7.5.6's appends and never a header, and the lexer skips a comment wherever it stands. §7.5.2's row records it. |
+| §7.5.4, §7.5.5, §7.12.3, §13.2.1 | 72–629 | #109 | untouched | ×10. Example typography, end to end: Example 3's cross-reference fields respaced (`06` → *0 6 (separated by a single SPACE)*, twice more in the trailer example), `objectif` → *object if* in §7.12.3, and an EDITOR NOTE about §13.2.1's scrambled bullets. Nothing normative moves and nothing here quotes any of it. |
+| §13.6.3.1, 3D stream colour spaces and Table 302's `/Resources` | 664 | #18, #362 | **inside the exclusion** | Five annotations. #18 inserts a sentence routing a 3D stream's `DeviceRGB` through the page's `DefaultRGB` (caret at `[321.066 197.081 329.193 203.703]`, (638.2)–(644.8) from the top) and corrects a plural; #362 appends *; Deprecated in PDF 2.0* to `/Resources` (caret at `[246.716 415.924 254.668 422.404]`, (419.5)–(426.0)) with a NOTE naming under-specification as the reason. Clause 13's ground, which `CLAUDE.md`'s multimedia exclusion names; the row is confirmed. |
+| §12.7.5.5, Table 236's `/DigestMethod` | 561 | #159 | cites | Five annotations rewriting the entry's shape: a Caret at `[280.752 417.887 288.705 424.367]` — (417.6)–(424.0) from the top, between the `An` and `array` of "An array of names" — writing *unordered*; a StrikeOut over `The value` at (425.3)–(435.2) with *Array values*; a StrikeOut over `and` at (436.9)–(446.9) with *or*. The amended entry: an unordered array of names whose values shall each be one of the five, SHA512 **or** RIPEMD160. It sits in the seed value dictionary this row already declines whole — `/SV` is unread — so the amended cell binds nobody here. |
+| §12.5.6.5, the QuadPoints NOTE and Table 176's `/BS`; §12.5.6.6, Table 177's `/BS` | 498, 500 | #17, #299 | **cites — the NOTE states the split the code already draws** | #17 inserts NOTE 1 — *When QuadPoints is used, the activation area and the visual appearance (including border) of the link annotation are not required to be the same.* — and renumbers the old NOTE to NOTE 2 (strike at (672.2)–(681.2) from the top). That is `link.rs`'s construction exactly: `/QuadPoints` bounds activation, the border stays §12.5.4's rectangle. #299 strikes `PDF 1.6` from both tables' `/BS` version markers and writes *PDF 1.3* — on p. 498 at (698.2)–(708.2) and p. 500 at (463.7)–(473.6), each exactly over the marker on its `/BS` row. A version marker binds a producer; `/BS` is read here whatever the header claims. |
+| §7.5.5, Table 15's `/Size`; §7.5.8.2 | 73, 81 | #522 | cites | A Text note at `[478.855 132.486 498.855 150.486]` adding NOTE 2 — the value of Size does not decrease in incremental updates — a Caret at `[435.677 239.802 444.753 247.198]` on p. 81, (594.7)–(602.1) from the top, inserting *(see "Table 15 - Entries in the file trailer dictionary")*, and the same NOTE again there. Informative both times; this reader's `/Size` departure is about a value producers understate, and no two sections' values are compared at all. |
+| §14.7.2, Table 354's `/Namespaces` and Table 355's `/NS` and `/R` | 739, 741 | #396, #93 | cites | #396's four carets: on p. 739 *at least all* at `[263.734 347.196 271.687 353.676]` — (488.2)–(494.7) from the top, between the `of` and `namespaces` of the `/Namespaces` cell — and *as referenced from structure elements in the structure hierarchy* after `document`; on p. 741 *that shall also be an element in the structure tree root Namespaces array (see "Table 354 - Entries in the structure tree root")* at `[469.917 177.013 477.869 183.493]` — (658.4)–(664.9) — and *NS is* making the next sentence "If NS is not present". Completeness rules on the writer; the role walk takes each element's own `/NS` and never enumerates the root's array. #93's caret at `[227.010 556.167 235.041 562.710]` — (279.2)–(285.8), at the end of `/R`'s `(Optional)` — marks the revision entry deprecated in PDF 2.0, as #305 did §14.7.6.2's pairs. |
+| **§7.7.2, Table 29's `/Lang`** | 116 | #105 | **implements — the recovery the entry now states was stated nowhere before** | A single Caret at `[323.386 535.186 331.416 541.729]` — (300.2)–(306.7) from the top, at the end of the `absent,` that `-bbox` puts at (298.82, 294.55)–(329.38, 306.22) — writing *or invalid (see 14.9.2, "Natural language specification")*, so the entry's last sentence reads: if this entry is absent or invalid, the language shall be considered unknown. §14.9.2.2 is what invalid means — not empty, and not a BCP 47 `Language-Tag` — and this reader carried an invalid catalog tag to every consumer as if it named a language, prose like `(German, not a tag)` included, because the published entry stated the recovery for absence alone. `structure::document_language` answers `None` for a tag that fails RFC 5646 section 2.1's grammar now — well-formedness, which needs no registry, deliberately not the registry judgement — applied to this entry alone, because this entry is the only place the standard states the recovery. `an_invalid_catalog_language_is_unknown` pins it, calibrated per trap 13. §14.9.2.2's row retires its reason of record, which had conflated the grammar with the registry. |
+| §7.7.2, Table 29's `/Extensions` and `/StructTreeRoot` | 114, 116 | #242, #348 | cites | #242's Caret at `[286.643 580.215 294.596 586.695]` — (255.2)–(261.7) from the top, inside the `/Extensions` parenthetical — writing *shall be a direct object;*. #348's at `[318.716 665.307 326.669 671.786]` — (170.1)–(176.6), at the end of `/StructTreeRoot`'s `(Optional; PDF 1.3)` — writing *; shall be an indirect reference*. Two shape requirements on the writer, running in opposite directions; `Document::get_key` resolves either shape, which the row records as a reader's tolerance. |
+| §7.5.7's shall-not list; §7.7.2 | 77, 112 | #439 | cites | Two carets stating one rule twice: *The document catalog (see 7.7.2 Document catalog dictionary) in an encrypted document* appended to §7.5.7's list of what shall not be in an object stream, and the sentence form under §7.7.2. A writer's rule; the reader's tolerance is the same by construction — a catalog is reached through its cross-reference entry wherever it lives, and an object stream's members are parsed out of the already-decrypted stream data, which §7.5.7's row has said since the four-hundred-and-twenty-fourth session. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #105 is the round's finding, and what it retired was a reason rather than a behaviour.**
+§14.9.2.2's row had declined a BCP 47 parse in one breath — "a BCP 47 grammar would be a
+judgement about a registry this program does not hold" — and the sentence conflates two
+judgements BCP 47 itself keeps apart: well-formedness, which is RFC 5646 section 2.1's grammar and
+needs nothing outside the tag, and validity, which is the registry. The erratum makes the first
+judgement a reader's job on the catalog entry, the grammar answers it in eighty lines with no
+data dependency, and the registry judgement is still deliberately not made — which is the half
+the retired sentence was right about. A row's *reason* can overstate the cost of a requirement
+just as it can deny a capability, and no sweep reads a reason's internal logic.
+
+**And the paying row was one rank below a plateau that confirmed four times over.** The five
+plateau rows' twenty-five annotations moved nothing — example typography, version markers, an
+informative NOTE stating the code's own construction, writer-side completeness rules — while
+§7.7.2's four annotations were four distinct issues, two of them requirements. The ranking's
+unit is the annotation, and a substitution repeated five times weighs five; the third use's
+tie-break already prices that inside a tie, and this round is the first where the *whole head
+plateau* was the repeated-substitution shape and the work sat under it.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the second consecutive use**: 302
+  issues carrying a strike or a caret under the recipe's own single-issue line parse, 99 named
+  nowhere — the tenth use's 104 less its five verdicts — and the multi-issue parse's 310 and
+  101 are the tenth's figures less the same five. Two uses running is the record behaving as a
+  record; the greps stay the instrument.
+- **A settled head that ties is read whole on both sides, and it cost minutes.** §7.5.4's five
+  were three of an example-typography issue and two of a strike that turned out to be §7.5.2's
+  — so the settled head's real content was one sentence, in a different clause than the ranking
+  named, found by placing the rectangle before writing (the ninth use's rule, applied for the
+  third round running). §13.6.3.1's five were all inside `CLAUDE.md`'s exclusion.
+- **Fourteen issues left the population in one round — the largest single decay this rule has
+  produced — and most of them were cheap on purpose.** A plateau of editorial and writer-side
+  issues is what the head looks like when the decayed rows are gone; reading it out is what
+  moves the next real requirement to the top, and the one requirement in reach this round was
+  sitting one rank below it.

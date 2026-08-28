@@ -3134,20 +3134,237 @@ fn text_entry(document: &Document, element: &Dictionary, key: &str) -> Option<St
 ///
 /// It is read here rather than in `page.rs` because it is the top of §14.9.2's hierarchy and
 /// the rest of that hierarchy is this module's; 95 of the corpus's 974 documents state one.
+///
+/// A tag that is not well-formed answers `None`, because Errata Collection 3 (Issue #105)
+/// inserts *or invalid (see 14.9.2, "Natural language specification")* into Table 29's `/Lang`
+/// entry, so its last sentence reads: if this entry is absent or invalid, the language shall
+/// be considered unknown — the same answer as an absent one, which is what `None` already
+/// means here. The published entry stated that recovery for an absent tag only, and this
+/// entry is the one place the standard states it at all: an element's or a `Span`'s invalid
+/// tag is still carried as the file writes it, since no clause says what a reader does there
+/// and inventing "unknown" would also cancel §14.9.2.3's inheritance for that element.
 #[must_use]
 pub fn document_language(document: &Document) -> Option<String> {
     let catalog = document.catalog().ok()?;
-    text_entry(document, &catalog, "Lang")
+    text_entry(document, &catalog, "Lang").filter(|tag| well_formed_language_tag(tag))
 }
+
+/// Whether `tag` is BCP 47's `Language-Tag` — the well-formedness half of "valid".
+///
+/// §14.9.2.2 defines what a language identifier is:
+///
+/// > A language identifier shall either be the empty text string, to indicate that the
+/// > language is unknown, or a Language-Tag as defined in BCP 47.
+///
+/// and Table 29's amended `/Lang` entry (Issue #105, above) is what makes the question a
+/// reader's: an invalid identifier on the catalog is unknown rather than a language. BCP 47
+/// (RFC 5646 section 2.1) defines `Language-Tag` twice over — a grammar, and a *validity* judgement
+/// against the IANA subtag registry. This answers the grammar alone, as a deliberate choice:
+/// the registry is a moving list this program does not hold, and a tag it would reject —
+/// `zz-QQ`, well-formed and unassigned — still names a language to the file's own reader in a
+/// way `(Deutsch, Français)`, which real producers write, does not. §14.9.2.2's own
+/// case-insensitivity sentence is why every comparison here ignores case.
+///
+/// The grammar, from RFC 5646 section 2.1's ABNF: `langtag` is a language subtag (2–3 letters, with
+/// up to three 3-letter extended-language subtags, or one of 4–8 letters), then optionally a
+/// 4-letter script, a region (2 letters or 3 digits), any number of variants (5–8 characters,
+/// or 4 beginning with a digit), any number of singleton-introduced extensions, and a private
+/// `x-` tail; a private tail may also stand alone, and a closed list of grandfathered tags
+/// predates the grammar.
+fn well_formed_language_tag(tag: &str) -> bool {
+    if GRANDFATHERED
+        .iter()
+        .any(|kept| kept.eq_ignore_ascii_case(tag))
+    {
+        return true;
+    }
+    let subtags: Vec<&str> = tag.split('-').collect();
+    // Every subtag, whatever its role, is 1–8 ASCII alphanumerics; checking that once is what
+    // lets the role checks below ask only about length and letter-versus-digit.
+    if subtags.iter().any(|subtag| {
+        subtag.is_empty()
+            || subtag.len() > 8
+            || !subtag.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    }) {
+        return false;
+    }
+    // `privateuse` standing alone: `x` then at least one subtag.
+    if subtags[0].eq_ignore_ascii_case("x") {
+        return subtags.len() > 1;
+    }
+    language_tag_roles(&subtags)
+}
+
+/// RFC 5646 section 2.1's `langtag` production, one role at a time over the split subtags.
+///
+/// Each block peels what its role admits off the front of the slice, which is the ABNF's own
+/// order: language with its extended-language subtags, script, region, variants, extensions,
+/// and the private tail. What is left must be nothing.
+fn language_tag_roles(subtags: &[&str]) -> bool {
+    let letters = |subtag: &str| subtag.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let digits = |subtag: &str| subtag.bytes().all(|byte| byte.is_ascii_digit());
+
+    // `language`: 2–3 letters — then up to three 3-letter `extlang`s — or 4–8 letters alone.
+    let Some((language, mut rest)) = subtags.split_first() else {
+        return false;
+    };
+    if !letters(language) {
+        return false;
+    }
+    match language.len() {
+        2 | 3 => {
+            for _ in 0..3 {
+                match rest {
+                    [extended, tail @ ..] if extended.len() == 3 && letters(extended) => {
+                        rest = tail;
+                    }
+                    _ => break,
+                }
+            }
+        }
+        4..=8 => {}
+        _ => return false,
+    }
+    // `script`, then `region`, at most one each.
+    if let [script, tail @ ..] = rest
+        && script.len() == 4
+        && letters(script)
+    {
+        rest = tail;
+    }
+    if let [region, tail @ ..] = rest
+        && ((region.len() == 2 && letters(region)) || (region.len() == 3 && digits(region)))
+    {
+        rest = tail;
+    }
+    // `variant`s: 5–8 characters, or 4 beginning with a digit.
+    loop {
+        match rest {
+            [variant, tail @ ..]
+                if variant.len() >= 5
+                    || (variant.len() == 4 && variant.as_bytes()[0].is_ascii_digit()) =>
+            {
+                rest = tail;
+            }
+            _ => break,
+        }
+    }
+    // `extension`s: a singleton that is not `x`, then at least one subtag of 2–8 characters.
+    while let [singleton, tail @ ..] = rest {
+        if singleton.len() != 1 || singleton.eq_ignore_ascii_case("x") {
+            break;
+        }
+        rest = tail;
+        let mut carried = false;
+        loop {
+            match rest {
+                [subtag, tail @ ..] if subtag.len() >= 2 => {
+                    rest = tail;
+                    carried = true;
+                }
+                _ => break,
+            }
+        }
+        if !carried {
+            return false;
+        }
+    }
+    // `privateuse` as a tail: everything after the `x` is its own, and one subtag must follow.
+    if let [private, tail @ ..] = rest
+        && private.eq_ignore_ascii_case("x")
+    {
+        return !tail.is_empty();
+    }
+    rest.is_empty()
+}
+
+/// RFC 5646 section 2.1's `grandfathered` production: a closed list, part of `Language-Tag` by
+/// definition, so refusing them would refuse tags the grammar names.
+const GRANDFATHERED: [&str; 26] = [
+    "en-GB-oed",
+    "i-ami",
+    "i-bnn",
+    "i-default",
+    "i-enochian",
+    "i-hak",
+    "i-klingon",
+    "i-lux",
+    "i-mingo",
+    "i-navajo",
+    "i-pwn",
+    "i-tao",
+    "i-tay",
+    "i-tsu",
+    "sgn-BE-FR",
+    "sgn-BE-NL",
+    "sgn-CH-DE",
+    "art-lojban",
+    "cel-gaulish",
+    "no-bok",
+    "no-nyn",
+    "zh-guoyu",
+    "zh-hakka",
+    "zh-min",
+    "zh-min-nan",
+    "zh-xiang",
+];
 
 #[cfg(test)]
 mod tests {
     use super::{
         CellFacts, Checked, Child, FieldRole, HeaderScope, MAX_TABLE_COLUMNS, ParentTree,
         StandardType, TableGrid, TableStack, Tree, actual_text, annotation_rectangles,
+        well_formed_language_tag,
     };
     use pdf_syntax::{Document, Object};
     use std::collections::BTreeSet;
+
+    /// RFC 5646 section 2.1's grammar, one production at a time, in both directions.
+    ///
+    /// The accepted side walks every branch — a bare language, extended-language subtags, a
+    /// script, both region forms, stacked variants, an extension, a private tail, a private
+    /// tag standing alone, a grandfathered tag, and §14.9.2.2's case-insensitivity. The
+    /// refused side is what real producers write where a tag belongs (prose, a comma, an
+    /// underscore) and each way a subtag can break its role's bounds.
+    #[test]
+    fn a_language_tag_is_judged_by_bcp_47s_grammar() {
+        for accepted in [
+            "en",
+            "deu",
+            "en-US",
+            "EN-us",
+            "es-419",
+            "zh-Hant-TW",
+            "zh-yue-HK",
+            "de-CH-1901",
+            "sl-rozaj-biske",
+            "en-a-myext-b-another",
+            "az-Arab-x-AZE-derbend",
+            "x-private",
+            "i-klingon",
+            "zh-min-nan",
+            "abcdefgh",
+        ] {
+            assert!(well_formed_language_tag(accepted), "{accepted:?} is a tag");
+        }
+        for refused in [
+            "",
+            "a",
+            "en-",
+            "-en",
+            "en--US",
+            "en_US",
+            "German, not a tag",
+            "en US",
+            "ninecharss",
+            "en-a",
+            "x",
+            "419",
+            "en-US-x",
+        ] {
+            assert!(!well_formed_language_tag(refused), "{refused:?} is not");
+        }
+    }
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
