@@ -19,9 +19,16 @@
 //! for Table 31's entry; this file is the rest of the sentence.
 //!
 //! **Each rule is pinned by a pair of fixtures differing only in the damage**, which is trap 8's
-//! fourth shape: no document on this disk carries a damaged tiling pattern, Type 3 glyph
-//! description or appearance stream, so a corpus cannot show the rule either way. What a corpus
-//! *can* show is the form `XObject`, and the last test here opens `comments.pdf`.
+//! fourth shape: no document on this disk carries a damaged tiling pattern or appearance stream,
+//! so a corpus cannot show those either way.
+//!
+//! **This sentence used to name the Type 3 glyph description among them and to say the form
+//! `XObject` was the one kind a corpus could show, and both halves were wrong** (ADR 0744). The
+//! form it meant is `comments.pdf`'s, which turned out to be a stream its producer *flushed* and
+//! never finished — nothing missing, and the report was the defect. Asking the question again
+//! found the opposite witness one page away: `poppler-90-0-fuzzed.pdf` names a glyph description
+//! that really does stop short. The last two tests here are those two documents, and between
+//! them they are what a corpus can say about this rule.
 //!
 //! `RunLengthDecode` is the filter throughout for the reason `contents_entry.rs` gives: §7.4.5
 //! makes a length byte of 128 its end-of-data, so a stream that ends without one is truncated in
@@ -502,16 +509,23 @@ fn a_damaged_soft_mask_group_draws_its_prefix_and_reports_the_shortfall() {
     );
 }
 
-/// The corpus witness, which is the one of the five kinds a real document carries.
+/// The document this test was written about, and what it turned out to be.
 ///
-/// `comments.pdf`'s page one draws an ink annotation whose appearance invokes a form `XObject`
-/// whose flate stream ends after 851 bytes — mid-way through the ink path, after a completed `S`.
-/// The green loop it draws is short of where the producer's stylus went, and until ADR 0359 the
-/// page said nothing about it: exactly trap 5's "a page cut short looks like a page meant to be
-/// sparse". 7 of the corpus's 57 damaged streams are form `XObject`s and 46 of the crawl's 2260
-/// are (`examples/damaged_stream_census`).
+/// **`comments.pdf` was the corpus witness for the rule above and is now the witness against it.**
+/// Its page one draws an ink annotation whose appearance invokes a form `XObject` whose flate
+/// stream ends after 851 bytes with no RFC 1951 final block, and this test asserted the report —
+/// while its own comment said the green loop was "short of where the producer's stylus went",
+/// which was a diagnosis read off the report rather than off the bytes. The stream ends on a
+/// *completed* block: its producer flushed and never called `deflateEnd`, so every byte it was
+/// given is here and what is absent is the declaration that there is no more. Decidably so —
+/// `pdf_syntax`'s inflate hands the decoder RFC 1951's final empty stored block and requires
+/// `StreamEnd` with no further output (ADR 0744).
+///
+/// So the page says nothing, which is what a page missing no marks should say. Trap 11 from the
+/// other side: the report exists to keep a page cut short from looking sparse, and this page was
+/// never cut short.
 #[test]
-fn the_corpus_witness_names_its_truncated_form() {
+fn the_corpus_witness_turns_out_to_be_a_flush_and_says_nothing() {
     let path =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/comments.pdf");
     let Ok(bytes) = std::fs::read(&path) else {
@@ -520,11 +534,51 @@ fn the_corpus_witness_names_its_truncated_form() {
     };
     assert_eq!(
         damage_reports(bytes),
-        vec![(
-            "a form XObject /Form (§8.10)".to_owned(),
-            Damage::Truncated,
-            851
-        )],
-        "the ink annotation's truncated form is named"
+        Vec::new(),
+        "a flush is not a truncation and the form is whole"
+    );
+}
+
+/// The corpus witness the rule *does* have, and it is not the kind this file said it was.
+///
+/// **This file's own header said a corpus could not show a damaged Type 3 glyph description**,
+/// and one has been on this disk the whole time: `poppler-90-0-fuzzed.pdf` page 10 reaches a
+/// `/a14` whose `CharProcs` stream stops before RFC 1951's final block, and the page names it.
+/// The claim was written when the only corpus damage anybody had looked at was
+/// `comments.pdf`'s form, and nothing asked the question again when that turned out to be a
+/// flush (ADR 0744). §9.6.4 makes a glyph description one of §7.8.2's content streams by name,
+/// so the rule ADR 0359 states for the five kinds has a real document behind one more of them.
+///
+/// **The assertion names the stream rather than pinning the whole list.** The document is a
+/// fuzzer's output carrying dozens of damaged streams; what is owed here is that the object the
+/// clause calls a content stream is named when it stops short, not which bytes a fuzzer produced.
+#[test]
+fn a_corpus_document_that_really_cuts_a_glyph_description_short_names_it() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/poppler-90-0-fuzzed.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("the pdf.js submodule is not checked out; skipping");
+        return;
+    };
+    let document = Document::open(bytes).expect("the corpus document opens");
+    let page = Pages::new(&document)
+        .get(9)
+        .expect("the document has a tenth page");
+    let reports: Vec<(String, Damage, usize)> = interpret(&document, &page)
+        .unsupported
+        .into_iter()
+        .filter_map(|item| match item {
+            Unsupported::DamagedContentStream { stream } => {
+                Some((stream.detail, stream.damage, stream.kept))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        reports.iter().any(
+            |(detail, damage, _)| detail.starts_with("a Type 3 glyph description")
+                && *damage == Damage::Truncated
+        ),
+        "no report names the glyph description this document cuts short: {reports:?}"
     );
 }

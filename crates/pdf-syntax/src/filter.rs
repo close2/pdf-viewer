@@ -84,9 +84,9 @@ pub enum Damage {
     ///
     /// **`FlateDecode` has one way of reaching the end of its input that is not this**, and it
     /// wore this value for as long as the value has existed: a producer that flushed and never
-    /// finished wrote every byte of its data and no final block, so nothing is missing but the
-    /// declaration. [`ended_on_a_block`] is what tells the two apart, and `doc/todo/18` is the
-    /// three corpus documents that were reported for it.
+    /// finished wrote every byte of its data and no final block, so what is absent is the
+    /// declaration rather than the data. [`ended_on_a_block`] is what tells the two apart; ADR
+    /// 0744 has the argument and the three corpus documents that carried the wrong report.
     Truncated,
     /// The encoded data is not what the filter's grammar admits, at a definite point in it.
     ///
@@ -790,7 +790,7 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
     }
 }
 
-/// RFC 1951 §3.2.4's final empty stored block: `BFINAL` set, `BTYPE` 00, `LEN` 0, `NLEN` 0xffff.
+/// RFC 1951 section 3.2.4's final empty stored block: `BFINAL` set, `BTYPE` 00, `LEN` 0, `NLEN` 0xffff.
 ///
 /// Forty bits that carry no data, which is what makes them a probe rather than a repair. See
 /// [`ended_on_a_block`].
@@ -843,7 +843,7 @@ const FLUSH_MARKER: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
 /// the probe runs on a **raw** decoder over the same input instead, where there is no checksum
 /// to satisfy: one extra inflate, on the damaged path, of a stream whose tail carries the
 /// marker — and nothing at all for every other stream. The output is thrown away a scratch
-/// buffer at a time, so a bomb costs the buffer rather than its decode. `doc/todo/18` priced the
+/// buffer at a time, so a bomb costs the buffer rather than its decode. ADR 0744 priced the
 /// three ways out; this is its second.
 ///
 /// A stream whose header sets `FDICT` is refused rather than replayed: the raw decoder would
@@ -897,7 +897,7 @@ fn raw_deflate(encoded: &[u8], zlib_header: bool) -> Option<&[u8]> {
     if !zlib_header {
         return Some(body);
     }
-    // RFC 1950 §2.2: CMF then FLG, with bit 5 of FLG the `FDICT` flag.
+    // RFC 1950 section 2.2: CMF then FLG, with bit 5 of FLG the `FDICT` flag.
     let (&_cmf, &flg) = (body.first()?, body.get(1)?);
     if flg & 0x20 != 0 {
         return None;
@@ -3282,7 +3282,7 @@ mod tests {
         encoder.finish().expect("finish")
     }
 
-    /// A zlib stream whose deflate data is one RFC 1951 §3.2.4 stored block, so the payload
+    /// A zlib stream whose deflate data is one RFC 1951 section 3.2.4 stored block, so the payload
     /// stands in it byte for byte and a cut can be placed at a known offset.
     fn deflated_stored(data: &[u8]) -> Vec<u8> {
         use std::io::Write as _;
@@ -3291,9 +3291,9 @@ mod tests {
         encoder.finish().expect("finish")
     }
 
-    /// A zlib stream its producer flushed and never finished, which is `doc/todo/18`'s witness.
+    /// A zlib stream its producer flushed and never finished, which is ADR 0744's witness.
     ///
-    /// `Z_SYNC_FLUSH` terminates the block in progress and writes RFC 1951 §3.2.4's empty
+    /// `Z_SYNC_FLUSH` terminates the block in progress and writes RFC 1951 section 3.2.4's empty
     /// stored block, so every byte of `data` is encoded; what never arrives is the final block
     /// and RFC 1950's `ADLER32`, because `deflateEnd` is never called.
     fn flushed(data: &[u8], level: flate2::Compression) -> Vec<u8> {
@@ -3632,7 +3632,7 @@ mod tests {
     /// ISO 32000-2 §7.4.1 asks a reader to "invoke the corresponding decoding filter or filters
     /// to convert the information back to its original form", and this decode reaches it: every
     /// byte the encoder was given comes back. What never arrives is RFC 1951's final block, and
-    /// a declaration that there is no more carries no marks. `doc/todo/18`, ADR 0744.
+    /// a declaration that there is no more carries no marks. ADR 0744.
     ///
     /// Both compression levels are here because they are two different last blocks: `best`
     /// leaves a Huffman block to be terminated by the flush, `none` a stored one.
@@ -3693,7 +3693,7 @@ mod tests {
             .collect();
         payload.splice(100..100, super::FLUSH_MARKER);
         let encoded = deflated_stored(&payload);
-        // Two bytes of RFC 1950 header, five of RFC 1951 §3.2.4's stored-block header, then the
+        // Two bytes of RFC 1950 header, five of RFC 1951 section 3.2.4's stored-block header, then the
         // payload byte for byte — so cutting here ends the input on the marker's last byte.
         let cut = 2 + 5 + 104;
         let short = encoded
