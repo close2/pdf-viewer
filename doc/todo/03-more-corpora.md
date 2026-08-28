@@ -1530,16 +1530,30 @@ form "n crawled documents unranked" and this file's header says so.
   +16.686 and `7557287.pdf` +10.999 have **`mutool`** light while `poppler`, `gs` and this tree
   agree within 0.3. Read a positive gap as a question about which reference is light before reading
   it as ink of ours.
-- **What the head still holds, named so the next round does not re-derive it.** Four rows of the
-  first eleven were placed by *where they cannot be* rather than by a cause, using §16's ink-versus-
-  resolution probe — a gap that halves per doubling is scan conversion and a gap that does not is
-  content. **`7557122.pdf` −6.295** (against `pdftoppm` −9.694, −9.774, −9.815 at 1×, 2×, 4×) and
-  **`7557305.pdf` −3.988** do not move with resolution, so neither is scan conversion; both are
-  many-image pages under `ICCBased` and `/Separation` spaces, which is trap 9's *hypothesis* and not
-  its diagnosis. **`7557015.pdf` −3.241** (−4.105, −1.961, −0.368) and **`7803013.pdf` −2.606**
-  (−9.186, −2.953, −2.559) do shrink with resolution and so are resampling or scan conversion, but
-  which was not established. What would settle the first pair is trap 9's colour probe; what would
-  settle the second is `uncovered_share`.
+- **The four rows this entry used to leave "placed but not settled" are settled** — taken in the
+  seven-hundred-and-ninety-second session with the instruments this bullet had named, and one of
+  the four was a defect of this tree that is now fixed (ADR 0727 holds all four diagnoses with
+  their probes):
+  - **`7803013.pdf` −2.606** was ours: an embedded DFKai-SB subset whose glyph shapes are
+    *computed by its TrueType instruction programs*, drawn from the uninstructed skeleton because
+    every sfnt outline was drawn unhinted. The persistent −2.25 at 8× that would not converge was
+    the shape difference. Fixed — the hint-reliant family draws through `skrifa`'s interpreter at
+    one pixel per design unit — and the witness now agrees with both references to 0.02 ink at 8×;
+    its row is in `doc/checks/fixed-documents.toml`.
+  - **`7557015.pdf` −3.241** is not resampling: its photos agree with `pdftoppm` to 0.33, and the
+    gap is a band of thousands of 0.227 pt white *stroked* diamond outlines — §10.7.4's
+    anti-aliasing departure plus ADR 0308's composited boundaries (`doc/todo/11` item 5), already
+    argued.
+  - **`7557305.pdf` −3.988** is §11.4.7, not the colour conversion: on a probe built from the
+    page's own `/Separation`-over-Lab, we, `poppler` and `gs` agree byte for byte. The page's
+    *page-level group* states `/CS /DeviceCMYK`; that one entry reproduces our page colour
+    exactly, while `poppler` and `mutool` do not composite in the stated group space and `gs`
+    returns a fourth answer through its SWOP tables.
+  - **`7557122.pdf` −6.295** is ADR 0510's darkest-few-percent ICC finding on the document's own
+    FOGRA-family profile: near-black `ICCBased` fills where the three references — one Little CMS
+    between them, trap 9 — sit at (9, 0, 0) and we at (19, 14, 13), while on plain `DeviceCMYK`
+    patches of the same values we and `poppler` agree byte for byte. An argued position
+    (ADRs 0456, 0484, 0510).
 
 - **The reach is bounded by the code and confirmed by measurement**, and the two are worth keeping
   apart. The diff is entirely inside the `total > MAX_TILES` branch, which is the branch that raises

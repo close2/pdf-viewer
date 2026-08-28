@@ -365,3 +365,11 @@ session = 653
 reports = ["NoninvertibleMatrix"]
 ink = 16.186 .. 18.186
 why = "the fifth and last of the crawl's page-losing witnesses: a course registration form of 1025 commands, refused whole for one of them (ADR 0482, 8.3.4)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/7803/7803013.pdf"
+page = 1
+session = 792
+reports = []
+ink = 17.469 .. 19.469
+why = "a class list whose embedded DFKai-SB glyphs are computed by the font's instruction programs; drawn from the uninstructed skeleton, thin and misassembled, until the hint-reliant family ran through skrifa's interpreter (ADR 0727, 9.6.3)"
