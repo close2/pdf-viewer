@@ -18,13 +18,19 @@
 //! The paragraph's rule is *relative* — such a dictionary belongs to the field its ancestors name.
 //! At the root of `/AcroForm /Fields` there are no ancestors, so a root entry stating no `/T`
 //! belongs to no field at all, and two of them belong to no field *together*. That is the
-//! population this census counts, in three widths:
+//! population this census counts, in four widths:
 //!
 //! - every dictionary reached from `/Fields` that states no `/T`, wherever it is;
 //! - those with no `/T` anywhere on the path from a root of `/Fields` down to them, which are the
 //!   ones §12.7.4.2 leaves nameless;
 //! - documents where two or more *leaves* are nameless in that sense, which is where a reader
-//!   keying widgets by their field's name has two annotations under one key and no field.
+//!   keying widgets by their field's name has two annotations under one key and no field;
+//! - and of the nameless roots, the ones stating no `/Parent` either. §12.7.3 makes `/Fields`
+//!   "[a]n array of references to the document's root fields (those with no ancestors in the field
+//!   hierarchy)", so a `/Parent` on one of them is the file contradicting that — and it is also
+//!   the file saying which field the entry belongs to, which
+//!   [`pdf_model::view::widgets_by_field_name`] takes as a recovery. This last count is therefore
+//!   the population that recovery cannot reach.
 //!
 //! It walks `/Fields` with `pdf_syntax` alone rather than through
 //! [`pdf_model::view::widgets_by_field_name`], because a census whose predicate is the code under
@@ -56,6 +62,9 @@ struct Finding {
     nameless_leaves: usize,
     /// Whether a nameless dictionary is itself an entry of `/Fields`.
     nameless_at_root: bool,
+    /// Of the nameless entries of `/Fields`, the ones stating no `/Parent` — so no ancestry a
+    /// reader could recover a name from.
+    nameless_root_orphans: usize,
 }
 
 fn main() {
@@ -64,6 +73,7 @@ fn main() {
     let mut with_untitled = 0_usize;
     let mut with_nameless = 0_usize;
     let mut with_nameless_root = 0_usize;
+    let mut with_orphan_root = 0_usize;
     let mut colliding = 0_usize;
     let mut lines: Vec<String> = Vec::new();
 
@@ -89,11 +99,15 @@ fn main() {
         if finding.nameless_at_root {
             with_nameless_root = with_nameless_root.saturating_add(1);
         }
+        if finding.nameless_root_orphans > 0 {
+            with_orphan_root = with_orphan_root.saturating_add(1);
+        }
         if finding.nameless_leaves > 1 {
             colliding = colliding.saturating_add(1);
         }
         lines.push(format!(
-            "  {path}: {} without /T, {} of them nameless{}, {} of those leaves",
+            "  {path}: {} without /T, {} of them nameless{}, {} of those leaves, \
+             {} nameless in /Fields with no /Parent",
             finding.untitled,
             finding.nameless,
             if finding.nameless_at_root {
@@ -101,7 +115,8 @@ fn main() {
             } else {
                 ""
             },
-            finding.nameless_leaves
+            finding.nameless_leaves,
+            finding.nameless_root_orphans
         ));
     }
 
@@ -110,6 +125,7 @@ fn main() {
     println!("  {with_untitled} with a field dictionary stating no /T");
     println!("    of which {with_nameless} have one no ancestor names either");
     println!("    of which {with_nameless_root} state one directly in /Fields");
+    println!("      of which {with_orphan_root} state no /Parent on it either");
     println!("  {colliding} with two or more nameless leaves, which share one empty name");
     for line in &lines {
         println!("{line}");
@@ -165,6 +181,9 @@ fn walk(
         if !named {
             finding.nameless = finding.nameless.saturating_add(1);
             finding.nameless_at_root |= is_root;
+            if is_root && document.get_key(dict, "Parent").as_dict().is_none() {
+                finding.nameless_root_orphans = finding.nameless_root_orphans.saturating_add(1);
+            }
         }
     }
     let named = named || states_title;

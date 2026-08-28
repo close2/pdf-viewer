@@ -4691,6 +4691,60 @@ erratum outlaws, which is why it reads correctly either way.
   down. Here the head itself paid, so the walk stopped; the live head it tied with is left in the
   population deliberately, and it is the next use's first candidate.
 
+## The rule's fourteenth use, in the eight-hundred-and-fourth, and the guard changed the head
+
+**The first run on the repaired step 3, and it repaid the repair immediately.** Run without the
+family guard the full ranking's head is §14.13.10 at six annotations, four of them Annex A's —
+the same manufactured head the thirteenth use found, unchanged, because the repair was to the
+recipe and not to the collection. With the guard that row holds two and both rankings top out at
+**three**: over live rows one row, §12.7.4.1, `partial`; over every row six, one of them
+§12.7.4.1 itself. Twelve annotations fall in the state the guard counts separately, and they
+reproduce the thirteenth use's own split — 4 under Annex A, 2 under Annex H and 6 under clauses 2
+and 3, which the ledger starts after. **So a round reading the recipe as settled would have spent
+its reading on an `inapplicable` row for annotations belonging to an annex with no row at all**,
+and the guard being one round old is exactly why this use could confirm it.
+
+Step 4 prefers the settled row and the third use's tie-break picks the row the ranking calls
+§13.7.2.3.2, whose caret turns a table cell's `(Optional;` into `(Required;` where the other four
+settled rows move an example's syntax, a linearisation version, a spelling and a clause's account
+of its own history. That head is inside `CLAUDE.md`'s clause-13 exclusion — its annotations are
+Table 341's, one clause above where the outline filed them — so it confirmed its row and paid
+nothing, **and the walk downward ran to the live head, which paid code**. ADR 0736;
+`doc/errata-read.md` has all eight rows with their rectangles.
+
+**The head paid on a guard that stopped one level above where the clause puts it.** Issue #28
+strikes Table 226's `/T` requirement level and writes *Optional*, because §12.7.4.2 already states
+what a dictionary with no `/T` is and the cell had forbidden the case the paragraph describes.
+`view::widgets_by_field_name` quoted that paragraph and applied it to a *kid*: at the root of
+`/AcroForm /Fields` there is no ancestor to supply a name, so every dictionary no `/T` reached was
+keyed under the empty name, and a document with two of them had one field made out of annotations
+sharing nothing — one control offered to a host over both, one value written into all of them by
+`ViewState::set_field`. The corpus then witnessed the *other* half of the repair rather than that
+one: its single document with a nameless entry in `/Fields` states a `/Parent` on it, which
+§12.7.3 says cannot be there and which is the file's own answer to which field the entry belongs
+to.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the fifth consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 71 named nowhere,
+  which is the thirteenth use's 73 less its two verdicts, and the multi-issue parse's 310 and 73
+  reproduce the same way. A closing figure is still a derivation and the greps are still the
+  instrument.
+- **A settled head that pays and a settled head that confirms are both worth having, and the
+  difference is one rank.** Five of the six uses before this one had the settled head confirm and
+  the work sit below it; the thirteenth had it pay and the walk stop. Here it confirmed inside an
+  exclusion, which is the cheapest verdict this rule produces, and the live head it tied with was
+  the one the thirteenth use had deliberately left in the population as the next candidate. The
+  practice that survives all three is step 4's own: head to a verdict, then downward until a row
+  pays.
+- **A fifth blindness, and it is the first `emit` shares.** `check`'s four are an addition over
+  unquoted text, a strike under the four-word floor, a spelling `doc/md/` writes differently and a
+  pure insertion. The fifth is an erratum whose substance is an **attached file**: `emit` prints
+  the annotation and its title and nothing else, because both instruments read text. It is
+  recorded in `doc/errata-read.md`, where the blindnesses live, with the round that read the
+  erratum anyway.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**

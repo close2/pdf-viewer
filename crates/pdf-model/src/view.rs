@@ -2058,7 +2058,10 @@ pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<Object
 fn ancestry(document: &Document, node: &Object) -> Option<String> {
     let id = node.as_reference()?;
     let object = document.get(id);
-    let mut current = document.get_key(object.as_dict()?, "Parent").as_dict()?.clone();
+    let mut current = document
+        .get_key(object.as_dict()?, "Parent")
+        .as_dict()?
+        .clone();
     // Nearest ancestor first, so the name is assembled by walking back down at the end.
     let mut partials: Vec<String> = Vec::new();
     for _ in 0..MAX_FIELD_DEPTH {
@@ -2275,7 +2278,12 @@ impl Update {
         let (form_id, form) = held(self, catalog.get("AcroForm"));
         let mut form = form.unwrap_or_else(|| {
             let mut form = Dictionary::default();
-            // Table 224: "(Required) An array of references to the document's root fields."
+            // Table 224 makes the entry required: "(Required) An array of references to the
+            // document's root fields (those with no ancestors in the field hierarchy)."
+            // (The quotation ended at *root fields* with a full stop of its own until the
+            // eight-hundred-and-fourth session, which is `doc/todo/01`'s stale-quotation shape
+            // in miniature — the clause the parenthetical states is what §12.7.4.2's row now
+            // argues a recovery against.)
             form.insert(Name::new(&b"Fields"[..]), Object::Array(Vec::new()));
             form
         });
@@ -3344,7 +3352,7 @@ mod tests {
 
     /// A `/Fields` entry that states a `/Parent` takes its ancestors' name.
     ///
-    /// §12.7.3 makes `/Fields` "an array of references to the document's root fields (those with
+    /// §12.7.3 makes `/Fields` "[a]n array of references to the document's root fields (those with
     /// no ancestors in the field hierarchy)", so an entry stating a `/Parent` contradicts it —
     /// and Table 226's `/Parent` is the file's own statement of which field the entry belongs to.
     /// Taking it is the recovery §12.7.4.2's row argues: the alternative is a radio group read as

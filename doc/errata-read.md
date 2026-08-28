@@ -1936,3 +1936,100 @@ over-correction on a real file.
 - **A settled head paid code for the first time in five uses**, so the walk downward never started.
   The live head it tied with is left in the population on purpose, which is this rule's own rule
   about an erratum read only far enough to rank it.
+
+## The cell that caught up with its own paragraph, and the two annotations that were one field — the eight-hundred-and-fourth
+
+The successor rule's fourteenth use, and the first run on step 3's repaired arithmetic. The
+thirteenth built the family guard after Annex A's four annotations had made a six-annotation head
+out of a row with two; **the repair changes the head here, which is what says it was worth
+building**. Without the guard the full ranking still tops out at §14.13.10 with six — the same
+four of Annex A's, on the same `inapplicable` row — and with it that row falls to two and both
+rankings top out at **three**: over live rows one row, **§12.7.4.1**, `partial`; over **every** row
+six, one of them §12.7.4.1 itself. Twelve annotations are in the state the guard counts
+separately, and they reproduce the thirteenth use's own split — 4 under Annex A, 2 under Annex H,
+and 6 under clauses 2 and 3, which the ledger starts after.
+
+Step 4 prefers the settled row where the two tie, and the third use's tie-break — a cell ahead of
+a word in prose — takes the row the ranking calls **§13.7.2.3.2** out of the five settled, whose caret turns a table cell's
+`(Optional;` into `(Required;` where the rest move an example's syntax, a linearisation version, a
+spelling and a clause's own account of its history. That head is inside `CLAUDE.md`'s clause-13
+exclusion and confirmed its row, so **the walk downward ran to the live head, which paid code**.
+The base population reproduces the thirteenth use's closing arithmetic exactly: 302 issue numbers
+carry a strike or a caret under the recipe's own single-issue line parse and 71 were named
+nowhere. Ten gain verdicts this round. ADR 0736.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§12.7.4.1, Table 226's `/T`** | 546 | #28 | **implements — the cell catches up with the paragraph, and the code was one degree short of it** | A StrikeOut at `[177.89 344.977 221.299 356.182]` — (485.7)–(496.9) from the top, exactly over the `(Required)` that `-bbox` puts at (177.14, 484.65)–(222.16, 496.32) on Table 226's `/T` row — with a Caret at `[214.296 345.051 222.363 351.625]`, (490.3)–(496.9), writing *Optional*. **The published cell contradicted its own clause**: §12.7.4.2 states what a dictionary with no `/T` is — "A field dictionary that does not have a partial field name ( T entry) of its own shall not be considered a field but simply a Widget annotation" — which is a sentence about a case the table forbade, and the erratum takes the contradiction out on the cell's side. It is §12.10.3's shape, met by the twelfth use one round apart. What it changes for a reader is which files are conforming, and the paragraph then decides them; see the finding below. |
+| §12.7.4.1, Table 226's `/AA` | 546 | #618 | cites | A single Caret at `[440.926 82.702 450.002 90.098]` — (751.8)–(759.2) from the top, centre at x 445.5, inside the `events").` that `-bbox` puts at (413.44, 746.06)–(451.39, 757.73) and before its closing bracket — writing *and "Table 199 - Entries in a form field's additional-actions dictionary"*. The cell's cross-reference named §12.6.3 alone and now names the table of the entries as well. Every entry of Table 199 is an ECMAScript action, which §12.6.3's row excludes by name and calls an exclusion rather than a debt, so the amended cell points at a table this tree already declines whole. |
+| **§13.7.2.3.1, Table 341's `/Configurations`** | 724 | #166 | **inside the exclusion — and the outline filed it under §13.7.2.3.2** | Three annotations, `Review/Completed`. A StrikeOut at `[225.56 676.947 270.045 688.151]` — (153.8)–(165.0) from the top, over the `(Optional;` at (224.69, 152.68)–(267.08) — with a Caret at `[263.041 677.021 271.109 683.595]` writing *Required*, and a second Caret at `[317.407 677.088 325.36 683.568]`, (158.4)–(164.8), between the `An` ending at 319.16 and the `array` beginning at 321.28, writing *non-empty*. So the entry becomes required and its array may not be empty — the settled head by the third use's tie-break, and the sharpest instance of it in this plateau. Table 341 is §13.7.2.3.1's; page 724 carries its tail above §13.7.2.3.2's heading, so the ranking offered the assets name tree as the RichMediaContent dictionary's erratum. Either row is clause 13, which `CLAUDE.md`'s multimedia exclusion names, and both are confirmed. |
+| §14.2 Procedure sets | 728 | #367 | cites | A StrikeOut at `[171.647 197.999 231.146 210.419]` — (631.5)–(643.9) from the top, over the `deprecated` at (174.94, 630.29)–(227.85) — with a Caret writing *considered unnecessary*, and a second Caret at `[288.731 197.887 297.744 205.231]`, (636.7)–(644.0), after the `1.4.` ending at 295.47, writing *and was deprecated in PDF 2.0*. "This feature has been deprecated since PDF 1.4." becomes a sentence that separates the two judgements it had run together. The clause's `shall` — a procedure set is for a PostScript device — is untouched, and §14.2's `inapplicable` rests on that rather than on the history. |
+| §14.9.4 Replacement text | 816 | #356, #364 | untouched — **and the outline filed both under §14.9.5** | #356 strikes `[142.1 489.917 198.764 497.16]`, whose QuadPoints run x 144.02–196.84 — (344.8)–(352.0) from the top, over the `Actual` and `Text` of the EXAMPLE's `<</Actual Text (c)>>` at (129.62, 343.39)–(225.67) — and writes *ActualText*, which is the key spelled without the space the printed page put in it. #364's Caret at `[109.526 552.106 116.948 558.154]` — (283.8)–(289.8), after the `EXAMPLE` at (74.90, 278.78)–(113.30) — writes *2*, and a Text note beside it adds the EXAMPLE 1 that becomes the first: an `/ActualText` of a missing SPACE beside a `Td` that simulates one. The German `Druk-`/`ker` example §14.9.4's row already cites is the one being renumbered. Page 816 carries §14.9.5's heading below both. |
+| §F.3.1 Linearized PDF | 896, 898 | #699, #687 | untouched | #699's Caret at `[266.118683 226.681427 276.178833 234.878586]` — (607.0)–(615.2) from the top, at the end of the `10)".` that `-bbox` puts at (250.32, 600.65)–(273.39) — writes *)*, closing a cross-reference's brackets. #687 strikes `[100.940002 658.58844 134.564011 677.237305]` — (164.7)–(183.3), over the `stream` at (100.94, 164.68)–(129.76) and the `>>` on the line below it — and writes *>>* and *stream* the other way round, so the example's hint-stream object states its dictionary before the keyword. Both are an annex example's own syntax; Annex F is normative and its rows are `out-of-scope` on `CLAUDE.md`'s producer exclusion, which neither erratum reaches. |
+| §F.3.2 Header (Part 1) | 899 | #331 | untouched — **filed under §F.3.3** | A StrikeOut at `[497.957 687.199 518.938 699.619]` — (142.3)–(154.7) from the top, over the `1.1` at (501.25, 141.09)–(515.64) — with a Caret writing *1.2*, so "may be applied to any PDF file of version 1.1 or greater" becomes 1.2. A floor on what a *writer* may linearise; this reader opens a linearised file through §7.5.4 whatever the header claims. Page 899 opens on §F.3.2's tail and reaches §F.3.3, which is where the ranking put it. |
+| §F.3.3 Linearization parameter dictionary | 899 | #153 | untouched | A Caret at `[401.189 389.742 409.142 396.222]` — (445.7)–(452.2) from the top, at the end of the `format.` that `-bbox` puts at (374.19, 440.13)–(405.37) in Table F.1's `/Linearized` cell — writing three sentences about how the version number is to be read: the integer part for an incompatible change, the fractional part for an upward-compatible one, and *The current version is 1.0.* A producer's rule about a dictionary this tree does not read; the entry is the accelerator F.1 lets a reader ignore. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #28 is the round's finding, and what it found is a guard that stopped one level above
+where the clause puts it.** `view::widgets_by_field_name` builds §12.7.4.2's fully qualified name
+by descending `/AcroForm /Fields` through `/Kids`, and its own doc comment quotes the clause's
+sentence about a dictionary with no `/T` — correctly, and *of a kid*. The sentence is
+unconditional. At the root of `/Fields` there is no ancestor to supply a name, so every dictionary
+no `/T` reached was keyed under the **empty** name — and a document with two of them had one
+field made out of annotations sharing nothing: `form::fields` handed a host a single control over
+both, and `ViewState::set_field` under that name wrote one value into all of them. The published
+Table 226 made `/T` `(Required)`, so the case read as a malformed file and the behaviour as a
+repair; the erratum makes it conforming, and then the paragraph is what decides it. The test is
+the *entry* now rather than the string it holds, so a `/T` of zero length still names a field —
+which is the over-correction the calibration plants.
+
+**And the corpus witnesses the other half of the same repair rather than that one.**
+`examples/unnamed_field_census` finds 1 document of the 1239 that open in `doc/pdf.js` and
+`doc/corpora` stating a nameless entry in `/Fields` at all — `opt_demo.pdf`, whose radio group is
+listed as its two *buttons* rather than as the field above them — and none stating one with no
+`/Parent`. §12.7.3 makes `/Fields` the document's root fields, "those with no ancestors in the
+field hierarchy", so that file has contradicted the clause; Table 226's `/Parent` is its own
+answer to which field the buttons belong to, and §12.7.4.1's inheritance walk has trusted that
+chain for `/FT`, `/Ff` and `/V` since it was written. Taking it for the *name* as well is a stated
+recovery, and it moves the two buttons from the empty name to `veg`. So the refusal is pinned by a
+fixture, which is what a population of zero asks for, and the recovery by the file.
+
+### The fifth blindness, and it is the first that `emit` shares
+
+`check`'s blind spots were four after the twelfth use — an addition over unquoted text, a strike
+under the four-word floor, a spelling `doc/md/` writes differently, and a pure insertion into a
+sentence this tree quotes correctly. **Issue #327 is a fifth, and it is the first where the
+instrument that exists to cover `check` is blind too.** It closes §7.3.3's two numeric forms with
+railroad diagrams, and `check` cannot see it because it struck nothing; `emit` names it, under a
+heading of its own — page 1004's outline section is titled after two issue numbers rather than
+after a clause — but what `emit` prints is two `FileAttachment` annotations whose whole content is
+their titles. **The substance of the erratum is an attached file**, and both instruments read
+text. The eight-hundredth session read the diagrams anyway and gave them a verdict (ADR 0733,
+§7.3.3's row), so nothing is owed here; what is owed is the shape being written down, because the
+next erratum of this kind will be invisible in exactly the same way and there is no third grep for
+it. The other issue that heading names carries no strike and no caret at all, so it is in neither
+instrument's population and in no ranking.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the fifth consecutive use**: 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 71 named nowhere —
+  the thirteenth use's 73 less its two verdicts — and the multi-issue parse's 310 and 73 reproduce
+  the same way. Five uses running; a closing figure is still a derivation and the greps are still
+  the instrument.
+- **The repair to step 3 changed this round's head, and the unrepaired instrument would have
+  offered the same false one as last time.** Run without the family guard the full ranking's head
+  is §14.13.10 at six, four of them Annex A's; run with it that row holds two and six rows tie at
+  three. A round that reads a recipe's arithmetic as settled would have spent its reading on an
+  `inapplicable` row for annotations belonging to an annex with no row at all — and the guard is
+  one round old, so this is the first use that could confirm it does what it was built for.
+- **Three of the eight issues are filed one clause late by the outline**, which is the twelfth
+  use's majority case appearing again at a smaller rate: the settled head belongs to the clause
+  *above* the one the ranking named, and so do §14.9.4's two and §F.3.2's one. None of the three
+  moved a status, because each landed inside the same exclusion or on a neighbour holding the same
+  claim — but the placement is what says so, and it is written before the verdict for the sixth
+  round running.
