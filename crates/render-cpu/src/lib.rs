@@ -441,6 +441,13 @@ impl CpuRasterizer {
             );
         }
 
+        // A strip is a replay of the whole list, so a deeply reduced image is reduced once per
+        // strip — work that is per *source* sample and that `pdf_render::replay_ratio` cannot
+        // see, because it bounds a replay by the rows a command covers. Reduced here, on this
+        // thread, before any strip is queued: the strips then all hit, and this is the one place
+        // the reduction may use rayon without being re-entered by a strip (ADR 0731).
+        self.reduced_images
+            .warm(list.commands(), target.transform, whole_target(target));
         // The budget is divided rather than multiplied: the masks of a strip are a strip tall,
         // so the same total memory buys the same coverage of the page it did serially.
         let budget = MASK_BUDGET.checked_div(strips).unwrap_or(MASK_BUDGET);
@@ -2988,6 +2995,23 @@ fn vertical_extent(
 /// a whole number of rows moves the sum into another binade; ADR 0219 measures what is left —
 /// fewer than one pixel in ten thousand, none by more than one supersample — and says why no
 /// arrangement of this crate's arithmetic closes it.
+/// The whole target, as a rectangle in its own pixel space.
+///
+/// One caller — [`images::ReducedImages::warm`], which asks whether a command marks the raster at
+/// all before paying for its reduction, and which is not the strip loop's own test because it runs
+/// before there are strips.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24, which is the largest \
+              integer f32 represents exactly"
+)]
+fn whole_target(target: TargetSpec) -> pdf_render::Rect {
+    pdf_render::Rect::from_corners(
+        pdf_render::Point::new(0.0, 0.0),
+        pdf_render::Point::new(target.width as f32, target.height as f32),
+    )
+}
+
 fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Vec<u32> {
     // Asked of the machine only where the caller did not say, and that is not tidiness:
     // `available_parallelism` reads `/proc/self/cgroup` on Linux, and a caller drawing inside a

@@ -182,7 +182,11 @@ pub struct Stroke {
     /// A width of `0.0` is legal in PDF and means the thinnest line the device can
     /// render — one pixel — rather than an invisible one. Backends must not read this
     /// field directly: [`Self::device_width`] is where that rule and §10.7.5's live, so
-    /// that the two backends cannot answer it differently.
+    /// that no two of this workspace's rasterisers can answer it differently. **All three
+    /// of them call it** — `render_cpu::convert`, `render_gpu::scene` and
+    /// `render_quorra::stroke` — and this sentence counted two until the
+    /// seven-hundred-and-ninety-seventh session, which is ADR 0697's shape: a rule met by
+    /// every backend, under a sentence that had not noticed the third arrive.
     pub width: f32,
     /// Whether ISO 32000-2 §10.7.5's automatic stroke adjustment is enabled (`/SA`).
     ///
@@ -231,7 +235,9 @@ impl Stroke {
     /// backend-specific convention that one backend happens to share with PDF is not a
     /// reading of the clause, and the cross-backend comparison could not see the difference
     /// because no scene stroked a zero width. One device pixel expressed back in the path's
-    /// own space is a width both backends can draw, and it is the same width for both.
+    /// own space is a width every rasteriser can draw, and it is the same width for each of
+    /// them — three of them now, and this sentence said "both" until the
+    /// seven-hundred-and-ninety-seventh session.
     ///
     /// The minimum is stated in device pixels and applied in path space, so it is divided by
     /// the stretch it will be multiplied by. Where the transform scales the two axes
@@ -508,8 +514,10 @@ fn smoothed(width: u32, height: u32, interpolate: bool, placement: Transform) ->
 /// Decoded image samples, ready to draw.
 ///
 /// Always straight-alpha RGBA8, whatever the document's colour space and bit depth were:
-/// converting once when the image is decoded means neither backend needs to know about
-/// PDF colour spaces, which is the same reason [`Color`] is already resolved.
+/// converting once when the image is decoded means no rasteriser needs to know about
+/// PDF colour spaces, which is the same reason [`Color`] is already resolved. (The count in
+/// this sentence was one short of the workspace's until the seven-hundred-and-ninety-seventh
+/// session.)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Image {
     /// Width in samples.
@@ -579,9 +587,12 @@ impl Image {
     /// The distinction matters because "the clause says nothing" is a licence to choose and
     /// "the clause says the opposite" is a debt to record. ADR 0025.
     ///
-    /// Both backends ask this rather than deciding for themselves, because the CPU backend
-    /// is the oracle for the GPU one and a difference in this choice would show up as a
-    /// disagreement about every magnified image.
+    /// Every rasteriser asks this rather than deciding for itself — `render_cpu`'s
+    /// `draw_image`, `render_gpu::scene` and `render_quorra::scene` all call it — because the
+    /// CPU backend is the oracle the other two are compared against and a difference in this
+    /// choice would show up as a disagreement about every magnified image. (The count in this
+    /// sentence was one short of the workspace's until the seven-hundred-and-ninety-seventh
+    /// session, when the third rasteriser had been calling it for hundreds of rounds.)
     #[must_use]
     pub fn is_smoothed(&self, placement: Transform) -> bool {
         smoothed(self.width, self.height, self.interpolate, placement)

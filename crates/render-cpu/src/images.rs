@@ -41,9 +41,9 @@
 //! exactly as it was before this module existed.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
-use pdf_render::{Image, Reduction, Transform};
+use pdf_render::{Command, Image, ImageSource, Rect, Reduction, Transform};
 
 /// Largest total the reduced images may reach before the oldest are dropped, in bytes.
 ///
@@ -65,18 +65,7 @@ const IMAGE_BUDGET: usize = 32 << 20;
 /// The samples' address and the reduction between them and what was produced.
 type Key = (usize, u32, u32);
 
-/// A reduction in progress or finished, shared by every strip that asked for it.
-///
-/// A [`OnceLock`] rather than the reduced image itself, and that is the whole reason the strips
-/// cooperate rather than race: the map's lock is held only long enough to hand out this `Arc`, so
-/// the first strip to ask runs the reduction while the others **block on the value** instead of
-/// each starting their own. Filling the map with the finished image under the map's own lock
-/// would serialise strips that want different images; taking the map's lock twice around an
-/// unsynchronised reduction would let all thirteen strips of a one-image page start together and
-/// buy nothing at all.
-type Slot = Arc<OnceLock<Option<Image>>>;
-
-/// One entry: the pinned identity and the slot its value arrives in.
+/// One entry: the pinned identity and the reduced samples.
 struct Entry {
     /// Held for what holding it *means*: the `Arc`'s address cannot be recycled while this clone
     /// lives, which is what makes an address an identity. Its bytes are not this cache's — the
@@ -87,7 +76,8 @@ struct Entry {
                   while its allocation lives, and this clone is what keeps the key's honest"
     )]
     pin: Arc<[u8]>,
-    slot: Slot,
+    /// Cheap to clone: an `Image` is three scalars and an `Arc` over the samples.
+    image: Image,
 }
 
 /// Reduced images, bounded and shared.
@@ -148,43 +138,98 @@ impl ReducedImages {
     pub(crate) fn reduced(&self, image: &Image, placement: Transform) -> Option<Image> {
         let Reduction { factors, .. } = image.reduction(placement)?;
         let key = (address(&image.data), factors.0, factors.1);
+        if let Some(held) = self.held.lock().ok().and_then(|held| held.get(key)) {
+            return Some(held);
+        }
+        // **Outside the lock, and that is a safety property rather than a nicety.** This runs on a
+        // rayon worker, and `Image::area_averaged` divides its rows across the same pool above
+        // `PARALLEL_FLOOR` — so while it waits for its own halves, rayon may run *another strip's
+        // job* on this very stack, and that job comes straight back here. Anything held across
+        // this call is therefore re-entered by the same thread: a `Mutex` deadlocks and a
+        // `OnceLock` does what its own documentation warns of. Both were written and both hung the
+        // corpus, every thread in `futex_do_wait` (ADR 0731).
+        let produced = image.area_averaged(placement)?;
+        Some(self.store(key, Arc::clone(&image.data), produced))
+    }
 
-        // Two locks with no work between them, so a strip that wants a different image is never
-        // waiting on this one's reduction.
-        let (slot, fresh) = {
-            let mut held = self.held.lock().ok()?;
-            if let Some(entry) = held.entries.get(&key) {
-                (Arc::clone(&entry.slot), false)
-            } else {
-                let slot: Slot = Arc::new(OnceLock::new());
-                held.entries.insert(
-                    key,
-                    Entry {
-                        pin: Arc::clone(&image.data),
-                        slot: Arc::clone(&slot),
-                    },
-                );
-                held.order.push_back(key);
-                (slot, true)
-            }
+    /// Publishes a reduction, or answers with the one another caller published first.
+    ///
+    /// A race costs the losing caller its own copy of identical bytes and nothing else — the
+    /// reduction is a pure function of the key — so the map holds one buffer per key rather than
+    /// per caller. The warm pass below is what keeps the race from being the ordinary case.
+    fn store(&self, key: Key, pin: Arc<[u8]>, produced: Image) -> Image {
+        let Ok(mut held) = self.held.lock() else {
+            return produced;
         };
+        if let Some(first) = held.get(key) {
+            return first;
+        }
+        held.bytes = held.bytes.saturating_add(produced.data.len());
+        held.entries.insert(
+            key,
+            Entry {
+                pin,
+                image: produced.clone(),
+            },
+        );
+        held.order.push_back(key);
+        held.evict_to(self.budget);
+        produced
+    }
 
-        let produced = slot.get_or_init(|| image.area_averaged(placement)).clone();
-
-        // Only the caller that created the slot accounts for it: every other one is looking at
-        // bytes already counted, and counting them twice would evict on a page that fits.
-        if fresh {
-            let bytes = produced.as_ref().map_or(0, |reduced| reduced.data.len());
-            if let Ok(mut held) = self.held.lock() {
-                held.bytes = held.bytes.saturating_add(bytes);
-                held.evict_to(self.budget);
+    /// Reduces every image `commands` is about to draw, before the strips that would draw it
+    /// exist.
+    ///
+    /// **This is what makes the sharing happen at all on the page that needs it.** Thirteen strips
+    /// of a page whose ink is one scan reach that scan within microseconds of each other, so
+    /// thirteen lookups miss and thirteen reductions run — the memo alone would buy nothing on the
+    /// first draw of exactly the page it was built for. Run here, on the thread that plans the
+    /// strips and before any of them is queued, the reduction happens once and every strip hits.
+    ///
+    /// It is also the one place the reduction can use rayon safely, for the reason
+    /// [`Self::reduced`] gives: there is no other job in the pool for it to be re-entered by.
+    ///
+    /// **The band cancels out, which is why one placement answers for all of them.** A strip's
+    /// transform differs from this one only in the row offset `ToDevice` composes last, and
+    /// [`pdf_render::Image::reduction`]'s factors are the *lengths* of the placement's two column
+    /// vectors — which a translation does not change. So the key a strip computes is the key
+    /// warmed here, and the bytes are the bytes: `Reduction`'s own documentation is where that is
+    /// stated.
+    pub(crate) fn warm(&self, commands: &[Command], to_device: Transform, page: Rect) {
+        for command in commands {
+            match command {
+                Command::Group { commands, .. } => self.warm(commands, to_device, page),
+                // Only the object: the shape half draws the same geometry with its opacity
+                // removed, so it is the same image and the same key.
+                Command::Shaped { object, .. } => {
+                    self.warm(std::slice::from_ref(object), to_device, page);
+                }
+                // A command no strip would draw is one no strip would reduce, and warming it
+                // would be work this module invented — so the same test the strip loop applies is
+                // applied here. The clip is not consulted, so an image hidden entirely by one is
+                // still warmed; that costs a reduction where before it cost none.
+                Command::Image {
+                    image: ImageSource::Decoded(samples),
+                    transform,
+                    ..
+                } if command
+                    .device_bounds(to_device)
+                    .is_some_and(|bounds| bounds.intersection(page).is_some()) =>
+                {
+                    let _ = self.reduced(samples, transform.then(to_device));
+                }
+                _ => {}
             }
         }
-        produced
     }
 }
 
 impl Held {
+    /// The reduced samples under `key`, if they are still held.
+    fn get(&self, key: Key) -> Option<Image> {
+        self.entries.get(&key).map(|entry| entry.image.clone())
+    }
+
     /// Drops the oldest entries until the reduced samples fit in `budget`.
     ///
     /// The newest entry is never dropped, even where it alone exceeds the budget: it is the one
@@ -196,12 +241,7 @@ impl Held {
                 break;
             };
             if let Some(entry) = self.entries.remove(&oldest) {
-                let bytes = entry
-                    .slot
-                    .get()
-                    .and_then(Option::as_ref)
-                    .map_or(0, |image| image.data.len());
-                self.bytes = self.bytes.saturating_sub(bytes);
+                self.bytes = self.bytes.saturating_sub(entry.image.data.len());
             }
         }
     }

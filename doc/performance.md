@@ -458,6 +458,44 @@ alternating:
 An ordinary 25-page document is inside the noise either way (47–51 ms against 36–55). What the memo
 still declines is a refusal whose *encoded* bytes do not fit the budget, because the entry pins them.
 
+## What a strip costs a scanned page, and why the planner could not see it
+
+**`render-cpu` cuts a target into strips and replays the display list into each**, and
+`pdf_render::replay_ratio` bounds that replay by the **rows** a command covers. That is exact for a
+fill and blind to `Image::area_averaged`, whose cost is per *source* sample and does not shrink with
+the band — so a page of one deep reduction reads as a replay of 1.00 and reduces the same samples
+once per strip.
+
+`issue12963.pdf` page 1 — a 2480×3506 `JBIG2Decode` scan on 596×842 — under
+`examples/callgrind_rasterise`, two draws, both arms one sitting, pinned to four cores so that the
+ratio is legible:
+
+| 4 strips, 2 draws | before | after |
+|---|---|---|
+| whole program | 3 884 597 422 | **2 248 310 893** |
+| `Image::area_averaged` | 2 178 913 072 (56.1%) | **544 728 268** (24.2%) |
+
+Exactly fourfold on the reduction, which is the strip count. Unpinned, the machine grants thirteen
+strips and the before arm spends **75.74%** of the whole program in that one closure.
+
+**`examples/strip_spans`**, medians of five interleaved runs an arm on a quiet machine, each figure
+already the fastest of five renders — before, the page got *slower* the more strips it was granted:
+
+| strips | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| before | 17.0 ms | 14.0 | 13.3 | 20.2 | 30.9 |
+| after | 14.0 ms | **10.8** | **7.8** | **6.7** | **6.7** |
+
+The one-strip row is the control, where there is one reduction either way; a page with nothing to
+share is unmoved too
+(`scan-bad.pdf`, one command, one strip: `Image::area_averaged` at 527 379 600 in both arms).
+`render_cpu::images` reduces each image once on the thread that plans the strips and holds it on the
+rasteriser, on ADR 0297's key, so a host that redraws one page keeps it as well — 957 rasterised
+first pages byte-identical. **The memo may not block**: a lock held across `area_averaged` is
+re-entered by its own thread, because rayon can steal another strip's job onto the stack that is
+waiting inside `par_chunks`. Both blocking forms were written and both deadlocked the corpus gate.
+ADR 0731.
+
 ## What cross-page parallelism buys, and at what memory
 
 **`pdf-model/examples/parallel_sweep`** reads every page three ways — one thread; N threads over one

@@ -63,13 +63,28 @@ steps recompute the same 1350×1725 raster from the same `Arc`.
 `pdf_render::Image::reduction` answers without producing the raster. Median frame **15.0 → 4.8 ms**,
 uploads **23 → 2**, three runs an arm; every gate unmoved and the 4× lane byte-identical. ADR 0297.
 
-**What is left of it is the other two backends.** `render-cpu` and `render-gpu` still recompute per
-draw, and `Image::reduction` is available to both. It matters for one host rather than for the
-window: `viewer-confined`'s `pdf-view-worker` rasterises with `render-cpu` and returns pixels, so a
-confined host redrawing a scanned page pays the 9 ms the window no longer does. Neither has a
-per-frame resource cache to hang an entry on, so each would need its own bound and its own liveness
-rule — which is why this was not done in the same round, and it wants a measurement in *that* host
-before it is worth the lines.
+### 2b. ~~And `render-cpu` recomputes it per draw~~ — **closed, session 797, and the measurement found something larger**
+
+This item said `render-cpu` and `render-gpu` still recompute per draw, that it mattered for
+`viewer-confined`'s worker rather than for the window, and that it wanted a measurement in *that*
+host first. The measurement found a mechanism in front of the redraw and on **every** draw: **a
+strip is a replay of the display list**, so a full-page image is reduced once per strip. The strip
+planner cannot see it — `pdf_render::replay_ratio` counts the rows a command covers, and
+`Image::area_averaged` costs per *source* sample — so `issue12963.pdf` page 1 reads as a replay of
+1.00, is granted thirteen strips, and reduces the same 8.7 million samples thirteen times.
+
+`render_cpu::images` memoises it on the rasteriser, on ADR 0297's key with the `Arc` pinned, so the
+redraw case this item was about is answered by the same field: a rasteriser held across frames
+keeps its reductions and one made per job keeps none. −42.1% of the whole page's instructions at
+four strips with the reduction itself down exactly fourfold, and 22.7 ms → 7.4 at sixteen strips
+where the page had been getting *slower* the more strips it was granted; every one of 957
+rasterised first pages byte-identical. ADR 0731.
+
+**What is left of it is `render-gpu`**, which still recomputes per draw and has no per-frame
+resource cache to hang an entry on, and the **deferred** source — §11.6.5.2's soft-mask image,
+which has no address that outlives a draw, so each strip still produces its own. Neither has a
+witness: `render-gpu` is not the backend a host redraws with, and no corpus document reports an
+`/SMask` at all.
 
 ## 3. Four fifths of a frame is inside `Device::render`, and the largest part of it is CPU
 
