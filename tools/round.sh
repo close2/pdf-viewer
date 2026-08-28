@@ -185,18 +185,43 @@ target=$(cargo metadata --no-deps --format-version 1 2>/dev/null |
 #    every superseded one and those are noise: cargo will not reach for them again. The count of
 #    the superseded stale ones is printed rather than judged, so that "the directory is full of
 #    other rounds' worktrees" reads as itself.
-stale= superseded=0
-for crate in 'pdf-font' 'conformance'; do
-    newest=$(ls -t "$target"/*/build/"$crate"-*/build-script-build 2>/dev/null | head -1)
-    for script in $(ls -t "$target"/*/build/"$crate"-*/build-script-build 2>/dev/null); do
-        for baked in $(grep -aoE '/[A-Za-z0-9_./+-]*/(crates/pdf-font|tools/conformance)' "$script" 2>/dev/null | sort -u); do
+#
+#    **The population is derived, and the discriminator is which macro the build script uses.**
+#    `env!("CARGO_MANIFEST_DIR")` is expanded when the build script itself is *compiled*, so the
+#    path is baked into the binary and outlives the checkout it names; `std::env::var_os(...)` is
+#    read when cargo *runs* the script, so cargo supplies the live value and it cannot go stale.
+#    `crates/pdf-spec/build.rs` takes the second road, which is why it is not asked even though
+#    its binary carries the path in its debug info — grepping a binary for a path finds strings
+#    the program will never read, so the source has to say which kind it is.
+#
+#    It was a hand-written list of two names for four hundred and thirty-five commits, and both
+#    halves of it were wrong: `conformance` has never had a build script in any commit of this
+#    repository, so half of every run looked for a thing that does not exist and found nothing —
+#    which prints as a `✓` — while `crates/pdf-sandbox/build.rs`, which bakes the path and then
+#    reads a directory under it, was never asked at all. A derived population could not have
+#    contained the first or missed the second (ADR 0752, trap 25).
+stale= superseded=0 asked=0
+while read -r script_source; do
+    grep -q 'env!("CARGO_MANIFEST_DIR")' "$script_source" || continue
+    crate_path=${script_source%/build.rs}
+    package=$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' "$crate_path/Cargo.toml" | head -1)
+    [ -n "$package" ] || continue
+    asked=$((asked + 1))
+    #    The baked path ends in the crate's own path from the root, so the pattern is the crate's
+    #    rather than a second list to keep in step with the first.
+    scripts=$(ls -t "$target"/*/build/"$package"-*/build-script-build 2>/dev/null)
+    newest=$(printf '%s\n' "$scripts" | head -1)
+    for script in $scripts; do
+        for baked in $(grep -aoE "/[A-Za-z0-9_./+-]*/$crate_path" "$script" 2>/dev/null | sort -u); do
             [ -d "$baked" ] && continue
             if [ "$script" = "$newest" ]; then stale="$stale $baked"; else superseded=$((superseded + 1)); fi
         done
     done
-done
-if [ -z "$stale" ]; then
-    pass "the newest build script of each crate names a directory that exists"
+done < <(git ls-files 'crates/*/build.rs' 'tools/*/build.rs' 2>/dev/null)
+if [ "$asked" -eq 0 ]; then
+    fail "no build script bakes env!(\"CARGO_MANIFEST_DIR\") — this check has nothing to ask"
+elif [ -z "$stale" ]; then
+    pass "the newest build script of each crate that bakes its manifest path names a directory that exists"
 else
     fail "the newest compiled build script names a directory that is gone:$stale"
     printf '    touch the build script source and rebuild — it is not the tree (doc/environment.md)\n'

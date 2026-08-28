@@ -408,12 +408,29 @@ section_disk() {
     # Asked for rather than written down: a worktree round has a `target-dir` of its own, and the
     # literal path this used to carry reported the *main* tree's directory from inside every one of
     # them (trap 15). `tools/round.sh` has derived it all along.
-    local built
+    local built root
     built=$(cargo metadata --no-deps --format-version 1 2>/dev/null |
             grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4)
     [ -n "$built" ] || built=target
     du -sh "$built" 2>/dev/null
     du -sh "$built/tmp/pdfref-cache" 2>/dev/null
+    # And the root all of them sit in, because that is what `doc/todo/02` §5a's hundred gigabytes
+    # is about and this section could not see it. The line above is deliberately the *round's own*
+    # directory and stays — from a worktree it is a few hundred megabytes, which answers "what did
+    # I build" and reads, wrongly, as an answer to "is the disk full". The two are one line apart
+    # now rather than two orders of magnitude apart in silence (ADR 0752).
+    #
+    # The root is the parent of the round's own directory, which is a convention rather than a
+    # derivation — so three things have to hold before it is worth printing, and in an ordinary
+    # clone none of them does: the build directory has to sit *outside* the checkout (otherwise
+    # the parent is the repository and its size is a fact about the source), and the parent has
+    # to hold more than the one directory. `tools/worktree.sh list` breaks the figure down by
+    # whose each directory is.
+    root=$(dirname "$built")
+    if [ "$root" != "." ] && [ "$root" != "$(git rev-parse --show-toplevel 2>/dev/null)" ] &&
+       [ "$(find "$root" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)" -gt 1 ]; then
+        du -sh "$root" 2>/dev/null
+    fi
 }
 
 all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"

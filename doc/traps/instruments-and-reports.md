@@ -477,6 +477,46 @@ Four things to carry:
   without the instrument saying so, and it will still exit 0. Ask what the instrument read, and how
   much of it, before believing what it reported.
 
+### 25. A hand-written population can name a thing that never existed, and finding nothing there reads as a pass
+
+`tools/round.sh`'s build-script check asked two crates by name, `pdf-font` and `conformance`.
+**`tools/conformance` has never had a build script — not in any commit of this repository** — so
+half of every run since the check was written looked for a thing that does not exist, found
+nothing, and printed a `✓`. Meanwhile `crates/pdf-sandbox/build.rs` bakes its manifest path with
+`env!` and then *reads a directory under it*, which is precisely the failure the check exists to
+predict, and it was never asked. The build directory on this machine holds a `pdf-sandbox` build
+script naming a checkout that is gone; the old check could not see it and the new one counts it
+(ADR 0752).
+
+Two more instruments in the same two files had the same shape. `tools/worktree.sh list` globbed
+`pdfv-r*` — the names it makes itself — under a heading about *orphaned* build directories, so it
+could only ever report its own; the directories in the root it could not name were most of that
+root's size. And `tools/state.sh disk` reported the round's own
+`target-dir`, which is right for trap 15's reason and is two orders of magnitude away from the
+figure `doc/todo/02` §5a's hundred-gigabyte threshold is about.
+
+**The failure is not that the population was wrong. It is that a narrow population and a clean
+tree produce the same output** — which is trap 23's sentence with the instrument's *input* wrong
+instead of its scope, and trap 24's with a list instead of a corpus. So:
+
+- **A population written by hand is a claim about the tree, and it decays in both directions**:
+  it names things that have gone or never were, and it misses things that arrived. This tree
+  already knew that — `tools/worktree.sh`'s gitlink guard derives its paths from the index for
+  exactly this reason, and its own comment says a hand-written list "goes stale the next time
+  something is linked, which is exactly how this one did". The lesson had not been carried two
+  functions down the same file.
+- **Derive the population, and make an empty one *fail*.** The check above now reads every
+  tracked `build.rs`, keeps the ones using `env!("CARGO_MANIFEST_DIR")`, and reports rather than
+  passes when that comes back empty. A check with nothing to ask must not be silent.
+- **The discriminator has to come off the source, not off the artefact.** `crates/pdf-spec` reads
+  the same variable through `std::env::var_os`, so cargo supplies the live value and it cannot go
+  stale — yet its compiled build script carries the path in its debug info all the same. Grepping
+  a binary for a path finds strings the program will never read; what the *source* does with the
+  variable is the fact.
+- **A line range is the same trap at its smallest.** The usage text in `tools/worktree.sh` was
+  `sed -n '3,20p'`, four lines past the header block it meant, printing `set -euo pipefail` at a
+  reader. Every edit above a hard-coded range invalidates it, and nothing says so.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic

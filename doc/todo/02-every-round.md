@@ -523,6 +523,14 @@ sources. That was half a minute a round in the wrong section.
 to remove — `cargo clean --gc` is nightly-only. So it is swept by hand, and `target/tmp/` is what
 the sweep must **not** take.
 
+**"It" is the build *root*, and for a long time neither instrument printed that.** `disk` reports
+the round's own `target-dir`, which is deliberate and stays — trap 15 is what put it there — but
+from a worktree that is a few hundred megabytes while the root holding it is over a hundred
+gigabytes, and this threshold is about the second number. Both instruments print it now: `disk`
+adds the root beside the round's own directory, and `tools/worktree.sh list` breaks it down by
+whose each directory is, which the sweep below needs because **the root holds directories this
+project's tools did not make and cannot judge** (ADR 0752).
+
 ```sh
 rm -rf /home/AI/cargo-target/pdf-viewer/{debug,release,gates}   # never tmp/ — see below
 ```

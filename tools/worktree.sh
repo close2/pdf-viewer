@@ -11,7 +11,8 @@
 #
 #   tools/worktree.sh open 675 [676 ...]     create, wire up, and print what each round is given
 #   tools/worktree.sh close 675 [676 ...]    remove the checkout AND its build directory, together
-#   tools/worktree.sh list                   what exists now, with the size of each build directory
+#   tools/worktree.sh list                   what exists now, every build directory under the root
+#                                            whoever made it, and what they add up to
 #
 # doc/environment.md is the prose; this is the command.
 
@@ -100,6 +101,17 @@ open_one() {
     echo "     branch round-$n, build $builds/pdfv-r$n"
 }
 
+# `du`'s kilobytes, printed. The addition is done in kilobytes and only the printing picks a unit,
+# because `du -h` picks one per directory and a column of mixed units cannot be added up — and
+# adding it up is exactly what `doc/todo/02` §5a's threshold needs.
+disk_size() {
+    awk -v kb="$1" 'BEGIN {
+        if (kb >= 1048576) printf "%.1fG", kb / 1048576;
+        else if (kb >= 1024) printf "%dM", kb / 1024;
+        else printf "%dK", kb;
+    }'
+}
+
 close_one() {
     local n=$1 wt="$root/.claude/worktrees/r$n"
     git -C "$root" worktree remove --force "$wt" 2>/dev/null || true
@@ -134,12 +146,50 @@ case "${1:-}" in
             fi
         done
         echo
-        for d in "$builds"/pdfv-r*; do
+        # Every directory under the build root, not the ones this script happens to name.
+        #
+        # This loop globbed `pdfv-r*` — the names `open_one` makes — so the only build directories
+        # it could ever report were its own, and it reported them under a heading about orphans.
+        # Two directories of 904 MB each sat beside them for hundreds of rounds, invisible; when
+        # the round that widened this went looking, the directories the glob could not name were
+        # most of the root's size. A listing whose population is the writer's own naming
+        # convention answers "did I leave one behind" and reads as though it had answered "what is
+        # on the disk" (ADR 0752, trap 25).
+        #
+        # The main checkout's own directory is *derived* rather than assumed, because it is
+        # whatever cargo says and nothing here chose its name.
+        # `|| true` on both of the next two, and it is `set -e` rather than sloppiness: a command
+        # substitution that fails takes the whole script with it, and neither of these is worth
+        # that — a build root cargo cannot be asked about still has directories to list.
+        mine=$( (cd "$root" && cargo metadata --no-deps --format-version 1 2>/dev/null) |
+               grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4 || true)
+        all_kb=0
+        for d in "$builds"/*; do
             [ -e "$d" ] || continue
-            n=$(basename "$d"); n=${n#pdfv-r}
-            wt="$root/.claude/worktrees/r$n"
-            [ -d "$wt" ] && state="live" || state="ORPHANED — its worktree is gone"
-            printf '  %-28s %6s  %s\n' "$(basename "$d")" "$(du -sh "$d" 2>/dev/null | cut -f1)" "$state"
-        done ;;
-    *) sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1 ;;
+            name=$(basename "$d")
+            case "$name" in
+                pdfv-r*)
+                    n=${name#pdfv-r}
+                    [ -d "$root/.claude/worktrees/r$n" ] &&
+                        state="live — round $n" || state="ORPHANED — its worktree is gone" ;;
+                *)
+                    [ "$d" = "$mine" ] && state="the main checkout's" ||
+                        state="not this script's — no checkout here names it" ;;
+            esac
+            # Kilobytes, summed here and formatted at the end, so the root is walked once rather
+            # than twice: it is well over a hundred gigabytes and `du` is not free on it.
+            kb=$(du -s "$d" 2>/dev/null | cut -f1 || true); kb=${kb:-0}
+            all_kb=$((all_kb + kb))
+            printf '  %-28s %6s  %s\n' "$name" "$(disk_size "$kb")" "$state"
+        done
+        # `doc/todo/02` §5a's threshold is about the whole build root, so the whole build root is
+        # what gets totalled. `tools/state.sh disk` prints the same figure beside the round's own.
+        printf '  %-28s %6s  %s\n' '(all of it)' "$(disk_size "$all_kb")" \
+               'doc/todo/02 §5a sweeps by hand past a hundred gigabytes' ;;
+    # The usage is this file's own header block, and *where it ends* is derived rather than
+    # written down: `sed -n '3,20p'` was four lines past it and printed `set -euo pipefail` at a
+    # reader, because a line range is a claim about a file that every edit above it invalidates —
+    # the same shape as the glob two screens up, at the smallest scale it comes in.
+    *) awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+       exit 1 ;;
 esac

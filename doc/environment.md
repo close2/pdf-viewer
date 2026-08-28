@@ -87,7 +87,13 @@ can and cannot open a window on, and where the build lands.
 
   So **remove the two together**, and `tools/worktree.sh` is that command — `open NNN …` prepares a
   round's checkout and `close NNN …` takes the checkout and its build directory away as one act.
-  `list` names any build directory whose worktree is already gone. By hand it is:
+  `list` names **every** directory under the build root, whose each one is, and what they add up
+  to — which is not the same claim it used to make. It listed the directories *it* names,
+  `pdfv-rNNN`, so the only thing it could report as orphaned was one of its own; two left by
+  another kind of round sat beside them unseen for hundreds of rounds, and when the widening was
+  made the directories the old glob could not see were most of the root's size. The total is there
+  because `doc/todo/02` §5a's threshold is about the root and no instrument printed it (ADR 0752).
+  By hand it is:
 
   ```sh
   git worktree remove --force .claude/worktrees/rNNN
