@@ -18,8 +18,13 @@
 //!
 //! So this module answers the second question, tightly, at the cost of walking the path — and
 //! its callers ask it where that cost is bounded: once per pattern for ADR 0155's containment
-//! test, and once per command per *cell* for [`crate::repeat`]'s fold, which is only ever
-//! reached by a pattern whose first cell showed it has a mark to fold. Both answers
+//! test, once per command per *cell* for [`crate::repeat`]'s fold, which is only ever
+//! reached by a pattern whose first cell showed it has a mark to fold, and — since ADR 0735 gave
+//! a stroke whose colour is a tiling pattern the region §11.5.2 states as a group's alpha — once
+//! per such stroke in `pdf_model`, to say which tile sites the outline reaches. That third caller
+//! is the one this sentence gained after it was written, and it is asking a *third* question
+//! again: not containment but reach, which is the same bound read the other way round and is why
+//! it wants the tight answer rather than the hull. Both answers
 //! are bounds and neither may underestimate; `the_loose_bound_contains_the_tight_one` is what
 //! keeps them from contradicting each other.
 //!

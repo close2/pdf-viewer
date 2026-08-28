@@ -1103,3 +1103,90 @@ fn a_rule_stated_at_both_cell_edges_weighs_one_rule() {
          {expected:.4}"
     );
 }
+
+/// And the whole figure — the rules *and* the border they end under — weighs its own area.
+///
+/// The two tests above measure a tiling's interior, which is the quantity a rule's width over
+/// its step states. This one measures `issue16038.pdf` itself, because that page is the corpus's
+/// closed form for a whole figure: two squares, each `B`, filled with an uncoloured pattern of
+/// rules and stroked at the same 0.3985. Nothing else is on it, so the area it asks for is
+/// arithmetic — and until the eight-hundred-and-sixth session the arithmetic was wrong.
+///
+/// # The area, term by term
+///
+/// Twenty rules of `28.3468 × 0.3985`, plus a `0.3985` stroke around each of two `28.3468`
+/// squares — which is `4 × side × width` exactly, an outer square less an inner one — **less what
+/// the two share**. Each rule is a pattern mark clipped to its square's fill path, so it runs to
+/// `x = 0` and `x = 28.3468`; the border is a stroke of that same path and §8.4.3.2 puts half its
+/// width on each side of it. The shared region is `2 × (w/2) × w = w²` per rule, 0.15881, and
+/// there are twenty:
+///
+/// ```text
+/// 20 × 28.3468 × 0.3985  +  2 × 4 × 28.3468 × 0.3985  −  20 × 0.3985²  =  313.117
+/// ```
+///
+/// `AMBIGUOUS_TILING_CELL_CLIP` carried the first two terms without the third — 316.29 — from the
+/// three-hundred-and-seventy-fourth session to the eight-hundred-and-sixth, and every percentage
+/// in that note was against it. ADR 0738.
+///
+/// # What it discriminates, at which scale, and what it does not
+///
+/// Ink is a geometric quantity a rasteriser approaches as the pixels shrink, so the scale is part
+/// of the claim: at 24× this tree deposits 313.016 and at the page's own scale 299.86, which is
+/// §10.7.4's anti-aliasing departure on a rule half a device pixel wide. The tolerance is half a
+/// percent at 24×, and the wrong answer this test exists for is outside it — the closed form
+/// without its third term is 1.03% away, and running the test against it is where the figure in
+/// the failure message came from.
+///
+/// **It does not see the defect ADR 0155 fixed, and that was checked rather than assumed.** With
+/// `unclip_redundant_cell` made to return `false` — the redundant per-cell box back on — this
+/// page deposits 312.975 against 313.016, a movement of 0.013%, because a clip's cost is the
+/// anti-aliased seam at a cell boundary and at 24× a boundary pixel is a fortieth of what it is
+/// at 1×. That defect was 15% of the ink *at the page's own scale*, and what holds it is
+/// `a_rule_spanning_its_whole_cell_deposits_the_ink_its_geometry_states` above, which fails under
+/// the same mutation. Two tests, two scales, and neither is the other's spare.
+#[test]
+fn the_page_that_is_a_closed_form_weighs_what_the_closed_form_says() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../doc/pdf.js/test/pdfs/issue16038.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+
+    let document = Document::open(bytes).expect("issue16038.pdf is a valid PDF");
+    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
+    let interpretation = pdf_model::interpret(&document, &page);
+    assert!(
+        interpretation.is_complete(),
+        "the page draws completely: {:?}",
+        interpretation.unsupported
+    );
+    let list = interpretation.display_list;
+    let scale = 24.0_f32;
+    // `Medium::NONE` leaves the page's own alpha, so alpha *is* coverage and no colour
+    // weighting enters — which on a page whose rules are pure blue is worth a quarter of a
+    // level (ADR 0738).
+    let target = TargetSpec::for_page(&list, scale, GENEROUS).expect("valid target");
+    let raster = CpuRasterizer::new()
+        .with_medium(pdf_render::Medium::NONE)
+        .rasterize(&list, target)
+        .expect("supported");
+
+    let covered: f64 = raster
+        .data
+        .chunks_exact(4)
+        .map(|pixel| f64::from(pixel[3]) / 255.0)
+        .sum();
+    let ink = covered / f64::from(scale * scale);
+
+    let rules = 20.0 * 28.3468 * 0.3985;
+    let borders = 2.0 * 4.0 * 28.3468 * 0.3985;
+    let shared = 20.0 * 0.3985 * 0.3985;
+    let area = rules + borders - shared;
+    assert!(
+        (ink - area).abs() < area / 200.0,
+        "the page deposits {ink:.3} square points where its own geometry states {area:.3} \
+         ({rules:.3} of rules plus {borders:.3} of border less {shared:.3} they share)"
+    );
+}

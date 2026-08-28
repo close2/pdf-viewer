@@ -5372,6 +5372,73 @@ const AMBIGUOUS_ZERO_AREA_FILL: [&str; 1] = ["issue4260_reduced.pdf page 1"];
 /// geometry, so approaching the geometry is receding from it. (The gate prints worst mean 42.17
 /// and similarity 0.3400 today; the pair above is the movement that session measured, and the
 /// two figures preceding it are `render-quorra`'s gate rather than this one's — ADR 0495.)
+///
+/// # The eight-hundred-and-second cannot reach this page, and the file says so in one line
+///
+/// ADR 0735 gave a stroke whose colour is a tiling pattern the region §11.5.2 states as a
+/// group's alpha, so `Interpreter::tile` now takes a `Tiled::Fill` or a `Tiled::Stroke`. **This
+/// page takes the first**, and it is not an inference from the picture: its two squares are `B`,
+/// the pattern is installed with `scn` and the file contains no `SCN` at all, and the stroking
+/// colour in force is the `0 G` set above them. Every arm the eight-hundred-and-second session
+/// added is the stroking one — the span from `stroked_bounds`, the shape mask, `CA` for `ca`,
+/// and the fifth term in §11.7.5.2's `inside` test — so the fill route is unchanged in every
+/// particular and this note's mechanism is what it was. The oracle's line and `doc/todo/00`
+/// step 7's gap both reproduce to the digit. ADR 0738.
+///
+/// # But the closed form above is 1.0% high, and correcting it is what moves this diagnosis
+///
+/// 316.29 is the twenty rules' area *plus* the two borders', and the two overlap. Each rule is
+/// clipped to its square's fill path, so it runs to x = 0 and x = 28.3468 — and the border is a
+/// stroke of that same path, straddling it by half a width on each side. The region a rule
+/// shares with the border it ends under is `w²`, twice `w/2 × w`, which is 0.15881 apiece; over
+/// twenty rules that is 3.18 square points counted twice. **The document asks for 313.12**,
+/// confirmed on a 1/1024-point grid over both squares' geometry with no renderer in it — and it
+/// is a test rather than a sentence now, which is why it stood wrong for four hundred sessions:
+/// `pdf-model`'s `tiling.rs::the_page_that_is_a_closed_form_weighs_what_the_closed_form_says`
+/// computes the three terms and holds this page to their sum.
+///
+/// Re-measured with `examples/render_at` in the eight-hundred-and-sixth session, ink over the
+/// raster's own area — which is not the page's, because `pixel_extent` rounds up and a 73rd
+/// column of white is inside the mean:
+///
+/// ```text
+/// ours, 24× the page's own scale     313.02  100.0% of the 313.12 the geometry states
+/// ours, 8×                           312.75   99.9%
+/// ours, 4×                           311.49   99.5%
+/// ours, 2×                           308.21   98.4%
+/// ours, 1×                           299.86   95.8%
+/// mupdf, 1×                          367.62  117.4%
+/// hayro, 1×                          429.85  137.3%
+/// poppler, 1×                        499.72  159.6%
+/// ghostscript, 1×                    953.00  304.4%
+/// ```
+///
+/// **So the sentence "we are the only one below the area" survives and its size does not.** In
+/// the limit this tree is *at* the geometry — 313.02 against 313.117, a thirtieth of a percent —
+/// and what is left at the page's own scale is 4.2% of anti-aliasing on a rule half a device
+/// pixel wide, against a nearest reference 17% over it. The −5.642 of `doc/todo/00` step 7 is
+/// therefore the references' excess and not our shortfall, which is what that file's own
+/// paragraph on this page predicted and had never measured against a limit of ours.
+///
+/// # And ADR 0226's owed column, taken
+///
+/// The four-scale table above was left with a 1× column older than that decision, marked as such
+/// rather than guessed at. It is re-measured here by a construction that needs no whole number of
+/// pixels: a band from 2.5 to 10.5 periods has its edges in the middle of a white gap and holds
+/// exactly the eight rules 3 to 10, so snapping it to whole rows changes its *area* and not its
+/// ink, and the quantity is that ink over the `8 × 0.3985 × width` the geometry puts in it.
+///
+/// ```text
+///                1×      2×      4×      8×     24×
+/// left        0.971   0.986   0.990   0.994   0.998
+/// right       0.980   0.970   0.993   0.994   0.998
+/// ```
+///
+/// The two squares still weigh the same — 1.6% apart at 2× and within 0.9% at the other four —
+/// and both climb to the geometry from below without crossing it, which
+/// is the ADR 0213 result holding under everything since. The figures are not the old table's
+/// row continued: that one was taken over a differently placed band and read above 1.0 at 8×,
+/// and two instruments of the same shape are not one instrument.
 const AMBIGUOUS_TILING_CELL_CLIP: [&str; 1] = ["issue16038.pdf page 1"];
 
 /// Ambiguous, and it is a page made almost entirely of sub-pixel line work.
@@ -8031,6 +8098,17 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 /// The verdict is `ambiguous` rather than agreeing because `ghostscript` draws the same form a
 /// fifth of a level lighter still and its comb cells come out dotted; the picture is five
 /// renderings of one page that a person would call identical.
+///
+/// # What ADR 0735 has to do with `issue12295.pdf`, which is nothing
+///
+/// The eight-hundred-and-second session drew strokes coloured by a tiling pattern for the first
+/// time, and the nineteenth sweep reads it as a decision taken about a page this note argues —
+/// correctly, because ADR 0735 names `issue12295.pdf` once, in the `doc/todo/00` step-7 line
+/// recording that the page did not move. **It could not have moved.** Expanded with `qpdf --qdf
+/// --object-streams=disable`, the document states `/Pattern` zero times and `SCN` zero times, so
+/// neither arm of `Interpreter::tile` is reached on it at all; what it states is the 65 859
+/// sub-pixel strokes above, in a flat colour. The gap reproduces at −2.362 and the verdict is
+/// unchanged. ADR 0738.
 const AMBIGUOUS_EVERYONE_OVER_THE_GEOMETRY: [&str; 8] = [
     "issue12963.pdf page 2",
     "issue12963.pdf page 3",
