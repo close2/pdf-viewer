@@ -88,7 +88,11 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
 
 **A window on this boundary exists**: `pdf-viewer-confined` (in `viewer-ui`, ADR 0713 for why
 there), the smallest complete host — open, arrange, turn, scroll, zoom, report, abort — with
-everything outside that scope refused by name. Both payload arms reach its screen: rasters are
+everything outside that scope refused by name. **Since the seven-hundred-and-eighty-first
+session that scope includes §7.6.4.1's prompt** (ADR 0718): an encrypted document was the one
+refusal standing in front of *open* itself, and the prompt is the shared card and the shared
+policy, with the password crossing into the confinement inside `Command::Open` — the direction
+argued in that ADR, not an accident. Both payload arms reach its screen: rasters are
 placed as they arrive, marks are drawn by `render-cpu` on `viewer_host::drawing`'s thread, which
 became generic over its request (`DrawRequest`) because a confined host cannot hold a
 `RenderToken`. **The cancel path is proven from a host**, which this file used to list as owed:
