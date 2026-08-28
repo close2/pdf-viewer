@@ -25,6 +25,8 @@
 //! worker, how many are enough, and what a resume goes back to.** [`Resuming`] is that, it is
 //! pure, and its tests need no pipe.
 
+use viewer_core::Viewing;
+
 use crate::ConfinedError;
 
 /// How many workers a host starts in a row before it stops trying.
@@ -42,15 +44,17 @@ use crate::ConfinedError;
 pub const RESTARTS: usize = 3;
 
 /// Where a host goes back to, and how far into its budget it is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reopen {
-    /// The last page a frame arrived for, zero-based — where the reader was looking.
+    /// The view the last frame arrived for — where the reader was looking.
     ///
-    /// The *page*, and not the view: magnification and scroll are the confined viewer's own
-    /// state, and nothing on this boundary asks for them, so a host that replayed them would be
-    /// guessing. What a host can restore exactly it restores; the rest returns to the document's
-    /// opening view, and a host owes the reader that sentence.
-    pub page: usize,
+    /// **The whole view since the eight-hundred-and-fifth session, and it used to be the page
+    /// alone** (ADR 0737). The reason it was the page was that nothing on this boundary asked the
+    /// viewer for a magnification or an offset, so a host could only replay the relative commands
+    /// it had sent and would have been guessing; [`viewer_core::Query::View`] is that question,
+    /// and [`viewer_core::Command::View`] is what a host sends the answer back as. What a host
+    /// restores it now restores exactly, and there is no sentence left to owe the reader.
+    pub view: Viewing,
     /// Which start this is, counting from one.
     pub attempt: usize,
     /// How many there are in all — [`RESTARTS`], carried so that a host's sentence needs no
@@ -63,7 +67,7 @@ pub struct Reopen {
 /// Two arms and no third: either another worker is worth starting or the host says why not. A
 /// host matches this exhaustively, which is `doc/ui-boundary.md`'s rule for every closed
 /// vocabulary that crosses into a host.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Resume {
     /// Start another worker, open the document again, and go back to this page.
     Reopen(Reopen),
@@ -72,12 +76,31 @@ pub enum Resume {
 }
 
 /// A host's count of what it has already tried for the document in front of it.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Resuming {
     /// Starts spent since the last frame reached the screen.
     spent: usize,
-    /// The last page a frame arrived for.
-    page: usize,
+    /// The view the last frame arrived for.
+    view: Viewing,
+}
+
+impl Default for Resuming {
+    /// Nothing tried yet, and the view a document opens in.
+    ///
+    /// There is no `Default` for a [`Viewing`] and deliberately so — a view is something the
+    /// viewer answers with, not a value to invent — so the one place a host has none names what
+    /// it is standing in for: page one, the whole page, unscrolled. It is replaced by the first
+    /// frame that reaches the screen, and a death before that has nothing better to go back to.
+    fn default() -> Self {
+        Self {
+            spent: 0,
+            view: Viewing {
+                page: 0,
+                zoom: viewer_core::Zoom::FitPage,
+                scroll: (0.0, 0.0),
+            },
+        }
+    }
 }
 
 impl Resuming {
@@ -87,16 +110,20 @@ impl Resuming {
         Self::default()
     }
 
-    /// A frame arrived for this page and the reader is looking at it.
+    /// A frame arrived for this view and the reader is looking at it.
     ///
     /// Two things at once, and they are the same fact: this is where a resume goes back to, and
     /// the budget is spent again from here. **Consecutive rather than cumulative**, because the
     /// two describe different worlds — a cumulative budget makes a document that recovers
     /// perfectly well fail on its fourth incident an hour into a read, which is a rule about the
     /// length of the reading rather than about the document.
-    pub fn showing(&mut self, page: usize) {
+    ///
+    /// A host asks [`viewer_core::Query::View`] for the argument, per frame, and the *per frame*
+    /// is what makes this exact rather than nearly right: the view a page was last seen at is the
+    /// one the reader is looking at while the worker dies.
+    pub fn showing(&mut self, view: Viewing) {
         self.spent = 0;
-        self.page = page;
+        self.view = view;
     }
 
     /// What to do about `problem`, and the spending of a start if that is the answer.
@@ -129,7 +156,7 @@ impl Resuming {
                 }
                 self.spent = self.spent.saturating_add(1);
                 Resume::Reopen(Reopen {
-                    page: self.page,
+                    view: self.view,
                     attempt: self.spent,
                     of: RESTARTS,
                 })
@@ -149,6 +176,8 @@ impl Resuming {
 
 #[cfg(test)]
 mod tests {
+    use viewer_core::{Viewing, Zoom};
+
     use super::{RESTARTS, Reopen, Resume, Resuming};
     use crate::ConfinedError;
 
@@ -156,6 +185,26 @@ mod tests {
     fn a_death() -> ConfinedError {
         ConfinedError::WorkerDied {
             detail: "killed by signal 6".to_owned(),
+        }
+    }
+
+    /// The view a host has never been handed one for, which is what `Resuming::new` stands in
+    /// with until the first frame lands.
+    fn the_opening_view() -> Viewing {
+        Viewing {
+            page: 0,
+            zoom: Zoom::FitPage,
+            scroll: (0.0, 0.0),
+        }
+    }
+
+    /// A reader somewhere in the middle of a document, magnified and scrolled — the view a
+    /// restart has to reproduce and the one a replay of relative commands could not.
+    fn a_reader_at_work() -> Viewing {
+        Viewing {
+            page: 4,
+            zoom: Zoom::Scale(2.75),
+            scroll: (13.0, 907.5),
         }
     }
 
@@ -167,7 +216,7 @@ mod tests {
             assert_eq!(
                 resuming.after(&a_death()),
                 Resume::Reopen(Reopen {
-                    page: 0,
+                    view: the_opening_view(),
                     attempt,
                     of: RESTARTS,
                 }),
@@ -190,11 +239,11 @@ mod tests {
             let _ = resuming.after(&a_death());
         }
         assert_eq!(resuming.after(&a_death()), Resume::Stop, "spent");
-        resuming.showing(4);
+        resuming.showing(a_reader_at_work());
         assert_eq!(
             resuming.after(&a_death()),
             Resume::Reopen(Reopen {
-                page: 4,
+                view: a_reader_at_work(),
                 attempt: 1,
                 of: RESTARTS,
             }),
@@ -202,17 +251,25 @@ mod tests {
         );
     }
 
-    /// A resume goes back to the last page a frame arrived for, not to the one that killed the
-    /// worker.
+    /// A resume goes back to the last view a frame arrived for, not to the one that killed the
+    /// worker — and to the whole of it, which is what ADR 0737 added to ADR 0734's page.
     #[test]
-    fn a_resume_returns_to_the_last_page_that_answered() {
+    fn a_resume_returns_to_the_last_view_that_answered() {
         let mut resuming = Resuming::new();
-        resuming.showing(3);
-        resuming.showing(4);
+        resuming.showing(Viewing {
+            page: 3,
+            zoom: Zoom::FitWidth,
+            scroll: (0.0, 40.0),
+        });
+        resuming.showing(a_reader_at_work());
         let Resume::Reopen(reopen) = resuming.after(&a_death()) else {
             panic!("a death is worth another worker");
         };
-        assert_eq!(reopen.page, 4, "where the reader was when it last worked");
+        assert_eq!(
+            reopen.view,
+            a_reader_at_work(),
+            "where the reader was when it last worked, magnification and offset included"
+        );
     }
 
     /// Every other refusal on this boundary stops, each for its own reason, and this walks all of
@@ -260,7 +317,7 @@ mod tests {
         assert_eq!(
             resuming.after(&a_death()),
             Resume::Reopen(Reopen {
-                page: 0,
+                view: the_opening_view(),
                 attempt: 1,
                 of: RESTARTS,
             }),

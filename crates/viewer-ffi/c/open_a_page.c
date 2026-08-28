@@ -691,6 +691,58 @@ int main(int argc, char **argv)
                (double)geometry.origin_y);
     }
 
+    /* Where the reader is looking, taken away and put back. A C caller keeps one of these across
+     * anything that loses the viewer — which is what the confined window keeps it across — and
+     * hands it back unchanged; the assertion is that it lands exactly where it was, which is what
+     * replaying the zoom and the scroll could not promise.
+     *
+     * The magnification and the scroll are set FIRST, so that the value read back is one no
+     * default could stand in for: a page that fits the window is scrolled by nothing at all.
+     * The view this program was in is read first and put back afterwards, so that what follows
+     * runs in the state it would have run in — which is itself a use of the pair. */
+    pdfv_viewing opening;
+    memset(&opening, 0, sizeof opening);
+    (void)check("pdfv_view", pdfv_view(viewer, &opening));
+    pdfv_events *shifted = NULL;
+    if (check("pdfv_zoom", pdfv_zoom(viewer, PDFV_ZOOM_SCALE, 2.5f, &shifted))) {
+        pdfv_events_free(shifted);
+    }
+    shifted = NULL;
+    if (check("pdfv_scroll", pdfv_scroll(viewer, 40.0f, 120.0f, &shifted))) {
+        pdfv_events_free(shifted);
+    }
+    pdfv_viewing was;
+    memset(&was, 0, sizeof was);
+    if (check("pdfv_view", pdfv_view(viewer, &was))) {
+        printf("view: page %zu, zoom %u at %.3f, scroll %.1f,%.1f\n", was.page, was.zoom,
+               (double)was.scale, (double)was.scroll_x, (double)was.scroll_y);
+        shifted = NULL;
+        if (check("pdfv_zoom", pdfv_zoom(viewer, PDFV_ZOOM_FIT_PAGE, 0.0f, &shifted))) {
+            pdfv_events_free(shifted);
+        }
+        shifted = NULL;
+        if (check("pdfv_go_to_page", pdfv_go_to_page(viewer, PDFV_PAGE_LAST, 0, &shifted))) {
+            pdfv_events_free(shifted);
+        }
+        shifted = NULL;
+        if (check("pdfv_set_view", pdfv_set_view(viewer, was, &shifted))) {
+            pdfv_events_free(shifted);
+        }
+        pdfv_viewing again;
+        memset(&again, 0, sizeof again);
+        if (check("pdfv_view", pdfv_view(viewer, &again))) {
+            printf("view restored: %s\n",
+                   (again.page == was.page && again.zoom == was.zoom && again.scale == was.scale
+                    && again.scroll_x == was.scroll_x && again.scroll_y == was.scroll_y)
+                       ? "exactly"
+                       : "NOT exactly");
+        }
+        shifted = NULL;
+        if (check("pdfv_set_view", pdfv_set_view(viewer, opening, &shifted))) {
+            pdfv_events_free(shifted);
+        }
+    }
+
     /* §12.3.3's outline, which is the answer ADR 0247 made owned. */
     pdfv_outline *outline = NULL;
     int32_t read = pdfv_outline_read(viewer, &outline);

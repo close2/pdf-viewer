@@ -11,7 +11,7 @@ use pdf_syntax::{ObjectId, SyntaxError};
 
 use crate::command::{
     Command, Find, FindDirection, PageTarget, PointerAction, Purpose, Rendered,
-    Selection as CommandSelection, Zoom,
+    Selection as CommandSelection, Viewing, Zoom,
 };
 use crate::event::{Event, Extraction, Found, RenderRequest};
 use crate::interact;
@@ -223,6 +223,14 @@ impl Viewer {
             Query::PageGeometry(index) => self
                 .geometry(open, index)
                 .map_or(Answer::None, Answer::Geometry),
+            // The three as this crate holds them, settled: `Viewer::handle` clamps the scroll at
+            // the end of every command, so what a host reads here is where the reader is rather
+            // than where the last message asked for them to be.
+            Query::View => Answer::View(Viewing {
+                page: open.page_index,
+                zoom: open.zoom,
+                scroll: open.scroll,
+            }),
             // Cloned rather than lent, since ADR 0247: every consumer cloned it anyway, because a
             // panel outlives the query that filled it. Measured by
             // `viewer-host --example outline_census`, median of five: ISO 32000-2's own outline
@@ -418,6 +426,7 @@ impl Viewer {
             Command::Tick { millis } => self.tick(millis, events),
             Command::Zoom { zoom, at } => self.set_zoom(zoom, at, events),
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
+            Command::View(view) => self.restore(view, events),
             Command::Restrict(level) => self.restrictions = level,
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
@@ -2149,6 +2158,32 @@ impl Viewer {
         {
             open.hold(viewport, scale, before, after, at);
         }
+        events.push(damage(viewport));
+    }
+
+    /// Puts the reader back at a view this crate answered with.
+    ///
+    /// **Three assignments in one command, and the order is the whole of the implementation.**
+    /// The page goes first because a turn is what zeroes the scroll ([`Self::go_to`] says why),
+    /// and going second would throw the restored offset away. The magnification goes next because
+    /// the scroll is measured in device pixels and the magnification is what makes one — and
+    /// through [`Self::set_zoom`] rather than by assignment, so that a `Viewing` built by hand
+    /// with [`Zoom::In`] means the step it means everywhere else. The scroll goes last, and it is
+    /// the only part written straight down: it is the one component this vocabulary could not
+    /// otherwise state, and every other route to it passes through a clamp or an arithmetic.
+    ///
+    /// [`Self::settle`] clamps what lands here, exactly as it clamps a wheel's delta. A view this
+    /// crate answered with was clamped when it was made, so the clamp is a no-op for it; a view a
+    /// host composed for itself is held to the same bound as anything else, which is what keeps
+    /// the public fields from being a way round the arrangement.
+    fn restore(&mut self, view: Viewing, events: &mut Vec<Event>) {
+        self.go_to(PageTarget::Index(view.page), Turn::Requested, events);
+        self.set_zoom(view.zoom, None, events);
+        let viewport = self.viewport;
+        let Some(open) = self.focused_mut() else {
+            return;
+        };
+        open.scroll = view.scroll;
         events.push(damage(viewport));
     }
 

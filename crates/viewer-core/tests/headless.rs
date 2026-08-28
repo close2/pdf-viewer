@@ -312,6 +312,134 @@ fn zooming_rasterises_again_without_interpreting_again() {
     assert!(!std::sync::Arc::ptr_eq(&first.list, &request(&turned).list));
 }
 
+/// Where the reader is looking, as this crate answers it.
+fn viewing(viewer: &Viewer) -> viewer_core::Viewing {
+    match viewer.query(Query::View) {
+        Answer::View(view) => view,
+        other => panic!("a focused document has a view, was {other:?}"),
+    }
+}
+
+#[test]
+fn a_view_answered_is_the_view_restored_exactly() {
+    // The whole of ADR 0737: a host holds one of these per frame and hands it back after a
+    // confined worker has died, and what it gets is the reader's own page, magnification and
+    // offset rather than a document's opening view. Exact `f32` equality is the assertion on
+    // purpose — the value crossed out and came back with no arithmetic done to it, which is what
+    // replaying `GoTo`, `Zoom` and a `Scroll` of the difference could not have promised.
+    let (mut viewer, _) = opened(800, 1000);
+    viewer
+        .handle(Command::GoTo(PageTarget::Index(2)))
+        .for_each(drop);
+    viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::Scale(3.5),
+            at: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Scroll {
+            dx: 37.0,
+            dy: 411.0,
+        })
+        .for_each(drop);
+
+    let was = viewing(&viewer);
+    assert_eq!(was.page, 2, "the page the reader is on");
+    assert_eq!(was.zoom, Zoom::Scale(3.5), "the magnification they chose");
+    assert!(
+        was.scroll.1 > 0.0,
+        "and a page larger than the window is scrolled, was {:?}",
+        was.scroll
+    );
+
+    // Everything about the view moved, in all three of the ways a host can move it.
+    viewer
+        .handle(Command::GoTo(PageTarget::First))
+        .for_each(drop);
+    viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::FitPage,
+            at: None,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::Scroll { dx: 9.0, dy: 13.0 })
+        .for_each(drop);
+    assert_ne!(viewing(&viewer), was, "the reader is somewhere else now");
+
+    viewer.handle(Command::View(was)).for_each(drop);
+    assert_eq!(viewing(&viewer), was, "and back, to the bit");
+}
+
+#[test]
+fn a_restored_view_announces_the_page_it_moved_to() {
+    // §12.6.3's notification does not care which command moved the reader, so a restore that
+    // changes the page raises it exactly as a page turn does — and one that does not, does not.
+    let (mut viewer, _) = opened(800, 1000);
+    let here = viewing(&viewer);
+    viewer
+        .handle(Command::GoTo(PageTarget::Index(3)))
+        .for_each(drop);
+
+    let back: Vec<Event> = viewer.handle(Command::View(here)).collect();
+    assert!(
+        back.iter()
+            .any(|event| matches!(event, Event::PageChanged { index: 0, .. })),
+        "the page moved and the host is told which page it is now on: {back:?}"
+    );
+    let again: Vec<Event> = viewer.handle(Command::View(here)).collect();
+    assert!(
+        !again
+            .iter()
+            .any(|event| matches!(event, Event::PageChanged { .. })),
+        "and a restore that moves nothing announces nothing: {again:?}"
+    );
+}
+
+#[test]
+fn a_view_is_not_what_a_host_asked_for_and_that_is_why_it_is_a_question() {
+    // ADR 0734's stated reason for the limit this question lifts: the commands that make a view
+    // are relative and the viewer clamps them, so `In In In Out` and a net two steps in land in
+    // different places. A host that had watched every message it sent would believe the second.
+    let (mut viewer, _) = opened(800, 1000);
+    let ladder = |viewer: &mut Viewer, steps: &[Zoom]| {
+        for step in steps {
+            viewer
+                .handle(Command::Zoom {
+                    zoom: *step,
+                    at: None,
+                })
+                .for_each(drop);
+        }
+    };
+    ladder(
+        &mut viewer,
+        &[Zoom::Scale(50.0), Zoom::In, Zoom::In, Zoom::In, Zoom::Out],
+    );
+    let clamped = viewing(&viewer).zoom;
+
+    let (mut counted, _) = opened(800, 1000);
+    ladder(&mut counted, &[Zoom::Scale(50.0), Zoom::In, Zoom::In]);
+    assert_ne!(
+        clamped,
+        viewing(&counted).zoom,
+        "a ladder that clamps is not an arithmetic on the steps a host sent"
+    );
+
+    // The same fact about the other axis, and the sharper one: a scroll is answered with where
+    // the reader ended up rather than with what was asked for.
+    let (mut scrolled, _) = opened(800, 1000);
+    scrolled
+        .handle(Command::Scroll { dx: 0.0, dy: 1.0e9 })
+        .for_each(drop);
+    let landed = viewing(&scrolled).scroll.1;
+    assert!(
+        (landed - 1.0e9).abs() > 1.0,
+        "the delta was clamped to the page, was {landed}"
+    );
+}
+
 #[test]
 fn a_page_target_is_clamped_to_the_document() {
     let (mut viewer, _) = opened(800, 1000);

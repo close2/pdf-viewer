@@ -126,6 +126,12 @@ impl Session {
         self.handle(Command::Scroll { dx, dy })
     }
 
+    /// Puts the reader back at a view [`Self::view`] answered with.
+    #[must_use]
+    pub fn set_view(&mut self, view: viewer_core::Viewing) -> Events {
+        self.handle(Command::View(view))
+    }
+
     /// Annex O's `search`, and a find bar's *next*: one step of a document-wide search.
     ///
     /// Three calls rather than one, because [`viewer_core::Find`] is three verbs and a `bool` for
@@ -219,6 +225,18 @@ impl Session {
     pub fn current_page(&self) -> Result<(usize, usize), Status> {
         match self.viewer.query(Query::CurrentPage) {
             Answer::Page { index, of, .. } => Ok((index, of)),
+            _ => Err(Status::NoAnswer),
+        }
+    }
+
+    /// Where the reader is looking: the page, the magnification and the scroll.
+    ///
+    /// # Errors
+    ///
+    /// [`Status::NoAnswer`] when no document is focused.
+    pub fn view(&self) -> Result<viewer_core::Viewing, Status> {
+        match self.viewer.query(Query::View) {
+            Answer::View(view) => Ok(view),
             _ => Err(Status::NoAnswer),
         }
     }

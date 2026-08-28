@@ -146,6 +146,30 @@ question about that: `Query::PageGeometry` already answers `Answer::None` for a 
 does not show, which is the other half of the rule. `PDFV_EVENT_KIND_COUNT` stayed 16 and the C ABI
 gained no entry point — it is the one host of the four still without a way to raise a flag, which is
 `doc/todo/30`'s (ADR 0668).
+**And the eight-hundred-and-fifth added a `Query`, an `Answer` and a `Command`** — the first
+three-message round since this vocabulary was frozen, and the first `Command` since Table 29's
+`/PageLayout`. `Query::View` answers with `Viewing` — the page, the magnification and the scroll —
+and `Command::View(Viewing)` takes one back. What makes it a question rather than a deduction is
+that **every command that makes a view is relative and the viewer clamps it**: `Zoom::In` three
+times and once out is not a net two steps when the ladder has a range, and a `Scroll` stopped at
+the bottom of a page moved less than it said, so a host that watched every message it sent still
+cannot say where the reader is. And what makes the answer's return trip a *command* rather than a
+replay of the three a host already has is that the three cannot be sequenced without knowing which
+of them resets the others — a page turn zeroes the scroll, a zoom moves it — and that a scroll of
+the difference lands within a rounding of the place rather than on it. The three mechanisms this
+file prefers were checked first and none fits: `Query::PageGeometry`'s `scale` is the magnification
+*and* the display's scale multiplied, and dividing them back is the one round trip `viewer-core`
+refuses to make in `f32`; its `origin` is where the raster ended up, which for a centred page says
+nothing about the scroll at all; and a field on an existing message cannot carry a value that
+travels in both directions. **A host does not compose a `Viewing`; it echoes one.** Two consumers
+failed to compile — `viewer-confined`'s wire and `viewer-ui`'s trace line for the command,
+`viewer-confined` and `viewer-ffi`'s `every_query_reaches_the_abi` for the question —
+`PDFV_EVENT_KIND_COUNT` stayed where it is because none of the three is an event, and the C ABI
+gained two entry points and its first struct passed by value since the ABI was written: `pdfv_view`,
+`pdfv_set_view` and `pdfv_viewing`, named for the reason `pdfv_frame` is — C puts a struct tag and
+a function in one namespace. `PDFV_ABI_VERSION` did not move, because a struct *added* is a shape
+an old caller never passes. ADR 0737.
+
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -238,6 +262,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
   `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
   §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —
+  **`View(Viewing)`** — where the reader is looking, said absolutely, and the only command whose
+  value a host does not compose but echoes: `Query::View` answers with one and this puts it back,
+  which is what a confined host does after starting another worker (ADR 0737) —
   `Undo`, `Redo`, `Save`, **`Extract { name }`**, **`Find(Find)`** — Annex O's `search` and a find
   bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
   budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
@@ -286,7 +313,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   it can become a question (ADR 0212) —
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
-- `Query` → `Answer`: `PageCount`, `CurrentPage`, `PageGeometry`, `LinkAt`, `FieldAt`,
+- `Query` → `Answer`: `PageCount`, `CurrentPage`, **`View`** — the page, the magnification and the
+  scroll as one value, because the commands that make them are relative and clamped and no host can
+  invert them (ADR 0737) — `PageGeometry`, `LinkAt`, `FieldAt`,
   **`Fields`** — §12.7's whole form on the page being shown, as controls a host builds itself
   (ADR 0235) —
   **`Caret { at, offset }`** (§12.7.4.3's layout, ADR 0211), **`Offset { at, point }`** — that
@@ -310,7 +339,14 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   chrome off the rendering path.
 - **Nothing is `#[non_exhaustive]`**, deliberately: it forces a catch-all arm on every host, and
   a catch-all arm is where a message added later goes to be ignored in silence. A new `Event`
-  should fail to compile in every consumer. **The rule reaches types this crate does not declare**,
+  should fail to compile in every consumer. **What the rule binds is a *vocabulary*, and
+  `viewer_confined::ConfinedError` is the one type beside it that is `#[non_exhaustive]` on
+  purpose** — a line ADR 0734 recorded as a tension and ADR 0737 drew. A message's population is
+  this project's own and every member of it is something a host has to decide about; that error's
+  population is the *kernel's*, and what a host decides about one of them is not which it is but
+  whether another worker is worth starting — which is `viewer_confined::Resume`, two arms, closed,
+  matched exhaustively, with the wildcard-free match over every error variant kept inside the crate
+  that declares them. **The rule reaches types this crate does not declare**,
   which the two native hosts found and the third settled: `pdf_render::RasterFormat` crosses inside
   `Rendered::Raster` and `Answer::Frame`, was `#[non_exhaustive]`, and cost four consumers a
   catch-all apiece — so it is not, since ADR 0247. **And a C consumer cannot fail to compile at

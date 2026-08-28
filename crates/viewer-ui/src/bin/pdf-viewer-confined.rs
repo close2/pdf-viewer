@@ -35,13 +35,14 @@
 //! A ceiling breach, the seccomp filter firing, an allocation deep inside the interpreter that
 //! `RLIMIT_AS` refuses: each ends the worker, and each is one page's breach rather than the
 //! document's end. **This window starts another worker, opens the file again and goes back to the
-//! page the reader was on**, without sending the command that killed the last one —
+//! view the reader was looking at**, without sending the command that killed the last one —
 //! [`viewer_confined::Resuming`] decides whether a refusal is worth that and how many in a row are
-//! enough, so that a second host on this boundary cannot answer it differently. What is *not*
-//! restored is the magnification and the position on the page: those are the confined viewer's own
-//! state, nothing on this boundary asks for them, and a window that replayed them would be
-//! guessing — so the view returns to the document's opening one and the window says so. A worker
-//! the **reader** ended (Escape, below) is never started again; that is what pressing it meant.
+//! enough, so that a second host on this boundary cannot answer it differently. **The
+//! magnification and the position on the page come back too, exactly** (ADR 0737), which they did
+//! not until [`Query::View`] existed: this window asks that question per frame and hands the
+//! answer back as [`Command::View`], so what is restored is the reader's own view rather than the
+//! document's opening one. A worker the **reader** ended (Escape, below) is never started again;
+//! that is what pressing it meant.
 //!
 //! # §7.6.4.1's prompt, and which way the password goes
 //!
@@ -93,7 +94,7 @@ use render_quorra::QuorraWindowRenderer;
 use viewer_confined::{
     Canceller, Confined, ConfinedError, Payload, Reopen, Reply, Resume, Resuming,
 };
-use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Zoom};
+use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Viewing, Zoom};
 use viewer_host::drawing::Drawing;
 use viewer_host::trace::{Topic, Trace};
 use viewer_host::{Ask, Asking, Supplied};
@@ -232,9 +233,10 @@ struct Host {
     leaving: bool,
     /// Which page of the document is in front of the reader, zero-based.
     ///
-    /// Kept because a resume has to go back to it, and because only this side ever learns it: it
-    /// arrives as [`Event::PageChanged`] and the worker that stated it may be gone by the time it
-    /// is wanted.
+    /// Kept because the title says it, and because only this side ever learns it: it arrives as
+    /// [`Event::PageChanged`] and the worker that stated it may be gone by the time it is wanted.
+    /// **Where a resume goes back to is the whole view rather than this**, which is
+    /// [`Query::View`]'s answer and [`Resuming`]'s to hold.
     page: usize,
     /// What has already been tried for this document — [`viewer_confined::Resuming`]'s count.
     resuming: Resuming,
@@ -321,10 +323,9 @@ impl Host {
             Resume::Reopen(reopen) => {
                 self.confined = None;
                 eprintln!(
-                    "{problem}; starting another and returning to page {} — attempt {} of {}. \
-                     The magnification and the position on the page return to the document's \
-                     opening view, because this side does not hold them.",
-                    reopen.page.saturating_add(1),
+                    "{problem}; starting another and returning to page {} at the magnification \
+                     and position the reader was at — attempt {} of {}.",
+                    reopen.view.page.saturating_add(1),
                     reopen.attempt,
                     reopen.of
                 );
@@ -348,8 +349,14 @@ impl Host {
     /// something worse than the truth. The next frame replaces them, page by page, when it lands.
     ///
     /// The command that killed the last worker is *not* among these: the resume sends the extent,
-    /// the document and the page, and stops. If the document's own open is what kills a worker,
+    /// the document and the view, and stops. If the document's own open is what kills a worker,
     /// this fails again and `Resuming`'s budget ends it.
+    ///
+    /// **The view is one command and not three** (ADR 0737): [`Command::View`] states the page,
+    /// the magnification and the offset together, in the values [`Query::View`] answered with,
+    /// which is what makes the restore exact. Replaying a `GoTo`, a `Zoom` and a `Scroll` of the
+    /// difference would land near it and would need this window to know which of the three resets
+    /// the others.
     fn reopen(&mut self, reopen: Reopen) {
         if self.stopped.is_some() {
             return;
@@ -408,9 +415,7 @@ impl Host {
             password: None,
             fragment: None,
         });
-        if reopen.page != 0 {
-            self.dispatch(&Command::GoTo(PageTarget::Index(reopen.page)));
-        }
+        self.dispatch(&Command::View(reopen.view));
     }
 
     /// The file's own name, for the title.
@@ -594,16 +599,33 @@ impl Host {
                     ),
                 );
                 self.screen.take(frames, &mut self.drawing);
-                // A frame crossed for this page, so this is where a resume goes back to — and
-                // the restart budget starts again from here, because what it bounds is a
-                // recovery that is not working rather than the length of the reading.
-                self.resuming.showing(self.page);
+                // A frame crossed, so where the reader is now is where a resume goes back to —
+                // and the restart budget starts again from here, because what it bounds is a
+                // recovery that is not working rather than the length of the reading. The view is
+                // *asked for* rather than assembled from what this window sent: `Zoom` and
+                // `Scroll` are relative and the viewer clamps them, so only the viewer knows.
+                if let Some(view) = self.view() {
+                    self.resuming.showing(view);
+                }
                 self.ask_frame();
                 self.redraw();
             }
             // No document is focused — before the open, or after a failed one.
             Ok(_) => {}
             Err(problem) => self.died(&problem),
+        }
+    }
+
+    /// Where the confined viewer says the reader is looking, or nothing if it cannot say.
+    ///
+    /// A refusal here is deliberately *not* a death: this question is asked beside a frame that
+    /// has already crossed, so a worker that will not answer it will be found by the next command
+    /// — and treating it as a death here would start a worker from inside the frame pull, which is
+    /// exactly the nesting [`Host::resume`] exists to prevent.
+    fn view(&mut self) -> Option<Viewing> {
+        match self.confined.as_mut()?.query(Query::View) {
+            Ok(Reply::View(view)) => Some(view),
+            _ => None,
         }
     }
 
@@ -1177,7 +1199,7 @@ mod tests {
     use std::time::Instant;
 
     use viewer_confined::ConfinedError;
-    use viewer_core::{DocumentId, Event};
+    use viewer_core::{DocumentId, Event, Viewing, Zoom};
     use winit::keyboard::{Key, NamedKey};
 
     use super::Host;
@@ -1274,13 +1296,21 @@ mod tests {
     }
 
     /// A worker that died leaves the window open with a restart owed, and the restart goes back
-    /// to the page the reader was on.
+    /// to the whole view the reader was looking at.
     ///
     /// The behaviour this replaces is a `stop`: from ADR 0713 until ADR 0734 every death ended the
-    /// document, so the discriminating assertions are `stopped.is_none()` and the page.
+    /// document, so the discriminating assertions are `stopped.is_none()` and the view. **The
+    /// magnification and the offset are in it since ADR 0737**, and they are what the assertion is
+    /// really about: until then a restart went back to the page and to the document's opening
+    /// view, which is the sentence this window used to print.
     #[test]
-    fn a_dead_worker_leaves_a_restart_owed_at_the_readers_page() {
+    fn a_dead_worker_leaves_a_restart_owed_at_the_readers_view() {
         let mut host = a_host();
+        let was = Viewing {
+            page: 4,
+            zoom: Zoom::Scale(2.75),
+            scroll: (13.0, 907.5),
+        };
         host.event(Event::PageChanged {
             document: DocumentId(0),
             index: 4,
@@ -1288,15 +1318,15 @@ mod tests {
             of: 9,
             section: None,
         });
-        host.resuming.showing(host.page);
+        host.resuming.showing(was);
         host.died(&ConfinedError::WorkerDied {
             detail: "killed by signal 6".to_owned(),
         });
         assert!(host.stopped.is_none(), "the document was not given up on");
         assert_eq!(
-            host.resume.map(|reopen| reopen.page),
-            Some(4),
-            "the restart goes back to where the reader was"
+            host.resume.map(|reopen| reopen.view),
+            Some(was),
+            "the restart goes back to where the reader was, magnification and offset included"
         );
         assert!(
             host.heading.contains("restarting"),

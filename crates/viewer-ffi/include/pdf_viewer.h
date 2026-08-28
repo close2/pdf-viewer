@@ -36,11 +36,12 @@ extern "C" {
 /* ------------------------------------------------------------------------------------------- */
 
 /*
- * The revision of everything below that is passed BY VALUE, which is `pdfv_geometry` and
- * `pdfv_frame` and nothing else. A function added later is a symbol an old caller never looks
- * up; a status or an event kind added later is a number an old caller has a `default:` arm for.
- * A field added to one of those two structs is a size an old caller has already compiled, and no
- * diagnostic anywhere would catch it — so this number moves when one of them does.
+ * The revision of everything below that is passed BY VALUE: `pdfv_geometry`, `pdfv_frame` and
+ * `pdfv_viewing`, and nothing else. A function added later is a symbol an old caller never looks
+ * up; a status or an event kind added later is a number an old caller has a `default:` arm for;
+ * a whole struct added later is a shape an old caller never passes. A FIELD added to one of those
+ * structs is a size an old caller has already compiled, and no diagnostic anywhere would catch
+ * it — so this number moves when one of them does.
  */
 #define PDFV_ABI_VERSION 1u
 
@@ -445,7 +446,7 @@ typedef struct pdfv_structure pdfv_structure;
 typedef struct pdfv_collection pdfv_collection;
 
 /* ------------------------------------------------------------------------------------------- */
-/* The two structs passed by value.                                                              */
+/* The structs passed by value.                                                                  */
 /* ------------------------------------------------------------------------------------------- */
 
 /* Where a page sits on the screen and how large it is drawn. */
@@ -474,6 +475,22 @@ typedef struct pdfv_frame {
     float    origin_x;
     float    origin_y;
 } pdfv_frame;
+
+/*
+ * Where the reader is looking: the page, the magnification and the scroll, together.
+ *
+ * READ ONE, HAND IT BACK. `pdfv_view` answers with one and `pdfv_set_view` takes it, and that is
+ * the whole point of the type: the commands that make a view are relative and the viewer clamps
+ * them, so a caller that issued every one of them still cannot say where the reader ended up.
+ * Composing one from numbers of your own is a guess about where that clamp would have left them.
+ */
+typedef struct pdfv_viewing {
+    size_t page;           /* zero-based */
+    uint32_t zoom;         /* PDFV_ZOOM_* */
+    float    scale;        /* logical pixels per user space unit, for PDFV_ZOOM_SCALE only */
+    float    scroll_x;     /* device pixels; positive has moved the content up and left */
+    float    scroll_y;
+} pdfv_viewing;
 
 /* ------------------------------------------------------------------------------------------- */
 /* The identity of the ABI.                                                                      */
@@ -529,6 +546,10 @@ int32_t pdfv_zoom(pdfv_viewer *viewer, uint32_t zoom, float scale, pdfv_events *
 
 /* Positive `dy` moves the content up, which is what a wheel scrolling down does. */
 int32_t pdfv_scroll(pdfv_viewer *viewer, float dx, float dy, pdfv_events **events);
+
+/* Puts the reader back where `pdfv_view` said they were. PDFV_WRONG_KIND for a `zoom` this
+ * build does not define. */
+int32_t pdfv_set_view(pdfv_viewer *viewer, pdfv_viewing view, pdfv_events **events);
 
 /*
  * Annex O's `search`, and a find bar's next/previous. `needle` is NUL-terminated UTF-8.
@@ -687,6 +708,9 @@ void pdfv_raster_free(pdfv_raster *raster);
 int32_t pdfv_page_count(const pdfv_viewer *viewer, size_t *pages);
 int32_t pdfv_current_page(const pdfv_viewer *viewer, size_t *page, size_t *of);
 int32_t pdfv_page_geometry(const pdfv_viewer *viewer, size_t page, pdfv_geometry *geometry);
+
+/* Where the reader is looking. PDFV_NO_ANSWER when no document is focused. */
+int32_t pdfv_view(const pdfv_viewer *viewer, pdfv_viewing *view);
 /* How many pages Table 29's arrangement is showing: 1 under PDFV_LAYOUT_SINGLE_PAGE, more under
  * a column or a spread, 0 where the viewer holds no pixels. `frame` below indexes this. */
 size_t  pdfv_frame_count(const pdfv_viewer *viewer);

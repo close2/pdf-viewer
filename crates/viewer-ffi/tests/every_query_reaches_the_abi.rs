@@ -54,6 +54,9 @@ fn entry_points(query: &Query<'_>) -> &'static [&'static str] {
     match query {
         Query::PageCount => &["pdfv_page_count"],
         Query::CurrentPage => &["pdfv_current_page"],
+        // Two, because this is the one question whose answer goes back the way it came: the
+        // reader's place is read with one and restored with the other (ADR 0737).
+        Query::View => &["pdfv_view", "pdfv_set_view"],
         Query::PageGeometry(_) => &["pdfv_page_geometry"],
         Query::Outline => &["pdfv_outline_read"],
         Query::Layers => &["pdfv_layers_read"],
@@ -121,6 +124,7 @@ fn every_query() -> Vec<Query<'static>> {
     vec![
         Query::PageCount,
         Query::CurrentPage,
+        Query::View,
         Query::PageGeometry(0),
         Query::Outline,
         Query::Layers,
