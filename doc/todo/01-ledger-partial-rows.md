@@ -109,6 +109,18 @@ and were found by re-running the two gates before the commit, which is `doc/todo
 check the file, not the command's exit status — in a new costume. Commit the checkpoint
 immediately before the dance, or copy the files aside instead of trusting `checkout`.
 
+**The second method has the same premise and none of that risk, and it is what a *merge* round
+wants**: the binary follows `CARGO_MANIFEST_DIR`, so give the base commit a checkout of its own
+and **build the sweep binaries inside it** (`git worktree add --detach <dir> <base>`, then
+`cargo build --release -p conformance --bins --target-dir <its own>`). Nothing in the working tree
+is touched at all, so no restore can throw an edit away. Two things it needs, because both are
+untracked or linked rather than committed: `doc/md/`, `doc/*.pdf` and the two submodules have to be
+symlinked in from the main tree, and the target directory has to be named on the command line
+rather than left to the shared one. Remove the checkout *and* its build directory afterwards —
+`git worktree remove --force` leaves the second behind, which is `doc/environment.md`'s own
+warning. `spec-errata` costs a `pdf-model` build there; `conformance` costs seconds, because it
+depends on nothing but `thiserror`.
+
 - **One reads the ledger's own quotation marks**, which no gate in this project does: the checker
   verifies every rustdoc blockquote in `crates/` and nothing at all in `ledger.toml`. Report only
   the misses that match the standard for at least five words and then diverge — a claim this
