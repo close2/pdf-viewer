@@ -47,6 +47,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use pdf_model::Unsupported;
+use pdf_model::page::ContentIssue;
 use pdf_render::{Rasterizer, TargetSpec};
 use pdf_syntax::{Document, SyntaxError};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
@@ -183,22 +185,26 @@ const MAX_PAGELESS: usize = 6;
 
 /// Documents whose first page interprets with something reported as unsupported.
 ///
-/// 189, and *not* a defect count — it is the honest-reporting requirement working. The
-/// breakdown, by each document's first report, which is the useful part, and recomputed
-/// every session because a number nothing recomputes is a number that drifts — this table
-/// had said 263 while the ratchet below said 251:
+/// **Not a defect count** — it is the honest-reporting requirement working, which is why the
+/// bound is a ratchet rather than a zero.
 ///
-/// | reported | count | why |
-/// |---|---|---|
-/// | `Text` | 67 | see below; embedded `CMap`s and `/CIDToGIDMap` have left this row |
-/// | `Annotation` | 24 | no appearance stream whose shape a clause states (ADR 0030) |
-/// | `TransparencyGroup` | 18 | §11.4 and §11.5.3, described below |
-/// | `Image` | 12 | see below; one joined when an encrypted document became readable |
-/// | `Operator` | 9 | malformed streams, and three fewer now that ciphertext is decrypted |
-/// | `CompositedInParts` | 4 | §11.6.2, new in the fifteenth session and described below |
-/// | `Content` | 1 | a `/Contents` stream that did not decode |
-/// | `TextKnockout` | 1 | §9.3.8, new in the fourteenth session and described below |
-/// | `LimitReached` | 1 | a bound reached and said so, which is the design |
+/// # The composition is printed by the run, and used not to be
+///
+/// This comment carried the breakdown as a hand-kept table for most of the gate's life, and it
+/// drifted every time: it said one figure while its own rows summed to a second and the ratchet
+/// below stated a third, all in one file. The table had been *corrected* twice before, each time
+/// with the sentence "recomputed every session because a number nothing recomputes is a number
+/// that drifts" written beside it — which is the shape `CLAUDE.md`'s rule about derived facts is
+/// written against, met by a promise instead of by an instrument.
+///
+/// [`whose_defect`] is the instrument, and [`print_the_composition`] is what the run prints:
+/// every report placed under a mechanism and a class, the classes summing to the population, and
+/// a report the table cannot place stopping the gate rather than rounding to nothing. Read that
+/// output; do not write a table here again. ADR 0730.
+///
+/// What stays below is the *argument* — why each rise happened and what each fall bought — which
+/// no command can print and which is why the numbers inside those paragraphs are history rather
+/// than a claim about today.
 ///
 /// **The `Content` row was 10 and is 1**, and the `Operator` row 12 and is 9, for one
 /// reason: §7.6's encryption is implemented (ADR 0031). Nine of those ten `Content` reports
@@ -644,8 +650,367 @@ struct Tally {
     locked: Vec<String>,
     unreadable_encryption: Vec<String>,
     pageless: Vec<String>,
-    incomplete: Vec<(String, String)>,
+    /// Every document whose page one reports something, with the reports themselves.
+    ///
+    /// **Held as the values rather than as their `Debug` string**, since the
+    /// seven-hundred-and-ninety-sixth session, because [`whose_defect`] classifies them and a
+    /// classification derived from a formatted string is one that decays without saying so.
+    incomplete: Vec<(String, Vec<Unsupported>)>,
     slow: Vec<(String, Duration)>,
+}
+
+/// Whose defect a report names, which is the question `incomplete` was never asked.
+///
+/// The count that heads this gate's summary is a *population*, and for most of this file's life
+/// its composition lived in the doc comment above [`MAX_INCOMPLETE`] as a hand-kept table. By the
+/// time it was deleted it stated one figure in its opening sentence, a second in the sum of its
+/// own rows and a third in the ratchet below it, and none of the three was what the gate printed
+/// — which is exactly what `CLAUDE.md`'s rule about derived facts predicts. So the composition is
+/// computed here and printed by the run instead.
+///
+/// Three classes, and the boundary between them is *who has to do something*:
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Whose {
+    /// The report names something the file states that a clause forbids, or omits that a clause
+    /// requires. Nothing is owed but the report itself.
+    TheFile,
+    /// Neither one: the standard defines no route from what the file gives to what would be
+    /// drawn, or this program's own bound was reached and said so, or a model this tree departs
+    /// from where the clause lets the two differ. Closed by a reading or by a decision.
+    NeitherOne,
+    /// The report names a clause this tree does not carry out. Work owed, and this is the row a
+    /// round takes from.
+    ThisReader,
+}
+
+impl Whose {
+    /// The word the summary prints.
+    const fn word(self) -> &'static str {
+        match self {
+            Self::TheFile => "the file",
+            Self::NeitherOne => "neither one",
+            Self::ThisReader => "this reader",
+        }
+    }
+}
+
+/// What one report is, at the grain a round can act on, or `None` where this table cannot say.
+///
+/// **A report this function cannot place fails the gate**, and that is the price of a
+/// classification that does not decay: a new [`Unsupported`] variant is a compile error here
+/// because the `match` is exhaustive, and a reworded message inside one of the three variants
+/// whose payload is prose falls into the unplaced bucket the run asserts is empty. The
+/// alternative — an `other` row — is the shape that let the old table drift.
+///
+/// Three variants carry a string flattened out of a lower layer's typed error, so the mechanism
+/// inside them is read back out of that string: [`Unsupported::Font`], [`Unsupported::Image`] and
+/// [`Unsupported::Annotation`]. Everywhere else the variant *is* the mechanism, because each
+/// one's own doc comment states one condition and one clause. [`Unsupported::Content`] needs no
+/// marker at all: its payload is [`ContentIssue`], which is already typed.
+fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
+    Some(match report {
+        // **A consequence rather than a mechanism**, and classed for the case where it stands
+        // alone: §9.3.1 gives a text object no initial font — "they shall be specified explicitly
+        // by using Tf before any text is shown" — so a show with none set is the file's. Where it
+        // stands beside a font refusal, that refusal is the mechanism and this is the count of
+        // what the refusal cost; the class it is given here cannot decide such a document,
+        // because `TheFile` is the least of the three and the partition takes the greatest. The
+        // gate asserts it never stands alone in this corpus.
+        Unsupported::Text { .. } => (Whose::TheFile, "a show operator this page could not draw"),
+
+        Unsupported::Font { detail } => return a_font_refusal(detail),
+        Unsupported::Image { name } => return an_image_refusal(name),
+        Unsupported::Annotation { detail } => return an_annotation_refusal(detail),
+        Unsupported::Content { issue } => match issue {
+            ContentIssue::TooLarge { .. } | ContentIssue::TokenTooLong { .. } => (
+                Whose::NeitherOne,
+                "a bound this program set, reached on /Contents",
+            ),
+            ContentIssue::Undecodable { .. } => (
+                Whose::TheFile,
+                "a /Contents part whose filter chain could not be applied",
+            ),
+            ContentIssue::Damaged { .. } => (
+                Whose::TheFile,
+                "a /Contents part that decoded only as far as its damage (§7.4.1)",
+            ),
+            ContentIssue::NotAStream { .. } | ContentIssue::Unreachable { .. } => {
+                (Whose::TheFile, "a /Contents entry Table 31 does not admit")
+            }
+            _ => return None,
+        },
+
+        // Each of these is one condition and one clause, stated by the variant's own doc comment.
+        Unsupported::Shading { .. } => (Whose::ThisReader, "a shading or pattern used as paint"),
+        Unsupported::ShadingBackground { .. } => (
+            Whose::ThisReader,
+            "Table 77's /Background, unpainted around the shading",
+        ),
+        // **The mechanism's wording is the claim, and it is checkable.** This variant's own doc
+        // comment says "[a]n operator this interpreter does not implement", which would be this
+        // reader's — so the class rests on every operator the standard defines being implemented,
+        // which was read off the population rather than assumed: what the corpus reports here is
+        // byte soup out of a fuzzed stream, a keyword a file ran into its neighbour, or one of
+        // this interpreter's own sentences about a token §7.3.6 or §7.8.2 does not admit where it
+        // stands. A round that leaves a *defined* operator unimplemented owes this arm a second
+        // row, and the wording above is what makes that visible rather than silent.
+        Unsupported::Operator { .. } => (
+            Whose::TheFile,
+            "a token §7.8.2 admits neither as an operand nor as an operator",
+        ),
+        Unsupported::LimitReached { .. } => (Whose::NeitherOne, "a bound this program set"),
+        Unsupported::TextKnockout { .. }
+        | Unsupported::CompositedInParts { .. }
+        | Unsupported::TransparencyGroup { .. }
+        | Unsupported::SoftMask { .. }
+        | Unsupported::TransferFunction { .. } => (
+            Whose::NeitherOne,
+            "a transparency model this tree departs from where the two can differ",
+        ),
+        Unsupported::MissingResource { .. } => (
+            Whose::TheFile,
+            "a name §7.8.3's resource dictionary does not define",
+        ),
+        Unsupported::DamagedContentStream { .. } => (
+            Whose::TheFile,
+            "one of §7.8.2's other content streams, drawn as far as its damage",
+        ),
+        Unsupported::OptionalContent { .. } => (
+            Whose::NeitherOne,
+            "a visibility expression nested past this program's bound",
+        ),
+        Unsupported::MediaBox { .. } => (
+            Whose::TheFile,
+            "no usable /MediaBox anywhere in the page's ancestry (§7.7.3.4)",
+        ),
+        Unsupported::NoninvertibleMatrix { .. } => (
+            Whose::TheFile,
+            "marks stated under a matrix with no inverse (§8.3.4)",
+        ),
+        Unsupported::UndefinedCurrentPoint { .. } => (
+            Whose::TheFile,
+            "a path segment issued with no current point (§8.5.2.1)",
+        ),
+    })
+}
+
+/// [`whose_defect`]'s [`Unsupported::Font`] arm, which is the largest of the three prose ones.
+///
+/// Every marker below is a phrase one raise site in `pdf-font` or `pdf-model` writes, and none of
+/// them is a catch-all — the note on the §9.7.4.2 row says what a catch-all cost.
+fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
+    let has = |marker: &str| detail.contains(marker);
+    Some(match detail {
+        // ADR 0433's population, now said by the refusal itself rather than read off the ink
+        // sweep by hand: §9.7.5.2's "shall not be used with a non-embedded font".
+        _ if has("§9.7.5.2 says shall not be used") => (
+            Whose::TheFile,
+            "an Identity CMap over a font the file did not embed (§9.7.5.2)",
+        ),
+        _ if has("no readable /CIDSystemInfo") => (
+            Whose::TheFile,
+            "a CIDFont with no /CIDSystemInfo, which Table 115 requires",
+        ),
+        _ if has("glyph order of a program nobody supplied") => (
+            Whose::NeitherOne,
+            "an Identity character collection, whose CIDs no table can name (§9.7.3)",
+        ),
+        _ if has("carries no CID-to-Unicode table") => (
+            Whose::ThisReader,
+            "a character collection beyond the four §9.7.5.2 requires",
+        ),
+        _ if has("no /Font resource named") => (
+            Whose::TheFile,
+            "a /Font name §7.8.3's resource dictionary does not define",
+        ),
+        _ if has("could not be parsed") || has("Type 3 glyph for code") => (
+            Whose::TheFile,
+            "an embedded font program that would not parse",
+        ),
+        // ADR 0270: an embedded subset that contains no glyph for the codes its own document
+        // shows is traced to the end of every route the standard states.
+        _ if has("has no outline for any of the") || has("draws none of the") => (
+            Whose::NeitherOne,
+            "a font with no glyph for any code the page shows through it",
+        ),
+        _ if has("uses unsupported program type") => (
+            Whose::ThisReader,
+            "an embedded font program in a format this crate does not read",
+        ),
+        // **Narrow on purpose, and it was not.** The first draft of this row matched the whole
+        // of "cannot be substituted", which swallowed the §9.7.5.2 case above — so breaking
+        // that marker deliberately, which is trap 13's calibration, left the gate green with
+        // eighteen documents silently reclassified. A marker table with a catch-all in it is
+        // not a table.
+        _ if has("§9.7.4.2 leaves to reach a substitute") => (
+            Whose::ThisReader,
+            "no face this machine offers can be addressed by character (§9.7.4.2)",
+        ),
+        _ if has("uses unsupported encoding") => (
+            Whose::ThisReader,
+            "an encoding or CMap this crate does not implement",
+        ),
+        _ if has("Table 57's /Font") => (
+            Whose::TheFile,
+            "Table 57's /Font stated as something other than a reference and a size",
+        ),
+        _ => return None,
+    })
+}
+
+/// [`whose_defect`]'s [`Unsupported::Image`] arm.
+///
+/// The payload is `ImageError`'s `Display` or one of `pdf_model::image`'s own sentences, so the
+/// mechanism is read back out of the prose.
+fn an_image_refusal(name: &str) -> Option<(Whose, &'static str)> {
+    let has = |marker: &str| name.contains(marker);
+    Some(match name {
+        _ if has("malformed image") || has("an alternate image dictionary states no /Image") => (
+            Whose::TheFile,
+            "an image whose samples or dictionary are malformed",
+        ),
+        // ADR 0340: §7.4.8 puts the dimensions in the encoded data, so the codestream's grid
+        // is drawn and the dictionary's disagreement is said out loud.
+        _ if has("the JPEG frame is") => (
+            Whose::TheFile,
+            "a JPEG frame that contradicts its own image dictionary (§7.4.8)",
+        ),
+        _ if has("is not an image mask") => (
+            Whose::TheFile,
+            "a /Mask outside what Table 87 defines the entry to hold",
+        ),
+        // §7.4.7 closes the set of segments an embedded JBIG2 stream may carry — "[t]he JBIG2
+        // file header, end-of-page segments, and end-of-file segment shall not be present" — so a
+        // segment header the decoder calls unknown or reserved is one ISO/IEC 14492 does not
+        // define, and the file is what states it. `jbig2_file_header.pdf` is named for its own
+        // defect: the file header it must not carry is read as a segment, because that is what a
+        // decoder handed the embedded organisation has to assume it is looking at.
+        _ if has("unknown or reserved segment type") => (
+            Whose::TheFile,
+            "a JBIG2 segment ISO/IEC 14492 does not define (§7.4.7)",
+        ),
+        _ if has("JBIG2") || has("JPX") || has("JPEG 2000") => {
+            (Whose::ThisReader, "an image codec refusal")
+        }
+        _ => return None,
+    })
+}
+
+/// [`whose_defect`]'s [`Unsupported::Annotation`] arm.
+///
+/// The detail is built out of the subtype and what was wrong with it, so the subtype is the part
+/// of it these markers deliberately do not read: what decides the class is the *fault*.
+fn an_annotation_refusal(detail: &str) -> Option<(Whose, &'static str)> {
+    let has = |marker: &str| detail.contains(marker);
+    Some(match detail {
+        // `doc/todo/22`: the value's script has no code in the standard font that stood in.
+        _ if has("states no code for") => (
+            Whose::ThisReader,
+            "a /DA font stood in for that cannot draw the value's script",
+        ),
+        _ if has("/DR does not define") => (
+            Whose::TheFile,
+            "a /DA naming a font the form's /DR does not define (§12.7.4.3)",
+        ),
+        _ if has("no appearance stream") => (
+            Whose::TheFile,
+            "an annotation with no /AP and nothing its clause can build one from",
+        ),
+        _ if has("appearance stream") => (
+            Whose::TheFile,
+            "an appearance stream the file states and this reader cannot use",
+        ),
+        _ => return None,
+    })
+}
+
+/// Prints what the incomplete population is made of, and hands back what it could not place.
+///
+/// Two counts per line, and they are different questions: how many *documents* carry the
+/// mechanism at all, and how many carry it and nothing that is owed more. The second is a
+/// partition — every incomplete document is in exactly one of its cells — so the classes' second
+/// column sums to the population and the first does not.
+fn print_the_composition(incomplete: &[(String, Vec<Unsupported>)]) {
+    use std::collections::BTreeMap;
+
+    let mut unplaced = Vec::new();
+    let mut carrying: BTreeMap<(Whose, &'static str), usize> = BTreeMap::new();
+    let mut deciding: BTreeMap<(Whose, &'static str), usize> = BTreeMap::new();
+
+    for (name, reports) in incomplete {
+        let mut placed = Vec::new();
+        for report in reports {
+            match whose_defect(report) {
+                Some(mechanism) => placed.push(mechanism),
+                None => unplaced.push((name.clone(), format!("{report:?}"))),
+            }
+        }
+        placed.sort_unstable();
+        placed.dedup();
+        for mechanism in &placed {
+            let seen: &mut usize = carrying.entry(*mechanism).or_default();
+            *seen = seen.saturating_add(1);
+        }
+        // The most-owed mechanism decides the document, so the partition never understates what
+        // the population owes: `Whose` orders `ThisReader` last and `max` takes it.
+        if let Some(worst) = placed.iter().max() {
+            let seen: &mut usize = deciding.entry(*worst).or_default();
+            *seen = seen.saturating_add(1);
+        }
+    }
+
+    println!(
+        "  incomplete by whose defect it is, over {} documents:",
+        incomplete.len()
+    );
+    for whose in [Whose::TheFile, Whose::NeitherOne, Whose::ThisReader] {
+        let carried: usize = carrying
+            .iter()
+            .filter(|((class, _), _)| *class == whose)
+            .map(|(_, count)| *count)
+            .sum();
+        let decided: usize = deciding
+            .iter()
+            .filter(|((class, _), _)| *class == whose)
+            .map(|(_, count)| *count)
+            .sum();
+        println!(
+            "    {}: {decided} documents owe nothing more than this, {carried} carry one \
+             (mechanism totals below)",
+            whose.word()
+        );
+        let mut rows: Vec<_> = carrying
+            .iter()
+            .filter(|((class, _), _)| *class == whose)
+            .collect();
+        rows.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.1.cmp(b.0.1)));
+        for ((_, mechanism), count) in rows {
+            println!("      {count:4}  {mechanism}");
+        }
+    }
+
+    // See [`whose_defect`]: an `other` row is what let the old composition table drift, so a
+    // report the classification cannot place stops the run instead of being counted as nothing.
+    assert!(
+        unplaced.is_empty(),
+        "these reports have no row in `whose_defect`, so the composition printed above is \
+         incomplete — give each one a mechanism and a class: {unplaced:?}"
+    );
+    // Trap 11 from the other side. `Unsupported::Text` says a show operator drew nothing and
+    // never says why; the report that does stands beside it. A page where it stands alone is a
+    // font refused in silence, which is the failure `pdf-model`'s whole reporting rule exists to
+    // prevent — and no corpus document has ever been one.
+    let mute: Vec<&String> = incomplete
+        .iter()
+        .filter(|(_, reports)| {
+            reports.len() == 1 && matches!(reports.first(), Some(Unsupported::Text { .. }))
+        })
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        mute.is_empty(),
+        "a page that skipped text and said nothing about which font it could not use: {mute:?}"
+    );
 }
 
 /// Prints one of the three populations a page can lose *without reporting*, worst ten first.
@@ -875,7 +1240,7 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         });
     }
     if !interpretation.is_complete() {
-        let reported = format!("{:?}", interpretation.unsupported);
+        let reported = interpretation.unsupported.clone();
         record(tally, |t| t.incomplete.push((name.clone(), reported)));
     }
 
@@ -977,8 +1342,9 @@ fn the_corpus_opens_interprets_and_rasterises() {
         "a readback missed, not a mark; doc/todo/21 §5, ADR 0311",
         &tally.codes_without_a_character,
     );
+    print_the_composition(&tally.incomplete);
     for (name, reported) in &tally.incomplete {
-        println!("  incomplete: {name}: {reported}");
+        println!("  incomplete: {name}: {reported:?}");
     }
     for (name, headless) in &tally.open_subpaths {
         println!("  path with no first point: {name}: {headless}");
@@ -1037,5 +1403,58 @@ fn the_corpus_opens_interprets_and_rasterises() {
         "ISO 32000-2 §8.5.2.1: a path handed to a backend must begin with a move, or the \
          library it reaches chooses where the first point is: {:?}",
         tally.open_subpaths
+    );
+}
+
+/// Calibrates the unplaced bucket against the shape it exists for.
+///
+/// Trap 13: the gate above asserts that every report was placed, and an assertion that has never
+/// been made to fail is a claim about the classification rather than about the corpus. This shows
+/// [`whose_defect`] declining a report it has no row for — the exact shape a reworded message or a
+/// new refusal produces — and placing one it does, so the empty bucket in the run above is a fact
+/// about the 974 documents.
+#[test]
+fn the_classification_declines_a_report_it_has_no_row_for() {
+    assert_eq!(
+        whose_defect(&Unsupported::Font {
+            detail: "a sentence no raise site in this tree writes".to_owned(),
+        }),
+        None,
+        "a font refusal outside the marker table has to arrive as unplaced, or the gate's \
+         composition is silently short of it"
+    );
+    assert_eq!(
+        whose_defect(&Unsupported::Image {
+            name: "Im0: a sentence no raise site in this tree writes".to_owned(),
+        }),
+        None,
+        "the same for an image, whose payload is a lower layer's error flattened to prose"
+    );
+    assert_eq!(
+        whose_defect(&Unsupported::Font {
+            detail: "font /F1 cannot be substituted: the file states /Encoding /Identity-H over \
+                     a descendant with no embedded program, which §9.7.5.2 says shall not be used"
+                .to_owned(),
+        })
+        .map(|(whose, _)| whose),
+        Some(Whose::TheFile),
+        "and the message `pdf-font` does write is placed, or the test above proves nothing"
+    );
+}
+
+/// The three classes are ordered by what they owe, and the partition depends on that order.
+///
+/// [`print_the_composition`] takes the *greatest* mechanism a document carries so that the
+/// partition never understates the population's debt. That is a property of the `Ord` derive,
+/// which nothing else in this file would notice the loss of.
+#[test]
+fn the_partition_counts_a_document_under_the_most_it_owes() {
+    assert!(Whose::ThisReader > Whose::NeitherOne);
+    assert!(Whose::NeitherOne > Whose::TheFile);
+    assert_eq!(
+        [Whose::TheFile, Whose::ThisReader, Whose::NeitherOne]
+            .into_iter()
+            .max(),
+        Some(Whose::ThisReader),
     );
 }
