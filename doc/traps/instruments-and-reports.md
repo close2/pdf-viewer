@@ -451,7 +451,7 @@ invent a header, a cross-reference section, a page tree and a resource dictionar
 each other. A target over documents whose corpus is not documents is a target testing the recovery
 scanner.
 
-Three things to carry:
+Four things to carry:
 
 - **Read libFuzzer's own last line, not the exit status.** `cov:` and `ft:` are what say whether
   anything was exercised. `tools/fuzz.sh` does both halves — it refuses to start a target whose
@@ -460,6 +460,14 @@ Three things to carry:
   an ordinary run always reaches the harness on the empty input, so a zero there is a *parent*
   reporting an empty shared corpus, which is what round 800 was looking at and why `page` is the
   target it happens to.
+- **And read its *first* line beside its last, because the last one cannot tell what the run did
+  from what the corpus already had.** `INITED` is printed once the seeds are loaded and before a
+  single mutation, so `INITED → DONE` is what the run length bought. Run at `doc/verify.md`'s own
+  lengths, **eight of the fifteen targets add fewer than a hundred features and `forms_data` adds
+  none at all** — cov 488, ft 1375 at both ends, measured twice. That is a *saturated* target rather
+  than a broken one, and the consequence is how a round chooses work: against a mature corpus, more
+  iterations find nothing and **seeds** are what move a target. `tools/fuzz.sh` prints the pair; a
+  fork-mode parent has no `INITED` and it says so rather than subtracting against nothing (ADR 0747).
 - **`fuzz/corpus` and `fuzz/artifacts` are gitignored, so "is this target seeded" is a fact about
   the disk and not about the repository.** No gate can read it out of the tree. A fresh worktree had
   neither directory at all until `tools/worktree.sh` was taught to link them, so *every* fuzz run a

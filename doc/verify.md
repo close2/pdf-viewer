@@ -333,6 +333,15 @@ cargo run --release -p hayro-compare --bin hayro-speed -- --per-document ...  # 
 # final `ft:` is zero. `tools/fuzz.sh --list` prints every target with the seeds it has here, which
 # is how a round finds out that one has none before spending an hour on it. ADR 0742.
 #
+# **And since the eight-hundred-and-sixteenth it prints libFuzzer's *first* figure beside its last.**
+# `INITED` is the corpus's own coverage, before a single mutation, so `INITED → DONE` is what the
+# documented run length bought **on top of the seeds** — and it turns out that for eight of the
+# fifteen targets that is under a hundred features and for one of them it is zero, twice measured.
+# A single final figure cannot tell a target that found a thousand features from one that was handed
+# them, which is the question a round asking "did this campaign do anything" actually has. A
+# fork-mode parent prints no `INITED` and the wrapper says so rather than subtracting against
+# nothing. ADR 0747.
+#
 # **`fuzz/corpus` and `fuzz/artifacts` are gitignored, so whether a target is seeded is a fact
 # about this disk and not about the repository** — no gate can read it out of the tree, which is
 # why the wrapper asks the directory. Two consequences a round meets. A **fresh worktree had
@@ -467,9 +476,9 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=
   # the confined viewer's four decoders (ADR 0223). The one target whose input is not a document
   # but a *process*: `pdf-view-worker` runs hostile files behind seccomp and writes its answers to
   # a host that is not confined. **Seed its corpus first**, with `fuzz/seed_confined_wire.py` —
-  # a second implementation of the frame layer, which spawns the release worker and keeps every
-  # payload it wrote, from five documents and 25 of the 29 questions (see below). Unseeded it never gets
-  # past a one-byte discriminant into an outline's tree or a thumbnail's samples.
+  # a second implementation of the frame layer, which spawns the release worker, asks it every
+  # question the transport carries, and keeps every payload either side wrote. Unseeded it never
+  # gets past a one-byte discriminant into an outline's tree or a thumbnail's samples.
   # **It reads `MAGIC` out of `protocol.rs` since the seven-hundred-and-thirty-sixth**, because a
   # copy of it went one behind and this seeder therefore refused to run — silently, for as long as
   # nobody re-seeded — which is the corpus for this target being empty. Pinning the greeting is
@@ -478,11 +487,14 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=
   #   python3 fuzz/seed_confined_wire.py target/pdf-view-worker fuzz/corpus/confined_wire \
   #     doc/PDF20_AN002-AF.pdf doc/PDF-Declarations.pdf doc/ISO_32000-2_sponsored_EC3.pdf \
   #     doc/PDF20_AN001-BPC.pdf doc/pdf.js/test/pdfs/issue15716.pdf
-  # **The seeder covers 25 of the transport's 29 questions and stops at discriminant 25.** Four
-  # arrived after it was written — `Offset` and `FieldSelection` (26, 27, ADR 0225), `Fields` (28,
-  # ADR 0235) and `FreeTextAt` (29, ADR 0238) — so their payloads have never been seeded, which the
-  # four-hundred-and-forty-fifth found by counting `query_kind` against `QUERIES`. Adding them is
-  # four lines of `fuzz/seed_confined_wire.py` and a re-seed
+  # **A question this script does not ask now stops it**, since the eight-hundred-and-sixteenth,
+  # and that is the whole of what this file has to say about its coverage. It used to say the
+  # seeder covered 25 of 29 questions and named the four missing; by the time anyone acted on that
+  # sentence there were **seven** missing and 32 carried, because three more had arrived in the
+  # meantime and a count written down is a count that goes stale in silence. The script now reads
+  # `query_kind` and refuses to run against a discriminant it has no entry for, naming it — so the
+  # answer to "is it complete" is the exit status of a run rather than a line here. The payload
+  # *shapes* stay hand-written, which is what makes it a second implementation. ADR 0747
 cd fuzz && cargo +nightly fuzz run display_list  -- -max_total_time=600 -rss_limit_mb=4096
   # ADR 0607's *other* payload, and the second target whose input is a process rather than a
   # document: a window on the confinement receives display lists, so the unconfined host parses a
