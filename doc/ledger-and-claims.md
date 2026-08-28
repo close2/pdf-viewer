@@ -50,13 +50,22 @@ cost this project, is what a command cannot print:
 |---|---|
 | `implemented` | every normative requirement in the clause is executed |
 | `partial` | some are; the note says which are not |
-| **`silent`** | not implemented, and nothing says so — **Annex O's five were the last, and they were built in the three-hundred-and-sixty-ninth**. It has been zero since; the paragraph below is the claim that rests on it |
+| **`silent`** | not implemented, and nothing says so — **Annex O's five were built in the three-hundred-and-sixty-ninth and the population was zero from then until the eight-hundred-and-eleventh**, which put §14.8.5.5 there. The paragraph below is what that run of rounds was worth and what ended it |
 | `inapplicable` | a press, a layout engine, a production workflow — **and read at last**. §10.4.2.3 left in the three-hundred-and-eightieth, where a conversion this row called "[not] on any route to a pixel" turned out to be §11.5.3's own (ADR 0217), and **§10.4.2.4 left in the three-hundred-and-eighty-third on the same reasoning one clause over**: it said the two functions "cannot change a pixel" while §11.6.6 converts an RGB colour into a `DeviceCMYK` mask group by exactly this route, where every term the clause generates provably cancels (ADR 0220). Session 380 corrected two §10.4.2 rows and asked whether the neighbours had the same disease; one did |
 | `out-of-scope` | principle 5's closed exclusions, which the row names |
 | `reported` | not implemented, detected and named at runtime — **nine of §12.8.3's moved to `partial` in the three-hundred-and-seventy-seventh**, when the digest question turned out not to need the trust store the whole clause had been refused for (ADR 0215) |
 | `writer-side` | addresses a PDF *generator* |
 
-**`silent` is zero, and Annex O's five were the last of them.** The three-hundred-and-sixtieth
+**`silent` was zero for four hundred rounds, and what ended that is worth more than the run.** The
+eight-hundred-and-eleventh read Errata Collection 3's Issue #346 into §14.8.5 and found Table 382's
+two PDF 2.0 entries — `/ContinuedList` and `/ContinuedFrom`, which say a list continues an earlier
+one — unread, unreported, and sitting under an `inapplicable` row whose note named only the third
+entry of their table. **A zero here is a claim about what has been looked at, not about what is
+there**: the status went to zero because every row holding it was paid off, and it stayed there
+because nothing was re-reading the rows that say nothing is owed. ADR 0743, and the general shape
+is the paragraph on the `inapplicable` population below it.
+
+**Annex O's five were the last of them before that.** The three-hundred-and-sixtieth
 session gave the ledger the standard's **normative annexes** — D, E, F, I, K, L, O and Q, 52 rows —
 and the reason they had none is that the instrument could not spell their numbers: `ClauseNumber`
 was a `Vec<u16>` and its own test asserted `"A.1".parse()` fails, so a citation to `§K.2` was
@@ -87,9 +96,10 @@ sentence, and the standard settled it — ISO 32000-2 never uses the phrase *mar
 §10.1's list of rendering steps makes halftoning conditional on the device and the transfer
 function not, and §10.6.1 keeps the transfer for a device that needs no halftone. The project
 owner split the scope line rather than dropping it, and the clause is implemented (ADR 0204).
-There is no requirement in the standard — the eight technical clauses or the
-eight normative annexes — that this program
-fails without saying so. That is a narrow claim: `partial` and `reported` are the largest
+Between that round and the eight-hundred-and-eleventh there was no requirement in the standard —
+the eight technical clauses or the eight normative annexes — that this program failed without
+saying so, and the sentence stating it stood here for four hundred rounds before a row moved
+underneath it. That was a narrow claim: `partial` and `reported` are the largest
 populations in the ledger after `implemented` and each row of both names what it owes. **The
 number that used to stand in that sentence was arithmetic on the table above** — the two figures
 added together — which is the shape `tools/state.sh` refuses for exactly this reason: a sum beside

@@ -751,7 +751,8 @@ impl Tree {
             .and_then(HeaderScope::read)
     }
 
-    /// Table 379's `/BBox`, in **default user space**, where the element states one.
+    /// Table 379's `/BBox` — or Table 385's, which is the same rectangle under a second owner —
+    /// in **default user space**, where the element states one.
     ///
     /// ISO 32000-2 §14.8.5.4.3:
     ///
@@ -776,7 +777,15 @@ impl Tree {
     /// that took these numbers for pixels would place a rotated page's figures off the page.
     ///
     /// Not inheritable, which is why this asks [`Self::attribute`]: a paragraph inside a figure
-    /// has its own extent and the figure's rectangle is not a statement about it.
+    /// has its own extent and the figure's rectangle is not a statement about it. **Table 379 is
+    /// not the only table that states the entry**, and this comment named it alone until the
+    /// eight-hundred-and-eleventh round: §14.8.5.3's priority is applied over every PDF-native
+    /// owner, so §14.8.5.8's Table 385 answers here too, for an attribute object owned by
+    /// `Artifact` — the same rectangle, described in the same words, around content §14.8.2.2
+    /// calls an artifact rather than the document's own. Table 379's cell says *not inheritable*
+    /// outright; Table 385's says it only under Errata Collection 3's Issue #346, whose caret
+    /// puts the same two words into it, so the choice made here now rests on the cell of
+    /// whichever owner the document wrote rather than on one of the two.
     ///
     /// `None` for an element stating none, and for a value that is not four finite numbers —
     /// which no corpus document states.
@@ -4486,6 +4495,61 @@ mod tests {
             tree.bounds(&doc, &elements[3]),
             None,
             "the attribute is optional, and an element stating none has said nothing"
+        );
+    }
+
+    /// Table 385's `/BBox` under the `Artifact` owner is the same answer as Table 379's.
+    ///
+    /// ISO 32000-2 §14.8.5.3 ranks an attribute by the owner that states it, and both of the
+    /// PDF-native owners here state a rectangle called `/BBox`: §14.8.5.4.3's is a structure
+    /// element's visible content, §14.8.5.8's is an artifact's visible extent, and neither
+    /// clause gives the other's owner a different meaning for the name. So an `Artifact`
+    /// element that states its rectangle in an `Artifact`-owned object is placed exactly as a
+    /// `Figure` stating one in a `Layout`-owned object is.
+    ///
+    /// The third element is the discrimination: `HTML-4.01` is one of Table 376's
+    /// format-specific owners, whose value applies only "if processing based on the format
+    /// indicated by the owner value", which this program is not — so a rectangle stated there
+    /// alone is not an answer, and a test that only asked the first two would pass with the
+    /// owner ignored altogether.
+    #[test]
+    fn an_artifact_owned_bounding_box_is_the_same_rectangle_as_a_layout_owned_one() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R \
+             /A << /O /Artifact /BBox [12 24 62 84] >> >>",
+            "<< /Type /StructElem /S /Figure /Pg 3 0 R \
+             /A << /O /Layout /BBox [12 24 62 84] >> >>",
+            "<< /Type /StructElem /S /Artifact /Pg 3 0 R \
+             /A << /O /HTML-4.01 /BBox [12 24 62 84] >> >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            tree.bounds(&doc, &elements[0]),
+            Some([12.0, 24.0, 62.0, 84.0]),
+            "Table 385 states the entry as much as Table 379 does"
+        );
+        assert_eq!(
+            tree.bounds(&doc, &elements[1]),
+            tree.bounds(&doc, &elements[0]),
+            "and the two owners give the name one meaning"
+        );
+        assert_eq!(
+            tree.bounds(&doc, &elements[2]),
+            None,
+            "a format-specific owner's value applies only to a processor translating to it"
         );
     }
 
