@@ -17,7 +17,11 @@
 
 set -euo pipefail
 
-root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
+# The *main* checkout, whichever copy of this script ran. `--show-toplevel` answers with the
+# enclosing worktree, so a `list` run from inside one called every live sibling's build
+# directory orphaned — and a `close` trusted the same wrong root. The common git directory is
+# the one path all worktrees share, and the main tree is its parent.
+root=$(dirname "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --path-format=absolute --git-common-dir)")
 builds=/home/AI/cargo-target
 
 # The gitignored data every gate reads. Symlinked rather than copied: `doc/md` alone is large, the

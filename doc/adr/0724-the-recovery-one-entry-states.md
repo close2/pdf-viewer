@@ -41,7 +41,7 @@ comment that starts with* at least four binary characters — binds whoever writ
 and this tree writes §7.5.6's appends and never a header. ADR 0712's placement rule was applied
 before any verdict was written, for the third consecutive use.
 
-**The live plateau confirmed four times over.** Issue #159 rewrites Table 236's `/DigestMethod`
+**The live plateau confirmed four times over.** Issue #159 rewrites Table 237's `/DigestMethod`
 into an *unordered* array whose values are each one of five names — inside the seed value
 dictionary §12.7.5.5 already declines whole. Issue #17's inserted NOTE states that a link's
 activation area and appearance need not coincide, which is `link.rs`'s construction exactly
