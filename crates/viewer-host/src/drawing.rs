@@ -693,20 +693,49 @@ mod tests {
     }
 
     /// ADR 0678: a window with nothing on the screen waits for page one rather than polling for
-    /// it, and one call is enough for an ordinary page.
+    /// it — and *waiting* is what is asserted, never how long it took.
     ///
-    /// The assertion is about the *answer* rather than about a clock, which is 749's rule: on a
-    /// machine that gave the drawing thread no core the wait would run out and the page would
-    /// arrive through the poll instead, so timing this would measure the machine.
+    /// **No clock is in the assertions, and the previous shape's was** (ADR 0714): it passed
+    /// [`SETTLE`] itself, so it asserted that 16.7 ms of wall clock was enough for a
+    /// real page — true alone, and false whenever sibling rounds took the drawing thread's
+    /// core, which is 749's rule arriving in a unit test: a duration on a shared machine
+    /// measures the machine. What the requirement actually states is structural, and three
+    /// choices state it that way:
+    ///
+    /// - **the test never polls** — no loop, no sleep — so a page in the answer can only have
+    ///   arrived through the one `settle` call. That call *is* the requirement.
+    /// - **the budget is the test's give-up bound, not [`SETTLE`]**: whether one
+    ///   refresh suffices today is the machine's business; that the budget is spent once over
+    ///   a launch, and that running it out abandons nothing, are the two tests below.
+    /// - **the page is expensive on purpose**, so it provably cannot be finished in the gap
+    ///   between `ask` and `settle` — which is what makes the pre-settle polling shape fail
+    ///   here deterministically instead of slipping through a scheduler race (trap 13: this
+    ///   test was run against that shape planted, `settle` degenerated to `collect`, and
+    ///   failed every run, quiet and loaded alike).
+    ///
+    /// The last assertion is the wait itself having happened, which a poll never records
+    /// however lucky its timing. It is skipped where no thread exists, because a machine that
+    /// refuses the spawn draws on the calling thread inside `ask` — a launch that waited for
+    /// nothing because there was nothing to wait for.
     #[test]
     fn a_launch_waits_for_page_one_instead_of_polling_for_it() {
         let request = a_real_request();
         let mut drawing = Drawing::new();
-        drawing.ask(request.clone());
-        let finished = drawing.settle(SETTLE);
-        assert_eq!(finished.len(), 1, "one settle answered page one");
+        drawing.ask(like(&request, 0, &amplified(&request, 5_000)));
+        let finished = drawing.settle(GIVE_UP);
+        assert_eq!(
+            finished.len(),
+            1,
+            "one settle answered page one, with no poll in between"
+        );
         assert_eq!(finished[0].request.token, request.token);
         assert!(matches!(finished[0].outcome, Some(Rendered::Raster(_))));
+        if drawing.link.is_some() {
+            assert!(
+                drawing.spent > Duration::ZERO,
+                "the wait itself happened inside the call"
+            );
+        }
     }
 
     /// And the budget is a budget rather than a deadline: a page that outlasts it is still being
