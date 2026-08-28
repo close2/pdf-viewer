@@ -194,6 +194,19 @@ pub enum Child {
         /// So `None` is not "unknown": it is the clause's own statement that the sequence is in
         /// the page's own `/Contents`. [`crate::content::ContentStream::named_by`] is the match.
         stream: Option<ObjectId>,
+        /// Table 357's `/StmOwn`: the object that references the stream `/Stm` names.
+        ///
+        /// ISO 32000-2 §14.7.5.2, Table 357:
+        ///
+        /// > The indirect reference to the PDF object referencing the stream identified by the
+        /// > Stm key. NOTE A common use for this would be to identify the annotation dictionary
+        /// > owning the appearance stream.
+        ///
+        /// So where it names one of the page's annotations it is the same statement §14.7.5.3's
+        /// object reference makes — this element's content belongs to that annotation — made
+        /// from the marked-content side, and it is read into the same channel: the annotation's
+        /// `/Rect` places the element and §12.7's control says what it is.
+        owner: Option<ObjectId>,
     },
     /// §14.7.5.3's object reference (Table 358): a whole object, such as an annotation.
     Object {
@@ -307,6 +320,7 @@ impl Tree {
                 mcid,
                 page,
                 stream: None,
+                owner: None,
             });
         }
         let Object::Dictionary(dict) = resolved else {
@@ -323,6 +337,10 @@ impl Tree {
                 // `/Stm` an indirect reference, and what identifies a content stream is which
                 // object it is rather than what its bytes resolve to.
                 stream: dict.get("Stm").and_then(Object::as_reference),
+                // The same again for `/StmOwn` — "shall be an indirect reference", and the
+                // object it names is the identity a consumer matches against the page's
+                // annotations.
+                owner: dict.get("StmOwn").and_then(Object::as_reference),
             }),
             // Table 358: an object reference. `/Obj` is required and is what identifies it.
             Some(b"OBJR") => Some(Child::Object {
@@ -931,7 +949,7 @@ impl Tree {
     /// [`Self::ancestry`] is the other half — the elements above these — and the two together are
     /// the subtree a page occupies.
     ///
-    /// # The four kinds of content item this looks for
+    /// # The kinds of content item this looks for
     ///
     /// §14.7.5.1.1 makes a content item a marked-content sequence or a whole object, and Table 359
     /// keys each kind differently: the sequences of one content stream share the stream's
@@ -949,6 +967,12 @@ impl Tree {
     /// An element reached only that way was pruned as belonging to another page, so a figure
     /// tagged inside a form reached no screen reader at all. [`Self::stream_owners`] is the
     /// lookup; ADR 0488.
+    ///
+    /// **The fifth is an annotation's appearance streams, missing the same way until the
+    /// seven-hundred-and-eighty-second.** §12.5.5 makes an appearance stream a form `XObject`,
+    /// so Table 359's words already covered it — but the `XObject` walk below starts from the
+    /// page's *resources*, and an `/AP` entry is not a resource. [`Self::appearance_owners`] is
+    /// the walk; ADR 0719.
     ///
     /// # Why a generous answer costs nothing, and why `None` is not an empty one
     ///
@@ -988,6 +1012,7 @@ impl Tree {
             .collect();
         // "For an object identified as a content item by means of an object reference …, the
         // value shall be an indirect reference to the parent structure element."
+        let mut visited = BTreeSet::new();
         if let Object::Array(annotations) = document.get_key(page, "Annots") {
             for annotation in annotations.iter().take(MAX_CHILDREN) {
                 let resolved = document.resolve(annotation);
@@ -995,11 +1020,60 @@ impl Tree {
                     continue;
                 };
                 out.extend(self.object_owner(document, dict));
+                // The annotation's appearance streams are the fifth route, and Table 359 is why
+                // they are one: `/StructParents` "may appear … in the stream dictionary of a form
+                // or image XObject", §12.5.5 makes an appearance stream a form `XObject`, and
+                // Table 357's `/Stm` row names "12.5.5, "Appearance streams"" beside §8.10's
+                // forms as the streams a marked-content reference reaches. An element whose only
+                // content item is a sequence inside an appearance stream is on the page and is
+                // reachable no other way — the walk below only sees streams the page's
+                // *resources* name, and an `/AP` entry is not a resource.
+                self.appearance_owners(document, dict, &mut visited, &mut out);
             }
         }
-        let mut visited = BTreeSet::new();
         self.xobject_owners(document, page, 0, &mut visited, &mut out);
         Some(out)
+    }
+
+    /// The elements owed to one annotation's appearance streams (§12.5.5, §14.7.5.4).
+    ///
+    /// §12.5.5's Table 170 gives an annotation up to three appearances — `/N`, `/R`, `/D` —
+    /// and each entry is "a single appearance stream or an appearance subdictionary" of one
+    /// stream per state. Every one of those streams is a form `XObject` and may carry Table
+    /// 359's entries like any other; its resources may name further forms, which is what the
+    /// [`Self::xobject_owners`] call walks.
+    fn appearance_owners(
+        &self,
+        document: &Document,
+        annotation: &Dictionary,
+        visited: &mut BTreeSet<ObjectId>,
+        out: &mut BTreeSet<ObjectId>,
+    ) {
+        let appearances = document.get_key(annotation, "AP");
+        let Some(appearances) = appearances.as_dict() else {
+            return;
+        };
+        for key in ["N", "R", "D"] {
+            let entry = document.get_key(appearances, key);
+            let mut streams: Vec<Object> = Vec::new();
+            match entry {
+                Object::Stream(_) => streams.push(entry),
+                Object::Dictionary(states) => {
+                    for (_, state) in states.iter().take(MAX_CHILDREN) {
+                        streams.push(document.resolve(state));
+                    }
+                }
+                _ => {}
+            }
+            for stream in streams {
+                let Object::Stream(stream) = stream else {
+                    continue;
+                };
+                out.extend(self.object_owner(document, &stream.dict));
+                self.stream_owners(document, &stream.dict, out);
+                self.xobject_owners(document, &stream.dict, 1, visited, out);
+            }
+        }
     }
 
     /// Every element at or above one of `elements`, following §14.7.2's Table 355 `/P`:
@@ -3260,7 +3334,8 @@ mod tests {
             Some(&Child::MarkedContent {
                 mcid: 0,
                 page: Some(page),
-                stream: None
+                stream: None,
+                owner: None
             }),
             "an integer takes its page from the element's /Pg, and names the page's own stream"
         );
@@ -3273,7 +3348,8 @@ mod tests {
                 stream: Some(pdf_syntax::ObjectId {
                     number: 10,
                     generation: 0
-                })
+                }),
+                owner: None
             }),
             "Table 357's /Stm names the stream the sequence is in, and /MCID 4 there is not \
              /MCID 4 in the page's own content stream"

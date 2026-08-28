@@ -254,11 +254,13 @@ fn the_clauses_worked_example_reads_as_the_structure_it_describes() {
                 mcid: 1,
                 page: Some(ObjectId::new(101, 1)),
                 stream: None,
+                owner: None,
             },
             Child::MarkedContent {
                 mcid: 0,
                 page: Some(ObjectId::new(102, 0)),
                 stream: None,
+                owner: None,
             },
         ],
         "one item on each page, the second through a /MCR that moves the page"
@@ -275,11 +277,13 @@ fn the_clauses_worked_example_reads_as_the_structure_it_describes() {
                 mcid: 0,
                 page: Some(ObjectId::new(101, 1)),
                 stream: None,
+                owner: None,
             },
             Child::MarkedContent {
                 mcid: 1,
                 page: Some(ObjectId::new(101, 1)),
                 stream: None,
+                owner: None,
             },
         ]
     );

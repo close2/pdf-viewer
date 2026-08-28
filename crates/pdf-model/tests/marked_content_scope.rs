@@ -108,7 +108,11 @@ fn fixture(form_mcid: i64, form_entry: &str, names: Names) -> Vec<u8> {
             Names::AnInteger => format!("{form_mcid}"),
         },
     );
+    assemble(&body)
+}
 
+/// Writes a body of numbered objects into a whole file: header, xref and trailer.
+fn assemble(body: &str) -> Vec<u8> {
     let mut out = String::from("%PDF-1.7\n");
     let mut offsets: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut cursor = out.len();
@@ -121,7 +125,7 @@ fn fixture(form_mcid: i64, form_entry: &str, names: Names) -> Vec<u8> {
         offsets.insert(number, cursor);
         cursor += object.len();
     }
-    out.push_str(&body);
+    out.push_str(body);
     let xref_at = out.len();
     let size = offsets.keys().copied().max().unwrap_or(0) + 1;
     let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
@@ -318,5 +322,132 @@ fn an_integer_naming_no_sequence_of_the_page_is_read_where_the_file_meant_it() {
         Some("PAGEPAGE"),
         "both elements name the page's own sequence, because that is what the clause says an \
          absent /Stm means — and neither is given the form's as well"
+    );
+}
+
+/// The annotation whose appearance stream [`stamped`] marks, and that stream itself.
+const ANNOTATION: ObjectId = ObjectId {
+    number: 11,
+    generation: 0,
+};
+const APPEARANCE: ObjectId = ObjectId {
+    number: 5,
+    generation: 0,
+};
+
+/// A one-page fixture whose second marked sequence is inside an annotation's appearance stream.
+///
+/// Table 357's `/Stm` row names this arrangement beside the form one — its parenthesis points
+/// at §8.10's form `XObject`s and §12.5.5's appearance streams alike — and the `/StmOwn` row's
+/// NOTE names its purpose:
+/// "[a] common use for this would be to identify the annotation dictionary owning the appearance
+/// stream". The page's `/Contents` marks `/MCID 0` drawing `PAGE`; the stamp's appearance
+/// stream marks its own `/MCID 0` drawing `NOTE`, states a `/StructParents` of its own
+/// (§14.7.5.4), and is named by the structure element's marked-content reference through `/Stm`,
+/// with `/StmOwn` pointing back at the stamp.
+fn stamped() -> Vec<u8> {
+    let page_content = "/P << /MCID 0 >> BDC\n\
+         0 0 1 rg 10 10 20 20 re f\n\
+         BT /F1 12 Tf 10 50 Td (PAGE) Tj ET\n\
+         EMC\n";
+    let appearance_content = "/P << /MCID 0 >> BDC\n\
+         1 0 0 rg 120 10 40 40 re f\n\
+         BT /F1 12 Tf 120 60 Td (NOTE) Tj ET\n\
+         EMC\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+         /Resources << /Font << /F1 10 0 R >> >> \
+         /Contents 4 0 R /StructParents 0 /Annots [11 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page_content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 200 100] \
+         /Resources << /Font << /F1 10 0 R >> >> /StructParents 1 /Length {} >>\n\
+         stream\n{appearance_content}endstream\nendobj\n\
+         6 0 obj\n<< /Type /StructTreeRoot /K [7 0 R 8 0 R] /ParentTree 9 0 R >>\nendobj\n\
+         7 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K 0 >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /Figure /P 6 0 R /Pg 3 0 R \
+         /K << /Type /MCR /Pg 3 0 R /Stm 5 0 R /StmOwn 11 0 R /MCID 0 >> >>\nendobj\n\
+         9 0 obj\n<< /Nums [0 [7 0 R] 1 [8 0 R]] >>\nendobj\n\
+         10 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         11 0 obj\n<< /Type /Annot /Subtype /Stamp /F 4 /Rect [0 0 200 100] \
+         /AP << /N 5 0 R >> >>\nendobj\n",
+        page_content.len(),
+        appearance_content.len(),
+    );
+    assemble(&body)
+}
+
+/// A sequence closing in an appearance stream is recorded against the object that stream is.
+///
+/// Table 357's `/Stm` row puts §12.5.5's appearance streams beside §8.10's forms as the streams
+/// it can name, and an entry "shall be an indirect reference" — so an appearance the dictionary
+/// names by reference is a nameable stream, and `Unnameable` is only for what no reference can
+/// reach (a directly written stream, or a §12.7.4.3 construction). This used to be `Unnameable`
+/// for every appearance; `doc/todo/31` carried the limit.
+#[test]
+fn a_sequence_in_an_appearance_stream_is_recorded_against_the_stream_it_is() {
+    let (_, interpreted) = read(stamped());
+    let streams: Vec<(i64, ContentStream)> = interpreted
+        .marked
+        .iter()
+        .map(|span| (span.mcid, span.stream))
+        .collect();
+    assert_eq!(
+        streams,
+        vec![
+            (0, ContentStream::Page),
+            (0, ContentStream::Object(APPEARANCE)),
+        ],
+        "the page's sequence and the appearance's, each against its own stream"
+    );
+}
+
+/// A marked-content reference whose `/Stm` names an appearance stream finds its sequence.
+///
+/// The identifier collides with the page's on purpose: matched on the identifier alone, or with
+/// the appearance left unnameable, the element holding the reference would answer with the
+/// page's text or with nothing.
+#[test]
+fn logical_text_reaches_a_sequence_an_appearance_stream_holds() {
+    let (document, interpreted) = read(stamped());
+    let tree = Tree::of(&document).expect("the fixture states a structure tree");
+    assert_eq!(
+        tree.logical_text(&document, PAGE, &interpreted).as_deref(),
+        Some("PAGE\nNOTE"),
+        "the page's element then the stamp's, each with its own stream's sequence"
+    );
+}
+
+/// Table 357's `/StmOwn` is read, as the reference it is.
+///
+/// ISO 32000-2 §14.7.5.2, Table 357:
+///
+/// > The indirect reference to the PDF object referencing the stream identified by the Stm key.
+///
+/// The consumer is `viewer-core`'s accessibility walk, which matches it against the page's
+/// annotations the way §14.7.5.3's `/Obj` is matched; what this pins is that the entry arrives.
+#[test]
+fn a_marked_content_reference_carries_the_streams_owner() {
+    use pdf_model::structure::Child;
+    let (document, _) = read(stamped());
+    let tree = Tree::of(&document).expect("the fixture states a structure tree");
+    let element = tree
+        .children(&document, None)
+        .get(1)
+        .cloned()
+        .expect("the root has two children");
+    let Child::Element(dictionary) = element else {
+        panic!("the second child is the stamp's element: {element:?}");
+    };
+    assert_eq!(
+        tree.children(&document, Some(&dictionary)).first(),
+        Some(&Child::MarkedContent {
+            mcid: 0,
+            page: Some(PAGE),
+            stream: Some(APPEARANCE),
+            owner: Some(ANNOTATION),
+        }),
+        "the reference names the stream, and /StmOwn the annotation that owns it"
     );
 }
