@@ -134,6 +134,19 @@ status=${PIPESTATUS[0]}
 final=$(grep -oE 'cov: [0-9]+ ft: [0-9]+ corp: [0-9]+' "$log" | tail -1)
 after=$(seeds_in "$target")
 
+# libFuzzer's own *first* word, which is worth as much as its last and had never been read here.
+#
+# `INITED` is printed once the corpus is loaded and before a single mutation, so the pair
+# `INITED → DONE` is **what the run length bought on top of the seeds**, measured inside one run
+# rather than across two — ADR 0742 needed an empty directory and a `-runs=0` pass to say the same
+# thing. It is what distinguishes a target that *found* a thousand features from one that was
+# handed them, and eight of the fifteen turn out to be the second (ADR 0747).
+#
+# A **fork-mode parent prints no `INITED` at all**, so this is reported as absent rather than as
+# zero: a subtraction against a missing left-hand side would read as a run that started from
+# nothing, which is the one thing this wrapper exists not to say by accident (trap 11).
+seeded=$(grep -oE 'INITED cov: [0-9]+ ft: [0-9]+' "$log" | head -1)
+
 echo
 if [ -z "$final" ]; then
     echo "fuzz.sh: $target — libFuzzer printed no coverage line at all, so nothing here can say"
@@ -144,6 +157,16 @@ fi
 
 features=$(echo "$final" | sed -E 's/.*ft: ([0-9]+).*/\1/')
 echo "fuzz.sh: $target — $final, seeds $before → $after, cargo-fuzz exit $status"
+if [ -n "$seeded" ]; then
+    edges_before=$(echo "$seeded" | sed -E 's/.*cov: ([0-9]+).*/\1/')
+    features_before=$(echo "$seeded" | sed -E 's/.*ft: ([0-9]+).*/\1/')
+    edges=$(echo "$final" | sed -E 's/.*cov: ([0-9]+).*/\1/')
+    echo "fuzz.sh: $target — the corpus alone gave cov: $edges_before ft: $features_before, so this" \
+         "run added $((edges - edges_before)) edge(s) and $((features - features_before)) feature(s)"
+else
+    echo "fuzz.sh: $target — no INITED line, so what the corpus gave and what the run added cannot" \
+         "be separated here; that is a fork-mode parent, which prints none"
+fi
 if [ "$features" -eq 0 ]; then
     echo
     echo "fuzz.sh: this run found no features, which means it exercised no code path the"
