@@ -21,12 +21,14 @@
 
 mod blend;
 mod convert;
+mod images;
 mod scan;
 mod shading;
 
 use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use pdf_render::{
     BackendError, ClipId, Command, DisplayList, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Medium,
@@ -74,6 +76,16 @@ pub struct CpuRasterizer {
     anti_alias: bool,
     strips: Option<u32>,
     interrupt: Option<Interrupt>,
+    /// Deeply reduced image samples, so that the strips of one draw — and the draws of one
+    /// rasteriser — pay for a reduction once between them. See [`images`] for what is shared
+    /// and why an address is a sound key for it.
+    ///
+    /// **Held here rather than made per draw, and that is the liveness rule**: a rasteriser
+    /// kept across frames keeps its reductions, which is what `viewer-confined`'s worker does,
+    /// and one made per job keeps nothing, which is what `viewer_host::drawing` does
+    /// deliberately. Behind an `Arc` because `Clone` on this type means another handle on the
+    /// same rasteriser rather than a second one that has to warm up again.
+    reduced_images: Arc<images::ReducedImages>,
 }
 
 impl CpuRasterizer {
@@ -95,6 +107,7 @@ impl CpuRasterizer {
             anti_alias: true,
             strips: None,
             interrupt: None,
+            reduced_images: Arc::default(),
         }
     }
 
@@ -1874,9 +1887,13 @@ impl CpuRasterizer {
         // Blocks of samples that would share one device pixel are averaged before
         // `tiny-skia` sees them, because its bilinear filter reads four neighbours whatever
         // the reduction and an eleven-fold shrink never looks at most of the source. The
-        // decision is `pdf_render`'s so that both backends make it identically; ADR 0025 has
+        // decision is `pdf_render`'s so that every backend makes it identically; ADR 0025 has
         // why it is a departure from §10.7.4 rather than a reading of it.
-        let reduced = image.area_averaged(placement);
+        //
+        // Through the memo rather than straight to `area_averaged`, because the work is per
+        // *source* sample and this function is called once per strip and once per redraw:
+        // `images` has the measurement and the key.
+        let reduced = self.reduced_images.reduced(image, placement);
         let image = reduced.as_ref().unwrap_or(image);
 
         // `tiny-skia` pixmaps are premultiplied; `Image` is documented as straight alpha,
