@@ -150,8 +150,13 @@ Two lines are left, and neither is the one that was owed:
   row of ADR 0646's table, unchanged at about 14–17 s. That is ADR 0586's argued refusal and it
   stands: `DecodedStreams::keep` declines what it cannot hold beside its own key, and letting one
   entry past the budget would let the bomb evict everything around it.
-- **`NestedContent::damage` still drives a pump to the end**, once per read, which is a gibibyte on
-  such a stream. §12.5.5's appearance is the caller and ADR 0359 is why the question is asked where
-  the stream is read; the method has no `&Document` to record against, and what it asks is a
-  different question from the one above — *is this stream damaged*, not *is it too large*. Whoever
-  takes it should check first whether §12.5.5's route still needs the answer before the run.
+- **`NestedContent::damage`'s pump-to-the-end is confined to the one route that owes it**, since
+  the seven-hundred-and-eighty-seventh session (ADR 0723). The check this bullet asked for was
+  made and the answer is *mostly no*: §12.5.5's decision asked the full question of every stored
+  appearance, and for a stream the draw was about to read that pump answered nothing the run
+  would not answer itself — a windowed stream's damage is met mid-run and reported there, and a
+  whole one's is stated without reading. What remains of the full answer is §12.7.4.3's
+  regeneration, where the splice replaces the stored bytes and nothing later reads them: that
+  route still pays one pump per decision, beside the whole buffered decode `regenerate` itself
+  performs — a deliberate cost on a population of one shape (a windowed widget appearance with
+  variable text), recorded in the ADR rather than owed here.
