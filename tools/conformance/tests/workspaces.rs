@@ -23,6 +23,7 @@
 //! The general shape is the one this project cares most about: **an instrument that reports
 //! success without having done its job.** A formatting gate blind to files in the tree is not a
 //! weaker gate, it is a gate with a hole, and the hole is invisible from the gate's own output.
+//! `doc/traps/instruments-and-reports.md`'s trap 23 is the lesson; ADR 0739 is the argument.
 //!
 //! # Why the sequence is the population, and cargo the authority
 //!

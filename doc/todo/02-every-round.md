@@ -280,7 +280,8 @@ here:
   workspace root governs it, and every root that comes back must be named by a `cargo fmt` line of
   this section *and* by one of its `cargo clippy`, `cargo check` or `cargo build` lines. A third
   workspace added to this tree fails that gate on the day it is added rather than on the day
-  somebody notices (ADR 0739).
+  somebody notices (ADR 0739, and `doc/traps/instruments-and-reports.md`'s trap 23 for the general
+  shape — a workspace-scoped flag is a claim about the manifest graph, not about the directory).
 
   **They did not, for fourteen rounds.** The six-hundred-and-sixth session reshaped `Answer::Frame`
   to carry a page apiece and the six-hundred-and-tenth reshaped the accessibility answer the same
