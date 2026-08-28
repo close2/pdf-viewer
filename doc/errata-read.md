@@ -2126,3 +2126,145 @@ membership: where priority 1's condition holds it sits *above* priority 2.
   one.** That is step 4's argument arriving as arithmetic rather than as a preference: the debt
   this rule has left to find is overwhelmingly on rows that claim to owe nothing, which is where
   `implemented` over an unread requirement lives.
+
+## The order two clauses could not agree on, and the tables a caret renumbered — the eight-hundred-and-fifteenth
+
+The successor rule's sixteenth use, and **step 5's second outing**. The row ranking is flat again —
+both rankings top out at two annotations, with 36 rows tied there over every row and seven over the
+live ones — so the ranking by **issue** is what discriminates, and by issue the population still has
+a shape: two issues at four annotations, two at three, 28 at two, 21 at one. **The head is a tie of
+two at four annotations**, #163 and #700, which the third use's tie-break settles for #163: its
+carets move a requirement level where #700's move a table's number. The head confirmed inside an
+exclusion and the walk downward paid three times.
+
+Every placement below is the caret's or strikeout's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top —
+which is what `mutool run`'s `getBounds` prints for these annotations as well.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§13.7.2.1, the RichMediaSettings sentence** | 715 | #163 | **confirms — inside `CLAUDE.md`'s clause-13 exclusion, and it costs minutes** | A `StrikeOut` at `[246.838 285.029 261.282 297.449]`, `Review/Completed`, whose `QuadPoints` corners are at x 250.13–257.99 and y 296.759 and 285.719 — (545.2)–(556.2) from the top — exactly over the `is` that `-bbox` puts at 250.13–257.99 in "The RichMediaSettings dictionary is unique to each annotation, while the RichMediaContent dictionary can be shared across rich-media annotations." A `Caret` at `[253.519 285.112 262.462 292.398]` — (549.5)–(556.8), centred at x 258.0, which is where `is` ends — writes *if present, shall be*. So a sentence that described becomes one that requires, conditioned on the entry being there. The row is `out-of-scope` under the clause-13 exclusion and stays there: a `shall` inside an excluded clause is still excluded, and the exclusion is `CLAUDE.md`'s to revisit by argument. |
+| **§13.7.2.2.1, Table 333's `/RichMediaSettings` and the paragraph under it** | 716 | #163 | **confirms — the same requirement, twice more** | Two bare `Caret`s, `check`'s fourth blindness. `[467.298 713.089 475.251 719.569]` — (122.4)–(128.8) from the top, centred at x 471.3, the gap `-bbox` leaves between the `that` ending at 468.78 and the `stores` beginning at 471.04 — writes *shall be unique to each annotation and* into the cell's own sentence. `[128.367 179.56 137.38 186.904]` — (655.0)–(662.4), centred at x 132.9 inside the `dictionary.` that closes "gives the details of the content of this dictionary." — appends *It shall be unique to each annotation.* Both are the same requirement the clause above now states. |
+| **§O.2.1, the caption of Table Annex O.3** | 992 | #700 | **cites — the published number stays and three ledger rows now say what it becomes** | A `StrikeOut` at `[241.13 277.43916 292.4257 290.37803]`, `Review/Accepted` — (551.5)–(564.5) from the top — over the `Annex O.3` that `-bbox` puts at 241.13–292.43 in "Table Annex O.3 — PDF object identifiers", with a `Caret` at `[287.39564 275.7914 297.4558 283.98863]` — (557.9)–(566.1) — writing *Annex O.1*. The annex's first table is numbered as though two came before it and none does, which is what the issue reports. |
+| **§O.2.2, the caption of Table Annex O.4** | 993 | #700 | **cites — and no instrument in this tree can see it; see below** | The same pair one page on: a `StrikeOut` at `[208.61 205.40912 259.90568 218.348]` — (623.6)–(636.5) from the top — over the `Annex O.4` at 208.61–259.91 in "Table Annex O.4 — PDF open parameters", and a `Caret` at `[203.6087 203.76139 213.6689 211.95858]` — (630.0)–(638.2) — writing *Annex O.2*. |
+| **§7.7.3.3, Table 31's `/B` row** | 121 | #320 | **implements — with §12.4.3 below, it retired the reason a documented choice was standing on** | A `StrikeOut` at `[274.57 678.169 307.897 688.129]`, `Review/Completed` — (153.8)–(163.8) from the top — over the `natural` that `-bbox` puts at 274.57–305.69 in "[t]he beads shall be listed in the array in natural reading order", its right edge at 307.90 where `reading` begins. No caret: the word goes and nothing replaces it. |
+| **§12.4.3, the `/B` sentence** | 475 | #320 | **implements — the comparison went from the set to the sequence** | A `StrikeOut` at `[257.749 527.329 303.492 539.749]` whose `QuadPoints` are x 261.041–300.2 and y 539.059 and 528.019 — (302.9)–(313.9) from the top — which is the `drawing` at 261.04–300.20 in "an array of indirect references to the beads on the page, in drawing order", and a `Caret` at `[295.728 527.412 304.671 534.698]` — (307.2)–(314.5), centred at 300.2 where `drawing` ends and before the `order.` at 302.67 — writing *reading*. The two clauses now ask for one order. See the finding below. |
+| **§9.3.4, the horizontal scaling parameter** | 317 | #376 | **cites — it vindicates a row whose sentence was an inference** | Two bare `Caret`s, `Review/Completed`. `[193.167 80.0682 202.18 87.4123]` — (754.5)–(761.9) from the top, centred at x 197.7, the gap between the `value` ending at 195.40 and the `shall` beginning at 197.69 — writes *is the normalized value of the operand to the Tz operator which*. `[189.894 65.6682 198.908 73.0123]` — (768.9)–(776.3), centred at 194.4 inside the `width.` at 166.52–196.35 — writes *of 100%, representing a scaling value of 1.0 for Th*. §9.3.4's row already said "Th is a factor rather than the percentage the operator takes"; the standard now says it. |
+| **§9.4.4, NOTE 2** | 326 | #376 | **cites — a NOTE this tree had to treat as binding becomes normative text**, and `emit` files it under §9.5 | A `StrikeOut` at `[72.024 739.476 106.545 750.036]` — (91.9)–(102.4) from the top — over the `NOTE` at 72.02–98.37 and the `2` at 100.69–106.54 that open "NOTE 2 Conceptually, the entire transformation from text space to device space can be represented by a text rendering matrix, Trm", with `/Contents` reading *Change NOTE 2 into normative text as follows:*. Page 326's outline section is §9.5, one clause on, which is ADR 0712's placement rule; the NOTE is §9.4.4's and `doc/md/` line 7603 has it there. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**A documented choice was resting on a contradiction the collection removes.** `article.rs` said, in
+its module comment and in `Articles::page_array_agrees`'s, that the standard contradicts itself about
+the order of a page's `/B` array — Table 31 asking for "natural reading order", §12.4.3 for "drawing
+order" — and that comparing the *set* of beads was therefore "the only comparison both sentences
+license". Issue #320 strikes one word from each sentence and both then ask for reading order. An
+erratum is evidence about the standard rather than the standard (ADR 0601), and this is the case
+where the evidence is decisive rather than merely suggestive: the published pair **cannot both be
+obeyed**, so a reader has to choose, and the collection says which way.
+
+What the tree does about it is bounded by the same care. The sequence is comparable where one thread
+put the beads on the page — a chain from `/F` along `/N` is that article's reading order — and two
+threads on one page are ordered against each other by nothing either sentence says, published or
+amended, so the set stays the comparison there and the fallback carries its cost in writing: on such
+a page a `/B` out of order is not reported. Calibrated per trap 13 both ways above the commit that
+makes it — comparing the sequence unconditionally fails the test's third element with `left:
+Some(false)`, and comparing the set unconditionally fails its first with `left: Some(true)`.
+
+**And a clause number that exists is not a clause number that is right.** `variable_text.rs` cited
+"§9.3.5's `Tz`" beside the field #376 is about, and §9.3.5 is leading. The conformance gate resolves
+every citation against `doc/md/` and passes anything the standard has, which is the same shape
+`--bin tables` exists for one level down — a number that exists and names the wrong thing reads
+exactly like a right one.
+
+### The sixth blindness, and it is a table's number rather than a clause's
+
+`check`'s blind spots were four after the twelfth use and `emit` joined the fifth in the fifteenth.
+**#700 is a sixth, and it is `moved`'s.** That command is this project's standing answer to *what
+does this tree do about a number the errata have moved*: the published numbers stay, the amendment
+is recorded in the row, and one command prints which numbers stand on moved ground and how much of
+the tree stands with them. It cannot print this one, and the reason is in its own predicate — a note
+qualifies by carrying one of four verbs (*move*, *renumber*, *delete*, *insert*) **in its own
+`/Contents`** and naming a **clause** number there. #700's contents are the replacement text and
+nothing else, *Annex O.1* and *Annex O.2*, and what it renumbers is a **table**. `check` is blind for
+two reasons at once: the struck text is two words, under the four-word floor, and nothing quotes a
+table's caption anyway.
+
+The cost is not hypothetical. `grep -rE "Annex O\.3|Annex O\.4" crates doc tools fuzz` with the
+submodules excluded finds the retired numbers on **75 lines across 27 files** at this round's base —
+three ledger rows, seven crates, five ADRs, two `doc/todo` files and one session record — which is
+more ground than any single clause renumbering `moved` has ever reported. The three ledger rows now record what
+the tables become. **The predicate a sweep for the rest would ask** is a different shape from
+`moved`'s and is worth writing down before it is built: *a `StrikeOut` whose covered text matches a
+table designation, paired with a `Caret` on the same page whose contents match another* — no verb,
+because a bare pair carries none, and no clause number, because a table is not one.
+
+### One annotation pair names two different issues, and it is this round's head
+
+`emit` keys an annotation to Table 172's `/Subj`. Every one of the collection's 957 `StrikeOut` and
+`Caret` annotations carries both a `/Subj` and a `/T`, and in **two** of them the two disagree —
+both on page 715, both #163's, both saying `Issue #162` in `/T`. So the head of this round's issue
+ranking is the one place in the whole document where the file contradicts itself about which erratum
+an annotation belongs to, and had the population been keyed on `/T` instead the head would not have
+been a head at all: #163 would hold two annotations rather than four.
+
+`/Subj` is the right field, and that is now established rather than assumed — see below.
+
+### The PDF Association's tracker, weighed as a source and not adopted
+
+The project owner has named `https://github.com/pdf-association/pdf-issues` a **secondary**
+reference. It bears on these instruments in exactly one way, and it is worth stating precisely
+because the temptation is to use it for more.
+
+- **What it is.** Its own README describes it as giving "every stakeholder a means of openly
+  reporting errata against any PDF specification, including ISO publications", ISO 32000-2 among
+  them, under CC-BY-4.0. Resolutions pass a PDF Association technical working group and the README
+  says errata "will be passed to the appropriate ISO working group for formal ratification" — so an
+  issue's resolution is industry consensus that has *not yet* been ratified by ISO.
+- **What that makes it.** Evidence about the standard, one step further from the text than the
+  annotated collection is: the collection's annotations are the resolutions written onto the
+  published page, and the tracker is where they were argued. `CLAUDE.md` principle 5 puts both on
+  the same side of the line — neither is the specification — and ADR 0601 already says an accepted
+  erratum is evidence rather than a corrected standard.
+- **What it is good for, and it is narrow.** It answers *which erratum is this annotation*, which is
+  a question about the file rather than about the standard. Two checks settle the two identity
+  fields above: the issue this round's head names in `/Subj` is titled after clause 13.7.2.1 and the
+  RichMediaSettings uniqueness sentence, which is what the annotations say; the issue its `/T` names
+  is about a named destination's `/SD` entry in §12.3.2.4 and has nothing to do with page 715. A
+  calibration ran first, on an issue this file already carries a verdict for — the erratum the
+  fifteenth use read is titled after Table 382's two attributes and their inheritability, exactly
+  what its annotations do — so the numbering is confirmed to be the same numbering before it was
+  used to decide anything.
+- **What it is not adopted for**, and this is the whole argument: it changes **no** population and
+  settles **no** reading. The rule's population is the annotations in a document on this disk, not
+  the tracker's issue list; a resolution's discussion cannot make a `shall` out of a sentence the
+  standard prints without one; and a round that took its readings from an issue thread would be
+  doing to the tracker what principle 5 forbids doing to poppler. It is not added to
+  `doc/stack.md` or `doc/third-party-data.md`, nothing fetches it, and no gate depends on it.
+  Where a future round uses it, it uses it the way this one did: to identify an annotation, with the
+  identification checked against what the annotation actually says.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the seventh consecutive use**: 302 issues
+  carry a strike or a caret under the recipe's own single-issue line parse and 60 were named nowhere
+  — the fifteenth use's 61 less its one verdict — while the multi-issue parse's 310 and 62 reproduce
+  the same way. The parse itself was pinned this round rather than assumed: *single-issue line* is
+  the line carrying exactly one issue number, and eight numbers appear only as the second number of
+  a line naming two, which is precisely the gap between the two figures.
+- **Step 5 held up on its second outing, and it held up in the way a ranking should.** The row
+  ranking is flatter than it was — 36 rows tied at two annotations where the fifteenth use found 39,
+  the plateau shrinking as verdicts land rather than sharpening — and the same population by issue
+  gave a head of four against a floor of one, which chose the reading. Two things it did **not** do
+  are worth recording. It did not produce a unique head: two issues tie at four, and the tie needed
+  the third use's tie-break, which is the same instrument the row ranking needs and which settled a
+  tie of two rather than of 39. And the head it chose **confirmed rather than paid** — the tie-break
+  prefers a requirement level over a number, and the requirement level was inside an exclusion —
+  while the three issues below it paid. That is step 4's own practice arriving in the issue unit:
+  head to a verdict, then downward until a row pays.
+- **Forty-two of the sixty unread issues touch only a settled row and eleven touch a live one**,
+  against 43 and 12 at the fifteenth use's base, with seven landing on no row at all. The
+  distribution has not shifted: one issue left each column, which is this round's own reading, and
+  the ratio is what step 4's preference is argued from. What this rule has left to find still sits
+  almost entirely on rows claiming to owe nothing — and this round is a witness for that, since two
+  of its three paying issues landed on `implemented` rows and the third on a pair of `partial` ones.
