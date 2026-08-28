@@ -119,15 +119,26 @@ is correct, and is why the full §2 sequence is owed rather than the core.
 
 ## What it is measured at
 
-`examples/damaged_stream_census` over the four pdf.js documents whose bytes carry the marker:
-**7 of 849 streams damaged in 3 documents, and 4 reports naming damage, becomes 0 and 0.** The
-three documents leave the corpus gate's incomplete list. `MAX_INCOMPLETE` is a ceiling rather
-than a ratchet and is left where it is; the gate prints the population.
+`examples/damaged_stream_census` over the whole pdf.js corpus, before and after: **48 damaged
+streams in 11 documents becomes 41 in 8**, damaged form `XObject`s 6 → 1, damaged cross-reference
+streams 2 → 0, and reports naming damage 10 over 4 documents → 6 over 1. The corpus gate's
+incomplete population falls by exactly the three documents, and the mechanism *one of §7.8.2's
+other content streams, drawn as far as its damage* leaves its printed composition altogether.
+`MAX_INCOMPLETE` is a ceiling rather than a ratchet and is left where it is; the gate prints the
+population. The session's record has the tables.
+
+**Three pages stop being *incomplete*, and that is the other half of the price.** The oracle's
+undiagnosed check is over `complete && Ambiguous`, so a reporting page owes no diagnosis: their
+verdict was `ambiguous (incomplete)` and is `ambiguous`, and two of them go back into
+`AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE` with the diagnosis that has described them all along. What a
+report firing on a condition the clause does not state costs is therefore not a verdict but an
+*explanation*, and a page exempted from explanation cannot be found to want one.
 
 ## The tests, and their calibration
 
-Both live in `filter.rs`'s own module, because the mechanism is the decoder's and a document is a
-slower way to ask.
+Two in `filter.rs`'s own module, because the mechanism is the decoder's and a document is a slower
+way to ask it; and two on real documents in `pdf-model/tests/damaged_content_streams.rs`, because
+what the decoder decides is a claim about files.
 
 - `a_stream_flushed_and_never_finished_is_whole` builds the witness with the encoder the
   producers used — `flate2::Compress` with `FlushCompress::Sync` — at two compression levels,
@@ -137,8 +148,16 @@ slower way to ask.
   probe exists for. A stored block carries its data verbatim, so a payload holding the marker and
   cut immediately after it is a stream whose last four bytes are the flush marker and whose data
   really is missing.
+- `the_corpus_witness_turns_out_to_be_a_flush_and_says_nothing` is `comments.pdf`, which that file
+  used to assert the other way round.
+- `a_corpus_document_that_really_cuts_a_glyph_description_short_names_it` is what replaces it, and
+  finding it corrected a second sentence: `damaged_content_streams.rs`'s header said no corpus
+  document carried a damaged Type 3 glyph description, and `poppler-90-0-fuzzed.pdf` page 10 has
+  carried one the whole time. The claim was written when the only corpus damage anybody had
+  looked at was the form that turned out to be a flush.
 
-Calibrated per trap 13, above the checkpoint commit and both ways: with the probe made to answer
-`false` always, the first test fails and the second passes; with the probe made to answer on the
-tail bytes alone, the second fails and the first passes. Neither plant fails both, which is what
-says each test discriminates its own claim.
+Calibrated per trap 13, above two checkpoint commits, with three plants: the probe answering
+`false` always fails the two flush tests and neither other; the probe answering on the tail bytes
+alone fails only the stored-block calibration; the probe answering `true` always fails only the
+glyph-description witness. The four `RunLengthDecode` fixture pairs in the same file are untouched
+by all three, so no catch-all arm is swallowing the case.

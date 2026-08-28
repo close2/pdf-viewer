@@ -7505,18 +7505,32 @@ const AMBIGUOUS_CALRGB_TO_SCREEN: [&str; 8] = [
 /// narrating its own correction in the gate's vocabulary is that sweep's own documented noise, and
 /// `git log -p` is where a retired number belongs.)
 ///
-/// # And two that left this group in the five-hundred-and-twenty-fourth, by being *reported*
+/// # And two whose entries left by being *reported*, and came back when the report was wrong
 ///
 /// `comments.pdf` page 1 and `highlights.pdf` page 1 are the same PLDI paper as the rest of their
-/// runs, and their diagnosis above still describes them. They are gone from the list because the
-/// oracle stopped judging them: ADR 0359 made a damaged form `XObject` loud, and both pages draw an
-/// ink annotation whose appearance invokes a form whose flate stream ends 851 bytes in — mid-path,
-/// after a completed `S`. That is trap 11's price stated in its own units: a page that reports is a
-/// page this gate no longer sees, and here three of them went (`issue3885.pdf` page 1 is the third
-/// and was never in a group). Nothing about the pages moved — `examples/display_list_digest` is
-/// byte-identical over all 974 documents across the change — so what was lost is *judging* rather
-/// than agreement, and the entries go rather than stand as a diagnosis of pages nothing diagnoses.
-const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 179] = [
+/// runs, and the diagnosis above has described them the whole time. Their entries were taken out
+/// when ADR 0359 made a damaged form `XObject` loud: both pages draw an ink annotation whose
+/// appearance invokes a form whose flate stream carries no RFC 1951 final block, so both became
+/// pages this reader calls **incomplete** — and the undiagnosed check is over `complete &&
+/// Ambiguous`, so an incomplete page owes no diagnosis and an entry for one fails the ratchet's
+/// other direction. `issue3885.pdf` page 1 went the same way and was never in a group.
+///
+/// **That stream is not damaged.** Its producer flushed and never called `deflateEnd`, so every
+/// byte it was given is present and what was absent is the declaration that there is no more; ADR
+/// 0744 decides which of the two it is by handing the decoder RFC 1951's final empty block and
+/// requiring `StreamEnd` with no further output, rather than by reading the tail bytes. The pages
+/// stop reporting, become complete, and owe a diagnosis again.
+///
+/// **What the round trip is worth keeping is what it did *not* move.** Their verdict is
+/// `ambiguous` on both sides — before it the gate printed `ambiguous (incomplete)` — so what a
+/// wrong report cost was never the verdict but the *diagnosis*: a page nobody has to explain is a
+/// page nobody opens, and while it stood no instrument could notice, because a page exempted from
+/// explanation cannot be found to want one. Nothing about the pages themselves moved in either
+/// direction — `examples/display_list_digest` was byte-identical over all 974 documents across
+/// the change that removed the entries, and the change that brings them back alters no mark.
+const AMBIGUOUS_DENSE_TEXT_AT_PAPER_SIZE: [&str; 181] = [
+    "comments.pdf page 1",
+    "highlights.pdf page 1",
     "issue14297.pdf page 1",
     "issue6127.pdf page 3",
     "issue7014.pdf page 1",

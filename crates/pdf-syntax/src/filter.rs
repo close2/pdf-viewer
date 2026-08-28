@@ -897,9 +897,10 @@ fn raw_deflate(encoded: &[u8], zlib_header: bool) -> Option<&[u8]> {
     if !zlib_header {
         return Some(body);
     }
-    // RFC 1950 section 2.2: CMF then FLG, with bit 5 of FLG the `FDICT` flag.
-    let (&_cmf, &flg) = (body.first()?, body.get(1)?);
-    if flg & 0x20 != 0 {
+    // RFC 1950 section 2.2: CMF then FLG, with bit 5 of FLG the `FDICT` flag. Asking for the
+    // second byte is also what requires there to be a header at all — `get(2..)` alone would
+    // hand back an empty slice for a one-byte input rather than refusing it.
+    if body.get(1)? & 0x20 != 0 {
         return None;
     }
     body.get(2..)
