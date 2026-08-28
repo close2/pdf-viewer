@@ -205,13 +205,11 @@ impl<'a> Parser<'a> {
                     expected: "an object",
                 }),
             },
-            Token::ArrayClose | Token::DictClose | Token::BraceOpen | Token::BraceClose => {
-                Err(SyntaxError::Unexpected {
-                    at: self.lexer.position(),
-                    found: format!("{token:?}"),
-                    expected: "an object",
-                })
-            }
+            Token::ArrayClose | Token::DictClose => Err(SyntaxError::Unexpected {
+                at: self.lexer.position(),
+                found: format!("{token:?}"),
+                expected: "an object",
+            }),
         }
     }
 
