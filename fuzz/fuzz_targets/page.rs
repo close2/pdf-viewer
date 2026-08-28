@@ -9,7 +9,7 @@
 //! whose page is fixed, empty, and carries no `/Resources` at all — and `nm` says it more sharply
 //! still: eleven of the thirteen binaries do not contain `parse_stitching` and twelve do not
 //! contain `pdf_model::interpret`. So no fuzzer here had ever constructed a shading, a pattern,
-//! a form XObject, an image or a `/Function` of any type — and
+//! a form `XObject`, an image or a `/Function` of any type — and
 //! `pdf-model`'s content interpreter, which is the largest body of untrusted-input code in the
 //! tree, was reachable by no target at all. ADR 0264.
 //!
@@ -27,8 +27,9 @@
 //!
 //! - **No panic, no abort and no unbounded recursion.** §7.3.10 makes a reference something a
 //!   reader follows and nothing in ISO 32000-2 forbids an object from naming itself, so every
-//!   descent the interpreter makes — a form XObject inside a form XObject, a pattern whose content
-//!   paints a pattern, a stitching function whose subfunction is itself — is a cycle a valid file
+//!   descent the interpreter makes — a form `XObject` inside a form `XObject`, a pattern whose
+//!   content paints a pattern, a stitching function whose subfunction is itself — is a cycle a
+//!   valid file
 //!   may state. Each has a bound; this is what checks that the bound is reached before the stack
 //!   is.
 //! - **Interpretation terminates.** Every loop whose trip count comes out of the file is bounded

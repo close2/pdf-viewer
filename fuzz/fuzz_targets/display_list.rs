@@ -42,6 +42,11 @@
 //! so a value the interpreter can produce may not be refused at the boundary.
 
 #![no_main]
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message here names the property rather than the call"
+)]
 
 use libfuzzer_sys::fuzz_target;
 use pdf_render::{Command, DisplayList, ImageSource, Paint, ShadingKind, SoftMaskId};

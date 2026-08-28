@@ -21,6 +21,10 @@
 //! cannot see.
 
 #![no_main]
+#![expect(
+    clippy::expect_used,
+    reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message here names the property rather than the call"
+)]
 
 use libfuzzer_sys::fuzz_target;
 use pdf_model::xmp::{Value, Xmp};

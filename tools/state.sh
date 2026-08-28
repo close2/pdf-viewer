@@ -170,6 +170,14 @@ section_annex_o() {
 section_counts() {
     heading "populations on disk" "find / ls"
     printf 'fuzz targets:        %s\n' "$(ls fuzz/fuzz_targets/*.rs 2>/dev/null | wc -l)"
+    # And how many of them have nothing to fuzz *here*, which is a fact about the disk and not
+    # about the tree: `fuzz/corpus` is gitignored. An unseeded target still exits 0 — on `page` it
+    # reaches 182 features where its corpus reaches 169 360 — so a count of zero here is the
+    # difference between fuzzing and appearing to. `tools/fuzz.sh --list` names them (ADR 0742).
+    printf 'fuzz targets unseeded here: %s\n' \
+        "$(for t in fuzz/fuzz_targets/*.rs; do
+               [ -n "$(ls -A "fuzz/corpus/$(basename "$t" .rs)" 2>/dev/null)" ] || echo x
+           done 2>/dev/null | wc -l)"
     printf 'ADRs:                %s\n' "$(ls doc/adr/*.md 2>/dev/null | wc -l)"
     printf 'open todo items:     %s\n' "$(ls doc/todo/[0-9]*.md 2>/dev/null | wc -l)"
     printf 'specification docs:  %s pdf, %s markdown\n' \

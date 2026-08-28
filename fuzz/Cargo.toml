@@ -9,6 +9,33 @@ publish = false
 # settings, and including it would apply those to the whole workspace.
 [workspace]
 
+# The tree's lint levels, restated rather than inherited — `[lints] workspace = true` resolves
+# against *this* workspace, and cargo has no way for one workspace to take another's table. So the
+# copy is unavoidable and the drift it invites is what `tools/conformance/tests/workspaces.rs`
+# closes: it parses both manifests and fails on any lint the two tables state differently. ADR
+# 0742; until the eight-hundred-and-tenth session `clippy` had never judged a fuzz target at all.
+[workspace.lints.rust]
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+arithmetic_side_effects = "warn"
+cast_possible_truncation = "warn"
+cast_precision_loss = "warn"
+cast_sign_loss = "warn"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[lints]
+workspace = true
+
 [package.metadata]
 cargo-fuzz = true
 

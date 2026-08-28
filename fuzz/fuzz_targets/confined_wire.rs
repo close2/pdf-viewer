@@ -40,6 +40,10 @@
 //! seven-hundred-and-nineteenth session found unguarded on the raster arm, in a new place.
 
 #![no_main]
+#![expect(
+    clippy::expect_used,
+    reason = "a fuzz target states its properties by failing: `expect` and `panic!` are how a violated one reaches libFuzzer, and each message here names the property rather than the call"
+)]
 
 use libfuzzer_sys::fuzz_target;
 use viewer_confined::{Payload, Reply, wire};
