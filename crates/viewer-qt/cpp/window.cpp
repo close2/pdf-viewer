@@ -968,30 +968,35 @@ void MainWindow::buildFindBar()
     });
     addAction(open);
 
-    // **Escape means two things and the order is the Rust side's.** A `QAction` shortcut consumes
-    // the key before `keyPressEvent` ever sees it, so this is the only place Escape arrives in
-    // this window — and since ADR 0470 the first thing it may mean is *leave full screen*, which
-    // no clause states and which `src/keys.rs` documents as a choice. Forwarding the key rather
-    // than deciding here is what keeps the three hosts agreeing about what a key means.
+    // **Escape means several things and the order is the Rust side's.** A `QAction` shortcut
+    // consumes the key before `keyPressEvent` ever sees it, so this is the only place Escape
+    // arrives in this window. Forwarding the key rather than deciding here is what keeps the three
+    // hosts agreeing about what it means.
+    //
+    // **It used to be forwarded only in full screen and swallowed otherwise**, so every other row
+    // of `viewer_host::keys`' Escape — clearing §12.4.2's selection since ADR 0526, and stopping a
+    // draw the window has warned about — never reached the table in this host at all. Found by
+    // pressing the key at a window that was showing the warning and watching nothing happen.
+    // What this window legitimately owns is the *ordering* of the chrome over the page (keys.rs,
+    // "What a host still owns"), which is the one case kept below.
     auto* close = new QAction(this);
     close->setShortcut(QKeySequence(Qt::Key_Escape));
     connect(close, &QAction::triggered, this, [this] {
         if (busy_) {
             return;
         }
-        if (host_->chrome().full_screen) {
+        // The find bar takes the key before the page does — but only where Table 29 allows a find
+        // bar at all, which is why full screen is asked about first.
+        if (!host_->chrome().full_screen && find_->isVisible()) {
+            find_->hide();
+            needle_->clear();
             Busy guard(busy_);
-            host_->key(static_cast<unsigned int>(Qt::Key_Escape), false);
+            host_->find_stop();
             applyUpdates();
             return;
         }
-        if (!find_->isVisible()) {
-            return;
-        }
-        find_->hide();
-        needle_->clear();
         Busy guard(busy_);
-        host_->find_stop();
+        host_->key(static_cast<unsigned int>(Qt::Key_Escape), false);
         applyUpdates();
     });
     addAction(close);

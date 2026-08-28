@@ -154,3 +154,34 @@ is visible at the call site instead of being a sentence somebody has to remember
 what makes the *positive* rule checkable: a tier-1 host abandons only a draw whose token
 `viewer_core` has already replaced or dropped, so silence is not merely safe, it is what the core
 would have done with the answer anyway.
+
+### 22. A shared key table is only as level as the narrowest path a key takes to reach it
+
+`viewer_host::keys` states what a press means for all three windows and each host translates its
+toolkit's key into it — and that arrangement is checked in exactly one direction. Every host has a
+test that it can translate the whole of `Key::ALL`, and `WindowAct` is matched exhaustively in three
+hosts so that a new binding fails to compile in each. Both of those ask whether a host *can* obey
+the table. Neither asks whether a press actually gets there.
+
+**`viewer-qt` had been swallowing Escape entirely**, and did so from the round the table was written
+(ADR 0526) until the seven-hundred-and-ninety-fifth found it. The key reaches that window through a
+`QAction` shortcut, because a shortcut consumes a press before `keyPressEvent` ever sees it; the
+action forwarded the key to the table in full screen, closed the find bar if one was open, and
+otherwise **returned**. So §12.4.2's "Escape clears the selection" — one of the three disagreements
+the table was created to settle — never reached the table in that host at all, while the crate's
+tests, the exhaustive match and the shared documentation all said it did.
+
+Two things about the shape are worth more than the instance:
+
+- **The guard was legitimate where it started.** Chrome takes a key before the page does, and
+  `keys.rs`'s "What a host still owns" says so: which widget has the focus is not something a shared
+  value can know. What made it a defect is the *else* — a path that owns the ordering and then
+  declines to pass the key on has quietly taken the decision as well.
+- **The hosts that were fine call `meaning` from one place each.** The one that was not calls it
+  from a second place as well, and that place is C++. Count the call sites before believing a host
+  is level; a table with one entrance is checkable by the compiler and a table with a second one is
+  not.
+
+Found by pressing the key at a window that was showing a sentence naming it and watching nothing
+happen — which is the only instrument this has: `doc/environment.md`'s `Xvfb` recipe, a real
+window, a real key, and looking (ADR 0729).

@@ -274,9 +274,22 @@ impl App {
     /// The same shape as [`Self::device_window`] and for the same borrow reason: the clock and the
     /// stand-in policy are fields beside `state`, and a composer held across a call to either is a
     /// borrow the compiler is right to refuse.
-    fn composer(&mut self) -> Option<&mut crate::composer::Composer> {
+    pub(crate) fn composer(&mut self) -> Option<&mut crate::composer::Composer> {
         match self.state.as_mut()?.surface {
             Surface::Processor(ref mut composer) => Some(composer),
+            Surface::Device(_) => None,
+        }
+    }
+
+    /// The same thing to look at rather than to ask of.
+    ///
+    /// A second method rather than a borrow of the first, because the two callers outside this
+    /// module differ exactly there: [`App::mind_a_long_draw`] reads a clock and
+    /// [`App::stop_the_long_draw`] raises an interrupt, and a `&mut` taken to ask a question is a
+    /// borrow the rest of `App` then cannot have.
+    pub(crate) fn composer_ref(&self) -> Option<&crate::composer::Composer> {
+        match self.state.as_ref()?.surface {
+            Surface::Processor(ref composer) => Some(composer),
             Surface::Device(_) => None,
         }
     }
@@ -861,6 +874,11 @@ impl App {
         if let Some(problem) = self.adopt_composed(stages) {
             return Some(Rendered::Failed(problem));
         }
+        // **After the adopt and before the ask**, which is the only placement that says anything
+        // true: a frame collected a line above is a frame that is no longer taking a long time,
+        // and one asked for below has been out for no time at all. The owner's *warn* half, on
+        // the tick this window already runs.
+        self.mind_a_long_draw();
         let overlays = chrome.lists();
         let (out_for, superseded) = {
             let composer = self.composer()?;
@@ -868,7 +886,13 @@ impl App {
             // [`Self::on_the_device`], where the same line has the same reason.
             let was_out = composer.out_for();
             let mut superseded = false;
-            if !composer.depicts(pages) {
+            // **And not a view the person stopped drawing** (`Composer::declined`). This surface
+            // asks for itself once a tick for as long as the pixels on hand are not of this view,
+            // so without that second question an abort would be answered by the next tick asking
+            // for the same frame again — which is what it did, on camera, before the field
+            // existed. A native window needs no such guard: its outstanding request is the
+            // viewer's, and a token never answered is never re-issued.
+            if !composer.depicts(pages) && !composer.declined(pages) {
                 // **ADR 0657's rule 1, and it is asked before the ask rather than instead of
                 // it.** A raise does not free the thread this instant — the command in progress
                 // finishes first, measured at 1.3 to 2.1 ms against a 2.76 ms command (ADR 0650)

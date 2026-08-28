@@ -57,6 +57,19 @@ pub(crate) struct App {
     pub(crate) directory: Option<PathBuf>,
     /// What the title bar says about the page, from the last `PageChanged`.
     pub(crate) caption: String,
+    /// What the title bar says about a frame that is taking a long time to draw, if anything.
+    ///
+    /// **The state Escape's third row depends on** (`viewer_host::Waiting`), and the *warn* half
+    /// of the owner's "warn the user and allow the user to abort, however don't block". The two
+    /// native hosts hold the same field and put the sentence in a status bar; this window has no
+    /// status band and never had one, so it goes where this host already puts what the pages on
+    /// the screen could not draw — the title, beside [`App::retitle_incomplete`] — and on standard
+    /// output like every other note here.
+    ///
+    /// `None` on the device path, always: the render thread's frame is quorra's and there is no
+    /// interrupt that reaches it (ADR 0725), so this window warns about what it can also stop and
+    /// says nothing about what it cannot. `--cpu` is the path with the interruptible thread.
+    pub(crate) still_drawing: Option<String>,
     /// The renders `viewer-core` has asked for, one per page of Table 29's arrangement, in page
     /// order — kept so an expose can redraw them.
     ///
@@ -462,10 +475,88 @@ impl App {
     pub(crate) fn retitle(&self) {
         if let Some(state) = self.state.as_ref() {
             let mark = if self.dirty { "• " } else { "" };
-            state
-                .window
-                .set_title(&format!("{mark}{} — {}", self.named(), self.caption));
+            state.window.set_title(&format!(
+                "{mark}{} — {}{}",
+                self.named(),
+                self.caption,
+                self.said_about_the_drawing()
+            ));
         }
+    }
+
+    /// What the title carries about a frame that is taking a long time to draw, or nothing.
+    ///
+    /// Appended by both of the places that write a title, because a warning erased by the next
+    /// page turn would be a window offering a key it has stopped naming.
+    fn said_about_the_drawing(&self) -> String {
+        self.still_drawing
+            .as_ref()
+            .map_or_else(String::new, |said| format!(" — {said}"))
+    }
+
+    /// Tells the person about a frame that has outlasted `viewer_host::drawing::WARN`, and takes
+    /// the sentence back when it ends.
+    ///
+    /// **The *warn* half of the owner's "warn the user and allow the user to abort, however don't
+    /// block"**, on the tick this window already runs. What is shared with the two native windows
+    /// is the duration, the wording and the key (`viewer_host::still_drawing`); what differs is
+    /// only what a warning is *about*, because this thread draws Table 29's whole arrangement at
+    /// once rather than a page at a time — so the sentence names the view.
+    ///
+    /// It says something only when the answer *changes*: a tick that rewrote the title every
+    /// refresh would be a title nobody can read.
+    pub(crate) fn mind_a_long_draw(&mut self) {
+        let overlong = self
+            .composer_ref()
+            .is_some_and(crate::composer::Composer::overlong);
+        if overlong == self.still_drawing.is_some() {
+            return;
+        }
+        let said = if overlong {
+            viewer_host::still_drawing(None)
+        } else {
+            // The frame finished on its own: the sentence offered a key it no longer has a job
+            // for, so it is withdrawn rather than left standing.
+            viewer_host::drew_after_all(None)
+        };
+        println!("note: {said}");
+        self.still_drawing = overlong.then_some(said);
+        self.retitle();
+    }
+
+    /// Whether this window has offered the key that stops a draw — `viewer_host::Waiting`.
+    ///
+    /// Read off [`App::still_drawing`] rather than asked of the composer again: what decides
+    /// Escape's meaning is whether the window has *said* something, not whether a clock has
+    /// passed.
+    pub(crate) fn waiting(&self) -> viewer_host::Waiting {
+        if self.still_drawing.is_some() {
+            viewer_host::Waiting::Warned
+        } else {
+            viewer_host::Waiting::Nothing
+        }
+    }
+
+    /// Stops the draw the sentence above offered to stop — `viewer_host::WindowAct::AbortDrawing`.
+    ///
+    /// Nothing is reported to the core for it (trap 20), so the window keeps whatever it was
+    /// showing and draws again the next time the view changes, which is what the sentence says.
+    ///
+    /// **The device path never gets here, and that is stated rather than guarded against.** Quorra
+    /// has no interrupt, so a frame on the render thread cannot be taken back at all (ADR 0725);
+    /// [`App::mind_a_long_draw`] therefore says nothing on that surface, Escape never comes to
+    /// mean this there, and a branch here refusing an act the table cannot produce would be a path
+    /// nothing can reach. `--cpu` is the surface with the interruptible thread, and it is the one
+    /// this window's warning is about.
+    pub(crate) fn stop_the_long_draw(&mut self) {
+        let stopped = self
+            .composer()
+            .is_some_and(crate::composer::Composer::abandon);
+        self.still_drawing = None;
+        if stopped {
+            println!("note: {}", viewer_host::stopped_drawing(None));
+        }
+        self.retitle();
     }
 
     /// What the title bar calls the document — §12.2's `/DisplayDocTitle`.
@@ -529,8 +620,10 @@ impl App {
         let named = pages.iter().filter(|page| !page.notes.is_empty()).count();
         if let Some(state) = self.state.as_ref() {
             state.window.set_title(&format!(
-                "{} — {} — incomplete: {items} item(s) not drawn on {named} page(s) on screen",
-                self.title, self.caption
+                "{} — {}{} — incomplete: {items} item(s) not drawn on {named} page(s) on screen",
+                self.title,
+                self.caption,
+                self.said_about_the_drawing()
             ));
         }
     }

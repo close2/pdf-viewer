@@ -116,7 +116,13 @@ six-hundred-and-eighty-seventh session** — the two native hosts ship the same 
 font programs and had no surface for their licences at all (ADR 0526). **What a key means is one
 value, `viewer_host::keys`, that all three hosts translate their toolkit's key into**: three tables
 that disagreed about the arrow keys, about `f` and about Escape are one, and each host has a test
-that fails when it stops translating the whole of it. **The
+that fails when it stops translating the whole of it. **A draw a person is waiting for says so and
+offers a key**: a page — or, on the window that draws whole frames, a view — still being drawn
+after `viewer_host::drawing::WARN` puts a sentence in the status bar naming Escape, and Escape then
+takes the drawing thread back without reporting anything to the core, so the page keeps its picture
+and is drawn again when the view moves (ADR 0729). It is the owner's "warn the user and allow the
+user to abort, however don't block", and it is a *warning* rather than the deadline ADR 0657
+measured and refused. **The
 document chooses what opens**: all six of Table 29's `/PageMode` values reach a window in all three
 hosts — four name a panel, `UseNone` names none and `FullScreen` is §12.4.4's presentation — and
 §12.2's `/DisplayDocTitle` puts the document's own title in the title bar. **A document this program

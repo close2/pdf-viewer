@@ -435,7 +435,8 @@ impl App {
         } else {
             viewer_host::Mode::Reading
         };
-        let Some(meaning) = viewer_host::meaning(stated, self.shift, mode) else {
+        let waiting = self.waiting();
+        let Some(meaning) = viewer_host::meaning(stated, self.shift, mode, waiting) else {
             return;
         };
         match meaning {
@@ -513,6 +514,7 @@ impl App {
             // §12.5.6.6: whether the next drag draws a text box is a mode this host is in, and
             // `viewer-core` has no opinion about chrome by construction (rule 5). The command
             // goes out on the *release*, with both corners.
+            viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
             viewer_host::WindowAct::FreeText => {
                 self.drawing = if self.drawing.is_some() {
                     println!("note: not drawing a free text annotation after all");

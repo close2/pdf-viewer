@@ -3,7 +3,8 @@
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
 its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640), the
 host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657), the boundary has
-its first host (ADR 0713) — and that host draws on the graphics device (ADR 0725)**:
+its first host (ADR 0713), that host draws on the graphics device (ADR 0725) — and the owner's
+warn-and-abort has reached the three established windows (ADR 0729)**:
 `pdf-viewer-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
 arms, presented through `render-quorra` — which is what the marks cross the pipe *for* — with
 Escape ending the worker *and* taking back the drawing thread, and `--cpu` the window with no
@@ -13,8 +14,7 @@ against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer 
 frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
 confined process can both compute; and a page shipped as marks is **not drawn at all**, which is
 what the choice was for. The tier change is complete. What it left behind was one *host-side* debt
-whose mechanism and policy are now both built; what remains of it is the owner's abort as an input
-the three established windows share, below.
+whose mechanism, policy and input are now all built, in all four windows.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
@@ -174,16 +174,31 @@ measurement asks for more.
     abandoned draw produces no `Rendered` at all, and `viewer-core`'s
     `a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked` pins both halves.
 
-  **What is left of it is the owner's callback in the three established windows** — *"warn the
-  user and allow the user to abort, however don't block"* ([`10`](10-bounds-that-cap-size.md)) —
-  and it is now a convenience rather than the thing standing between a document and the machine,
-  because the rule above already keeps the window responsive while a hostile page draws. It needs
-  an input, and an input is `viewer_host::keys`' table, which [`30`](30-a-native-host.md)'s
-  levelness rule makes all three windows' at once. **The confined window has the abort itself**
-  (Escape, ADR 0713) and is deliberately outside that table; what the three share is still owed.
+  ~~**What is left of it is the owner's callback in the three established windows**~~ — **carried
+  out in the seven-hundred-and-ninety-fifth** (ADR 0729). *"Warn the user and allow the user to
+  abort, however don't block"* is `viewer_host::drawing::WARN` (a second, measured against
+  `doc/pdf.js`'s first pages, and a clock that raises nothing), `viewer_host::still_drawing` and
+  its two companions, and `viewer_host::keys::Waiting` giving Escape a third row — offered only
+  while the window is saying the sentence that names the key, and never in a presentation, where
+  Table 29 forbids the sentence. All three established windows have it and the confined one has
+  had its own since ADR 0713, so four windows now mean the same thing by the key.
+
+  Two findings came with it and are the reason it was not three lines. **`viewer-qt` forwarded
+  Escape to the shared table only in full screen**, so §12.4.2's clear-the-selection row had never
+  reached that host at all since ADR 0526 — a shared key table is only as level as the narrowest
+  path a key takes to reach it, and nothing looks at that path. And **on `viewer-ui`'s composing
+  surface an abort without a record is a loop**: that host asks for its own frame once a tick, so
+  the abandoned frame was re-asked at the next tick, warned about again and stopped again, until
+  `Composer::declined` recorded the arrangement the person had stopped. A native window needs no
+  such field, because a viewer's token never answered is never re-issued.
 - ~~**The cancel path proven from the host**, not only from a test~~ — **proven in the
   seven-hundred-and-seventy-fifth** (ADR 0713): Escape in `pdf-viewer-confined` ends the worker
   and takes the drawing thread back, without blocking, on the amplification fixture under `Xvfb`.
+- **The device path warns about nothing**, which ADR 0729 states rather than guards against:
+  quorra has no interrupt (ADR 0725), so the flagship's render thread cannot be taken back and a
+  key offered for it would name a key that does nothing. `--cpu` is the surface with the
+  interruptible thread. Whether quorra should have one at all is a question for that dependency,
+  not a debt of this item.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the
   work rather than declared by a sender. It still ends the worker; what it now does is arrive with
   the worker's own sentence attached rather than as a bare signal number. Making it a *refusal*

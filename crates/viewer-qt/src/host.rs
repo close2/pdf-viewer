@@ -150,6 +150,14 @@ pub struct Host {
     /// the `QTimer` that asks it whether anything has landed, and the interval for that is
     /// [`Host::drawing_wait`] — pulled rather than pushed, for this crate's own rule.
     drawing: viewer_host::Drawing,
+    /// Which page this window has told the person is taking a long time to draw.
+    ///
+    /// **The state Escape's third row depends on** (`viewer_host::Waiting`), held rather than
+    /// asked for twice because it decides two things: what the status bar is saying, and what the
+    /// key means while it says it. The same field `viewer-gtk` holds, for the same reason and off
+    /// the same poll — `viewer_host::Drawing::overlong` is the question and the wait is
+    /// `viewer-host`'s.
+    warned: Option<usize>,
     /// The launch timeline.
     pub(crate) trace: Trace,
     /// §6.3.2.2: who draws §12.7's widgets — this host's controls, or the document's own pictures.
@@ -319,6 +327,7 @@ impl Host {
             // No thread yet, and none until a page needs one: `CLAUDE.md` section 2's rule that
             // nothing page one does not need happens before page one.
             drawing: viewer_host::Drawing::new(),
+            warned: None,
             trace,
             widget_appearances,
             restrictions,
@@ -403,8 +412,9 @@ impl Host {
         } else {
             viewer_host::Mode::Reading
         };
+        let waiting = self.waiting();
         let Some(meaning) =
-            viewer_host::meaning(stated, shift || keys::shifted_by_name(code), mode)
+            viewer_host::meaning(stated, shift || keys::shifted_by_name(code), mode, waiting)
         else {
             return;
         };
@@ -489,6 +499,7 @@ impl Host {
                 "this host cannot draw a §12.5.6.6 free text annotation yet — the drag mode and \
                  its editor are viewer-ui's alone (doc/todo/30)",
             ),
+            viewer_host::WindowAct::AbortDrawing => self.stop_the_long_draw(),
         }
     }
 
@@ -1745,6 +1756,57 @@ impl Host {
             // so this is where an armed one can begin. Only while a presentation is running,
             // because taking the face costs a whole-viewport rasterisation.
             self.face_arrived(&finished.request);
+        }
+        self.mind_a_long_draw();
+    }
+
+    /// Tells the person about a draw that has outlasted `viewer_host::drawing::WARN`, and takes
+    /// the sentence back when it ends.
+    ///
+    /// **The *warn* half of the owner's "warn the user and allow the user to abort, however don't
+    /// block"**, on the poll this window already runs while something is being drawn — so nothing
+    /// new wakes for it. The decision, the duration and the wording are `viewer-host`'s and the
+    /// three lines are `viewer-gtk`'s; what is Qt's is the status bar.
+    ///
+    /// It says something only when the answer *changes*: the poll runs every millisecond, and a
+    /// status bar rewritten a thousand times a second is one nobody can read.
+    fn mind_a_long_draw(&mut self) {
+        let overlong = self.drawing.overlong();
+        if overlong == self.warned {
+            return;
+        }
+        let was = self.warned.take();
+        self.warned = overlong;
+        match (was, overlong) {
+            (_, Some(page)) => self.say(&viewer_host::still_drawing(Some(page))),
+            // A page that finished on its own: the sentence offered a key it no longer has a job
+            // for, so it is withdrawn rather than left standing.
+            (Some(page), None) => self.say(&viewer_host::drew_after_all(Some(page))),
+            (None, None) => {}
+        }
+    }
+
+    /// Whether this window has offered the key that stops a draw — `viewer_host::Waiting`.
+    ///
+    /// Read off [`Host::warned`] rather than asked of the drawing again: what decides Escape's
+    /// meaning is whether the window has *said* something, not whether a clock has passed.
+    fn waiting(&self) -> viewer_host::Waiting {
+        if self.warned.is_some() {
+            viewer_host::Waiting::Warned
+        } else {
+            viewer_host::Waiting::Nothing
+        }
+    }
+
+    /// Stops the draw the sentence above offered to stop — `viewer_host::WindowAct::AbortDrawing`.
+    ///
+    /// Nothing is reported to the viewer for it (trap 20), so the page keeps whatever it was
+    /// showing and is drawn again the next time the view changes, which is what the sentence says.
+    fn stop_the_long_draw(&mut self) {
+        let stopped = self.drawing.abandon();
+        self.warned = None;
+        if let Some(page) = stopped {
+            self.say(&viewer_host::stopped_drawing(Some(page)));
         }
     }
 
