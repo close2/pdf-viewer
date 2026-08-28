@@ -17,7 +17,9 @@ stream that identifier is only unique within**, in the six-hundred-and-sixty-fir
 and **all three of this project's windows since the seven-hundred-and-thirty-first** (ADR 0623),
 which is what `tools/state.sh windows` had named as the largest debt on that boundary, and
 **§12.7.5.2's click carried out rather than refused, in all three, in the
-seven-hundred-and-thirty-fifth** (ADR 0630).
+seven-hundred-and-thirty-fifth** (ADR 0630), and **Table 384's `/Summary` and `/Short` — the
+table's last two entries, the first witnessed only in the SafeDocs crawl and the second nowhere —
+in the seven-hundred-and-seventy-seventh** (ADR 0715).
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
@@ -148,17 +150,6 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   and the count is what will say when it stops being true. What it would cost is a flag on the
   answer and a wire field beside it, the shape `pdf_model::structure::Reading::truncated` already
   has one crate down.
-
-- **Table 384's `/Short`, which nothing states.** "Contains a short form of the content of a TH
-  structure element's content", and its EXAMPLE is precisely this feature: "for each table cell the
-  applicable header cells are read to the user … It can become cumbersome for a user to repeatedly
-  have to listen to the full contents of a TH structure element." **0 of the corpus's 6197 `TH`
-  state one** (`examples/cell_header_census`), which is why it was not taken with `/Headers`: it is
-  five lines and a wire field for a population of nothing. Take it when a witness appears, or as
-  spec-driven work with that count written beside it.
-
-- **`/Summary`**, Table 384's sentence about a whole table, is unread for the same reason and has
-  not been counted.
 
 - **The cell's coordinates cannot cross on this platform, and that is the platform's.**
   `accesskit_atspi_common` implements `Accessible`, `Action`, `Component`, `Hyperlink`, `Selection`,

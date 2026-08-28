@@ -289,7 +289,9 @@ questions it answered now names that one as well (ADR 0637).
 off the bus, `Frame` → `DocumentFrame` → the page named by §12.4.2's own label → §14.7's elements,
 with §14.9.3's `/Alt` where the document states one, a table cell announced with **the headers that
 describe it** — Table 384's `/Headers` where a producer wrote one and §14.8.4.8.3's own search where
-none did — a `TH` carrying the axis §14.8.5.7 gives it rather than a guess, an element placed by
+none did, each header said in the author's own short form where it states Table 384's `/Short` — a
+table described by its stated `/Summary` (ADR 0715), a `TH` carrying the axis §14.8.5.7 gives it
+rather than a guess, an element placed by
 Table 379's `/BBox` where its content marked no text, and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an

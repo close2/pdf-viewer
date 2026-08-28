@@ -28,6 +28,8 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         language: None,
         quads: Vec::new(),
         header_scope: None,
+        summary: None,
+        short: None,
         bounds: None,
         control: None,
         annotation: None,
@@ -492,6 +494,57 @@ fn a_header_cell_whose_text_is_in_a_child_is_still_named() {
     assert!(
         note.contains("headers, most specific first: Sydney"),
         "{note}"
+    );
+}
+
+/// Table 384's `/Summary` reaches a person as the table node's description.
+///
+/// §14.8.5.7 wrote the entry "[f]or use in non-visual rendering such as speech or braille", and
+/// the description is this platform's channel for a sentence *about* an element — the same
+/// argument `tree::headers` makes. It does not ride the name, because the name is what the
+/// table's own content said and this is what its author said about it.
+#[test]
+fn a_tables_summary_is_said_in_its_description() {
+    let mut table = element(None, "Table", "");
+    table.summary = Some("sales by region and quarter".to_owned());
+    let nodes = [table];
+    let update = built(view(&nodes, &[]));
+    let built_table = node(&update, NodeId(16));
+    assert_eq!(built_table.role(), Role::Table);
+    assert_eq!(
+        built_table.description(),
+        Some("summary: sales by region and quarter")
+    );
+}
+
+/// Table 384's `/Short` speaks in the repetition, and the header cell keeps its own content.
+///
+/// The entry exists for one moment — "[i]t can become cumbersome for a user to repeatedly have
+/// to listen to the full contents of a TH structure element" — so it substitutes where the
+/// header is repeated in front of a cell it describes, and nowhere else: a person who moves to
+/// the header cell itself still hears what it says. The subtree walk is skipped whole, which is
+/// what the `P` inside the header is here to pin.
+#[test]
+fn a_headers_short_form_speaks_in_front_of_the_cells_it_describes() {
+    let mut cell = element(None, "TD", "23");
+    cell.headers = vec![1];
+    let mut th = header(None, "the fiscal year 2023", Some(HeaderScope::Column));
+    th.short = Some("FY23".to_owned());
+    let nodes = [cell, th, element(Some(1), "P", "restated")];
+    let update = built(view(&nodes, &[]));
+    let note = node(&update, NodeId(16)).description().unwrap_or_default();
+    assert!(
+        note.contains("headers, most specific first: FY23"),
+        "the stated short form is what the repetition says: {note}"
+    );
+    assert!(
+        !note.contains("restated"),
+        "a shortened header's subtree is not walked for the repetition: {note}"
+    );
+    assert_eq!(
+        node(&update, NodeId(17)).label(),
+        Some("the fiscal year 2023"),
+        "the header cell's own node keeps its full content"
     );
 }
 

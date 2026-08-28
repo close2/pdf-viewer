@@ -3235,6 +3235,11 @@ fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
 /// The corner cell spans two rows, which is what makes the second row's first *child* not its
 /// first column — the difference between a reader that counts children and one that keeps a grid.
 /// The last row's header states a `/Scope` the assumption would have contradicted.
+///
+/// The table also states Table 384's `/Summary`, one header its `/Short`, and both entries are
+/// *planted* on types their own sentences exclude — a `/Short` on the table, both on a `TD` —
+/// so that a reader applying the entries without their conditions is caught by the test that
+/// asserts them absent.
 fn with_a_table() -> Vec<u8> {
     use std::fmt::Write as _;
     let content = "BT /F1 12 Tf 10 60 Td\n\
@@ -3254,16 +3259,20 @@ fn with_a_table() -> Vec<u8> {
          5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
          6 0 obj\n<< /Type /StructTreeRoot /K [7 0 R] >>\nendobj\n\
          7 0 obj\n<< /Type /StructElem /S /Table /P 6 0 R /Pg 3 0 R \
-          /K [8 0 R 11 0 R 13 0 R 16 0 R] >>\nendobj\n\
+          /K [8 0 R 11 0 R 13 0 R 16 0 R] \
+          /A << /O /Table /Summary (sales by region and year) /Short (not for a table) >> \
+          >>\nendobj\n\
          8 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [9 0 R 10 0 R] >>\nendobj\n\
          9 0 obj\n<< /Type /StructElem /S /TH /P 8 0 R /Pg 3 0 R /K [0] \
           /A << /O /Table /RowSpan 2 >> >>\nendobj\n\
-         10 0 obj\n<< /Type /StructElem /S /TH /P 8 0 R /Pg 3 0 R /K [1] >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /TH /P 8 0 R /Pg 3 0 R /K [1] \
+          /A << /O /Table /Short (Yr) >> >>\nendobj\n\
          11 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [12 0 R] >>\nendobj\n\
          12 0 obj\n<< /Type /StructElem /S /TH /P 11 0 R /Pg 3 0 R /K [2] >>\nendobj\n\
          13 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [14 0 R 15 0 R] >>\nendobj\n\
          14 0 obj\n<< /Type /StructElem /S /TH /P 13 0 R /Pg 3 0 R /K [3] >>\nendobj\n\
-         15 0 obj\n<< /Type /StructElem /S /TD /P 13 0 R /Pg 3 0 R /K [4] >>\nendobj\n\
+         15 0 obj\n<< /Type /StructElem /S /TD /P 13 0 R /Pg 3 0 R /K [4] \
+          /A << /O /Table /Summary (not for a cell) /Short (not for a data cell) >> >>\nendobj\n\
          16 0 obj\n<< /Type /StructElem /S /TR /P 7 0 R /Pg 3 0 R /K [17 0 R] >>\nendobj\n\
          17 0 obj\n<< /Type /StructElem /S /TH /P 16 0 R /Pg 3 0 R /K [5] \
           /A << /O /Table /Scope /Column >> >>\nendobj\n",
@@ -3755,6 +3764,62 @@ fn a_header_cell_crosses_with_the_axis_it_describes() {
             .iter()
             .all(|node| node.role == "TH" || node.header_scope.is_none()),
         "{nodes:?}"
+    );
+}
+
+/// Table 384's `/Summary` and `/Short` cross, each for the type its own sentence names.
+///
+/// §14.8.5.7 conditions the first — "[t]his entry shall only be used within Table structure
+/// elements" — and the second: "[t]his entry shall only have an effect for structure elements of
+/// type of TH". The fixture plants both entries on types those sentences exclude, a `/Short` on
+/// the table and both on a data cell, so a reader that skipped the conditions fails here rather
+/// than passing quietly.
+#[test]
+fn a_tables_summary_and_a_headers_short_form_cross_for_their_own_types() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_table(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let nodes = on_one_page(pages);
+
+    let table = nodes
+        .iter()
+        .find(|node| node.role == "Table")
+        .unwrap_or_else(|| panic!("the table is on the page: {nodes:?}"));
+    assert_eq!(table.summary.as_deref(), Some("sales by region and year"));
+    assert_eq!(
+        table.short, None,
+        "a /Short on a table is a statement §14.8.5.7 does not define"
+    );
+
+    let named = |want: &str| {
+        nodes
+            .iter()
+            .find(|node| node.name == want)
+            .unwrap_or_else(|| panic!("{want} is on the page: {nodes:?}"))
+    };
+    assert_eq!(named("2023").short.as_deref(), Some("Yr"));
+    assert_eq!(
+        named("12").short,
+        None,
+        "the entry has an effect for a TH and a data cell is not one"
+    );
+    assert_eq!(named("12").summary, None, "nor is it a table");
+    assert_eq!(
+        named("Region").short,
+        None,
+        "a header that states none answers nothing rather than an invention"
     );
 }
 
