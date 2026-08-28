@@ -495,7 +495,13 @@ pub fn structure_element_page(
 /// entry overrides any Pg entry in the structure element containing the object reference; it
 /// shall be used if the structure element has no such entry" until Errata Collection 3 — Issue
 /// #431, `/State` `Review` `Accepted` — which also reclassifies the entry from "Optional" to
-/// "Sometimes required". Neither changes what this function does; ADR 0253.) §14.7.5.2's integer
+/// "Sometimes required". **Two accepted errata amend that one sentence and this comment credited
+/// one of them with both**: #431 replaces everything after *overrides* — which it makes *takes
+/// precedence over* — with a second sentence, *This entry is required if the structure element
+/// containing the object reference has no Pg entry.*, while Issue #339, `/State` `Review`
+/// `Completed`, strikes the *used* inside the run #431 replaces and writes *required* there. They
+/// overlap in text and agree in meaning, which is the opposite of Table 161's pair. Neither
+/// changes what this function does; ADR 0253 and ADR 0728.) §14.7.5.2's integer
 /// form of a kid means a marked-content sequence "contained in
 /// the content stream of the page that is specified in the Pg entry of the structure element".
 fn structure_page(document: &Document, element: &Dictionary, depth: usize) -> Option<ObjectId> {

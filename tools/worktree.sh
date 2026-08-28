@@ -28,6 +28,21 @@ builds=/home/AI/cargo-target
 # corpora are submodules, and a round has no business writing to any of them.
 linked=(doc/md doc/pdf.js doc/arlington-pdf-model corpus-cache)
 
+# Every gitlink this script has replaced by a symlink, listed by git rather than by hand.
+#
+# The guard used to be one line inside the corpora loop, and it covered the corpora alone — while
+# `linked` above replaces two more submodules, `doc/pdf.js` and `doc/arlington-pdf-model`, with
+# symlinks and guarded neither. The seven-hundred-and-ninety-fourth round staged both under a
+# `git add -A crates doc` and had to amend the commit to put the gitlinks back. So the population
+# is *derived*: mode 160000 in the index, a symlink on disk. A list written by hand goes stale the
+# next time something is linked, which is exactly how this one did.
+guard_gitlinks() {
+    local wt=$1 path
+    while read -r path; do
+        [ -L "$wt/$path" ] && git -C "$wt" update-index --skip-worktree "$path"
+    done < <(git -C "$wt" ls-files --stage | awk '$1 == "160000" { print $4 }')
+}
+
 open_one() {
     local n=$1 wt="$root/.claude/worktrees/r$n"
     [ -e "$wt" ] && { echo "r$n: exists already — close it first"; return 1; }
@@ -63,9 +78,9 @@ open_one() {
         if [ -z "$(ls -A "$wt/doc/corpora/$name" 2>/dev/null)" ]; then
             rmdir "$wt/doc/corpora/$name" 2>/dev/null || true
             ln -sfn "${p%/}" "$wt/doc/corpora/$name"
-            git -C "$wt" update-index --skip-worktree "doc/corpora/$name"
         fi
     done
+    guard_gitlinks "$wt"
 
     echo "r$n: $wt"
     echo "     branch round-$n, build $builds/pdfv-r$n"
@@ -92,8 +107,12 @@ case "${1:-}" in
         for wt in "$root"/.claude/worktrees/r*/; do
             [ -d "$wt" ] || continue
             n=$(basename "${wt%/}")
-            flags=$(git -C "$wt" ls-files -v doc/corpora 2>/dev/null | grep -c '^S ' || true)
-            total=$(git -C "$wt" ls-files doc/corpora 2>/dev/null | wc -l)
+            flags=0; total=0
+            while read -r path; do
+                [ -L "$wt/$path" ] || continue
+                total=$((total + 1))
+                [ "$(git -C "$wt" ls-files -v -- "$path" | cut -c1)" = "S" ] && flags=$((flags + 1))
+            done < <(git -C "$wt" ls-files --stage | awk '$1 == "160000" { print $4 }')
             if [ "$flags" -gt 0 ] && [ "$flags" -eq "$total" ]; then
                 printf '  %-8s gitlink guard on  (%s/%s skip-worktree)\n' "$n" "$flags" "$total"
             else

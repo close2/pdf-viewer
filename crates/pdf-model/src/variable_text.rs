@@ -992,6 +992,13 @@ fn encode(font: &pdf_font::LoadedFont, text: &str, asked: Asked) -> Encoded {
     // a glyph. They travel through the layout as `Placed::Break` and `show` drops them. Read
     // from the value as it stands rather than from a normalised copy, so that a caret's offset
     // means the same thing here as it does to the host that sent it.
+    //
+    // Accepting all three is a reader's tolerance of §12.5.6.2's paragraph rule, which asks a
+    // *writer* for the carriage return, and Errata Collection 3's Issue #90 says so outright: a
+    // caret inserts *providing the Contents key, if* after that sentence's opening *When*, which
+    // names the act of writing the entry and names the entry this function lays out for a free
+    // text annotation. Obeying the writer's rule as if it were a reader's would draw a producer's
+    // paragraph break as a space, on the page rather than in a window.
     let mut after_return = false;
     let mut end = text.len();
     for (at, character) in text.char_indices() {
