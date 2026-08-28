@@ -284,6 +284,10 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::GoTo(target) => format!("go to {target:?}"),
         Command::Zoom { zoom, at } => format!("zoom {zoom:?} at {at:?}"),
         Command::Scroll { dx, dy } => format!("scroll {dx} {dy}"),
+        Command::View(view) => format!(
+            "view page {} zoom {:?} scroll {} {}",
+            view.page, view.zoom, view.scroll.0, view.scroll.1
+        ),
         Command::SetGroup { group, on } => format!("layer {group:?} {on}"),
         Command::Activate(object) => format!("activate {object:?}"),
         Command::Extract { name } => format!("extract {name:?}"),

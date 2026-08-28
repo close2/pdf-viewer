@@ -11,6 +11,7 @@
 use pdf_render::Raster;
 use pdf_syntax::ObjectId;
 
+use crate::command::Viewing;
 use crate::viewer::DocumentId;
 
 /// A question about the viewer's state.
@@ -24,6 +25,26 @@ pub enum Query<'a> {
     PageCount,
     /// Which page is showing, and what it is called.
     CurrentPage,
+    /// Where the reader is looking: the page, the magnification and the scroll, together.
+    ///
+    /// **The one question in this vocabulary whose answer a host hands straight back**, as
+    /// [`crate::Command::View`]. It exists because the commands that make a view are relative and
+    /// clamped, so a host that issued every one of them still cannot say where the reader ended
+    /// up: `Zoom::In` three times and once out is not a net two steps when the ladder has a
+    /// range, and a `Scroll` the viewer stopped at the bottom of a page moved less than it said.
+    ///
+    /// **Not answerable from [`Query::PageGeometry`]**, which is the neighbour it would otherwise
+    /// duplicate. That one's `scale` is device pixels per user space unit — the magnification and
+    /// the display's scale multiplied together — so recovering the first needs a division by the
+    /// second, and this crate's own magnification refuses to make that round trip for the reason
+    /// written beside it: it is not the identity in `f32`, and it is the one place where a pixel
+    /// of error becomes a scrollbar. And its `origin` is where the raster *ended up* — centred
+    /// for a page smaller than the viewport, laid out from the row's top for a continuous
+    /// arrangement — so inverting it into a scroll would be a host holding a second opinion about
+    /// this crate's layout arithmetic, which is exactly what that module refuses to have two of.
+    ///
+    /// [`Answer::None`] when no document is focused.
+    View,
     /// Where a page sits on the screen and how large it is drawn.
     ///
     /// The index is zero-based. A page the arrangement does not show has no place on the screen,
@@ -415,6 +436,12 @@ pub enum Answer<'a> {
     },
     /// Where the page sits and how large it is drawn.
     Geometry(PageGeometry),
+    /// Where the reader is looking, as [`crate::Command::View`] takes it back.
+    ///
+    /// The magnification is never [`crate::Zoom::In`] or [`crate::Zoom::Out`]: this crate
+    /// resolves a step into the scale it lands on before storing it, because a chain of steps has
+    /// to compose and a mode cannot.
+    View(Viewing),
     /// §12.3.3's outline items, in the order the document's linked list holds them.
     ///
     /// Owned, like its two siblings — see the note on this enum for what the borrow cost.

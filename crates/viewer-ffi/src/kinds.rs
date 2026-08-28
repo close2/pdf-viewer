@@ -277,6 +277,27 @@ impl ZoomKind {
             Self::Out => Zoom::Out,
         }
     }
+
+    /// The kind and the scale for a magnification the viewer answered with.
+    ///
+    /// [`Self::zoom`]'s inverse, and this enumeration's first use in the *answering* direction —
+    /// `pdfv_view` hands a caller a magnification to hand back, which is what the four shapes in
+    /// this module's own documentation call an enumeration this ABI answers with. Exhaustive over
+    /// `viewer_core::Zoom`, so a seventh magnification stops the build here.
+    ///
+    /// The scale is meaningless for every kind but [`Self::Scale`], exactly as it is on the way
+    /// in; zero is what a caller reads for the others, and it is not to be given a meaning.
+    #[must_use]
+    pub const fn of(zoom: Zoom) -> (Self, f32) {
+        match zoom {
+            Zoom::FitPage => (Self::FitPage, 0.0),
+            Zoom::FitWidth => (Self::FitWidth, 0.0),
+            Zoom::FitHeight => (Self::FitHeight, 0.0),
+            Zoom::Scale(scale) => (Self::Scale, scale),
+            Zoom::In => (Self::In, 0.0),
+            Zoom::Out => (Self::Out, 0.0),
+        }
+    }
 }
 
 /// The pixel layout of a raster this ABI hands over.

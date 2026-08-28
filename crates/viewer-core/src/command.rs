@@ -136,6 +136,33 @@ pub enum Command {
         /// Vertical delta in device pixels.
         dy: f32,
     },
+    /// Put the focused document back at a view [`crate::Query::View`] answered with.
+    ///
+    /// **The absolute half of a vocabulary that is otherwise relative, and it exists because a
+    /// host cannot reconstruct a view out of the commands that made it.** [`Self::GoTo`] states a
+    /// page and [`Self::Zoom`] states a magnification, but the third part of a view — how far the
+    /// page is scrolled under the viewport — has only [`Self::Scroll`], which is a *delta* the
+    /// viewer clamps. A host that had watched every scroll it sent still could not say where the
+    /// reader is, because what it sent and what the clamp kept are two different numbers.
+    ///
+    /// **A host does not compose one of these; it echoes one.** The value comes from
+    /// [`crate::Answer::View`] and goes back unchanged, which is what makes the restore exact
+    /// rather than close: the same `f32`s in both directions, with no arithmetic in between to
+    /// round. Replaying the three commands instead — the page, then the magnification, then a
+    /// scroll of the difference — reaches the same place only to within a rounding of the
+    /// subtraction, and it requires a host to know which of the three resets the others.
+    ///
+    /// The three parts are applied as one: the page moves first, because a turn is what zeroes
+    /// the scroll; then the magnification, because it is what the scroll is measured in; then the
+    /// scroll itself. A page that moved raises [`crate::Event::PageChanged`] exactly as
+    /// [`Self::GoTo`] does, because the reader is looking at a different page and §12.6.3's
+    /// notification does not care which command moved them.
+    ///
+    /// **What it is for**, and the reason it is a command rather than an instrument: a confined
+    /// worker that dies is one page's breach rather than the document's end (ADR 0734), and the
+    /// host that starts another one has to put the reader back where they were. Nothing on this
+    /// boundary could say where that was.
+    View(Viewing),
     /// How much of what a document asserts about its reader this viewer obeys.
     ///
     /// **The one policy value in this crate, and the host is the only place it can come from.**
@@ -741,4 +768,38 @@ pub enum Zoom {
     In,
     /// One step smaller.
     Out,
+}
+
+/// Where the reader is looking: the page, the magnification, and the scroll.
+///
+/// **One fact rather than three**, and that is the whole reason it is a type. The scroll is
+/// measured from the top of the current page's row, so a scroll paired with a different page is
+/// not a smaller truth but a wrong one; and the magnification is what the scroll's device pixels
+/// are pixels *of*. [`crate::Query::View`] answers with one and [`Command::View`] takes one back,
+/// which is the only pair of directions this value is meant to travel in.
+///
+/// The fields are public because a host displays them — a window's title, a trace line, a
+/// remembered position in a configuration file — and not so that a host can build one from
+/// numbers of its own. A view composed rather than answered is a guess about where the clamp
+/// would have left the reader.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Viewing {
+    /// Which page, zero-based — the page every question about "the page being shown" is answered
+    /// for, and the page the scroll below is measured from.
+    pub page: usize,
+    /// How large the page is drawn, as [`Command::Zoom`] would state it.
+    ///
+    /// A *mode* where the reader chose one, because [`Zoom::FitWidth`] and its two neighbours
+    /// survive a resize and the magnification they resolve to does not: restoring the number
+    /// would restore this window's picture and lose the next window's. [`Zoom::In`] and
+    /// [`Zoom::Out`] are steps rather than places, so this crate never answers with one — and
+    /// [`Command::View`] carrying one nonetheless steps from wherever it lands, which is what
+    /// those two mean everywhere else rather than a second meaning here.
+    pub zoom: Zoom,
+    /// How far the page is scrolled under the viewport, in device pixels.
+    ///
+    /// Positive means the content has moved up and left — the same sense [`Command::Scroll`]'s
+    /// delta has, and the same units. **Already clamped**: this is where the viewer put the
+    /// reader, not where a host asked for them to be.
+    pub scroll: (f32, f32),
 }

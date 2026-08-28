@@ -71,11 +71,15 @@ use crate::status::Status;
 
 /// The revision of everything in this header that a caller compiles against.
 ///
-/// **What it protects is the three structs passed by value**, and nothing else needs it: a
-/// function added later is a symbol an old caller never looks up, and a status or a kind added
-/// later is a number an old caller has a `default:` arm for — but a field added to
-/// [`PdfvGeometry`] or [`PdfvFrame`] changes a size the caller has already compiled, and no
+/// **What it protects is the structs passed by value**, and nothing else needs it: a function
+/// added later is a symbol an old caller never looks up, and a status or a kind added later is a
+/// number an old caller has a `default:` arm for — but a field added to [`PdfvGeometry`],
+/// [`PdfvFrame`] or [`PdfvViewing`] changes a size the caller has already compiled, and no
 /// diagnostic anywhere would catch it. This number moves whenever one of those does.
+///
+/// **A struct *added* does not move it**, which is the same argument as the one for a function: a
+/// caller compiled before [`PdfvViewing`] existed passes nothing of that shape and looks up neither
+/// of the two symbols that take one.
 pub const PDFV_ABI_VERSION: u32 = 1;
 
 /// Where a page sits on the screen and how large it is drawn.
@@ -98,6 +102,33 @@ pub struct PdfvGeometry {
     pub origin_x: f32,
     /// The same, vertically.
     pub origin_y: f32,
+}
+
+/// Where the reader is looking: the page, the magnification and the scroll.
+///
+/// Passed by value, which is why [`PDFV_ABI_VERSION`] exists. A caller reads one from
+/// `pdfv_view`, keeps it, and hands it back to `pdfv_set_view` — the two directions this value is
+/// meant to travel in, and a C caller composing one from numbers of its own is guessing where the
+/// viewer's clamp would have left the reader.
+///
+/// **Named `pdfv_viewing` in the header and not `pdfv_view`, for [`PdfvFrame`]'s reason**: C puts
+/// a struct tag and a function in one namespace, so a `typedef struct pdfv_view` beside an
+/// `int32_t pdfv_view(…)` is a redeclaration error. That note was written about
+/// `pdfv_frame_info`; this is the second time the same fact has decided a name here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(C)]
+pub struct PdfvViewing {
+    /// Which page, zero-based.
+    pub page: usize,
+    /// How large the page is drawn: one of `PDFV_ZOOM_*`.
+    pub zoom: u32,
+    /// Logical pixels per user space unit for `PDFV_ZOOM_SCALE`, and zero for the others.
+    pub scale: f32,
+    /// How far the page is scrolled under the viewport, in device pixels; positive moves the
+    /// content up and left, which is the sense `pdfv_scroll`'s delta has.
+    pub scroll_x: f32,
+    /// The same, vertically.
+    pub scroll_y: f32,
 }
 
 /// What the viewer is holding, without the pixels.
@@ -887,6 +918,64 @@ pub unsafe extern "C" fn pdfv_current_page(
         }
         Err(status) => status.code(),
     }
+}
+
+/// Where the reader is looking: the page, the magnification and the scroll.
+///
+/// [`Status::NoAnswer`] when no document is focused. What it is for is `pdfv_set_view`: the
+/// commands that make a view are relative and clamped, so a caller that issued every one of them
+/// still cannot say where the reader ended up.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_view(viewer: *const Session, view: *mut PdfvViewing) -> c_int {
+    let (Some(viewer), Some(view)) = (viewer.as_ref(), view.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    match viewer.view() {
+        Ok(found) => {
+            let (kind, scale) = ZoomKind::of(found.zoom);
+            *view = PdfvViewing {
+                page: found.page,
+                zoom: kind as u32,
+                scale,
+                scroll_x: found.scroll.0,
+                scroll_y: found.scroll.1,
+            };
+            Status::Ok.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+/// Puts the reader back at a view `pdfv_view` answered with.
+///
+/// [`Status::WrongKind`] for a magnification code this build does not define, which is what every
+/// other entry point taking a kind answers.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_set_view(
+    viewer: *mut Session,
+    view: PdfvViewing,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    let Some(kind) = ZoomKind::from_code(view.zoom) else {
+        return Status::WrongKind.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.set_view(viewer_core::Viewing {
+        page: view.page,
+        zoom: kind.zoom(view.scale),
+        scroll: (view.scroll_x, view.scroll_y),
+    })));
+    Status::Ok.code()
 }
 
 /// Where a page sits on the screen and how large it is drawn.

@@ -156,8 +156,14 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // caller could not reach. Three rather than two because this ABI asks a *count* before an
     // indexed accessor, and a line has two counts: how many lines an element drew, and how many
     // character codes a line holds. No struct crossed by value, so `PDFV_ABI_VERSION` did not move.
-    assert_eq!(no_mangle, 172, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 158, "156 `unsafe` entry points and two helpers");
+    // **And two in the eight-hundred-and-fifth**, which are one question in both directions:
+    // `pdfv_view` says where the reader is looking and `pdfv_set_view` puts them back there,
+    // because the commands that make a view are relative and clamped and no caller can invert
+    // them (ADR 0737). A struct *did* cross by value this time — `pdfv_viewing` — and
+    // `PDFV_ABI_VERSION` still did not move, for the reason a new entry point does not move it:
+    // a caller compiled before it existed passes nothing of that shape.
+    assert_eq!(no_mangle, 174, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 160, "158 `unsafe` entry points and two helpers");
 }
 
 #[test]

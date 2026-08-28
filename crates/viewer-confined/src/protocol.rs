@@ -47,7 +47,14 @@ mod panels;
 /// where it was when the codec was built: nothing crossed in a frame then, and bumping it would
 /// have refused a worker that spoke the same protocol. It moves once, here, where something new
 /// genuinely crosses.
-const MAGIC: &[u8; 8] = b"PDFVCF04";
+///
+/// **`04` → `05` in the eight-hundred-and-fifth session**, and the reason is worth stating because
+/// the bytes alone would not have demanded it: a command, a question and an answer were added, each
+/// taking the *next* discriminant, so nothing that crossed before means anything different now.
+/// What an older worker cannot do is answer the new question — and a host would discover that at
+/// the worst moment there is, in the middle of putting a reader back after a death, as a refusal of
+/// something the reader never asked for. The greeting is the cheap place to find it out instead.
+const MAGIC: &[u8; 8] = b"PDFVCF05";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
@@ -1007,6 +1014,9 @@ mod command_kind {
     pub(super) const FIND: u8 = 22;
     pub(super) const PRESENT: u8 = 23;
     pub(super) const LAYOUT: u8 = 24;
+    // Where the reader is looking, said absolutely, since the eight-hundred-and-fifth session:
+    // what a host hands back after starting another worker. ADR 0737.
+    pub(super) const VIEW: u8 = 25;
 }
 
 /// Encodes one command.
@@ -1070,6 +1080,10 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
         }
         Command::Scroll { dx, dy } => {
             writer.u8(k::SCROLL).f32(*dx).f32(*dy);
+        }
+        Command::View(view) => {
+            writer.u8(k::VIEW);
+            encode_viewing(&mut writer, *view);
         }
         Command::Restrict(level) => {
             writer.u8(k::RESTRICT).u8(match level {
@@ -1230,6 +1244,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
             dx: reader.f32("a scroll")?,
             dy: reader.f32("a scroll")?,
         },
+        k::VIEW => Command::View(decode_viewing(&mut reader)?),
         k::LAYOUT => Command::Layout(panels::layout_of(reader.u8("a page layout")?)?),
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,
@@ -1445,6 +1460,24 @@ fn decode_zoom(reader: &mut Reader<'_>) -> Result<Zoom, ProtocolError> {
                 value: u32::from(value),
             });
         }
+    })
+}
+
+/// Where the reader is looking, in both directions: [`Command::View`] and [`Answer::View`].
+///
+/// One pair of functions rather than two, because the value crossing back is the value crossing
+/// out — which is what makes the restore exact on this side of the pipe as well as on the other.
+fn encode_viewing(writer: &mut Writer, view: viewer_core::Viewing) {
+    writer.usize(view.page);
+    encode_zoom(writer, view.zoom);
+    writer.f32(view.scroll.0).f32(view.scroll.1);
+}
+
+fn decode_viewing(reader: &mut Reader<'_>) -> Result<viewer_core::Viewing, ProtocolError> {
+    Ok(viewer_core::Viewing {
+        page: reader.usize("a page index")?,
+        zoom: decode_zoom(reader)?,
+        scroll: (reader.f32("a scroll")?, reader.f32("a scroll")?),
     })
 }
 
@@ -2062,6 +2095,9 @@ mod query_kind {
     // What the page's codes cost the readback, carried since the five-hundred-and-eighty-seventh
     // session: §9.10.2's own "there is no way", counted rather than reported. ADR 0422.
     pub(super) const READBACK: u8 = 31;
+    // Where the reader is looking, since the eight-hundred-and-fifth session: the question a host
+    // holds per frame so that a worker's death costs the reader nothing but the wait. ADR 0737.
+    pub(super) const VIEW: u8 = 32;
 }
 
 /// Encodes one question.
@@ -2092,6 +2128,9 @@ pub(crate) fn encode_query(query: Query<'_>) -> Result<Vec<u8>, Uncarried> {
         }
         Query::CurrentPage => {
             writer.u8(k::CURRENT_PAGE);
+        }
+        Query::View => {
+            writer.u8(k::VIEW);
         }
         Query::PageGeometry(index) => {
             writer.u8(k::PAGE_GEOMETRY).usize(index);
@@ -2205,6 +2244,7 @@ pub(crate) enum OwnedQuery {
 pub(crate) enum PlainQuery {
     PageCount,
     CurrentPage,
+    View,
     PageGeometry(usize),
     PageLabel(usize),
     LinkAt((f32, f32)),
@@ -2255,6 +2295,7 @@ impl OwnedQuery {
             Self::Plain(plain) => match *plain {
                 PlainQuery::PageCount => Query::PageCount,
                 PlainQuery::CurrentPage => Query::CurrentPage,
+                PlainQuery::View => Query::View,
                 PlainQuery::PageGeometry(index) => Query::PageGeometry(index),
                 PlainQuery::PageLabel(index) => Query::PageLabel(index),
                 PlainQuery::LinkAt(at) => Query::LinkAt(at),
@@ -2304,6 +2345,7 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<OwnedQuery, ProtocolError> {
     let query = match reader.u8(what)? {
         k::PAGE_COUNT => OwnedQuery::Plain(PlainQuery::PageCount),
         k::CURRENT_PAGE => OwnedQuery::Plain(PlainQuery::CurrentPage),
+        k::VIEW => OwnedQuery::Plain(PlainQuery::View),
         k::PAGE_GEOMETRY => {
             OwnedQuery::Plain(PlainQuery::PageGeometry(reader.usize("a page index")?))
         }
@@ -2399,6 +2441,8 @@ mod answer_kind {
     pub(super) const HIGHLIGHTED: u8 = 31;
     // The three per-code counts, since the five-hundred-and-eighty-seventh session. ADR 0422.
     pub(super) const READBACK: u8 = 32;
+    // Where the reader is looking, since the eight-hundred-and-fifth session. ADR 0737.
+    pub(super) const VIEW: u8 = 33;
 }
 
 /// Encodes one answer.
@@ -2428,6 +2472,10 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
         }
         Answer::Count(count) => {
             writer.u8(k::COUNT).usize(*count);
+        }
+        Answer::View(view) => {
+            writer.u8(k::VIEW);
+            encode_viewing(&mut writer, *view);
         }
         Answer::Page {
             document,
@@ -2866,6 +2914,7 @@ pub(crate) fn decode_answer_reusing(
     let answer = match reader.u8(what)? {
         k::NONE => Reply::None,
         k::COUNT => Reply::Count(reader.usize("a page count")?),
+        k::VIEW => Reply::View(decode_viewing(&mut reader)?),
         k::PAGE => Reply::Page {
             document: reader.document(what)?,
             index: reader.usize("a page index")?,
@@ -3105,6 +3154,19 @@ mod tests {
                 at: None,
             },
             Command::Scroll { dx: -1.5, dy: 2.5 },
+            // Where the reader is looking, said absolutely: the one command whose value a host
+            // does not compose but echoes, so the round trip here is what the restore rests on
+            // (ADR 0737).
+            Command::View(viewer_core::Viewing {
+                page: 7,
+                zoom: Zoom::Scale(2.25),
+                scroll: (-1.5, 812.5),
+            }),
+            Command::View(viewer_core::Viewing {
+                page: 0,
+                zoom: Zoom::FitWidth,
+                scroll: (0.0, 0.0),
+            }),
             Command::Restrict(RestrictionLevel::Off),
             Command::Restrict(RestrictionLevel::On),
             Command::Present(PresentationMode::On),
@@ -3447,8 +3509,9 @@ mod tests {
             Query::Fields,
             Query::AccessibilityTree,
             Query::Readback,
+            Query::View,
         ];
-        assert_eq!(carried.len(), 31, "every question `viewer-core` states");
+        assert_eq!(carried.len(), 32, "every question `viewer-core` states");
         for query in carried {
             let encoded = encode_query(query).unwrap();
             let read = decode_query(&encoded).unwrap();
@@ -3457,6 +3520,33 @@ mod tests {
                 format!("{query:?}"),
                 "a query changed on the way through"
             );
+        }
+    }
+
+    /// The reader's place, out and back, in both directions and every magnification.
+    ///
+    /// **The one answer whose bytes a host hands straight back**, so this round trip is what the
+    /// exactness of a restore across a worker's death rests on: a magnification rounded or a
+    /// scroll truncated here would put the reader somewhere near where they were (ADR 0737).
+    #[test]
+    fn a_view_crosses_and_comes_back_unchanged() {
+        for zoom in [
+            Zoom::FitPage,
+            Zoom::FitWidth,
+            Zoom::FitHeight,
+            Zoom::Scale(1.0 / 3.0),
+            Zoom::In,
+            Zoom::Out,
+        ] {
+            let view = viewer_core::Viewing {
+                page: 41,
+                zoom,
+                scroll: (-1.5, 1.0 / 7.0),
+            };
+            let Reply::View(read) = round_trip(&Answer::View(view)) else {
+                panic!("a view comes back as one");
+            };
+            assert_eq!(read, view, "a view changed on the way through");
         }
     }
 

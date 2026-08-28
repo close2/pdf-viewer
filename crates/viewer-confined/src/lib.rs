@@ -249,6 +249,33 @@ pub const WORKER_PATH_VARIABLE: &str = "PDF_VIEW_WORKER";
 /// happened somewhere else: there is deliberately no path in this crate that interprets a
 /// document in the calling process when the worker cannot be started, which is the same rule
 /// `pdf-sandbox` states and for the same reason.
+///
+/// # Why this one *is* `#[non_exhaustive]`, beside a vocabulary where nothing is
+///
+/// `doc/ui-boundary.md` says of the messages this transport carries: *"Nothing is
+/// `#[non_exhaustive]`, deliberately: it forces a catch-all arm on every host, and a catch-all arm
+/// is where a message added later goes to be ignored in silence."* ADR 0734 recorded the tension
+/// and left it; the line between the two is where a value comes from, and it is worth stating
+/// rather than leaving as an inconsistency somebody trips over.
+///
+/// **That rule binds what crosses inside a message.** A [`viewer_core::Event`] is a *vocabulary*:
+/// its population is this project's own, every member of it means something a host has to decide
+/// about, and one added later that a host silently ignores is a feature that never reached a
+/// person. So the enum stays closed, the host fails to compile, and somebody decides. The rule
+/// reaches types this crate does not declare for the same reason — `pdf_render::RasterFormat`
+/// crosses *inside* [`Reply::Frame`] and stopped being `#[non_exhaustive]` for it.
+///
+/// **This is not a vocabulary; it is a failure population, and it is the kernel's.** A seccomp
+/// filter, a Landlock ruleset, a pipe and an address-space ceiling can fail in ways this crate
+/// will learn about after a host has shipped, and a host recompiled by every one of them would be
+/// paying for a fact about somebody's kernel. What a host must *decide* about a refusal is not
+/// which one it is: it is whether another worker is worth starting, and that question has a closed
+/// answer — [`Resume`], two arms, matched exhaustively, with [`Resuming::after`] holding the
+/// wildcard-free match over every variant here **inside this crate**, where `#[non_exhaustive]`
+/// does not apply. So the decision a host takes is protected by exactly the mechanism the rule
+/// asks for, and the attribute costs nothing: a variant added here stops *this* crate's build
+/// until somebody has said which of the two answers it is, and a host that only prints the
+/// sentence goes on printing it.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ConfinedError {
@@ -687,6 +714,13 @@ pub enum Reply {
     None,
     /// A count of pages.
     Count(usize),
+    /// Where the reader is looking: the page, the magnification and the scroll.
+    ///
+    /// The one reply a host hands straight back, as [`viewer_core::Command::View`] — which is
+    /// what puts a reader where they were after [`Resuming`] has started another worker. It
+    /// carries [`viewer_core::Viewing`] itself rather than an owned copy of it, because unlike
+    /// every borrowed answer beside it there is nothing here to own: three numbers and a mode.
+    View(viewer_core::Viewing),
     /// Which page is showing.
     Page {
         /// Which document.

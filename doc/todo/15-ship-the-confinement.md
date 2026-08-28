@@ -4,8 +4,9 @@ Status: **open, one of its two defects carried out (ADR 0597), the tier change d
 its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640), the
 host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657), the boundary has
 its first host (ADR 0713), that host draws on the graphics device (ADR 0725), the owner's
-warn-and-abort has reached the three established windows (ADR 0729) — and a breach is a refusal
-of the page rather than of the document (ADR 0734)**:
+warn-and-abort has reached the three established windows (ADR 0729), a breach is a refusal
+of the page rather than of the document (ADR 0734) — and the reader's own view survives that
+refusal (ADR 0737)**:
 `pdf-viewer-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
 arms, presented through `render-quorra` — which is what the marks cross the pipe *for* — with
 Escape ending the worker *and* taking back the drawing thread, and `--cpu` the window with no
@@ -212,11 +213,18 @@ measurement asks for more.
   killed the last one. The budget is **consecutive**, put back by every frame that reaches the
   screen, so what it bounds is a recovery that is not working rather than the length of a reading.
 
-  What that leaves is smaller and is named rather than implied: **the magnification and the
-  position on the page are not restored**, because nothing on this boundary asks the viewer what
-  they are — no `Query` asks for the magnification or the offset — so a host can only replay what
-  it issued, and `Zoom::In`/`Out` and `Scroll` are relative commands the viewer clamps, which makes
-  a replay inexact rather than long. Restoring them exactly is a *question* on the boundary (a
-  `Query::View`, answered by the viewer, held by the host per frame), and that is the next piece
-  here. Until it exists the window says the sentence.
+  ~~What that leaves is smaller and is named rather than implied: **the magnification and the
+  position on the page are not restored**~~ — **they are, exactly, since the
+  eight-hundred-and-fifth** (ADR 0737). The entry named the shape and got half of it: `Query::View`
+  is the question, answered by the viewer and held by the host per frame, and `Viewing` is the page,
+  the magnification and the scroll as one value. What it did not foresee is that the answer needs a
+  way *back* — `GoTo` and `Zoom` are absolute and `Scroll` is not, so the third part of a view could
+  be asked for and not stated — so `Command::View(Viewing)` is the other half, and the host echoes
+  the value rather than composing one. The exactness is the point rather than a nicety: replaying
+  the three commands lands within a rounding of the place, and 16% of `f32` pairs in a device
+  pixel's range do not survive `have + (want - have)` at all.
+
+  What the boundary gained is in `doc/ui-boundary.md` with its argument, and what it cost is two
+  consumers failing to compile, two C entry points, one struct passed by value and `PDFVCF04` →
+  `PDFVCF05`.
 - `doc/todo/10` §6's four rules, which bind every road.

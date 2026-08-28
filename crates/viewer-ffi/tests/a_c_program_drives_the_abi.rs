@@ -226,6 +226,15 @@ fn what_it_printed(said: &str) {
         // and worth pinning here rather than assuming: a document with no layers has answered the
         // question, and the two would be the same picture in a panel and different sentences in a
         // status bar.
+        // Where the reader is looking, taken away and put back (ADR 0737). **The values are
+        // asserted as well as the verdict**, and that is not belt and braces: "exactly" compares
+        // one answer with another, so an accessor that reported the same wrong number twice would
+        // satisfy it. The numbers below are the note's own first page at 2.5 logical pixels per
+        // user unit in an 800x1000 window — larger than the window on both axes, so a scroll of
+        // (40, 120) is clamped to the page's own corner and the offset is not something a caller
+        // could have asked for.
+        "view: page 0, zoom 3 at 2.500, scroll 385.1,672.4",
+        "view restored: exactly",
         "layers: 0 row(s)",
         "attachments: 0 row(s)",
         // §12.7's form, on the fixture beside the test binary. Two fields, the check box ticked
