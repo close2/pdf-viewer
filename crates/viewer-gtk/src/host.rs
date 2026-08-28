@@ -623,12 +623,12 @@ impl Host {
     /// cannot be dispatched while GTK's main loop is inside its own first frame, and that frame is
     /// the expensive one, so page one used to wait the whole of it out for an answer that was
     /// ready in three milliseconds. A window with nothing on the screen has no frame to spoil and
-    /// no input to lose, and `viewer_host::Drawing::SETTLE` bounds the whole of what it may spend.
+    /// no input to lose, and `viewer_host::drawing::SETTLE` bounds the whole of what it may spend.
     fn take_the_drawn(&mut self, queue: &mut VecDeque<Command>) {
         let drawn = if self.presented {
             self.drawing.collect()
         } else {
-            self.drawing.settle(viewer_host::Drawing::SETTLE)
+            self.drawing.settle(viewer_host::drawing::SETTLE)
         };
         for finished in drawn {
             self.trace.say(

@@ -27,6 +27,11 @@ quorra-gpu.workspace = true
 # `SceneBuilder` and `render-quorra` remains the only translator in the tree.
 quorra-scene.workspace = true
 viewer-core.workspace = true
+# The confined boundary, for the one binary here that sits on it: `pdf-viewer-confined` spawns
+# `pdf-view-worker` and takes its pages over a pipe (ADR 0713). `pdf-viewer` names nothing from
+# this crate, so the flagship's launch path still links no transport — an unused dependency is
+# compiled beside a binary, never into it.
+viewer-confined.workspace = true
 # The host-side decisions that are not this window's: §O.2.1 says a processor may decline to open
 # an embedded file a URI named, and that choice belongs beside §12.7.6.4's import policy rather
 # than in each of the three hosts separately. Toolkit-free, so this costs no widget (ADR 0310).

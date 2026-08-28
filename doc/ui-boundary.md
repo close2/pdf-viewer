@@ -1,10 +1,12 @@
 # The UI boundary — `viewer-core`, its vocabulary, and the three pixel tiers
 
-Status: **built, shaken out, and frozen** — six consumers on it, **three of them hosts somebody
+Status: **built, shaken out, and frozen** — seven consumers on it, **three of them hosts somebody
 else's widgets sit on**: GTK4 since the four-hundred-and-eighth session (`crates/viewer-gtk`, ADR
 0244), Qt 6 through a C++ bridge since the four-hundred-and-tenth (`crates/viewer-qt`, ADR 0246),
 and **a C ABI since the four-hundred-and-eleventh** (`crates/viewer-ffi`, ADR 0247). One is behind
-a confinement. `doc/todo/30`'s condition — *"do not freeze a C ABI until two Rust consumers have
+a confinement — and since the seven-hundred-and-seventy-fifth one sits on the *far side* of that
+confinement: `pdf-viewer-confined`, the first window whose pages arrive from the sandboxed worker
+rather than from a viewer it holds (ADR 0713). `doc/todo/30`'s condition — *"do not freeze a C ABI until two Rust consumers have
 shaken the API out"* — was met, the three amendments it named were taken, and **no host added a
 message, three running**. **One variant changed shape in the four-hundred-and-twelfth**, which is
 the other mechanism and not the same thing: `Edit::SetField`'s value became
@@ -177,12 +179,16 @@ hundred-and-thirtieth session to permit the writing that implies.
 
 #### What exists
 
-Six consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
+Seven consumers: `viewer-ui`'s `pdf-viewer.rs` (winit + vello, tier 2),
 `viewer-core/tests/headless.rs` (no display at all, tier 1), `viewer-confined`'s `pdf-view-worker`
 (a process with no filesystem, tier 1), **`viewer-gtk`'s `pdf-viewer-gtk` — a real GTK4
 application, tier 1** (ADR 0244) and **`viewer-qt`'s `pdf-viewer-qt` — a real Qt 6 Widgets
 application with a C++ bridge, tier 1** (ADR 0246) and **`viewer-ffi`'s C ABI — `tools/state.sh hosts` counts its entry points, a
-hand-written header and a C program that drives it, tier 1** (ADR 0247). The first two could not
+hand-written header and a C program that drives it, tier 1** (ADR 0247) — and, since the
+seven-hundred-and-seventy-fifth, **`viewer-ui`'s `pdf-viewer-confined`**, the window on the far
+side of `pdf-view-worker`'s pipe: it sends `Command`s and reads `Event`s like any host and takes
+its pixels from `viewer-confined`'s `Reply`, so it consumes the vocabulary without ever holding a
+`Viewer` (ADR 0713). The first two could not
 prove the interface alone — one is a toolkit, the other is not a program — and the last three are
 what `doc/todo/30` calls the proof the answers are enough for *somebody else's widgets*: a
 `GtkListView` and a `QTreeView` over §12.3.3's outline, a `GtkEntry` and a `QLineEdit` over

@@ -8,7 +8,9 @@ selected range since the three-hundred-and-eighty-eighth (ADR 0225), §12.7's fo
 three-hundred-and-ninety-eighth (ADR 0235) and §12.5.6.6's free text at a point since the
 four-hundred-and-first (ADR 0238); a hostile document has a cancel since the
 four-hundred-and-fourth (ADR 0241). **This line said twenty-eight until the
-four-hundred-and-forty-fifth counted them.** What is left is that the window does not use it.
+four-hundred-and-forty-fifth counted them.** **A window uses it since the
+seven-hundred-and-seventy-fifth** — `pdf-viewer-confined`, ADR 0713, deliberately the smallest
+complete host — and what is left is that the three *established* windows do not.
 Priority: 34
 Clauses: —, this is `CLAUDE.md` principle 3
 Code: `crates/viewer-confined`, `crates/pdf-sandbox/src/lockdown.rs`

@@ -1,14 +1,18 @@
 # Road B — ship the confinement and let the OS hold the bounds
 
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
-its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640) and the
-host's own draw made stoppable (ADR 0650) and the stopping decided (ADR 0657).** The
+its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640), the
+host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657) — and the boundary has
+its first host (ADR 0713)**: `pdf-viewer-confined`, a window whose every page comes out of
+`pdf-view-worker`, on both payload arms, with Escape ending the worker *and* taking back the
+drawing thread. The
 machinery exists and is verified
 against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; a
 frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
 confined process can both compute; and a page shipped as marks is **not drawn at all**, which is
 what the choice was for. The tier change is complete. What it left behind was one *host-side* debt
-whose mechanism and policy are now both built; what remains of it is the owner's abort, below.
+whose mechanism and policy are now both built; what remains of it is the owner's abort as an input
+the three established windows share, below.
 Priority: 15 — the second road of [`10`](10-bounds-that-cap-size.md), whose §5 table prices all
 four and whose §6 binds whatever lands here
 Witness: **a large ordinary document**, rebuildable — a valid one-page file padded to a stated size
@@ -80,6 +84,24 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
 - **The tier change has its number**: page one through a pipe, both arms in one sitting, in ADR
   0597's last table.
 
+## What the seven-hundred-and-seventy-fifth session built, so the next round starts from it
+
+**A window on this boundary exists**: `pdf-viewer-confined` (in `viewer-ui`, ADR 0713 for why
+there), the smallest complete host — open, arrange, turn, scroll, zoom, report, abort — with
+everything outside that scope refused by name. Both payload arms reach its screen: rasters are
+placed as they arrive, marks are drawn by `render-cpu` on `viewer_host::drawing`'s thread, which
+became generic over its request (`DrawRequest`) because a confined host cannot hold a
+`RenderToken`. **The cancel path is proven from a host**, which this file used to list as owed:
+Escape kills the worker and interrupts the in-flight draw, without blocking, driven under `Xvfb`
+on the amplification fixture.
+
+What that sharpens rather than closes: the three *established* windows still interpret in
+process, so "make `viewer-confined` the viewer's actual path" now means moving them — their
+panels already have owned `Reply` counterparts for every answer, and the page path has a working
+model to copy. And the confined window presents through the processor, while ADR 0607's whole
+argument is that the device is the host's: a `render-quorra` surface behind it is the natural
+next piece.
+
 ## What a round taking this still owes
 
 - **The tier change itself is carried out** (ADR 0633), and what it still owes is one thing rather
@@ -140,14 +162,16 @@ answered by ADR 0597, which found it was in fact *worse* than that: see below.
     abandoned draw produces no `Rendered` at all, and `viewer-core`'s
     `a_refusal_is_final_for_this_view_and_a_token_never_answered_is_not_re_asked` pins both halves.
 
-  **What is left of it is the owner's callback** — *"warn the user and allow the user to abort,
-  however don't block"* ([`10`](10-bounds-that-cap-size.md)) — and it is now a convenience rather
-  than the thing standing between a document and the machine, because the rule above already keeps
-  the window responsive while a hostile page draws. It needs an input, and an input is
-  `viewer_host::keys`' table, which [`30`](30-a-native-host.md)'s levelness rule makes all three
-  windows' at once.
-- **The cancel path proven from the host**, not only from a test: the owner's brief says the
-  callback may not block, and the `Canceller` is already about a millisecond.
+  **What is left of it is the owner's callback in the three established windows** — *"warn the
+  user and allow the user to abort, however don't block"* ([`10`](10-bounds-that-cap-size.md)) —
+  and it is now a convenience rather than the thing standing between a document and the machine,
+  because the rule above already keeps the window responsive while a hostile page draws. It needs
+  an input, and an input is `viewer_host::keys`' table, which [`30`](30-a-native-host.md)'s
+  levelness rule makes all three windows' at once. **The confined window has the abort itself**
+  (Escape, ADR 0713) and is deliberately outside that table; what the three share is still owed.
+- ~~**The cancel path proven from the host**, not only from a test~~ — **proven in the
+  seven-hundred-and-seventy-fifth** (ADR 0713): Escape in `pdf-viewer-confined` ends the worker
+  and takes the drawing thread back, without blocking, on the amplification fixture under `Xvfb`.
 - **A breach an allocation budget cannot see** — a decode deep inside the interpreter, sized by the
   work rather than declared by a sender. It still ends the worker; what it now does is arrive with
   the worker's own sentence attached rather than as a bare signal number. Making it a *refusal*

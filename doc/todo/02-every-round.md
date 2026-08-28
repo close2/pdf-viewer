@@ -440,8 +440,10 @@ moved a document.
 ```sh
 built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
 cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
-                     --bin pdf-viewer-gtk --bin pdf-viewer-qt --bin pdf-retrieve
-for binary in pdf-viewer pdf-sandbox-worker pdf-view-worker pdf-viewer-gtk pdf-viewer-qt pdf-retrieve
+                     --bin pdf-viewer-gtk --bin pdf-viewer-qt --bin pdf-viewer-confined \
+                     --bin pdf-retrieve
+for binary in pdf-viewer pdf-sandbox-worker pdf-view-worker pdf-viewer-gtk pdf-viewer-qt \
+              pdf-viewer-confined pdf-retrieve
 do install -Dm755 "$built/$binary" "target/$binary"; done
 cargo build --release -p viewer-ffi          # a library, so not in the invocation above
 install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so
@@ -464,7 +466,9 @@ All the rest beside each other: `pdf_sandbox::WORKER_PROGRAM` is a separate exec
 spawns for JBIG2 and JPEG 2000, and a viewer that cannot find it refuses those images rather than
 falling back (there is deliberately no in-process fallback — see "the sandbox is a flag and the
 default is the safe one"); `pdf-view-worker` is the whole viewer confined, which
-`viewer_confined::Confined` spawns and `pdf-viewer` does not yet (ADR 0218); `pdf-retrieve` is not
+`viewer_confined::Confined` spawns — `pdf-viewer-confined` is the window that spawns it (ADR
+0713), searched for beside the executable, and `pdf-viewer` still does not (ADR 0218);
+`pdf-retrieve` is not
 a window but a program a person runs, and the only one whose whole output is text a caller pipes
 (ADR 0257).
 

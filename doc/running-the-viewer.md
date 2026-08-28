@@ -330,6 +330,24 @@ over the page.
 **It needs Qt 6's development files to build** — `qmake6`, `moc` and a C++ compiler — which is what a
 native host binding a platform means, and is why it is in none of the three cross-target checks.
 
+**And since the seven-hundred-and-seventy-fifth there is a window whose viewer is not in the
+window's process at all.**
+
+```sh
+cargo build --release -p viewer-confined --bins    # the worker, found beside the executable
+cargo run  --release -p viewer-ui --bin pdf-viewer-confined -- doc/PDF20_AN001-BPC.pdf
+```
+
+`pdf-viewer-confined` is the first host on `viewer-confined`'s boundary (ADR 0713): the document,
+the interpreter and the rasteriser run in `pdf-view-worker` under seccomp-BPF, Landlock and the
+address-space ceiling, and the window never parses a byte of the file. It takes one document and
+`--trace[=topics]` in the shared line format, binds arrows, Page Up and Down, Space, Home, End,
+`+`/`-`, the wheel and `q` — and **Escape is the abort**: it ends the worker with a kill the
+document cannot decline and takes back the window's own drawing thread, which is the marks arm's
+draw (ADRs 0241, 0650). It is deliberately the smallest complete host — no panels, no forms, no
+selection, no password prompt, each refused by name — and it is *not* one of `doc/todo/30`'s three
+level hosts; its scope and the argument are ADR 0713's.
+
 **The pipeline is a gate this project had stopped reading, and both its failures were real** (ADR
 0189). It had been red since 2026-08-02. `render-gpu`'s bounded wait was one second rather than the
 sixty its constant and comment claimed, because `wgpu::PollError::Timeout` from the *slice* was

@@ -4785,6 +4785,7 @@ dependencies = [
  "test-scenes",
  "thiserror 2.0.19",
  "viewer-accessibility",
+ "viewer-confined",
  "viewer-core",
  "viewer-host",
  "winit",

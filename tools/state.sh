@@ -218,10 +218,19 @@ section_counts() {
 # `section_windows` was then built over `viewer-ui` anyway — the condition was documented and not
 # applied, sixty lines apart in one file. A match arm that formats a name is a name printed, not a
 # question asked.
+#
+# **And `pdf-viewer-confined` is excluded because it is a different window in the same crate**
+# (ADR 0713): it sits on `viewer-confined`'s boundary, where `Query::Frame` is the payload and the
+# render events never cross, so counting its sources under `viewer-ui` made this section report
+# the tier-2 window asking a question that host's own reading row correctly says it never asks —
+# the `SPENT` check fired on a reason that had not been spent. What the confined window reaches is
+# its own scope statement (its module documentation and ADR 0713), not yet a column here; it
+# becomes one when the established windows move onto that boundary and there is a population to
+# rank.
 names_in_code() {
     local kind=$1
     shift
-    find "$@" -name '*.rs' ! -name trace.rs -exec cat {} + \
+    find "$@" -name '*.rs' ! -name trace.rs ! -path '*pdf-viewer-confined*' -exec cat {} + \
         | sed 's|//.*||' \
         | grep -oE "\b$kind::[A-Za-z]+" \
         | sed "s/$kind:://" \
