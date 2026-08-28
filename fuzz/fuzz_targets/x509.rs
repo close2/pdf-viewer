@@ -38,8 +38,8 @@ use pdf_model::cms::Digest;
 use pdf_model::dsa::{self, MAX_SUBGROUP_BITS};
 use pdf_model::pkcs1::{self, MAX_EXPONENT_BITS, MAX_MODULUS_BITS};
 use pdf_model::pss;
-use pdf_model::{ecdsa, eddsa};
 use pdf_model::x509::{self, PublicKey};
+use pdf_model::{ecdsa, eddsa};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(certificate) = x509::parse(data) else {
