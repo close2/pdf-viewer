@@ -155,9 +155,14 @@ pass.
   because a cancel a hostile document can decline is not one. **A window uses it since the
   seven-hundred-and-seventy-fifth** — `pdf-viewer-confined`, deliberately the smallest complete
   host on the boundary, both payload arms on its screen, Escape ending the worker and the
-  in-flight draw together (ADR 0713), and §7.6.4.1's prompt since the
+  in-flight draw together (ADR 0713), §7.6.4.1's prompt since the
   seven-hundred-and-eighty-first, the password crossing into the confinement as `Command::Open`'s
-  `Secret` (ADR 0718) — while the three established windows stay in process: for
+  `Secret` (ADR 0718), **and the graphics device drawing its pages since the
+  seven-hundred-and-ninetieth** (ADR 0725) — the marks as they crossed and the worker's rasters
+  wrapped as one-image lists, on a render thread of the window's own, with the interruptible CPU
+  thread kept for the frames the device refuses and `--cpu` the window with no device; the same
+  round made an unchanged page's `Arc` identity survive the pipe, which every host-side cache was
+  silently missing without — while the three established windows stay in process: for
   `viewer-ui` putting the flagship there is a
   change of tier and a decision with a number attached rather than a switch — **and the number
   exists now** (ADR 0597), so what is left is the move rather than the measurement. **The

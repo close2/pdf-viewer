@@ -1,21 +1,29 @@
-//! The pixels a confined frame becomes, and the bookkeeping between the two.
+//! The pages a confined frame becomes, and the bookkeeping between the two.
 //!
 //! [`viewer_confined::Reply::Frame`] arrives with one [`Framed`] per page of Table 29's
 //! arrangement, and each crossed the pipe as one of two payloads (ADR 0607): the pixels the
-//! worker drew, or the marks for this side to draw. The first kind is ready the moment it
-//! arrives; the second goes to [`viewer_host::Drawing`]'s thread, because nothing bounds what a
-//! display list costs to draw (ADR 0650) and a window may not be taken hostage by one — the
-//! whole of `viewer_host::drawing`'s module comment applies here unchanged, which is why the
-//! arrangement is that one and not a copy.
+//! worker drew, or the marks for this side to draw. What becomes of them depends on which
+//! screen this is (ADR 0725). **A device screen** — the ordinary one — holds every page as
+//! something the graphics device draws: the marks as they crossed, the pixels wrapped as a
+//! one-image list, each handed whole to [`crate::device`] per frame. **A processor screen**
+//! (`--cpu`, or a machine whose device would not come up) places pixels as they arrive and
+//! sends the marks to [`viewer_host::Drawing`]'s thread, because nothing bounds what a display
+//! list costs to draw (ADR 0650) and a window may not be taken hostage by one — the whole of
+//! `viewer_host::drawing`'s module comment applies here unchanged, which is why the arrangement
+//! is that one and not a copy. The device screen reaches that same thread through
+//! [`Screen::fall_back`], for the frames the device refuses.
 //!
-//! What this module owns is the gap between those two moments: which page is ready, which is
+//! What this module owns is the gap between arrival and pixels: which page is ready, which is
 //! still being drawn, which refused — and the one identity check that keeps a slow draw from
 //! landing on a view that has moved on (trap 12a's neighbour: pixels drawn *for* one target may
 //! not be placed as though they were another's).
 
 use std::sync::Arc;
 
-use pdf_render::{DisplayList, Raster, RasterFormat, TargetSpec};
+use pdf_render::{
+    BlendMode, Command as Mark, DisplayList, Image, Raster, RasterFormat, Size, TargetSpec,
+    Transform,
+};
 use viewer_confined::{Framed, Payload};
 use viewer_core::Rendered;
 use viewer_host::drawing::{DrawRequest, Drawing, Finished};
@@ -72,6 +80,27 @@ enum Content {
     /// queues a draw. A page that crossed as pixels keeps `None` and is replaced whenever the
     /// worker sends new ones, because the worker only re-sends what changed enough to re-draw.
     Pixels(Raster, Option<(Arc<DisplayList>, TargetSpec)>),
+    /// A device screen's page, awaiting no thread: the marks exactly as they crossed, with the
+    /// page-sized target beside them (ADR 0725).
+    ///
+    /// The device draws these at present time — that is what the marks crossed *for* (ADR 0607)
+    /// — so unlike [`Self::Drawing`] this is an answered page: nothing gates presentation on it,
+    /// and nothing but a device refusal ([`Screen::fall_back`]) moves it to the thread.
+    Marks(Arc<DisplayList>, TargetSpec),
+    /// A device screen's pixels, wrapped as the one-command list the device draws them by.
+    ///
+    /// The wrapper's `Arc` is its identity for the device's retained scene, so it is built once
+    /// and kept: a raster payload recrossing with the same bytes keeps this wrapper, which is
+    /// what makes a scroll of a photo page a placement change rather than a re-upload. `drawn`
+    /// carries what the pixels were drawn from where they came off the fallback thread — the
+    /// same identity [`Self::Pixels`] keeps, for the same scroll-keeps-them reason — and `None`
+    /// where they crossed as pixels.
+    Wrapped {
+        /// One [`Mark::Image`] drawing the page's pixels 1:1 at the page's own size.
+        list: Arc<DisplayList>,
+        /// What the pixels were drawn from, `None` where they crossed as pixels.
+        drawn: Option<(Arc<DisplayList>, TargetSpec)>,
+    },
     /// The rasteriser refused the page, in its own words.
     ///
     /// Kept rather than retried: a rasteriser that refused this list at this target will refuse
@@ -96,13 +125,35 @@ pub(crate) struct Screen {
     /// The window's extent in device pixels, which is what [`Self::compose`] fills.
     extent: (u32, u32),
     slots: Vec<Slot>,
+    /// Whether a graphics device draws this screen's pages (ADR 0725).
+    ///
+    /// A device screen keeps a list payload as [`Content::Marks`] for the device instead of
+    /// queueing it on the drawing thread, and wraps a raster payload as the one-command list the
+    /// device draws it by. The thread stays what `CLAUDE.md` keeps the CPU backend for — the
+    /// frame the device refuses — reached through [`Self::fall_back`].
+    device: bool,
 }
 
 impl Screen {
-    /// A screen with no frame yet.
+    /// A screen with no frame yet, whose pages the drawing thread rasterises.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// A screen with no frame yet, whose pages the graphics device draws (ADR 0725).
+    #[must_use]
+    pub(crate) fn for_device() -> Self {
+        Self {
+            device: true,
+            ..Self::default()
+        }
+    }
+
+    /// Whether this screen's pages are the graphics device's to draw.
+    #[must_use]
+    pub(crate) fn draws_on_the_device(&self) -> bool {
+        self.device
     }
 
     /// The window grew or shrank; the next [`Self::compose`] fills the new extent.
@@ -112,10 +163,17 @@ impl Screen {
 
     /// Takes one frame as it crossed the confinement, queueing what still needs drawing.
     ///
-    /// Three cases per page, and the middle one is the point: pixels are ready as they arrive; a
-    /// list identical to the one already drawn keeps its pixels at the new origin, which is what
-    /// makes a scroll a re-placement rather than a re-rasterisation; and any other list is handed
-    /// to `drawing`, whose own rule replaces a queued or in-flight draw for the same page.
+    /// On a processor screen, three cases per page, and the middle one is the point: pixels are
+    /// ready as they arrive; a list identical to the one already drawn keeps its pixels at the
+    /// new origin, which is what makes a scroll a re-placement rather than a re-rasterisation;
+    /// and any other list is handed to `drawing`, whose own rule replaces a queued or in-flight
+    /// draw for the same page.
+    ///
+    /// On a device screen the same identity checks keep the same things — a held wrapper, a
+    /// fallback draw in flight or finished — and what they keep it *for* is the device's
+    /// retained scene, which is keyed by these very `Arc`s: an unchanged page recrossing must
+    /// reach the device as the same page (the identity `viewer_confined::Confined` preserves
+    /// across frames, ADR 0725).
     ///
     /// A page the new arrangement no longer shows takes the drawing thread back
     /// ([`Drawing::superseded`]'s rule, decided here because only this side knows the new
@@ -134,7 +192,57 @@ impl Screen {
                 .find(|slot| slot.as_ref().is_some_and(|slot| slot.page == page))
                 .and_then(Option::take);
             let content = match payload {
+                Payload::Raster(raster) if self.device => {
+                    match before.map(|slot| slot.content) {
+                        // The same pixels, recrossed: the wrapper's `Arc` is the identity the
+                        // device's retained scene keys by, so keeping it is what makes a scroll
+                        // of a photo page a placement change rather than a re-upload. Byte
+                        // equality, because the worker is the untrusted side and nothing weaker
+                        // may stand in for "the same pixels".
+                        Some(Content::Wrapped { list, drawn: None })
+                            if wraps_exactly(&list, &raster) =>
+                        {
+                            Content::Wrapped { list, drawn: None }
+                        }
+                        _ => Content::Wrapped {
+                            list: wrap(raster),
+                            drawn: None,
+                        },
+                    }
+                }
                 Payload::Raster(raster) => Content::Pixels(raster, None),
+                Payload::List { list, target } if self.device => {
+                    match before.map(|slot| slot.content) {
+                        // The same marks at the same target: the device holds a retained scene
+                        // keyed by this `Arc`, and a scroll must reach it as the same page.
+                        Some(Content::Marks(held_list, held_target))
+                            if Arc::ptr_eq(&held_list, &list) && held_target == target =>
+                        {
+                            Content::Marks(held_list, held_target)
+                        }
+                        // The same drawing, still on the fallback thread after a device refusal:
+                        // asking again would interrupt the very draw whose answer is wanted.
+                        Some(Content::Drawing(asked_list, asked_target))
+                            if Arc::ptr_eq(&asked_list, &list) && asked_target == target =>
+                        {
+                            Content::Drawing(asked_list, asked_target)
+                        }
+                        // The same drawing, fallen back and finished: a scroll keeps the pixels
+                        // the thread drew — going back to the device would re-refuse.
+                        Some(Content::Wrapped {
+                            list: wrapper,
+                            drawn: Some((drawn_list, drawn_target)),
+                        }) if Arc::ptr_eq(&drawn_list, &list) && drawn_target == target => {
+                            Content::Wrapped {
+                                list: wrapper,
+                                drawn: Some((drawn_list, drawn_target)),
+                            }
+                        }
+                        // The same drawing, already refused by both: retrying a refusal is a loop.
+                        Some(Content::Refused(words)) => Content::Refused(words),
+                        _ => Content::Marks(list, target),
+                    }
+                }
                 Payload::List { list, target } => {
                     match before.map(|slot| slot.content) {
                         // The same drawing, moved: a scroll changes where the page sits and
@@ -198,7 +306,16 @@ impl Screen {
         }
         match outcome {
             Some(Rendered::Raster(raster)) => {
-                slot.content = Content::Pixels(raster, Some((request.list, request.target)));
+                slot.content = if self.device {
+                    // The fallback pixels go back through the device as the page they are —
+                    // wrapped once, keyed by the wrapper's `Arc` like every other page it draws.
+                    Content::Wrapped {
+                        list: wrap(raster),
+                        drawn: Some((request.list, request.target)),
+                    }
+                } else {
+                    Content::Pixels(raster, Some((request.list, request.target)))
+                };
                 true
             }
             Some(Rendered::Failed(words)) => {
@@ -259,6 +376,139 @@ impl Screen {
             }
         }
         Some(window)
+    }
+
+    /// Every page the device is to draw, placed into a window of this extent (ADR 0725).
+    ///
+    /// One entry per [`Content::Marks`] and [`Content::Wrapped`] slot, in the arrangement's own
+    /// order: the marks under the page-sized target they crossed with, the wrapped pixels under
+    /// a 1:1 target of their own construction, each composed with the slot's origin exactly as
+    /// [`blit`] would have placed the pixels — the same rounding, so the two paths put a page's
+    /// top-left corner on the same device pixel. A page still on the fallback thread contributes
+    /// nothing, which is the surround showing through until it lands.
+    pub(crate) fn device_pages(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Vec<(Arc<DisplayList>, TargetSpec)> {
+        self.slots
+            .iter()
+            .filter_map(|slot| match &slot.content {
+                Content::Marks(list, target) => Some((
+                    Arc::clone(list),
+                    placed(*target, slot.origin, width, height),
+                )),
+                Content::Wrapped { list, .. } => Some((
+                    Arc::clone(list),
+                    placed(image_target(list), slot.origin, width, height),
+                )),
+                Content::Drawing(..) | Content::Pixels(..) | Content::Refused(_) => None,
+            })
+            .collect()
+    }
+
+    /// The device refused the frame: every page it was to draw goes to the drawing thread.
+    ///
+    /// This is `CLAUDE.md`'s second job for the CPU backend reached from the device screen — a
+    /// frame the graphics device refuses is drawn on the processor, out loud — and it goes
+    /// through [`viewer_host::Drawing`] rather than being composed where the refusal was seen,
+    /// because that thread is the one with an interrupt (ADR 0650): on this boundary the marks
+    /// are a document's, and a hostile page must not hold whichever thread draws it. Answers how
+    /// many pages were handed over, so the caller can say so.
+    pub(crate) fn fall_back(&mut self, drawing: &mut Drawing<Draw>) -> usize {
+        let mut asked = 0usize;
+        for slot in &mut self.slots {
+            if let Content::Marks(list, target) = &slot.content {
+                drawing.ask(Draw {
+                    page: slot.page,
+                    list: Arc::clone(list),
+                    target: *target,
+                });
+                asked = asked.saturating_add(1);
+                slot.content = Content::Drawing(Arc::clone(list), *target);
+            }
+        }
+        asked
+    }
+}
+
+/// The page's pixels as the one-command list the device draws them by.
+///
+/// The image occupies the unit square with its top row at y = 1 ([`Mark::Image`]'s convention),
+/// so the transform scales it to the page — one page unit per pixel — and [`image_target`]'s
+/// y flip puts the top row at the top, exactly as [`TargetSpec::for_page`] constructs a page's.
+fn wrap(raster: Raster) -> Arc<DisplayList> {
+    let Raster {
+        width,
+        height,
+        format: RasterFormat::Rgba8,
+        data,
+    } = raster;
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a raster dimension is bounded by pdf_render::MAX_EXTENT (2^24), inside f32's \
+                  exact integer range"
+    )]
+    let (page_width, page_height) = (width as f32, height as f32);
+    let mut list = DisplayList::new(Size {
+        width: page_width,
+        height: page_height,
+    });
+    list.push(Mark::Image {
+        image: Image {
+            width,
+            height,
+            data: data.into(),
+            interpolate: false,
+        }
+        .into(),
+        transform: Transform::scale(page_width, page_height),
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    });
+    Arc::new(list)
+}
+
+/// Whether `list` is [`wrap`] of exactly these pixels — dimensions and every byte.
+fn wraps_exactly(list: &DisplayList, raster: &Raster) -> bool {
+    let [Mark::Image { image, .. }] = list.commands() else {
+        return false;
+    };
+    let pdf_render::ImageSource::Decoded(image) = image else {
+        return false;
+    };
+    image.width == raster.width && image.height == raster.height && *image.data == *raster.data
+}
+
+/// The 1:1 target a wrapped page's own pixels want: no scaling, and the same y flip about the
+/// page's top edge as [`TargetSpec::for_page`] builds (its comment carries the argument).
+fn image_target(list: &DisplayList) -> TargetSpec {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a wrapped page's size is its raster's dimensions, whole and bounded by \
+                  pdf_render::MAX_EXTENT"
+    )]
+    TargetSpec {
+        width: list.page_size.width as u32,
+        height: list.page_size.height as u32,
+        transform: Transform::scale(1.0, -1.0)
+            .then(Transform::translate(0.0, list.page_size.height)),
+    }
+}
+
+/// A page's target placed into the window: the page-space transform carried onto the window's
+/// pixels at the slot's origin, rounded exactly as [`blit`] rounds — so the device and the
+/// processor put a page's top-left corner on the same device pixel.
+fn placed(target: TargetSpec, origin: (f32, f32), width: u32, height: u32) -> TargetSpec {
+    TargetSpec {
+        width,
+        height,
+        transform: target
+            .transform
+            .then(Transform::translate(origin.0.round(), origin.1.round())),
     }
 }
 
@@ -639,6 +889,127 @@ mod tests {
                 Some((&Content::Pixels(..), 1))
             ),
             "what remains is page 1's pixels"
+        );
+    }
+
+    /// A device screen keeps a list payload for the device: nothing reaches the drawing thread,
+    /// the page counts as answered, and its placement is the page's own target carried onto the
+    /// window at the slot's origin (ADR 0725).
+    #[test]
+    fn a_device_screen_keeps_marks_for_the_device_not_the_thread() {
+        let mut screen = Screen::for_device();
+        let mut drawing = Drawing::new();
+        screen.resize(30, 30);
+        let list = a_list(8.0, 8.0);
+        let target = TargetSpec::for_page(&list, 1.0, u64::from(u32::MAX)).expect("a target");
+        screen.take(
+            vec![Framed {
+                page: 0,
+                payload: Payload::List {
+                    list: Arc::clone(&list),
+                    target,
+                },
+                origin: (2.4, 3.6),
+            }],
+            &mut drawing,
+        );
+        assert!(screen.settled(), "the device answers at present time");
+        assert!(
+            drawing.interval().is_none(),
+            "nothing was queued on the drawing thread"
+        );
+        let pages = screen.device_pages(30, 30);
+        let [(device_list, placed)] = pages.as_slice() else {
+            panic!("one page for the device");
+        };
+        assert!(Arc::ptr_eq(device_list, &list), "the marks as they crossed");
+        assert_eq!(
+            (placed.width, placed.height),
+            (30, 30),
+            "the window's extent"
+        );
+        // The placement is the page target's transform translated by the rounded origin —
+        // the same rounding `blit` applies, so both paths agree on the device pixel.
+        let expected = target.transform.then(Transform::translate(2.0, 4.0));
+        assert_eq!(placed.transform, expected);
+    }
+
+    /// A raster payload wraps once, and identical bytes recrossing keep the wrapper's `Arc` —
+    /// the identity the device's retained scene is keyed by. Different bytes replace it.
+    #[test]
+    fn a_raster_page_wraps_once_and_keeps_its_identity() {
+        let mut screen = Screen::for_device();
+        let mut drawing = Drawing::new();
+        screen.resize(30, 30);
+        let framed = |colour: [u8; 4]| {
+            vec![Framed {
+                page: 0,
+                payload: Payload::Raster(a_raster(4, 4, colour)),
+                origin: (0.0, 0.0),
+            }]
+        };
+        screen.take(framed([1, 2, 3, 255]), &mut drawing);
+        let first = screen.device_pages(30, 30);
+        screen.take(framed([1, 2, 3, 255]), &mut drawing);
+        let second = screen.device_pages(30, 30);
+        assert!(
+            Arc::ptr_eq(&first[0].0, &second[0].0),
+            "the same pixels keep their wrapper"
+        );
+        screen.take(framed([9, 9, 9, 255]), &mut drawing);
+        let third = screen.device_pages(30, 30);
+        assert!(
+            !Arc::ptr_eq(&second[0].0, &third[0].0),
+            "new pixels are a new page"
+        );
+        // The wrapper draws the pixels 1:1: page size and target are the raster's dimensions.
+        let (wrapper, placed) = &third[0];
+        assert_eq!(wrapper.page_size, Size::new(4.0, 4.0));
+        assert_eq!((placed.width, placed.height), (30, 30));
+    }
+
+    /// A device refusal hands every marks page to the drawing thread — `CLAUDE.md`'s second job
+    /// for the CPU backend — and the landed pixels come back as a wrapped page whose identity a
+    /// scroll then keeps, rather than going back to the device that refused them.
+    #[test]
+    fn a_refused_frame_falls_back_to_the_thread_and_a_scroll_keeps_the_result() {
+        let mut screen = Screen::for_device();
+        let mut drawing = Drawing::new();
+        screen.resize(30, 30);
+        let list = a_list(8.0, 8.0);
+        let target = TargetSpec::for_page(&list, 1.0, u64::from(u32::MAX)).expect("a target");
+        let framed = |origin| {
+            vec![Framed {
+                page: 0,
+                payload: Payload::List {
+                    list: Arc::clone(&list),
+                    target,
+                },
+                origin,
+            }]
+        };
+        screen.take(framed((0.0, 0.0)), &mut drawing);
+        assert_eq!(screen.fall_back(&mut drawing), 1, "one page fell back");
+        assert!(
+            screen.device_pages(30, 30).is_empty(),
+            "a page on the thread is not the device's to draw"
+        );
+        assert!(!screen.settled(), "the fallback draw is owed");
+        drain(&mut screen, &mut drawing);
+        let landed = screen.device_pages(30, 30);
+        assert_eq!(landed.len(), 1, "the fallback pixels are the device's page");
+        // A scroll re-crosses the same list at the same target with a new origin: the wrapped
+        // fallback pixels are kept — going back to the device that refused would loop.
+        screen.take(framed((10.0, 10.0)), &mut drawing);
+        assert!(screen.settled(), "nothing was re-queued");
+        let moved = screen.device_pages(30, 30);
+        assert!(
+            Arc::ptr_eq(&landed[0].0, &moved[0].0),
+            "moved, not redrawn: the wrapper's identity survives the scroll"
+        );
+        assert_ne!(
+            landed[0].1.transform, moved[0].1.transform,
+            "and what changed is the placement"
         );
     }
 }

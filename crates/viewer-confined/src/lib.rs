@@ -610,7 +610,11 @@ pub enum Payload {
         ///
         /// Shared because a host keeps it: a zoom or a scroll is a new [`pdf_render::TargetSpec`]
         /// over the same list, which is the difference between re-rasterising and asking the
-        /// confined process for another frame.
+        /// confined process for another frame. **The identity holds across frames, not only
+        /// inside one**: [`Confined`] hands back the same `Arc` while a page's encoded bytes are
+        /// unchanged (ADR 0725) — for the whole of this crate's life before that, every
+        /// [`Query::Frame`] decoded a fresh `Arc` and everything a host keyed by this identity
+        /// missed on every scroll.
         list: Arc<DisplayList>,
         /// What the confined process would have drawn into, and the transform to it.
         ///
@@ -872,6 +876,10 @@ pub struct Confined {
     to_worker: ChildStdin,
     from_worker: ChildStdout,
     confinement: Confinement,
+    /// The lists the last frame handed this host, so an unchanged page's bytes come back as the
+    /// same `Arc` on the next one — what makes [`Payload::List`]'s sharing promise true across
+    /// two [`Query::Frame`]s rather than only inside one (ADR 0725).
+    held: protocol::HeldLists,
 }
 
 impl Confined {
@@ -982,6 +990,7 @@ impl Confined {
             to_worker,
             from_worker,
             confinement,
+            held: protocol::HeldLists::default(),
         })
     }
 
@@ -1046,7 +1055,9 @@ impl Confined {
         self.write_frame(protocol::FRAME_QUERY, &payload)?;
         let (kind, payload) = self.read_frame()?;
         match kind {
-            protocol::FRAME_ANSWER => protocol::decode_answer(&payload).map_err(Into::into),
+            protocol::FRAME_ANSWER => {
+                protocol::decode_answer_reusing(&payload, &mut self.held).map_err(Into::into)
+            }
             protocol::FRAME_REFUSAL => Err(refusal(&payload)),
             _ => Err(ConfinedError::UnrecognisedFrame),
         }

@@ -47,13 +47,18 @@
 //!
 //! # Where the drawing happens
 //!
-//! A raster payload is placed as it arrives. A list payload is drawn by `render-cpu` on
-//! [`viewer_host::drawing`]'s thread — the same arrangement the two native windows use, with the
-//! same two rules for taking the thread back — because nothing bounds what a display list costs
-//! to draw (ADR 0650) and the toolkit's thread may never be taken hostage by one. The window
-//! presents through the processor ([`viewer_ui::software`]): a graphics device would work here —
-//! the device is this side's by necessity, the whole reason marks cross at all — and bringing
-//! one up is deliberately not bundled into the round that opens the boundary.
+//! **The graphics device draws this window's pages** (ADR 0725), which is what the marks cross
+//! the pipe *for*: the device is this side's by necessity — a confined process holding one dies
+//! on its first `ioctl` (ADR 0607) — so a list payload goes to `render-quorra` on
+//! [`crate::device`]'s render thread and its pixels never touch the processor, while a raster
+//! payload is wrapped as the one-image list the same device places. The processor keeps exactly
+//! the two jobs `CLAUDE.md` leaves it: `--cpu` is the window with no device — a raster payload
+//! placed as it arrives, a list payload drawn by `render-cpu` on [`viewer_host::drawing`]'s
+//! thread, presented through [`viewer_ui::software`] — and that same interruptible thread is
+//! what draws a frame the device *refuses*, out loud, because nothing bounds what a display
+//! list costs to draw (ADR 0650) and a hostile page must be drawn where an interrupt can reach
+//! it. A machine whose device will not come up falls to the processor's path by itself, saying
+//! so.
 
 #![expect(
     clippy::print_stderr,
@@ -62,6 +67,8 @@
               that cannot create a window or an event loop should stop loudly"
 )]
 
+#[path = "pdf-viewer-confined/device.rs"]
+mod device;
 #[path = "pdf-viewer-confined/screen.rs"]
 mod screen;
 
@@ -69,6 +76,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use render_quorra::QuorraWindowRenderer;
 use viewer_confined::{Canceller, Confined, Payload, Reply};
 use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Zoom};
 use viewer_host::drawing::Drawing;
@@ -82,6 +90,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
+use crate::device::{Device, Presented};
 use crate::screen::{Draw, Screen};
 
 /// The one document this window opens; the identity is the host's to choose.
@@ -94,12 +103,16 @@ const DOCUMENT: DocumentId = DocumentId(0);
 /// desktop convention.
 const WHEEL_NOTCH: f32 = 48.0;
 
-/// The command line: a document, and optionally `--trace[=topics]`.
+/// The command line: a document, optionally `--trace[=topics]`, and `--cpu`.
 struct Arguments {
     /// The file to open.
     path: PathBuf,
     /// Which trace topics to print.
     topics: u8,
+    /// `--cpu`: no graphics device — the flagship's flag with the flagship's meaning (ADR
+    /// 0221): no instance is created, so no driver is loaded, and the window presents through
+    /// the processor.
+    processor: bool,
 }
 
 /// A message's `Debug` form cut to a line, for the trace.
@@ -122,9 +135,12 @@ fn brief(message: &impl std::fmt::Debug) -> String {
 fn arguments() -> Arguments {
     let mut path = None;
     let mut topics = 0u8;
+    let mut processor = false;
     for argument in std::env::args().skip(1) {
         if argument == "--trace" {
             topics = u8::MAX;
+        } else if argument == "--cpu" {
+            processor = true;
         } else if let Some(list) = argument.strip_prefix("--trace=") {
             topics = match viewer_host::parse_topics(list) {
                 Ok(topics) => topics,
@@ -136,15 +152,19 @@ fn arguments() -> Arguments {
         } else if path.is_none() {
             path = Some(PathBuf::from(argument));
         } else {
-            eprintln!("usage: pdf-viewer-confined [--trace[=topics]] document.pdf");
+            eprintln!("usage: pdf-viewer-confined [--trace[=topics]] [--cpu] document.pdf");
             std::process::exit(2);
         }
     }
     let Some(path) = path else {
-        eprintln!("usage: pdf-viewer-confined [--trace[=topics]] document.pdf");
+        eprintln!("usage: pdf-viewer-confined [--trace[=topics]] [--cpu] document.pdf");
         std::process::exit(2);
     };
-    Arguments { path, topics }
+    Arguments {
+        path,
+        topics,
+        processor,
+    }
 }
 
 /// The window, the confined viewer behind it, and what stands between the two.
@@ -162,9 +182,16 @@ struct Host {
     /// answer: the worker's document died with it, so there is nothing to resume (ADR 0241).
     stopped: Option<String>,
     window: Option<Arc<Window>>,
-    surface: Option<SoftwareSurface>,
-    /// The marks arm's drawing thread — `viewer_host::drawing`'s arrangement, on this side's
-    /// own request shape.
+    /// What puts pixels on the window — the device, or the processor (`--cpu`, or a device
+    /// that would not come up). Chosen once in `resumed` and never switched mid-life.
+    presentation: Option<Presentation>,
+    /// The thread creating the graphics instance — roughly 80% of what device bring-up blocks
+    /// for, started before the window exists (the flagship's arrangement, quorra's ADR 0014).
+    /// `None` under `--cpu`, where no driver may be loaded at all.
+    instancing: Option<std::thread::JoinHandle<quorra_gpu::wgpu::Instance>>,
+    /// The drawing thread — `viewer_host::drawing`'s arrangement, on this side's own request
+    /// shape. Under `--cpu` it draws every list payload; behind a device it draws the frames
+    /// the device refused, which is `CLAUDE.md`'s second job for the CPU backend.
     drawing: Drawing<Draw>,
     screen: Screen,
     /// The extent the last presented frame was composed for, `None` before the first.
@@ -190,8 +217,19 @@ struct Host {
     leaving: bool,
 }
 
+/// What puts this window's pixels up (ADR 0725): the graphics device, or the processor.
+enum Presentation {
+    /// A `render-quorra` device on its own thread, presented through a `quorra_gpu::Presenter`.
+    ///
+    /// Boxed because a `Device` holds the renderer until the first job moves it to its thread,
+    /// and an enum is as wide as its widest variant.
+    Device(Box<Device>),
+    /// The processor's surface — `--cpu`, or the path a machine with no usable device falls to.
+    Software(SoftwareSurface),
+}
+
 impl Host {
-    fn new(path: PathBuf, topics: u8, began: Instant) -> Self {
+    fn new(path: PathBuf, topics: u8, processor: bool, began: Instant) -> Self {
         Self {
             heading: path.file_name().map_or_else(
                 || path.to_string_lossy().into_owned(),
@@ -203,9 +241,16 @@ impl Host {
             confined: None,
             stopped: None,
             window: None,
-            surface: None,
+            presentation: None,
+            // Creating the instance *is* loading the driver, so `--cpu` must not spawn this
+            // thread — the flagship's rule (ADR 0221), kept here for the same crash.
+            instancing: (!processor).then(|| std::thread::spawn(QuorraWindowRenderer::instance)),
             drawing: Drawing::new(),
-            screen: Screen::new(),
+            screen: if processor {
+                Screen::new()
+            } else {
+                Screen::for_device()
+            },
             presented: None,
             asking: Asking::new(),
             password: PasswordCard::default(),
@@ -304,7 +349,7 @@ impl Host {
                     Ask::Prompt { attempt, of } => {
                         self.password
                             .ask(viewer_host::password::prompt(&self.name(), attempt, of));
-                        self.redraw();
+                        self.card_changed();
                     }
                     Ask::Exhausted => {
                         // Stop asking and leave the window open — `viewer_host::password`'s
@@ -346,7 +391,10 @@ impl Host {
             Event::NeedsRender(_) => {
                 eprintln!("note: a render request crossed the confined boundary; ignored");
             }
-            Event::Damage(_) => self.redraw(),
+            Event::Damage(_) => {
+                self.ask_frame();
+                self.redraw();
+            }
             // §12.6.4.8: resolving a URI reaches outside the program, and this window declines
             // by name rather than quietly. The policy a fuller host applies is `viewer_host`'s.
             Event::OpenUri { uri, .. } => {
@@ -401,6 +449,7 @@ impl Host {
                     ),
                 );
                 self.screen.take(frames, &mut self.drawing);
+                self.ask_frame();
                 self.redraw();
             }
             // No document is focused — before the open, or after a failed one.
@@ -424,13 +473,198 @@ impl Host {
         ));
     }
 
-    /// Puts what the screen has onto the window, under the presentation gate.
-    fn present(&mut self) {
-        let (Some(window), Some(surface)) = (self.window.as_ref(), self.surface.as_mut()) else {
+    /// Brings up whatever will put pixels on this window (ADR 0725).
+    ///
+    /// The device path first, unless `--cpu` kept the driver unloaded: the instance thread is
+    /// joined, the renderer built on it, the surface detached and configured (`Ungrounded`
+    /// carries that argument). Every refusal on the way falls to the processor's path, out
+    /// loud — the second of the two jobs `CLAUDE.md` keeps the CPU backend for.
+    fn bring_up(&mut self, window: &Arc<Window>) -> Presentation {
+        if let Some(instancing) = self.instancing.take() {
+            let Ok(instance) = instancing.join() else {
+                eprintln!(
+                    "the thread creating the graphics instance panicked; drawing on the \
+                     processor instead"
+                );
+                return self.software(window);
+            };
+            self.trace
+                .say(Topic::Launch, format_args!("graphics instance"));
+            let began = Instant::now();
+            match QuorraWindowRenderer::with_instance(&instance, Arc::clone(window)) {
+                Ok(renderer) => {
+                    let size = window.inner_size();
+                    match Device::split(renderer, (size.width.max(1), size.height.max(1))) {
+                        Ok(ungrounded) => match ungrounded.ground() {
+                            Ok(device) => {
+                                let device = Box::new(device);
+                                self.trace.say(
+                                    Topic::Launch,
+                                    format_args!(
+                                        "graphics device in {:.1} ms, surface configured; \
+                                         rendering with {}",
+                                        began.elapsed().as_secs_f64() * 1e3,
+                                        device.description()
+                                    ),
+                                );
+                                self.trace.say(
+                                    Topic::Launch,
+                                    format_args!("bring-up parts: {:?}", device.startup()),
+                                );
+                                return Presentation::Device(device);
+                            }
+                            Err(why) => eprintln!(
+                                "the graphics device could not put anything on this window \
+                                 ({why}); drawing on the processor instead"
+                            ),
+                        },
+                        Err(renderer) => eprintln!(
+                            "the graphics device came up with no surface to present through \
+                             ({}); drawing on the processor instead",
+                            renderer.adapter_description()
+                        ),
+                    }
+                }
+                Err(problem) => eprintln!(
+                    "no graphics device for this window ({problem}); drawing on the processor \
+                     instead"
+                ),
+            }
+        }
+        self.software(window)
+    }
+
+    /// The processor's surface, which is the one launch failure this window cannot show past.
+    fn software(&self, window: &Arc<Window>) -> Presentation {
+        match SoftwareSurface::new(Arc::clone(window)) {
+            Ok(surface) => {
+                self.trace
+                    .say(Topic::Launch, format_args!("software surface"));
+                Presentation::Software(surface)
+            }
+            Err(problem) => {
+                // Nothing can put pixels on this window; a blank window for ever is the worse
+                // answer.
+                eprintln!("no software surface for this window: {problem}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    /// The card changed: the picture is the card over the screen, so a device frame carries it
+    /// (`--cpu` composes at present time and needs only the redraw).
+    fn card_changed(&mut self) {
+        self.ask_frame();
+        self.redraw();
+    }
+
+    /// One device frame came home: adopted, or refused and handed to the fallback thread.
+    fn frame_landed(&mut self, landed: device::Landed) {
+        if let Some(why) = landed.refused {
+            let asked = self.screen.fall_back(&mut self.drawing);
+            eprintln!(
+                "the graphics device refused the frame ({why}); {asked} page(s) fall back to \
+                 the processor"
+            );
+            if asked > 0 {
+                // The card and the pixel pages still want a frame, now without the refused
+                // marks; the fallback pages join it as each lands off the thread.
+                self.ask_frame();
+            }
+            return;
+        }
+        self.trace.say(
+            Topic::Frames,
+            format_args!(
+                "device frame in {:.1} ms, asked-to-finished {:.1} ms",
+                landed.cost.total.as_secs_f64() * 1e3,
+                landed.waited.as_secs_f64() * 1e3
+            ),
+        );
+        self.redraw();
+    }
+
+    /// §7.6.4.1's card as display lists, over whatever the screen has — which for an encrypted
+    /// document is the surround, exactly the flagship's arrangement of the same card.
+    fn overlays(&self) -> Vec<pdf_render::DisplayList> {
+        let (Some(window), Some(chrome)) = (self.window.as_ref(), self.chrome.as_ref()) else {
+            return Vec::new();
+        };
+        let extent = window.inner_size();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a display's scale factor is a small ratio"
+        )]
+        let scale = window.scale_factor() as f32;
+        self.password
+            .draw(chrome, extent.width, extent.height, scale)
+            .into_iter()
+            .collect()
+    }
+
+    /// Asks the device for a frame of what the screen now holds, where a device is what draws.
+    ///
+    /// Called wherever the picture changed — a frame pulled, the card typed into, a resize, a
+    /// fallback draw landing. Under `--cpu` there is no device and presentation composes from
+    /// the screen directly, so this is nothing.
+    fn ask_frame(&mut self) {
+        let Some(window) = self.window.as_ref() else {
             return;
         };
         let extent = window.inner_size();
         self.screen.resize(extent.width, extent.height);
+        let overlays = self.overlays();
+        if let Some(Presentation::Device(device)) = self.presentation.as_mut() {
+            device.ask(
+                self.screen.device_pages(extent.width, extent.height),
+                overlays,
+            );
+        }
+    }
+
+    /// Puts what the screen has onto the window, under the presentation gate.
+    fn present(&mut self) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let extent = window.inner_size();
+        self.screen.resize(extent.width, extent.height);
+        match self.presentation.as_mut() {
+            Some(Presentation::Device(device)) => match device.present() {
+                Presented::Shown => {
+                    if self.presented.is_none() {
+                        self.trace
+                            .say(Topic::Launch, format_args!("first frame presented"));
+                    }
+                    self.presented = Some((extent.width, extent.height));
+                }
+                // Before the first frame lands the grounded surround stays up, which is the
+                // window's honest picture of having nothing yet.
+                Presented::Nothing | Presented::Waited => {}
+                Presented::AskAgain => self.redraw(),
+                Presented::Refused(why) => {
+                    eprintln!("the frame could not be presented: {why}");
+                }
+            },
+            Some(Presentation::Software(_)) => self.present_software(),
+            None => return,
+        }
+        for (page, words) in self.screen.refusals() {
+            eprintln!(
+                "page {} could not be drawn: {words}",
+                page.saturating_add(1)
+            );
+        }
+    }
+
+    /// The processor's present: the screen composed, the card drawn over it.
+    fn present_software(&mut self) {
+        let (Some(window), Some(Presentation::Software(surface))) =
+            (self.window.as_ref(), self.presentation.as_mut())
+        else {
+            return;
+        };
+        let extent = window.inner_size();
         let resized = self.presented != Some((extent.width, extent.height));
         if !(self.screen.settled() || self.presented.is_none() || resized) {
             // Something newer is still on the drawing thread and the window already shows a
@@ -441,8 +675,6 @@ impl Host {
         let Some(composed) = self.screen.compose() else {
             return;
         };
-        // §7.6.4.1's card, over whatever the screen has — which for an encrypted document is
-        // the surround, exactly the flagship's arrangement of the same card.
         #[expect(
             clippy::cast_possible_truncation,
             reason = "a display's scale factor is a small ratio"
@@ -462,12 +694,6 @@ impl Host {
                 self.presented = Some((extent.width, extent.height));
             }
             Err(problem) => eprintln!("the frame could not be presented: {problem}"),
-        }
-        for (page, words) in self.screen.refusals() {
-            eprintln!(
-                "page {} could not be drawn: {words}",
-                page.saturating_add(1)
-            );
         }
     }
 
@@ -504,15 +730,15 @@ impl Host {
             Key::Named(NamedKey::Enter) => self.password_answered(),
             Key::Named(NamedKey::Backspace) => {
                 self.password.backspace();
-                self.redraw();
+                self.card_changed();
             }
             Key::Named(NamedKey::Space) => {
                 self.password.typed(" ");
-                self.redraw();
+                self.card_changed();
             }
             Key::Character(text) if !text.is_empty() => {
                 self.password.typed(text);
-                self.redraw();
+                self.card_changed();
             }
             // A key with no character and no meaning here. Taken anyway, for the reason above.
             _ => {}
@@ -527,7 +753,7 @@ impl Host {
     /// file that has gone away between the attempts is a fact about this machine, said out loud.
     fn password_answered(&mut self) {
         let typed = self.password.take();
-        self.redraw();
+        self.card_changed();
         let secret = match viewer_host::password::supplied(typed) {
             Supplied::Open(secret) => secret,
             Supplied::Cancelled => {
@@ -616,14 +842,13 @@ impl ApplicationHandler for Host {
                 .expect("window creation"),
         );
         self.trace.say(Topic::Launch, format_args!("window up"));
-        match SoftwareSurface::new(Arc::clone(&window)) {
-            Ok(surface) => self.surface = Some(surface),
-            Err(problem) => {
-                // Nothing can put pixels on this window; a blank window for ever is the worse
-                // answer.
-                eprintln!("no software surface for this window: {problem}");
-                std::process::exit(1);
-            }
+        self.presentation = Some(self.bring_up(&window));
+        if matches!(self.presentation, Some(Presentation::Software(_)))
+            && self.screen.draws_on_the_device()
+        {
+            // The device did not come up, so the screen must not hold pages for one: nothing
+            // has crossed yet — the worker starts below — so the replacement costs nothing.
+            self.screen = Screen::new();
         }
         let extent = window.inner_size();
         #[expect(
@@ -677,7 +902,14 @@ impl ApplicationHandler for Host {
         });
         // A window with nothing on the screen yet waits for page one instead of polling for it,
         // out of the launch's one-refresh budget (ADR 0678) — same rule, same numbers, third
-        // window.
+        // window. Behind a device that wait is for the first frame the render thread finishes,
+        // asked for by the frame pull inside the open's dispatch; under `--cpu`, and for a
+        // device-refused fallback, it is the drawing thread's.
+        if let Some(Presentation::Device(device)) = self.presentation.as_mut()
+            && let Some(landed) = device.settle(viewer_host::drawing::SETTLE)
+        {
+            self.frame_landed(landed);
+        }
         for finished in self.drawing.settle(viewer_host::drawing::SETTLE) {
             self.screen.landed(finished);
         }
@@ -701,11 +933,17 @@ impl ApplicationHandler for Host {
                     .window
                     .as_ref()
                     .map_or(1.0, |window| window.scale_factor() as f32);
+                if let Some(Presentation::Device(device)) = self.presentation.as_mut() {
+                    device.resize(extent.width, extent.height);
+                }
                 self.dispatch(&Command::Resize {
                     width: extent.width,
                     height: extent.height,
                     scale,
                 });
+                // The frame pull inside the dispatch asked for the resized frame already; this
+                // covers a resize arriving before any document frame exists — the card alone.
+                self.ask_frame();
                 self.redraw();
             }
             WindowEvent::KeyboardInput { event, .. } => self.key(&event),
@@ -740,24 +978,40 @@ impl ApplicationHandler for Host {
             changed |= self.screen.landed(finished);
         }
         if changed {
+            // Fallback pixels landed: behind a device they reach the window inside the next
+            // device frame, so one is asked for; under `--cpu` the redraw composes them.
+            self.ask_frame();
             self.redraw();
         }
-        match self.drawing.interval() {
-            Some(interval) => {
-                let at = Instant::now()
-                    .checked_add(interval)
-                    .unwrap_or_else(Instant::now);
-                event_loop.set_control_flow(ControlFlow::WaitUntil(at));
-            }
-            None => event_loop.set_control_flow(ControlFlow::Wait),
+        if let Some(Presentation::Device(device)) = self.presentation.as_mut()
+            && let Some(landed) = device.collect()
+        {
+            self.frame_landed(landed);
+        }
+        let waiting = self.drawing.interval().is_some()
+            || matches!(
+                self.presentation.as_ref(),
+                Some(Presentation::Device(device)) if device.busy()
+            );
+        if waiting {
+            let at = Instant::now()
+                .checked_add(viewer_host::drawing::POLL)
+                .unwrap_or_else(Instant::now);
+            event_loop.set_control_flow(ControlFlow::WaitUntil(at));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
         }
     }
 }
 
 fn main() {
     let began = Instant::now();
-    let Arguments { path, topics } = arguments();
-    let mut host = Host::new(path, topics, began);
+    let Arguments {
+        path,
+        topics,
+        processor,
+    } = arguments();
+    let mut host = Host::new(path, topics, processor, began);
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut host).expect("the event loop runs");
@@ -776,7 +1030,9 @@ mod tests {
     /// A host with no window, no surface and no worker: everything the password path touches
     /// short of a pipe, which is exactly the part this file added.
     fn a_host() -> Host {
-        Host::new(PathBuf::from("locked.pdf"), 0, Instant::now())
+        // `--cpu`'s shape: a host with no instance thread, which is what a test wants — the
+        // password path under test touches no surface either way.
+        Host::new(PathBuf::from("locked.pdf"), 0, true, Instant::now())
     }
 
     /// §7.6.4.1's event puts the card up instead of ending the document.
@@ -845,6 +1101,7 @@ mod tests {
         let mut host = Host::new(
             PathBuf::from("tests/does-not-exist-781.pdf"),
             0,
+            true,
             Instant::now(),
         );
         host.event(Event::PasswordRequired {
