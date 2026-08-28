@@ -411,11 +411,20 @@ fn cross_reference_stream(
 /// > The first byte string shall be a permanent identifier based on the contents of the PDF file
 /// > at the time it was originally created and shall not change when the PDF file is updated.
 ///
+/// That is the published sentence; Errata Collection 3's Issue #328 strikes *contents of the*
+/// out of it and *'s contents* out of its neighbour, so both identifiers become ones *based on
+/// the PDF file at the time* — loosened, because §14.4's own suggested computation was never a
+/// function of the contents (it names the time, the location and the size). Both strikes are
+/// under the four-word floor `spec-errata check` compares at, which is how a gated blockquote
+/// sat on retired words; found by the errata selection rule's ninth use.
+///
 /// So the first element is carried through unchanged and the second is derived from the bytes
-/// this update is appending to — which is what "based on the file's contents" means and, being a
-/// function of those bytes alone, is the same answer every time the same edit is saved. That
-/// determinism is deliberate: rule 3 says this crate has no clock, and a test that saves twice
-/// and compares is worth more than a timestamp.
+/// this update is appending to — a choice the amended sentence still contains, since the bytes
+/// are the file at the time it was last updated, and one that keeps the answer the same every
+/// time the same edit is saved. That determinism is deliberate: rule 3 says this crate has no
+/// clock, and a test that saves twice and compares is worth more than a timestamp. The digest
+/// is this writer's own choice too — §14.4 suggested MD5 by name until Issue #691 struck the
+/// example, and uniqueness rather than collision resistance is all the entry asks of it.
 ///
 /// **It survives only in an unencrypted file.** §7.6.3.1 requires a fresh random initialisation
 /// vector in front of every AES string and stream, so an encrypted document's update differs from

@@ -3419,6 +3419,67 @@ mod tests {
         );
     }
 
+    /// §14.7.6.2's precedence *within* the class route, which the published clause never stated.
+    ///
+    /// The 2020 text ranks `/A`'s objects among themselves and `/A` against `/C`, and says
+    /// nothing about two class objects disagreeing. Errata Collection 3's Issue #289 closes the
+    /// gap with two sentences inserted after the attach sentence: *Attribute objects included
+    /// through a class and through an array of classes within the C entry may have the value of
+    /// O and NS repeated. If a given attribute is specified more than once across the attribute
+    /// objects, the later (in array order) shall take precedence.* [`Tree::attributes`] already
+    /// answers both — it walks `/C` in array order and each class's objects in theirs, and
+    /// [`Tree::attribute`] takes the last match — but until this test the only evidence was a
+    /// fixture with one class object, which no ordering of the class route can fail.
+    ///
+    /// The fixture attaches three objects through `/C` alone: one class naming a single object,
+    /// then a class naming an array of two, all three repeating `/O /Layout` as the erratum's
+    /// first sentence permits and all three stating `/BackgroundColor`. Calibrated per trap 13:
+    /// a plant that walks the `/C` classes in reverse order passes the single-class test above
+    /// and fails every assertion here except `/Placement`'s.
+    #[test]
+    fn an_attribute_two_class_objects_state_goes_to_the_later_one() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K 5 0 R /ClassMap << /Cold 6 0 R /Warm [7 0 R 8 0 R] >> >>",
+            "<< /Type /StructElem /S /P /C [/Cold /Warm] >>",
+            "<< /O /Layout /BackgroundColor [1 0 0] >>",
+            "<< /O /Layout /BackgroundColor [0 0 1] /Placement /Block >>",
+            "<< /O /Layout /BackgroundColor [0 1 0] >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        let Some(Child::Element(element)) = tree.children(&doc, None).first().cloned() else {
+            panic!("one element under the root");
+        };
+
+        let attached = tree.attributes(&doc, &element);
+        assert_eq!(
+            attached.len(),
+            3,
+            "one object from /Cold and two from /Warm: {attached:?}"
+        );
+
+        let colour = tree.attribute(&doc, &element, "BackgroundColor");
+        assert_eq!(
+            colour
+                .as_ref()
+                .and_then(Object::as_array)
+                .map(<[Object]>::to_vec),
+            Some(vec![
+                Object::Integer(0),
+                Object::Integer(1),
+                Object::Integer(0)
+            ]),
+            "the later class wins over the earlier, and within one class's array the later \
+             object wins"
+        );
+        assert!(
+            tree.attribute(&doc, &element, "Placement").is_some(),
+            "an attribute only one class object states is still attached"
+        );
+    }
+
     /// §14.7.6.4's user properties, read from the clause's own example.
     ///
     /// The EXAMPLE at the end of §14.7.6.4 attaches four properties to a `Figure` — a part

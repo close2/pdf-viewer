@@ -4457,6 +4457,48 @@ row whose note enumerated everything else the reader took.
   row it did not expect reads the annotation text before the heading**: the strike says which sentence
   it is over, and the heading only says which page it was on.
 
+## The rule's ninth use, in the seven-hundred-and-seventy-fourth, and the mis-filing reached a recorded verdict
+
+**The two rankings agreed at the head for the first time, on two live rows, and the third use's
+tie-break decided between them.** Over live rows the head is §7.6.4.1 and §7.6.6 with six
+annotations apiece — unmoved since the seventh use — and over **every** row it is the same two:
+§12.6.4.17 left when the eighth use read it, and no settled row reaches six, which is four
+consecutive uses of the fourth step finishing their work rather than a new regime. With no settled
+row to prefer, the cell-over-prose tie-break leads with §7.6.6, whose issue rewrites Table 27's
+`/Recipients` type cell to *byte string or array*; §7.6.4.1's substitutes *a crypt filter* for a
+plural in prose three times. Both confirm their rows — the first binds an entry nobody here reads,
+behind §7.6.5's named refusal, and the second leaves a reader's tolerance now stated in the row
+instead of implicit. ADR 0712; `doc/errata-read.md` has all seven errata with their rectangles.
+
+**The walk downward paid twice, and the first payment was a strike the outline had filed one
+clause late.** Page 734 opens §14.4 and reaches §14.5, so `emit` prints §14.4's annotations under
+§14.5's heading — and one of §14.5's two unnamed issues turned out to be §14.4's: two strikes
+deleting *contents of the* and *'s contents* from the file identifier sentences, so both
+identifiers become ones based on the PDF file at the time rather than on its contents. A gated
+rustdoc blockquote in `write.rs::identify`, its prose, and §14.4's ledger note all stood on the
+struck words — three words and two, under `check`'s four-word floor, the third of this rule's uses
+to find quoted text on a strike below it. And the same coarseness had already reached a *verdict*: the record's own
+row for the issue struck beside it judged §14.5's row — "names no digest" — one clause away from
+the writer that names MD5. The eighth use's rule gains its sharper half: **a verdict written under
+a heading is a claim about a page, not about a clause, until the rectangle has been placed.**
+
+**The second payment is the settled-row mechanism by a fifth shape.** §14.7.6.2, `implemented`,
+carries the erratum that inserts the class-route precedence rule the published clause never had —
+attribute objects attached through `/C` may repeat `/O`, and the later in array order takes
+precedence. `Tree::attributes` satisfies it by construction and always has; the row's one test
+attached a single class object, **which no ordering of the class route can fail**. 755 found a
+round trip that could not fail, 760 a sentence about a sibling row, 765 a set with no closure
+check, 771 a claim of two written forms with a test of one — and now a rule satisfied by
+construction whose only fixture was too small to exercise it. The new test is calibrated per trap
+13 against a plant that walks the classes in reverse: it passes the single-class fixture and fails
+the new one.
+
+**One thing about the record, measured**: the eighth use's history file closed at "110" of a
+population of 115 after five verdicts, and one of its five had carried a verdict in
+`doc/errata-read.md`'s tables since the four-hundred-and-eighteenth session — so four newly left,
+and this round's base count under the recipe's own parse is 111. A closing figure is a derivation,
+and the greps are the instrument.
+
 ## What is still owed, named
 
 - **An artifact census, which four numbers in this tree need and no command produces.**
