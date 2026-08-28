@@ -458,7 +458,7 @@ impl Interpreter<'_> {
         // Table 57's `/SA`: §10.7.5's automatic stroke adjustment. What it changes here is
         // the one rule of that clause a display can state exactly — a line under half a
         // device pixel wide "shall be rendered as a single-pixel line" — which
-        // `Stroke::device_width` applies once for both backends, since only a backend knows
+        // `Stroke::device_width` applies once for every rasteriser, since only a backend knows
         // the resolution. The clause's other half, adjusting a stroke's *coordinates* to the
         // pixel grid for uniform thickness, is what anti-aliasing already achieves by a
         // different route; ADR 0028 has that argument and the ledger's §10.7.5 row records it.

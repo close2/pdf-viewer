@@ -21,12 +21,14 @@
 
 mod blend;
 mod convert;
+mod images;
 mod scan;
 mod shading;
 
 use rayon::iter::{IndexedParallelIterator as _, IntoParallelIterator as _, ParallelIterator as _};
 use rayon::slice::ParallelSliceMut as _;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use pdf_render::{
     BackendError, ClipId, Command, DisplayList, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Medium,
@@ -74,6 +76,16 @@ pub struct CpuRasterizer {
     anti_alias: bool,
     strips: Option<u32>,
     interrupt: Option<Interrupt>,
+    /// Deeply reduced image samples, so that the strips of one draw — and the draws of one
+    /// rasteriser — pay for a reduction once between them. See [`images`] for what is shared
+    /// and why an address is a sound key for it.
+    ///
+    /// **Held here rather than made per draw, and that is the liveness rule**: a rasteriser
+    /// kept across frames keeps its reductions, which is what `viewer-confined`'s worker does,
+    /// and one made per job keeps nothing, which is what `viewer_host::drawing` does
+    /// deliberately. Behind an `Arc` because `Clone` on this type means another handle on the
+    /// same rasteriser rather than a second one that has to warm up again.
+    reduced_images: Arc<images::ReducedImages>,
 }
 
 impl CpuRasterizer {
@@ -95,6 +107,7 @@ impl CpuRasterizer {
             anti_alias: true,
             strips: None,
             interrupt: None,
+            reduced_images: Arc::default(),
         }
     }
 
@@ -428,6 +441,13 @@ impl CpuRasterizer {
             );
         }
 
+        // A strip is a replay of the whole list, so a deeply reduced image is reduced once per
+        // strip — work that is per *source* sample and that `pdf_render::replay_ratio` cannot
+        // see, because it bounds a replay by the rows a command covers. Reduced here, on this
+        // thread, before any strip is queued: the strips then all hit, and this is the one place
+        // the reduction may use rayon without being re-entered by a strip (ADR 0731).
+        self.reduced_images
+            .warm(list.commands(), target.transform, whole_target(target));
         // The budget is divided rather than multiplied: the masks of a strip are a strip tall,
         // so the same total memory buys the same coverage of the page it did serially.
         let budget = MASK_BUDGET.checked_div(strips).unwrap_or(MASK_BUDGET);
@@ -1874,9 +1894,13 @@ impl CpuRasterizer {
         // Blocks of samples that would share one device pixel are averaged before
         // `tiny-skia` sees them, because its bilinear filter reads four neighbours whatever
         // the reduction and an eleven-fold shrink never looks at most of the source. The
-        // decision is `pdf_render`'s so that both backends make it identically; ADR 0025 has
+        // decision is `pdf_render`'s so that every backend makes it identically; ADR 0025 has
         // why it is a departure from §10.7.4 rather than a reading of it.
-        let reduced = image.area_averaged(placement);
+        //
+        // Through the memo rather than straight to `area_averaged`, because the work is per
+        // *source* sample and this function is called once per strip and once per redraw:
+        // `images` has the measurement and the key.
+        let reduced = self.reduced_images.reduced(image, placement);
         let image = reduced.as_ref().unwrap_or(image);
 
         // `tiny-skia` pixmaps are premultiplied; `Image` is documented as straight alpha,
@@ -2971,6 +2995,23 @@ fn vertical_extent(
 /// a whole number of rows moves the sum into another binade; ADR 0219 measures what is left —
 /// fewer than one pixel in ten thousand, none by more than one supersample — and says why no
 /// arrangement of this crate's arithmetic closes it.
+/// The whole target, as a rectangle in its own pixel space.
+///
+/// One caller — [`images::ReducedImages::warm`], which asks whether a command marks the raster at
+/// all before paying for its reduction, and which is not the strip loop's own test because it runs
+/// before there are strips.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "`rasterize` refuses a target beyond MAX_EXTENT = 2^24, which is the largest \
+              integer f32 represents exactly"
+)]
+fn whole_target(target: TargetSpec) -> pdf_render::Rect {
+    pdf_render::Rect::from_corners(
+        pdf_render::Point::new(0.0, 0.0),
+        pdf_render::Point::new(target.width as f32, target.height as f32),
+    )
+}
+
 fn plan_strips(list: &DisplayList, target: TargetSpec, asked: Option<u32>) -> Vec<u32> {
     // Asked of the machine only where the caller did not say, and that is not tidiness:
     // `available_parallelism` reads `/proc/self/cgroup` on Linux, and a caller drawing inside a
