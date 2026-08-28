@@ -38,6 +38,20 @@ median **2.08** times the floor against the closest reference pair's **1.96**, a
 pages ours is the smaller of the two. Two instruments, two populations, the same answer: this is the
 one bound of the eight on which we and the references fail together.
 
+**And since the seven-hundred-and-eightieth the population has a per-verdict control, and it is
+trap 9's tenth mechanism sitting in the bound itself** (ADR 0717). Of the pages this bound is the
+binding one on, nearly all are convicted by `poppler` and `mupdf` alone — the one voting pair that
+hints its glyphs through a single `libfreetype.so.6`, where `ghostscript` carries its own
+statically linked copy — and the gate's ranking prints that count every run. Measured over all 32
+such pages with `examples/compare_rasters` on the gate's artefacts: the convicting pair's differing
+fraction runs 0.00% to 4.37% (median 2.33%), every pair containing `ghostscript` runs 5.32% to
+13.37% (median 6.8%) — the distributions do not overlap — and `ghostscript` fails this bound
+against both members of the convicting pair on **32 of 32** pages, further than we do on 27. So on
+this population the consensus half of the bound's two jobs is being done by shared hinting, and the
+floor half then convicts whoever does not share it — us on 27 pages by less than the third voting
+reference misses by. It is ADR 0243's 29.4% arriving per verdict, and it moves nothing by itself:
+requirement 2 below still stands, because the measurement names no derived floor.
+
 **What that settled is a question about an ordering rather than about the bound.** `Distance::of`
 keeps three measures and not this one, and the seven-hundred-and-thirty-seventh round recorded the
 consequence for the ranking built on it as unpriced. Priced: on the contradicted pool the head is the

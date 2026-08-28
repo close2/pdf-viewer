@@ -354,6 +354,21 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   reference stays byte-identical. The divisor is the mechanism the note names; the numerator is a
   second one the same note records and never numbered.
 
+  **And the same pair decides most of the *contradicted* pool's verdicts, where it is the bound
+  rather than the divisor** (ADR 0717). The mechanism above acts on a ranking; on a contradicted
+  page it acts on `widened_to`, because the bound is derived from the convicting pair's own
+  spread. Measured in the seven-hundred-and-eightieth session over every page the gate convicts
+  on the differing fraction with `poppler` and `mupdf` as the consensus — 32 of the pool, and
+  the gate's ranking prints the count every run now: the convicting pair's differing fraction
+  runs 0.00% to 4.37% (an exact 0.00% on three pages) while **every pair containing
+  `ghostscript` runs 5.32% to 13.37%** — no overlap — and `ghostscript`, whose FreeType is its
+  own statically linked copy, fails the same bound against both pair members on all 32 pages,
+  further than we do on 27 of them. So the one voting pair inside the class floor of each other
+  is the pair hinting through one `libfreetype.so.6`, and the bound those verdicts rest on is
+  one a voting reference cannot meet. No verdict moved on it: the measurement says what the
+  bound is made of, not that our phases are right, and `doc/todo/12` prices what moving the
+  bound costs.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is

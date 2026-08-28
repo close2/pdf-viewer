@@ -624,6 +624,16 @@ outside on that measure and how many have a `Distance` at or under 1.0 — that 
 here is wrong* about a page the gate has just contradicted. The figures are the run's and are not
 written here.
 
+**And since the seven-hundred-and-eightieth it says *whose agreement* that population rests on**
+(ADR 0717): under the differing-fraction count, how many of those pages are convicted by `poppler`
+and `mupdf` alone — the one voting pair that hints its glyphs through a single `libfreetype.so.6`,
+where `ghostscript` carries its own statically linked copy. The measurement behind the line is that
+on every such page `ghostscript` fails the same differing-fraction bound against both members of
+the convicting pair — the pair's spread and the `ghostscript` pairs' spreads do not even overlap —
+so those verdicts rest on a bound a voting reference cannot meet either. `CONTRADICTED_GLYPH_EDGES`
+carries the table; no verdict or bound moved on it, and `doc/todo/12` still prices what moving one
+would cost.
+
 **The seven-hundred-and-forty-first session put the fourth measure into the ordering and measured
 what moved, and the answer is nothing worth having** (ADR 0643). On the contradicted pool the ten
 pages `rank_the_contradicted` prints are the same ten in the same order to the hundredth under either
