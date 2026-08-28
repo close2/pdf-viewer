@@ -159,6 +159,35 @@ pub struct AccessibilityNode {
     /// grid, which is one a document put outside a `TR`. The second of those is not the same as a
     /// column header and is deliberately not reported as one: a host says it does not know.
     pub header_scope: Option<HeaderScope>,
+    /// Table 384's `/Summary`, for an element whose mapped type is `Table` and nothing else.
+    ///
+    /// §14.8.5.7 makes it "[a] summary of the table's purpose and structure", with the entry's
+    /// own NOTE naming the consumer: "[f]or use in non-visual rendering such as speech or
+    /// braille." It crosses as its own field rather than riding [`Self::name`], because that
+    /// field is deliberately the element's own text — what the table's content items marked —
+    /// and this is a statement *about* the table that no descent would ever say.
+    ///
+    /// `None` for an element that states none — every element of doc/pdf.js, while the `SafeDocs`
+    /// crawl carries a real witness population, counted and *named* by
+    /// `pdf-model --example cell_header_census` — and for one whose mapped type is not `Table`:
+    /// "[t]his entry shall only be used within Table structure elements", and a summary on a
+    /// paragraph is a statement §14.8.5.7 does not define.
+    pub summary: Option<String>,
+    /// Table 384's `/Short`, for an element whose mapped type is `TH` and nothing else.
+    ///
+    /// §14.8.5.7: "[c]ontains a short form of the content of a TH structure element's content",
+    /// stated for the moment the entry's EXAMPLE describes — when "for each table cell the
+    /// applicable header cells are read to the user", the full contents become cumbersome to
+    /// repeat. So it is the *repetition* this abbreviates: a host saying a cell's headers says
+    /// this where it is stated, and the header cell itself keeps its own name.
+    ///
+    /// A separate field from [`Self::name`] for the same reason [`Self::summary`] is: the name
+    /// is what the element's own sequences marked, and this is the author's substitute for a
+    /// specific reading of it.
+    ///
+    /// `None` for an element stating none and for one that is not a `TH` — "[t]his entry shall
+    /// only have an effect for structure elements of type of TH".
+    pub short: Option<String>,
     /// Where the **document says** the element is, in the same device pixels [`Self::quads`] are
     /// in.
     ///
@@ -459,6 +488,10 @@ pub(crate) struct Gathered {
     pub(crate) language: Option<String>,
     /// Table 384's `/Scope` for a `TH`, stated or assumed.
     pub(crate) header_scope: Option<HeaderScope>,
+    /// Table 384's `/Summary` for a `Table`, where the element states one.
+    pub(crate) summary: Option<String>,
+    /// Table 384's `/Short` for a `TH`, where the element states one.
+    pub(crate) short: Option<String>,
     /// Table 379's `/BBox`, in **default user space** — the space the clause states it in.
     ///
     /// Mapped to the viewport by [`finish`], for the reason [`AccessibilityNode::bounds`] gives:
@@ -713,9 +746,22 @@ fn walk(
                 let index = out.len();
                 let header_scope = header_scope(document, tree, &dict, &role, depth, index, tables);
                 let bounds = tree.bounds(document, &dict);
+                // Table 384's two spoken entries, each behind the standard type its own sentence
+                // conditions it on — "[t]his entry shall only be used within Table structure
+                // elements" for `/Summary`, "shall only have an effect for structure elements of
+                // type of TH" for `/Short` — and the type those sentences are about is §14.7.3's
+                // mapped one, which is why the condition is applied here where the role is in
+                // hand rather than inside the reader.
+                let kind = StandardType::read(&role);
+                let summary = (kind == Some(StandardType::Table))
+                    .then(|| tree.table_summary(document, &dict))
+                    .flatten();
+                let short = (kind == Some(StandardType::TableHeader))
+                    .then(|| tree.header_short(document, &dict))
+                    .flatten();
                 // Inside a table the pruning stops, for the reason this function's own comment
                 // gives: a grid missing the rows on the page before places every cell wrong.
-                let below = match StandardType::read(&role) {
+                let below = match kind {
                     Some(StandardType::Table) => None,
                     _ => within,
                 };
@@ -730,6 +776,8 @@ fn walk(
                         phrase,
                         language: language.clone(),
                         header_scope,
+                        summary,
+                        short,
                         bounds,
                         headers: Vec::new(),
                     },
@@ -922,6 +970,8 @@ pub(crate) fn finish(
         language: gathered.language,
         quads: all,
         header_scope: gathered.header_scope,
+        summary: gathered.summary,
+        short: gathered.short,
         bounds: stated.and_then(place),
         control: gathered
             .objects

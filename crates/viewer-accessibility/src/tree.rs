@@ -439,6 +439,15 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
             // the name: it is about the *reading* of the cell and not what the cell says.
             description.push(note.to_owned());
         }
+        // §14.8.5.7's `/Summary` — "[a] summary of the table's purpose and structure", written
+        // "[f]or use in non-visual rendering such as speech or braille" — on the same channel
+        // as the headers below and for the same reason: the description is the one channel of
+        // this platform that reaches a person, and the summary is *about* the table, so putting
+        // it in the name would speak it as if the table's content said it. The word in front
+        // says which kind of sentence is coming, exactly as the headers' prefix does.
+        if let Some(summary) = node.summary.as_deref() {
+            description.push(format!("summary: {summary}"));
+        }
         description.extend(headers(node, &spoken));
         if !description.is_empty() {
             built.set_description(description.join("; "));
@@ -788,6 +797,18 @@ fn spoken_headers(view: &PageView) -> Vec<String> {
         let Some(header) = view.nodes.get(at) else {
             continue;
         };
+        // Table 384's `/Short` is written for exactly this repetition — "[i]t can become
+        // cumbersome for a user to repeatedly have to listen to the full contents of a TH
+        // structure element" — so where the author stated one it is what the header is said
+        // as *here*, in front of each cell it describes, and only here: the header cell's own
+        // node keeps its full content, because the abbreviation substitutes for the
+        // repetition and not for the cell.
+        if let Some(short) = header.short.as_deref() {
+            if let Some(slot) = out.get_mut(at) {
+                short.trim().clone_into(slot);
+            }
+            continue;
+        }
         let mut text = header.name.trim().to_owned();
         let mut inside = vec![at];
         let mut silenced: Vec<usize> = if header.substituted {

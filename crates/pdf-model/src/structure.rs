@@ -808,6 +808,64 @@ impl Tree {
         )
     }
 
+    /// Table 384's `/Summary`, where the element states one.
+    ///
+    /// ISO 32000-2 §14.8.5.7:
+    ///
+    /// > (Optional; not inheritable; PDF 1.7) A summary of the table's purpose and structure.
+    ///
+    /// and the entry's own NOTE says who it is for: "[f]or use in non-visual rendering such as
+    /// speech or braille." It is the one entry of the table that describes the *table* rather
+    /// than a cell — "[t]his entry shall only be used within Table structure elements" — and
+    /// that condition is the caller's to apply, exactly as a `TH`-only entry's is: which
+    /// standard type an element maps to is §14.7.3's question, answered where the role is
+    /// already in hand, and this reader would otherwise re-derive it per ask.
+    ///
+    /// *Not inheritable* is why this asks [`Self::attribute`] rather than
+    /// [`Self::inherited_attribute`]: a table nested inside a summarised table's cell has not
+    /// been summarised by its host's sentence.
+    ///
+    /// `None` for an element stating none, for a value that is not a string — the entry is a
+    /// "text string", so a name or a number here is a statement §14.8.5.7 does not define — and
+    /// for one whose text is empty, because the value exists to be spoken and an empty sentence
+    /// in a listener's ear is a pause rather than an answer.
+    #[must_use]
+    pub fn table_summary(&self, document: &Document, element: &Dictionary) -> Option<String> {
+        match self.attribute(document, element, "Summary") {
+            Some(Object::String(bytes)) => {
+                Some(pdf_syntax::text_string(&bytes)).filter(|text| !text.is_empty())
+            }
+            _ => None,
+        }
+    }
+
+    /// Table 384's `/Short`, where the element states one.
+    ///
+    /// ISO 32000-2 §14.8.5.7:
+    ///
+    /// > (Optional; not inheritable; PDF 2.0) Contains a short form of the content of a TH
+    /// > structure element's content.
+    ///
+    /// The entry's EXAMPLE is what it is for: when a cell's header cells are read to a person,
+    /// "[i]t can become cumbersome for a user to repeatedly have to listen to the full contents
+    /// of a TH structure element", and this is the author's own abbreviation of that repetition.
+    /// "This entry shall only have an effect for structure elements of type of TH" is the
+    /// caller's condition to apply, for the reason [`Self::table_summary`] gives.
+    ///
+    /// *Not inheritable*, so this asks [`Self::attribute`]: a `TH` under a shortened one has
+    /// its own content and the enclosing cell's abbreviation is not a statement about it.
+    ///
+    /// `None` for the same three shapes as [`Self::table_summary`], for the same reasons.
+    #[must_use]
+    pub fn header_short(&self, document: &Document, element: &Dictionary) -> Option<String> {
+        match self.attribute(document, element, "Short") {
+            Some(Object::String(bytes)) => {
+                Some(pdf_syntax::text_string(&bytes)).filter(|text| !text.is_empty())
+            }
+            _ => None,
+        }
+    }
+
     /// Everything one `TH` or `TD` says about itself that §14.8.4.8.3's search needs.
     ///
     /// Read in one call because [`TableStack`] wants all of it for the same element and each
@@ -4012,6 +4070,80 @@ mod tests {
             tree.cell_span(&doc, &elements[3]),
             (1, 1),
             "Table 384's default is 1, and a span of zero is not a number of columns"
+        );
+    }
+
+    /// Table 384's `/Summary` and `/Short`, read off the elements that state them.
+    ///
+    /// The second table's summary arrives through §14.7.6.2's class map, because the entry is an
+    /// attribute like any other and both of §14.7.6's routes carry it. The third states a name
+    /// where the entry is a text string, which is a value §14.8.5.7 does not define, and the
+    /// fourth an empty string, which has nothing to speak; both are read as nothing. And the
+    /// cell *inside* the summarised table answers nothing, because the entry is not
+    /// inheritable — a reader that inherited it would describe every cell with its table's
+    /// sentence.
+    #[test]
+    fn a_tables_summary_and_a_headers_short_form_are_read() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 7 0 R 8 0 R 9 0 R] \
+               /ClassMap << /Named << /O /Table /Summary (from the class map) >> >> >>",
+            "<< /Type /StructElem /S /Table /Pg 3 0 R /K [10 0 R] \
+               /A << /O /Table /Summary (sales by region and quarter) >> >>",
+            "<< /Type /StructElem /S /Table /Pg 3 0 R /C /Named >>",
+            "<< /Type /StructElem /S /Table /Pg 3 0 R /A << /O /Table /Summary /NotText >> >>",
+            "<< /Type /StructElem /S /TH /Pg 3 0 R /A << /O /Table /Short () >> >>",
+            "<< /Type /StructElem /S /TH /Pg 3 0 R /A << /O /Table /Short (Reg.) >> >>",
+            "<< /Type /StructElem /S /TD /P 5 0 R /Pg 3 0 R >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        let elements: Vec<_> = tree
+            .children(&doc, None)
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            tree.table_summary(&doc, &elements[0]).as_deref(),
+            Some("sales by region and quarter")
+        );
+        assert_eq!(
+            tree.table_summary(&doc, &elements[1]).as_deref(),
+            Some("from the class map"),
+            "§14.7.6.2's class map is the second route an attribute takes"
+        );
+        assert_eq!(
+            tree.table_summary(&doc, &elements[2]),
+            None,
+            "the entry is a text string, and a name is a value §14.8.5.7 does not define"
+        );
+        assert_eq!(
+            tree.header_short(&doc, &elements[3]),
+            None,
+            "an empty string has nothing to speak"
+        );
+        assert_eq!(
+            tree.header_short(&doc, &elements[4]).as_deref(),
+            Some("Reg.")
+        );
+
+        let inside: Vec<_> = tree
+            .children(&doc, Some(&elements[0]))
+            .into_iter()
+            .filter_map(|child| match child {
+                Child::Element(dict) => Some(dict),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            tree.table_summary(&doc, &inside[0]),
+            None,
+            "not inheritable: the cell has not been summarised by its table's sentence"
         );
     }
 

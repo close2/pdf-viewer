@@ -1458,6 +1458,8 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             language,
             quads,
             header_scope,
+            summary,
+            short,
             bounds,
             control,
             annotation,
@@ -1473,6 +1475,12 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             .bool(*substituted)
             .option_str(language.as_deref())
             .u8(scope_kind(*header_scope));
+        // §14.8.5.7's two spoken entries — a `Table`'s `/Summary` and a `TH`'s `/Short` — which
+        // a host cannot derive: both are the author's words, held in attribute objects only the
+        // confined side reads.
+        writer
+            .option_str(summary.as_deref())
+            .option_str(short.as_deref());
         match bounds {
             Some(rect) => {
                 writer.u8(1).numbers(rect);
@@ -1559,6 +1567,8 @@ pub(super) fn decode_accessibility(
             substituted: reader.bool("a node's substitution flag")?,
             language: reader.option_string("a node's language")?,
             header_scope: read_scope(reader)?,
+            summary: reader.option_string("a table's summary")?,
+            short: reader.option_string("a header's short form")?,
             bounds: reader.option_rect("a node's stated bounding box")?,
             drawn: reader.option_rect("a node's drawn extent")?,
             enclosed_a_refusal: reader.bool("a node's refusal flag")?,

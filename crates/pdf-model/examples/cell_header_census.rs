@@ -51,6 +51,8 @@ struct Counts {
     longest: usize,
     /// `TH` elements stating Table 384's `/Short`.
     shorts: usize,
+    /// `Table` elements stating Table 384's `/Summary`.
+    summaries: usize,
     /// Documents whose tables outgrew the grid this reader keeps.
     truncated: usize,
 }
@@ -71,6 +73,7 @@ impl Counts {
         self.total_headers = self.total_headers.saturating_add(other.total_headers);
         self.longest = self.longest.max(other.longest);
         self.shorts = self.shorts.saturating_add(other.shorts);
+        self.summaries = self.summaries.saturating_add(other.summaries);
         self.truncated = self.truncated.saturating_add(other.truncated);
     }
 }
@@ -105,6 +108,10 @@ fn census(document: &Document) -> Counts {
         let placement = stack.enter(depth, kind.as_ref(), token, || {
             tree.cell_facts(document, &dict)
         });
+        if kind == Some(StandardType::Table) && tree.attribute(document, &dict, "Summary").is_some()
+        {
+            counts.summaries = counts.summaries.saturating_add(1);
+        }
         if !matches!(
             kind,
             Some(StandardType::TableHeader | StandardType::TableData)
@@ -166,6 +173,14 @@ fn main() {
                 counts.longest,
             );
         }
+        // A witness for the two rare entries is named, not merely counted: the day one appears
+        // is the day somebody wants to open it.
+        if counts.summaries > 0 || counts.shorts > 0 {
+            println!(
+                "{path}: {} /Summary, {} /Short",
+                counts.summaries, counts.shorts
+            );
+        }
         total.absorb(&counts);
     }
     println!("\n{documents} opened, {} tagged", total.tagged);
@@ -187,7 +202,7 @@ fn main() {
         total.total_headers, total.named_found, total.longest
     );
     println!(
-        "{} TH state Table 384's /Short; {} documents outgrew the grid",
-        total.shorts, total.truncated
+        "{} TH state Table 384's /Short, {} Table its /Summary; {} documents outgrew the grid",
+        total.shorts, total.summaries, total.truncated
     );
 }
