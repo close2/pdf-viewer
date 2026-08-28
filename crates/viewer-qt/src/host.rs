@@ -1707,7 +1707,7 @@ impl Host {
     /// **Before the first frame this waits, and after it this only asks** — ADR 0678, and the same
     /// three lines as `viewer-gtk`'s because the rule is `viewer_host::Drawing`'s rather than a
     /// toolkit's. A window with nothing on the screen has no frame to spoil and no input to lose,
-    /// and `viewer_host::Drawing::SETTLE` bounds the whole of what it may spend. The measurement
+    /// and `viewer_host::drawing::SETTLE` bounds the whole of what it may spend. The measurement
     /// that put it there is GTK's — Qt's own launch was not the one that lost 44 ms — and it is
     /// here for levelness and because a `QTimer` is no more dispatchable than a `glib` one while a
     /// toolkit is inside its own first frame.
@@ -1715,7 +1715,7 @@ impl Host {
         let drawn = if self.presented {
             self.drawing.collect()
         } else {
-            self.drawing.settle(viewer_host::Drawing::SETTLE)
+            self.drawing.settle(viewer_host::drawing::SETTLE)
         };
         for finished in drawn {
             self.trace.say(
@@ -2439,7 +2439,7 @@ mod tests {
                 began.elapsed() < std::time::Duration::from_mins(2),
                 "the drawing thread never answered"
             );
-            std::thread::sleep(viewer_host::Drawing::POLL);
+            std::thread::sleep(viewer_host::drawing::POLL);
             host.drawing_pump();
         }
     }

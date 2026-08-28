@@ -118,7 +118,7 @@ pub mod trace;
 pub use arrangement::next_layout;
 pub use clock::{Clock, face_target};
 pub use copying::{ContentOrder, Copied, copied};
-pub use drawing::{Drawing, Finished};
+pub use drawing::{DrawRequest, Drawing, Finished};
 pub use fit::ControlFit;
 pub use form::{Clicked, ControlKind, clicked, control_kind, toggling};
 pub use geometry::{bounds, covers};

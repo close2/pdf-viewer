@@ -68,7 +68,7 @@
 //! [`crate::Clock`] and `viewer-qt`'s accessibility drain already have, for the same reason: the
 //! interval is this crate's decision and the timer is the toolkit's.
 //!
-//! [`Drawing::POLL`] is the interval and [`Drawing::interval`] is `None` at rest, so a window with
+//! [`POLL`] is the interval and [`Drawing::interval`] is `None` at rest, so a window with
 //! nothing being drawn wakes for this exactly never.
 //!
 //! # The one place a host does not pull, and why the launch is that place
@@ -82,32 +82,70 @@
 //! is what says the fault is the toolkit's first frame rather than this arrangement.
 //!
 //! [`Drawing::settle`] is the answer and it is deliberately small: a host with **nothing on the
-//! screen yet** waits for the page rather than polling for it, for at most [`Drawing::SETTLE`] over
+//! screen yet** waits for the page rather than polling for it, for at most [`SETTLE`] over
 //! the whole launch. Nothing is interrupted, so a page that outlasts the budget arrives through the
 //! poll exactly as before; what the budget buys is that page one is in the toolkit's first frame
 //! rather than its second.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use pdf_render::{Interrupt, Rasterizer as _};
+use pdf_render::{DisplayList, Interrupt, Rasterizer as _, TargetSpec};
 use render_cpu::{CpuRasterError, CpuRasterizer};
 use viewer_core::{RenderRequest, Rendered};
 
+/// What one drawing needs to know about the page it was asked for.
+///
+/// [`viewer_core::RenderRequest`] is the request every tier-1 host holds, and for as long as
+/// there were only tier-1 hosts it was this module's only shape. A host on `viewer-confined`'s
+/// boundary holds the same three facts — which page, which marks, which target — and **cannot
+/// hold that type**, because a `RenderRequest` carries a `RenderToken` only a `viewer_core::Viewer`
+/// can mint and the viewer is on the far side of a pipe. The arrangement — one job in flight, a
+/// queue keyed by page, the two rules for taking the thread back — is the same on both sides of
+/// that difference, and a second copy of it is where two hosts stop agreeing, which is this
+/// crate's own reason to exist.
+///
+/// So the *request* is the parameter and the arrangement is not: implement this for whatever a
+/// host queues, and [`Drawing`] treats it exactly as it treats the viewer's own.
+pub trait DrawRequest: Send + 'static {
+    /// Which page this drawing is of — the identity [`Drawing::ask`] replaces a queued request by,
+    /// and the one it raises the interrupt for.
+    fn page(&self) -> usize;
+    /// The marks to draw.
+    fn list(&self) -> &Arc<DisplayList>;
+    /// The pixels to draw them into, and the transform to them.
+    fn target(&self) -> TargetSpec;
+}
+
+impl DrawRequest for RenderRequest {
+    fn page(&self) -> usize {
+        self.page
+    }
+
+    fn list(&self) -> &Arc<DisplayList> {
+        &self.list
+    }
+
+    fn target(&self) -> TargetSpec {
+        self.target
+    }
+}
+
 /// One page's rasterisation, on its way to the drawing thread.
 #[derive(Debug)]
-struct Job {
-    /// Everything the drawing needs; [`viewer_core::RenderRequest`] is self-contained on purpose.
-    request: RenderRequest,
+struct Job<R> {
+    /// Everything the drawing needs; a [`DrawRequest`] is self-contained on purpose.
+    request: R,
     /// The flag the toolkit's thread raises to take this thread back.
     interrupt: Interrupt,
 }
 
 /// One page's rasterisation, on its way back.
 #[derive(Debug)]
-struct Done {
-    request: RenderRequest,
+struct Done<R> {
+    request: R,
     /// `None` where the interrupt came back instead of a picture — see [`Finished::outcome`].
     outcome: Option<Rendered>,
     cost: Duration,
@@ -126,13 +164,13 @@ struct InFlight {
 
 /// One finished page, on its way to the viewer that asked for it.
 #[derive(Debug)]
-pub struct Finished {
+pub struct Finished<R = RenderRequest> {
     /// The request this answers.
     ///
     /// Handed back whole rather than as a token, because the arrival of a page's pixels means
     /// something to a host beyond the answer it owes: §12.4.4.1's transition takes its two faces
     /// from exactly this list and this target.
-    pub request: RenderRequest,
+    pub request: R,
     /// What to tell the viewer, or **nothing at all**.
     ///
     /// `None` is a draw this host took back, and it is deliberately not
@@ -149,14 +187,14 @@ pub struct Finished {
 
 /// The channels to a running drawing thread, and the thread itself.
 #[derive(Debug)]
-struct Link {
-    jobs: Sender<Job>,
-    done: Receiver<Done>,
+struct Link<R> {
+    jobs: Sender<Job<R>>,
+    done: Receiver<Done<R>>,
     /// Joined on the way out, so the thread ends with the window rather than being abandoned.
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
-impl Drop for Link {
+impl<R> Drop for Link<R> {
     /// Ends the thread by taking its work away, then waits for it.
     ///
     /// **Dropping the sender is the signal**, which is why there is no stop flag: `recv` on a
@@ -176,12 +214,17 @@ impl Drop for Link {
 /// it.
 ///
 /// Lives on the toolkit's thread and never leaves it.
-#[derive(Debug, Default)]
-pub struct Drawing {
+///
+/// Generic over what a host queues — see [`DrawRequest`] — and `viewer_core::RenderRequest` is
+/// the default because the two tier-1 windows are the population this was built for. A field or
+/// a binding written `viewer_host::Drawing` means exactly what it meant before the parameter
+/// existed.
+#[derive(Debug)]
+pub struct Drawing<R: DrawRequest = RenderRequest> {
     /// `None` until the first request, which is `CLAUDE.md` section 2's startup rule: a thread
     /// spawned as the window is built is a cost on the launch path, and a thread spawned by the
     /// first page that needs drawing is not.
-    link: Option<Link>,
+    link: Option<Link<R>>,
     /// The job the thread is inside, or `None` while it is idle.
     in_flight: Option<InFlight>,
     /// What has been asked for and not yet handed over.
@@ -191,10 +234,10 @@ pub struct Drawing {
     /// raster and a superseded frame is simply not drawn, while this one is asked for each page
     /// separately and *owes an answer for every one of them* — a request dropped on the floor is a
     /// page whose outstanding request is never satisfied and which therefore never draws again.
-    queued: VecDeque<RenderRequest>,
+    queued: VecDeque<R>,
     /// Pages drawn on this thread because there was no other one — see [`Drawing::dispatch`].
-    landed: Vec<Finished>,
-    /// How much of [`Drawing::SETTLE`] has been spent waiting — see [`Drawing::settle`].
+    landed: Vec<Finished<R>>,
+    /// How much of [`SETTLE`] has been spent waiting — see [`Drawing::settle`].
     ///
     /// **Time actually spent blocked, and nothing else.** A launch's budget is a bound on how long
     /// the window may decline to answer, so what fills it is waiting rather than elapsing: a
@@ -204,35 +247,51 @@ pub struct Drawing {
     spent: Duration,
 }
 
-impl Drawing {
-    /// How long a host waits before asking whether the drawing thread has finished.
-    ///
-    /// **A millisecond, and the number is bounded from both sides rather than picked.** From
-    /// below: what a poll costs is one `try_recv` on an empty channel, and the timer does not
-    /// exist at all while nothing is being drawn ([`Self::interval`]), so a window at rest pays
-    /// nothing. From above: this interval is added to every page's latency, and the median page of
-    /// `doc/pdf.js`'s first pages draws in about two milliseconds — so a poll at one refresh
-    /// period, the obvious alternative, would be most of a median page turn again.
-    pub const POLL: Duration = Duration::from_millis(1);
+/// How long a host waits before asking whether the drawing thread has finished.
+///
+/// **A millisecond, and the number is bounded from both sides rather than picked.** From
+/// below: what a poll costs is one `try_recv` on an empty channel, and the timer does not
+/// exist at all while nothing is being drawn ([`Drawing::interval`]), so a window at rest pays
+/// nothing. From above: this interval is added to every page's latency, and the median page of
+/// `doc/pdf.js`'s first pages draws in about two milliseconds — so a poll at one refresh
+/// period, the obvious alternative, would be most of a median page turn again.
+///
+/// A module constant rather than `Drawing`'s own, since the type became generic: an associated
+/// constant on a generic type cannot be named without saying which `Drawing` it is of, and this
+/// number is the same for every one of them.
+pub const POLL: Duration = Duration::from_millis(1);
 
-    /// The whole of what a window with nothing on the screen may spend waiting for page one.
-    ///
-    /// **One 60 Hz refresh, and it is a budget for the launch rather than a per-page timeout** —
-    /// see [`Self::settle`], which is the only thing that reads it and which a host calls with
-    /// what is left of it. The two sides of the choice:
-    ///
-    /// - *why wait at all*: a poll cannot be dispatched while the toolkit's own main loop is
-    ///   inside its first frame, and that frame is the expensive one — GTK's is about 55 ms under
-    ///   `Xvfb`'s software Vulkan, which page one waited through in full (ADR 0678).
-    /// - *why no longer than this*: the wait is time in which the window answers nothing, and one
-    ///   refresh is the longest that is invisible. It is also where the corpus puts the
-    ///   population: at twice device scale 93.9% of `doc/pdf.js`'s first pages draw inside one
-    ///   60 Hz period (ADR 0657), so this admits page one to the toolkit's first frame for nearly
-    ///   all of them and gives up on the rest rather than growing to fit them — the slowest of the
-    ///   957 takes 252 ms and a document written to be expensive takes 27 600, so no bound reaches
-    ///   those without becoming a freeze.
-    pub const SETTLE: Duration = Duration::from_nanos(1_000_000_000 / 60);
+/// The whole of what a window with nothing on the screen may spend waiting for page one.
+///
+/// **One 60 Hz refresh, and it is a budget for the launch rather than a per-page timeout** —
+/// see [`Drawing::settle`], which is the only thing that reads it and which a host calls with
+/// what is left of it. The two sides of the choice:
+///
+/// - *why wait at all*: a poll cannot be dispatched while the toolkit's own main loop is
+///   inside its first frame, and that frame is the expensive one — GTK's is about 55 ms under
+///   `Xvfb`'s software Vulkan, which page one waited through in full (ADR 0678).
+/// - *why no longer than this*: the wait is time in which the window answers nothing, and one
+///   refresh is the longest that is invisible. It is also where the corpus puts the
+///   population: at twice device scale 93.9% of `doc/pdf.js`'s first pages draw inside one
+///   60 Hz period (ADR 0657), so this admits page one to the toolkit's first frame for nearly
+///   all of them and gives up on the rest rather than growing to fit them — the slowest of the
+///   957 takes 252 ms and a document written to be expensive takes 27 600, so no bound reaches
+///   those without becoming a freeze.
+pub const SETTLE: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
+impl<R: DrawRequest> Default for Drawing<R> {
+    fn default() -> Self {
+        Self {
+            link: None,
+            in_flight: None,
+            queued: VecDeque::new(),
+            landed: Vec::new(),
+            spent: Duration::ZERO,
+        }
+    }
+}
+
+impl<R: DrawRequest> Drawing<R> {
     /// A host that has drawn nothing yet, and has no thread.
     #[must_use]
     pub fn new() -> Self {
@@ -245,15 +304,15 @@ impl Drawing {
     /// is already being drawn for is the viewer having replaced that page's outstanding request,
     /// so the draw in flight is answering a question nobody holds any more and the thread is taken
     /// back for the new one. Nothing about cost is asked, and no clock is read.
-    pub fn ask(&mut self, request: RenderRequest) {
+    pub fn ask(&mut self, request: R) {
         if let Some(in_flight) = self.in_flight.as_ref()
-            && in_flight.page == request.page
+            && in_flight.page == request.page()
         {
             in_flight.interrupt.raise();
         }
         // A queued request for the same page is dead for the same reason and has not cost anything
         // yet; it is replaced rather than drawn and thrown away.
-        self.queued.retain(|queued| queued.page != request.page);
+        self.queued.retain(|queued| queued.page() != request.page());
         self.queued.push_back(request);
         self.dispatch();
     }
@@ -304,7 +363,7 @@ impl Drawing {
     ///
     /// Everything in the answer is owed to the viewer except a [`Finished`] whose
     /// [`outcome`](Finished::outcome) is `None`, which is owed to nobody.
-    pub fn collect(&mut self) -> Vec<Finished> {
+    pub fn collect(&mut self) -> Vec<Finished<R>> {
         let mut finished = std::mem::take(&mut self.landed);
         let mut arrived = Vec::new();
         if let Some(link) = self.link.as_ref() {
@@ -329,20 +388,20 @@ impl Drawing {
     /// that has presented something owes a person a live window and must not block its toolkit's
     /// loop at all; a host that has presented nothing has no frame to spoil and no input to lose,
     /// and the thing it is waiting for is the only thing it exists to show. ADR 0678 is the
-    /// measurement that put this here and [`Self::SETTLE`] is what a host passes.
+    /// measurement that put this here and [`SETTLE`] is what a host passes.
     ///
     /// **`budget` is the whole launch's rather than this call's**, which is why the accounting is
     /// here and not in the two hosts: Table 29's arrangement asks for every page it shows, so a
     /// column asks two or three times before the first frame and a per-call bound would multiply
     /// by however many pages a document chose to open in. A host calls this with the same
-    /// [`Self::SETTLE`] each time and the remainder shrinks.
+    /// [`SETTLE`] each time and the remainder shrinks.
     ///
     /// **This is not a deadline on the drawing and takes no thread back.** Nothing is interrupted
     /// and nothing is abandoned: a page still unfinished when the budget runs out stays in flight
     /// and arrives through [`Self::interval`]'s poll exactly as it did before, one toolkit frame
     /// later. So the two conditions in this module's head are still the only two that raise an
     /// interrupt, and the automatic deadline ADR 0657 refused is still refused.
-    pub fn settle(&mut self, budget: Duration) -> Vec<Finished> {
+    pub fn settle(&mut self, budget: Duration) -> Vec<Finished<R>> {
         let left = budget.saturating_sub(self.spent);
         let arrived = match (self.in_flight.as_ref(), self.link.as_ref()) {
             // Nothing in flight, or no thread because `dispatch` fell back to drawing on this one
@@ -373,7 +432,7 @@ impl Drawing {
     pub fn interval(&self) -> Option<Duration> {
         let waiting =
             self.in_flight.is_some() || !self.queued.is_empty() || !self.landed.is_empty();
-        waiting.then_some(Self::POLL)
+        waiting.then_some(POLL)
     }
 
     /// Hands the next queued request to the thread, spawning one if this is the first.
@@ -394,7 +453,7 @@ impl Drawing {
             }
             let interrupt = Interrupt::new();
             let asked = Instant::now();
-            let page = request.page;
+            let page = request.page();
             let job = Job {
                 request,
                 interrupt: interrupt.clone(),
@@ -422,7 +481,7 @@ impl Drawing {
 ///
 /// `asked` is `None` only for a job whose record the host has already taken, which cannot happen
 /// while there is one job in flight at a time — the wait is reported as zero rather than guessed.
-fn landed(done: Done, asked: Option<Instant>) -> Finished {
+fn landed<R>(done: Done<R>, asked: Option<Instant>) -> Finished<R> {
     Finished {
         request: done.request,
         outcome: done.outcome,
@@ -435,9 +494,9 @@ fn landed(done: Done, asked: Option<Instant>) -> Finished {
 ///
 /// `None` where the machine refused the spawn, which [`Drawing::dispatch`] answers by drawing the
 /// page itself.
-fn spawn() -> Option<Link> {
-    let (jobs, incoming) = channel::<Job>();
-    let (outgoing, done) = channel::<Done>();
+fn spawn<R: DrawRequest>() -> Option<Link<R>> {
+    let (jobs, incoming) = channel::<Job<R>>();
+    let (outgoing, done) = channel::<Done<R>>();
     let thread = std::thread::Builder::new()
         .name("page rasteriser".to_owned())
         .spawn(move || draw_until_told_to_stop(&incoming, &outgoing))
@@ -452,7 +511,7 @@ fn spawn() -> Option<Link> {
 /// The drawing thread's whole life: draw what is asked for and send it back.
 ///
 /// Ends when the host drops its sender, which is when the window is closing.
-fn draw_until_told_to_stop(jobs: &Receiver<Job>, done: &Sender<Done>) {
+fn draw_until_told_to_stop<R: DrawRequest>(jobs: &Receiver<Job<R>>, done: &Sender<Done<R>>) {
     while let Ok(job) = jobs.recv() {
         // A send that fails is a host that has gone, and there is nobody left to draw for.
         if done.send(draw(job)).is_err() {
@@ -474,12 +533,12 @@ fn draw_until_told_to_stop(jobs: &Receiver<Job>, done: &Sender<Done>) {
 /// device backend was deliberately given no such method rather than one it would ignore, so a
 /// parameter here would be a choice between one implementation and one that silently could not
 /// stop.
-fn draw(job: Job) -> Done {
+fn draw<R: DrawRequest>(job: Job<R>) -> Done<R> {
     let Job { request, interrupt } = job;
     let began = Instant::now();
     let outcome = match CpuRasterizer::new()
         .interruptible(interrupt)
-        .rasterize(&request.list, request.target)
+        .rasterize(request.list(), request.target())
     {
         Ok(raster) => Some(Rendered::Raster(raster)),
         // **Asked of the error rather than of the flag**, which is not fastidiousness: the flag can
@@ -517,7 +576,7 @@ mod tests {
     };
     use viewer_core::{Command, DocumentId, Event, RenderRequest, Rendered, Viewer};
 
-    use super::{Drawing, Finished};
+    use super::{Drawing, Finished, POLL, SETTLE};
 
     /// How long a test waits for a thread before calling it stuck.
     ///
@@ -605,7 +664,7 @@ mod tests {
                 began.elapsed() < GIVE_UP,
                 "the drawing thread never answered"
             );
-            std::thread::sleep(Drawing::POLL);
+            std::thread::sleep(POLL);
         }
     }
 
@@ -626,7 +685,9 @@ mod tests {
     /// A host that has been built and asked for nothing has no thread and wants no wakeup.
     #[test]
     fn no_thread_exists_until_a_page_is_asked_for() {
-        let drawing = Drawing::new();
+        // Annotated because nothing else here constrains the request type: the default parameter
+        // applies in a type position, which an expression is not.
+        let drawing: Drawing = Drawing::new();
         assert!(drawing.link.is_none());
         assert_eq!(drawing.interval(), None);
     }
@@ -642,7 +703,7 @@ mod tests {
         let request = a_real_request();
         let mut drawing = Drawing::new();
         drawing.ask(request.clone());
-        let finished = drawing.settle(Drawing::SETTLE);
+        let finished = drawing.settle(SETTLE);
         assert_eq!(finished.len(), 1, "one settle answered page one");
         assert_eq!(finished[0].request.token, request.token);
         assert!(matches!(finished[0].outcome, Some(Rendered::Raster(_))));
@@ -660,7 +721,7 @@ mod tests {
             "nothing had finished"
         );
         assert_eq!(drawing.inside(), Some(0), "and it is still being drawn");
-        assert_eq!(drawing.interval(), Some(Drawing::POLL));
+        assert_eq!(drawing.interval(), Some(POLL));
         let finished = wait(&mut drawing);
         assert!(
             matches!(finished[0].outcome, Some(Rendered::Raster(_))),
@@ -680,15 +741,12 @@ mod tests {
         let mut drawing = Drawing::new();
         drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
         assert!(
-            drawing.settle(Drawing::SETTLE).is_empty(),
+            drawing.settle(SETTLE).is_empty(),
             "the page outlasted the budget"
         );
-        assert!(
-            drawing.spent >= Drawing::SETTLE,
-            "and spent the whole of it"
-        );
+        assert!(drawing.spent >= SETTLE, "and spent the whole of it");
         let spent = drawing.spent;
-        assert!(drawing.settle(Drawing::SETTLE).is_empty());
+        assert!(drawing.settle(SETTLE).is_empty());
         assert_eq!(drawing.spent, spent, "so a second call waited for nothing");
     }
 
@@ -698,7 +756,8 @@ mod tests {
     /// window frozen for the budget at every launch that has yet to ask for a page.
     #[test]
     fn a_settle_before_anything_is_asked_for_waits_for_nothing() {
-        let mut drawing = Drawing::new();
+        // Annotated for `no_thread_exists_until_a_page_is_asked_for`'s reason.
+        let mut drawing: Drawing = Drawing::new();
         let began = Instant::now();
         assert!(drawing.settle(Duration::from_secs(30)).is_empty());
         assert!(began.elapsed() < GIVE_UP, "it did not wait for the budget");
@@ -709,7 +768,7 @@ mod tests {
     fn a_window_at_rest_asks_for_no_wakeups() {
         let mut drawing = Drawing::new();
         drawing.ask(a_real_request());
-        assert_eq!(drawing.interval(), Some(Drawing::POLL));
+        assert_eq!(drawing.interval(), Some(POLL));
         let _ = wait(&mut drawing);
         assert_eq!(drawing.interval(), None);
     }
@@ -738,7 +797,7 @@ mod tests {
                 }
             }
             assert!(began.elapsed() < GIVE_UP, "nothing was ever drawn");
-            std::thread::sleep(Drawing::POLL);
+            std::thread::sleep(POLL);
         }
         assert_eq!(abandoned, 1, "the superseded draw was not taken back");
     }
@@ -793,7 +852,7 @@ mod tests {
                 answered.push(finished.request.page);
             }
             assert!(began.elapsed() < GIVE_UP, "not every page was answered");
-            std::thread::sleep(Drawing::POLL);
+            std::thread::sleep(POLL);
         }
         answered.sort_unstable();
         assert_eq!(answered, vec![0, 1, 2, 3]);
@@ -817,7 +876,7 @@ mod tests {
                 pages.push(finished.request.page);
             }
             assert!(began.elapsed() < GIVE_UP, "the queue never drained");
-            std::thread::sleep(Drawing::POLL);
+            std::thread::sleep(POLL);
         }
         assert_eq!(pages, vec![0, 1], "page 1 was drawn twice");
     }

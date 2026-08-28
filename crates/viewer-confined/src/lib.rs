@@ -79,9 +79,12 @@
 //!
 //! # What this is not, yet
 //!
-//! It is not on the viewer's launch path and nothing in `viewer-ui` uses it — deliberately, so
-//! that a transport cannot cost the first frame anything before the decision to spend it has
-//! been argued. `doc/todo/34` holds what is left; ADR 0218 holds the argument.
+//! It is not on the flagship's launch path: `pdf-viewer`, `pdf-viewer-gtk` and `pdf-viewer-qt`
+//! still hold their viewer in process, so a transport cannot cost their first frame anything
+//! before the decision to spend it has been argued. **What uses it since the
+//! seven-hundred-and-seventy-fifth session is a window of its own** — `viewer-ui`'s
+//! `pdf-viewer-confined`, deliberately the smallest complete host on this boundary (ADR 0713).
+//! `doc/todo/34` holds what is left; ADR 0218 holds the argument.
 
 #![forbid(unsafe_code)]
 // Nothing here needs it. The confinement is `pdf-sandbox`'s, which reaches seccomp-BPF and

@@ -152,10 +152,13 @@ pass.
   a file, open a socket or start a program. **Every `Query` crosses**, including the eleven a
   panel is made of and §12.7's whole form — which is the thing that lets a confined host build
   native controls rather than take a form as pixels — and a hostile document's draw is stoppable,
-  because a cancel a hostile document can decline is not one. **The window does not use it**,
-  deliberately: `viewer-ui` is a tier-2 host and this boundary is tier 1, so putting it there is a
+  because a cancel a hostile document can decline is not one. **A window uses it since the
+  seven-hundred-and-seventy-fifth** — `pdf-viewer-confined`, deliberately the smallest complete
+  host on the boundary, both payload arms on its screen and Escape ending the worker and the
+  in-flight draw together (ADR 0713) — while the three established windows stay in process: for
+  `viewer-ui` putting the flagship there is a
   change of tier and a decision with a number attached rather than a switch — **and the number
-  exists now** (ADR 0597), so what is left is the tier question rather than the measurement. **The
+  exists now** (ADR 0597), so what is left is the move rather than the measurement. **The
   tier question is answered too** (ADR 0607): a window on this boundary receives *display lists*
   and not pixels, because a process holding a graphics device cannot be confined at all, and the
   raster payload stays as a per-page fall-back chosen by size. **The codec for that payload
