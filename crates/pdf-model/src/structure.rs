@@ -893,6 +893,75 @@ impl Tree {
         }
     }
 
+    /// Table 382's `/ContinuedList` and `/ContinuedFrom`: what earlier list this `L` carries on.
+    ///
+    /// ISO 32000-2 §14.8.5.5 addresses these two of Table 382's three entries to whoever reads an
+    /// `L` element rather than to whoever lays one out:
+    ///
+    /// > The ContinuedList and the ContinuedFrom attributes described in "Table 382 -Standard list
+    /// > attributes" control the interpretation of the L element as it relates to other L elements
+    /// > that are not its immediate parent.
+    ///
+    /// which is why they are read here and `/ListNumbering` — the numbering scheme whose labels are
+    /// already on the page as `Lbl` elements — is not. Without them a listener is told a fresh list
+    /// where the document said the items carry on from one it has already heard, and the numbering
+    /// restarting is exactly what makes that confusing rather than merely incomplete.
+    ///
+    /// # What states a continuation
+    ///
+    /// `/ContinuedList` is "[a] flag specifying whether the list is a continuation of a previous
+    /// list in the structure tree ( true ), or not ( false )", with "Default value: false".
+    ///
+    /// **A list stating `/ContinuedFrom` and no flag is read as continuing too, and that is a
+    /// choice rather than a reading.** The entry is "[t]he ID … of the list for which this list is
+    /// a continuation", so its presence asserts what the flag would; the standard does not say
+    /// which of the two an inconsistent file means, and discarding the only statement it made
+    /// would be the silence this reader exists to end. An explicit `/ContinuedList false` wins over
+    /// it, because that is the producer saying `no` in the entry whose job is to say it.
+    ///
+    /// # Which list
+    ///
+    /// [`ListContinuation::From`] where `/ContinuedFrom` names one, unresolved — the identifier is
+    /// Table 355's `/ID` of another element, and resolving it needs the walk, which is
+    /// [`list_predecessors`]. Otherwise [`ListContinuation::Preceding`], because the clause names
+    /// the predecessor itself in that case: "[i]f the ContinuedFrom attribute is not present, the
+    /// continuation is from the preceding list at the same level in the structure hierarchy."
+    ///
+    /// # Not inheritable, and only since an erratum said so
+    ///
+    /// Both cells read `(Optional; PDF 2.0)` as printed. Errata Collection 3's Issue #346 carets
+    /// *not inheritable; * into each of them — and into neither of Table 382's `/ListNumbering`,
+    /// which stays inheritable — so this asks [`Self::attribute`] rather than
+    /// [`Self::inherited_attribute`]. A list nested inside a continuing list has not been said to
+    /// continue anything.
+    ///
+    /// Whether the element is an `L` at all is the caller's condition to apply, for the reason
+    /// [`Self::table_summary`] gives: §14.7.3's mapped type is answered where the role is in hand.
+    #[must_use]
+    #[expect(
+        clippy::doc_markdown,
+        reason = "a verbatim quotation: Table 382 spells its own entries without backticks, and \
+                  adding them inside the quotation marks would make the conformance gate's \
+                  quotation check fail"
+    )]
+    pub fn list_continuation(
+        &self,
+        document: &Document,
+        element: &Dictionary,
+    ) -> Option<ListContinuation> {
+        let flag = self.attribute(document, element, "ContinuedList");
+        let from = self.attribute(document, element, "ContinuedFrom");
+        match flag {
+            Some(Object::Boolean(true)) => {}
+            None if from.is_some() => {}
+            _ => return None,
+        }
+        match from {
+            Some(Object::String(id)) if !id.is_empty() => Some(ListContinuation::From(id.to_vec())),
+            _ => Some(ListContinuation::Preceding),
+        }
+    }
+
     /// Everything one `TH` or `TD` says about itself that §14.8.4.8.3's search needs.
     ///
     /// Read in one call because [`TableStack`] wants all of it for the same element and each
@@ -1509,6 +1578,105 @@ pub struct Reading<T> {
 
 /// [`Tree::walk`]'s answer: every element and content item, with the depth it was found at.
 pub type Walk = Reading<(usize, Child)>;
+
+/// §14.8.5.5's statement that one `L` element carries on from another. Table 382.
+///
+/// The two shapes are the clause's own two cases, and they differ in *who* names the predecessor:
+/// the document, or the clause.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListContinuation {
+    /// `/ContinuedFrom`: "[t]he ID … of the list for which this list is a continuation".
+    ///
+    /// Table 355's `/ID` of another element, **unresolved** — [`list_predecessors`] is what turns
+    /// it into a place in a walk, for the reason [`Tree::cell_headers`] returns identifiers too.
+    From(Vec<u8>),
+    /// The list states no `/ContinuedFrom`, so the clause says which list it means.
+    ///
+    /// ISO 32000-2 §14.8.5.5, Table 382:
+    ///
+    /// > If the ContinuedFrom attribute is not present, the continuation is from the preceding
+    /// > list at the same level in the structure hierarchy.
+    Preceding,
+}
+
+/// One `L` element of a walk, as [`list_predecessors`] needs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListEntry {
+    /// Where the list is in the caller's own walk, and what it gets back as an answer.
+    ///
+    /// Opaque here: this function compares positions for order and returns them unchanged, so a
+    /// caller numbering its elements any way that increases along the walk gets its own numbers.
+    pub position: usize,
+    /// How deep the list is in §14.7.2's tree, which is what "the same level" is measured in.
+    pub depth: usize,
+    /// Table 355's `/ID`, where the list states one: "[t]he element identifier, a byte string
+    /// designating this structure element."
+    pub id: Option<Vec<u8>>,
+    /// [`Tree::list_continuation`]'s answer for this list.
+    pub continuation: Option<ListContinuation>,
+}
+
+/// §14.8.5.5's continuations resolved over one walk: which list each continuing list continues.
+///
+/// `lists` is every `L` element the walk reached, **in walk order**, and the answer maps a
+/// continuing list's `position` to its predecessor's. A continuing list that resolves to nothing is
+/// absent from the map rather than pointed at something invented — WTPDF's own NOTE on this pair
+/// says why that is still worth reporting: "[t]here is value to the ContinuedList attribute even
+/// when the previous list is not present, since it would help to explain the partial nature of the
+/// content, for example, partial numbering."
+///
+/// # Only lists, and only earlier ones
+///
+/// `/ContinuedFrom` names "the ID … of the **list**", so an identifier belonging to a paragraph
+/// names nothing here — which is why the population is the walk's `L` elements rather than all of
+/// its elements.
+///
+/// And a predecessor is always **earlier in the walk**, on both routes. The clause's own fallback
+/// says *preceding*, and a `/ContinuedFrom` naming a later list contradicts the entry's own words —
+/// a continuation carries on from something that came before it. The rule also keeps the answer
+/// usable by a caller that is building a parent-first list and can only point backwards, which is
+/// the same constraint [`Tree::cell_headers`]'s identifiers are resolved under.
+///
+/// "The same level in the structure hierarchy" is read as the same depth, which is what the clause
+/// says: a list at depth 3 under one section and a list at depth 3 under the next are at one level
+/// whether or not they share a parent. In the shape the entry exists for — two lists with other
+/// content between them — the two readings agree, because such lists are siblings.
+#[must_use]
+#[expect(
+    clippy::doc_markdown,
+    reason = "a verbatim quotation: WTPDF spells the attribute without backticks, and adding them \
+              inside the quotation marks would make the conformance gate's quotation check fail"
+)]
+pub fn list_predecessors(lists: &[ListEntry]) -> BTreeMap<usize, usize> {
+    let mut out = BTreeMap::new();
+    // Both built as the walk is replayed rather than up front, which is what bounds a predecessor
+    // to a list already passed without a second comparison.
+    let mut by_id: BTreeMap<&[u8], usize> = BTreeMap::new();
+    let mut preceding: BTreeMap<usize, usize> = BTreeMap::new();
+    for list in lists {
+        match &list.continuation {
+            Some(ListContinuation::From(id)) => {
+                if let Some(&found) = by_id.get(id.as_slice()) {
+                    out.insert(list.position, found);
+                }
+            }
+            Some(ListContinuation::Preceding) => {
+                if let Some(&found) = preceding.get(&list.depth) {
+                    out.insert(list.position, found);
+                }
+            }
+            None => {}
+        }
+        if let Some(id) = list.id.as_deref() {
+            // The first list to state an identifier keeps it: §14.7.2's `/IDTree` maps each
+            // identifier to one element, so a repeated one is a document contradicting itself and
+            // the earlier element is the one a `/ContinuedFrom` before this point already got.
+            by_id.entry(id).or_insert(list.position);
+        }
+        preceding.insert(list.depth, list.position);
+    }
+    out
+}
 
 /// §14.8.5.6's `PrintField` attributes: what a non-interactive form field *was*. Table 383.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3321,9 +3489,9 @@ const GRANDFATHERED: [&str; 26] = [
 #[cfg(test)]
 mod tests {
     use super::{
-        CellFacts, Checked, Child, FieldRole, HeaderScope, MAX_TABLE_COLUMNS, ParentTree,
-        StandardType, TableGrid, TableStack, Tree, actual_text, annotation_rectangles,
-        well_formed_language_tag,
+        CellFacts, Checked, Child, FieldRole, HeaderScope, ListContinuation, ListEntry,
+        MAX_TABLE_COLUMNS, ParentTree, StandardType, TableGrid, TableStack, Tree, actual_text,
+        annotation_rectangles, list_predecessors, well_formed_language_tag,
     };
     use pdf_syntax::{Document, Object};
     use std::collections::BTreeSet;
@@ -4330,6 +4498,119 @@ mod tests {
             tree.print_field(&doc, &elements[3]).is_none(),
             "an element with no PrintField attributes has none"
         );
+    }
+
+    /// §14.8.5.5's two entries, and the list each continuing list turns out to continue.
+    ///
+    /// Seven lists and a paragraph, one per shape Table 382 can be written in and one per way the
+    /// resolution can go:
+    ///
+    /// - a plain list that states an `/ID`, which is what the others name and precede;
+    /// - a list naming its predecessor with `/ContinuedFrom`;
+    /// - a list stating `/ContinuedList false` **and** a `/ContinuedFrom`, where the entry whose
+    ///   job is to say `no` wins;
+    /// - a list stating `/ContinuedList true` and nothing else, which takes the clause's own
+    ///   fallback — "the preceding list at the same level in the structure hierarchy" — and gets
+    ///   the list above, which is one that continues nothing itself;
+    /// - a list **nested inside** that one, stating nothing: Errata Collection 3's Issue #346
+    ///   makes both entries *not inheritable*, so it continues nothing even though its parent
+    ///   does, and its `/P` is stated so that inheriting would have somewhere to go;
+    /// - a second list taking the fallback, placed so that the nested list is the nearest list in
+    ///   the walk and the answer must be the one at its own **level** instead;
+    /// - and a bare `/ContinuedFrom` with no flag — the choice [`Tree::list_continuation`]
+    ///   documents — naming an identifier no list states, so it continues something this answer
+    ///   cannot point at.
+    #[test]
+    fn a_list_says_which_earlier_list_it_carries_on() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /StructParents 0 >>",
+            "<< /Type /StructTreeRoot /K [5 0 R 6 0 R 8 0 R 9 0 R 7 0 R 10 0 R 12 0 R] >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R /ID (first) >>",
+            "<< /Type /StructElem /S /P /Pg 3 0 R >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R /K [11 0 R] \
+              /A << /O /List /ContinuedList true >> >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R \
+              /A << /O /List /ContinuedList true /ContinuedFrom (first) >> >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R \
+              /A << /O /List /ContinuedList false /ContinuedFrom (first) >> >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R /A << /O /List /ContinuedList true >> >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R /P 7 0 R >>",
+            "<< /Type /StructElem /S /L /Pg 3 0 R /A << /O /List /ContinuedFrom (nowhere) >> >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree");
+        // Only the `L` elements go in, which is what `list_predecessors` documents its population
+        // as: the paragraph at position 1 is not a list, and offering it would make it the
+        // "preceding list" the fallback below picks.
+        let mut lists: Vec<ListEntry> = Vec::new();
+        let mut stated: Vec<Option<ListContinuation>> = Vec::new();
+        for (position, (depth, child)) in tree.walk(&doc).items.into_iter().enumerate() {
+            let Child::Element(dict) = child else {
+                continue;
+            };
+            if tree.standard_role(&doc, &dict) != Some(StandardType::List) {
+                stated.push(None);
+                continue;
+            }
+            let continuation = tree.list_continuation(&doc, &dict);
+            stated.push(continuation.clone());
+            lists.push(ListEntry {
+                position,
+                depth,
+                id: document_id(&doc, &dict),
+                continuation,
+            });
+        }
+        assert_eq!(
+            stated,
+            vec![
+                None,
+                None,
+                Some(ListContinuation::From(b"first".to_vec())),
+                None,
+                Some(ListContinuation::Preceding),
+                None,
+                Some(ListContinuation::Preceding),
+                Some(ListContinuation::From(b"nowhere".to_vec())),
+            ],
+            "what each element states, in walk order"
+        );
+
+        let predecessors = list_predecessors(&lists);
+        assert_eq!(
+            predecessors.get(&2).copied(),
+            Some(0),
+            "/ContinuedFrom names the list that states that identifier"
+        );
+        assert_eq!(
+            predecessors.get(&4).copied(),
+            Some(3),
+            "the fallback takes the preceding list, which is a list that continues nothing itself"
+        );
+        assert_eq!(
+            predecessors.get(&6).copied(),
+            Some(4),
+            "the preceding list at depth 0, not the nested one at position 5"
+        );
+        assert_eq!(
+            predecessors.get(&7).copied(),
+            None,
+            "an identifier no list states resolves to nothing"
+        );
+        assert!(
+            !predecessors.contains_key(&3) && !predecessors.contains_key(&5),
+            "a list that continues nothing is given no predecessor: {predecessors:?}"
+        );
+    }
+
+    /// Table 355's `/ID`, as [`ListEntry`] wants it.
+    fn document_id(document: &Document, element: &pdf_syntax::Dictionary) -> Option<Vec<u8>> {
+        document
+            .get_key(element, "ID")
+            .as_string()
+            .map(<[u8]>::to_vec)
+            .filter(|id| !id.is_empty())
     }
 
     /// Table 384's `/Scope` and the two spans, read off the cells that state them.

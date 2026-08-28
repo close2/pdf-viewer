@@ -1464,6 +1464,8 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
             control,
             annotation,
             headers,
+            continues_a_list,
+            continued_from,
             lines,
             drawn,
             enclosed_a_refusal,
@@ -1520,6 +1522,10 @@ pub(super) fn encode_accessibility(writer: &mut Writer, nodes: &[AccessibilityNo
         for header in headers {
             writer.usize(*header);
         }
+        // §14.8.5.5's two entries: that this list carries on an earlier one, and — where the
+        // predecessor is in this answer at all — which. Both are in §14.7.6's attribute objects,
+        // which only this side reads, and nothing a host can see says a list is a continuation.
+        writer.bool(*continues_a_list).option_usize(*continued_from);
         writer.usize(quads.len());
         for quad in quads {
             writer.quad(*quad);
@@ -1587,6 +1593,20 @@ pub(super) fn decode_accessibility(
                 }
                 Ok(header)
             })?,
+            continues_a_list: reader.bool("a node's list-continuation flag")?,
+            // §14.8.5.5's predecessor, checked exactly as the parent link and the header cells
+            // are: `pdf_model::structure::list_predecessors` only ever answers with a list the
+            // walk had already passed, so a forward index is a confined side pointing a host at
+            // something it has not been given.
+            continued_from: match reader.option_usize("a node's continued-from list")? {
+                Some(from) if from >= index => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "a node's continued-from list, which must be a node already read",
+                        value: u32::try_from(from).unwrap_or(u32::MAX),
+                    });
+                }
+                other => other,
+            },
             quads: super::read_quads(reader, "a node's shapes")?,
             lines: read_lines(reader)?,
         })

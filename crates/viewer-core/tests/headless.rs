@@ -3250,6 +3250,109 @@ fn every_page_of_a_large_tagged_document_answers_with_its_own_elements() {
     }
 }
 
+/// §14.8.5.5's continuation crosses, and it points at the list this page's answer actually holds.
+///
+/// The fixture is the shape Table 382's two entries exist for — two `L` elements with other
+/// content between them, the second stating `/ContinuedList true` and naming the first by Table
+/// 355's `/ID` — with one element in front of them all that belongs to **page two**.
+///
+/// That first element is the point of the test rather than decoration. `pdf-model` resolves the
+/// predecessor over the *whole* walk and `prune` then drops everything with nothing on this page,
+/// so the index the resolution produced is not the index the answer uses; an answer that carried
+/// the unpruned one would point a client at the paragraph instead of at the list, and every
+/// assertion about §14.8.5.5 would still pass.
+#[test]
+fn a_continuing_list_names_the_earlier_one_by_its_place_in_this_pages_answer() {
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_two_lists(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let request = request(&events).clone();
+    serve(&mut viewer, &request);
+
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let nodes = on_one_page(pages);
+    assert_eq!(
+        nodes
+            .iter()
+            .map(|node| node.role.as_str())
+            .collect::<Vec<_>>(),
+        vec!["L", "P", "L"],
+        "page two's element is not in page one's answer: {nodes:?}"
+    );
+    assert!(
+        !nodes[0].continues_a_list && nodes[0].continued_from.is_none(),
+        "the first list continues nothing: {:?}",
+        nodes[0]
+    );
+    assert!(
+        nodes[2].continues_a_list,
+        "Table 382's /ContinuedList crosses: {:?}",
+        nodes[2]
+    );
+    assert_eq!(
+        nodes[2].continued_from,
+        Some(0),
+        "the list it names, at its place in *this* answer rather than in the walk: {nodes:?}"
+    );
+}
+
+/// A two-page tagged document whose second `L` element carries the first on.
+fn with_two_lists() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let first = "BT /F1 12 Tf 10 60 Td\n\
+         /L <</MCID 0>> BDC (one) Tj EMC\n\
+         /P <</MCID 1>> BDC (and then) Tj EMC\n\
+         /L <</MCID 2>> BDC (two) Tj EMC\nET\n";
+    let second = "BT /F1 12 Tf 10 60 Td\n/P <</MCID 0>> BDC (elsewhere) Tj EMC\nET\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 8 0 R \
+          /MarkInfo << /Marked true >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 5 0 R \
+          /Resources << /Font << /F1 7 0 R >> >> /StructParents 0 >>\nendobj\n\
+         4 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 6 0 R \
+          /Resources << /Font << /F1 7 0 R >> >> /StructParents 1 >>\nendobj\n\
+         5 0 obj\n<< /Length {} >>\nstream\n{first}endstream\nendobj\n\
+         6 0 obj\n<< /Length {} >>\nstream\n{second}endstream\nendobj\n\
+         7 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         8 0 obj\n<< /Type /StructTreeRoot /K [9 0 R 10 0 R 11 0 R 12 0 R] >>\nendobj\n\
+         9 0 obj\n<< /Type /StructElem /S /P /P 8 0 R /Pg 4 0 R /K [0] >>\nendobj\n\
+         10 0 obj\n<< /Type /StructElem /S /L /P 8 0 R /Pg 3 0 R /K [0] /ID (one) >>\nendobj\n\
+         11 0 obj\n<< /Type /StructElem /S /P /P 8 0 R /Pg 3 0 R /K [1] >>\nendobj\n\
+         12 0 obj\n<< /Type /StructElem /S /L /P 8 0 R /Pg 3 0 R /K [2] /A 13 0 R >>\nendobj\n\
+         13 0 obj\n<< /O /List /ContinuedList true /ContinuedFrom (one) >>\nendobj\n",
+        first.len(),
+        second.len()
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
 /// A two-page tagged document whose own `/RoleMap` renames one of §14.8.4's types.
 ///
 /// Three things in one fixture, because they are three properties of one answer: §14.7.3's role

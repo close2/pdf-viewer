@@ -73,7 +73,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_model::accessibility::Described;
 use pdf_model::content::MarkedSpan;
-use pdf_model::structure::{Child, HeaderScope, StandardType, TableStack, Tree};
+use pdf_model::structure::{
+    Child, HeaderScope, ListEntry, StandardType, TableStack, Tree, list_predecessors,
+};
 use pdf_syntax::{Dictionary, Document, ObjectId};
 
 /// How deep a structure tree is walked before the walk is abandoned.
@@ -369,6 +371,60 @@ pub struct AccessibilityNode {
     /// this answer is one page's, so a table whose header row is on the page before has its data
     /// cells' headers pruned away with it. Nothing in §14.8 makes a table stay on one page.
     pub headers: Vec<usize>,
+    /// Whether the document says this `L` element **carries on** an earlier list.
+    ///
+    /// Table 382's `/ContinuedList`, or a `/ContinuedFrom` naming the list it continues — the two
+    /// entries §14.8.5.5 addresses to a reader rather than to a layout process, and which
+    /// [`pdf_model::structure::Tree::list_continuation`] reads.
+    ///
+    /// # Why it crosses, and why it is not [`Self::continued_from`]'s presence
+    ///
+    /// A host cannot work this out. The attributes live in §14.7.6's attribute objects and class
+    /// map, which only this side reads, and nothing on the page says a list carries on: the
+    /// numbering restarting at 1 is exactly what a producer states this to contradict. A listener
+    /// told a fresh list where the file said *continuation* has been given the document's own
+    /// statement backwards.
+    ///
+    /// It is a flag of its own because the predecessor is often not in this answer — the two lists
+    /// may be pages apart — and WTPDF's NOTE on the pair says the flag is worth having anyway:
+    /// "[t]here is value to the ContinuedList attribute even when the previous list is not present,
+    /// since it would help to explain the partial nature of the content, for example, partial
+    /// numbering."
+    ///
+    /// `false` for every element that is not an `L`, and for a list that says nothing — which is
+    /// every list of every document this project holds, measured by
+    /// `pdf-model --example list_continuation_census`.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "a verbatim quotation: WTPDF spells the attribute without backticks, and \
+                  adding them inside the quotation marks would make the conformance gate's \
+                  quotation check fail"
+    )]
+    pub continues_a_list: bool,
+    /// Which earlier list this one continues, as an index into the answer.
+    ///
+    /// Table 382's `/ContinuedFrom` where the element names one — "[t]he ID … of the list for
+    /// which this list is a continuation" — and otherwise the list §14.8.5.5's own fallback names:
+    /// "[i]f the ContinuedFrom attribute is not present, the continuation is from the preceding
+    /// list at the same level in the structure hierarchy."
+    ///
+    /// **An index rather than an identifier**, for the reason [`Self::headers`] gives: the host
+    /// already has that node, and a copied string would be a second statement that could disagree
+    /// with the first. **Always lower than this node's own**, for the reason
+    /// [`pdf_model::structure::list_predecessors`] gives — a continuation carries on from
+    /// something earlier — which is what lets a host walk to it without a search.
+    ///
+    /// `None` where the predecessor is not in this answer, which is the ordinary case for a list
+    /// split across a page boundary, and where the document named one this reader could not find.
+    /// [`Self::continues_a_list`] is still `true` for both, and that is the distinction the two
+    /// fields exist to keep.
+    #[expect(
+        clippy::doc_markdown,
+        reason = "a verbatim quotation: Table 382 spells its own entry without backticks, \
+                  and adding them inside the quotation marks would make the conformance \
+                  gate's quotation check fail"
+    )]
+    pub continued_from: Option<usize>,
     /// The element's own text again, one line at a time, with each character's place.
     ///
     /// [`Self::name`] is what the element is *called* and this is what it *says*, and the two are
@@ -505,6 +561,13 @@ pub(crate) struct Gathered {
     /// reached. `pdf_model::structure::TableStack::headers` is what answers, in the tokens this
     /// walk gave it, which are exactly these indices.
     pub(crate) headers: Vec<usize>,
+    /// Table 382's `/ContinuedList` for an `L`, as [`AccessibilityNode::continues_a_list`] states.
+    pub(crate) continues_a_list: bool,
+    /// §14.8.5.5's predecessor, as an index into this list — **before** [`prune`] moves it.
+    ///
+    /// Filled after the walk for the same reason [`Self::headers`] is: `pdf-model` resolves it
+    /// over the whole walk, in the positions this one gave it, which are exactly these indices.
+    pub(crate) continued_from: Option<usize>,
 }
 
 /// Reads the page's part of §14.7's structure tree.
@@ -586,6 +649,9 @@ fn gather(
     // §14.8.4.8.3's tables, kept as the walk descends: a cell's place in its grid is what
     // §14.8.5.7 assumes a header's axis from, and it is not knowable from the cell alone.
     let mut tables = TableStack::new();
+    // §14.8.5.5's lists, for the same reason the tables are kept: which list a continuing one
+    // continues is a fact about the walk rather than about the element.
+    let mut lists: Vec<ListEntry> = Vec::new();
     walk(
         document,
         tree,
@@ -596,6 +662,7 @@ fn gather(
         0,
         within,
         &mut tables,
+        &mut lists,
         &mut reached,
         &mut out,
     );
@@ -603,6 +670,12 @@ fn gather(
     for (token, headers) in tables.headers() {
         if let Some((_, entry)) = out.get_mut(token) {
             entry.headers = headers;
+        }
+    }
+    // §14.8.5.5's predecessors, for the same reason and in the same positions.
+    for (position, predecessor) in list_predecessors(&lists) {
+        if let Some((_, entry)) = out.get_mut(position) {
+            entry.continued_from = Some(predecessor);
         }
     }
     // The bound, read before the pruning throws away the only evidence that it was reached.
@@ -637,6 +710,13 @@ fn prune(gathered: Vec<(Option<usize>, Gathered)>) -> Vec<(Option<usize>, Gather
             .iter()
             .filter_map(|header| moved.get(*header).copied().flatten())
             .collect();
+        // §14.8.5.5's predecessor, remapped the same way and dropped on the same condition: a list
+        // on another page is not in this answer, and `AccessibilityNode::continues_a_list` is what
+        // still says the document called this list a continuation. `pdf_model`'s resolution only
+        // ever points backwards, so a kept predecessor's new index is already known here.
+        entry.continued_from = entry
+            .continued_from
+            .and_then(|from| moved.get(from).copied().flatten());
         // A kept element's nearest kept ancestor. The walk pushed every content item to every
         // ancestor, so an ancestor of a kept element is itself kept and this is always the
         // parent — but reading it out of the map rather than assuming it is what makes the
@@ -699,6 +779,12 @@ fn spoken(text: &str, described: &[Described], spans: &[(usize, usize)]) -> Stri
     reason = "a walk of a tree carries what it is walking, where it is, and what it inherits; \
               grouping them would build a struct that exists once per call"
 )]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one match over the three kinds of content item §14.7.5 defines, and each arm is the \
+              whole of what that kind contributes; splitting it would separate three cases the \
+              clause states together and hide that they are exhaustive"
+)]
 fn walk(
     document: &Document,
     tree: &Tree,
@@ -709,6 +795,7 @@ fn walk(
     depth: usize,
     within: Option<&BTreeSet<ObjectId>>,
     tables: &mut TableStack,
+    lists: &mut Vec<ListEntry>,
     reached: &mut BTreeSet<ObjectId>,
     out: &mut Vec<(Option<usize>, Gathered)>,
 ) {
@@ -759,6 +846,8 @@ fn walk(
                 let short = (kind == Some(StandardType::TableHeader))
                     .then(|| tree.header_short(document, &dict))
                     .flatten();
+                let continues_a_list =
+                    list_entry(document, tree, &dict, kind.as_ref(), depth, index, lists);
                 // Inside a table the pruning stops, for the reason this function's own comment
                 // gives: a grid missing the rows on the page before places every cell wrong.
                 let below = match kind {
@@ -780,6 +869,8 @@ fn walk(
                         short,
                         bounds,
                         headers: Vec::new(),
+                        continues_a_list,
+                        continued_from: None,
                     },
                 ));
                 walk(
@@ -792,6 +883,7 @@ fn walk(
                     depth.saturating_add(1),
                     below,
                     tables,
+                    lists,
                     reached,
                     out,
                 );
@@ -847,6 +939,48 @@ fn walk(
             }
         }
     }
+}
+
+/// §14.8.5.5's continuation for one element, recorded against the walk where the element is an `L`.
+///
+/// Answers whether the element says it carries an earlier list on — which is
+/// [`AccessibilityNode::continues_a_list`] — and pushes the element onto `lists` so that
+/// [`list_predecessors`] can say *which* list once the whole walk is known.
+///
+/// **The entry is recorded whether or not it states a continuation**, because a list that continues
+/// nothing is still what the *next* list's fallback means by the preceding list at the same level.
+///
+/// `false` for every element that is not an `L`, and nothing is recorded for one: Table 382's
+/// attributes "shall appear in an L (List) element" and its last two "control the interpretation of
+/// the L element", and the type those sentences are about is §14.7.3's mapped one — which is the
+/// same condition [`pdf_model::structure::Tree::table_summary`] leaves to its caller.
+fn list_entry(
+    document: &Document,
+    tree: &Tree,
+    dict: &Dictionary,
+    kind: Option<&StandardType>,
+    depth: usize,
+    index: usize,
+    lists: &mut Vec<ListEntry>,
+) -> bool {
+    if kind != Some(&StandardType::List) {
+        return false;
+    }
+    let continuation = tree.list_continuation(document, dict);
+    let continues = continuation.is_some();
+    lists.push(ListEntry {
+        position: index,
+        depth,
+        // Table 355's `/ID` is on the element rather than in an attribute object: "[t]he element
+        // identifier, a byte string designating this structure element."
+        id: document
+            .get_key(dict, "ID")
+            .as_string()
+            .map(<[u8]>::to_vec)
+            .filter(|id| !id.is_empty()),
+        continuation,
+    });
+    continues
 }
 
 /// Which of a table's axes one element describes, where the element is a `TH`.
@@ -1007,6 +1141,8 @@ pub(crate) fn finish(
             .find(|object| page.places.contains_key(*object))
             .copied(),
         headers: gathered.headers,
+        continues_a_list: gathered.continues_a_list,
+        continued_from: gathered.continued_from,
         lines: caret,
         drawn: marked_extent(page.marked, &gathered.mcids).and_then(mark),
         enclosed_a_refusal: enclosed_a_refusal(page.marked, &gathered.mcids),
