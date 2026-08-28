@@ -22,13 +22,28 @@
 //!
 //! It is deliberately the *smallest complete* host on this boundary, and its scope is a decision
 //! with its cost written down (ADR 0713) rather than a promise of more: no panels, no form
-//! controls, no selection, no find bar, no password prompt — each of those is chrome the three
-//! established windows already have in-process, and moving *them* onto this boundary is the
-//! remainder `doc/todo/15` names. What is complete is the part no other window has at all: every
-//! page on the screen came out of the sandboxed process, on both of ADR 0607's arms, with the
-//! drawing of the marks arm interruptible and the worker killable from the keyboard. A document
-//! this window cannot serve — one needing a password, a file the document asks for — is refused
-//! **by name**, on the screen and on standard error, never quietly.
+//! controls, no selection, no find bar — each of those is chrome the three established windows
+//! already have in-process, and moving *them* onto this boundary is the remainder `doc/todo/15`
+//! names. What is complete is the part no other window has at all: every page on the screen came
+//! out of the sandboxed process, on both of ADR 0607's arms, with the drawing of the marks arm
+//! interruptible and the worker killable from the keyboard. A document this window cannot serve —
+//! a file the document asks for, a URI it wants resolved — is refused **by name**, on the screen
+//! and on standard error, never quietly.
+//!
+//! # §7.6.4.1's prompt, and which way the password goes
+//!
+//! An encrypted document is not a refusal here (ADR 0718; it was under ADR 0713's first scope):
+//! for such a document *open* — the first verb of this window's charter — is unreachable without
+//! the prompt, so the prompt completes the scope rather than extending it. Everything about it is
+//! the shared machinery: [`viewer_host::password`] counts the attempts and decides what an empty
+//! entry means, [`viewer_ui::chrome::PasswordCard`] draws the card, and what this file adds is
+//! wiring. The password crosses **into** the confinement inside [`Command::Open`], as a
+//! [`viewer_core::Secret`], and that direction is the design rather than an accident: §7.6.4's
+//! decryption happens where the document's bytes are, and the confinement is precisely what
+//! bounds where the password can go from there — no filesystem, no network, nothing but the pipe
+//! back to this process. Decrypting on this side so that the password never crossed would put the
+//! hostile bytes through the cryptography in the *unconfined* process, which is the boundary
+//! defeated by courtesy.
 //!
 //! # Where the drawing happens
 //!
@@ -58,6 +73,8 @@ use viewer_confined::{Canceller, Confined, Payload, Reply};
 use viewer_core::{Command, DocumentId, Event, PageTarget, Query, Zoom};
 use viewer_host::drawing::Drawing;
 use viewer_host::trace::{Topic, Trace};
+use viewer_host::{Ask, Asking, Supplied};
+use viewer_ui::chrome::{Chrome, PasswordCard};
 use viewer_ui::software::SoftwareSurface;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
@@ -159,6 +176,16 @@ struct Host {
     presented: Option<(u32, u32)>,
     /// The title's document half: §12.4.2's label and the page count, updated per event.
     heading: String,
+    /// §7.6.4.1's attempts, counted by [`viewer_host::Asking`] so that every host counts alike.
+    asking: Asking,
+    /// §7.6.4.1's prompt — the card the flagship draws for itself, reused whole.
+    ///
+    /// While it is shown it has the keyboard: the document behind it is not open, so a key that
+    /// turned a page would be turning a page that does not exist (the flagship's own rule).
+    password: PasswordCard,
+    /// The interface's own faces, loaded the first time the card needs them and never on the
+    /// launch path: a document that is not encrypted costs this window no chrome at all.
+    chrome: Option<Chrome>,
     /// `q` was pressed; the loop exits at its next turn, where it holds the `ActiveEventLoop`.
     leaving: bool,
 }
@@ -180,6 +207,9 @@ impl Host {
             drawing: Drawing::new(),
             screen: Screen::new(),
             presented: None,
+            asking: Asking::new(),
+            password: PasswordCard::default(),
+            chrome: None,
             leaving: false,
         }
     }
@@ -240,6 +270,8 @@ impl Host {
         }
         match event {
             Event::Opened { pages, .. } => {
+                // The next document's attempts start from nothing (`Asking::opened`'s rule).
+                self.asking.opened();
                 self.heading = format!("{} — {pages} page(s)", self.name());
                 self.retitle();
             }
@@ -248,14 +280,41 @@ impl Host {
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));
             }
             Event::PasswordRequired { .. } => {
-                // §7.6.4.1 says an interactive processor *should* prompt, and this window has no
-                // prompt yet — that is ADR 0713's scope decision, and the refusal names it
-                // rather than showing a blank page.
-                self.stop(format!(
-                    "{} is encrypted and needs a password; this window has no prompt yet — \
-                     open it in pdf-viewer, pdf-viewer-gtk or pdf-viewer-qt",
-                    self.path.display()
-                ));
+                // §7.6.4.1: an interactive processor *should* prompt, and this window is one
+                // (ADR 0718; the refusal it replaces was ADR 0713's scope decision). The policy
+                // — how many attempts, what exhaustion means — is `viewer_host::password`'s,
+                // shared with the three established windows.
+                if self.chrome.is_none() {
+                    match Chrome::new() {
+                        Ok(chrome) => self.chrome = Some(chrome),
+                        Err(said) => {
+                            // A build whose compiled-in faces will not parse cannot draw the
+                            // card; refusing by name is what is left (trap 5).
+                            self.stop(format!(
+                                "{} is encrypted and this build cannot draw the prompt \
+                                 ({said}); open it in pdf-viewer, pdf-viewer-gtk or \
+                                 pdf-viewer-qt",
+                                self.path.display()
+                            ));
+                            return;
+                        }
+                    }
+                }
+                match self.asking.required() {
+                    Ask::Prompt { attempt, of } => {
+                        self.password
+                            .ask(viewer_host::password::prompt(&self.name(), attempt, of));
+                        self.redraw();
+                    }
+                    Ask::Exhausted => {
+                        // Stop asking and leave the window open — `viewer_host::password`'s
+                        // rule: no host may make `Exhausted` mean the window closes.
+                        eprintln!("note: {}", viewer_host::password::EXHAUSTED);
+                        self.heading =
+                            format!("{} — {}", self.name(), viewer_host::password::EXHAUSTED);
+                        self.retitle();
+                    }
+                }
             }
             // Four arms with nothing to do, and each for its own reason, kept in one place so
             // that a message added to the boundary still breaks this build: a `Closed` follows
@@ -382,7 +441,19 @@ impl Host {
         let Some(composed) = self.screen.compose() else {
             return;
         };
-        match surface.present(&composed, &[]) {
+        // §7.6.4.1's card, over whatever the screen has — which for an encrypted document is
+        // the surround, exactly the flagship's arrangement of the same card.
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a display's scale factor is a small ratio"
+        )]
+        let scale = window.scale_factor() as f32;
+        let card = self.chrome.as_ref().and_then(|chrome| {
+            self.password
+                .draw(chrome, extent.width, extent.height, scale)
+        });
+        let overlays: Vec<&pdf_render::DisplayList> = card.iter().collect();
+        match surface.present(&composed, &overlays) {
             Ok(()) => {
                 if self.presented.is_none() {
                     self.trace
@@ -416,9 +487,84 @@ impl Host {
         }
     }
 
+    /// A key press while §7.6.4.1's card has the keyboard.
+    ///
+    /// Every key is taken, which is what *modal* means here (the flagship's `password_key`, whose
+    /// rule this copies): the document behind the card is **not open**, so a key that turned a
+    /// page would be turning a page that does not exist — and Escape is the prompt's decline
+    /// rather than [`Self::abort`], because what the person is declining is the question, not the
+    /// worker. Escape and an empty Enter reach [`viewer_host::password::supplied`] by the same
+    /// route, and that one place decides what a decline means.
+    fn password_key(&mut self, key: &Key<&str>) {
+        match key {
+            Key::Named(NamedKey::Escape) => {
+                self.password.clear();
+                self.password_answered();
+            }
+            Key::Named(NamedKey::Enter) => self.password_answered(),
+            Key::Named(NamedKey::Backspace) => {
+                self.password.backspace();
+                self.redraw();
+            }
+            Key::Named(NamedKey::Space) => {
+                self.password.typed(" ");
+                self.redraw();
+            }
+            Key::Character(text) if !text.is_empty() => {
+                self.password.typed(text);
+                self.redraw();
+            }
+            // A key with no character and no meaning here. Taken anyway, for the reason above.
+            _ => {}
+        }
+    }
+
+    /// The card was answered: open again with what was typed, or say why nothing opened.
+    ///
+    /// The [`viewer_core::Secret`] moves from the card into [`Command::Open`] and is dropped
+    /// with it — no copy of it stays on this side, and the trace's [`brief`] never prints one.
+    /// The file is read again rather than kept: rule 2 makes the filesystem this side's, and a
+    /// file that has gone away between the attempts is a fact about this machine, said out loud.
+    fn password_answered(&mut self) {
+        let typed = self.password.take();
+        self.redraw();
+        let secret = match viewer_host::password::supplied(typed) {
+            Supplied::Open(secret) => secret,
+            Supplied::Cancelled => {
+                eprintln!("note: {}", viewer_host::password::CANCELLED);
+                self.heading = format!("{} — {}", self.name(), viewer_host::password::CANCELLED);
+                self.retitle();
+                return;
+            }
+        };
+        let bytes = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(problem) => {
+                eprintln!("note: cannot re-read {}: {problem}", self.path.display());
+                self.heading = format!("{} — cannot re-read the file", self.name());
+                self.retitle();
+                return;
+            }
+        };
+        // The worker survives an open it could not finish (ADR 0597), so the retry goes to the
+        // same process: the document's bytes cross the pipe once more, which is the cost of the
+        // host keeping no copy — priced in `doc/todo/15` §5 and paid at most `ATTEMPTS` times.
+        self.dispatch(&Command::Open {
+            id: DOCUMENT,
+            bytes,
+            password: Some(secret),
+            fragment: None,
+        });
+    }
+
     /// One key, one meaning; anything else is nothing.
     fn key(&mut self, event: &KeyEvent) {
         if event.state != ElementState::Pressed {
+            return;
+        }
+        if self.password.shown {
+            let key = event.logical_key.as_ref();
+            self.password_key(&key);
             return;
         }
         match &event.logical_key {
@@ -615,4 +761,103 @@ fn main() {
     let event_loop = EventLoop::new().expect("an event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut host).expect("the event loop runs");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::time::Instant;
+
+    use viewer_core::{DocumentId, Event};
+    use winit::keyboard::{Key, NamedKey};
+
+    use super::Host;
+
+    /// A host with no window, no surface and no worker: everything the password path touches
+    /// short of a pipe, which is exactly the part this file added.
+    fn a_host() -> Host {
+        Host::new(PathBuf::from("locked.pdf"), 0, Instant::now())
+    }
+
+    /// §7.6.4.1's event puts the card up instead of ending the document.
+    ///
+    /// The behaviour this replaces was a `stop`: before ADR 0718 the window declined every
+    /// encrypted document by name, so the discriminating assertion is `stopped.is_none()`.
+    #[test]
+    fn an_encrypted_document_is_prompted_for_not_refused() {
+        let mut host = a_host();
+        host.event(Event::PasswordRequired {
+            document: DocumentId(0),
+        });
+        assert!(host.password.shown, "the card is up");
+        assert!(host.stopped.is_none(), "the document was not given up on");
+    }
+
+    /// The attempts exhaust into a sentence and an open window — `viewer_host::password`'s rule
+    /// that no host may make `Ask::Exhausted` mean the window closes.
+    #[test]
+    fn exhausted_attempts_leave_the_window_open() {
+        let mut host = a_host();
+        for _ in 0..=viewer_host::password::ATTEMPTS {
+            host.event(Event::PasswordRequired {
+                document: DocumentId(0),
+            });
+            // A new `PasswordRequired` only ever follows an answered card (the retry's failed
+            // open), so between events the card is answered — what was typed is not the point.
+            if host.password.shown {
+                let _ = host.password.take();
+            }
+        }
+        assert!(!host.password.shown, "it stopped asking");
+        assert!(host.stopped.is_none(), "and the window is still a window");
+        assert!(
+            host.heading.contains(viewer_host::password::EXHAUSTED),
+            "the sentence is where a person will read it, was {:?}",
+            host.heading
+        );
+    }
+
+    /// Escape while the card is up declines the prompt; it is not [`Host::abort`].
+    ///
+    /// The distinction is the whole reason `password_key` runs before the page keys: an Escape
+    /// that killed the worker would turn "I don't know the password" into "end the program's
+    /// document", two different facts about the reader.
+    #[test]
+    fn escape_declines_the_prompt_without_aborting() {
+        let mut host = a_host();
+        host.event(Event::PasswordRequired {
+            document: DocumentId(0),
+        });
+        host.password_key(&Key::Named(NamedKey::Escape));
+        assert!(!host.password.shown, "the card came down");
+        assert!(host.stopped.is_none(), "nothing was aborted");
+        assert!(
+            host.heading.contains(viewer_host::password::CANCELLED),
+            "the decline is said, was {:?}",
+            host.heading
+        );
+    }
+
+    /// A file that has gone away between the first open and the retry is a fact about this
+    /// machine: said in the heading, and the window survives it (trap 5, the flagship's rule).
+    #[test]
+    fn a_file_gone_before_the_retry_is_said_not_fatal() {
+        let mut host = Host::new(
+            PathBuf::from("tests/does-not-exist-781.pdf"),
+            0,
+            Instant::now(),
+        );
+        host.event(Event::PasswordRequired {
+            document: DocumentId(0),
+        });
+        host.password_key(&Key::Character("x"));
+        host.password_key(&Key::Named(NamedKey::Enter));
+        assert!(!host.password.shown, "the card came down");
+        assert!(host.stopped.is_none(), "the window is still a window");
+        assert!(
+            host.heading.contains("cannot re-read"),
+            "the missing file is said, was {:?}",
+            host.heading
+        );
+    }
 }

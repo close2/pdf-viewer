@@ -154,8 +154,10 @@ pass.
   native controls rather than take a form as pixels — and a hostile document's draw is stoppable,
   because a cancel a hostile document can decline is not one. **A window uses it since the
   seven-hundred-and-seventy-fifth** — `pdf-viewer-confined`, deliberately the smallest complete
-  host on the boundary, both payload arms on its screen and Escape ending the worker and the
-  in-flight draw together (ADR 0713) — while the three established windows stay in process: for
+  host on the boundary, both payload arms on its screen, Escape ending the worker and the
+  in-flight draw together (ADR 0713), and §7.6.4.1's prompt since the
+  seven-hundred-and-eighty-first, the password crossing into the confinement as `Command::Open`'s
+  `Secret` (ADR 0718) — while the three established windows stay in process: for
   `viewer-ui` putting the flagship there is a
   change of tier and a decision with a number attached rather than a switch — **and the number
   exists now** (ADR 0597), so what is left is the move rather than the measurement. **The
