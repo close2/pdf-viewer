@@ -307,7 +307,9 @@ with §14.9.3's `/Alt` where the document states one, a table cell announced wit
 describe it** — Table 384's `/Headers` where a producer wrote one and §14.8.4.8.3's own search where
 none did, each header said in the author's own short form where it states Table 384's `/Short` — a
 table described by its stated `/Summary` (ADR 0715), a `TH` carrying the axis §14.8.5.7 gives it
-rather than a guess, an element placed by
+rather than a guess, a list that §14.8.5.5 says **carries an earlier one on** saying so and
+pointing at it with AT-SPI's `FlowTo` where the earlier one is on the same page (ADR 0748), an
+element placed by
 Table 379's `/BBox` where its content marked no text, and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an

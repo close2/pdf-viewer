@@ -50,7 +50,7 @@ cost this project, is what a command cannot print:
 |---|---|
 | `implemented` | every normative requirement in the clause is executed |
 | `partial` | some are; the note says which are not |
-| **`silent`** | not implemented, and nothing says so — **Annex O's five were built in the three-hundred-and-sixty-ninth and the population was zero from then until the eight-hundred-and-eleventh**, which put §14.8.5.5 there. The paragraph below is what that run of rounds was worth and what ended it |
+| **`silent`** | not implemented, and nothing says so — **Annex O's five were built in the three-hundred-and-sixty-ninth and the population was zero from then until the eight-hundred-and-eleventh**, which put §14.8.5.5 there and the eight-hundred-and-seventeenth took it off again (ADR 0748). The paragraph below is what that run of rounds was worth and what ended it |
 | `inapplicable` | a press, a layout engine, a production workflow — **and read at last**. §10.4.2.3 left in the three-hundred-and-eightieth, where a conversion this row called "[not] on any route to a pixel" turned out to be §11.5.3's own (ADR 0217), and **§10.4.2.4 left in the three-hundred-and-eighty-third on the same reasoning one clause over**: it said the two functions "cannot change a pixel" while §11.6.6 converts an RGB colour into a `DeviceCMYK` mask group by exactly this route, where every term the clause generates provably cancels (ADR 0220). Session 380 corrected two §10.4.2 rows and asked whether the neighbours had the same disease; one did |
 | `out-of-scope` | principle 5's closed exclusions, which the row names |
 | `reported` | not implemented, detected and named at runtime — **nine of §12.8.3's moved to `partial` in the three-hundred-and-seventy-seventh**, when the digest question turned out not to need the trust store the whole clause had been refused for (ADR 0215) |
@@ -60,7 +60,8 @@ cost this project, is what a command cannot print:
 eight-hundred-and-eleventh read Errata Collection 3's Issue #346 into §14.8.5 and found Table 382's
 two PDF 2.0 entries — `/ContinuedList` and `/ContinuedFrom`, which say a list continues an earlier
 one — unread, unreported, and sitting under an `inapplicable` row whose note named only the third
-entry of their table. **A zero here is a claim about what has been looked at, not about what is
+entry of their table. Both are read six rounds later (ADR 0748), which is the shortest a `silent`
+row has ever stood and is the point of the status: it names a debt in a form a round can take. **A zero here is a claim about what has been looked at, not about what is
 there**: the status went to zero because every row holding it was paid off, and it stayed there
 because nothing was re-reading the rows that say nothing is owed. ADR 0743, and the general shape
 is the paragraph on the `inapplicable` population below it.

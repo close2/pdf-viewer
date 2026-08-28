@@ -215,6 +215,16 @@ struct Census {
     /// declares [`accesskit::Action::Click`] on. It is a superset of [`Self::controls`]: every
     /// widget is an annotation and most annotations are not widgets.
     annotations: usize,
+    /// §14.8.5.5's continuing lists, and how many of them this answer can point at a predecessor
+    /// for.
+    ///
+    /// **Printed and not ratcheted**, on `doc/todo/05`'s rule that a number enters a gate once it
+    /// has held across rounds; it is here from the round that read Table 382's two entries, and a
+    /// floor is the next round's to add if there is one to add. What makes it worth printing while
+    /// the population is empty is the shape it would take if it were not: the entries are PDF 2.0's
+    /// and this is the only instrument that would say so.
+    continued_lists: usize,
+    continuations_resolved: usize,
     /// Elements a caret can move through, the lines they cross, and the characters on them.
     ///
     /// The class this is about is an element that is *read* and cannot be *moved through*: until
@@ -269,6 +279,10 @@ impl Census {
             .saturating_add(from.header_associations);
         self.controls = self.controls.saturating_add(from.controls);
         self.annotations = self.annotations.saturating_add(from.annotations);
+        self.continued_lists = self.continued_lists.saturating_add(from.continued_lists);
+        self.continuations_resolved = self
+            .continuations_resolved
+            .saturating_add(from.continuations_resolved);
         self.with_lines = self.with_lines.saturating_add(from.with_lines);
         self.lines = self.lines.saturating_add(from.lines);
         self.characters = self.characters.saturating_add(from.characters);
@@ -320,6 +334,12 @@ impl Census {
             }
             if node.annotation.is_some() {
                 self.annotations = self.annotations.saturating_add(1);
+            }
+            if node.continues_a_list {
+                self.continued_lists = self.continued_lists.saturating_add(1);
+                if node.continued_from.is_some() {
+                    self.continuations_resolved = self.continuations_resolved.saturating_add(1);
+                }
             }
             if !node.lines.is_empty() {
                 self.with_lines = self.with_lines.saturating_add(1);
@@ -701,6 +721,11 @@ fn report(census: &Census, files: usize, seconds: f64) {
     println!(
         "  elements whose content is §12.5's annotation, which a client may click: {}",
         census.annotations
+    );
+    println!(
+        "  §14.8.5.5's lists that continue an earlier one: {} ({} with the predecessor on the \
+         same page)",
+        census.continued_lists, census.continuations_resolved
     );
     println!(
         "  elements a caret can move through: {} ({} lines, {} characters)",

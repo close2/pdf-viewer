@@ -373,6 +373,9 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
     let mut roots: Vec<NodeId> = Vec::new();
     // What each cell named as a header would be said as, built once for the whole page.
     let spoken = spoken_headers(view);
+    // §14.8.5.5's continuation, turned round: the answer says which list each one continues, and
+    // the relation this platform has runs the other way. See [`continued_by`].
+    let continued_by = continued_by(view);
     // One entry per element of the answer: the children collected for it so far, and whether it
     // is published at all. Parent-first ordering means a node's parent is always already here.
     let mut children: Vec<Vec<NodeId>> = vec![Vec::new(); view.nodes.len()];
@@ -448,6 +451,7 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
         if let Some(summary) = node.summary.as_deref() {
             description.push(format!("summary: {summary}"));
         }
+        description.extend(continuation(node));
         description.extend(headers(node, &spoken));
         if !description.is_empty() {
             built.set_description(description.join("; "));
@@ -476,6 +480,7 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
         if node.annotation.is_some() {
             built.add_action(Action::Click);
         }
+        flows_to(&mut built, band, continued_by.get(index), &published);
         // §14.8.2.5's order within one element is the file's `/K` order, and the answer this crate
         // is handed does not record where an element's own content items sat among its child
         // elements — so the lines go first and the child elements after them. It costs nothing on
@@ -766,6 +771,63 @@ fn headers(node: &AccessibilityNode, spoken: &[String]) -> Option<String> {
         .filter(|name| !name.is_empty())
         .collect();
     (!named.is_empty()).then(|| format!("headers, most specific first: {}", named.join(", ")))
+}
+
+/// Publishes §14.8.5.5's continuation as a *relation*, on the element the reading leaves.
+///
+/// `FlowTo` runs from the earlier list to the one that carries it on, which is what a client
+/// follows to read the whole list in order — so it is published on the predecessor, and
+/// [`continued_by`] is what turns the answer's own direction round. A successor that was not
+/// published is dropped rather than pointed at: `accesskit::TreeUpdate` makes it "an error for any
+/// node in this list to not be either the root or a child of another node", and a relation to a
+/// node that is in neither is a tree naming something it does not carry.
+fn flows_to(built: &mut Node, band: Band, next: Option<&Vec<usize>>, published: &[bool]) {
+    for at in next.into_iter().flatten() {
+        if published.get(*at).copied().unwrap_or(false) {
+            built.push_flow_to(band.element(*at));
+        }
+    }
+}
+
+/// What §14.8.5.5's continuation is *said* as, where the element states one.
+///
+/// On the description channel and for the reason [`headers`] and a table's `/Summary` are: it is a
+/// statement *about* the list rather than something the list's content says, and nothing else on
+/// the page carries it — the numbering starting again at one is exactly what the producer wrote the
+/// entry to contradict. The `FlowTo` relation is the machine half of the same fact; this is the
+/// half a person hears, and the two sentences differ because a client that cannot follow the
+/// relation should still be told the list is not a fresh one.
+fn continuation(node: &AccessibilityNode) -> Option<String> {
+    node.continues_a_list.then(|| {
+        match node.continued_from {
+            Some(_) => "a continuation of an earlier list on this page",
+            None => "a continuation of an earlier list",
+        }
+        .to_owned()
+    })
+}
+
+/// Which elements continue which, indexed as the answer is: entry `n` holds the lists that carry
+/// element `n` on.
+///
+/// §14.8.5.5's two attributes point from a list to the one it continues, and
+/// [`AccessibilityNode::continued_from`] keeps that direction because it is the document's. The
+/// relation this platform has runs the other way — `FlowTo` is "read on at", published on the
+/// element the reading *leaves* — so the inversion happens once, here, rather than in a search per
+/// element.
+///
+/// A list may be continued by more than one, which is a document stating two continuations of one
+/// list; nothing in §14.8.5.5 forbids it, so all of them are published rather than the first.
+fn continued_by(view: &PageView) -> Vec<Vec<usize>> {
+    let mut out: Vec<Vec<usize>> = vec![Vec::new(); view.nodes.len()];
+    for (index, node) in view.nodes.iter().enumerate() {
+        if let Some(from) = node.continued_from
+            && let Some(slot) = out.get_mut(from)
+        {
+            slot.push(index);
+        }
+    }
+    out
 }
 
 /// What each element named as a header cell would be *said* as, indexed as the answer is.

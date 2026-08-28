@@ -34,6 +34,8 @@ fn element(parent: Option<usize>, role: &str, name: &str) -> AccessibilityNode {
         control: None,
         annotation: None,
         headers: Vec::new(),
+        continues_a_list: false,
+        continued_from: None,
         lines: Vec::new(),
         drawn: None,
         enclosed_a_refusal: false,
@@ -514,6 +516,54 @@ fn a_tables_summary_is_said_in_its_description() {
     assert_eq!(
         built_table.description(),
         Some("summary: sales by region and quarter")
+    );
+}
+
+/// §14.8.5.5's continuation is said to a person and pointed at for a client.
+///
+/// Three lists: one that continues nothing, one that continues it — which is a document with two
+/// `L` elements and other content between them, the shape Table 382's two entries exist for — and
+/// one whose predecessor is not on this page, which is what a list split across a page boundary
+/// looks like from here.
+///
+/// Both halves are checked because they carry different facts. The **description** is what a
+/// listener hears, and the two sentences differ: a client that can follow the relation is told
+/// where to go, and one that cannot is at least told the numbering did not start again. The
+/// **relation** runs the other way round from the attribute — `FlowTo` is published on the
+/// element the reading leaves — so the list that states nothing is the one that carries it.
+#[test]
+fn a_list_that_continues_another_says_so_and_points_at_it() {
+    let mut second = element(None, "L", "");
+    second.continues_a_list = true;
+    second.continued_from = Some(0);
+    let mut elsewhere = element(None, "L", "");
+    elsewhere.continues_a_list = true;
+    let nodes = [element(None, "L", ""), second, elsewhere];
+    let update = built(view(&nodes, &[]));
+
+    let first = node(&update, NodeId(16));
+    assert_eq!(first.role(), Role::List);
+    assert_eq!(
+        first.flow_to(),
+        [NodeId(17)],
+        "the reading flows from the earlier list to the one that carries it on"
+    );
+    assert_eq!(first.description(), None, "and it continues nothing itself");
+
+    let carried_on = node(&update, NodeId(17));
+    assert_eq!(
+        carried_on.description(),
+        Some("a continuation of an earlier list on this page")
+    );
+    assert!(
+        carried_on.flow_to().is_empty(),
+        "nothing continues the last list of the run"
+    );
+
+    assert_eq!(
+        node(&update, NodeId(18)).description(),
+        Some("a continuation of an earlier list"),
+        "a predecessor on another page is still a continuation worth saying"
     );
 }
 
