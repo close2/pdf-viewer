@@ -16,6 +16,8 @@
 //! at twice device scale the median first page of `doc/pdf.js` draws in 2.2 ms, the p99 in
 //! 73.9 ms and the slowest of 957 in 252.1 ms, against 27 600 ms for the amplification fixture, so
 //! a deadline low enough to catch the fixture refuses one legitimate first page in sixteen.
+//! [`WARN`] is a duration and is **not** that watchdog: nothing in this module raises the flag
+//! when it passes, and what happens instead is that a person is told and given the key.
 //!
 //! What a window needs is a thread, which `viewer-ui` has had since ADR 0461. This is that
 //! arrangement for the hosts that place somebody else's widgets, and it is **one** arrangement in
@@ -52,6 +54,14 @@
 //!   whole entry goes and the token with it. That one is [`Drawing::superseded`], because whether
 //!   the arrangement still shows a page is `viewer_core::Query::PageGeometry`'s answer and this
 //!   crate holds no viewer to ask.
+//!
+//! **And there is a third, which is not a rule but a person** ([`Drawing::abandon`]). The two
+//! above are provable: the viewer has stopped wanting the answer, so finishing buys nothing. The
+//! third is a draw whose answer is still wanted and which somebody has decided not to wait for —
+//! the owner's *"warn the user and allow the user to abort, however don't block"*. It is offered
+//! only behind [`Drawing::overlong`], which is the warning, so the key never changes meaning
+//! without the window having said so first; and it stays outside the rule above because a host
+//! may not decide it, [`WARN`] being the one clock this module reads and it decides nothing.
 //!
 //! **An abandoned draw is answered to nobody**, which is trap 20 and is the half that is easy to
 //! get wrong: `viewer_core::Rendered::Failed` records a page as answered for — the scheduler stops
@@ -279,6 +289,35 @@ pub const POLL: Duration = Duration::from_millis(1);
 ///   those without becoming a freeze.
 pub const SETTLE: Duration = Duration::from_nanos(1_000_000_000 / 60);
 
+/// How long a draw runs before the window tells the person that it is running.
+///
+/// **A clock, and ADR 0657 refused one — so the difference between the two is the whole of the
+/// argument for this number.** What that decision refused is a *deadline*: a duration after which
+/// the program abandons a draw by itself. No such duration exists, because nothing separates the
+/// two populations. Measured again for this constant with `viewer-confined`'s
+/// `examples/host_draw` at twice device scale over `doc/pdf.js`'s 957 first pages: the median
+/// draws in 1.8 ms, the 99th percentile in 85.6 ms and the slowest in 315.9 ms, while a
+/// 1567-byte document written to be expensive draws for 27 600 ms (ADR 0650). The legitimate
+/// tail runs continuously up to its own end, so a deadline placed anywhere inside it throws away
+/// pages somebody asked for.
+///
+/// This decides nothing, which is why a number is admissible here and was not there. It is when a
+/// *sentence* appears; the abort behind the sentence is the person's, through
+/// [`crate::keys::Key::Escape`]. So the cost of firing on a page somebody wanted is one line of
+/// chrome they ignore, and the cost of a deadline firing on it is the page. The two are not
+/// comparable, and nothing here is interrupted when this passes.
+///
+/// **A second**, which is three times the slowest of those 957 and above every one of them —
+/// 0.00% at half of it — and is about where a person stops assuming that a window is working. It
+/// is deliberately not tuned finer: what it has to clear is the *legitimate* population, and on
+/// the other side a document chooses its own cost, so nothing is bought by moving it closer to
+/// either.
+///
+/// **What it is not is a claim that a slower page is hostile.** A person may magnify a legitimate
+/// page until it draws for seconds, and this will say so; that is a sentence about the wait
+/// rather than about the document, and [`crate::status::still_drawing`] is worded for that.
+pub const WARN: Duration = Duration::from_secs(1);
+
 impl<R: DrawRequest> Default for Drawing<R> {
     fn default() -> Self {
         Self {
@@ -344,6 +383,66 @@ impl<R: DrawRequest> Drawing<R> {
     /// shown nor drops the pixels it is holding, and a later interpretation that succeeds issues a
     /// fresh request. That is strictly better than the alternative trap 20 names.
     ///
+    /// Which page has been in flight for longer than [`WARN`], where one has.
+    ///
+    /// **The third reason a host looks at this type, and the only one that reads a clock.** The
+    /// two above it decide whether to take the thread back and are exact; this one decides
+    /// nothing at all — it is the question a host asks so that it can put
+    /// [`crate::status::still_drawing`] in front of a person, which is the *warn* half of the
+    /// owner's "warn the user and allow the user to abort, however don't block". [`WARN`] carries
+    /// the argument for the duration and for why a clock is admissible here.
+    ///
+    /// A host asks it on the poll it already has ([`Self::interval`]), so nothing new wakes for
+    /// it and a window with nothing being drawn never asks at all.
+    #[must_use]
+    pub fn overlong(&self) -> Option<usize> {
+        self.overlong_after(WARN)
+    }
+
+    /// [`Self::overlong`] against a stated wait rather than the shipped one.
+    ///
+    /// **Private because the wait is a policy and the policy is one for all three windows**: a
+    /// host that could choose its own would be a host whose Escape key changed meaning at a
+    /// different moment from its neighbours', which is what [`crate::keys`] exists to prevent. It
+    /// is separate from the constant so that a *test* can ask the mechanical question without
+    /// asserting anything about a clock — ADR 0714's rule, and this is the only method here that
+    /// reads one.
+    fn overlong_after(&self, wait: Duration) -> Option<usize> {
+        self.in_flight
+            .as_ref()
+            .filter(|in_flight| !in_flight.interrupt.raised() && in_flight.asked.elapsed() >= wait)
+            .map(|in_flight| in_flight.page)
+    }
+
+    /// Takes the drawing thread back because the **person** asked — the abort half of the pair.
+    ///
+    /// This is the third and last thing that raises the interrupt, and it is the only one that is
+    /// not derivable from the viewer's own state: the two rules at the head of this module say
+    /// when a finished picture would be worth nothing, and this one says that somebody looking at
+    /// the window has decided they would rather not wait for a picture that *is* still worth
+    /// something. So it is deliberately not automatic, it is offered only where
+    /// [`Self::overlong`] has already put a sentence on the screen, and a host asks for it from
+    /// [`crate::keys::WindowAct::AbortDrawing`].
+    ///
+    /// **What it costs the page is nothing that lasts, for the reason [`Self::superseded`]
+    /// states.** An abandoned draw is answered to nobody (trap 20), so `viewer_core` neither
+    /// records the page as shown nor drops the pixels it is holding, and the page keeps whatever
+    /// picture it had. It draws again as soon as the view changes, because a changed view is a
+    /// new request with a new token — which is also why this does **not** empty the queue behind
+    /// it: the pages waiting there are innocent of this one's cost, and a person who meant to stop
+    /// them too has the key again a moment later.
+    ///
+    /// Answers which page it took back, or `None` where nothing was being drawn — which is the
+    /// race between the key and the last command of the draw, and is a page the person can have.
+    pub fn abandon(&mut self) -> Option<usize> {
+        let in_flight = self.in_flight.as_ref()?;
+        if in_flight.interrupt.raised() {
+            return None;
+        }
+        in_flight.interrupt.raise();
+        Some(in_flight.page)
+    }
+
     /// Answers whether it raised an interrupt, for the trace.
     pub fn superseded(&mut self, shown: bool) -> bool {
         if shown {
@@ -576,7 +675,7 @@ mod tests {
     };
     use viewer_core::{Command, DocumentId, Event, RenderRequest, Rendered, Viewer};
 
-    use super::{Drawing, Finished, POLL, SETTLE};
+    use super::{Drawing, Finished, POLL, SETTLE, WARN};
 
     /// How long a test waits for a thread before calling it stuck.
     ///
@@ -850,6 +949,116 @@ mod tests {
             finished[0].outcome.is_none(),
             "an abandoned draw owes the viewer nothing"
         );
+    }
+
+    /// The warning fires on a draw that has outlasted the wait, and on nothing else.
+    ///
+    /// **No clock is asserted, which is ADR 0714's rule and matters more here than anywhere else
+    /// in this module**: this is the one question that reads one. The two bounds are chosen so
+    /// that neither can be wrong on a loaded machine — nothing in this suite has been drawing for
+    /// an hour, and everything in it has been drawing for at least no time at all — and what is
+    /// left in between is [`WARN`] itself, which is a policy rather than a mechanism.
+    #[test]
+    fn a_draw_is_warned_about_only_once_it_has_outlasted_the_wait() {
+        let request = a_real_request();
+        let mut drawing = Drawing::new();
+        drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
+        assert_eq!(drawing.inside(), Some(0));
+        assert_eq!(
+            drawing.overlong_after(Duration::from_hours(1)),
+            None,
+            "no draw in this suite has been running for an hour"
+        );
+        assert_eq!(
+            drawing.overlong_after(Duration::ZERO),
+            Some(0),
+            "and every draw has been running for at least no time at all"
+        );
+        assert!(
+            WARN > Duration::ZERO && WARN < Duration::from_hours(1),
+            "the shipped wait is between the two bounds this asserts"
+        );
+        assert_eq!(drawing.abandon(), Some(0));
+        let _ = wait(&mut drawing);
+    }
+
+    /// A window drawing nothing warns about nothing, before a page and after one.
+    #[test]
+    fn a_window_that_is_not_drawing_warns_about_nothing() {
+        let mut drawing = Drawing::new();
+        assert_eq!(drawing.overlong_after(Duration::ZERO), None);
+        drawing.ask(a_real_request());
+        let _ = wait(&mut drawing);
+        assert_eq!(
+            drawing.overlong_after(Duration::ZERO),
+            None,
+            "the page had finished, so there was nothing to warn about"
+        );
+    }
+
+    /// The person's abort takes the thread back, and — trap 20 — owes the viewer nothing.
+    ///
+    /// The third assertion is the one that keeps the sentence honest: a draw already interrupted
+    /// is not warned about again, so a window cannot go on offering a key for work it has already
+    /// stopped.
+    #[test]
+    fn the_persons_abort_takes_the_thread_back_and_owes_nothing() {
+        let request = a_real_request();
+        let mut drawing = Drawing::new();
+        drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
+        assert_eq!(drawing.abandon(), Some(0), "the interrupt was not raised");
+        assert_eq!(
+            drawing.abandon(),
+            None,
+            "one draw was stopped twice, so the window would say so twice"
+        );
+        assert_eq!(
+            drawing.overlong_after(Duration::ZERO),
+            None,
+            "a draw already stopped is not still being warned about"
+        );
+        let finished = wait(&mut drawing);
+        assert_eq!(finished.len(), 1);
+        assert!(
+            finished[0].outcome.is_none(),
+            "an abandoned draw owes the viewer nothing"
+        );
+    }
+
+    /// An abort stops the draw the person was warned about and **nothing behind it**.
+    ///
+    /// Table 29's column asks for every page it shows, so the queue holds pages that have cost
+    /// nothing yet; emptying it would leave each of them with an outstanding request nothing will
+    /// ever answer, which is the freeze `every_page_of_an_arrangement_is_answered` is about.
+    #[test]
+    fn an_abort_leaves_the_pages_queued_behind_it_to_draw() {
+        let request = a_real_request();
+        let mut drawing = Drawing::new();
+        drawing.ask(like(&request, 0, &amplified(&request, 20_000)));
+        drawing.ask(like(&request, 1, &request.list));
+        assert_eq!(drawing.abandon(), Some(0));
+        let mut answered: Vec<(usize, bool)> = Vec::new();
+        let began = Instant::now();
+        while answered.len() < 2 {
+            for finished in drawing.collect() {
+                answered.push((finished.request.page, finished.outcome.is_some()));
+            }
+            assert!(began.elapsed() < GIVE_UP, "the queued page never drew");
+            std::thread::sleep(POLL);
+        }
+        answered.sort_unstable();
+        assert_eq!(
+            answered,
+            vec![(0, false), (1, true)],
+            "the stopped page owes nothing and the one behind it was drawn"
+        );
+    }
+
+    /// A key pressed a moment after the draw finished takes nothing back.
+    #[test]
+    fn an_abort_with_nothing_in_flight_stops_nothing() {
+        let mut drawing: Drawing = Drawing::new();
+        assert_eq!(drawing.abandon(), None);
     }
 
     /// A page the arrangement still shows is left alone, whatever it costs.

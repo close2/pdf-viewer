@@ -61,6 +61,28 @@
 //!   full screen takes precedence for [`crate::presentation`]'s stated reason — no clause says how
 //!   full screen ends, and a reader who cannot get their chrome back has had a restriction imposed
 //!   on them by somebody else's file.
+//! - **Escape also stops a draw the window has warned about, and only then.** This is the owner's
+//!   *"warn the user and allow the user to abort, however don't block"* reaching the three
+//!   established windows, and the binding is argued in three parts:
+//!
+//!   - **Why Escape and not a key of its own.** A key a person has to have learned is no use in
+//!     the one situation this exists for, which is somebody sitting in front of a window that is
+//!     not answering. Escape is the key every program uses to mean *not that*, this table's own
+//!     documentation already says so two rows up, and the fourth window on the confined boundary
+//!     has meant exactly this by it since ADR 0713 — so the four agree rather than the three.
+//!   - **Why only while the warning is up.** A binding that means two things is a binding a
+//!     person has to guess at, unless the window has said which one it means. It has:
+//!     [`Waiting::Warned`] is the state a window enters by *saying*
+//!     [`crate::status::still_drawing`], which names this key, and leaves when the draw ends — so
+//!     the meaning changes when the sentence offering it does rather than when a clock passes.
+//!     With no warning up, Escape clears the selection as it always did.
+//!   - **Why a presentation still leaves full screen instead.** Table 29's `FullScreen` shows
+//!     "no menu bar, window controls, or any other window visible", so the warning is not on the
+//!     screen at all while one is running — and a key that did the thing an unseen sentence
+//!     offered would be the guess this row exists to avoid. Escape leaves full screen, the
+//!     sentence appears, and the next Escape stops the draw. The window stays responsive
+//!     throughout either way, because the drawing is not on the toolkit's thread
+//!     ([`crate::drawing`]).
 //! - **`f` opens the find bar**, which two of the three hosts already meant by it, and §12.5.6.6's
 //!   free-text drag moves to `t`, which nothing bound.
 //! - **While a presentation is running, the three keys that ask for chrome mean nothing.** §7.7.2's
@@ -258,6 +280,35 @@ pub enum WindowAct {
     FitControls,
     /// Arm §12.5.6.6's free-text drag: the next drag on the page draws the annotation's rectangle.
     FreeText,
+    /// Stop drawing the page the window has just said is taking a long time
+    /// ([`crate::drawing::Drawing::abandon`]).
+    ///
+    /// **The abort half of the owner's "warn the user and allow the user to abort, however don't
+    /// block"**, and it is a [`WindowAct`] rather than a [`Command`] for the reason the whole of
+    /// this half of the table exists: a draw is a *host's* thread, `viewer_core` neither knows
+    /// that one is running nor is owed an answer for one that is abandoned (trap 20), and the
+    /// three windows take the thread back in three different places — `viewer_host::Drawing` in
+    /// the two native ones and the composing thread in `viewer-ui`'s.
+    AbortDrawing,
+}
+
+/// Whether a draw the window has already warned about is still running.
+///
+/// The fourth thing [`meaning`] needs and the only one that is not about the keyboard: it decides
+/// one row, Escape's, and it exists so that **the key never changes meaning without the window
+/// having said so first**. [`crate::drawing::Drawing::overlong`] is where a native host gets it;
+/// `viewer-ui`'s composing thread answers the same question about a whole frame.
+///
+/// Not a `bool`, for [`Mode`]'s reason one row over: `meaning(key, shift, mode, true)` at a call
+/// site has said nothing about which `true` that is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Waiting {
+    /// Nothing is being drawn, or nothing has been drawn for long enough to say so.
+    #[default]
+    Nothing,
+    /// A draw has outlasted [`crate::drawing::WARN`] and the window is showing
+    /// [`crate::status::still_drawing`].
+    Warned,
 }
 
 /// What a key press means, once it has reached the page.
@@ -294,14 +345,16 @@ pub const STRIKE_OUT: [f32; 3] = [0.85, 0.15, 0.15];
 /// What a press means, or nothing for a key this program does not bind.
 ///
 /// `shift` answers §12.5.1's tab key and nothing else — see the module documentation for why no
-/// other modifier appears. `mode` answers §12.4.4.2's arrow keys and Table 29's chrome.
+/// other modifier appears. `mode` answers §12.4.4.2's arrow keys and Table 29's chrome, and
+/// `waiting` answers the third of Escape's three rows.
 ///
 /// **A host calls this only for a press that reached the page.** A field being typed into, an open
 /// find bar and a modal card each take the keyboard first, and which of them has it is the host's
 /// own question.
 #[must_use]
-pub fn meaning(key: Key, shift: bool, mode: Mode) -> Option<Meaning> {
+pub fn meaning(key: Key, shift: bool, mode: Mode, waiting: Waiting) -> Option<Meaning> {
     let presenting = matches!(mode, Mode::Presenting);
+    let warned = matches!(waiting, Waiting::Warned);
     Some(match key {
         // §12.5.1: "Interactive PDF processors may permit the user to navigate through the
         // annotations on a page by using the keyboard (in particular, the tab key)." The only key
@@ -338,9 +391,11 @@ pub fn meaning(key: Key, shift: bool, mode: Mode) -> Option<Meaning> {
         }),
         Key::W => Meaning::Window(WindowAct::FitControls),
         Key::A => Meaning::Send(Command::Select(Selection::All)),
-        // Full screen first, then §12.4.2's selection. Both are documented choices and the module
-        // documentation has the argument for each.
+        // Full screen first, then the draw the window has warned about, then §12.4.2's selection.
+        // All three are documented choices and the module documentation has the argument for
+        // each — including why the warning's row is *below* full screen rather than above it.
         Key::Escape if presenting => Meaning::Window(WindowAct::LeaveFullScreen),
+        Key::Escape if warned => Meaning::Window(WindowAct::AbortDrawing),
         Key::Escape => Meaning::Send(Command::Select(Selection::None)),
         Key::S => Meaning::Send(Command::Save),
         Key::Z => Meaning::Send(Command::Undo),
@@ -371,7 +426,7 @@ pub fn meaning(key: Key, shift: bool, mode: Mode) -> Option<Meaning> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Key, Meaning, Mode, WindowAct, meaning};
+    use super::{Key, Meaning, Mode, Waiting, WindowAct, meaning};
     use viewer_core::{Command, PageTarget, Selection};
 
     /// [`Key::ALL`] is the list three hosts are held to, so it has to be the whole enumeration.
@@ -436,7 +491,7 @@ mod tests {
     fn no_key_this_program_names_is_bound_to_nothing() {
         for key in Key::ALL {
             assert!(
-                meaning(*key, false, Mode::Reading).is_some(),
+                meaning(*key, false, Mode::Reading, Waiting::Nothing).is_some(),
                 "{key:?} reaches the page and means nothing"
             );
         }
@@ -449,26 +504,26 @@ mod tests {
     #[test]
     fn the_arrows_move_the_view_while_reading_and_navigate_while_presenting() {
         assert!(matches!(
-            meaning(Key::Down, false, Mode::Reading),
+            meaning(Key::Down, false, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::ScrollBy(by))) if by > 0.0
         ));
         assert!(matches!(
-            meaning(Key::Up, false, Mode::Reading),
+            meaning(Key::Up, false, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::ScrollBy(by))) if by < 0.0
         ));
         assert!(matches!(
-            meaning(Key::Down, false, Mode::Presenting),
+            meaning(Key::Down, false, Mode::Presenting, Waiting::Nothing),
             Some(Meaning::Send(Command::GoTo(PageTarget::Next)))
         ));
         assert!(matches!(
-            meaning(Key::Up, false, Mode::Presenting),
+            meaning(Key::Up, false, Mode::Presenting, Waiting::Nothing),
             Some(Meaning::Send(Command::GoTo(PageTarget::Previous)))
         ));
         // And the other four move between pages either way, so nothing is unreachable.
         for key in [Key::Right, Key::PageDown, Key::Space] {
             for mode in [Mode::Reading, Mode::Presenting] {
                 assert!(matches!(
-                    meaning(key, false, mode),
+                    meaning(key, false, mode, Waiting::Nothing),
                     Some(Meaning::Send(Command::GoTo(PageTarget::Next)))
                 ));
             }
@@ -483,13 +538,57 @@ mod tests {
     #[test]
     fn escape_leaves_full_screen_first_and_never_leaves_the_program() {
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Presenting),
+            meaning(Key::Escape, false, Mode::Presenting, Waiting::Nothing),
             Some(Meaning::Window(WindowAct::LeaveFullScreen))
         ));
         assert!(matches!(
-            meaning(Key::Escape, false, Mode::Reading),
+            meaning(Key::Escape, false, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Select(Selection::None)))
         ));
+    }
+
+    /// Escape's third row: it stops a draw the window has warned about, and nothing else changes.
+    ///
+    /// Three things are asserted because three could go wrong separately: the abort is offered
+    /// while the warning is up, the selection is still what Escape means when it is not, and a
+    /// presentation still leaves full screen — Table 29's `FullScreen` shows "no menu bar, window
+    /// controls, or any other window visible", so the sentence offering this key is not on the
+    /// screen there and the key may not act on it.
+    #[test]
+    fn escape_stops_a_draw_only_while_the_window_is_saying_that_it_can() {
+        assert!(matches!(
+            meaning(Key::Escape, false, Mode::Reading, Waiting::Warned),
+            Some(Meaning::Window(WindowAct::AbortDrawing))
+        ));
+        assert!(matches!(
+            meaning(Key::Escape, false, Mode::Reading, Waiting::Nothing),
+            Some(Meaning::Send(Command::Select(Selection::None)))
+        ));
+        assert!(matches!(
+            meaning(Key::Escape, false, Mode::Presenting, Waiting::Warned),
+            Some(Meaning::Window(WindowAct::LeaveFullScreen))
+        ));
+    }
+
+    /// A draw being warned about changes **one** row, which is the claim [`Waiting`] makes.
+    ///
+    /// The same shape as the Shift test below it and for the same reason: a state that quietly
+    /// moved a second binding would be a key meaning two things with nothing on the screen saying
+    /// which, which is exactly what the warning exists to prevent.
+    #[test]
+    fn the_warning_changes_escape_and_no_other_key() {
+        for key in Key::ALL {
+            if matches!(key, Key::Escape) {
+                continue;
+            }
+            for mode in [Mode::Reading, Mode::Presenting] {
+                assert_eq!(
+                    format!("{:?}", meaning(*key, false, mode, Waiting::Nothing)),
+                    format!("{:?}", meaning(*key, false, mode, Waiting::Warned)),
+                    "{key:?} means a second thing while a draw is being warned about"
+                );
+            }
+        }
     }
 
     /// Table 29's "or any other window visible", applied to the keys that ask for chrome.
@@ -497,11 +596,11 @@ mod tests {
     fn a_presentation_shows_no_find_bar_no_panel_and_no_card() {
         for key in [Key::F, Key::Slash, Key::O, Key::Question] {
             assert!(
-                meaning(key, false, Mode::Presenting).is_none(),
+                meaning(key, false, Mode::Presenting, Waiting::Nothing).is_none(),
                 "{key:?} asks for chrome that Table 29's FullScreen forbids"
             );
             assert!(
-                meaning(key, false, Mode::Reading).is_some(),
+                meaning(key, false, Mode::Reading, Waiting::Nothing).is_some(),
                 "{key:?} still means something in a window that has chrome"
             );
         }
@@ -511,13 +610,13 @@ mod tests {
     #[test]
     fn shift_separates_the_two_directions_of_the_tab_key_and_moves_nothing_else() {
         assert!(matches!(
-            meaning(Key::Tab, false, Mode::Reading),
+            meaning(Key::Tab, false, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
                 viewer_core::FocusMove::Next
             )))
         ));
         assert!(matches!(
-            meaning(Key::Tab, true, Mode::Reading),
+            meaning(Key::Tab, true, Mode::Reading, Waiting::Nothing),
             Some(Meaning::Send(Command::Focused(
                 viewer_core::FocusMove::Previous
             )))
@@ -528,8 +627,8 @@ mod tests {
             }
             for mode in [Mode::Reading, Mode::Presenting] {
                 assert_eq!(
-                    format!("{:?}", meaning(*key, false, mode)),
-                    format!("{:?}", meaning(*key, true, mode)),
+                    format!("{:?}", meaning(*key, false, mode, Waiting::Nothing)),
+                    format!("{:?}", meaning(*key, true, mode, Waiting::Nothing)),
                     "{key:?} means a second thing when shifted, which this table does not state"
                 );
             }

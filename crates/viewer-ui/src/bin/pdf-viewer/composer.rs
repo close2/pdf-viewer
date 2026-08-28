@@ -155,6 +155,21 @@ enum Finished {
     Page(crate::stale::Retained<Arc<Raster>>),
 }
 
+/// Whether two arrangements are the same picture at the same placements.
+///
+/// The comparison [`Composer::depicts`] has always made, named because [`Composer::declined`]
+/// asks it of a second list: each page by the `Arc` whose address is its identity, because a page
+/// turn at an unchanged magnification is a different picture at the same placement; the targets by
+/// value, because a resize is a different frame at the same transform; and the count with them,
+/// because a scroll that brings a further row of a column on leaves every page already up exactly
+/// where it was.
+fn same_arrangement(one: &[crate::stale::Placed], other: &[crate::stale::Placed]) -> bool {
+    one.len() == other.len()
+        && one.iter().zip(other).all(|(left, right)| {
+            Arc::ptr_eq(&left.list, &right.list) && left.target == right.target
+        })
+}
+
 /// The channels to a running composing thread, and the thread itself.
 #[derive(Debug)]
 struct Link {
@@ -234,6 +249,20 @@ pub(crate) struct Composer {
     /// tick rate while a frame takes tens of ticks, and every job in it would be answering a view
     /// the person had already left.
     in_flight: Option<InFlight>,
+    /// The arrangement the **person** stopped drawing, which is not asked for again.
+    ///
+    /// **Without this the abort is a loop rather than an abort**, and the difference is where the
+    /// two tiers part: a native window's outstanding request is the *viewer's*, and a viewer whose
+    /// token was never answered does not re-issue it, so abandoning is the whole of stopping
+    /// there. This surface asks for itself, once a tick, for as long as the pixels on hand are not
+    /// of this view — so a frame abandoned at one tick was asked for again at the next, drawn for
+    /// another second, warned about again and stopped again, forever. Photographed doing exactly
+    /// that before this field existed.
+    ///
+    /// Emptied by any *other* arrangement being asked for, which is what "it will be drawn again
+    /// when the view changes" means in [`viewer_host::stopped_drawing`]: a scroll, a zoom, a page
+    /// turn and a resize all produce placements this does not match.
+    declined: Vec<crate::stale::Placed>,
     /// Whether the pixels on hand have reached the window at all, in any form.
     ///
     /// **The window may hold a rendering it has never shown, and that is what this exists to
@@ -271,6 +300,7 @@ impl Composer {
             proxies: crate::stale::Proxies::new(proxy_pages),
             thread: None,
             in_flight: None,
+            declined: Vec::new(),
             presented: false,
         }
     }
@@ -292,6 +322,52 @@ impl Composer {
             .map(|in_flight| in_flight.asked.elapsed())
     }
 
+    /// Whether the frame in flight has been out for longer than `viewer_host::drawing::WARN`.
+    ///
+    /// **The one question this window asks a clock**, and it decides nothing: it is what puts
+    /// `viewer_host::still_drawing` in front of a person, which is the *warn* half of the owner's
+    /// "warn the user and allow the user to abort, however don't block". The duration, the
+    /// wording and the key are all `viewer-host`'s, so this window and the two native ones warn at
+    /// the same moment and offer the same key — the difference is only what a warning is *about*,
+    /// which here is a whole frame rather than one page, because that is what this thread draws.
+    ///
+    /// The automatic deadline ADR 0657 refused is still refused: nothing here raises the
+    /// interrupt, and [`Self::superseded`] is still the only rule that does.
+    pub(crate) fn overlong(&self) -> bool {
+        self.out_for()
+            .is_some_and(|out| out >= viewer_host::drawing::WARN)
+            && self
+                .in_flight
+                .as_ref()
+                .is_some_and(|in_flight| !in_flight.interrupt.raised())
+    }
+
+    /// Takes the composing thread back because the **person** asked.
+    ///
+    /// The third thing that raises the interrupt on this surface, beside [`Self::superseded`]'s
+    /// rule and nothing else — and the only one that is not derivable from the view, because it is
+    /// a decision about how long somebody is prepared to wait for a frame that is still worth
+    /// having. It is offered only behind [`Self::overlong`], so the key never changes meaning
+    /// without the window having said so first.
+    ///
+    /// **The abandoned frame is reported to nobody**, exactly as a superseded one is: [`Drawn`]
+    /// says why `Rendered::Failed` may not be used for a draw this host merely chose to stop, and
+    /// the window goes on showing whatever it had until the view changes and asks again.
+    ///
+    /// Answers whether it took anything back, which is `false` for the race between the key and
+    /// the last command of the frame.
+    pub(crate) fn abandon(&mut self) -> bool {
+        let Some(in_flight) = self.in_flight.as_ref() else {
+            return false;
+        };
+        if in_flight.interrupt.raised() {
+            return false;
+        }
+        in_flight.interrupt.raise();
+        self.declined = in_flight.pages.clone();
+        true
+    }
+
     /// Whether the pixels on hand are of exactly this arrangement, at exactly these placements.
     ///
     /// The same comparison [`crate::surface`] makes on the other surface and for the same reasons:
@@ -301,10 +377,15 @@ impl Composer {
     /// because a scroll that brings a further row of a column on leaves every page already up
     /// exactly where it was.
     pub(crate) fn depicts(&self, pages: &[crate::stale::Placed]) -> bool {
-        self.shown.len() == pages.len()
-            && self.shown.iter().zip(pages).all(|(drawn, asked)| {
-                Arc::ptr_eq(&drawn.list, &asked.list) && drawn.target == asked.target
-            })
+        same_arrangement(&self.shown, pages)
+    }
+
+    /// Whether this is the arrangement the person stopped drawing — see [`Self::declined`].
+    ///
+    /// Asked beside [`Self::depicts`] at the one place a frame is asked for, so that an abort
+    /// stops the drawing rather than restarting it.
+    pub(crate) fn declined(&self, pages: &[crate::stale::Placed]) -> bool {
+        !self.declined.is_empty() && same_arrangement(&self.declined, pages)
     }
 
     /// **ADR 0657's rule 1**: takes the drawing thread back where finishing would buy nothing.
@@ -398,6 +479,9 @@ impl Composer {
         if self.in_flight.is_some() || pages.is_empty() {
             return;
         }
+        // Whatever is being asked for now is not what was declined — the caller has already
+        // checked that — so the decline has been outlived by a view change and goes.
+        self.declined.clear();
         if self.thread.is_none() {
             // The first job is what starts the thread, which is `CLAUDE.md`'s startup rule: a
             // spawn in `resumed` would put a scheduler decision in front of a launch milestone.

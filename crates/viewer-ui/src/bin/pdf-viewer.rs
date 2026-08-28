@@ -273,6 +273,7 @@ fn main() {
             .parent()
             .map(std::path::Path::to_path_buf),
         caption: String::new(),
+        still_drawing: None,
         requests: Vec::new(),
         unacknowledged: Vec::new(),
         presented: None,
