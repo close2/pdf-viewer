@@ -43,6 +43,7 @@
 #![forbid(unsafe_code)]
 
 pub mod applied;
+pub mod renumbered;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -67,6 +68,9 @@ pub enum Error {
     /// This project's own Markdown documents could not be walked.
     #[error("reading the documents: {0}")]
     Documents(#[from] conformance::prose::Error),
+    /// A document's Markdown conversion could not be indexed by clause.
+    #[error("indexing a conversion: {0}")]
+    Conversion(#[from] conformance::clause::ClauseIndexError),
 }
 
 /// What §12.5.6.2 makes one annotation *to* the others around it.

@@ -33,7 +33,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::quote;
+use crate::{citation, quote};
 
 /// A clause number, as the standard writes it: `8.9.6.2` — or an annex's, `K.2`.
 ///
@@ -447,20 +447,33 @@ impl ClauseIndex {
     /// available to print beside a reference, which is the point. A table number that names
     /// nothing is a defect this can catch; a table number that names the wrong table reads
     /// exactly like a right one, and only its title gives it away.
+    ///
+    /// **A bare number is the only designation this takes**, and that is deliberate rather
+    /// than an omission: it is the conformance gate's own question, and the gate's population
+    /// is [`crate::citation::Scan::tables`]. [`caption_of`] is the same caption read the other
+    /// way round, for the wider population — every designation the standard captions,
+    /// `Annex O.3` and `125a` included.
     #[must_use]
     pub fn table_title(&self, table: u16) -> Option<&str> {
-        let caption = format!("Table {table} -");
+        let wanted = table.to_string();
         self.text.lines().find_map(|line| {
-            // The conversion promotes an occasional caption to a markdown heading — Table 246's
-            // is `## Table 246 -Entries in the FDF dictionary` and every other table in the same
-            // subclause is a bare line. That is an artefact of `doc/md/` rather than anything
-            // the standard did, so the leading hashes are dropped before the caption is matched:
-            // without this the checker calls a table the standard has one it does not.
-            line.trim_start_matches('#')
-                .trim_start()
-                .strip_prefix(&caption)
-                .map(str::trim)
-                .filter(|title| !title.is_empty())
+            caption_of(line)
+                .filter(|(designation, _)| *designation == wanted)
+                .map(|(_, title)| title)
+        })
+    }
+
+    /// The title of a table the standard captions with `designation`, if it captions one.
+    ///
+    /// The general form of [`Self::table_title`]: `Annex O.3` and `125a` are designations no
+    /// `u16` can carry, and an instrument asking *which tables does this tree stand on* has to
+    /// take them as the caption writes them.
+    #[must_use]
+    pub fn designated_table_title(&self, designation: &str) -> Option<&str> {
+        self.text.lines().find_map(|line| {
+            caption_of(line)
+                .filter(|(captioned, _)| *captioned == designation)
+                .map(|(_, title)| title)
         })
     }
 
@@ -479,6 +492,59 @@ impl ClauseIndex {
                 quote::occurs_in(&quote::normalise(text), quotation)
             })
     }
+
+    /// Whether the text of `number`, subclauses included, captions the table `designation` names.
+    ///
+    /// The difference between *this document captions such a table* — which
+    /// [`Self::designated_table_title`] answers — and *the clause in front of us is the one that
+    /// captions it*. An erratum striking a table's number is over a caption; a strike over the
+    /// same digits five hundred pages away is over an array index or a NOTE's number, and only
+    /// the clause tells the two apart.
+    #[must_use]
+    pub fn captions_table(&self, number: &ClauseNumber, designation: &str) -> bool {
+        self.headings
+            .iter()
+            .filter(|heading| &heading.number == number)
+            .any(|heading| {
+                self.text
+                    .get(heading.span.clone())
+                    .unwrap_or_default()
+                    .lines()
+                    .any(|line| {
+                        caption_of(line).is_some_and(|(captioned, _)| captioned == designation)
+                    })
+            })
+    }
+}
+
+/// The designation and title of the table `line` captions, or `None` where it captions none.
+///
+/// One caption shape, read once, for the two questions this project asks of it —
+/// [`ClauseIndex::table_title`]'s *what is Table 104 called* and
+/// [`ClauseIndex::designated_table_title`]'s *is `Annex O.3` a table this document captions*.
+///
+/// The conversion promotes an occasional caption to a Markdown heading — Table 246's is
+/// `## Table 246 -Entries in the FDF dictionary` and every other table in the same subclause is
+/// a bare line. That is an artefact of `doc/md/` rather than anything the standard did, so the
+/// leading hashes are dropped before the caption is read: without this the checker calls a table
+/// the standard has one it does not.
+///
+/// **The designation must be the whole of what precedes the dash**, which is what keeps an
+/// ordinary sentence beginning with the word *Table* out of the population: a line reading
+/// `Table 5.4 sets out - the rest` parses `5.4` and then finds four words it did not account for.
+#[must_use]
+pub fn caption_of(line: &str) -> Option<(&str, &str)> {
+    let (designation, title) = line
+        .trim_start_matches('#')
+        .trim_start()
+        .strip_prefix("Table ")?
+        .split_once('-')?;
+    let designation = designation.trim();
+    let title = title.trim();
+    if title.is_empty() || citation::designation_at(designation)? != designation {
+        return None;
+    }
+    Some((designation, title))
 }
 
 #[cfg(test)]
