@@ -2262,9 +2262,11 @@ because the temptation is to use it for more.
   prefers a requirement level over a number, and the requirement level was inside an exclusion —
   while the three issues below it paid. That is step 4's own practice arriving in the issue unit:
   head to a verdict, then downward until a row pays.
-- **Forty-two of the sixty unread issues touch only a settled row and eleven touch a live one**,
-  against 43 and 12 at the fifteenth use's base, with seven landing on no row at all. The
-  distribution has not shifted: one issue left each column, which is this round's own reading, and
-  the ratio is what step 4's preference is argued from. What this rule has left to find still sits
-  almost entirely on rows claiming to owe nothing — and this round is a witness for that, since two
-  of its three paying issues landed on `implemented` rows and the third on a pair of `partial` ones.
+- **Forty-two of the sixty unread issues touch only a settled row, eleven touch a live one and
+  seven land on no row at all**, against 43 and 12 at the fifteenth use's base. The ratio is
+  unchanged and the arithmetic is not a plain subtraction: 43 and 12 leave six for the headings
+  whose family the ledger has no row for, and 42 and 11 leave seven, so an issue moved into that
+  third column as well as one leaving the population — which is why the third figure is printed
+  here and was not before. What this rule has left to find still sits almost entirely on rows
+  claiming to owe nothing, and this round is a witness for that: two of its three paying issues
+  landed on `implemented` rows and the third on a pair of `partial` ones.

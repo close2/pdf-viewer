@@ -5377,8 +5377,10 @@ ADR 0746; `doc/errata-read.md` has all eight annotations with their rectangles.
   rather than of 39. And the head it chose **confirmed rather than paid**, while the three issues
   below it paid — so step 4's practice, head to a verdict then downward until a row pays, is what
   the issue unit needs as well. A ranking that names a head is not a ranking that names the payment.
-- **The settled/live split has not shifted**: 42 of the 60 unread issues touch only a settled row and
-  11 touch a live one, against 43 and 12 at the fifteenth use's base, with seven on no row at all.
-  One issue left each column and both were this round's. Step 4's preference is argued from that
-  ratio and the ratio is stable, which is the evidence it needed — and this round is a witness for
-  it in a second way, since two of its three paying issues landed on `implemented` rows.
+- **The settled/live ratio has not shifted**: 42 of the 60 unread issues touch only a settled row, 11
+  touch a live one and seven land on no row at all, against 43 and 12 at the fifteenth use's base.
+  It is not a plain subtraction — the earlier pair leaves six for the headings the ledger has no row
+  in the family for and this one leaves seven — so the third column is printed here as well, which
+  it was not before. Step 4's preference is argued from that ratio and the ratio is stable, which is
+  the evidence it needed; and this round is a witness for it in a second way, since two of its three
+  paying issues landed on `implemented` rows.

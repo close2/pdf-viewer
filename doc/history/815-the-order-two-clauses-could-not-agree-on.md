@@ -49,9 +49,10 @@ a selection rule owes. Two things it did **not** do are the round's methodologic
   paid. Step 4's practice — head to a verdict, then downward until a row pays — is what the issue
   unit needs as well, and that is now recorded rather than assumed.
 
-The settled/live split has not shifted: 42 of the 60 unread issues touch only a settled row and 11
-touch a live one, against 43 and 12 at 811's base, with seven on no row at all. One left each
-column and both were this round's.
+The settled/live ratio has not shifted: 42 of the 60 unread issues touch only a settled row, 11
+touch a live one and seven land on no row at all, against 43 and 12 at 811's base. It is not a
+plain subtraction — 43 and 12 leave six for the headings whose family the ledger has no row for,
+and 42 and 11 leave seven — so this round prints the third figure as well.
 
 ## What the four errata were worth
 
