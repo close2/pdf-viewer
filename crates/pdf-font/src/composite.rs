@@ -372,6 +372,88 @@ pub(crate) fn collection_meaning(document: &Document, descendant: &Dictionary) -
     predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
 }
 
+/// Why [`collection_meaning`] answered `None`, in the file's own terms.
+///
+/// **One refusal carried four different facts about a file, and only the last of them is work
+/// owed.** A substituted composite font with no `/ToUnicode` reaches §9.10.2's third method and
+/// that method needs the collection's own table; when there is none, the message said
+/// "neither a `/ToUnicode` nor a registered character collection" and stopped — so a file the
+/// standard forbids outright, a file missing a required entry, a collection no table can exist
+/// for, and a collection this binary happens not to carry all read alike. Trap 11's rule from
+/// the other side: a report is only as good as the condition it fires on, and a report that
+/// fires on four conditions has named none of them.
+///
+/// The four, in the order they are asked, sharpest first:
+///
+/// a) **The file states a combination §9.7.5.2 forbids.** With the program absent and the
+///    `CMap` one of the two identity ones, the clause is about the *file*:
+///
+///    > The Identity-H and Identity-V CMaps shall not be used with a non-embedded font. Only
+///    > standardized character sets may be used.
+///
+///    ADR 0433 read this population off the ink sweep by hand; this is that reading said by the
+///    refusal itself.
+/// b) **The descendant states no readable `/CIDSystemInfo`.** Table 115 makes it "( Required )",
+///    so §9.10.2's step (b), quoted above [`collection_meaning`], has nothing to obtain.
+/// c) **The collection's ordering is `Identity`.** §9.7.3 makes a character collection "an
+///    ordered set of glyphs" whose order "shall determine the CID number for each glyph", so an
+///    `Identity` ordering is the glyph order of the program the file did not embed. No table
+///    could exist, and none is owed.
+/// d) **This binary carries no table for the collection the file names**, which is the only one
+///    of the four that is a gap in this reader. §9.7.5.2 requires four collections —
+///    "A PDF processor shall support Adobe-CNS1-7, Adobe-GB1-5, Adobe-Japan1-7 and Adobe-KR-9
+///    character collections" — and `predefined`'s own test asserts all four are carried, so what
+///    reaches this is a collection beyond what the clause requires.
+///
+/// `encoding` is the Type 0 font's `/Encoding`, needed for (a) alone: the prohibition is stated
+/// of the `CMap` rather than of the descendant.
+pub(crate) fn collection_gap(
+    document: &Document,
+    descendant: &Dictionary,
+    encoding: Option<&str>,
+) -> String {
+    if let Some(name @ ("Identity-H" | "Identity-V")) = encoding {
+        return format!(
+            "the file states /Encoding /{name} over a descendant with no embedded program, \
+             which §9.7.5.2 says shall not be used — a CID is then an index into a program \
+             nobody supplied — and it states no /ToUnicode to read the codes by instead \
+             (§9.10.2)"
+        );
+    }
+
+    let info = document.get_key(descendant, "CIDSystemInfo");
+    let named = info.as_dict().and_then(|info| {
+        let text = |key: &str| {
+            document
+                .get_key(info, key)
+                .as_string()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        };
+        Some((text("Registry")?, text("Ordering")?))
+    });
+
+    let Some((registry, ordering)) = named else {
+        return "the descendant states no readable /CIDSystemInfo, which Table 115 makes \
+                required, so §9.10.2 step (b) has no character collection to obtain — and it \
+                states no /ToUnicode either"
+            .to_owned();
+    };
+
+    if ordering == "Identity" {
+        return format!(
+            "the descendant's character collection is {registry}-{ordering}, whose CIDs are the \
+             glyph order of a program nobody supplied (§9.7.3), so no table can say what they \
+             mean — and it states no /ToUnicode either (§9.10.2)"
+        );
+    }
+
+    format!(
+        "this reader carries no CID-to-Unicode table for the character collection \
+         {registry}-{ordering}, which is beyond the four §9.7.5.2 requires — and the font states \
+         no /ToUnicode either (§9.10.2)"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::composite_cmap;
@@ -412,6 +494,50 @@ mod tests {
                 expected_wmode,
                 "{spelling} names the identity CMap whose writing mode is {expected_wmode}"
             );
+        }
+    }
+
+    /// [`collection_gap`]'s four facts are four sentences, not one.
+    ///
+    /// The refusal they feed said "neither a `/ToUnicode` nor a registered character collection"
+    /// for all four, so a file the standard forbids outright, a file missing a required entry, a
+    /// collection no table could exist for, and a collection this binary happens not to carry
+    /// read alike — and the corpus gate's classification of them was therefore a guess. Each row
+    /// below asserts the phrase its own case is named by *and* that no other row's phrase
+    /// appears, which is what makes this a test of the split rather than of the wording.
+    ///
+    /// Calibrated (trap 13) by making the function return one constant: all four rows fail.
+    #[test]
+    fn four_facts_about_a_file_reach_four_different_refusals() {
+        let cases = [
+            (
+                Some("Identity-H"),
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>",
+                "§9.7.5.2 says shall not be used",
+            ),
+            (None, "/Type /Font", "no readable /CIDSystemInfo"),
+            (
+                Some("90ms-RKSJ-H"),
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>",
+                "glyph order of a program nobody supplied",
+            ),
+            (
+                Some("90ms-RKSJ-H"),
+                "/CIDSystemInfo << /Registry (Adobe) /Ordering (Japan2) /Supplement 0 >>",
+                "carries no CID-to-Unicode table",
+            ),
+        ];
+        let phrases: Vec<&str> = cases.iter().map(|(_, _, phrase)| *phrase).collect();
+        for (encoding, entries, expected) in cases {
+            let (document, descendant) = font_dictionary(entries);
+            let said = super::collection_gap(&document, &descendant, encoding);
+            for phrase in &phrases {
+                assert_eq!(
+                    said.contains(phrase),
+                    *phrase == expected,
+                    "{encoding:?} over {entries} should say only {expected:?}, and said: {said}"
+                );
+            }
         }
     }
 }

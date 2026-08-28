@@ -28,7 +28,9 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::cff::{self, CodeToGlyph};
 use crate::cmap::{CMap, Code};
-use crate::composite::{CidToGlyph, cid_to_glyph, collection_meaning, composite_cmap};
+use crate::composite::{
+    CidToGlyph, cid_to_glyph, collection_gap, collection_meaning, composite_cmap,
+};
 use crate::encoding;
 use crate::glyph_names::GlyphNames;
 use crate::metrics::{
@@ -766,11 +768,20 @@ impl LoadedFont {
             let direct = to_unicode(document, dict);
             let text = if direct.is_empty() {
                 collection_meaning(document, &descendant).ok_or_else(|| {
-                    FontError::UnsupportedEncoding {
+                    // **[`FontError::NoSubstitute`] rather than
+                    // [`FontError::UnsupportedEncoding`], and the encoding is why**: `Identity-H`
+                    // is read perfectly well here — [`composite_cmap`] built `cmap` out of it
+                    // above — so nothing about the *encoding* is unsupported. What failed is
+                    // reaching a substitute through it, which is the case that variant's own doc
+                    // comment describes and which the sibling refusal thirty lines up already
+                    // uses. [`collection_gap`] says which of its four facts this file is.
+                    FontError::NoSubstitute {
                         name: name.to_owned(),
-                        encoding: "neither a /ToUnicode nor a registered character collection, \
-                                   so a substitute cannot be addressed (§9.10.2)"
-                            .to_owned(),
+                        reason: collection_gap(
+                            document,
+                            &descendant,
+                            encoding_name(document, dict).as_deref(),
+                        ),
                     }
                 })?
             } else {
@@ -1676,6 +1687,18 @@ impl LoadedFont {
 }
 
 /// Reads a font dictionary's `/ToUnicode` `CMap` and whatever it builds on (§9.10.3).
+/// A Type 0 font's `/Encoding` where it is one of §9.7.5.2's predefined names, as text.
+///
+/// Only [`collection_gap`] asks, and only for the one of its four facts that is stated of the
+/// `CMap` rather than of the descendant: §9.7.5.2's "shall not be used with a non-embedded font"
+/// is about `Identity-H` and `Identity-V` by name. A stream `/Encoding` — §9.7.5.3's embedded
+/// `CMap` — has no name and answers `None`, which is correct: the prohibition names two `CMap`s.
+fn encoding_name(document: &Document, dict: &Dictionary) -> Option<String> {
+    let name = document.get_key(dict, "Encoding");
+    let name = name.as_name()?;
+    std::str::from_utf8(name.as_bytes()).ok().map(str::to_owned)
+}
+
 fn to_unicode(document: &Document, dict: &Dictionary) -> tounicode::ToUnicode {
     read_to_unicode(document, &document.get_key(dict, "ToUnicode"), 0)
 }
