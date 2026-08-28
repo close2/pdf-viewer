@@ -14,7 +14,7 @@ use pdf_render::{BlendMode, ClipId, Command, FillRule, Path, Point, Rect, Transf
 use pdf_syntax::Dictionary;
 
 use super::font::Font;
-use super::pattern::PatternPaint;
+use super::pattern::{PatternPaint, Tiled};
 use super::report::{Placed, Unsupported};
 use super::transparency::{Painted, knockout_group_elements, outline_bounds};
 use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
@@ -789,7 +789,13 @@ impl Interpreter<'_> {
         // text is painted with one.
         if let Some(PatternPaint::Tiling(tiling)) = &state.fill_pattern {
             let tiling = Rc::clone(tiling);
-            self.tile(outline, transform, FillRule::NonZero, &tiling, state);
+            self.tile(
+                outline,
+                transform,
+                Tiled::Fill(FillRule::NonZero),
+                &tiling,
+                state,
+            );
             return;
         }
         let transfer = self.transfer_for_mark(state, Painted::of(state, false));
@@ -827,33 +833,40 @@ impl Interpreter<'_> {
     /// cost is a copy of the outline per stroked glyph, which is paid only by the modes that
     /// stroke and never on the ordinary fill path.
     ///
-    /// # A glyph stroked in a tiling pattern is named rather than drawn wrong
+    /// # A glyph stroked in a tiling pattern is tiled
     ///
     /// §8.7.2's "All patterns shall be treated as colours" makes a glyph's stroke colour no
-    /// different from a path's, and a *tiling* pattern is not a paint: it is the cell replayed
-    /// across the stroked outline, which this tree does not compute (§8.4.3, ADR 0028). `path.rs`
-    /// has said so since the fifty-third session; this route did not, so a `Tr 1` glyph whose
-    /// `SCN` named a tiling pattern was outlined in whatever solid colour was last set and
-    /// nothing said so — the silent fallback principle 3 forbids, on the half of §8.7.3 its
-    /// ledger row already calls unimplemented. Session 630, from that row.
+    /// different from a path's. It was *reported* on this route from the six-hundred-and-thirtieth
+    /// session — before that a `Tr 1` glyph whose `SCN` named a tiling pattern was outlined in
+    /// whatever solid colour was last set and nothing said so, the silent fallback principle 3
+    /// forbids — and it is drawn from the eight-hundred-and-second, by the same
+    /// [`Interpreter::tile`] the fill route takes and over the same outline this function has
+    /// already moved into user space. ADR 0735.
     fn stroke_glyph(
         &mut self,
         outline: &Arc<Path>,
         glyph_to_user: Transform,
         state: &GraphicsState,
     ) {
-        if matches!(state.stroke_pattern, Some(PatternPaint::Tiling(_))) {
-            self.note(Unsupported::Shading {
-                name: "a stroke whose colour is a tiling pattern".to_owned(),
-            });
-        }
         let mut in_user_space = Path::new();
         in_user_space.extend_transformed(outline, glyph_to_user);
+        let in_user_space = Arc::new(in_user_space);
+        if let Some(PatternPaint::Tiling(tiling)) = &state.stroke_pattern {
+            let tiling = Rc::clone(tiling);
+            self.tile(
+                &in_user_space,
+                state.transform,
+                Tiled::Stroke(&state.stroke),
+                &tiling,
+                state,
+            );
+            return;
+        }
         let glyph_stroke_clip = self.paint_clip(state, false);
         let transfer = self.transfer_for_mark(state, Painted::of(state, true));
         let paint = self.stroke_paint(state, transfer);
         self.draw(Command::Stroke {
-            path: Arc::new(in_user_space),
+            path: in_user_space,
             transform: state.transform,
             stroke: state.stroke.clone(),
             paint,

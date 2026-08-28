@@ -14,7 +14,7 @@ use crate::colour::Conversion;
 
 use super::colour::Intent;
 use super::ext_gstate::Transfer;
-use super::pattern::PatternPaint;
+use super::pattern::{PatternPaint, Tiled};
 use super::report::Unsupported;
 use super::transparency::Painted;
 use super::{GraphicsState, Interpreter};
@@ -441,7 +441,7 @@ impl Interpreter<'_> {
             self.tile(
                 &Arc::new(path),
                 state.transform,
-                FillRule::NonZero,
+                Tiled::Fill(FillRule::NonZero),
                 &tiling,
                 &masked,
             );

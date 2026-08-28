@@ -516,39 +516,109 @@ fn pdf_with_font(pattern: &str, content: &str) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// A glyph *stroked* in a tiling pattern is named rather than outlined in the last solid colour.
+/// A cell painting the lower-left quarter of every 10-unit square, in red.
 ///
-/// §8.7.2's "All patterns shall be treated as colours" makes a stroking pattern a colour for
-/// `SCN` exactly as a nonstroking one is for `scn`, and §9.3.6's rendering modes 1, 2, 5 and 6
-/// stroke a glyph's outline. Tiling that outline is the half of §8.7.3 this tree does not
-/// implement — the stroked outline is the backends' to compute (§8.4.3, ADR 0028) — so the only
-/// correct behaviour left is to say so.
-///
-/// **`path.rs` said so and `text.rs` did not**, which is what §8.7.3's ledger row hid: it named
-/// one corpus document reported on the path route and read as though the gap were covered
-/// everywhere. A `Tr 1` glyph was outlined in whatever solid colour was last set, silently.
-/// Session 630.
-#[test]
-fn a_glyph_stroked_in_a_tiling_pattern_is_reported_rather_than_stroked_in_the_last_colour() {
-    let cell = "1 0 0 rg 0 0 5 5 re f";
-    let pattern = format!(
+/// The gaps are what a *pattern* has and a solid colour does not, so a test asserting a clear
+/// pixel inside the mark is asserting that the paint was the pattern.
+fn quartered_cell() -> String {
+    let content = "1 0 0 rg 0 0 5 5 re f";
+    format!(
         "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] \
-         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream",
-        cell.len().saturating_add(1)
-    );
-    // `1 Tr` is stroke-only, so nothing but the stroking colour decides what this glyph gets.
-    let bytes = pdf_with_font(
-        &pattern,
-        "BT /F0 120 Tf /Pattern CS /P0 SCN 1 Tr 5 10 Td (A) Tj ET",
-    );
-    let document = Document::open(bytes).expect("the fixture is a valid PDF");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
+         /XStep 10 /YStep 10 /Resources << >> /Length {} >>\nstream\n{content}\nendstream",
+        content.len().saturating_add(1)
+    )
+}
 
-    let reported = format!("{:?}", interpretation.unsupported);
+/// A *stroke* whose colour is a tiling pattern is the cell cut to the stroke's own outline.
+///
+/// ISO 32000-2 §8.7.2 makes a stroking pattern a colour for `SCN` exactly as a nonstroking one
+/// is for `scn`:
+///
+/// > All patterns shall be treated as colours; a Pattern colour space shall be established with
+/// > the CS or cs operator just like other colour spaces, and a particular pattern shall be
+/// > installed as the current colour with the SCN or scn operator
+///
+/// It was reported rather than drawn until the eight-hundred-and-second session, on ADR 0028's
+/// reason — the outline is the backends' to compute — which reaches the construction that tiles
+/// an outline *as a path* and not the one used here, where the outline is a soft mask each
+/// backend derives with the expander it already has (ADR 0735).
+///
+/// The fixture is a diagonal rule, chosen so that the three pixels below each fail for a
+/// different reason. The stroke runs from (10, 10) to (90, 90) at width 10, so its mark is a
+/// band about the line `y = x` while its *bounding box* is most of the page.
+#[test]
+fn a_stroke_whose_colour_is_a_tiling_pattern_is_tiled_along_its_outline() {
+    // `0 1 0 RG` before the pattern: if the tiling is skipped the stroke falls back to the last
+    // solid stroking colour, and green appears nowhere in the pattern.
+    let raster = render(pdf_with(
+        &quartered_cell(),
+        "0 1 0 RG /Pattern CS /P0 SCN 10 w 10 10 m 90 90 l S",
+    ));
+    // On the line and inside a painted quarter (50..55 in both axes).
+    assert_eq!(
+        pixel(&raster, 51, 99 - 51),
+        (255, 0, 0, 255),
+        "the cell paints where the stroke's outline covers it"
+    );
+    // On the line and inside the cell's *gap* (55..60), which a solid stroke would have filled.
+    assert_eq!(
+        pixel(&raster, 56, 99 - 56).3,
+        0,
+        "and leaves the gaps between figures clear, which a solid colour would not"
+    );
+    // Inside a painted quarter (10..15 × 80..85) and nowhere near the line: this is the pixel
+    // the stroke's shape has to remove, and the one that fails if the tiles are cut to the
+    // stroke's bounding box instead of to its outline.
+    assert_eq!(
+        pixel(&raster, 13, 99 - 83).3,
+        0,
+        "and paints nothing outside the outline, only inside its bounding box"
+    );
+    let green = (0..100u32)
+        .flat_map(|y| (0..100u32).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            let (red, green, blue, alpha) = pixel(&raster, x, y);
+            alpha > 0 && green > red && green > blue
+        })
+        .count();
+    assert_eq!(green, 0, "and never in the solid colour SCN replaced");
+}
+
+/// A glyph *stroked* in a tiling pattern is tiled too, ISO 32000-2 §9.3.6's modes 1, 2, 5 and 6.
+///
+/// §8.7.2 makes a stroking pattern a colour, and a glyph's outline is stroked by the same
+/// parameters a path's is. **`path.rs` reported this and `text.rs` did not**, which is what
+/// §8.7.3's ledger row hid for as long as it named one corpus document on the path route and
+/// read as though the gap were covered everywhere: a `Tr 1` glyph was outlined in whatever solid
+/// colour was last set, silently (session 630). Both routes tile since ADR 0735, and this test
+/// is what fails if only one of them does.
+#[test]
+fn a_glyph_stroked_in_a_tiling_pattern_is_tiled() {
+    // `1 Tr` is stroke-only, so nothing but the stroking colour decides what this glyph gets,
+    // and the green is the fallback this test exists to catch.
+    let raster = render(pdf_with_font(
+        &quartered_cell(),
+        "BT /F0 120 Tf 0 1 0 RG /Pattern CS /P0 SCN 3 w 1 Tr 5 10 Td (A) Tj ET",
+    ));
+    let mut red = 0u32;
+    let mut green = 0u32;
+    for y in 0..100u32 {
+        for x in 0..100u32 {
+            let (r, g, b, alpha) = pixel(&raster, x, y);
+            if alpha > 0 && r > g && r > b {
+                red += 1;
+            } else if alpha > 0 && g > r && g > b {
+                green += 1;
+            }
+        }
+    }
     assert!(
-        reported.contains("a stroke whose colour is a tiling pattern"),
-        "the unimplemented half of §8.7.3 should be named on the text route too: {reported}"
+        red > 20,
+        "the glyph's outline is stroked in the cell: {red}"
+    );
+    assert_eq!(
+        green, 0,
+        "and never in the solid colour the pattern replaced"
     );
 }
 
