@@ -18,7 +18,10 @@ use std::sync::{Mutex, OnceLock};
 
 use pdf_render::{Path, PathCommand, Point};
 use pdf_syntax::{Dictionary, Document, Object};
-use skrifa::outline::{DrawSettings, OutlinePen};
+use skrifa::outline::{
+    DrawSettings, Engine, HintingInstance, HintingOptions, OutlineGlyphCollection, OutlinePen,
+    Target,
+};
 use skrifa::prelude::{LocationRef, Size};
 use skrifa::raw::TableProvider;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
@@ -429,6 +432,26 @@ pub struct LoadedFont {
     /// route is the arm where it loses: the eager array would allocate and zero 8 KiB at load
     /// for a font whose `/ToUnicode` answers every code and that never arrives here at all.
     agl_by_code: OnceLock<Box<[OnceLock<Option<String>>; 256]>>,
+    /// The TrueType interpreter, for the one family of fonts whose *shapes* depend on it.
+    ///
+    /// Most TrueType instructions grid-fit an outline the `glyf` table already states, and
+    /// this crate deliberately draws unhinted — a resolution decision, argued at
+    /// [`Self::build_outline`]. A small family of fonts (`DynaLab`'s DFKai-SB among them)
+    /// stores stroke *skeletons* and computes each glyph's finished contours in its
+    /// instruction programs, so skipping the interpreter there draws contours the font never
+    /// meant as a picture. `skrifa` carries `FreeType`'s detection of exactly that family —
+    /// [`OutlineGlyphCollection::require_interpreter`], the `FT_FACE_FLAG_TRICKY` list — and
+    /// its documentation states the contract this cell follows: when it answers true, hint
+    /// through [`Engine::Interpreter`] with [`Target::Mono`].
+    ///
+    /// Built once because `require_interpreter` reads the name table and may checksum font
+    /// programs, and because [`HintingInstance::new`] runs the font's `fpgm` and `prep`
+    /// programs — for the fonts in this family, the bulk of the machinery. `None` for every
+    /// other font, which therefore draws exactly as before. Witness: page one of a crawled
+    /// class list (`doc/checks/fixed-documents.toml`, `7803013.pdf`) whose embedded
+    /// DFKaiShu-SB subset drew thin, misassembled strokes 2.25 ink points lighter than
+    /// either reference at 8×. ADR 0727.
+    hinting: OnceLock<Option<HintingInstance>>,
     /// §9.10.2's last resort: what the *program* calls each glyph it defines.
     ///
     /// Keyed by glyph index rather than by character code, which is what lets one table serve
@@ -648,6 +671,7 @@ impl LoadedFont {
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
             agl_by_code: OnceLock::new(),
+            hinting: OnceLock::new(),
             program_by_glyph: OnceLock::new(),
         })
     }
@@ -801,6 +825,7 @@ impl LoadedFont {
             outlines: Mutex::new(BTreeMap::new()),
             codes_by_character: OnceLock::new(),
             agl_by_code: OnceLock::new(),
+            hinting: OnceLock::new(),
             program_by_glyph: OnceLock::new(),
         })
     }
@@ -1559,6 +1584,41 @@ impl LoadedFont {
         }
     }
 
+    /// The interpreter instance for a hint-reliant font program, built on first use.
+    ///
+    /// `None` for every font the library does not place in that family, and for a family
+    /// member whose `fpgm`/`prep` programs fail — both of which draw unhinted, exactly as
+    /// every font did before ADR 0727.
+    ///
+    /// The size is one pixel per design unit, and that is the decision this method exists to
+    /// hold: an instruction that rounds to the pixel grid then rounds to the grid the outline
+    /// was designed on — a near no-op — while the constructive moves this family's programs
+    /// exist for are carried out in full. So the outline stays resolution-independent, which
+    /// is what [`Self::outlines`]' cache and every caller rely on, and the grid-fitting half
+    /// of hinting stays declined, which is this tree's standing scan-conversion position
+    /// (`doc/todo/_scan-conversion.md`). [`Target::Mono`] and [`Engine::Interpreter`] are the
+    /// combination [`OutlineGlyphCollection::require_interpreter`]'s own documentation
+    /// prescribes for this family.
+    fn hinting(&self, glyphs: &OutlineGlyphCollection) -> Option<&HintingInstance> {
+        self.hinting
+            .get_or_init(|| {
+                if !glyphs.require_interpreter() {
+                    return None;
+                }
+                HintingInstance::new(
+                    glyphs,
+                    Size::new(self.units_per_em),
+                    LocationRef::default(),
+                    HintingOptions {
+                        engine: Engine::Interpreter,
+                        target: Target::Mono,
+                    },
+                )
+                .ok()
+            })
+            .as_ref()
+    }
+
     /// Extracts and normalises one glyph outline.
     fn build_outline(&self, glyph: u16) -> Option<Arc<Path>> {
         let mut pen = PathPen {
@@ -1573,16 +1633,31 @@ impl LoadedFont {
             Program::Type1 => self.type1.as_ref()?.draw(glyph, &mut pen).ok()?,
             Program::Sfnt => {
                 let font = FontRef::new(&self.data).ok()?;
-                let outline = font.outline_glyphs().get(GlyphId::from(glyph))?;
-                // Unhinted and unscaled: hinting is a device-resolution decision, and this
-                // outline is resolution-independent because the text matrix scales it
-                // later.
-                outline
-                    .draw(
-                        DrawSettings::unhinted(Size::unscaled(), LocationRef::default()),
-                        &mut pen,
-                    )
-                    .ok()?;
+                let glyphs = font.outline_glyphs();
+                let outline = glyphs.get(GlyphId::from(glyph))?;
+                // Unhinted and unscaled by default: hinting is a device-resolution decision,
+                // and this outline is resolution-independent because the text matrix scales
+                // it later. The exception is the hint-reliant family — see [`Self::hinting`]
+                // — whose instructions *construct* the contours rather than grid-fit them;
+                // those draw through the interpreter, and a bytecode failure falls back to
+                // the unhinted skeleton, which is the picture every glyph of the family drew
+                // before ADR 0727 rather than no glyph at all.
+                let unhinted = || DrawSettings::unhinted(Size::unscaled(), LocationRef::default());
+                match self.hinting(&glyphs) {
+                    Some(instance) => {
+                        if outline
+                            .draw(DrawSettings::hinted(instance, false), &mut pen)
+                            .is_err()
+                        {
+                            pen.path = Path::new();
+                            pen.last = None;
+                            outline.draw(unhinted(), &mut pen).ok()?;
+                        }
+                    }
+                    None => {
+                        outline.draw(unhinted(), &mut pen).ok()?;
+                    }
+                }
             }
         }
 
@@ -2264,6 +2339,215 @@ mod simple_font_subtype_tests {
         assert!(
             !matches!(composite, Err(FontError::Malformed { .. })),
             "and it fails on the composite path, not on the program: {composite:?}"
+        );
+    }
+
+    /// Assembles a minimal sfnt whose one drawable glyph carries constructive instructions.
+    ///
+    /// The glyph's `glyf` data states a 300-unit square at (100, 100); its instruction
+    /// program moves point 3 — the square's top-left corner — up by 100 units (`SVTCA[y]`, `PUSHB` the point, `PUSHW` 6400
+    /// sixty-fourths, `SHPIX`). A renderer that draws the stated outline and one that runs
+    /// the program therefore disagree about one y coordinate by a tenth of an em — the
+    /// hint-reliant construction of ADR 0727's witness, reduced to one point. `family` goes
+    /// into the name table, which is what `skrifa`'s `require_interpreter` reads; `fpgm` is
+    /// prepended verbatim when given, so a test can hand the interpreter a program that
+    /// cannot run.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::arithmetic_side_effects,
+        reason = "a fixture builder over a font of two glyphs: every quantity is a few \
+                  hundred, and a wrong table is what the assertions exist to catch"
+    )]
+    fn instructed_sfnt(family: &str, fpgm: &[u8]) -> Vec<u8> {
+        let be16 = |v: i32| (v as i16).to_be_bytes();
+
+        let mut head = Vec::new();
+        head.extend_from_slice(&0x0001_0000_u32.to_be_bytes()); // version
+        head.extend_from_slice(&[0; 8]); // fontRevision, checkSumAdjustment
+        head.extend_from_slice(&0x5F0F_3CF5_u32.to_be_bytes()); // magic
+        head.extend_from_slice(&be16(0)); // flags
+        head.extend_from_slice(&be16(1000)); // unitsPerEm
+        head.extend_from_slice(&[0; 16]); // created, modified
+        for v in [100, 100, 400, 500] {
+            head.extend_from_slice(&be16(v)); // xMin, yMin, xMax, yMax
+        }
+        head.extend_from_slice(&be16(0)); // macStyle
+        head.extend_from_slice(&be16(8)); // lowestRecPPEM
+        head.extend_from_slice(&be16(2)); // fontDirectionHint
+        head.extend_from_slice(&be16(1)); // indexToLocFormat: long
+        head.extend_from_slice(&be16(0)); // glyphDataFormat
+
+        let mut maxp = Vec::new();
+        maxp.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        for v in [2, 8, 1, 0, 0, 2, 4, 8, 8, 0, 32, 32, 0, 0] {
+            maxp.extend_from_slice(&be16(v));
+        }
+
+        let mut hhea = Vec::new();
+        hhea.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        for v in [800, -200, 0, 500, 0, 0, 500, 1, 0, 0, 0, 0, 0, 0, 0, 2] {
+            hhea.extend_from_slice(&be16(v));
+        }
+
+        let mut hmtx = Vec::new();
+        for _ in 0..2 {
+            hmtx.extend_from_slice(&be16(500));
+            hmtx.extend_from_slice(&be16(0));
+        }
+
+        // One (1, 0) format 0 subtable mapping code 0x41 to glyph 1.
+        let mut cmap = Vec::new();
+        cmap.extend_from_slice(&be16(0)); // version
+        cmap.extend_from_slice(&be16(1)); // one subtable
+        cmap.extend_from_slice(&be16(1)); // platform: Macintosh
+        cmap.extend_from_slice(&be16(0)); // encoding: Roman
+        cmap.extend_from_slice(&12_u32.to_be_bytes()); // offset
+        cmap.extend_from_slice(&be16(0)); // format 0
+        cmap.extend_from_slice(&be16(262)); // length
+        cmap.extend_from_slice(&be16(0)); // language
+        let mut codes = [0_u8; 256];
+        codes[0x41] = 1;
+        cmap.extend_from_slice(&codes);
+
+        let mut glyph = Vec::new();
+        glyph.extend_from_slice(&be16(1)); // one contour
+        for v in [100, 100, 400, 400] {
+            glyph.extend_from_slice(&be16(v)); // bounds
+        }
+        glyph.extend_from_slice(&be16(3)); // endPtsOfContours
+        // SVTCA[y]; PUSHB[0] 0 (the point); PUSHW[0] 6400 (100 units in F26Dot6); SHPIX.
+        let instructions: &[u8] = &[0x00, 0xB0, 0x03, 0xB8, 0x19, 0x00, 0x38];
+        glyph.extend_from_slice(&be16(instructions.len() as i32));
+        glyph.extend_from_slice(instructions);
+        glyph.extend_from_slice(&[0x01; 4]); // four on-curve points, long deltas
+        for delta in [100, 300, 0, -300] {
+            glyph.extend_from_slice(&be16(delta)); // x
+        }
+        for delta in [100, 0, 300, 0] {
+            glyph.extend_from_slice(&be16(delta)); // y
+        }
+
+        let mut loca = Vec::new();
+        for offset in [0_u32, 0, glyph.len() as u32] {
+            loca.extend_from_slice(&offset.to_be_bytes()); // glyph 0 is empty
+        }
+
+        // Format 0, one record: the family name, Macintosh Roman, English.
+        let name_bytes = family.as_bytes();
+        let mut name = Vec::new();
+        for v in [0, 1, 18, 1, 0, 0, 1, name_bytes.len() as i32, 0] {
+            name.extend_from_slice(&be16(v));
+        }
+        name.extend_from_slice(name_bytes);
+
+        let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
+            (*b"cmap", cmap),
+            (*b"glyf", glyph),
+            (*b"head", head),
+            (*b"hhea", hhea),
+            (*b"hmtx", hmtx),
+            (*b"loca", loca),
+            (*b"maxp", maxp),
+            (*b"name", name),
+        ];
+        if !fpgm.is_empty() {
+            tables.insert(1, (*b"fpgm", fpgm.to_vec()));
+        }
+
+        let mut out = Vec::new();
+        out.extend_from_slice(&0x0001_0000_u32.to_be_bytes());
+        out.extend_from_slice(&(tables.len() as u16).to_be_bytes());
+        out.extend_from_slice(&[0; 6]); // binary-search hints, which nothing reads
+        let directory = 12 + 16 * tables.len();
+        let mut body = Vec::new();
+        for (tag, data) in &tables {
+            out.extend_from_slice(tag);
+            out.extend_from_slice(&0_u32.to_be_bytes());
+            out.extend_from_slice(&((directory + body.len()) as u32).to_be_bytes());
+            out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+            body.extend_from_slice(data);
+            while body.len() % 4 != 0 {
+                body.push(0);
+            }
+        }
+        out.extend_from_slice(&body);
+        out
+    }
+
+    /// The highest y any point of the fixture glyph's outline reaches, in ems.
+    fn top_of_a(document: &pdf_syntax::Document, dict: &pdf_syntax::Dictionary) -> f32 {
+        let font = LoadedFont::load(document, dict, "F1").expect("the fixture font loads");
+        let outline = font
+            .outline(crate::Code::single_byte(0x41))
+            .expect("code 0x41 reaches the fixture's one glyph");
+        let mut top = f32::MIN;
+        let mut consider = |point: &pdf_render::Point| top = top.max(point.y);
+        for command in outline.commands() {
+            match command {
+                pdf_render::PathCommand::MoveTo(p) | pdf_render::PathCommand::LineTo(p) => {
+                    consider(p);
+                }
+                pdf_render::PathCommand::CurveTo(a, b, c) => {
+                    consider(a);
+                    consider(b);
+                    consider(c);
+                }
+                pdf_render::PathCommand::Close => {}
+            }
+        }
+        top
+    }
+
+    /// A hint-reliant face draws what its instructions construct, not what `glyf` states.
+    ///
+    /// ISO 32000-2 §9.6.3 requires TrueType font programs, and for the family `FreeType` calls
+    /// tricky — DFKai-SB among them — the program's instructions *are* the artwork: ADR
+    /// 0727's witness stores stroke skeletons and assembles every glyph in bytecode. The
+    /// fixture reduces that to one point: its instructions move the square's top-left corner up
+    /// a tenth of an em, so the interpreter's answer and the stated outline's differ by a
+    /// quantity nothing else in the fixture produces. The same bytes under a family name on
+    /// nobody's list draw the stated square, which pins that the interpreter runs *only* for
+    /// the family — every other font draws exactly as before ADR 0727.
+    #[test]
+    fn a_hint_reliant_familys_instructions_construct_the_outline() {
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("DFKai-SB", &[]),
+        );
+        let moved = top_of_a(&document, &dict);
+        assert!(
+            (moved - 0.5).abs() < 1e-3,
+            "the instructed corner reaches half an em: {moved}"
+        );
+
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("Ordinary", &[]),
+        );
+        let stated = top_of_a(&document, &dict);
+        assert!(
+            (stated - 0.4).abs() < 1e-3,
+            "an ordinary family draws the stated square: {stated}"
+        );
+    }
+
+    /// A family font whose interpreter cannot start still draws — the stated outline.
+    ///
+    /// `HintingInstance::new` runs the font's `fpgm`; a program that pops an empty stack
+    /// cannot. The fallback is the picture every glyph of the family drew before ADR 0727,
+    /// rather than no glyph: a refusal here would take the whole page's text with it for a
+    /// defect in one table.
+    #[test]
+    fn a_family_font_with_a_broken_program_falls_back_to_the_stated_outline() {
+        let (document, dict) = crate::fixture::symbolic_font_with_binary_program(
+            "TrueType",
+            &instructed_sfnt("DFKai-SB", &[0x38]), // SHPIX with nothing on the stack
+        );
+        let top = top_of_a(&document, &dict);
+        assert!(
+            (top - 0.4).abs() < 1e-3,
+            "the skeleton is drawn when the program cannot run: {top}"
         );
     }
 }

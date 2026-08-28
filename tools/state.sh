@@ -175,7 +175,10 @@ section_counts() {
     printf 'specification docs:  %s pdf, %s markdown\n' \
         "$(ls doc/*.pdf 2>/dev/null | wc -l)" "$(ls doc/md/*.md 2>/dev/null | wc -l)"
     printf 'pdf.js corpus:       %s\n' "$(find doc/pdf.js/test/pdfs -maxdepth 1 -name '*.pdf' 2>/dev/null | wc -l)"
-    printf 'doc/corpora:         %s\n' "$(find doc/corpora -name '*.pdf' 2>/dev/null | wc -l)"
+    # `-L`: in a parallel worktree each corpus under doc/corpora is a *symlink* into the main
+    # checkout (tools/worktree.sh), and find does not follow symlinks it discovers — so without
+    # it every worktree round read "0" here while the main tree held hundreds of documents.
+    printf 'doc/corpora:         %s\n' "$(find -L doc/corpora -name '*.pdf' 2>/dev/null | wc -l)"
     printf 'SafeDocs:            never in this tree — `target/safedocs list --dir <path>` counts\n'
     printf '                     whatever has been fetched, and `survey --dir <path>` re-baselines it\n'
 }

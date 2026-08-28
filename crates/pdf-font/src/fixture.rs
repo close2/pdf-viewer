@@ -79,3 +79,59 @@ pub(crate) fn font_with_program(subtype: &str, program: &[u8]) -> (Document, Dic
         .clone();
     (document, dict)
 }
+
+/// The same shape with the program carried byte for byte, for a program that has to *work*.
+///
+/// [`font_with_program`] routes the bytes through a `String`, which is fine for its callers —
+/// they want a deterministic refusal — and destroys any real font program, whose tables are
+/// not UTF-8. This builds the whole file as bytes, so a test can state a working `glyf` and
+/// watch it draw. The descriptor sets Table 121's Symbolic flag (bit 3 of the descriptor's `/Flags`),
+/// which is what lets a fixture's own `(1, 0)` `cmap` subtable answer for its codes without
+/// this machine's encodings in the room.
+pub(crate) fn symbolic_font_with_binary_program(
+    subtype: &str,
+    program: &[u8],
+) -> (Document, Dictionary) {
+    let mut body: Vec<u8> = Vec::new();
+    let mut offsets = Vec::new();
+
+    offsets.push(body.len());
+    body.extend_from_slice(
+        format!(
+            "1 0 obj\n<< /Type /Font /Subtype /{subtype} \
+             /FontDescriptor << /Flags 4 /FontFile2 2 0 R >> >>\nendobj\n"
+        )
+        .as_bytes(),
+    );
+    offsets.push(body.len());
+    body.extend_from_slice(
+        format!("2 0 obj\n<< /Length {} >>\nstream\n", program.len()).as_bytes(),
+    );
+    body.extend_from_slice(program);
+    body.extend_from_slice(b"\nendstream\nendobj\n");
+
+    let mut out: Vec<u8> = b"%PDF-1.7\n".to_vec();
+    let base = out.len();
+    out.extend_from_slice(&body);
+    let xref_at = out.len();
+    let mut trailer = String::from("xref\n0 3\n0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(trailer, "{:010} 00000 n ", base.saturating_add(*offset));
+    }
+    let _ = write!(
+        trailer,
+        "trailer\n<< /Size 3 /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.extend_from_slice(trailer.as_bytes());
+
+    let document = Document::open(out).expect("the fixture is a valid PDF");
+    let dict = document
+        .get(ObjectId {
+            number: 1,
+            generation: 0,
+        })
+        .as_dict()
+        .expect("object 1 is the font dictionary")
+        .clone();
+    (document, dict)
+}
