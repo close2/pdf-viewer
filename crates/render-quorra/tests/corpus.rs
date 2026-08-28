@@ -642,6 +642,17 @@ const DIFFERS_AT_THE_EDGES: [&str; 5] = [
 /// operators. Against the *references* the page improved — mean 7.45 → 7.38, worst tile 16.44 →
 /// 15.32, ssim 0.8333 → 0.8543 — which is the same direction and the same reason the four took,
 /// and `doc/QUORRA_FEEDBACK.md` section 24 is still the ask.
+///
+/// **ADR 0735 reaches neither of the two pattern-shaped names here, which had to be checked
+/// rather than assumed** (ADR 0738). The eight-hundred-and-second session drew a stroke whose
+/// colour is a tiling pattern by cutting the tiles to the alpha of a group holding that stroke
+/// (§11.5.2), and it names `issue12295.pdf` and `issue16038.pdf` once each, in a measurement
+/// line recording that neither moved. Neither can: `issue12295.pdf` states no `/Pattern` and no
+/// `SCN` anywhere, and `issue16038.pdf` installs its cells with `scn` under a `B` whose stroking
+/// colour is a flat `0 G`, so both take the fill arm, which that session left unchanged in every
+/// particular. What this gate prints for `issue16038.pdf` today is mean **1.2328** at ssim
+/// 0.98798 — below the 1.2808 recorded above, so the two rasterisers have come *closer* on it
+/// since, and the figures above are the movements their own sessions measured.
 const DIFFERS_IN_SHAPE: [&str; 17] = [
     "22060_A1_01_Plans.pdf",
     "bug1844576.pdf",

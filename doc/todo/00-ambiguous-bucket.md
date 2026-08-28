@@ -588,6 +588,35 @@ so while the four references produce four different strings from the same bytes.
 clause, the eleven names, what each reference guesses, and the measurement that says the pages
 would be `ambiguous` whatever we drew.** Read it before re-deriving the head.
 
+**Re-run whole in the eight-hundred-and-sixth**, over every page the gate prints as `ambiguous`,
+after the round that gave a patterned stroke its own region (ADR 0735) had gone in and while
+nothing in this round could move a pixel. On this file's own recipe (`-alpha off -colorspace
+Gray`): **19 at or past −1, 16 of them documents this tree calls incomplete**, and on the complete
+documents `issue16038.pdf` −5.642, `issue12295.pdf` −2.362, `issue14297.pdf` −1.135, then
+`issue7821.pdf` −0.957, `jpx_smaskindata.pdf` −0.840 and nothing past −0.535 — **three names past
+−1 and all three diagnosed**, the alarm holding again. The head is the eight-hundred-and-second
+session's to the thousandth on both of its entries.
+
+**And the annotation four of the runs below carry on that head is spent**: they gloss
+`issue16038.pdf` as "13% short by its own note", which was that note's interior-coverage figure
+before ADR 0155 and ADR 0213. Re-measured in this round the two squares are within 3% of the
+geometry at the page's own scale and within 0.2% at 24×, and the page's whole ink is **313.02
+against a corrected closed form of 313.12** — the 316.29 that note carried counts the twenty rules'
+ends twice, once as rule and once as the border they run under. So the head of this ranking is the
+references' excess rather than our shortfall, which the paragraph below already argued and had
+never held a limit of ours to. ADR 0738.
+
+**And the head's number is a measurement of the *recipe* as much as of the page, which cost this
+round twenty minutes.** The same run taken with a greyscale of one's own — Rec601 luma over the
+three channels, which is what a reader reaches for — puts `issue16038.pdf` at **−5.394** and
+`issue12295.pdf` at −2.364. The second is unmoved and the first is a quarter of a level out,
+because that page's rules are pure **blue** and every greyscale weights blue differently, while
+`issue12295.pdf` is near-black and weights the same in all of them. This file already says an
+absolute value differs between recipes on a coloured page; what it did not say is that the
+*difference between two renderers* does too, and a quarter of a level is the size of the movement
+this sweep is watched for. **Take the head with `magick` and the recipe as written**, or the
+comparison against the last round's number is a comparison of two instruments.
+
 **Re-run in the two-hundred-and-sixty-fifth over the tail, and it produced a defect** —
 `rc_annotation.pdf` page 1 at **−1.783 of 255**, past the −1 this file names as the alarm. The
 page is one text annotation with `/Rect [50 50 50 50]`, this tree drew **nothing** for it, and
