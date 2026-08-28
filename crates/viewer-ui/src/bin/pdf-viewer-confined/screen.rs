@@ -101,12 +101,25 @@ enum Content {
         /// What the pixels were drawn from, `None` where they crossed as pixels.
         drawn: Option<(Arc<DisplayList>, TargetSpec)>,
     },
-    /// The rasteriser refused the page, in its own words.
+    /// The rasteriser refused the page, in its own words, and what it refused.
     ///
-    /// Kept rather than retried: a rasteriser that refused this list at this target will refuse
-    /// it again (the same reasoning as `viewer_core::Rendered::Failed`), and trap 5 wants the
-    /// sentence on the screen's status rather than a quiet gap.
-    Refused(String),
+    /// Kept rather than retried **for that drawing and no other**: a rasteriser that refused this
+    /// list at this target will refuse it again (the same reasoning as
+    /// `viewer_core::Rendered::Failed`), and trap 5 wants the sentence on the screen's status
+    /// rather than a quiet gap. The pair is what makes "that drawing" checkable, and it is the
+    /// same identity every other variant here keeps.
+    ///
+    /// **A refusal is about a drawing, not about a page.** `render-cpu` refuses a target whose
+    /// pixels exceed `pdf_render::MAX_PIXELS`, so the commonest refusal this window can show is
+    /// one a zoom *out* lifts and a re-interpretation replaces outright — and a refusal held
+    /// against the page would have made the first magnification that overshot permanent for the
+    /// rest of the document's life on the screen. It was, from ADR 0713 until this pair existed.
+    Refused {
+        /// The rasteriser's own sentence.
+        words: String,
+        /// The list and target that were refused, by the identity [`Self::Drawing`] keeps.
+        of: (Arc<DisplayList>, TargetSpec),
+    },
 }
 
 /// One page of the arrangement, where it sits, and what it has come to.
@@ -175,6 +188,11 @@ impl Screen {
     /// reach the device as the same page (the identity `viewer_confined::Confined` preserves
     /// across frames, ADR 0725).
     ///
+    /// **On both, a refusal is kept only for the drawing that earned it** — the same identity,
+    /// applied to the one variant that used to ignore it ([`Content::Refused`] says what that
+    /// cost). A new list or a new target is a question the rasteriser has not been asked, so it
+    /// is asked.
+    ///
     /// A page the new arrangement no longer shows takes the drawing thread back
     /// ([`Drawing::superseded`]'s rule, decided here because only this side knows the new
     /// arrangement): pixels drawn for it could never reach the window.
@@ -239,7 +257,13 @@ impl Screen {
                             }
                         }
                         // The same drawing, already refused by both: retrying a refusal is a loop.
-                        Some(Content::Refused(words)) => Content::Refused(words),
+                        // A *different* drawing is not that loop and falls through to the device,
+                        // which is what lets a zoom out lift a refusal the zoom in earned.
+                        Some(Content::Refused { words, of })
+                            if Arc::ptr_eq(&of.0, &list) && of.1 == target =>
+                        {
+                            Content::Refused { words, of }
+                        }
                         _ => Content::Marks(list, target),
                     }
                 }
@@ -259,8 +283,13 @@ impl Screen {
                         {
                             Content::Drawing(asked_list, asked_target)
                         }
-                        // The same drawing, already refused: retrying a refusal is a loop.
-                        Some(Content::Refused(words)) => Content::Refused(words),
+                        // The same drawing, already refused: retrying a refusal is a loop. A
+                        // different one is a question the rasteriser has not been asked.
+                        Some(Content::Refused { words, of })
+                            if Arc::ptr_eq(&of.0, &list) && of.1 == target =>
+                        {
+                            Content::Refused { words, of }
+                        }
                         _ => {
                             drawing.ask(Draw {
                                 page,
@@ -319,7 +348,10 @@ impl Screen {
                 true
             }
             Some(Rendered::Failed(words)) => {
-                slot.content = Content::Refused(words);
+                slot.content = Content::Refused {
+                    words,
+                    of: (request.list, request.target),
+                };
                 true
             }
             // `Presented` and `Listed` are statements a host makes *to* a viewer, and this thread
@@ -343,7 +375,7 @@ impl Screen {
     /// The sentences of every page the rasteriser refused, for a status line.
     pub(crate) fn refusals(&self) -> impl Iterator<Item = (usize, &str)> {
         self.slots.iter().filter_map(|slot| match &slot.content {
-            Content::Refused(words) => Some((slot.page, words.as_str())),
+            Content::Refused { words, .. } => Some((slot.page, words.as_str())),
             _ => None,
         })
     }
@@ -402,7 +434,7 @@ impl Screen {
                     Arc::clone(list),
                     placed(image_target(list), slot.origin, width, height),
                 )),
-                Content::Drawing(..) | Content::Pixels(..) | Content::Refused(_) => None,
+                Content::Drawing(..) | Content::Pixels(..) | Content::Refused { .. } => None,
             })
             .collect()
     }
@@ -889,6 +921,119 @@ mod tests {
                 Some((&Content::Pixels(..), 1))
             ),
             "what remains is page 1's pixels"
+        );
+    }
+
+    /// A refusal is kept for the drawing that earned it and for nothing else: the same list at
+    /// the same target keeps the sentence, and a new target asks again.
+    ///
+    /// The zoom is the case that matters. `render-cpu` refuses a target whose pixels exceed
+    /// `pdf_render::MAX_PIXELS`, so a magnification that overshoots is refused and the next one
+    /// down is not — and until this identity existed the first refusal was the page's for good
+    /// (ADR 0713's `Content::Refused(String)`), whatever the reader zoomed to afterwards.
+    #[test]
+    fn a_refusal_is_kept_for_its_own_drawing_and_not_for_the_page() {
+        let mut screen = Screen::new();
+        let mut drawing = Drawing::new();
+        screen.resize(30, 30);
+        let list = a_list(8.0, 8.0);
+        let refused = TargetSpec::for_page(&list, 1.0, u64::from(u32::MAX)).expect("a target");
+        let after_a_zoom = TargetSpec::for_page(&list, 2.0, u64::from(u32::MAX)).expect("a target");
+        let framed = |target| {
+            vec![Framed {
+                page: 0,
+                payload: Payload::List {
+                    list: Arc::clone(&list),
+                    target,
+                },
+                origin: (0.0, 0.0),
+            }]
+        };
+        screen.take(framed(refused), &mut drawing);
+        // The rasteriser's refusal, in the shape `landed` takes it.
+        assert!(screen.landed(Finished {
+            request: Draw {
+                page: 0,
+                list: Arc::clone(&list),
+                target: refused,
+            },
+            outcome: Some(viewer_core::Rendered::Failed("too many pixels".to_owned())),
+            cost: std::time::Duration::ZERO,
+            waited: std::time::Duration::ZERO,
+        }));
+        assert_eq!(
+            screen.refusals().collect::<Vec<_>>(),
+            vec![(0, "too many pixels")],
+            "the sentence is on the status"
+        );
+        // A scroll: the same drawing, moved. The refusal stands, and nothing is re-asked.
+        screen.take(framed(refused), &mut drawing);
+        assert!(screen.settled(), "a refused drawing is not asked again");
+        assert_eq!(screen.refusals().count(), 1, "and it still says why");
+        // A zoom: a target the rasteriser has never been asked about.
+        screen.take(framed(after_a_zoom), &mut drawing);
+        assert_eq!(
+            screen.refusals().count(),
+            0,
+            "the refusal did not outlive the target it was about"
+        );
+        drain(&mut screen, &mut drawing);
+        let window = screen.compose().expect("a window with an extent composes");
+        assert_eq!(
+            pixel(&window, 1, 1),
+            [255, 0, 0, 255],
+            "and the page drew at the new target"
+        );
+    }
+
+    /// The same, on a device screen: a refused fallback goes back to the device at a new target
+    /// rather than staying refused for ever (ADR 0725's arm inherited the defect).
+    #[test]
+    fn a_device_screens_refusal_is_kept_for_its_own_drawing_too() {
+        let mut screen = Screen::for_device();
+        let mut drawing = Drawing::new();
+        screen.resize(30, 30);
+        let list = a_list(8.0, 8.0);
+        let refused = TargetSpec::for_page(&list, 1.0, u64::from(u32::MAX)).expect("a target");
+        let after_a_zoom = TargetSpec::for_page(&list, 2.0, u64::from(u32::MAX)).expect("a target");
+        let framed = |target| {
+            vec![Framed {
+                page: 0,
+                payload: Payload::List {
+                    list: Arc::clone(&list),
+                    target,
+                },
+                origin: (0.0, 0.0),
+            }]
+        };
+        screen.take(framed(refused), &mut drawing);
+        assert_eq!(screen.fall_back(&mut drawing), 1, "the device refused it");
+        assert!(screen.landed(Finished {
+            request: Draw {
+                page: 0,
+                list: Arc::clone(&list),
+                target: refused,
+            },
+            outcome: Some(viewer_core::Rendered::Failed("too many pixels".to_owned())),
+            cost: std::time::Duration::ZERO,
+            waited: std::time::Duration::ZERO,
+        }));
+        screen.take(framed(refused), &mut drawing);
+        assert_eq!(screen.refusals().count(), 1, "the same drawing, refused");
+        assert!(
+            screen.device_pages(30, 30).is_empty(),
+            "and not offered to the device that refused it"
+        );
+        screen.take(framed(after_a_zoom), &mut drawing);
+        assert_eq!(
+            screen.refusals().count(),
+            0,
+            "a new target is a new question"
+        );
+        assert_eq!(
+            screen.device_pages(30, 30).len(),
+            1,
+            "asked of the device first, as every marks page is"
         );
     }
 
