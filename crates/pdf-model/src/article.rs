@@ -26,7 +26,7 @@
 //! thread instead of the process. Only `/N` is followed, for [`crate::outline`]'s reason:
 //! `/V` is redundant with it and could only disagree.
 //!
-//! # The document states the beads twice, and the two statements disagree about their order
+//! # The document states the beads twice, and an erratum decided what order they are in
 //!
 //! Table 31's `/B` on a *page* is the same set of beads reached the other way — and its NOTE 2
 //! says so outright: "[t]he information in this entry can be created or recreated from the
@@ -35,14 +35,24 @@
 //! stream's length taught here: *what does this file say about itself twice, and does it
 //! agree?*
 //!
-//! The two clauses do **not** agree about the order, and this is the standard contradicting
-//! itself rather than a file doing it. Table 31: "[t]he beads shall be listed in the array in
-//! natural reading order." §12.4.3: "the page object … shall contain a B entry whose value is
-//! an array of indirect references to the beads on the page, in drawing order." Nothing here
-//! has to choose, because nothing here draws from `/B`: [`Articles::beads_on_page`] answers
-//! from the *threads*, whose order §12.4.3 states unambiguously, and [`Articles::page_array_agrees`]
-//! reports whether a page's own array holds the same set. Comparing the set rather than the
-//! sequence is a **documented choice**, and it is the only comparison both sentences license.
+//! **As published the two clauses disagree about the order**, which is the standard
+//! contradicting itself rather than a file doing it. Table 31: "[t]he beads shall be listed in
+//! the array in natural reading order." §12.4.3: "the page object … shall contain a B entry
+//! whose value is an array of indirect references to the beads on the page, in drawing order."
+//! Errata Collection 3's Issue #320 strikes *natural* from the first and replaces *drawing*
+//! with *reading* in the second, so both amended sentences ask for the same thing: reading
+//! order. An erratum is evidence about the standard rather than the standard (ADR 0601), and
+//! this is the case where that evidence is decisive — the published clauses cannot both be
+//! obeyed, and the collection says which way the contradiction resolves.
+//!
+//! So [`Articles::page_array_agrees`] compares the **sequence** where the beads on the page
+//! all hang on one thread, since a thread's chain from `/F` along `/N` *is* the article's
+//! reading order, and falls back to comparing the **set** where two or more threads put beads
+//! on one page — because neither sentence, published or amended, says how two articles
+//! sharing a page are ordered against each other. That fallback is a **documented choice** and
+//! its cost is written down: on such a page a `/B` array in the wrong order is not reported.
+//! Nothing here draws from `/B` in either case; [`Articles::beads_on_page`] answers from the
+//! threads.
 //!
 //! # What is not here
 //!
@@ -230,13 +240,32 @@ impl Articles {
             .collect()
     }
 
+    /// How many of this document's threads put a bead on one page.
+    ///
+    /// The order the amended clauses ask for is derivable from the threads only where the
+    /// answer is one: a thread's chain is its article's reading order, while two articles
+    /// sharing a page are not placed relative to each other by anything either clause says.
+    fn threads_on_page(&self, page: ObjectId) -> usize {
+        self.threads
+            .iter()
+            .filter(|thread| thread.beads.iter().any(|bead| bead.page == Some(page)))
+            .count()
+    }
+
     /// Whether a page's `/B` array names the same beads this reader found on that page.
     ///
     /// Table 31 NOTE 2 says `/B` "can be created or recreated from the information obtained
     /// from the `Threads` key", which makes it a second statement of a fact the threads
-    /// already carry — and a document stating a fact twice can be checked against itself. The
-    /// comparison is on the *set*, because Table 31 asks for "natural reading order" and
-    /// §12.4.3 for "drawing order" and neither can be checked while the other stands.
+    /// already carry — and a document stating a fact twice can be checked against itself.
+    ///
+    /// **The comparison is on the sequence where one thread supplies the page's beads**, and on
+    /// the set otherwise. As published Table 31 asks for "natural reading order" and §12.4.3
+    /// for "drawing order", and neither could be checked while the other stood; Issue #320
+    /// retires *natural* from the first and *drawing* from the second, leaving both asking for
+    /// reading order, which a single thread's `/F`-to-`/N` chain states. Two threads on one
+    /// page are ordered against each other by neither sentence, so there the set is still all
+    /// that is licensed — and a `/B` array out of order on such a page goes unreported, which
+    /// is the cost of the fallback.
     ///
     /// `None` where the page states no `/B`, which is not a disagreement: the entry is
     /// "recommended if the page contains article beads", never required.
@@ -252,12 +281,17 @@ impl Articles {
     ) -> Option<bool> {
         let stated = document.get_key(page, "B");
         let stated = stated.as_array()?;
-        let stated: BTreeSet<ObjectId> = stated.iter().filter_map(Object::as_reference).collect();
-        let found: BTreeSet<ObjectId> = self
+        let stated: Vec<ObjectId> = stated.iter().filter_map(Object::as_reference).collect();
+        let found: Vec<ObjectId> = self
             .beads_on_page(id)
             .into_iter()
             .map(|bead| bead.id)
             .collect();
+        if self.threads_on_page(id) > 1 {
+            let stated: BTreeSet<ObjectId> = stated.into_iter().collect();
+            let found: BTreeSet<ObjectId> = found.into_iter().collect();
+            return Some(stated == found);
+        }
         Some(stated == found)
     }
 }
@@ -505,6 +539,63 @@ mod tests {
             articles.page_array_agrees(&none, &dict, id(3)),
             None,
             "a page with no /B has not disagreed with anything"
+        );
+    }
+
+    /// A `/B` array in the wrong order disagrees — where one thread put the beads there.
+    ///
+    /// This is Issue #320's whole consequence. As published, Table 31's "natural reading
+    /// order" and §12.4.3's "drawing order" could not both be checked, so only the set was
+    /// comparable; with *natural* and *drawing* retired both sentences ask for reading order,
+    /// which one thread's chain states. The third element is the discrimination: two threads
+    /// on one page are ordered against each other by nothing either clause says, so the same
+    /// reversed array has to be accepted there — a comparison that had gone ordered
+    /// unconditionally would call that page a disagreement.
+    #[test]
+    fn a_bead_array_out_of_order_disagrees_where_one_thread_supplies_the_page() {
+        let one = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /Threads [3 0 R] >>",
+            "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /F 5 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /B [6 0 R 5 0 R] >>",
+            "<< /T 3 0 R /N 6 0 R /V 6 0 R /P 4 0 R /R [0 0 10 10] >>",
+            "<< /T 3 0 R /N 5 0 R /V 5 0 R /P 4 0 R /R [20 0 30 10] >>",
+        ]);
+        let articles = Articles::read(&one);
+        let pages = Pages::new(&one);
+        let dict = pages.get(0).expect("a page").dict;
+        assert_eq!(
+            articles.threads.first().map(|thread| thread
+                .beads
+                .iter()
+                .map(|bead| bead.id)
+                .collect::<Vec<_>>()),
+            Some(vec![id(5), id(6)]),
+            "the thread's chain is 5 then 6"
+        );
+        assert_eq!(
+            articles.page_array_agrees(&one, &dict, id(4)),
+            Some(false),
+            "the page lists the two beads in the order the thread does not"
+        );
+
+        let two = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /Threads [3 0 R 4 0 R] >>",
+            "<< /Type /Pages /Kids [5 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /F 6 0 R >>",
+            "<< /F 7 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /B [7 0 R 6 0 R] >>",
+            "<< /T 3 0 R /N 6 0 R /V 6 0 R /P 5 0 R /R [0 0 10 10] >>",
+            "<< /T 4 0 R /N 7 0 R /V 7 0 R /P 5 0 R /R [20 0 30 10] >>",
+        ]);
+        let articles = Articles::read(&two);
+        let pages = Pages::new(&two);
+        let dict = pages.get(0).expect("a page").dict;
+        assert_eq!(articles.threads.len(), 2);
+        assert_eq!(
+            articles.page_array_agrees(&two, &dict, id(5)),
+            Some(true),
+            "two articles share the page, so only the set is licensed"
         );
     }
 

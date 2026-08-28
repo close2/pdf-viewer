@@ -4160,6 +4160,15 @@ sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the r
 #    the row unit no longer does. Say which unit the head came from.
 ```
 
+**What the population is counted in, since seven consecutive uses have re-derived it without the
+definition being written down.** An `emit` line's subject is the annotation's `/Subj`, and a handful of
+them name two issues rather than one. The **single-issue line parse** keeps only the lines carrying
+exactly one issue number; the **multi-issue parse** takes every number on every line. The gap between
+the two figures is exactly the numbers that appear *only* as the second number of such a line, and a
+use that reproduces both is a use whose greps are working. `/Subj` is the field and not `/T`: the two
+disagree on one annotation pair in the whole document, and `doc/errata-read.md` has which way and how
+that was settled.
+
 **Step 4's ordering is an argument rather than a convention, and it is the one the fifth use ran.**
 The two rankings answer different questions and the second is the sharper of the two:
 
@@ -5313,3 +5322,65 @@ does. Both statuses moved and a test now pins the reader the first row denied.
   argument was written as a preference and is now arithmetic: what this rule has left to find sits
   almost entirely on rows claiming to owe nothing, which is where an `implemented` over an unread
   requirement lives. A round taking the live head from here is taking the smaller half.
+
+## The rule's sixteenth use, in the eight-hundred-and-fifteenth, and step 5's second outing
+
+**The row ranking is flat and flatter.** Both rankings top out at two annotations again: over live
+rows seven rows tie there, over every row 36, with 19 more at one — where the fifteenth use found
+eight and 39. The plateau is *shrinking as verdicts land* rather than sharpening, which is what a
+ranking whose unit has run out of resolution does, and it is the second consecutive use where the
+tie-break cannot be asked to choose among dozens. So step 5 ran: the same annotations counted by
+**issue**, where the population still has a shape — two issues at four annotations, two at three, 28
+at two, 21 at one.
+
+**The head is a tie of two at four annotations**, Issue #163 and Issue #700, settled for the first of the two by the third use's
+tie-break: one of its carets writes into a table cell and the other three move a requirement level,
+where the other's move a table's number. **The head confirmed and the walk downward paid three times.**
+ADR 0746; `doc/errata-read.md` has all eight annotations with their rectangles.
+
+- **Issue #163 confirms inside an exclusion**, which is the cheapest verdict this rule produces and the
+  second time step 4's practice has ended that way. It turns "[t]he RichMediaSettings dictionary is
+  unique to each annotation" into a conditional `shall` and states it twice more in §13.7.2.2.1 —
+  all of it inside `CLAUDE.md`'s clause-13 exclusion, which is revisited by argument and not by an
+  erratum landing in it.
+- **Issue #700 renumbers two tables and no instrument here can see it.** Table Annex O.3 becomes Table
+  Annex O.1 and Table Annex O.4 becomes Table Annex O.2; the published numbers stay, and the three
+  Annex O rows now record what they become. `moved` is blind by construction — its predicate wants
+  one of four verbs in the annotation's own contents and a *clause* number there, and a bare
+  strike-and-caret pair over a table caption has neither — while `check` is blind twice over. It is
+  the **sixth blindness**, the retired numbers stand on dozens of lines across this tree, and the
+  predicate a sweep for it would ask is written down in `doc/errata-read.md` rather than built.
+- **Issue #320 retired the reason a documented choice was standing on.** It strikes *natural* from Table
+  31's account of a page's `/B` array and replaces *drawing* with *reading* in §12.4.3's, so two
+  clauses that contradicted each other about that array's order now ask for the same one.
+  `Articles::page_array_agrees` had compared the *set* of beads and said in two places that no other
+  comparison was licensed; it compares the sequence where one thread supplied the page's beads and
+  keeps the set where two did, since neither sentence orders two articles sharing a page.
+- **Issue #376 vindicates two `implemented` rows.** Th is *the normalized value of the operand to the Tz
+  operator*, with 100% the operand for a scaling value of 1.0 — which §9.3.4's row had inferred and
+  the code has always done — and §9.4.4's NOTE 2, the text rendering matrix, becomes normative text,
+  which is how a renderer had to treat it anyway. Its reading found a wrong clause number no gate can
+  see: `variable_text.rs` cited §9.3.5 for `Tz`, and §9.3.5 is leading.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the seventh consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 60 named nowhere,
+  which is the fifteenth use's 61 less its one verdict, and the multi-issue parse's 310 and 62
+  reproduce the same way. **The parse itself is now written into the recipe**, above: seven uses had
+  re-derived two figures whose definition nothing stated, and the eight numbers that appear only as
+  the second number of a two-issue line are exactly the gap between them.
+- **Step 5 held up, and what it did not do is the more useful half.** It discriminated where the row
+  unit could not — a head of four against a floor of one — and it chose a reading, which is all a
+  selection rule owes. It did **not** produce a unique head: two issues tied at four and the tie went
+  to the third use's tie-break, which is the row ranking's own instrument settling a tie of two
+  rather than of 39. And the head it chose **confirmed rather than paid**, while the three issues
+  below it paid — so step 4's practice, head to a verdict then downward until a row pays, is what
+  the issue unit needs as well. A ranking that names a head is not a ranking that names the payment.
+- **The settled/live ratio has not shifted**: 42 of the 60 unread issues touch only a settled row, 11
+  touch a live one and seven land on no row at all, against 43 and 12 at the fifteenth use's base.
+  It is not a plain subtraction — the earlier pair leaves six for the headings the ledger has no row
+  in the family for and this one leaves seven — so the third column is printed here as well, which
+  it was not before. Step 4's preference is argued from that ratio and the ratio is stable, which is
+  the evidence it needed; and this round is a witness for it in a second way, since two of its three
+  paying issues landed on `implemented` rows.
