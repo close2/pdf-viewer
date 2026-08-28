@@ -37,11 +37,30 @@ can and cannot open a window on, and where the build lands.
   144** while producing every artifact correctly and recorded it as a harness artefact under load,
   which was reasonable and wrong; and two of a third round's wait-loops died the same way.
 
-  **`pkill -x <exact-name>`**, or `pkill -f` against a pattern that cannot appear in a path — and if
-  a command returns 144 with its output intact, suspect a neighbour before suspecting the harness.
+  **Kill your own children by PID, or by their process group** — `kill "$pid"`, or
+  `kill -- -$(ps -o pgid= -p "$pid" | tr -d ' ')` for the whole group of a script you started. A
+  round knows the pid of everything it launched; that is the only handle on the machine that names
+  *your* process and no sibling's.
+
+  **`pkill -x <exact-name>` is not the safe form, and this paragraph offered it as one until a
+  round was bitten by it.** `-x` bounds the match to the executable's *name*, and says nothing whatever
+  about whose process it is — so for a program every round runs under one name (`cargo`, `rustc`,
+  `cargo-nextest`, `pdfref`) it is not a narrowing at all. The eight-hundredth session ran
+  `pkill -x cargo` to stop its own gate run and took round **799**'s mid-gate build with it, which
+  was then watched rebuilding its `gates` profile from near scratch; that round's history file
+  records it. `pkill -x` is safe only for a name no sibling round runs, which on this machine is a
+  short list and not one worth guessing at. The same shape bites more gently in the other
+  direction: a `pgrep -f <script>` wait-loop matches **its own command line** and reports the job
+  still running after it has finished.
+
+  So: `pkill -f` against a path is the loud failure, `pkill -x` against a shared program name is
+  the quiet one, and neither is a substitute for a pid. If a command returns 144 with its output
+  intact, suspect a neighbour before suspecting the harness.
+
   It is the same shape as the stash and the scratchpad below: **a namespace the machine gives every
   round by one name is a namespace two rounds will collide in.** This one is worse than those two
-  because the victim is a *sibling*, so the round that pays is not the round that erred.
+  because the victim is a *sibling*, so the round that pays is not the round that erred — and `-x`
+  narrows the *pattern* rather than the namespace, which is exactly why it reads as a fix.
 
 - **The scratchpad directory is shared between parallel rounds too, and it is not per-session.**
   A round writing `gates.log` there has it overwritten by a neighbour writing the same name, mid-run
