@@ -236,7 +236,7 @@ are here**, same discipline, one line apiece. ADR 0254 is the round.
 | §12.7.5.5 Signature fields | 561 | #158 | cites | `/DigestMethod`'s DSA-and-SHA-1 sentence becomes "[s]ome signature mechanisms require a specific digest function … the value of this entry shall be ignored". `/SV` is unread; the ledger says why. |
 | §12.7.5.5 Signature fields | **560** | #131 | **cites** | **An erratum this collection had never recorded, and the reason it had not is the finding.** It adds to Table 236's `/P` the carve-out §12.8.2.2.1 already states for `/DocMDP`: an incremental update carrying only a DSS (§12.8.4.3) or a document timestamp (§12.8.5) is not a change to the document as the entry's own choices define one. It moves nothing here, because nothing here reads that `/P` — and *that* is why the erratum went unread: the ledger row disposed of the entry as being about signature validation, so the collection had no reason to look at the page. An erratum that carves an exception out of a permission is evidence the entry states a permission. §12.7.5.5's row now carries the question with its population (28 crawled witnesses), and this row is what says the standard has been amended there since. ADR 0502. |
 | §13.2.7.2.2, §13.5, §13.6.4.4, §13.6.4.7, §13.7.2.2.4 | 648–718 | #449, #481, #38, #156, #145 | untouched | ×5. Clause 13 is out of scope by `CLAUDE.md`'s closed list. |
-| §14.5 Page-piece | 734 | #691 | untouched | "such as MD5 (described in Internet RFC 1321)" struck from a NOTE about detecting a changed page. The row is `inapplicable` and names no digest. |
+| §14.5 Page-piece | 734 | #691 | **cites — and this verdict judged the wrong clause's row until the seven-hundred-and-seventy-fourth session.** | "such as MD5 (described in Internet RFC 1321)" struck. This row read "struck from a NOTE about detecting a changed page. The row is `inapplicable` and names no digest" — and the strike is not in a NOTE, not about detecting a changed page, and not §14.5's: it is **§14.4's** uniqueness paragraph, a `should` addressed to PDF writers, filed under §14.5 because page 734 opens §14.4 and `emit` attributes by the outline section for the page. §14.4's row is `implemented` over a writer — `write.rs::identify` — that names MD5, now this project's stated choice rather than the standard's named example. The ninth use's section below has the placement. |
 | §14.6.1 General | 735 | #334 | **quotes** | **NOTE 3 is deleted outright** — the one saying a marked-content tag has "no relationship to Tagged PDF … and thus is not rolemapped" — and the paragraph beside it now expects a tag *not* defined in an ISO publication or in §14.7 to use a second-class name. §14.6's ledger row gave that NOTE as its reason for reading no tag's meaning. **Fixed**: the status stands and the reason is now the gap in §14.7 and §14.8. |
 | §14.6.1 | 735 | #303 | untouched | NOTE 1, on a marked-content sequence being complete graphics objects rather than bytes, struck; an EDITOR NOTE says the notes will be renumbered. |
 | §14.8.4.4 Grouping | 772 | #141 | untouched | "Part is the semantic equivalent of Div." is replaced by a NOTE saying the opposite — a `Part`'s grouping *has* semantic value where a `Div`'s does not. `structure.rs` carries both types by name and interprets neither. |
@@ -1630,3 +1630,61 @@ twenty-ninth session recorded, arriving from the ranking's side rather than from
 mechanism.** 755 found a round trip that could not fail; 760 a sentence about a sibling row's
 status; 765 a set with no closure check; this one a row whose claim covers two written forms and
 whose evidence covered one. What the four share is only the status.
+
+## The identifier that stopped naming its contents, and the precedence rule two class objects never had — the seven-hundred-and-seventy-fourth
+
+The successor rule's ninth use. Over live rows the head is **§7.6.4.1 and §7.6.6 with six
+annotations apiece**, standing since the seventh use; over **every** row it is the same two,
+§12.6.4.17 having left when the eighth use read it and no settled row reaching six. The two
+rankings agree at the head for the first time, so the fourth step's settled preference has nothing
+to prefer and the third use's tie-break decides between the two live rows: §7.6.6's issue rewrites
+a table's *type cell* where §7.6.4.1's substitutes a word in prose, so §7.6.6 leads. Both were
+read whole; each falls under one `emit` heading. ADR 0712.
+
+Every placement below is the strikeout's or caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| §7.6.6, Table 27's `/Recipients` | 107 | #16 | **corrects a type cell nothing here reads, and the row now says why not** | Three StrikeOut/Caret pairs, `Review/Completed`. Strikes at `[137.33 274.297 168.22 285.501]`, `[204.272 250.747 235.162 261.951]` and `[249.341 88.727 280.34 99.931]` — (557.0), (580.6) and (742.6) from the top — over the `string` of the type cell "string or array", of "where each string shall be a binary-encoded CMS object", and of "this entry shall be a string that shall be a binary-encoded CMS object", each caret writing *byte string*. The CMS objects are bytes, and §7.6.5.3's digest runs over each item's bytes, so decoding them as text would corrupt exactly what the key derivation hashes. Nothing here reads the entry: §7.6.5's family refuses the handler by name before any crypt filter dictionary is opened, which is where the debt is recorded — and §7.6.6's note now states that its own enumeration stops at Tables 25 and 26 for that reason. |
+| §7.6.4.1, the revision-4-and-later paragraph | 92 | #89 | **corrects prose, and a tolerance is stated** | Three StrikeOut/Caret pairs, `Review/Completed`, at `[241.831 418.949 303.283 431.369]`, `[134.707 374.549 196.171 386.969]` and `[111.92 359.669 173.384 372.089]` — (411.2), (455.6) and (470.5) from the top — each over `crypt filters`, each caret writing *a crypt filter*: named StdCF, named DefaultCryptFilter, named DefEmbeddedFile. Each name denotes one filter, so the standard handler's stated support is Identity and one filter named StdCF with AuthEvent DocOpen. `crypt::crypt_filters` resolves whatever names `/CF` states — wider than the amended "limited to", and §7.6.4.1's row records that as a reader's tolerance now. The two public-key names are behind §7.6.5's refusal. |
+| §13.6.7.3.3 | 705, 706 | #645 | **inside the exclusion** | A strike at `[315.48 275.759 327.214 288.698]` over a glyph the table printed as `a I`, with a caret writing *a 3D measurement dictionary*, and three carets writing *(digit 1)*. Clause 13's ground, which `CLAUDE.md`'s multimedia exclusion names; the row is confirmed. |
+| §14.5, Table 350 | 734 | #69 | **corrects a producer's naming rule** | A strike at `[181.848 227.039 230.472 239.459]` — (602.9) from the top — over `keyed by`, with a caret writing *key should be a second-class name, or*; a caret at `[197.037 90.428 205.067 96.971]` widening Table 350's key column with *(recommended), any conforming product name, or well known data type*; and a Text note saying the widening exists so ISO 32000-1 documents upgrade. Who may write which keys, end to end; the `inapplicable` row's disposition survives it. |
+| **§14.4**, both identifier sentences | 734 | #328 | **quotes — a gated blockquote and a ledger note stood on the struck words, and the outline filed the strike under §14.5** | Two StrikeOuts, `Review/Accepted`, no replacement: `[234.583 679.849 306.799 692.788]` — (149.1) from the top — over `contents of the` in "a permanent identifier based on the contents of the PDF file at the time it was originally created", and `[170.749 650.209 220.627 663.148]` — (178.8) — over `'s contents` in "based on the PDF file's contents at the time it was last updated". Both identifiers become ones *based on the PDF file at the time* — loosened, and rightly: the clause's own suggested computation names the time, the location and the size, none of which is the contents. `write.rs::identify`'s rustdoc blockquote — the one population with a gate — and §14.4's ledger note both quoted the retired wording as the writer's warrant, and both strikes are under `check`'s four-word floor: the third of this rule's uses to find quoted text on a strike below that floor, after #117 and #534 — #181 was the same blindness met by running `emit` before writing. The behaviour stands — the appended-to bytes *are* the file at the time it was last updated — and the warrant moved. `emit` files both strikes under §14.5, page 734 opening §14.4 and reaching §14.5, which is also how #691's verdict above came to be written against the wrong row. |
+| §14.7.6.2 | 753 | #289 | **implements — the rule was satisfied by construction and evidenced by a fixture too small to fail it** | A caret at `[322.113 119.996 331.126 127.34]` — (714.6) from the top, after "along with those identified in the element's A entry." — inserting *Attribute objects included through a class and through an array of classes within the C entry may have the value of O and NS repeated. If a given attribute is specified more than once across the attribute objects, the later (in array order) shall take precedence.* The published clause ranked `/A`'s objects among themselves and `/A` against `/C`; two class objects disagreeing was stated nowhere. `Tree::attributes` walks `/C` in array order, each class's objects in theirs, and `Tree::attribute` takes the last match — but the row's one test attached a single class object, which no ordering of the class route can fail. `an_attribute_two_class_objects_state_goes_to_the_later_one` is the evidence now, calibrated per trap 13 against a plant that walks the classes in reverse: it passes the single-class test and fails the new one. |
+| §14.7.6.2 | 753 | #305 | **cites** | A caret at `[112.003 149.45 121.016 156.794]` — (685.1) from the top — inserting *(deprecated in PDF 2.0)* after "revision numbers", and a strike at `[347.503 164.519 394.306 176.939]` — (665.0) — over `typically`, with a caret writing *possibly*. §14.7.6.3 already opens with the deprecation; reading the pairs stays necessary whatever their status, because an integer beside a class name is the only thing that says whether an array element is a name or a pair. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #328's two strikes were the round's finding three times over.** A rustdoc blockquote in
+`write.rs::identify` — the population `cargo test -p conformance` gates — quoted the first
+identifier's sentence whole, its prose quoted "based on the file's contents" as the meaning of what
+the function derives, and §14.4's ledger note quoted the second sentence's retired wording as the
+reason deriving `/ID[1]` from the appended-to bytes conforms. No instrument could see any of the
+three: the strikes are three words and two, under `check`'s floor. All three now carry the amended
+wording with the erratum named, and the behaviour is unchanged in all three, because bytes of the
+file are the file at the time it was last updated.
+
+**And the record's own #691 verdict had judged the wrong clause's row**, corrected above in place:
+the outline's page-straddle put §14.4's uniqueness paragraph under §14.5's heading, and the
+four-hundred-and-eighteenth session's verdict inherited the filing — "a NOTE about detecting a
+changed page" for body text about identifier uniqueness, and "names no digest" of a row one clause
+away from the writer that names MD5. The eighth use met the same coarseness at a cost of nothing;
+this is the first time it reached a recorded verdict.
+
+### Three things about the rule itself, from running it
+
+- **The two rankings agreeing at the head is the decay finishing its work, not a new regime.** The
+  settled rows that out-ranked the live head on four consecutive uses are gone because those uses
+  read them; what is left above five annotations is the live pair no round has taken. The tie-break
+  between two live rows is the third use's cell-over-prose rule, and it earned its keep: the
+  cell-correcting issue led to a row correction, and walking on downward is what found #328.
+- **A settled row's evidence was weaker than its claim for a fifth time, by a fifth mechanism**:
+  755 a round trip that could not fail, 760 a sentence about a sibling row, 765 a set with no
+  closure check, 771 a claim of two written forms with a test of one — and now a rule satisfied by
+  construction whose only fixture was too small to exercise it at all.
+- **The eighth use's arithmetic was off by one, and the record is why it is checkable.** It wrote
+  "110 after this round" of a population of 115; one of its five issues had carried a verdict in
+  this file's tables since the four-hundred-and-eighteenth session, so only four newly left the
+  population and the count at this round's base is 111. A round quoting the previous round's
+  closing figure is quoting a derivation, and the greps are the instrument.
