@@ -215,17 +215,18 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   positive still might**: those are figures about one crawl on one day, and the example is what
   re-derives them.
 
-  Two things it leaves.
+  One thing it leaves.
 
-  **An appearance stream is `ContentStream::Unnameable`**, because `annotation::Appearance` keeps
-  the stream rather than the reference to it and a §12.7.4.3 construction has no object at all.
-  That is sound and fixes the half that misleads — the page's `/MCID 0` can no longer be answered
-  with a widget's — but an `/MCR` whose `/Stm` names an appearance stream now finds nothing where
-  it used to find the wrong thing. No document in either population closes a sequence in an
-  unnameable stream. What would close it is the `/AP` reference carried through `Appearance`, and
-  **Table 357's `/StmOwn` is the same item from the structure side** — "[t]he indirect reference to
-  the PDF object referencing the stream identified by the Stm key", whose NOTE names the annotation
-  owning an appearance stream as the common use. Take the two together or not at all.
+  ~~**An appearance stream is `ContentStream::Unnameable`**~~ — **taken in the
+  seven-hundred-and-eighty-second session, and the two were taken together as this entry asked**
+  (ADR 0719). `Appearance::source` carries the `/AP` reference through, so a stored appearance
+  is a stream `/Stm` can name and `Unnameable` is left for what no reference can reach — a
+  directly written stream, and a §12.7.4.3 construction. `/StmOwn` is read into
+  `Child::MarkedContent` and matched against the page's annotations the way §14.7.5.3's `/Obj`
+  is, and `Tree::appearance_owners` is the route that puts such an element in the page's
+  population at all, which the fixture found missing on the round's own test. Still true and
+  still measured: no document in either population closes a sequence in an appearance stream,
+  so the witnesses are the fixtures in `marked_content_scope.rs` and `headless.rs`.
 
   **The one recovery is an inference and nothing says so.** Two of the corpus's 153 tagged
   documents put every sequence in one form, state no `/StructParents` anywhere and name each

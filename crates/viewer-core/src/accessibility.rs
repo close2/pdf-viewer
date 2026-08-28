@@ -800,6 +800,7 @@ fn walk(
                 mcid,
                 page: on,
                 stream,
+                owner,
             } => {
                 // Table 355 makes `/Pg` the page a bare integer belongs to; an element with no
                 // `/Pg` anywhere up the chain is taken to be on the page being asked about,
@@ -808,6 +809,19 @@ fn walk(
                     continue;
                 }
                 attribute(Sequence { mcid, stream }, parent, out);
+                // Table 357's `/StmOwn` — "[t]he indirect reference to the PDF object
+                // referencing the stream identified by the Stm key", whose NOTE names "the
+                // annotation dictionary owning the appearance stream" as the common use. Where
+                // it names one of this page's annotations that is §14.7.5.3's statement made
+                // from the marked-content side, so it goes into the same channel as an object
+                // reference's `/Obj`: matched against the page's annotations for §12.5.2's
+                // rectangle and §12.7's control, and contributing nothing where it names
+                // anything else — a resource dictionary, say — because `Readback::places` and
+                // `Readback::controls` only hold the page's annotations. The quads and the
+                // element's presence on the page still come from the sequence itself.
+                if let Some(owner) = owner {
+                    names_object(owner, parent, out);
+                }
             }
             // §14.7.5.3's object reference is an annotation or an XObject rather than text on
             // this page's readback. It contributes no `/MCID`, so its element gets no quads — but
@@ -819,13 +833,7 @@ fn walk(
                 if on.is_some_and(|object| object != page) {
                     continue;
                 }
-                // The element that *contains* the reference, for the reason `Gathered::objects`
-                // gives: this is a statement about its own content item and not its ancestors'.
-                if let Some(index) = parent
-                    && let Some((_, entry)) = out.get_mut(index)
-                {
-                    entry.objects.push(object);
-                }
+                names_object(object, parent, out);
                 let mut at = parent;
                 while let Some(index) = at {
                     let Some((above, entry)) =
@@ -884,6 +892,20 @@ fn text_entry(document: &Document, dict: &Dictionary, key: &str) -> Option<Strin
 /// The sequence belongs to the element that contains it *and* to every element above it, because
 /// an ancestor's *extent* is everything it encloses. What it is *spoken* as is only the first of
 /// those, which is what [`Gathered::own`] records and [`AccessibilityNode::name`] explains.
+/// Records that an element's own content item names `object`.
+///
+/// On the element that *contains* the item, for the reason `Gathered::objects` gives: this is a
+/// statement about its own content item and not its ancestors'. Two kinds of item make one —
+/// §14.7.5.3's `/Obj`, and Table 357's `/StmOwn` — and both are matched against the page's own
+/// annotations afterwards, so a reference to anything else contributes nothing.
+fn names_object(object: ObjectId, parent: Option<usize>, out: &mut [(Option<usize>, Gathered)]) {
+    if let Some(index) = parent
+        && let Some((_, entry)) = out.get_mut(index)
+    {
+        entry.objects.push(object);
+    }
+}
+
 fn attribute(sequence: Sequence, parent: Option<usize>, out: &mut [(Option<usize>, Gathered)]) {
     if let Some(index) = parent
         && let Some((_, entry)) = out.get_mut(index)

@@ -404,7 +404,9 @@ fn census(document: &Document) -> Counts {
                     own_objects: Vec::new(),
                 });
             }
-            Child::MarkedContent { mcid, page, stream } => {
+            Child::MarkedContent {
+                mcid, page, stream, ..
+            } => {
                 let text =
                     Produced::holds(&produced.text, &produced.text_anywhere, mcid, page, stream);
                 let drawn = Produced::holds(

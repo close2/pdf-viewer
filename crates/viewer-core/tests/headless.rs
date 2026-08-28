@@ -4002,6 +4002,144 @@ fn an_element_reached_through_an_object_reference_is_placed_and_says_what_contro
     );
 }
 
+/// A one-page tagged form whose element reaches its widget through Table 357 rather than 358.
+///
+/// The check box's marked sequence is inside its own appearance stream — the `/Yes` stream of
+/// `/AP`'s state subdictionary — and the structure element names it with a marked-content
+/// reference: `/Stm` the appearance stream, `/StmOwn` the widget that owns it, `/MCID` its
+/// identifier there. No §14.7.5.3 object reference anywhere, which is the point: Table 357 is
+/// the other route to the same annotation.
+fn with_an_owned_appearance() -> Vec<u8> {
+    use std::fmt::Write as _;
+    let content = "BT /F1 12 Tf 10 10 Td /P <</MCID 0>> BDC (a caption) Tj EMC ET\n";
+    let appearance = "/P << /MCID 0 >> BDC BT /F1 8 Tf 2 5 Td (yes) Tj ET EMC\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 6 0 R \
+          /MarkInfo << /Marked true >> /AcroForm << /Fields [12 0 R] >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+          /Resources << /Font << /F1 5 0 R >> >> /StructParents 0 \
+          /Annots [12 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n\
+         6 0 obj\n<< /Type /StructTreeRoot /K [7 0 R 8 0 R] /ParentTree 11 0 R >>\nendobj\n\
+         7 0 obj\n<< /Type /StructElem /S /Form /P 6 0 R /Pg 3 0 R \
+          /K << /Type /MCR /Pg 3 0 R /Stm 15 0 R /StmOwn 12 0 R /MCID 0 >> \
+          /Alt (agree to the terms) >>\nendobj\n\
+         8 0 obj\n<< /Type /StructElem /S /P /P 6 0 R /Pg 3 0 R /K [0] >>\nendobj\n\
+         11 0 obj\n<< /Nums [0 [8 0 R] 1 [7 0 R]] >>\nendobj\n\
+         12 0 obj\n<< /Type /Annot /Subtype /Widget /F 4 /FT /Btn /T (agree) /V /Yes /AS /Yes \
+          /Rect [10 60 30 80] \
+          /AP << /N << /Yes 15 0 R /Off 16 0 R >> >> >>\nendobj\n\
+         15 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /StructParents 1 \
+          /Resources << /Font << /F1 5 0 R >> >> /Length {} >>\
+         \nstream\n{appearance}endstream\nendobj\n\
+         16 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] /Length 0 >>\
+         \nstream\n\nendstream\nendobj\n",
+        content.len(),
+        appearance.len(),
+    );
+
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    let mut cursor = out.len();
+    for object in body.split_inclusive("endobj\n") {
+        let number: usize = object
+            .split_whitespace()
+            .next()
+            .and_then(|word| word.parse().ok())
+            .expect("every object states its number");
+        offsets.insert(number, cursor);
+        cursor = cursor.saturating_add(object.len());
+    }
+    out.push_str(&body);
+    let xref_at = out.len();
+    let size = offsets.keys().copied().max().unwrap_or(0).saturating_add(1);
+    let _ = write!(out, "xref\n0 {size}\n0000000000 65535 f \n");
+    for number in 1..size {
+        match offsets.get(&number) {
+            Some(offset) => {
+                let _ = writeln!(out, "{offset:010} 00000 n ");
+            }
+            None => {
+                let _ = writeln!(out, "0000000000 65535 f ");
+            }
+        }
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// An element that names its widget through Table 357's `/StmOwn` is placed and says what it is.
+///
+/// ISO 32000-2 §14.7.5.2, Table 357's `/StmOwn` row:
+///
+/// > The indirect reference to the PDF object referencing the stream identified by the Stm key.
+///
+/// and its NOTE names the use this fixture is: "to identify the annotation dictionary owning the
+/// appearance stream". So the entry is §14.7.5.3's statement — this element's content belongs to
+/// that annotation — made from the marked-content side, and it reaches the same three answers an
+/// object reference does: §12.5.2's rectangle places the element, §12.7 says which control it is,
+/// and §12.5.1's activation names the annotation a click goes to. The sequence itself still
+/// carries the quads, because `/Stm` names the appearance stream the widget's marks are in.
+#[test]
+fn an_element_reaching_its_widget_through_stmown_is_placed_and_says_what_control_it_is() {
+    use pdf_model::form::Control;
+
+    let mut viewer = Viewer::new(400, 300, 1.0);
+    let events: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_an_owned_appearance(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let first = request(&events).clone();
+    serve(&mut viewer, &first);
+
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("a page has a geometry");
+    };
+    let Answer::Accessibility(pages) = viewer.query(Query::AccessibilityTree) else {
+        panic!("the query always answers");
+    };
+    let nodes = on_one_page(pages);
+    let check_box = nodes
+        .iter()
+        .find(|node| node.name == "agree to the terms")
+        .unwrap_or_else(|| panic!("the element is on the page: {nodes:?}"))
+        .clone();
+
+    // §12.5.2's rectangle, from default user space (y up, a 100-unit page) to the viewport.
+    assert_eq!(
+        check_box.bounds,
+        Some([
+            geometry.origin.0 + 10.0 * geometry.scale,
+            geometry.origin.1 + (100.0 - 80.0) * geometry.scale,
+            geometry.origin.0 + 30.0 * geometry.scale,
+            geometry.origin.1 + (100.0 - 60.0) * geometry.scale,
+        ]),
+        "Table 357's /StmOwn names the widget, and the widget's /Rect places the element"
+    );
+    assert_eq!(
+        check_box.control,
+        Some(Control::CheckBox { on: true }),
+        "§12.7.5.2.3's control arrives through the same match"
+    );
+    assert!(
+        check_box.annotation.is_some(),
+        "§12.5.1's activation has an annotation to go to"
+    );
+    assert!(
+        !check_box.quads.is_empty(),
+        "/Stm names the appearance stream, so the sequence's own marks are the element's: {check_box:?}"
+    );
+}
+
 /// §14.8.4.8.3's search gives each cell the header cells that describe it.
 ///
 /// > To find headers for any data or header cell, begin from the current cell position and use

@@ -380,22 +380,24 @@ impl Interpreter<'_> {
         // §14.7.5.2's identifier is unique within its own content stream, and Table 357's `/Stm`
         // names an appearance stream as readily as a form — "see 8.10, "Form XObjects" and 12.5.5,
         // "Appearance streams"". So a sequence closing in here is *not* the page's, whatever
-        // number it carries.
-        //
-        // **`Unnameable` rather than the stream's own object**, and it is a limit written down
-        // rather than a gap left open: `crate::annotation::Appearance` resolves `/AP` and keeps
-        // the stream, not the reference to it, and a construction (§12.7.4.3) is this program's
-        // bytes and has no object at all. What that costs is one direction only — a marked-content
-        // reference whose `/Stm` names an appearance stream finds no span — and what it buys is
-        // the other, which is the one that misleads: the page's own `/MCID 0` can no longer be
-        // answered with a widget's. `doc/todo/31` carries the remainder.
-        let outer_stream = std::mem::replace(&mut self.stream, ContentStream::Unnameable);
+        // number it carries — and where the appearance dictionary named the stream by an indirect
+        // reference, it is a stream `/Stm` can name, by the object it is. `Unnameable` is left
+        // for what a reference genuinely cannot reach: a stream written directly into the
+        // dictionary, or a construction (§12.7.4.3), which is this program's bytes and has no
+        // object at all. This used to be `Unnameable` for every appearance, a limit `doc/todo/31`
+        // carried; `crate::annotation::Appearance::source` is the reference carried through.
+        let outer_stream = std::mem::replace(
+            &mut self.stream,
+            appearance
+                .source
+                .map_or(ContentStream::Unnameable, ContentStream::Object),
+        );
         // §14.7.5.4's route back is per stream, and an appearance stream may state a
         // `/StructParents` of its own like any other; a stored one that does is read with its own
         // array rather than with the page's.
         let outer_structure = match &appearance.content {
             crate::annotation::Content::Stored(stream) => {
-                self.enter_stream_structure(None, &stream.dict)
+                self.enter_stream_structure(appearance.source, &stream.dict)
             }
             crate::annotation::Content::Constructed { .. } => None,
         };

@@ -41,7 +41,7 @@
 use pdf_render::{Transform, geom::Point};
 use std::sync::Arc;
 
-use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
+use pdf_syntax::{Dictionary, Document, Name, Object, ObjectId, Stream};
 
 /// What an appearance's content is: a stream the file stored, or one this crate wrote.
 #[derive(Debug, Clone)]
@@ -65,6 +65,16 @@ pub(crate) enum Content {
 pub(crate) struct Appearance {
     /// The content stream to run.
     pub content: Content,
+    /// The object the stored stream is, where the appearance dictionary named one by an
+    /// indirect reference — which is what lets Table 357's `/Stm` name this stream back:
+    /// §14.7.5.2 lists "12.5.5, "Appearance streams"" beside form `XObject`s as the streams
+    /// that entry is for. `None` for a stream written directly into the dictionary and for a
+    /// §12.7.4.3 construction, neither of which is an object a reference can name.
+    ///
+    /// A §12.7.4.3 *regeneration* keeps the identity: the splice replaces one `/Tx` region of
+    /// the stored bytes and leaves every other sequence byte-identical, so the sequences a
+    /// marked-content reference can name are still the file's (see `crate::appearance::spliced`).
+    pub source: Option<ObjectId>,
     /// `AA` from §12.5.5: maps the appearance's own coordinates into the page's default
     /// user space, so that its bounding box covers the annotation's `/Rect`.
     pub transform: Transform,
@@ -829,8 +839,8 @@ fn decided(
         };
     }
 
-    let stored = match stored_appearance(document, annotation, view) {
-        Normal::Stream(stream) => stream,
+    let (source, stored) = match stored_appearance(document, annotation, view) {
+        Normal::Stream(source, stream) => (source, stream),
         Normal::Absent => {
             // Table 167's `Invisible` row is the whole of what a reader owes an annotation whose
             // type this document does not define, and both of its sentences are answered here.
@@ -974,6 +984,7 @@ fn decided(
             stroke_alpha: 1.0,
             blend: blend_mode(document, annotation),
             content,
+            source,
             damaged,
         }),
         owed,
@@ -1036,6 +1047,9 @@ fn construct(
                 bytes: content,
                 resources: constructed.resources,
             },
+            // A construction is this program's bytes: there is no object for Table 357's
+            // `/Stm` to name.
+            source: None,
             // Written here from the annotation's own entries, so there is no stream that could
             // have been short of anything.
             damaged: None,
@@ -1121,8 +1135,10 @@ fn opacity(document: &Document, annotation: &Dictionary, key: &'static str) -> O
 /// a state the appearance dictionary does not define is a document saying "draw nothing" —
 /// which is exactly how an unchecked box with only an `On` appearance is written.
 enum Normal {
-    /// A stream to run.
-    Stream(Arc<Stream>),
+    /// A stream to run, and the object it is — where the appearance dictionary named it by
+    /// an indirect reference, which is the only way Table 357's `/Stm` can name it back
+    /// (§14.7.5.2). `None` for a stream written directly into the dictionary.
+    Stream(Option<ObjectId>, Arc<Stream>),
     /// No `/AP`, no `/N`, or a `/N` that is neither a stream nor a state dictionary.
     Absent,
     /// `/N` is a state dictionary and `/AS` selected nothing from it.
@@ -1164,13 +1180,22 @@ fn stored_appearance(
         crate::view::Appearance::Rollover => "R",
         crate::view::Appearance::Down => "D",
     };
-    let normal = match document.get_key(appearances, key) {
-        Object::Null => document.get_key(appearances, "N"),
-        stated => stated,
+    // The *entry* before it is resolved, because §14.7.5.2's Table 357 names an appearance
+    // stream — "see 8.10, "Form XObjects" and 12.5.5, "Appearance streams"" — by which object
+    // it is, and resolving first throws that identity away. The same reason, and the same
+    // shape, as `Interpreter::draw_xobject`'s unresolved lookup.
+    let asked = appearances.get(key).cloned().unwrap_or(Object::Null);
+    let (entry, normal) = match document.resolve(&asked) {
+        Object::Null => {
+            let fallback = appearances.get("N").cloned().unwrap_or(Object::Null);
+            let resolved = document.resolve(&fallback);
+            (fallback, resolved)
+        }
+        resolved => (asked, resolved),
     };
 
     if let Some(stream) = normal.as_stream() {
-        return Normal::Stream(Arc::clone(stream));
+        return Normal::Stream(entry.as_reference(), Arc::clone(stream));
     }
     let Some(states) = normal.as_dict() else {
         return Normal::Absent;
@@ -1185,11 +1210,13 @@ fn stored_appearance(
         });
     // §12.5.5 keys `/AP`'s subdictionary by the appearance states the *file* names, so the
     // probe is §7.3.5's exact binary match on the bytes `/AS` states (ADR 0439).
-    let resolved = selected
-        .and_then(|name| states.get_by_name(&Name::new(name)).cloned())
-        .map(|state| document.resolve(&state));
+    let state = selected.and_then(|name| states.get_by_name(&Name::new(name)).cloned());
+    let resolved = state.as_ref().map(|state| document.resolve(state));
     match resolved.as_ref().and_then(|state| state.as_stream()) {
-        Some(stream) => Normal::Stream(Arc::clone(stream)),
+        Some(stream) => Normal::Stream(
+            state.as_ref().and_then(Object::as_reference),
+            Arc::clone(stream),
+        ),
         None => Normal::StateNotDefined,
     }
 }
@@ -1207,7 +1234,7 @@ pub(crate) fn stored_frame(
     annotation: &Dictionary,
     view: crate::view::AnnotationView<'_>,
 ) -> Option<([f32; 4], Transform)> {
-    let Normal::Stream(stored) = stored_appearance(document, annotation, view) else {
+    let Normal::Stream(_, stored) = stored_appearance(document, annotation, view) else {
         return None;
     };
     let matrix = matrix(document, &stored.dict);
