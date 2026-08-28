@@ -247,7 +247,7 @@ Two decisions come with it, and the second is the one that costs.
 **All three hosts stay level.** A feature lands on the boundary and `viewer-ui`, `viewer-gtk` and
 `viewer-qt` all adopt it, rather than one being a flagship the others follow. That is roughly three
 times the host-side work per feature and it is chosen deliberately: this file's proudest claim is
-that **six consumers have never asked for a new message**, and that claim is only evidence while the
+that **seven consumers have never asked for a new message**, and that claim is only evidence while the
 consumers are actually made to carry what is added. A feature living in one host is a message nobody
 has tested.
 

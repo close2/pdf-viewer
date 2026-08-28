@@ -310,7 +310,6 @@ Query:Caret|not a debt|a delegation. Both native hosts place a real GtkEntry or 
 Query:Offset|not a debt|the same delegation: a click placing the cursor inside a toolkit's own entry is the toolkit's arithmetic.
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
-Query:Collection|not a debt, since ADR 0711|"[i]f this dictionary is present in a PDF document, the interactive PDF processor shall present the document as a portable collection" (§12.3.5) — a shall addressed to a viewer, and the sharpest clause this reading ever named. All three windows present one now: viewer_host::panel::collection_rows is the mapping and both native hosts ask this question before Query::Attachments, because a collection is those same files arranged. A window that names neither would be a window with no files panel at all.
 READING
 }
 

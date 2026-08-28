@@ -130,7 +130,7 @@ lesson in [`doc/habits.md`](habits.md)'s ledger section rather than a fact about
 them, with no type from a windowing or graphics library anywhere in its API.
 [`doc/ui-boundary.md`](ui-boundary.md) is the whole story; ADRs 0116 to 0121.
 
-**Six consumers on that boundary, and not one of them has ever asked for a new message.** That is
+**Seven consumers on that boundary, and not one of them has ever asked for a new message.** That is
 the boundary's own evidence, and it is what let the C ABI be frozen — `doc/todo/30` made freezing
 conditional on two Rust consumers shaking the API out first. **A *clause* has asked for one, which
 is the other direction and is why the sentence is worded about consumers**: §12.4.4.2 conditions its
