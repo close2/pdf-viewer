@@ -2033,3 +2033,96 @@ instrument's population and in no ranking.
   moved a status, because each landed inside the same exclusion or on a neighbour holding the same
   claim — but the placement is what says so, and it is written before the verdict for the sixth
   round running.
+
+## The five cells that gained two words, and the entry a correction deleted from a table — the eight-hundred-and-eleventh
+
+The successor rule's fifteenth use, and the first whose **row** ranking had nothing left to say.
+Both rankings top out at **two**: over live rows eight rows tie there, over every row **thirty-nine**
+do, and nineteen more sit at one. A ranking whose unit can only be one or two has run out of
+discrimination, and the tie-break the third use wrote — a cell ahead of a word in prose — was being
+asked to choose among thirty-nine. What still discriminates is the same population counted by
+**issue** rather than by row, which is the unit step 3's own last sentence already reads in: one
+issue carries six annotations, two carry four, two carry three, and the remaining fifty-six carry
+one or two. **Issue #346 is that head**, three times the next tier, and the only issue in the
+population that reaches three ledger rows. The base population reproduces the fourteenth use's
+closing arithmetic exactly: 302 issue numbers carry a strike or a caret under the recipe's own
+single-issue line parse and 61 were named nowhere. One gains a verdict this round, and it is worth
+five table cells. ADR 0743.
+
+Every placement below is the caret's or strikeout's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top —
+which is what `mutool run`'s `getBounds` prints for these annotations as well.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§14.8.5.5, Table 382's `/ContinuedList` and `/ContinuedFrom`** | 805 | #346 | **implements — by moving a status, not a line of code** — and the outline filed both under §14.8.5.6 | Two `Caret`s with no `StrikeOut`, `Review/Completed`, at `[224.461 526.862 232.414 533.342]` and `[224.461 589.044 232.414 595.524]` — (526.9)–(533.3) and (589.0)–(595.5) from the top, both centred at x 228.4, which is the gap `-bbox` leaves between the `(Optional;` ending at 226.40 and the `PDF` beginning at 228.60 on the `ContinuedList` and `ContinuedFrom` rows. Each writes *not inheritable; *, so both cells become `(Optional; not inheritable; PDF 2.0)`. Page 805 carries the tail of Table 382 under a running head, and the outline's section for it is §14.8.5.6, whose own table is 383 and starts on the next page. **What the two carets did was put a round in front of the two entries this row had never named**: §14.8.5.5's note said "Table 382's `/ListNumbering`" and argued `inapplicable` from it, and the table has three entries, of which these two are PDF 2.0's and are addressed to whoever interprets an `L` element — "control the interpretation of the L element as it relates to other L elements that are not its immediate parent". Nothing here reads either and nothing reports it, so the row is `silent`. |
+| **§14.8.5.8, Table 385's `/Type` and `/BBox`** | 808 | #346 | **cites — and it vindicates a choice that had one of its two warrants** | Two more bare `Caret`s. `[245.406 497.408 253.359 503.888]` — (497.4)–(503.9) from the top, centred at x 249.4, inside the `(Optional)` `-bbox` puts at 212.40–255.80 on the `Type` row — and `[247.760 671.776 256.243 678.688]`, (671.8)–(678.7), centred at 252.0 inside the `(Optional)` at the same x on the `BBox` row. Both write *; not inheritable; PDF 2.0*. `Tree::bounds` reads `BBox` through §14.8.5.3's priority over **every** PDF-native owner, so Table 385's cell is one of the two it answers from; it declines to inherit, and until this erratum only Table 379's cell said it may not. |
+| **§14.8.5.8, Table 385's `/Subtype`** | 809 | #346 | **implements — the erratum's only strikeout is over an entry the ledger said the table does not have**, and the outline filed it under §14.8.6.2 | A `StrikeOut` at `[224.471 122.351 256.463 132.311]`, whose two `QuadPoints` corners are at y 719.569 and 709.609 on an 841.92-point page — (122.4)–(132.3) from the top — over the `PDF` at 224.50–241.70 and into the `1.7)` at 243.90–260.20 on the `Subtype` row, with a `Caret` at `[252.429 126.285 260.497 132.859]` writing *not inheritable; PDF 2.0*. So `(Optional; PDF 1.7)` becomes `(Optional; not inheritable; PDF 2.0)`. Page 809 opens on the tail of Table 385 and reaches §14.8.6's heading below it, which is why the ranking offered role maps and namespaces as an artifact attribute's erratum. See the finding below. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**§14.8.5.8's row denies an entry the table states, and a session put the denial there while
+correcting the row.** The note read "Table 385's `/Type` and `/BBox`", and its parenthesis said the
+three-hundred-and-eighty-seventh session had removed `/Subtype` because it "is Table 363's and not
+this one's — an attribute object here states only the two". Table 385 states three. Its `/Subtype`
+row is on page 809 of the standard and at line 17766 of `doc/md/`, under §14.8.6.2's heading rather
+than its own, which is the same page-straddle that filed the erratum there — so the session that
+deleted the entry and the ranking that offered the wrong row were misled by one conversion, twice,
+four hundred sessions apart.
+
+**The two tables are not copies of each other, and the same sentence got that wrong too.** It said
+Table 385's four type names "are the ones §14.8.2.2.2's Table 363 property list names". Table 363's
+fourth name is `Background`; Table 385's is `Inline` (PDF 2.0), which the cell glosses with a bullet
+Table 363 has no equivalent of. Their `/Subtype` cells differ in the same direction: Table 385's
+should appear "when the Type entry has a value of Pagination or Inline", Table 363's names
+`Pagination` alone. `ArtifactKind` in `structure.rs` is Table 363's four and is right for the
+property list it reads; nothing reads Table 385's.
+
+**And the status was `inapplicable` on a reason its own neighbour had already retired.** The note
+gave "the same reason as the rest of §14.8.5: it describes rather than draws", which is word for
+word what §14.8.5.7's row records being taken off `inapplicable` for — a rendering argument for
+entries addressed to a reader — and the family's parent row states the replacement test outright:
+neither is drawn and both are read aloud. §14.8.5.8 is `partial` now, because one of its three
+entries has a reader and two do not, and the reader was there before the erratum was read:
+`Tree::bounds` applies §14.8.5.3's priority over every PDF-native owner, so an `Artifact`-owned
+`/BBox` has always been answered under a row saying the table was read and dismissed. That is the
+eighteenth sweep's shape — a row denying a reader for an entry that has one — reached by an erratum
+rather than by the sweep, because the sweep reads a parent against a descendant and both of these
+sentences are in one note.
+
+`an_artifact_owned_bounding_box_is_the_same_rectangle_as_a_layout_owned_one` pins it, with the
+format-specific owner as its discrimination and calibrated per trap 13 both ways: dropping
+`Artifact` from `Owner::is_pdf_native` fails the first assertion, and giving the third element the
+`Artifact` owner it is supposed to *not* have fails the third.
+
+### What the rule's own machinery looked like from inside §14.8.5
+
+**One question came out of the reading and is recorded rather than paid**, in §14.8.5.3's row.
+Priority 1 names the `NSO` owner explicitly — "owned by an owner as specified by the O entry, or,
+if the value of the O entry is NSO , the NS entry, excluding Layout, PrintField, Table , List and
+Artifact" — so an `NSO`-owned attribute object is never priority 2's, whose five owner names it
+cannot carry, and priority 1's condition is one this program does not meet. `Tree::attribute`
+admits `Owner::Namespace` beside the five anyway, with no argument written anywhere. It is a
+question rather than a defect because §14.8.6.1 makes a standard structure namespace this
+standard's own vocabulary rather than an export format's, and settling it decides rank as well as
+membership: where priority 1's condition holds it sits *above* priority 2.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the sixth consecutive use**: 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 61 named nowhere —
+  the fourteenth use's 71 less its ten verdicts — and the multi-issue parse's 310 and 63 reproduce
+  the same way. Six uses running; a closing figure is still a derivation and the greps are still
+  the instrument.
+- **The row ranking has plateaued to the point of being uninformative, and the same population
+  ranked by issue has not.** Thirty-nine rows tie at two annotations and nineteen more hold one;
+  the tie-break cannot choose among thirty-nine, and reading the plateau out would be reading
+  most of what is left. Counted by issue the population still has a shape — one at six, two at
+  four, two at three, thirty-three at two, twenty-five at one — and the head is the only issue
+  reaching three rows. **Step 3 already reads by issue and ranks by row**; where the row counts
+  go flat, ranking by issue is the same instrument asked in the unit it was going to read in
+  anyway.
+- **Forty-three of the sixty-one unread issues touch only a settled row and twelve touch a live
+  one.** That is step 4's argument arriving as arithmetic rather than as a preference: the debt
+  this rule has left to find is overwhelmingly on rows that claim to owe nothing, which is where
+  `implemented` over an unread requirement lives.

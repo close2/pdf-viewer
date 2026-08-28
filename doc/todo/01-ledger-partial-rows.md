@@ -4154,6 +4154,10 @@ sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the r
 #    whichever row sorts below it and can manufacture a head. Count those separately instead.
 # 4. rank a second time over EVERY row, whatever its status, and take the head of the two —
 #    preferring the settled row where they tie. Say which ranking the row came from. See below.
+# 5. where the row counts have gone flat — a head of two with dozens of rows tied at it, which
+#    is where twelve uses of decay have taken them — rank the same annotations by ISSUE instead
+#    and take that head. It is the unit step 3 reads in anyway, and it still discriminates when
+#    the row unit no longer does. Say which unit the head came from.
 ```
 
 **Step 4's ordering is an argument rather than a convention, and it is the one the fifth use ran.**
@@ -5259,3 +5263,53 @@ to.
   every `Command`, `Query`, `Answer`, `Event` and `Edit` variant against the crates that speak it —
   and that is where `Query::Find` and `Query::LogicalSelection` turned out to reach no program. A
   round that wants a sixteenth has it named here.
+
+## The rule's fifteenth use, in the eight-hundred-and-eleventh, and the row ranking went flat
+
+**Both rankings top out at two, and thirty-nine rows are tied there.** Over live rows eight tie;
+over every row thirty-nine do, with nineteen more at one, and the head's statuses are twenty
+`implemented`, eight `out-of-scope`, six `partial`, two `reported`, two `inapplicable` and one
+`writer-side`. The third use's tie-break — a cell ahead of a word in prose — was written to settle
+a tie of three and cannot settle one of thirty-nine, and reading the plateau out would be reading
+most of what the rule has left. **So the recipe gains a step 5**, above: where the row counts go
+flat, rank the same annotations by **issue**. That is not a new instrument — step 3's own last
+sentence already says to read one issue whole across every heading it appears under — it is the
+ranking asked in the unit the reading was going to happen in. By issue the population still has a
+shape: one at six annotations, two at four, two at three, thirty-three at two, twenty-five at one.
+
+**The head is Issue #346**, three times the next tier and the only issue in the population reaching
+three ledger rows — §14.8.5.5's, §14.8.5.6's and §14.8.6.2's by the outline's filing, §14.8.5.5's
+and §14.8.5.8's twice over in fact. Six annotations, five of them bare carets, and every one puts
+the words *not inheritable* into a standard structure attribute's requirement cell: Table 382's
+`/ContinuedList` and `/ContinuedFrom`, Table 385's `/Type`, `/BBox` and `/Subtype`. ADR 0743;
+`doc/errata-read.md` has all six with their rectangles.
+
+**The head paid twice, and neither payment was a line of behaviour.** §14.8.5.8's row said
+"Table 385's `/Type` and `/BBox`" and its own parenthesis recorded a session deleting `/Subtype`
+from the list as belonging to Table 363 — the table states three entries, the erratum's only
+strikeout is over the requirement cell of the deleted one, and the two tables' cells differ in two
+more places the same sentence got backwards. The row was also `inapplicable` on "it describes
+rather than draws", which is word for word the reason §14.8.5.7 next door records being taken off
+that status for, while `Tree::bounds` had been answering an `Artifact`-owned `/BBox` all along —
+the eighteenth sweep's shape with both of its sides in one note, so no sweep could print it.
+§14.8.5.5's row named one of Table 382's three entries and argued `inapplicable` from that one; the
+other two are PDF 2.0's and are addressed to whoever interprets an `L` element, which this program
+does. Both statuses moved and a test now pins the reader the first row denied.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the sixth consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 61 named nowhere,
+  which is the fourteenth use's 71 less its ten verdicts, and the multi-issue parse's 310 and 63
+  reproduce the same way. A closing figure is still a derivation and the greps are still the
+  instrument.
+- **The decay curve says the rule is not finished and its unit is.** The base population has run
+  133, 111, 104, 99, 85, 73, 71, 61 over the uses that recorded it — six or seven a use, steady,
+  with twenty percent of the collection's strike-or-caret issues left. What has collapsed is not
+  the yield but the *row* count's resolution: a head of fifteen ranked something, a head of two
+  tied thirty-nine ways ranks nothing. Retiring the rule on a flat row ranking would have been
+  reading the instrument's exhaustion as the population's.
+- **Forty-three of the sixty-one touch only a settled row; twelve touch a live one.** Step 4's
+  argument was written as a preference and is now arithmetic: what this rule has left to find sits
+  almost entirely on rows claiming to owe nothing, which is where an `implemented` over an unread
+  requirement lives. A round taking the live head from here is taking the smaller half.
