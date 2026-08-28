@@ -1046,7 +1046,10 @@ fn percentage(matched: usize, words: usize) -> f64 {
 // ten-thousandth of a point); the vertical *extent* of a word box is each extractor's own
 // ascent/descent convention and is deliberately unjudged; the vertical *centre* is judged
 // relative to the word's own height. Reading order is deliberately not part of any of it
-// (ADR 0323 Finding 4). The bounds are re-derived by this binary itself —
+// (ADR 0323 Finding 4). Both axis statements are about the text's reading axis and its cross
+// axis rather than the page's x and y, so a word set vertically — §9.7.5.1's writing mode 1,
+// or any text running down a rotated page — is judged on transposed boxes (`PairDelta::of`,
+// ADR 0726). The bounds are re-derived by this binary itself —
 // `the_selection_bounds_against_the_references_own_spread` below — so the derivation lives
 // next to the bound.
 // ---------------------------------------------------------------------------------------------
@@ -1086,13 +1089,70 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 ///
 /// Checked in **both** directions, exactly as [`TEXT_BELOW_FLOOR`] is: a document arriving here
 /// fails the gate, and a document that leaves must be deleted from this list so that it cannot
-/// come back. What each one is is not written down per line — the gate prints every name with
-/// its fraction and its worst horizontal delta above, which is where a round reads them — and
-/// three classes account for most of it: a box convention on Type 3 and vertically-set text
-/// (`issue1350.pdf`'s hundred words agree horizontally to 0.00 pt and fail only the vertical
-/// centre; `vertical.pdf` and `issue11555.pdf` fail on the cross-axis), a substituted face whose
-/// advances are not the document's, and a genuine placement difference of a point or more.
-const SELECTION_BELOW_FLOOR: [&str; 22] = [
+/// come back. The gate prints every name with its fraction, its worst deltas and which of the
+/// two bounds its words fail; [`SELECTION_DETAIL_IS_ASKED_FOR`] prints the words themselves.
+///
+/// # The tail read as a population, in the seven-hundred-and-ninety-first session (ADR 0726)
+///
+/// Every document here was read against its own content stream and the clause that governs it.
+/// Seven mechanisms, each named with the bound its words fail in the gate's own words:
+///
+/// **§12.7.4.3's layout hand-off** — `annotation-tx.pdf`, `bug1796741.pdf`, `bug1844576.pdf`,
+/// `bug1844583.pdf`, `issue19389.pdf` (all *past the horizontal bound alone* at exactly
+/// 1.00 pt) and `issue12750.pdf` (2.00 pt). All six are `/NeedAppearances true` text fields,
+/// so both readers construct the appearance, and the clause hands the position over:
+/// "positioning values it determines to be appropriate, based on the field value, the quadding
+/// (Q) attribute, and any layout rules it employs". `pdftotext`'s rule, measured from the
+/// `/Rect` (its word xMin sits 2.000 pt in on the four with no `/BS`, 3.000 pt on
+/// `issue12750.pdf`'s `/BS /W 1`), is the `/BS` width plus 2 pt; this tree's is §12.5.4's
+/// border width alone, so the text clears the border it draws and nothing else. Two layout
+/// rules under an explicit hand-off, and the delta is exactly their difference on every word.
+///
+/// **Table 120's pair obeyed against this tree's refusal** — `bug868745.pdf` (`/Ascent 8
+/// /Descent -2`), `issue1350.pdf` (`/Ascent 9.464 /Descent -2.73`), `issue4665.pdf`
+/// (`/Ascent 3117 /Descent -2463`), all *past the vertical centre alone* with horizontal
+/// deltas of 0.00 pt. `pdftotext` obeys the stated pair literally — its `Perenimi` box is
+/// 0.2 pt tall, its `chances` box 41 pt — where this tree's plausibility band (ADR 0216)
+/// refuses a pair no face could measure and answers §9.2.2's em box. The centre measure
+/// inherits the extent disagreement when one box collapses or balloons, which is Finding 3's
+/// convention-against-convention arriving in the judged measure.
+///
+/// **No stated pair at all** — `issue16021.pdf` (standard-14 Helvetica, no descriptor, centre
+/// 0.51) and `issue6605.pdf` (Type 3, centres 0.58–0.67), *past the vertical centre alone* at
+/// 0.00 pt horizontal: the em box against the reference's own font-derived box, the same
+/// convention difference one notch smaller.
+///
+/// **§9.7.5.1's vertical writing mode, now judged in its reading frame** — `vertical.pdf`
+/// (both reading-axis edges 9.21 pt): the embedded font agrees about every position and what
+/// differs is this tree's own box convention, each glyph's quad spanning the *horizontal*
+/// ascent/descent band along the reading axis, where §9.7.4.3's vertical displacement is the
+/// honest per-glyph extent. `issue11555.pdf` (20.27/44.24 pt and centre 0.67, *past both*)
+/// stacks the same convention on a `KozMinPro` the file does not embed, so each reader also
+/// lays out a substitute of its own.
+///
+/// **A `/Rotate 90` page with nothing embedded** — `issue14497.pdf` (reading-axis edges to
+/// 2.59 pt): no `/BaseFont`, no program, each reader's substitute supplies the digits'
+/// advances.
+///
+/// **Substituted metrics, because the file names no usable program** — `issue2391-2.pdf`
+/// (`/Monaco`, no `/Widths`, to 12.58 pt), `issue18099_reduced.pdf` (`/Tahoma`, no `/Widths`,
+/// 1.02 pt), `issue20232.pdf` (no `/BaseFont` at all, fifteen words at 1.20–3.60 pt) and
+/// `TrueType_without_cmap.pdf` (an embedded program with no `cmap`, so each reader repairs the
+/// code-to-glyph route its own way, 4.51 pt) — all *past the horizontal bound alone*, and every
+/// delta grows along the word, which is what advances that differ per glyph look like.
+///
+/// **Text set at an angle the frame cannot follow** — `issue1905.pdf` (five oblique map labels,
+/// ≤ 1.00 pt) and `bug1771477.pdf` (a sheared faux-italic `des`, 1.91 pt), *past the horizontal
+/// bound alone*: under a rotated or sheared text matrix the axis-aligned word box carries each
+/// extractor's ascent/descent convention on **both** axes, and the 90-degree transposition in
+/// [`PairDelta::in_reading_frame`] cannot name a diagonal reading axis.
+///
+/// **One is undiagnosed and the question is ours** — `issue6127.pdf`, *past the horizontal
+/// bound alone*: the last two words of one line, `(réf.` and `S3182).`, sit 3.02 pt — one
+/// space advance at the line's 12 pt — from where **both** references put them (`pdftotext`'s
+/// xMin 165.12, `mutool`'s 165.117), so the two independent readers agree against this tree
+/// and no convention explains it. The line mixes four fonts with `Tc` kerning between them.
+const SELECTION_BELOW_FLOOR: [&str; 21] = [
     "TrueType_without_cmap.pdf",
     "annotation-tx.pdf",
     "bug1771477.pdf",
@@ -1100,7 +1160,6 @@ const SELECTION_BELOW_FLOOR: [&str; 22] = [
     "bug1844576.pdf",
     "bug1844583.pdf",
     "bug868745.pdf",
-    "hello_world_rotated.pdf",
     "issue11555.pdf",
     "issue12750.pdf",
     "issue1350.pdf",
@@ -1149,6 +1208,13 @@ struct WordBox {
     y0: f64,
     x1: f64,
     y1: f64,
+    /// Whether this word's glyphs advance down the page rather than across it.
+    ///
+    /// Only [`our_words`] can answer it — the direction its glyph quads actually advance is
+    /// the interpreter's own knowledge — and both reference parsers leave it `false`, because
+    /// a positional extractor's output states boxes and not directions. It is what decides
+    /// the frame a pair is judged in; see [`PairDelta::in_reading_frame`].
+    vertical: bool,
 }
 
 impl WordBox {
@@ -1158,6 +1224,26 @@ impl WordBox {
 
     fn centre_y(&self) -> f64 {
         f64::midpoint(self.y0, self.y1)
+    }
+
+    /// The same box with its axes exchanged, which is how a vertically-set word enters the
+    /// verdict — see [`PairDelta::in_reading_frame`].
+    fn transposed(&self) -> Self {
+        Self {
+            text: self.text.clone(),
+            x0: self.y0,
+            y0: self.x0,
+            x1: self.y1,
+            y1: self.x1,
+            vertical: self.vertical,
+        }
+    }
+
+    /// Whether this box is taller than it is wide — the census's test for a word set
+    /// vertically (ADR 0421), used here only as the reference's *assent* to an orientation the
+    /// interpreter states; see [`PairDelta::in_reading_frame`] for why it cannot decide alone.
+    fn is_upright(&self) -> bool {
+        self.height() > self.x1 - self.x0
     }
 }
 
@@ -1241,6 +1327,7 @@ fn poppler_page(html: &str) -> Option<ExtractedPage> {
                 y0: number(open, "yMin")?,
                 x1: number(open, "xMax")?,
                 y1: number(open, "yMax")?,
+                vertical: false,
             });
         }
     }
@@ -1307,6 +1394,7 @@ fn mupdf_page(xml: &str) -> Option<ExtractedPage> {
                         y0,
                         x1,
                         y1,
+                        vertical: false,
                     });
                 }
             }
@@ -1433,24 +1521,43 @@ fn our_words(interpretation: &pdf_model::Interpretation, frame: &Frame) -> Vec<W
         let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
         let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
         let mut placed_any = false;
+        // The centres of the word's glyph quads, which are what its writing direction is read
+        // from: the interpreter placed each glyph, so the axis its quads advance along is a
+        // fact about the page rather than a guess from a box's shape (ADR 0726).
+        let mut centres: Vec<(f64, f64)> = Vec::new();
         for placed in &interpretation.text_layer {
             if placed.span.start >= to || placed.span.end <= from || placed.span.is_empty() {
                 continue;
             }
             placed_any = true;
+            let (mut cx, mut cy) = (0.0f64, 0.0f64);
             for corner in placed.quad.chunks_exact(2) {
                 let (x, y) = frame.reference_point(f64::from(corner[0]), f64::from(corner[1]));
                 (x0, y0) = (x0.min(x), y0.min(y));
                 (x1, y1) = (x1.max(x), y1.max(y));
+                cx += x * 0.25;
+                cy += y * 0.25;
             }
+            centres.push((cx, cy));
         }
         if placed_any {
+            let spread = |pick: fn(&(f64, f64)) -> f64| -> f64 {
+                let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
+                for centre in &centres {
+                    low = low.min(pick(centre));
+                    high = high.max(pick(centre));
+                }
+                high - low
+            };
             words.push(WordBox {
                 text: fold(&text[from..to]),
                 x0,
                 y0,
                 x1,
                 y1,
+                // A word of one glyph states no direction and reads as horizontal, which is
+                // the same default every reference box carries.
+                vertical: spread(|c| c.1) > spread(|c| c.0),
             });
         }
     }
@@ -1501,6 +1608,56 @@ struct PairDelta {
 }
 
 impl PairDelta {
+    /// Measures a matched pair **in the word's own reading frame** (ADR 0726).
+    ///
+    /// The two bounds are not symmetric in what they forgive: [`HORIZONTAL_BOUND`] is §9.4.4's
+    /// positioning arithmetic, tight because the references agree about it to a hundredth of a
+    /// point, and the vertical *extent* is deliberately unjudged because a word box's height is
+    /// each extractor's own ascent/descent convention (ADR 0323 Finding 3). Both statements are
+    /// about the text's **reading axis and its cross axis**, not about the page's x and y — and
+    /// on a `/Rotate 90` page, or under §9.7.5.1's vertical writing mode 1, the two swap:
+    /// `hello_world_rotated.pdf`'s glyphs run down the displayed page, so its "horizontal
+    /// edges" *are* the ascent/descent convention the design excludes, and the gate held them
+    /// to 0.5 pt anyway. §9.4.4's displacement arithmetic is stated for both axes alike:
+    ///
+    /// > First, a combined displacement shall be computed, denoted by t x in horizontal
+    /// > writing mode or t y in vertical writing mode (the variable corresponding to the
+    /// > other writing mode shall be set to 0)
+    ///
+    /// so the tight bound belongs on whichever axis the text advances along.
+    ///
+    /// A pair judged vertical is measured on transposed boxes: the edge deltas become the
+    /// reading-axis (y) edges and the relative centre becomes the cross-axis (x) centre
+    /// against the word's width.
+    ///
+    /// # Who says which way a word reads, and why no box may say it alone
+    ///
+    /// The interpreter states the orientation — [`WordBox::vertical`], the axis our word's
+    /// glyph quads advance along, which is a fact about the placement rather than a guess —
+    /// and the reference's box must assent by being taller than it is wide. Both halves were
+    /// measured rather than assumed, because each alone judged the wrong words in its own way:
+    ///
+    /// - deciding on the reference's box alone (the census's convention for *refusing* a drag,
+    ///   ADR 0421) transposed four documents of ordinary horizontal text whose reference boxes
+    ///   are taller than wide only because their stated `/Ascent`–`/Descent` pairs are
+    ///   implausible — `issue4665.pdf`'s descriptor states 3117 and −2463, `pdftotext` obeys
+    ///   it, and its 41 pt tall boxes on 15 pt words read as upright;
+    /// - deciding on both boxes' shapes transposed a narrow *horizontal* word wherever its box
+    ///   is honestly taller than wide — `issue12963.pdf`'s `111` and `issue13447.pdf`'s `it,`
+    ///   — putting each extractor's ascent/descent convention under the tight bound with the
+    ///   axes' names exchanged, which is the very failure the frame exists to end.
+    ///
+    /// A box's height is the convention quantity this instrument distrusts, so no box's shape
+    /// may decide the frame; where the interpreter and the reference disagree, the pair stays
+    /// in the horizontal frame and the disagreement shows up in the measures themselves.
+    fn in_reading_frame(ours: &WordBox, reference: &WordBox) -> Option<Self> {
+        if ours.vertical && ours.is_upright() && reference.is_upright() {
+            Self::of(&ours.transposed(), &reference.transposed())
+        } else {
+            Self::of(ours, reference)
+        }
+    }
+
     fn of(left: &WordBox, right: &WordBox) -> Option<Self> {
         let height = f64::midpoint(left.height(), right.height());
         if height <= 0.0 {
@@ -1523,6 +1680,73 @@ impl PairDelta {
         self.dx0 <= HORIZONTAL_BOUND
             && self.dx1 <= HORIZONTAL_BOUND
             && self.relative_centre <= VERTICAL_CENTRE_BOUND
+    }
+}
+
+/// The environment variable that asks the geometry gate to print every out-of-bounds word
+/// under its document's line, with both deltas — the diagnosis view of the ratchet's own
+/// population, off by default because 22 documents' words would treble the listing.
+const SELECTION_DETAIL_IS_ASKED_FOR: &str = "PDFVIEWER_SELECTION_DETAIL";
+
+/// How one judged document's out-of-bounds words divide between the verdict's two bounds.
+///
+/// The division is printed on the document's own line because it is the first question a
+/// diagnosis asks and the answer separates mechanisms: [`HORIZONTAL_BOUND`] is §9.4.4's
+/// positioning arithmetic, which the references agree about to a hundredth of a point, and
+/// [`VERTICAL_CENTRE_BOUND`] is where a word's box sits on its line, which is where every box
+/// *convention* difference lands (ADR 0323 Finding 3, ADR 0726).
+struct Outside {
+    /// Words past the horizontal bound and inside the vertical one.
+    horizontal: usize,
+    /// Words past the vertical-centre bound and inside the horizontal one.
+    vertical: usize,
+    /// Words past both bounds at once.
+    both: usize,
+    /// The worst horizontal edge delta over the document's matched words, in points.
+    worst_dx: f64,
+    /// The worst vertical-centre delta over the document's matched words, as a fraction of
+    /// the word's height.
+    worst_centre: f64,
+    /// The out-of-bounds words themselves, printed under [`SELECTION_DETAIL_IS_ASKED_FOR`].
+    failing: Vec<(String, PairDelta)>,
+}
+
+impl Outside {
+    fn of(pairs: Vec<(String, PairDelta)>) -> Self {
+        let mut outside = Self {
+            horizontal: 0,
+            vertical: 0,
+            both: 0,
+            worst_dx: 0.0,
+            worst_centre: 0.0,
+            failing: Vec::new(),
+        };
+        for (word, pair) in pairs {
+            outside.worst_dx = outside.worst_dx.max(pair.dx0.max(pair.dx1));
+            outside.worst_centre = outside.worst_centre.max(pair.relative_centre);
+            if pair.in_bounds() {
+                continue;
+            }
+            let horizontal = pair.dx0 > HORIZONTAL_BOUND || pair.dx1 > HORIZONTAL_BOUND;
+            let vertical = pair.relative_centre > VERTICAL_CENTRE_BOUND;
+            match (horizontal, vertical) {
+                (true, true) => outside.both += 1,
+                (true, false) => outside.horizontal += 1,
+                // `in_bounds` failed, so at least one of the two is true.
+                (false, _) => outside.vertical += 1,
+            }
+            outside.failing.push((word, pair));
+        }
+        outside
+    }
+
+    /// The division as one clause of the document's printed line.
+    fn describe(&self) -> String {
+        format!(
+            "{} past the horizontal bound alone, {} past the vertical centre alone, {} past \
+             both, worst centre {:.2} of the word's height",
+            self.horizontal, self.vertical, self.both, self.worst_centre
+        )
     }
 }
 
@@ -1617,7 +1841,10 @@ enum Contribution {
     Refused(Refusal),
     Judged {
         name: String,
-        pairs: Vec<PairDelta>,
+        /// Each matched pair's deltas, beside the folded word they were measured on — the
+        /// word so that an out-of-bounds pair can be printed as itself rather than as a
+        /// statistic, which is what the tail's diagnosis reads.
+        pairs: Vec<(String, PairDelta)>,
         /// How many of the reference's words found a unique match — Finding 5's printed
         /// fraction, kept as the two counts so the caller can aggregate honestly.
         matched: usize,
@@ -1672,7 +1899,9 @@ fn judge_against_poppler(path: &Path, cache: &ExtractionCache, work_dir: &Path) 
         name,
         pairs: paired
             .iter()
-            .filter_map(|(ours, reference)| PairDelta::of(ours, reference))
+            .filter_map(|(ours, reference)| {
+                PairDelta::in_reading_frame(ours, reference).map(|delta| (ours.text.clone(), delta))
+            })
             .collect(),
         matched,
         reference_words,
@@ -1723,8 +1952,9 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     let mut horizontal: Vec<f64> = Vec::new();
     let mut relative_centres: Vec<f64> = Vec::new();
     let mut matched_fractions: Vec<f64> = Vec::new();
-    // (fraction in bounds, name, matched pairs, worst horizontal delta) per judged document.
-    let mut ranked: Vec<(f64, String, usize, f64)> = Vec::new();
+    // (fraction in bounds, name, matched pairs, this document's out-of-bounds words) per
+    // judged document.
+    let mut ranked: Vec<(f64, String, usize, Outside)> = Vec::new();
 
     for contribution in contributions {
         match contribution {
@@ -1741,14 +1971,10 @@ fn the_word_boxes_we_place_agree_with_the_references() {
                     reason = "word counts on one page are far below f64's exact integer limit"
                 )]
                 matched_fractions.push(matched as f64 / reference_words.max(1) as f64);
-                let in_bounds = pairs.iter().filter(|pair| pair.in_bounds()).count();
+                let in_bounds = pairs.iter().filter(|(_, pair)| pair.in_bounds()).count();
                 pairs_total += pairs.len();
                 pairs_in_bounds += in_bounds;
-                let worst_dx = pairs
-                    .iter()
-                    .map(|pair| pair.dx0.max(pair.dx1))
-                    .fold(0.0f64, f64::max);
-                for pair in &pairs {
+                for (_, pair) in &pairs {
                     horizontal.push(pair.dx0);
                     horizontal.push(pair.dx1);
                     relative_centres.push(pair.relative_centre);
@@ -1761,7 +1987,7 @@ fn the_word_boxes_we_place_agree_with_the_references() {
                     in_bounds as f64 / pairs.len().max(1) as f64,
                     name,
                     pairs.len(),
-                    worst_dx,
+                    Outside::of(pairs),
                 ));
             }
         }
@@ -1770,15 +1996,50 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     ranked.sort_by(|left, right| left.0.total_cmp(&right.0));
     // Every document with a word out of bounds, not the worst ten: this list *is* the ratchet
     // below, and a ratchet whose population is printed truncated cannot be maintained from the
-    // gate's own output.
+    // gate's own output. Each line says which of the verdict's two bounds its words fail,
+    // because that is the first question a diagnosis asks and the gate already knows the
+    // answer (ADR 0726): a word past the horizontal bound is a disagreement about §9.4.4's
+    // positioning arithmetic, and one past only the vertical centre is a disagreement about
+    // what a glyph's box *is*, which is a different mechanism in every case read so far.
     println!("documents not fully in bounds:");
-    for (fraction, name, pairs, worst_dx) in ranked.iter().filter(|(f, ..)| *f < 1.0) {
+    for (fraction, name, pairs, outside) in ranked.iter().filter(|(f, ..)| *f < 1.0) {
         println!(
             "  {name}: {:.1}% of {pairs} matched words in bounds, worst horizontal delta \
-             {worst_dx:.2} pt",
-            fraction * 100.0
+             {:.2} pt — {}",
+            fraction * 100.0,
+            outside.worst_dx,
+            outside.describe(),
         );
+        if std::env::var_os(SELECTION_DETAIL_IS_ASKED_FOR).is_some() {
+            for (word, pair) in &outside.failing {
+                println!(
+                    "      {word:30} dx0 {:.2}  dx1 {:.2}  centre {:.2} of height",
+                    pair.dx0, pair.dx1, pair.relative_centre
+                );
+            }
+        }
     }
+    // The same classification over the tail as a population — the count a round reads the
+    // tail by, printed rather than written down (ADR 0726).
+    let tail: Vec<&Outside> = ranked
+        .iter()
+        .filter(|(f, ..)| *f < 1.0)
+        .map(|(.., outside)| outside)
+        .collect();
+    println!(
+        "of the {} documents not fully in bounds, {} fail only the vertical centre, {} only \
+         the horizontal edges, {} both bounds",
+        tail.len(),
+        tail.iter()
+            .filter(|o| o.horizontal == 0 && o.both == 0)
+            .count(),
+        tail.iter()
+            .filter(|o| o.vertical == 0 && o.both == 0)
+            .count(),
+        tail.iter()
+            .filter(|o| o.both > 0 || (o.horizontal > 0 && o.vertical > 0))
+            .count(),
+    );
     println!("\nspread of our boxes against pdftotext's, over every matched pair:");
     print_spread("horizontal edge delta (pt)  ", &mut horizontal);
     print_spread("vertical centre / word height", &mut relative_centres);
@@ -1956,6 +2217,7 @@ fn the_selection_bounds_against_the_references_own_spread() {
                     y0: corners[0].1.min(corners[1].1),
                     x1: corners[0].0.max(corners[1].0),
                     y1: corners[0].1.max(corners[1].1),
+                    vertical: false,
                 }
             })
             .collect();
