@@ -1,12 +1,19 @@
 # A script engine that is memory-safe, and the exclusion it invites the owner to re-read
 
-Status: **blocked on the owner's decision, and on nothing else.** The premise this file was
-commissioned to test — *is it true that there is now a safe ECMAScript library?* — is **true, with
-one qualification that matters and is stated in full below**. What is not settled is whether the
-project wants the capability; `CLAUDE.md`'s exclusion list still closes it, and an exclusion is
-amended by the owner's argument, never by a round's.
+Status: **blocked on the owner's decision about the exclusion, and on nothing else.** The premise
+this file was commissioned to test — *is it true that there is now a safe ECMAScript library?* — is
+**true, with one qualification that matters and is stated in full below**. What is not settled is
+whether the project wants the capability; `CLAUDE.md`'s exclusion list still closes it, and an
+exclusion is amended by the owner's argument, never by a round's.
 Priority: 56 — band 50–59, *blocked on a decision*. Not 20–29, though the corpus demand is there:
 no round may start this while the exclusion stands.
+
+**One of the two open questions this file left is now closed, and it is not the exclusion.** The
+owner has ruled on *where the host object model is read from* — §3's *The source, settled by the
+owner* below, which answers what §9's step 4 used to ask for and rewrites it. The exclusion itself
+is untouched: §8 is still an argument awaiting ratification, with the four claims that cut against
+it still standing, and the round that recorded the source decision changed no ledger status, no
+`Cargo.toml`, no file under `doc/rfc/` and no line of `CLAUDE.md`.
 
 Corpus: **run the census rather than reading a number here.** The instrument already existed
 before this file did — `refused_action_census` walks every object the cross-reference table lists
@@ -257,7 +264,9 @@ one normative reference for the language and the API alike is the ISO 21757-1 li
 division of labour is exact: **ISO 32000-2 specifies the *dispatch*** — where a script hangs, when
 it fires, in what order — **and not one API name**; ISO 21757-1 specifies the API. An engine built
 from ISO 32000-2 alone would execute correct ECMAScript against an empty host object graph, which is
-the single sharpest reason §9's step 4 (acquire ISO 21757-1) is not optional.
+the single sharpest reason this file's commission asked where the API is to be read from at all. The
+owner has since answered that, and the answer and its cost are the three subsections at the end of
+this clause.
 
 The word counts say the same thing about where the work is: "ECMAScript" appears 95 times and
 "JavaScript" 13, but the clusters are few — §12.6.4.17 (15), Table 246's FDF dictionary (14),
@@ -345,6 +354,282 @@ For calibration on the world's side rather than the standard's — evidence abou
 implementation costs, never a target — pdf.js's `src/scripting_api/` is **5 660 lines of JavaScript**
 across 18 files, and it runs them inside **QuickJS compiled to WebAssembly** with a string-only
 `JSON.stringify` boundary to the host. Read at `doc/pdf.js` `2ea8820d`, 2026-07-26.
+
+### The source, settled by the owner
+
+The owner ruled on the question the paragraph above asks, and the ruling is recorded here in the
+owner's own words rather than paraphrased:
+
+> "we won't obtain ISO 21757-1:2020 (it costs something). The adobe javascript reference is good
+> enough. ISO 21757-1:2020 directly standardized Adobe's existing Acrobat JavaScript object model
+> into an ISO standard. The core objects you need in a viewer—such as Doc, Field, event, util,
+> color, and app—are documented in depth in Adobe's JavaScript for Acrobat API Reference. There is
+> https://github.com/pdf-association/pdf-issues should be treated as secondary reference."
+
+Three decisions, and they are the owner's:
+
+1. **ISO 21757-1:2020 will not be acquired.** It is a purchase, and the owner has declined it.
+2. **Adobe's *JavaScript for Acrobat API Reference* is the working source for the host object
+   model**, on the argument that ISO 21757-1 standardised Adobe's existing model directly.
+3. **`https://github.com/pdf-association/pdf-issues` is a secondary reference.**
+
+§9's step 4 asked a round to acquire the standard and called that step not optional. It is answered,
+and it is rewritten there. What is *not* answered is anything in §8: the exclusion still stands.
+
+### What principle 5 makes of a vendor document a standard adopted
+
+This is the part worth the words, because principle 5's usual answer is the wrong one here and the
+reason it is wrong is worth being able to state.
+
+**The owner's argument, written out.** `CLAUDE.md` principle 5 demotes poppler, mupdf, ghostscript,
+pdf.js and Acrobat to *evidence about our reading*, never the definition of correct. What puts them
+in that position is where they sit: each is a program written **downstream** of ISO 32000-2, so what
+it produces is another party's reading of the same text this project reads, and two readings
+agreeing raises confidence in both. Adobe's *JavaScript for Acrobat API Reference* is not in that
+position at all. ISO 21757-1:2020 was made **from** it: the vendor document is the standard's
+*ancestor* rather than a competing reading of it, so consulting it is nearer to reading a draft of
+the standard than to reading a competitor's source. The direction of derivation runs Adobe → ISO,
+where principle 5's whole machinery is about inference running the other way.
+
+**And a claim about a document is checkable, so it was checked.** ISO 21757-1's own table of
+contents is Adobe's, heading for heading. From the publicly available preview (read 2026-08-28):
+clause 10.5 `app`, 10.8 `color`, 10.13 `Doc`, **10.16 `event`** — with 10.16.2 "Event type/name
+combinations", 10.16.3 "Document Event Processing", 10.16.4 "Form Event Processing" and 10.16.5
+"event properties" — **10.17 `Field`**, with 10.17.2 "Field versus widget attributes" — and 10.37
+`util`. Every one of those sub-headings is a heading Adobe's page prints, in Adobe's order. The
+ancestry is not a story about the two documents; it is visible in their contents pages.
+
+**Here is the standing limit, and it is exactly as load-bearing as the argument.**
+
+1. **The derivation is visible and is nowhere *stated*.** Neither the Foreword nor the Introduction
+   of the preview says the document derives from an Adobe publication. So *Adobe is the standard's
+   ancestor* is **this project's inference from a structural match**, not a sentence either document
+   prints, and it should be written down as an inference wherever it is relied on.
+2. **Where the two diverge, this project cannot tell.** There is no copy of ISO 21757-1 in this tree
+   and none is coming; the free preview stops at clause 10.2, which is before the first object type.
+   Everything below that comes from Adobe alone, with no second side to compare it against.
+3. **They demonstrably do diverge — and the secondary reference is what proves it**, which is the
+   strongest single reason to have adopted it. `pdf-association/pdf-issues` records three (read
+   2026-08-28):
+   - **`console` is in Adobe's reference and absent from ISO 21757-1** — issue #744, open, filed
+     2026-04-23, noting the object is used in a great many existing files, with nobody in the thread
+     able to say whether the removal was deliberate.
+   - **`ScreenAnnot`'s documentation is missing from ISO 21757-1** — issue #99, open — where Adobe's
+     reference carries it at length.
+   - **`XMLData` is referred to by ISO 21757-1 and defined nowhere in it** — issue #535, open — a
+     gap on the ISO side rather than the Adobe one.
+
+   Three measured divergences settle the question against the tempting reading: **the two documents
+   are not interchangeable.** The ancestry argument earns Adobe's reference the *standing* of a
+   primary working source. It does not make it the standard, and the first round that treats a
+   sentence of it as an ISO requirement has made the mistake this subsection exists to prevent.
+
+**So the rule, stated so that a later round cannot soften it by accident: every API detail taken
+from Adobe's reference is a documented choice in `CLAUDE.md` principle 5's own sense — "say so
+plainly, make a deliberate choice, and document it *as a choice*" — and never a derivation from ISO
+32000-2.** What *is* derived from ISO 32000-2 is the **dispatch**: §12.6.4.17 and §12.6.3's tables
+say where a script hangs, when it fires and in what order, and this clause has already quoted them.
+Not one API name comes from there.
+
+### How a round cites it, so that the instruments stay honest
+
+`§` in this tree means *a clause of ISO 32000-2* and nothing else — that is what makes every one of
+them checkable, and `tools/conformance/src/citation.rs` says so in the doc comment on its
+`ForeignCitation`, which exists for the one failure that matters here: a *readable* citation of
+something else, which "checks as ISO 32000-2's §5.2, which exists, so it passes in silence". Taking a
+second and a third source therefore has an instrument cost, and this round priced it by running the
+scanner rather than by reasoning about it (trap 13). Each line below was fed to
+`conformance::citation::scan` and its verdict read off, with the clause index asked whether the
+number it landed on exists:
+
+| written as | what the checker records | verdict |
+|---|---|---|
+| `ISO 21757-1 §9` | a **foreign citation** of "ISO 21757-1" | **caught** — the gate fails, and the message teaches the spelling: write "ISO 21757-1 section N" |
+| `ISO 21757-1:2020 §9` | a citation of **ISO 32000-2 §9**, which exists | **silent pass, onto the wrong standard** |
+| `the JavaScript for Acrobat API Reference §12.5` | a citation of **ISO 32000-2 §12.5**, which exists | **silent pass, onto the wrong standard** |
+| `ISO 21757-1 Table 113` in any comment | a reference to **ISO 32000-2's Table 113** — "Additional entries in Mac OS Roman encoding not in MacRomanEncoding" | **silently the wrong table** |
+
+**The second row is the one to remember, because it is the spelling a round will reach for.** The
+guard is `citation::another_document`, which recognises another document by an acronym followed by a
+plain number — `RFC 3986 §5.2`, `ISO 15076-1 §6` — and `21757-1:2020` is not a plain number, so the
+*year* defeats the guard. This file writes "ISO 21757-1:2020" a couple of dozen times, which is
+exactly the string somebody will copy into a doc comment.
+
+The shapes to write, therefore, and they are rules rather than preferences:
+
+- **`ISO 21757-1 section 10.17`** — the word, never the sign, and never the year attached to a `§`.
+  That is the spelling the checker's own failure message asks for.
+- **`Adobe, JavaScript for Acrobat API Reference, "event properties" — event.rc`** — a title, a
+  section name and a member, with no `§` anywhere near it. A `§` after a prose title is not caught
+  at all, so nothing will tell you.
+- **lower-case, as in `table 113 of ISO 21757-1`**, because `read_tables` matches the capitalised
+  `Table ` and there is no way to tell it which standard a comment is about. Table 113 is a live
+  example of a number the two standards use for unrelated things.
+- **Never a rustdoc blockquote of Adobe's words.** This is the one place the instruments are already
+  exactly right and it should be left that way: a blockquote is compared against `doc/md/`, and a
+  blockquote with no `§` before it in the same comment is reported as unattributed — so Adobe's
+  sentences fail either way, which is the gate correctly refusing to let a vendor document wear the
+  standard's clothes. Quote Adobe in ordinary prose, with the source named on the same line.
+- **Pin what was read**, which is about honesty rather than about the checker. Adobe's reference is a
+  *floating* URL with no version in it (below), so "Adobe's reference says X" is not reproducible
+  the way a clause number is. This tree already knows the answer — `doc/pdf.js` is cited at
+  `2ea8820d`, Boa at `337a3668` in §2.2 — and the same applies here: cite the commit of
+  `adobe/dc-acrobat-sdk-docs` that was read.
+
+### Where Adobe's reference is, in what form, and what it holds
+
+Read 2026-08-28, by fetching rather than by searching.
+
+**The PDF edition is retired and the document is now an HTML page tree.**
+`https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/js_api_reference.pdf` answers 301 to
+the SDK landing page; so does `js_developer_guide.pdf`. What is live is
+<https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/index.html>, retitled *Acrobat
+JavaScript API Reference*, and the body of it is **two pages**: `JS_API_AcroJS.html`, 2 727 020
+bytes, holding every object type except `Doc`, and `doc.html`, 891 KB, holding `Doc`. Objects are
+addressable by fragment — `#app`, `#color`, `#event`, `#field`, `#util`.
+
+**It is floating rather than versioned, and there is no edition to cite.** No version number, no
+version segment in the URL, and three signals put the content's vintage at Acrobat XI (2012):
+"Changes Across Versions" stops there, the compatibility table stops at Acrobat 10.0 / JavaScript
+1.8, and the page footer reads a 2023 site build date. Adobe's own canonical short link,
+`https://www.adobe.com/go/acrobatsdk_jsapiref`, redirects to a **404**. That is the whole of why the
+pinning rule above exists.
+
+**It is MIT-licensed, which is better than the old PDF's terms and matters for quoting it.** The
+site is published from <https://github.com/adobe/dc-acrobat-sdk-docs>, whose `LICENSE.md` is the MIT
+text and covers "this software **and associated documentation files**"; the repository is public and
+still being pushed to. The retired PDF and the 1999 ancestor technote carry Adobe's restrictive
+informational-use notice instead, so a round should read the site rather than a mirror of the PDF.
+
+**What it covers, for the six objects the owner named.** All six are there and all six are
+documented at length: `Doc` (177 headings, including `getField`, `calculateNow`, `resetForm` and the
+`calculate` and `dirty` properties); `Field` ("Field versus widget attributes" plus 47 properties
+and 25 methods, including every property this file's §7 needs); `event` (the "Event type/name
+combinations" table of 35 `Type`/`Name` pairs, "Document Event Processing", "Form event processing",
+and the full property list); `util` (11 methods, with `printf`'s conversion specification and
+`printd`'s pattern table given in full); `color` (the colour-array forms, the twelve named constants,
+`convert` and `equal`); `app` (24 properties and 45 methods). **The owner's "documented in depth" is
+accurate**, and §7 below turns it into a checkable list.
+
+**What it does not cover, which is the half that decides the first step.**
+
+1. **The `AF*` form-format functions are not in it.** Measured rather than assumed: a search for
+   `AF[A-Za-z]*_[A-Za-z]+` over the whole of `JS_API_AcroJS.html` and `doc.html`, and over the
+   JavaScript Developer Guide, returns **nothing at all**; the reference's object list runs
+   `Alerter … XMLData` with no such entry. **ISO 21757-1 does not have them either** — its contents
+   run `Annotation` … `util` with no form-format clause — so this is not a gap the standard would
+   have closed.
+2. **Adobe's only published statement about them is an argument table in a different book**, found
+   through the site's own search index: the *Interapplication Communication* guide's Acrobat Forms
+   Plug-In → `Field` → `SetJavaScriptAction`, under "Calculation script" and "Formatting scripts"
+   (<https://opensource.adobe.com/dc-acrobat-sdk-docs/library/interapp/IAC_API_FormsIntro.html#setjavascriptaction>).
+   It gives parameter menus and **no algorithm**: `AFSimple_Calculate(cFunction, cFields)` with
+   `AVG SUM PRD MIN MAX`; `AFDate_Format(cFormat)` with fourteen enumerated format strings;
+   `AFSpecial_Keystroke(psf)` with `0 = zip, 1 = zip+4, 2 = phone, 3 = SSN`;
+   `AFNumber_Format(nDec, sepStyle, negStyle, currStyle, strCurrency, bCurrencyPrepend)` with
+   `negStyle` enumerated 0–3 and `currStyle` marked as not used. It is also **internally sloppy** —
+   it uses the name `sepStyle` for two different arguments, documents only two of that argument's
+   values, and omits `AFRange_Validate`, `AFMergeChange`, `AFExtractNums`, `AFMakeNumber`,
+   `AFParseDateEx` and every `*Ex` variant.
+3. **The trigger firing order is published only as a picture.** The reference's "Form event
+   processing" section is two sentences and an image, `_images/formsevent.png`. The order the diagram
+   states, read off it: Mouse Enter → Mouse Down → Focus → Mouse Up → Keystroke (or Selection Change,
+   list box only) → Validate → Calculate → Format → Blur, with Mouse Exit branching off, a self-loop
+   on Keystroke and an edge from Validate back to it. Nothing in Adobe's prose states that order.
+4. **Adobe contradicts itself on `Validate` and `event.rc`, in consecutive sentences**: the Validate
+   entry says the event does not listen to the return code, and then that a return code of false
+   makes the value invalid and leaves the field unchanged. Which of the two a reader should implement
+   is not stated anywhere.
+5. **Nothing says what happens when a trigger script throws.** Across roughly a hundred occurrences
+   of "exception" and "throw" in the reference, not one answers whether the value commits, whether
+   the remaining triggers run, or whether a `/CO` chain continues.
+6. **Locale is undefined.** `util.printd`'s third numeric format is described as a localised string
+   and an example; which locale, and the mapping, are unstated, as are the month names
+   `AFDate_Format` produces. The only locale machinery actually specified is the XFA picture-clause
+   extension, which defers to a document `CLAUDE.md` excludes.
+7. **`Field.value`'s string-to-number conversion is undefined** beyond one worked example
+   distinguishing it from `valueAsString`; and **`Calculate` re-entrancy** — a calculation script
+   writing a field earlier in the `/CO` order — is not addressed.
+
+Items 3 to 7 are the ones to hold on to: they are places where **the standard would not have helped
+either**, so the decision to read Adobe rather than ISO costs nothing there. Item 1 is different and
+is what re-prices §7.
+
+### `pdf-association/pdf-issues`, and what this tree already reads of it
+
+**What it is.** The PDF Association's public errata tracker, described by the repository itself as
+"Industry-based resolutions for issues and errata reported against any PDF-related specification",
+published at <https://pdf-issues.pdfa.org/> and licensed **CC-BY-4.0**. Anyone may file; blank
+issues are disabled and the template demands a clause, paragraph or table number and a proposed
+correction. Resolutions are reached in PDF Association Technical Working Groups, published to the
+site, and **then** the issue is closed — so *closed* is the resolved state rather than the rejected
+one, and `wontfix` is the label for "this produced no specification change".
+
+**How it is organised — it is both a tracker and a set of files.** Under `docs/` there is one
+directory per standard, named for its ISO number and year, and inside each one file per top-level
+clause. The errata themselves are HTML `<ins>`/`<del>` runs carrying `data-issue` (the GitHub issue
+number) and `data-iso` (`approved`, `submitted`, or absent for TWG-resolved), one edit per line by
+the repository's own publication policy so that the files can be scripted. There is a directory for
+ISO 21757-1 as well as one for ISO 32000-2.
+
+**And this tree already reads its output under another name, which is the thing worth knowing before
+adopting it.** `tools/spec-errata` reads the annotated PDFs in `doc/`, which are the PDF
+Association's *errata collection* — the same resolutions delivered as annotations on the standard
+itself — and every annotation carries the issue number. That is what the `#181`, `#293`, `#236` and
+`#374` in `doc/errata-read.md`'s tables **are**: `pdf-association/pdf-issues` issue numbers, read by
+this project since ADR 0252 without the repository ever being named. So the owner's "secondary
+reference" is not a new source. It is the upstream of an instrument this tree has had for four
+hundred rounds, named at last.
+
+**Which makes the duplication question worth answering precisely, because there is one and it has a
+clean boundary:**
+
+- **For ISO 32000-2, do not adopt it as a second errata feed.** `spec-errata`'s population is the
+  annotated PDFs, and the repository's `docs/32000-2-2020/` is the same resolutions in a different
+  container. Two instruments over one population is how a project comes to believe the one that
+  agrees with it, and `doc/errata-read.md` already records what happens when a single collection
+  disagrees with *itself* (Table 161's two accepted annotations that cannot both be applied). The
+  repository's **issue threads** are a different thing and are not duplicated by anything here: they
+  carry the argument, which the annotation does not.
+- **For ISO 21757-1 it is the only channel this project can have.** `spec-errata` reads `doc/*.pdf`,
+  there is no annotated ISO 21757-1 among them, and after the owner's decision there never will be.
+  The repository's ISO 21757-1 directory is small — a handful of files over clauses 2, 3, 10 and 12
+  — and it is free, so it is a strict gain rather than an overlap.
+
+**What it says about the JavaScript question, specifically. Three of its thirteen ISO 21757-1 issues
+are load-bearing and one of them is the most useful page either source has:**
+
+1. **Issue #185, closed and ISO-approved, pins the language version — and neither ISO document
+   states it.** As published, ISO 21757-1's normative reference for the language is a dated
+   reference to ISO/IEC 22275:2018, which itself refers to ECMA-262 *undatedly*: so the published
+   standard specifies **no fixed ECMAScript version at all**. The erratum replaces that reference
+   outright with **ECMA-262, 11th edition, June 2020 — the ECMAScript 2020 Language Specification**.
+   That is the conformance target §2.1's test262 table should be read against, and it is a fact
+   available from nowhere else this project can reach.
+2. **Issue #70, closed and ISO-approved: E4X is deprecated in PDF 2.0** and the ISO/IEC 22537
+   reference is deleted. So no ECMAScript-for-XML, decided rather than assumed.
+3. **Issue #100, closed `wontfix`, is the record of a standards body declining to specify the layer
+   real forms depend on.** The reporter enumerated some ninety identifiers that existing form
+   documents call — the whole `AFNumber_Format` / `AFNumber_Keystroke` / `AFDate_Format` /
+   `AFSimple_Calculate` / `AFPercent_Format` / `AFSpecial_Keystroke` / `AFRange_Validate` family,
+   plus regular-expression and message-string constants — and reported that implementing the
+   standardised API is not enough to make a large share of existing files work. Adobe's answer in
+   the thread is that these are not JavaScript APIs but undocumented private methods of the Acrobat
+   products, which Adobe has chosen not to document for standardisation; the working group closed it
+   as no fix.
+
+   **That is a documented decision, not an omission, and it is exactly `CLAUDE.md`'s two
+   denominators pulling apart**: the specification denominator says these functions do not exist,
+   and the world denominator says a large share of form documents call them. A project that reads
+   only the first will build a script engine that runs and formats nothing.
+
+Four more are open and are worth knowing about because they are places where **no answer exists
+anywhere**: #744 (`console` unspecified), #535 (`XMLData` undefined), #270 (the `Runtime` clause
+under-specified — how many runtimes a document has, which annotations attach to one), #99
+(`ScreenAnnot` undocumented). Everything else in the ISO 21757-1 errata is 3D and rich-media
+cosmetics and touches no form-field scripting. On the ISO 32000-2 side there is essentially nothing
+JavaScript-specific: the only relevant edit is one correcting the `/JavaScript` name tree's value
+type in Table 32 from name strings to strings, which is a typing fix rather than a scripting one.
 
 ## 4. What it would mean for compliance — measured, and smaller than it sounds
 
@@ -648,6 +933,87 @@ stays quiet, the calculation chain (`/CO` + `/AA /C`) is the second step**, on a
 (12 documents in pdf.js, 82 in the crawl) and with the harder obligation — a chain has an order, and
 Table 224 makes stating that order the *document's* duty rather than the reader's.
 
+### The step re-priced against the settled source — and as written it fails its own test
+
+The step above was written before the API source was decided. Reading it against what Adobe's
+reference actually documents makes it a **short, checkable list** rather than a gesture, and it also
+finds that **the step as stated cannot pass the criterion it sets for itself**. Both halves are
+below; the second is the finding.
+
+**What the step needs and Adobe documents.** Every member here is in the reference, under the
+section named beside it, and a round can tick them off:
+
+| member | what the step needs it for | Adobe's section |
+|---|---|---|
+| `event.name`, `event.type` | which trigger fired — the pairs `Field`/`Keystroke` and `Field`/`Format` | Event type/name combinations |
+| `event.value` | the Keystroke script reads it; the Format script writes it | event properties |
+| `event.change` | the incoming keystroke text | event properties |
+| `event.changeEx` | the uncropped text, paired with `fieldFull` | event properties |
+| `event.fieldFull` | says which of the two above is the whole of what the user typed | event properties |
+| `event.willCommit` | marks the final Keystroke call, the one before Validate | event properties |
+| `event.rc` | Keystroke listens to it; Format does not | event properties |
+| `event.selStart`, `event.selEnd` | where in the value the change goes | event properties |
+| `event.target`, `event.targetName` | the field the trigger fired on, and its name for the report | event properties |
+| `event.commitKey` | 0–3: escape, click away, Enter, Tab | event properties |
+| `Field.value` | read-only in this step | Field properties |
+| `Field.valueAsString` | the distinction Adobe's own example turns on: a stored `"020"` is the string, not the number | Field properties |
+| `Field.name`, `Field.type` | the report, and the restriction to a text field or combo box | Field properties |
+| `Field.readonly`, `Field.display` | whether the trigger may fire at all | Field properties |
+| `util.printf` | the whole conversion specification, with conversion characters `d f s x` | util |
+| `util.printd` | the pattern table and the three numeric formats | util |
+| `util.printx`, `util.scand` | the date round trip, including `scand`'s two-digit-year horizon | util |
+
+**Seventeen members over three objects, and every one of them is documented.** `color` and `app` are
+not needed by this step and `Doc` is needed only for `getField`, which the step excludes; the owner's
+six objects are therefore three-and-a-fraction for a first step, which is a smaller surface than §7
+guessed and is good news.
+
+**Now the bad news, and it is the round's real finding.** The step is judged on whether a currency
+field reads `$1,234.50`. What makes a field read that is `AFNumber_Format`, because a field's `/AA
+/F` value in a real document is almost always a single call to one of the `AF*` functions and
+nothing else. And:
+
+- **`AF*` is in neither source.** Not in Adobe's reference (measured: zero occurrences), not in ISO
+  21757-1's contents, and issue #100 records the working group declining to specify it — see §3.
+- **Acrobat supplies those functions from its own shipped script library**, which is why the calls
+  work there and why a document does not carry them.
+- **The step excludes document-level scripts**, correctly, for the launch-path reason §7 gives. So
+  there is no route by which the document could supply them either.
+
+Put together: **a worker holding `event`, `this`, `util` and a read-only `Field` will evaluate
+`AFNumber_Format(2, 0, 0, 0, "$", true);` and raise a reference error, on every document the step is
+aimed at.** The step is judgeable, and judged as designed it fails. That is not an argument against
+the step; it is an argument that its *criterion* was chosen before its source was known.
+
+**The adjustment, with the option this file recommends named.** Three ways out, and they differ in
+how much of the result is a documented choice:
+
+1. **Implement the `AF*` family in the host.** It is what makes the step's criterion reachable, and
+   it is what the two implementations in issue #100's thread did. **Every line of it is a documented
+   choice**: the only published description is an argument table with no algorithm, which documents
+   one argument's values partially, mislabels another and omits half the family — so the rounding
+   rule, the locale, the separator styles and what counts as a valid telephone number are all this
+   project's, decided with nothing to derive them from. It would be the largest block of
+   documented-choice code this tree has ever taken on, and it should not arrive attached to a step
+   whose purpose is to prove a worker and a protocol.
+2. **Narrow the step to what the documented sources decide, and recommend it.** Run the trigger,
+   evaluate the script in the third worker under its budgets, apply an assignment to `event.value`
+   through the action log beside the document, and **refuse anything the object model above does not
+   hold — by name, out loud**, which is trap 5 and is what this tree does with every other refusal.
+   On the documents §7 aims at, that reports `AFNumber_Format` refused rather than a formatted
+   field. **The criterion changes with it, and that is the point**: the step is then judged on
+   whether the script runs, whether the budget holds, whether the log stays beside the document, and
+   whether every refusal is named — four things the two sources fully determine — instead of on a
+   formatting result that nothing specifies. The `AF*` layer becomes the second step, ahead of the
+   calculation chain, with its own argument and its own documented choices.
+3. **Implement `AFNumber_Format` and `AFNumber_Keystroke` alone.** Rejected: the argument table
+   documents the separator argument for two of its four values, so even one function is mostly
+   choice, and doing it inside a step scoped by safety hides that.
+
+**So §7's ordering stands and its first step's criterion does not.** The recommendation is option 2,
+and the step's own sentence above — that it either makes a currency field read `$1,234.50` or it does
+not — should be read as the thing this subsection corrects.
+
 **It is scoped by safety and not by coverage, and §4.2's second bullet says what that costs**: most
 of the world's script actions hang off `/OpenAction`, an outline item or the name tree rather than
 off a field trigger, so this step reaches a minority of the demand deliberately. The step that
@@ -749,11 +1115,25 @@ and the round that wrote it added no dependency and no engine.**
    number is 0006**; this round did not take it, because `doc/rfc/` is awaiting the owner's review
    and a round does not add to a queue it was told not to touch.
 3. **The `/CO` and `/AA` census** — owed whatever the owner decides, per §4.2.
-4. **Acquire ISO 21757-1:2020.** This tree does not have it. Principle 5 cannot be satisfied
-   without it, and `doc/environment.md`'s note applies: the specifications live encrypted in
-   `doc/specifications.zip` and this would be a fifteenth document for it. **This is an owner
-   action** — the agent user cannot buy a standard.
-5. Only then: the worker, the protocol, the subset, the budgets, the report.
+4. ~~**Acquire ISO 21757-1:2020.**~~ **Answered by the owner, and answered against acquiring it.**
+   This step used to read that the standard had to be bought and that principle 5 could not be
+   satisfied without it. The owner has decided otherwise: ISO 21757-1:2020 will not be obtained,
+   Adobe's *JavaScript for Acrobat API Reference* is the working source for the object model, and
+   `pdf-association/pdf-issues` is a secondary reference — §3's *The source, settled by the owner*.
+   What replaces the step is not nothing, and it is three obligations rather than a purchase:
+   - **The API source is Adobe's and its details are documented choices**, never derivations. §3's
+     *What principle 5 makes of a vendor document a standard adopted* is the argument and its limit;
+     a round that writes an API member without that framing has quietly promoted a vendor document
+     to a standard.
+   - **The citation shapes in §3 bind**, because two of the four wrong spellings pass the checker in
+     silence and land on real clauses of the wrong standard. Nothing will tell a round it got this
+     wrong.
+   - **The language version comes from the errata, not from either standard.** ISO 21757-1 as
+     published pins no ECMAScript version; issue #185 replaces its normative reference with
+     ECMA-262's eleventh edition. Any engine-conformance claim is against that.
+5. Only then: the worker, the protocol, the subset, the budgets, the report — and §7's re-priced
+   first step rather than its original one, since the original's criterion needs a function neither
+   source specifies.
 
 ## Sources, all read 2026-08-28
 
@@ -773,3 +1153,34 @@ and the round that wrote it added no dependency and no engine.**
 - crates.io API for `boa_engine`, `nova_vm`, `rquickjs`, `v8`, `deno_core`, `quick-js`.
 - `doc/pdf.js` at `2ea8820d` (2026-07-26) for `src/scripting_api/` and `external/quickjs/` — evidence
   about the world, never a target.
+
+### And the sources the owner settled on, added the same day
+
+- **Adobe, *JavaScript for Acrobat API Reference***, as an HTML page tree:
+  <https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsapiref/index.html>, with the body in
+  `JS_API_AcroJS.html` (every object but `Doc`) and `doc.html` (`Doc`), and the form-event diagram at
+  `_images/formsevent.png`. **Floating, with no version to cite** — pin the commit of
+  <https://github.com/adobe/dc-acrobat-sdk-docs>, whose `LICENSE.md` is MIT and covers the
+  documentation files. The PDF edition at
+  `https://www.adobe.com/content/dam/acom/en/devnet/acrobat/pdfs/js_api_reference.pdf` redirects to
+  the landing page and is retired; the short link `https://www.adobe.com/go/acrobatsdk_jsapiref`
+  redirects to a 404.
+- **Adobe, *Interapplication Communication API Reference***, Acrobat Forms Plug-In →
+  `SetJavaScriptAction`:
+  <https://opensource.adobe.com/dc-acrobat-sdk-docs/library/interapp/IAC_API_FormsIntro.html#setjavascriptaction>
+  — the only published description of the `AF*` arguments, and a parameter menu rather than an
+  algorithm.
+- **Adobe, *Developing Acrobat Applications Using JavaScript***:
+  <https://opensource.adobe.com/dc-acrobat-sdk-docs/library/jsdevguide/index.html>, and its forms
+  chapter `JS_Dev_AcrobatForms.html`. It adds the calculation-order discussion and nothing about
+  firing order or the `AF*` functions.
+- **`pdf-association/pdf-issues`**, the secondary reference:
+  <https://github.com/pdf-association/pdf-issues>, published at <https://pdf-issues.pdfa.org/>,
+  content **CC-BY-4.0**. The ISO 21757-1 errata are at
+  <https://pdf-issues.pdfa.org/21757-1-2020/index.html>; the issues cited above are #185, #70, #100,
+  #744, #535, #270 and #99 under the repository's `ISO 21757-1` label.
+- **ISO 21757-1:2020's publicly available preview**, for the contents page the ancestry argument
+  rests on:
+  <https://cdn.standards.iteh.ai/samples/71559/99406ba1f07d4e79b97b14071c9eda06/ISO-21757-1-2020.pdf>
+  — first edition, 2020-12, 253 pages, cover through clause 10.2. The full document is behind
+  <https://www.iso.org/standard/71559.html> and is the purchase the owner declined.
