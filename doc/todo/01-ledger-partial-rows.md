@@ -98,6 +98,17 @@ need it.** §4 keeps the rule — run them after a round that adds a verb, over 
 and `fuzz/` as well as over `ledger.toml` — and the shape they share; what each one *is* belongs
 with the reading, which is this file. Every bullet below is unchanged.
 
+**Taking the *before* half of a before-and-after run has a footgun, and the seven-hundred-and-
+ninety-ninth walked into it.** Every sweep binary resolves the tree from `CARGO_MANIFEST_DIR`
+rather than from the working directory, so running one inside a copy of the base commit measures
+the *worktree* and prints a reassuring "identical" that means nothing. What works is checking the
+changed files out at the base commit, running the sweeps, and checking them back — and
+`git checkout HEAD -- <paths>` restores the last **commit**, so any edit made since the round's own
+checkpoint is thrown away by the restore. A `cargo fmt` reflow and a clippy repair went that way
+and were found by re-running the two gates before the commit, which is `doc/todo/02` §6's rule —
+check the file, not the command's exit status — in a new costume. Commit the checkpoint
+immediately before the dance, or copy the files aside instead of trusting `checkout`.
+
 - **One reads the ledger's own quotation marks**, which no gate in this project does: the checker
   verifies every rustdoc blockquote in `crates/` and nothing at all in `ledger.toml`. Report only
   the misses that match the standard for at least five words and then diverge — a claim this
@@ -4122,9 +4133,13 @@ grep -rhoIE 'Issues? #[0-9]+(,? (and )?#[0-9]+)*' crates doc tools fuzz \
   --exclude-dir=arlington-pdf-model --exclude-dir=safedocs | grep -oE '#[0-9]+' | sort -u
 sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the record's own column
 # 3. the ranking: for each `## <clause>` heading in the emit, attribute its annotations to the
-#    nearest ledger row at or above that clause number, keep the rows whose status is live, drop
-#    the issues step 2 found and the ones carrying neither a StrikeOut nor a Caret, and rank by
-#    annotations. Then read one issue *whole*, across every heading it appears under.
+#    nearest ledger row at or above that clause number **within the heading's own family** — the
+#    same top-level clause number, or the same annex letter — keep the rows whose status is live,
+#    drop the issues step 2 found and the ones carrying neither a StrikeOut nor a Caret, and rank
+#    by annotations. Then read one issue *whole*, across every heading it appears under.
+#    The family guard is not a detail: the ledger has rows for the technical clauses and the
+#    normative annexes alone, so without it every annotation under an informative annex lands on
+#    whichever row sorts below it and can manufacture a head. Count those separately instead.
 # 4. rank a second time over EVERY row, whatever its status, and take the head of the two —
 #    preferring the settled row where they tie. Say which ranking the row came from. See below.
 ```
@@ -4625,6 +4640,56 @@ row from PDF 1.6 to PDF 1.5 and marks the `/RT` entry as the later half — two 
   retired text for any quotation to land on, so the only instrument that can see one is `emit`
   read against the rectangle. The other three are an addition over text nobody has quoted, a
   strike under the four-word floor, and a spelling `doc/md/` writes differently.
+
+## The rule's thirteenth use, in the seven-hundred-and-ninety-ninth, and step 3 needed a family guard
+
+**The head could not be believed until the arithmetic was repaired.** Step 3 attributes each `emit`
+heading to the nearest ledger row at or above that clause number, and the ledger carries rows for
+the technical clauses and the **normative** annexes alone — D, E, F, I, K, L, O and Q. The
+informative annexes have no rows, so every annotation under one of them lands on whichever row
+sorts below it: Annex A's four made §14.13.10 the head of the full ranking at six, and Annex H's
+two sat on Annex F's last row. **So the recipe gains a family guard**, and it is written into step
+3 above: attribute a heading only to a row whose top-level clause number or annex letter is the
+heading's own, and count what has no row in its own family separately rather than dropping it. At
+this base twelve annotations are in that state — six under the front matter, whose clauses the
+ledger starts after, four under Annex A and two under Annex H.
+
+Nothing about step 3 was wrong when it was written, and that is the part worth carrying: **the
+decay is what exposed it.** A noise source of six outranks a real head of three only once the real
+heads have been read down to three, which is what twelve uses of this rule have been doing.
+
+**With the guard, both rankings top out at three** — over live rows §12.7.4.1, `partial`; over every
+row seven rows including that one — so step 4 prefers the settled row and the third use's tie-break
+picks **§7.7.3.2**, whose carets put requirements into Table 30's cells where the other five move a
+word in prose, an EXAMPLE's numbering, a spelling, a linearisation version or clause 13's ground.
+ADR 0732; `doc/errata-read.md` has both errata with their rectangles.
+
+**The head paid code, which no settled head had done in five uses.** Issue #271 inserts three rules
+into Table 30: `/Kids` shall hold no null entries and shall be at least one entry long, and `/Count`
+shall be 1 or greater. Two of the three are the code's own construction given the cell's words. The
+third found a guard one degree weaker than the contradiction it was written for — `Pages::new`
+declines a `/Count` on a root with *no* `/Kids` and tested that with `as_array().is_some()`, which an
+empty array passes, so a root writing `/Kids [] /Count 3` reported three pages and produced none of
+them in silence, and a child node in that shape had `find_leaf` skip pages it does not have off the
+walk's countdown. The corpus's one witness of an empty `/Kids` writes the `/Count 0` the same
+erratum outlaws, which is why it reads correctly either way.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the fourth consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 73 named nowhere,
+  which is the twelfth use's 85 less its twelve verdicts, and the multi-issue parse's 310 and 75
+  reproduce the same way. A closing figure is still a derivation and the greps are still the
+  instrument.
+- **The recipe's arithmetic is a claim about this tree and it decays like a row's.** Step 3's
+  attribution was written for the technical clauses and said nothing about an annex the ledger has
+  no row for; twelve uses later that silence was the head. A round running this rule reads the
+  heading its head came from before believing the row — which is ADR 0712's placement rule one
+  level up, applied to the *attribution* rather than to the page.
+- **A settled head that pays is what the fourth step was argued for, and this is the first one.**
+  Four consecutive uses had a settled head confirm its row and pay nothing, with the work one rank
+  down. Here the head itself paid, so the walk stopped; the live head it tied with is left in the
+  population deliberately, and it is the next use's first candidate.
 
 ## What is still owed, named
 

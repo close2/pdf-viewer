@@ -1878,3 +1878,61 @@ downward until a row pays — is what does the work rather than the count.
   one word inside the run it replaces, and both land on *required*. The collection being
   inconsistent once is a reason to check whether a second annotation over the same words disagrees
   — not a reason to expect that it does.
+
+## The array that states no children, and a caret the outline filed under the wrong table — the seven-hundred-and-ninety-ninth
+
+The successor rule's thirteenth use, and the first whose *arithmetic* had to be repaired before its
+head could be believed: step 3 attributes an `emit` heading to the nearest ledger row at or above
+it, and the ledger has rows for the technical clauses and the normative annexes alone — so an
+annotation under an informative annex lands on whatever row sorts below it. Annex A's four
+annotations were sitting on §14.13.10 and made it the head at six. With a family guard both
+rankings top out at **three**: over live rows §12.7.4.1, `partial`; over **every** row seven rows,
+one of them §12.7.4.1 itself. Step 4 prefers the settled row, and the third use's tie-break takes
+**§7.7.3.2** out of the six — its carets put requirements into Table 30's cells where the rest move
+a word, an EXAMPLE's numbering, a spelling, a linearisation version or clause 13's ground. **The
+settled head paid code**, which four consecutive uses of this rule had not seen, so the walk
+downward stopped at it. The base population reproduces the twelfth use's closing arithmetic exactly:
+302 issue numbers carry a strike or a caret under the recipe's own single-issue line parse and 73
+were named nowhere. Two gain verdicts this round. ADR 0732.
+
+Every placement below is the caret's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§7.7.3.2, Table 30's `/Kids` and `/Count`** | 118 | #271 | **implements — two carets vindicate the code and the third cost a page** | Two `Caret`s with no `StrikeOut`, `Review/Completed`, which is `check`'s fourth blindness met the round after it was named. `[493.48 610.979 501.433 617.459]` — (224.5)–(230.9) from the top, centre at x 497.5 where `-bbox` ends the `nodes.` of *node. The children shall only be page objects or other page tree nodes.* at 499.33 — writes *(null entries shall not be present). The length of the array shall be at least one* into the `/Kids` cell; `[323.298 574.979 331.251 581.459]` — (260.5)–(266.9), centre at 327.3 where the `tree.` of *this node within the page tree.* ends at 329.47 — writes *which shall be 1 or greater* into `/Count`'s. The null rule and the `/Count` floor are the code's own construction given the cell's words: `Node::of` answers `None` for a null entry, and both places that trust `/Count` require it positive. **The empty array is what moved.** `Pages::new` refuses to believe a `/Count` on a root with no `/Kids` — its comment says why, and its test for *no children* was `as_array().is_some()`, which `[]` passes: a root writing `/Kids [] /Count 3` reported three pages, produced none of them, and never reached the recovery scan that would have found its own page object. A *child* node in that shape had `find_leaf` skip its claimed pages off the walk's countdown, so every page after it answered to an earlier page's number. Both ask for a non-empty array now, pinned in `page_tree_nodes.rs` and calibrated both ways. `examples/kidless_node_census` counts the empty array beside the absent entry since this round: 1 document of the 1231 in `doc/pdf.js` and `doc/corpora` states one — `issue8088.pdf`, whose empty node writes the `/Count 0` the same erratum outlaws, which is why it reads correctly under either version and why it is the third witness. |
+| §7.7.2, Table 29's `/DPartRoot` | 117 | #614 | **cites — and the outline filed it under §7.7.3.2** | A single `Caret`, `Review/Accepted`, at `[285.9199 481.29234 294.99595 488.68763]` — (353.2)–(360.6) from the top, centre at x 290.5, where `-bbox` puts the `2.0)` closing `(Optional; PDF 2.0)` at 277.89–294.37 on the `/DPartRoot` row — writing *; shall be an indirect reference*. Page 117 carries the tail of Table 29 above §7.7.3's heading at (521.9) and §7.7.3.2's at (732.0), so the ranking offered the catalogue's own table as a page tree node's erratum. It is the third member of the shape family §7.7.2's row records for `/Extensions` (#242) and `/StructTreeRoot` (#348), and takes the same reader's tolerance: `Document::get_key` resolves either shape. The entry stays unread for the reason that row already gives. |
+
+### What reading them made this round look at, which is the point of the rule
+
+**Issue #271 is the round's finding, and what it found is a guard one degree weaker than the
+contradiction it was written for.** The comment above `root_has_kids` argues the case exactly —
+Table 30 requires both entries, so a root stating a `/Count` and no children has contradicted
+itself and the walk settles it — and then asks whether `/Kids` is *an array*. An empty array is an
+array. The published table gave a reader nothing to say about `[]`; the amended cell says the
+length shall be at least one, which makes the empty array the same self-contradiction as the absent
+entry and the same recovery correct for both. This is the vindication shape twice and the
+correction once, inside one erratum.
+
+**And the corpus's one witness writes the other half of the same erratum.** `issue8088.pdf`'s empty
+node states `/Count 0` — outlawed by the third insertion — and that zero is what has kept the file
+reading correctly, because the subtree skip is taken only on a positive count. A population of one
+is why the fixtures are hand-built (trap 8), and the witness is what says the change is not an
+over-correction on a real file.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the fourth consecutive use**: 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 73 named nowhere —
+  the twelfth use's 85 less its twelve verdicts — and the multi-issue parse's 310 and 75 reproduce
+  the same way. Four uses running; a closing figure is still a derivation and the greps are still
+  the instrument.
+- **The recipe's own step 3 had a defect, and the decay is what exposed it.** Every heading is
+  attributed to the nearest row at or above it, and the informative annexes have no rows — so their
+  annotations pile onto whichever row sorts below, and Annex A's four made a six-annotation head out
+  of a row with two. It was harmless while the real heads were at five and seven; on the first use
+  whose signal was three it *was* the head. A family guard is the repair and `doc/todo/01` carries
+  it.
+- **A settled head paid code for the first time in five uses**, so the walk downward never started.
+  The live head it tied with is left in the population on purpose, which is this rule's own rule
+  about an erratum read only far enough to rank it.

@@ -5,6 +5,11 @@
 //! > ( Required ) An array of indirect references to the immediate children of this node. The
 //! > children shall only be page objects or other page tree nodes.
 //!
+//! Errata Collection 3's Issue #271 adds two rules to that cell — *null entries shall not be
+//! present* and *the length of the array shall be at least one* — and a third to `/Count`, which
+//! *shall be 1 or greater*. They are written here as prose rather than as part of the quotation
+//! because `doc/md/` is what `cargo test -p conformance` verifies a blockquote against.
+//!
 //! and §7.7.3.3 Table 31 says what a page object calls itself:
 //!
 //! > ( Required ) The type of PDF object that this dictionary describes; shall be Page for a
@@ -145,12 +150,70 @@ fn a_count_without_kids_is_not_believed() {
     );
 }
 
+/// An **empty** `/Kids` is not children either, so the `/Count` beside it is not believed.
+///
+/// The pair above is a root with no `/Kids` at all; this is the root that writes the entry and
+/// leaves it empty, which the published Table 30 gave a reader nothing to say about — an array
+/// is an array. Errata Collection 3's Issue #271 inserts into the cell that the array's *length
+/// shall be at least one*, so `[]` is the same self-contradiction as the absent entry: a node
+/// stating its children and stating none of them.
+///
+/// What it cost was a document reporting three pages and producing not one of them, in silence,
+/// while the page its producer wrote sat in the file for the recovery scan to find.
+#[test]
+fn a_count_over_an_empty_kids_is_not_believed() {
+    let (count, media_box) = pages_of(tree("/Type /Pages /Count 3 /Kids []", "/Type /Page"));
+    assert_eq!(
+        count, 1,
+        "an empty array states no children, so /Count describes a subtree the file never wrote"
+    );
+    assert_eq!(
+        media_box,
+        Some([0.0, 0.0, 200.0, 100.0]),
+        "object 2 declares itself a page and the recovery scan finds it"
+    );
+}
+
+/// And an empty-`/Kids` node *inside* a tree does not consume the pages it claims.
+///
+/// The same erratum one level down, where the price is a page's index rather than a page count:
+/// `find_leaf` skips a whole subtree on its `/Count` to keep a lookup in a hundred-thousand-page
+/// document cheap, and a childless node claiming one page took one off the walk's countdown — so
+/// every page after it answered to the number of the page before. Two pages behind such a node
+/// is the smallest tree where that is visible, and the root states no `/Count` so that the walk
+/// rather than an entry decides how many pages there are.
+#[test]
+fn an_empty_kids_node_does_not_consume_the_pages_its_count_claims() {
+    let bytes = b"%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Kids [6 0 R 2 0 R 5 0 R] >>\nendobj\n\
+         6 0 obj\n<< /Type /Pages /Parent 1 0 R /Count 1 /Kids [] >>\nendobj\n\
+         2 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 200 100] >>\nendobj\n\
+         5 0 obj\n<< /Type /Page /Parent 1 0 R /MediaBox [0 0 300 400] >>\nendobj\n\
+         4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 7 >>\n%%EOF\n"
+        .to_vec();
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.len(), 2, "object 6 has no children and is no page");
+    assert_eq!(
+        pages.get(0).map(|page| page.media_box),
+        Some([0.0, 0.0, 200.0, 100.0])
+    );
+    assert_eq!(
+        pages.get(1).map(|page| page.media_box),
+        Some([0.0, 0.0, 300.0, 400.0]),
+        "a skip taken on the empty node's /Count would answer page one here and hide page two"
+    );
+}
+
 /// A `/Kids` entry naming nothing is not a page, and it does not move the pages after it.
 ///
 /// Table 30 says "[t]he children shall only be page objects or other page tree nodes", so an
 /// entry resolving to neither is not a child at all — and §7.3.10 makes a reference to an
 /// undefined object resolve to null rather than be an error, which is how a file arrives in this
-/// shape. **The half worth pinning is the counting**: an entry read as a childless page would
+/// shape. Issue #271 states the same conclusion in the cell, *null entries shall not be present*,
+/// which makes stepping over one a recovery from a malformed file rather than a reading of a
+/// legal array. **The half worth pinning is the counting**: an entry read as a childless page would
 /// consume one of the pages the walk counts down on its way to the index it was asked for, and
 /// every page after it would answer to the index of the one before. Two pages, with the dangling
 /// entry in front of both, is the smallest tree where that is visible.
@@ -180,6 +243,41 @@ fn a_kids_entry_that_names_no_node_is_not_a_page() {
         pages.get(1).map(|page| page.media_box),
         Some([0.0, 0.0, 300.0, 400.0]),
         "an entry counted as a page would have stopped the walk one page early"
+    );
+}
+
+/// The corpus's one empty-`/Kids` witness keeps all three of its pages, in order.
+///
+/// `examples/kidless_node_census` over `doc/pdf.js` and `doc/corpora` finds exactly one document
+/// whose tree holds a node with an empty `/Kids`, and it writes `/Count 0` beside it — the value
+/// Issue #271's third insertion outlaws in the same breath as the empty array. That zero is why
+/// the file reads correctly today: `find_leaf` skips a subtree only on a positive `/Count`, so
+/// the node consumed nothing. The pair with the fixture above is the point — the fixture writes
+/// the count the erratum forbids and the witness writes the one it forbids differently — and
+/// this end of it is what says the change is not an over-correction on a real file.
+#[test]
+fn the_corpus_witness_with_an_empty_kids_yields_its_pages_in_order() {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue8088.pdf");
+    let Ok(bytes) = std::fs::read(&path) else {
+        println!("skipped: {} is not checked out", path.display());
+        return;
+    };
+    let document = Document::open(bytes).expect("the witness opens");
+    let pages = pdf_model::Pages::new(&document);
+    assert_eq!(pages.len(), 3);
+    let numbers: Vec<Option<u32>> = (0..3)
+        .map(|index| {
+            pages
+                .get(index)
+                .and_then(|page| page.id)
+                .map(|id| id.number)
+        })
+        .collect();
+    assert_eq!(
+        numbers,
+        vec![Some(10), Some(1), Some(5)],
+        "the tree's own order: the empty node sits between the root and the two pages under it"
     );
 }
 
