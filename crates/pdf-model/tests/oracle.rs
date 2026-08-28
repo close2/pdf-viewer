@@ -1468,6 +1468,12 @@ const CONTRADICTED_DEVICE_CMYK_CONVERSION: [&str; 5] = [
 /// is put in the gate's units — it belongs with [`CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE`]
 /// and not with the entries that price a mechanism in a statistic the verdict never reads.
 /// ADR 0499.
+///
+/// And the *bound* the verdict rests on belongs to another population: the page is convicted by
+/// `poppler` and `mupdf` alone, the voting pair that shares a glyph rasteriser, and it is one of
+/// the 32 pages on which `ghostscript` fails the same differing-fraction bound against both
+/// members of that pair — [`CONTRADICTED_GLYPH_EDGES`]'s last section has the table. The mask
+/// paragraph above owns the margin; ADR 0717 measured what the bound under it is made of.
 const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 
 /// Contradicted, where the two references that agree are the same decoder.
@@ -2804,6 +2810,18 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// happens to sit further apart and the bound derived from it is wider. That is trap 12 read from
 /// the other end, and it is the reason this group's membership is a measurement and never a
 /// verdict.
+///
+/// # Four of these verdicts rest on the pair that shares a glyph rasteriser
+///
+/// `issue6069.pdf`, `issue6108.pdf`, `issue7580.pdf` and `bug850854.pdf` are convicted on the
+/// differing fraction by `poppler` and `mupdf` alone, and they are members of the population
+/// [`CONTRADICTED_GLYPH_EDGES`]'s last section measures whole: on all four, `ghostscript` —
+/// the voting reference with its own statically linked FreeType — fails the same
+/// differing-fraction bound against both members of the convicting pair, and on `issue7580.pdf`
+/// that pair agrees to an exact 0.00% on the count while `ghostscript` sits at 5.50%
+/// (`examples/compare_rasters` over the gate's artefacts, not the gate's line). The
+/// substitution is this group's mechanism; the *bound* those four verdicts rest on is that
+/// section's, and ADR 0717 is the measurement.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -3065,6 +3083,40 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
 /// the exact closed form. What is established here is the ladder above; that the rectangle edges
 /// contribute nothing further is not, and trap 9's *a page can carry two of the eight* is the
 /// reason to write that down instead of assuming it.
+///
+/// # The convicting pair shares a glyph rasteriser, and the third voting reference fails the bound
+///
+/// Every page of this group is convicted on the differing fraction by `poppler` and `mupdf`
+/// alone, and those two are the one voting pair that hints its glyphs through a single
+/// rasteriser: `pdftoppm` and `mutool` each load the machine's `libfreetype.so.6` where `gs`
+/// links no FreeType and carries its own statically linked copy — `objdump -p` on this
+/// machine's binaries, re-checked in the seven-hundred-and-eightieth session rather than
+/// inherited from trap 9's bullet. The gate's ranking prints the count of such convictions
+/// every run since that session.
+///
+/// The measurement is `examples/compare_rasters` over the gate's own artefacts — one named
+/// pair per row, cropped top-left to the common size where the panels differ, so these are
+/// that instrument's figures and not the gate's line. Over the 32 pages the gate convicts on
+/// the differing fraction with that pair (these 27, four of `CONTRADICTED_SUBSTITUTED_FONT`'s,
+/// and `CONTRADICTED_SUBPIXEL_IMAGE`'s one), the differing fraction of:
+///
+/// - **the convicting pair runs 0.00% to 4.37%, median 2.33%** — on `issue4061.pdf`,
+///   `issue7580.pdf` and `issue7696.pdf` it prints an exact 0.00%, two programs agreeing to
+///   the count's own zero;
+/// - **every pair containing `ghostscript` runs 5.32% to 13.37%, median 6.8%** — the two
+///   distributions do not overlap, so on every one of the 32 pages the only two renderers
+///   inside the class floor of each other are the two hinting through one FreeType;
+/// - **ours, best against a pair member, is median 5.70% against `ghostscript`'s 6.75%** —
+///   the third voting reference fails the bound these verdicts rest on against *both* members
+///   of the pair on 32 of 32 pages, and sits further outside it than we do on 27 of the 32.
+///
+/// That is the control trap 12 asks for, taken over the population instead of a page: put
+/// `ghostscript` where our render stands and the same consensus contradicts it on every page
+/// of this group. It is **not** evidence that our phases are right — agreement and its absence
+/// run in one direction only — and no bound moves on it (`doc/todo/12` says what moving one
+/// costs). What it establishes is that these verdicts rest on a bound derived from the one
+/// pair whose agreement trap 9's tenth mechanism manufactures, and that a voting reference
+/// with its own rasteriser cannot meet that bound either. ADR 0717.
 const CONTRADICTED_GLYPH_EDGES: [&str; 27] = [
     "pdfbox/unencrypted.pdf page 2",
     "bad-PageLabels.pdf page 1",
@@ -13085,6 +13137,32 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
              {low:.2}x and {high:.2}x — the bound `doc/todo/12` is about",
             ranked.len(),
             on_the_differing_fraction.len(),
+        );
+        // *Which consensus* convicts them is as much of the population's shape as the measure.
+        // `pdftoppm` and `mutool` load one `libfreetype.so.6` between them where `gs` links no
+        // FreeType and carries its own statically linked copy (trap 9's tenth mechanism,
+        // re-checked on this machine's binaries with `objdump -p` in the seven-hundred-and-
+        // -eightieth session) — so a page whose only agreeing pair is `poppler` and `mupdf` is
+        // held to a bound derived from the one voting pair that shares a glyph rasteriser. The
+        // prefix match is against `verdict_of`'s own format string, and a three-way consensus
+        // reads "poppler and mupdf and ghostscript agree", which it deliberately does not match.
+        //
+        // ADR 0717 measured what the count means: on every such page `ghostscript` fails this
+        // same differing-fraction bound against *both* members of the convicting pair — the two
+        // distributions do not overlap — so each of these verdicts rests on a bound a voting
+        // reference sits outside on the same page.
+        let convicted_by_the_sharing_pair = ranked
+            .iter()
+            .filter(|(examined, _, of)| {
+                *of == "differing fraction"
+                    && matches!(&examined.verdict, Verdict::Contradicted(description)
+                        if description.starts_with("poppler and mupdf agree"))
+            })
+            .count();
+        println!(
+            "    and {convicted_by_the_sharing_pair} of those are convicted by `poppler` and \
+             `mupdf` alone, the one voting pair that shares a glyph rasteriser (trap 9; ADR \
+             0717 measured `ghostscript` outside the same bound on every page of this population)"
         );
     }
     // What the other ranking's unit says about the same pages: at or under 1.0 it says the page is
