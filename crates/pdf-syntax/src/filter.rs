@@ -81,6 +81,12 @@ pub enum Damage {
     /// means the bytes stop short of what the stream says it is — which §7.3.8.2 makes a
     /// statement about the file, since `/Length` "indicates how many bytes of the PDF file are
     /// used for the stream's data" and "[a]ll of these constraints shall be consistent".
+    ///
+    /// **`FlateDecode` has one way of reaching the end of its input that is not this**, and it
+    /// wore this value for as long as the value has existed: a producer that flushed and never
+    /// finished wrote every byte of its data and no final block, so nothing is missing but the
+    /// declaration. [`ended_on_a_block`] is what tells the two apart, and `doc/todo/18` is the
+    /// three corpus documents that were reported for it.
     Truncated,
     /// The encoded data is not what the filter's grammar admits, at a definite point in it.
     ///
@@ -767,8 +773,136 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
             limit: limits.max_stream_len,
         }),
         Stopped::Whole => finish(&out, None, limits),
+        // A stream the producer *flushed* and never finished is not one that stopped short:
+        // every byte the encoder produced is here and only the declaration of the end is
+        // absent. See [`ended_on_a_block`], which is what decides that rather than guessing it.
+        //
+        // **Not asked of a decode that produced nothing**, because that answer is [`flate`]'s
+        // signal to try the other framing (see [`finish`]) and this must not take a raw deflate
+        // stream's fallback away from it. A zlib stream whose whole content is a flush marker
+        // decodes to no bytes and is refused as before.
+        Stopped::Damaged(Damage::Truncated)
+            if !out.is_empty() && ended_on_a_block(data, zlib_header) =>
+        {
+            finish(&out, None, limits)
+        }
         Stopped::Damaged(damage) => finish(&out, Some(damage), limits),
     }
+}
+
+/// RFC 1951 §3.2.4's final empty stored block: `BFINAL` set, `BTYPE` 00, `LEN` 0, `NLEN` 0xffff.
+///
+/// Forty bits that carry no data, which is what makes them a probe rather than a repair. See
+/// [`ended_on_a_block`].
+const FINAL_EMPTY_BLOCK: [u8; 5] = [0x01, 0x00, 0x00, 0xff, 0xff];
+/// The tail of what `zlib` writes for a `Z_SYNC_FLUSH`: the same stored block with `BFINAL`
+/// clear, whose `LEN` and `NLEN` are these four bytes.
+///
+/// **Four rather than five**, and the fifth byte is the difference between a marker and a
+/// coincidence: the flush terminates the block in progress and pads to a byte boundary, so what
+/// stands in front of `LEN` is the *last bits of that block* and is `00` only where they
+/// happened to be zeros.
+///
+/// Only ever a filter on *cost* — see [`ended_on_a_block`], which decides on the decoder's
+/// answer and never on these bytes.
+const FLUSH_MARKER: [u8; 4] = [0x00, 0x00, 0xff, 0xff];
+
+/// Whether a deflate stream that ran out of input had in fact ended on a completed block.
+///
+/// **A flush is not a truncation, and until this function existed this module called it one.**
+/// A producer that calls `Z_SYNC_FLUSH` and then never calls `deflateEnd` writes every byte of
+/// its data, terminates the block it was in, and writes no final block and no RFC 1950
+/// `ADLER32`. ISO 32000-2 §7.4.1 asks a reader to "invoke the corresponding decoding filter or
+/// filters to convert the information back to its original form", and such a decode does: what
+/// is missing is a *declaration* that there is no more, and a declaration carries no marks.
+/// [`Damage::Truncated`]'s own words — the encoded data ran out before the filter's
+/// end-of-data marker — are true of it and are not what the report is for (trap 11).
+///
+/// # Why the tail bytes are not the test
+///
+/// "The last bytes are [`FLUSH_MARKER`]" is a *heuristic*: those bytes could be the tail of a
+/// Huffman block's bits or the data of a stored one, in which case the stream really did stop
+/// mid-block and data really is missing. They are used here only to decide whether the decidable
+/// test below is worth its cost, never to decide the answer.
+///
+/// # The decidable test
+///
+/// A deflate stream that ended on a *completed* block is one final block short of whole, so
+/// feeding a decoder in that state [`FINAL_EMPTY_BLOCK`] must make it report `StreamEnd` and
+/// write no further output byte. A decoder stopped inside a block cannot reach `StreamEnd` from
+/// those forty bits without emitting something, because anything it could still emit comes from
+/// bits that are not there; and if it reaches `StreamEnd` emitting nothing, the only symbols it
+/// consumed were an end-of-block, which carries no data. Both directions hold.
+///
+/// # Why the replay, rather than the decoder that stopped
+///
+/// Under RFC 1950's framing the decoder wants four bytes of `ADLER32` after the final block, so
+/// the probe fed to the *live* decoder returns `Ok` rather than `StreamEnd` and cannot be read.
+/// Supplying that checksum means computing an Adler-32 over every byte of every stream this
+/// program decodes, on the hot inflate path, to answer a question about 0.03% of documents. So
+/// the probe runs on a **raw** decoder over the same input instead, where there is no checksum
+/// to satisfy: one extra inflate, on the damaged path, of a stream whose tail carries the
+/// marker — and nothing at all for every other stream. The output is thrown away a scratch
+/// buffer at a time, so a bomb costs the buffer rather than its decode. `doc/todo/18` priced the
+/// three ways out; this is its second.
+///
+/// A stream whose header sets `FDICT` is refused rather than replayed: the raw decoder would
+/// need the dictionary the zlib framing named, and this returns the answer it can defend.
+fn ended_on_a_block(encoded: &[u8], zlib_header: bool) -> bool {
+    /// Room for one turn of the replay's output, which is thrown away.
+    const SINK: usize = 8192;
+
+    let Some(raw) = raw_deflate(encoded, zlib_header) else {
+        return false;
+    };
+    if !raw.ends_with(&FLUSH_MARKER) {
+        return false;
+    }
+
+    let mut sink = [0u8; SINK];
+    let mut decoder = flate2::Decompress::new(false);
+    let mut consumed = 0usize;
+    loop {
+        let input = raw.get(consumed..).unwrap_or_default();
+        let (before_in, before_out) = (decoder.total_in(), decoder.total_out());
+        let status = decoder.decompress(input, &mut sink, flate2::FlushDecompress::None);
+        consumed = consumed.saturating_add(
+            usize::try_from(decoder.total_in().saturating_sub(before_in)).unwrap_or(usize::MAX),
+        );
+        let progressed = decoder.total_in() != before_in || decoder.total_out() != before_out;
+        match turn(&status, progressed) {
+            Turn::Again => {}
+            // The framed decoder answered `Truncated` over these bytes, so a raw replay that
+            // ends or breaks over them is two decoders disagreeing rather than an answer.
+            Turn::Whole | Turn::Damaged(Damage::Corrupt) => return false,
+            Turn::Damaged(Damage::Truncated) => break,
+        }
+    }
+
+    let before_out = decoder.total_out();
+    let status = decoder.decompress(&FINAL_EMPTY_BLOCK, &mut sink, flate2::FlushDecompress::None);
+    matches!(status, Ok(flate2::Status::StreamEnd)) && decoder.total_out() == before_out
+}
+
+/// The deflate bits of `encoded`, past white space and past RFC 1950's two-byte header.
+///
+/// `None` where there is no such thing to hand back: an input that is white space to its end, a
+/// zlib header these two bytes do not make, or one whose `FDICT` names a dictionary a raw
+/// decoder would not have. See [`ended_on_a_block`], which is the only caller.
+fn raw_deflate(encoded: &[u8], zlib_header: bool) -> Option<&[u8]> {
+    let start = encoded
+        .iter()
+        .position(|&byte| !crate::lexer::is_whitespace(byte))?;
+    let body = encoded.get(start..)?;
+    if !zlib_header {
+        return Some(body);
+    }
+    // RFC 1950 §2.2: CMF then FLG, with bit 5 of FLG the `FDICT` flag.
+    let (&_cmf, &flg) = (body.first()?, body.get(1)?);
+    if flg & 0x20 != 0 {
+        return None;
+    }
+    body.get(2..)
 }
 
 /// Why [`inflate_buffer`]'s loop stopped, before its bytes are judged.
@@ -1076,6 +1210,19 @@ struct Inflate {
     /// Set where the driver can no longer offer the input again, which is the other half. See
     /// [`Pump::pump`].
     settled: bool,
+    /// This stage's whole encoded input, where the driver still holds it.
+    ///
+    /// **The first stage of a chain has one and no later stage does**, which is the same fact
+    /// [`Pump::pump`]'s rewind rests on: the driver keeps the encoded buffer for the whole
+    /// pump, and a later stage reads a [`LINK`]-byte window of the stage in front of it. It is
+    /// an `Arc` clone rather than a copy, so a pump that never needs it pays a refcount.
+    ///
+    /// [`ended_on_a_block`] is what it is for, and the cost of not having it is that a
+    /// `FlateDecode` *behind* another filter reports a flush as [`Damage::Truncated`] where a
+    /// whole-buffer decode of the same stream does not. The population is a chain whose second
+    /// or later stage is a deflate **and** whose producer flushed without finishing; the
+    /// corpus holds none.
+    replayable: Option<Arc<[u8]>>,
 }
 
 /// One `ASCIIHexDecode` in progress, ISO 32000-2 §7.4.2. See [`ascii_hex`] for the clause.
@@ -1151,7 +1298,10 @@ impl Engine {
     /// fallback is taken later by [`Inflate::turn`]: a stream missing its two-byte header is
     /// common in the wild, and a decoder that has produced nothing yet can be restarted under
     /// the other framing for nothing.
-    fn new(stage: Stage) -> Self {
+    ///
+    /// `replayable` is this stage's whole encoded input where the driver still holds it, which
+    /// is the first stage of a chain and no other. See [`Inflate::replayable`].
+    fn new(stage: Stage, replayable: Option<Arc<[u8]>>) -> Self {
         match stage {
             Stage::Inflate => Self::Inflate(Inflate {
                 decoder: flate2::Decompress::new(true),
@@ -1159,6 +1309,7 @@ impl Engine {
                 skipping: true,
                 produced: 0,
                 settled: false,
+                replayable,
             }),
             Stage::Lzw { early_change } => Self::Lzw(Box::new(Lzw::new(early_change))),
             Stage::AsciiHex => Self::AsciiHex(AsciiHex::default()),
@@ -1315,7 +1466,12 @@ fn decoded_extent(stage: Stage, data: &[u8], ceiling: usize) -> EncodedExtent {
     // 4096 bytes and `Lzw::turn` hands a longer sequence over in pieces, so any size works and
     // this one is a page of them.
     let mut sink = [0u8; 8192];
-    let mut engine = Engine::new(stage);
+    // **No replay here, and the asymmetry with [`Pump::new`] is the question this function
+    // asks.** It looks for where a filter's own end-of-data marker stands, and a flush marker
+    // is not one: [`EncodedExtent::Short`]'s "these bytes ran out before one" stays true of a
+    // stream the producer flushed and never finished, whatever [`ended_on_a_block`] would say
+    // about its damage.
+    let mut engine = Engine::new(stage, None);
     let mut consumed = 0usize;
     let mut produced = 0usize;
     loop {
@@ -1618,7 +1774,9 @@ impl Pump {
             .iter()
             .enumerate()
             .map(|(index, stage)| Running {
-                engine: Engine::new(*stage),
+                // Only the first stage's input is the encoded buffer, which this pump holds for
+                // its whole life; a later stage's is a link window. See [`Inflate::replayable`].
+                engine: Engine::new(*stage, (index == 0).then(|| Arc::clone(&data))),
                 // The last stage writes into the caller's window, so it needs no link of its
                 // own — and a chain of one, which is every stream this crate pumped before ADR
                 // 0587, therefore allocates nothing here at all.
@@ -1856,7 +2014,20 @@ impl Inflate {
                         state: Standing::Rewind,
                     };
                 }
-                Standing::Damaged(damage)
+                // A producer that flushed and never finished wrote every byte of its data, so
+                // the stream *ends* here rather than stopping short. Asked after the fallback
+                // above and never in front of it, for the reason [`inflate`] gives: a decode
+                // that produced nothing is the other framing's cue, not this question's.
+                if damage == Damage::Truncated
+                    && self
+                        .replayable
+                        .as_deref()
+                        .is_some_and(|encoded| ended_on_a_block(encoded, self.zlib_header))
+                {
+                    Standing::Ended
+                } else {
+                    Standing::Damaged(damage)
+                }
             }
         };
         Turned { took, wrote, state }
@@ -3111,6 +3282,47 @@ mod tests {
         encoder.finish().expect("finish")
     }
 
+    /// A zlib stream whose deflate data is one RFC 1951 §3.2.4 stored block, so the payload
+    /// stands in it byte for byte and a cut can be placed at a known offset.
+    fn deflated_stored(data: &[u8]) -> Vec<u8> {
+        use std::io::Write as _;
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::none());
+        encoder.write_all(data).expect("in-memory write");
+        encoder.finish().expect("finish")
+    }
+
+    /// A zlib stream its producer flushed and never finished, which is `doc/todo/18`'s witness.
+    ///
+    /// `Z_SYNC_FLUSH` terminates the block in progress and writes RFC 1951 §3.2.4's empty
+    /// stored block, so every byte of `data` is encoded; what never arrives is the final block
+    /// and RFC 1950's `ADLER32`, because `deflateEnd` is never called.
+    fn flushed(data: &[u8], level: flate2::Compression) -> Vec<u8> {
+        let mut compressor = flate2::Compress::new(level, true);
+        let mut out: Vec<u8> = Vec::with_capacity(data.len().saturating_mul(2).max(4096));
+        loop {
+            let taken = usize::try_from(compressor.total_in()).expect("fits");
+            let before = (taken, out.len());
+            compressor
+                .compress_vec(
+                    data.get(taken..).unwrap_or_default(),
+                    &mut out,
+                    flate2::FlushCompress::Sync,
+                )
+                .expect("an in-memory compress");
+            if out.len() == out.capacity() {
+                out.reserve(out.capacity());
+                continue;
+            }
+            if (
+                usize::try_from(compressor.total_in()).expect("fits"),
+                out.len(),
+            ) == before
+            {
+                return out;
+            }
+        }
+    }
+
     /// Runs a whole `/Filter` chain the way `Document::chain_over` does, stage by stage.
     fn whole_chain(filters: &[&[u8]], data: &[u8], limits: Limits) -> super::Decoded {
         let mut decoded = super::Decoded::whole(data);
@@ -3408,6 +3620,107 @@ mod tests {
                 &whole.data,
                 &format!("through {window} bytes"),
             );
+            assert!(
+                matches!(ended, super::Pumped::Damaged(_, super::Damage::Truncated)),
+                "through {window} bytes: {ended:?}"
+            );
+        }
+    }
+
+    /// A producer that flushed and never finished wrote a whole stream, and both routes say so.
+    ///
+    /// ISO 32000-2 §7.4.1 asks a reader to "invoke the corresponding decoding filter or filters
+    /// to convert the information back to its original form", and this decode reaches it: every
+    /// byte the encoder was given comes back. What never arrives is RFC 1951's final block, and
+    /// a declaration that there is no more carries no marks. `doc/todo/18`, ADR 0744.
+    ///
+    /// Both compression levels are here because they are two different last blocks: `best`
+    /// leaves a Huffman block to be terminated by the flush, `none` a stored one.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn a_stream_flushed_and_never_finished_is_whole() {
+        let payload: Vec<u8> = (0..9_000u32).flat_map(u32::to_be_bytes).collect();
+        for level in [flate2::Compression::best(), flate2::Compression::none()] {
+            let encoded = flushed(&payload, level);
+            assert!(
+                encoded.ends_with(&super::FLUSH_MARKER),
+                "level {level:?}: the encoder did not write the flush marker this test is about"
+            );
+
+            let whole = super::decode_reported(b"FlateDecode", &encoded, None, Limits::DEFAULT)
+                .expect("a decode, not a refusal");
+            assert_eq!(
+                whole.damage, None,
+                "level {level:?}: the buffered route calls a flush a truncation"
+            );
+            same(&whole.data, &payload, &format!("level {level:?}, buffered"));
+
+            for window in [1usize, 512, 65_536] {
+                let mut pump = chain_pump(&[super::Stage::Inflate], &encoded);
+                let (pumped, ended) = drain(&mut pump, window);
+                same(
+                    pumped.as_slice(),
+                    &payload,
+                    &format!("level {level:?}, through {window} bytes"),
+                );
+                assert!(
+                    matches!(ended, super::Pumped::Ended(_)),
+                    "level {level:?}, through {window} bytes: {ended:?}"
+                );
+            }
+        }
+    }
+
+    /// The tail bytes are not the test, and a stream that ends in them mid-block still reports.
+    ///
+    /// **The calibration [`super::ended_on_a_block`] exists for.** A stored block carries its
+    /// data verbatim, so a payload holding `00 00 00 ff ff` and cut immediately after it is a
+    /// stream whose last five bytes are the flush marker and whose data really is missing.
+    /// Anything deciding on those five bytes calls this whole; the probe hands the decoder RFC
+    /// 1951's final empty block, the decoder reads it as five more literal bytes of the stored
+    /// block it is inside, and output moves — which is the answer.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn a_stream_cut_inside_a_block_that_ends_in_the_marker_is_still_truncated() {
+        let mut payload: Vec<u8> = (0..200u32)
+            .map(|byte| u8::try_from(byte % 251).expect("under 251"))
+            .collect();
+        payload.splice(100..100, super::FLUSH_MARKER);
+        let encoded = deflated_stored(&payload);
+        // Two bytes of RFC 1950 header, five of RFC 1951 §3.2.4's stored-block header, then the
+        // payload byte for byte — so cutting here ends the input on the marker's last byte.
+        let cut = 2 + 5 + 104;
+        let short = encoded
+            .get(..cut)
+            .expect("the stored block is longer than this")
+            .to_vec();
+        assert!(
+            short.ends_with(&super::FLUSH_MARKER),
+            "the cut did not land on the marker this test is about"
+        );
+
+        let whole = super::decode_reported(b"FlateDecode", &short, None, Limits::DEFAULT)
+            .expect("a prefix, not a refusal");
+        assert_eq!(
+            whole.damage,
+            Some(super::Damage::Truncated),
+            "the buffered route believed five bytes over a decoder"
+        );
+        same(
+            &whole.data,
+            payload.get(..104).expect("in range"),
+            "buffered",
+        );
+
+        for window in [1usize, 512, 65_536] {
+            let mut pump = chain_pump(&[super::Stage::Inflate], &short);
+            let (_, ended) = drain(&mut pump, window);
             assert!(
                 matches!(ended, super::Pumped::Damaged(_, super::Damage::Truncated)),
                 "through {window} bytes: {ended:?}"
