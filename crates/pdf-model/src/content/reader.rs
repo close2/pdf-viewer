@@ -318,8 +318,12 @@ impl NestedContent {
     /// `None` where the stream decodes whole, which is every stream but ADR 0343's. For the
     /// windowed shape the answer costs one pass of the pump and **no allocation past the
     /// window** — which is the point: asking a bomb whether it is damaged may not cost what
-    /// reading it costs. §12.5.5's appearance is the one caller, because that clause's damage
-    /// has to be known where the stream is read rather than where it is drawn (ADR 0359).
+    /// reading it costs. §12.5.5's appearance is the one caller, and only where §12.7.4.3's
+    /// regeneration has replaced the stream's content with a spliced copy, because that is the
+    /// one route on which nothing will read the stream again (ADR 0359, ADR 0723): a stream the
+    /// draw runs answers with [`Self::stated_damage`] or with the report the run itself raises,
+    /// and paying the pump's pass in front of a run that repeats it was once per decision, per
+    /// interpretation.
     #[must_use]
     pub fn damage(&self) -> Option<(Damage, usize)> {
         match &self.source {

@@ -310,10 +310,9 @@ fn page_with_appearance(whole: bool) -> Vec<u8> {
 /// > Each appearance stream is a form XObject (see 8.10, "Form XObjects"): a self-contained
 /// > content stream that shall be rendered inside the annotation rectangle.
 ///
-/// The damage is read where `crate::annotation` resolves the stream rather than where the
-/// appearance is finally run, because §12.7.4.3's regeneration replaces a widget's content with a
-/// *spliced copy* of these bytes — so a report taken at the draw would go quiet for exactly the
-/// fields whose text a reader has changed.
+/// The damage of a stream held whole is read where `crate::annotation` resolves it, which is why
+/// the report names the subtype; the two tests after this one pin where the *other* shapes of the
+/// answer come from (ADR 0723).
 #[test]
 fn a_damaged_appearance_stream_draws_its_prefix_and_reports_the_shortfall() {
     assert_eq!(
@@ -333,6 +332,125 @@ fn a_damaged_appearance_stream_draws_its_prefix_and_reports_the_shortfall() {
     assert!(
         command_count(page_with_appearance(false)) > 0,
         "and what the stream did carry is drawn over the page"
+    );
+}
+
+/// Content large enough that the decoded-stream memo declines it, so the stream is pumped
+/// through a window rather than held whole (`DECODED_BUDGET` is 4 MiB and [`run_length`]'s
+/// literal chunks encode at about one byte per byte).
+///
+/// The padding is comments so that the fixture's cost is lexing rather than drawing: what makes
+/// the stream windowed is its decoded length, and §7.2.4 makes a comment cost nothing else.
+fn windowed_content() -> String {
+    let mut content = String::from("1 0 0 rg 0 0 20 20 re f\n");
+    // Ten bytes a line, so this is five mebibytes and a quarter over the four MiB budget.
+    content.push_str(&"% eight b\n".repeat(512 * 1024));
+    content.push_str("0 30 20 20 re f\n");
+    content
+}
+
+/// [`page_with_appearance`], with a stream the memo declines: `content` is handed in so the
+/// caller can state the expected `kept` from the same bytes.
+fn page_with_windowed_appearance(content: &str, whole: bool) -> Vec<u8> {
+    document_of(&[
+        dict_object("<< /Type /Catalog /Pages 2 0 R >>"),
+        dict_object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+        dict_object(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+             /Resources << >> /Annots [5 0 R] >>",
+        ),
+        plain("0 0 1 1 re f\n"),
+        dict_object(
+            "<< /Type /Annot /Subtype /Square /Rect [10 10 60 60] /F 4 /AP << /N 6 0 R >> >>",
+        ),
+        run_length(
+            "/Type /XObject /Subtype /Form /BBox [0 0 50 50]",
+            content,
+            whole,
+        ),
+    ])
+}
+
+/// The windowed shape of the same rule: the run meets the damage and says it, once.
+///
+/// A stream the decoded-stream memo declines is pumped through a window each time it is read
+/// (ADR 0427), so its damage is not known where the annotation is decided — and may not be asked
+/// for there, because the answer costs the whole decode and the draw is about to produce it
+/// anyway (ADR 0723; the pre-pass this replaces also said the same damage twice, in two
+/// spellings). What pins this test is both halves: the report exists, and it exists **once**,
+/// in the run's own words.
+#[test]
+fn a_windowed_appearance_streams_damage_is_reported_once_by_the_run() {
+    let content = windowed_content();
+    assert_eq!(
+        damage_reports(page_with_windowed_appearance(&content, true)),
+        Vec::new(),
+        "an undamaged windowed appearance says nothing"
+    );
+    assert_eq!(
+        damage_reports(page_with_windowed_appearance(&content, false)),
+        vec![(
+            "an annotation's appearance stream (§12.5.5)".to_owned(),
+            Damage::Truncated,
+            content.len()
+        )],
+        "the damage is met mid-run and reported there, exactly once"
+    );
+    assert!(
+        command_count(page_with_windowed_appearance(&content, false)) > 0,
+        "and the prefix's marks are on the page"
+    );
+}
+
+/// A widget whose damaged, windowed appearance is *regenerated*, which is the one route that
+/// still owes the full answer before the run.
+fn page_with_regenerated_appearance(content: &str, whole: bool) -> Vec<u8> {
+    document_of(&[
+        dict_object(
+            "<< /Type /Catalog /Pages 2 0 R \
+             /AcroForm << /NeedAppearances true /Fields [5 0 R] >> >>",
+        ),
+        dict_object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+        dict_object(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+             /Resources << >> /Annots [5 0 R] >>",
+        ),
+        plain("0 0 1 1 re f\n"),
+        dict_object(
+            "<< /Type /Annot /Subtype /Widget /FT /Tx /T (t1) /V (hello) \
+             /Rect [10 10 90 40] /F 4 /DA (0 g /Helv 12 Tf) /AP << /N 6 0 R >> >>",
+        ),
+        run_length(
+            "/Type /XObject /Subtype /Form /BBox [0 0 80 30]",
+            content,
+            whole,
+        ),
+    ])
+}
+
+/// §12.7.4.3's regeneration replaces the stored stream's content with a spliced copy, so the
+/// run never reads the stored stream and the damage has to be known where the annotation is
+/// decided — the reason ADR 0359 put the answer there, kept for exactly this route (ADR 0723).
+///
+/// The stream is windowed on purpose: for one held whole the stated answer and the read answer
+/// are the same thing, and only the windowed shape can tell "asked before the run" from "met
+/// during it".
+#[test]
+fn a_regenerated_widgets_stored_stream_still_reports_its_damage() {
+    let content = windowed_content();
+    assert_eq!(
+        damage_reports(page_with_regenerated_appearance(&content, true)),
+        Vec::new(),
+        "an undamaged stored stream says nothing"
+    );
+    assert_eq!(
+        damage_reports(page_with_regenerated_appearance(&content, false)),
+        vec![(
+            "a Widget annotation's appearance stream (§12.5.5)".to_owned(),
+            Damage::Truncated,
+            content.len()
+        )],
+        "the stored stream the splice replaced is still named, from the decision"
     );
 }
 

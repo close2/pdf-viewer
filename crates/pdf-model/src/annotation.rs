@@ -96,15 +96,19 @@ pub(crate) struct Appearance {
     /// The annotation's blend mode name, from `/BM`, if it names one and the appearance is
     /// constructed.
     pub blend: Option<String>,
-    /// Where the stored stream this appearance came from stopped decoding, if it did.
+    /// Where the stored stream this appearance came from stopped decoding, where that is this
+    /// decision's to say.
     ///
     /// §12.5.5 makes an appearance a form `XObject`, which §7.8.2 makes a content stream, so the
-    /// rule for a damaged one reaches it and the prefix is drawn. The
-    /// shortfall is carried here rather than reported at the decode because §12.7.4.3's
-    /// regeneration reads these bytes and hands back a *spliced copy* of them: a report taken
-    /// where the drawn stream is finally decoded would miss exactly the annotations whose
-    /// variable text a reader has changed. `None` for every construction, which is written
-    /// here rather than read from a file.
+    /// rule for a damaged one reaches it and the prefix is drawn. The shortfall is carried here
+    /// for the two shapes the *draw* cannot report: a stream held whole, whose damage was met at
+    /// the decode rather than during the run, and §12.7.4.3's regeneration, which reads these
+    /// bytes and hands back a *spliced copy* of them — a report taken where the drawn stream is
+    /// finally decoded would miss exactly the annotations whose variable text a reader has
+    /// changed. A stored stream the memo declined is the deliberate `None` beyond those
+    /// (ADR 0723): the run pumps it anyway and reports the damage where it meets it, so
+    /// answering here too would inflate the whole decode per decision for a sentence said twice.
+    /// `None` also for every construction, which is written here rather than read from a file.
     pub damaged: Option<crate::content::DamagedStream>,
 }
 
@@ -881,8 +885,6 @@ fn decided(
         Normal::StateNotDefined => return Decision::Nothing,
     };
 
-    let damaged = appearance_damage(document, &stored, &name);
-
     // §12.5.5's algorithm maps the appearance's transformed bounding box onto `/Rect`, and the
     // two are the same kind of thing: a box in a coordinate space. **A missing operand makes
     // the map the identity, whichever operand it is.** The hundred-and-twenty-fifth session
@@ -963,6 +965,10 @@ fn decided(
             resources: regenerated.resources,
         };
     }
+
+    // Asked once the fate of the stored bytes is known, because the two fates price the
+    // question differently — see [`appearance_damage`].
+    let damaged = appearance_damage(document, &stored, &name, &content);
 
     Decision::Draw {
         adjust: ViewAdjust::default(),
@@ -1066,22 +1072,35 @@ fn construct(
 /// > content stream that shall be rendered inside the annotation rectangle.
 ///
 /// So §7.8.2's rule reaches it: a prefix of a sequence of instructions is a shorter sequence of
-/// the same kind, the prefix is drawn, and the shortfall is named. Asked *here*, at the only
-/// point that still holds the stream — §12.7.4.3's regeneration replaces the appearance's content
-/// with a spliced copy of these bytes, so a report taken where the drawn stream is decoded would
-/// go quiet for exactly the fields whose variable text a reader has changed.
+/// the same kind, the prefix is drawn, and the shortfall is named.
+///
+/// **What the question may cost depends on what happens to the bytes, which is why `content` is
+/// an argument** (ADR 0723). A stream the drawing will read — [`Content::Stored`] — answers for
+/// itself: held whole, its damage is known without reading it
+/// (`NestedContent::stated_damage`), and pumped through a window because the decoded-stream
+/// memo declined it, the run meets the damage mid-stream and reports it in the same words
+/// (`Interpreter::run`). Asking the windowed shape the full question here as well would inflate
+/// the whole decode once per decision — up to `Limits::max_stream_len` for a bomb — for an
+/// answer the draw is about to produce, and it reported that damage twice besides. Only
+/// §12.7.4.3's regeneration still owes the full answer *here*: it replaces the appearance's
+/// content with a spliced copy of these bytes, so a report taken where the drawn stream is
+/// decoded would go quiet for exactly the fields whose variable text a reader has changed
+/// (ADR 0359).
 fn appearance_damage(
     document: &Document,
     stored: &Stream,
     name: &str,
+    content: &Content,
 ) -> Option<crate::content::DamagedStream> {
     let detail = format!("a {name} annotation's appearance stream (§12.5.5)");
     // Asked through the same source the drawing reads (ADR 0427), so that a stream the memo
-    // keeps is decoded exactly once for both questions and one it declines — a bomb, always —
-    // is *read* for this answer rather than materialised for it.
-    let content =
+    // keeps is decoded exactly once for both questions.
+    let nested =
         crate::content::reader::NestedContent::of(document, stored, detail.clone()).ok()?;
-    let (damage, kept) = content.damage()?;
+    let (damage, kept) = match content {
+        Content::Stored(_) => nested.stated_damage()?,
+        Content::Constructed { .. } => nested.damage()?,
+    };
     Some(crate::content::DamagedStream {
         detail,
         damage,
