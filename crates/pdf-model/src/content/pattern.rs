@@ -10,7 +10,8 @@ use std::sync::Arc;
 use pdf_render::display_list::Clip;
 use pdf_render::{
     BlendMode, ClipId, Color, Command, DisplayListError, FillRule, Paint, Path, PathCommand, Point,
-    Rect, Shading, ShadingKind, Transform,
+    Rect, Shading, ShadingKind, SoftMask, SoftMaskId, SoftMaskKind, Stroke, Transform,
+    stroked_bounds,
 };
 use pdf_syntax::{Dictionary, Name, Object};
 
@@ -368,6 +369,34 @@ pub(super) struct Tiling {
     ///
     /// `/PaintType 2` cells carry no colour of their own; the colour comes from `scn`.
     tint: Option<Color>,
+}
+
+/// Which mark a tiling pattern is the colour of (ISO 32000-2 §8.7.2).
+///
+/// > All patterns shall be treated as colours; ...
+///
+/// A colour is a colour whichever operator paints with it, so the same cell covers a path's
+/// interior for `f` and a stroke's outline for `S`. The two differ in one thing only — the
+/// region the tiles are cut to — and that is what this type carries.
+///
+/// # Why a stroke does not name a path here
+///
+/// The obvious construction for the stroking case is the outline as a path, tiled the way a
+/// fill's path is; that is what [`Interpreter::tile`] refused to do until the
+/// eight-hundred-and-second session, on the reason ADR 0028 gives — no crate that builds a
+/// display list expands a stroke, all three backends do it themselves, and computing an
+/// outline here would be a fourth expander in the one crate whose whole point is that it has
+/// none. That reason is about *one* construction. The region a stroke covers is equally the
+/// alpha of a group whose single element is that stroke (§11.5.2), and a soft mask is
+/// already a command list every backend rasterises with the machinery it has — so the shape
+/// travels as a `Command::Stroke` and each backend expands it with its own expander, exactly
+/// once, exactly as it expands the strokes it already draws. ADR 0735.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Tiled<'a> {
+    /// §8.5.3.3's fill: the region is the path's interior under this rule.
+    Fill(FillRule),
+    /// §8.4.3's stroke: the region is the outline these parameters deposit around the path.
+    Stroke(&'a Stroke),
 }
 
 impl Interpreter<'_> {
@@ -823,18 +852,68 @@ impl Interpreter<'_> {
         }
     }
 
-    /// Paints a tiling pattern over the area a path covers.
+    /// A stroke's own region, as the soft mask [`Tiled::Stroke`] cuts its tiles to.
     ///
-    /// The path becomes a clip, the pattern's cell is drawn once inside it, and its marks are
-    /// copied to every other tile position. Expanding the tiling here rather than inventing a
-    /// display-list paint for it keeps the list flat: a backend never learns what a pattern is,
-    /// and the result is resolution-independent because the cell is real geometry rather than a
-    /// rendered image.
+    /// ISO 32000-2 §11.6.4.2 states an object's shape as 1.0 inside and 0.0 outside the path
+    /// for a mark painted in a uniform colour, and then says what a pattern does to it:
+    ///
+    /// > For objects painted with a tiling pattern (8.7.3, "Tiling patterns") or a shading
+    /// > pattern (8.7.4, "Shading patterns"), the shape shall be further constrained by the
+    /// > objects that define the pattern (see 11.6.7, "Patterns and transparency").
+    ///
+    /// The clause's two factors are the two this construction multiplies: the mark's own shape,
+    /// which is this mask, and the pattern's objects, which are the tiles it is put on.
+    /// §11.5.2 states the first of the two derivations a soft mask has:
+    ///
+    /// > The mask value at each point shall then be derived from the alpha of the group.
+    ///
+    /// So a group whose one element is this stroke, taken for its alpha, is this stroke's
+    /// shape — including whatever coverage a rasteriser gives its anti-aliased edge, which is
+    /// the same quantity it would have given the stroke itself. §11.6.5.1 says the colour is
+    /// irrelevant — "[t]he colours of the constituent objects shall be ignored" — so the
+    /// element is painted opaque white and nothing reads it.
+    ///
+    /// `None` where the display list can hold no further mask, which the caller reports.
+    fn stroke_shape(
+        &mut self,
+        path: &Arc<Path>,
+        transform: Transform,
+        stroke: &Stroke,
+    ) -> Option<SoftMaskId> {
+        let mask = SoftMask {
+            commands: vec![Command::Stroke {
+                path: Arc::clone(path),
+                transform,
+                stroke: stroke.clone(),
+                paint: Paint::Solid(Color::WHITE),
+                // The clip belongs to the tiles rather than to the shape: intersecting it
+                // here as well would resolve one region twice, which is what the group below
+                // this mask already declines to do.
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }],
+            kind: SoftMaskKind::Alpha,
+            transfer: None,
+        };
+        self.list.add_soft_mask(mask).ok()
+    }
+
+    /// Paints a tiling pattern over the area a path's fill or stroke covers.
+    ///
+    /// The region becomes a clip or a shape mask, the pattern's cell is drawn once inside it,
+    /// and its marks are copied to every other tile position. Expanding the tiling here rather
+    /// than inventing a display-list paint for it keeps the list flat: a backend never learns
+    /// what a pattern is, and the result is resolution-independent because the cell is real
+    /// geometry rather than a rendered image.
+    ///
+    /// [`Tiled`] says which of §8.7.2's two regions this is and why a stroke's arrives as a
+    /// mask rather than as a clip.
     pub(super) fn tile(
         &mut self,
         path: &Arc<Path>,
         transform: Transform,
-        rule: FillRule,
+        region: Tiled<'_>,
         tiling: &Tiling,
         state: &GraphicsState,
     ) {
@@ -882,7 +961,18 @@ impl Interpreter<'_> {
         };
         let path_to_pattern = transform.then(to_pattern);
 
-        let Some(bounds) = bounds_of(path, path_to_pattern) else {
+        // Which sites the region reaches. A fill's is the path's own hull; a stroke's is the
+        // outline's, which `pdf_render::stroked_bounds` answers tightly — and it is asked in
+        // *device* space, where §8.4.3.2's width is resolved, and the answer mapped into the
+        // pattern's, because a zero width means one device pixel and a pattern unit is not one.
+        let bounds = match region {
+            Tiled::Fill(_) => bounds_of(path, path_to_pattern),
+            Tiled::Stroke(stroke) => stroked_bounds(path, stroke, transform).map(|reach| {
+                let reach = reach.mapped(to_pattern);
+                (reach.min.x, reach.min.y, reach.max.x, reach.max.y)
+            }),
+        };
+        let Some(bounds) = bounds else {
             return;
         };
         let ((first_column, last_column), (first_row, last_row)) = spans(tiling, bounds);
@@ -912,18 +1002,35 @@ impl Interpreter<'_> {
             (last_column, last_row)
         };
 
-        // The path clips every cell, so a tile that falls outside it contributes nothing.
-        let clip = Clip {
-            path: (**path).clone(),
-            transform,
-            fill_rule: rule,
-            parent: state.clip,
+        // What cuts the tiles to the region. A fill's interior is a clip, which is exactly
+        // what a clip is; a stroke's outline is a shape mask, for [`Tiled`]'s reason — and
+        // then the tiles carry the state's own clip instead, unchanged.
+        let (clip, shape) = match region {
+            Tiled::Fill(rule) => {
+                // The path clips every cell, so a tile that falls outside it contributes
+                // nothing.
+                let clip = Clip {
+                    path: (**path).clone(),
+                    transform,
+                    fill_rule: rule,
+                    parent: state.clip,
+                };
+                let Ok(clip) = self.list.add_clip(clip) else {
+                    self.note(Unsupported::LimitReached { limit: "max_clips" });
+                    return;
+                };
+                (Some(clip), None)
+            }
+            Tiled::Stroke(stroke) => {
+                let Some(shape) = self.stroke_shape(path, transform, stroke) else {
+                    self.note(Unsupported::LimitReached {
+                        limit: "max_soft_masks",
+                    });
+                    return;
+                };
+                (state.clip, Some(shape))
+            }
         };
-        let Ok(clip) = self.list.add_clip(clip) else {
-            self.note(Unsupported::LimitReached { limit: "max_clips" });
-            return;
-        };
-        let clip = Some(clip);
 
         // §11.6.7: "the pattern definition shall be treated as if it were implicitly enclosed
         // in a non-isolated transparency group: a non-knockout group for tiling patterns …
@@ -943,6 +1050,14 @@ impl Interpreter<'_> {
         // graphics state's soft mask reached nothing at all.
         let mark = self.list.command_count();
 
+        // §11.6.4.4 puts the two alpha constants on different operators — `ca` on a fill and
+        // `CA` on a stroke — and a pattern is the colour of one mark rather than of both, so
+        // which constant applies to the finished tiling is which operator invoked it.
+        let alpha = match region {
+            Tiled::Fill(_) => state.fill_alpha,
+            Tiled::Stroke(_) => state.stroke_alpha,
+        };
+
         // The one interpretation the whole tiling gets, at the first site the span reaches.
         // §8.7.3.1's cell "shall be replicated at fixed horizontal and vertical intervals", and
         // a replica is this cell's commands displaced: see [`pdf_render::Cell`] for what makes
@@ -957,12 +1072,15 @@ impl Interpreter<'_> {
         // §11.7.5.2's sixth condition: "[i]f the current colour is a tiling pattern, all objects
         // in the definition of its pattern cell also satisfy the foregoing conditions." The cell
         // runs from `GraphicsState::initial` for §11.6.7's reason, so a mark inside it cannot see
-        // the fill that invoked it; the four conditions are read off `state` here and carried
-        // down. A pattern is a *colour*, and this route paints with the non-stroking one — a
-        // stroke whose colour is a tiling pattern is reported rather than drawn (§8.4.3,
-        // ADR 0028), so there is no stroking case to ask about.
+        // the mark that invoked it; the four conditions are read off `state` here and carried
+        // down, with `alpha` above naming which of §11.6.4.4's two constants the invoking mark
+        // is under. **A stroke's shape mask is a fifth condition and it fails**: the tiles are
+        // multiplied by a coverage that is below 1.0 wherever the outline is anti-aliased, so
+        // the marks inside such a cell are not opaque and §11.7.5.2's sixth condition cannot be
+        // met through them.
         let inside = self.opaque_ancestry
-            && state.fill_alpha >= 1.0
+            && shape.is_none()
+            && alpha >= 1.0
             && state.blend == BlendMode::Normal
             && state.soft_mask.is_none();
         let ancestry = std::mem::replace(&mut self.opaque_ancestry, inside);
@@ -994,6 +1112,59 @@ impl Interpreter<'_> {
             ((first_column, last_column), (first_row, last_row)),
         );
 
+        // The two groups the finished tiling may want, and which of §11.6.4.1's sources of
+        // shape and opacity each one carries.
+        self.compose_tiling(mark, alpha, shape, state);
+    }
+
+    /// Wraps a finished tiling in the groups its region and its graphics state ask for.
+    ///
+    /// `mark` is where the tiles begin, `alpha` is whichever of §11.6.4.4's two constants the
+    /// invoking operator is under, and `shape` is [`Tiled::Stroke`]'s region where there is one.
+    /// Split out of [`Interpreter::tile`] because it is the only part of that function that is
+    /// about compositing rather than about placing cells.
+    fn compose_tiling(
+        &mut self,
+        mark: usize,
+        alpha: f32,
+        shape: Option<SoftMaskId>,
+        state: &GraphicsState,
+    ) {
+        // A stroke's region, applied once to the finished tiling. §11.6.4.2 makes an object's
+        // shape "1.0 inside and 0.0 outside" the mark it makes, and §11.5.2 derives a mask
+        // from "the alpha of the group" — so a group holding the stroke alone, taken for its
+        // alpha, *is* that shape, and multiplying the tiles by it is §11.3.7.1's `α = f × q`
+        // with the tiling supplying `q`.
+        //
+        // It is a group of its own rather than the one below because the two carry different
+        // quantities and a command has one mask slot: this one is the object's shape, the one
+        // below is the state's own opacity source (§11.6.4.1's second and third sources). Where
+        // the state sets none of its parameters this is the only group, which is why it is not
+        // conditioned on `composites`.
+        if let Some(shape) = shape {
+            let parts = self.list.split_off_commands(mark);
+            if parts.is_empty() {
+                return;
+            }
+            let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled());
+            self.draw(Command::Group {
+                commands: parts,
+                // The state's constant rides the group below; this one only shapes.
+                alpha: 1.0,
+                clip: None,
+                mask: Some(shape),
+                blend: BlendMode::Normal,
+                // §11.4.6's NOTE 6 again: a mask multiplies what the group produced, so the
+                // group has to produce the tiling alone rather than the tiling over whatever
+                // is under it. That is what isolation means, and it is the construction
+                // rather than a choice.
+                isolated: true,
+                knockout: false,
+                alpha_is_shape,
+                blending: None,
+            });
+        }
+
         // The state's transparency parameters, applied once to the finished tiling. Where
         // they are all at their defaults there is nothing for a group to do and §11.4.4's
         // NOTE 5 says so in as many words — "the effect of compositing objects as a group is
@@ -1001,7 +1172,7 @@ impl Interpreter<'_> {
         // commands stay inline and no page pays a buffer for a pattern that composites
         // trivially, which is almost every patterned page in the corpus.
         let composites =
-            state.fill_alpha < 1.0 || state.blend != BlendMode::Normal || state.soft_mask.is_some();
+            alpha < 1.0 || state.blend != BlendMode::Normal || state.soft_mask.is_some();
         if !composites {
             return;
         }
@@ -1040,7 +1211,7 @@ impl Interpreter<'_> {
         let alpha_is_shape = group_alpha_is_shape(&parts, self.alpha_sources.settled());
         self.draw(Command::Group {
             commands: parts,
-            alpha: state.fill_alpha,
+            alpha,
             // The tiles carry the path's clip already; a second copy on the group would be
             // the same region resolved twice.
             clip: None,

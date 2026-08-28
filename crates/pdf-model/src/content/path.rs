@@ -11,7 +11,7 @@ use pdf_render::{
     BlendMode, ClipId, Command, FillRule, Paint, Path, PathCommand, Point, Transform,
 };
 
-use super::pattern::PatternPaint;
+use super::pattern::{PatternPaint, Tiled};
 use super::report::Unsupported;
 use super::transparency::{Painted, knockout_group_elements};
 use super::{GraphicsState, Interpreter};
@@ -58,7 +58,7 @@ impl Interpreter<'_> {
             if let (Some(rule), Some(PatternPaint::Tiling(tiling))) =
                 (fill, state.fill_pattern.clone())
             {
-                self.tile(&shared, state.transform, rule, &tiling, state);
+                self.tile(&shared, state.transform, Tiled::Fill(rule), &tiling, state);
             } else if let Some(rule) = fill {
                 let transfer = self.transfer_for_mark(state, Painted::of(state, false));
                 // A shading pattern's colours are built here rather than read (§11.6.7), so this
@@ -75,17 +75,22 @@ impl Interpreter<'_> {
                     blend: state.blend,
                 });
             }
-            // A stroke whose colour is a *tiling* pattern would be the cell replayed across
-            // the stroked outline, and this tree does not compute that outline — the backends
-            // stroke a path themselves (§8.4.3 and ADR 0028). §8.7.2 makes a pattern a colour
-            // for `SCN` exactly as for `scn`, so this is a gap rather than a permission, and
-            // it is named rather than drawn in the last solid colour that happened to be set.
-            if stroke.is_some() && matches!(state.stroke_pattern, Some(PatternPaint::Tiling(_))) {
-                self.note(Unsupported::Shading {
-                    name: "a stroke whose colour is a tiling pattern".to_owned(),
-                });
-            }
-            if stroke.is_some() {
+            // §8.7.2 makes a pattern a colour for `SCN` exactly as for `scn`, so a stroke
+            // whose colour is a *tiling* pattern is the cell replayed across the stroked
+            // outline. It was reported rather than drawn until the eight-hundred-and-second
+            // session, on the reason ADR 0028 gives; [`Tiled`] says why that reason does not
+            // reach the construction used here.
+            if let (Some(_), Some(PatternPaint::Tiling(tiling))) =
+                (stroke, state.stroke_pattern.clone())
+            {
+                self.tile(
+                    &shared,
+                    state.transform,
+                    Tiled::Stroke(&state.stroke),
+                    &tiling,
+                    state,
+                );
+            } else if stroke.is_some() {
                 let transfer = self.transfer_for_mark(state, Painted::of(state, true));
                 let paint = self.stroke_paint(state, transfer);
                 self.draw(Command::Stroke {

@@ -486,9 +486,14 @@ const MAX_PAGELESS: usize = 6;
 /// contradicted list on the same change, drawing the checkerboard line three references draw
 /// and we had left blank.
 ///
-/// `scorecard_reduced.pdf` reports **a stroke whose colour is a tiling pattern**, which is the
-/// half of §8.7.2 that stays unimplemented: the stroked outline is the backends' to compute
-/// (ADR 0028), so there is no path here to tile. It had been stroked in the last solid colour.
+/// `scorecard_reduced.pdf` reported **a stroke whose colour is a tiling pattern** from that
+/// session until the eight-hundred-and-second, which is the half of §8.7.2 that had no
+/// construction: the stroked outline is the backends' to compute (ADR 0028), so there was no path
+/// here to tile. It had been stroked in the last solid colour before the report, and the page
+/// drew nothing where its producer stated a dotted leader. The region a stroke covers turned out
+/// not to be only a path — §11.5.2's mask over a group holding the stroke alone is the same
+/// region, expanded by each backend's own expander — and the document left this list on that
+/// change (ADR 0735).
 ///
 /// `ContentStreamCycleType3insideType3.pdf` reports `MAX_FORM_DEPTH`, and the document is named
 /// for the reason: its tiling pattern's `/Resources` name `/CyclicFont`, which *is* the Type 3
