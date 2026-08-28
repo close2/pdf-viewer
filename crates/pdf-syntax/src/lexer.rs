@@ -23,8 +23,8 @@ mod class {
 
     /// The eight delimiter characters a byte of PDF syntax can be one of.
     ///
-    /// Table 2 lists ten, and the two it lists beyond these are conditional rather than
-    /// general — the clause says so in the sentence that introduces the table:
+    /// ISO 32000-2 §7.2.3's Table 2 lists ten, and the two it lists beyond these are conditional
+    /// rather than general — the clause says so in the sentence that introduces the table:
     ///
     /// > The delimiter characters { and } (LEFT CURLY BRACE (7Bh) and RIGHT CURLY BRACE (7Dh))
     /// > are additional delimiter characters within Type 4 PostScript calculator functions

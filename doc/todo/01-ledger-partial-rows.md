@@ -5384,3 +5384,60 @@ ADR 0746; `doc/errata-read.md` has all eight annotations with their rectangles.
   it was not before. Step 4's preference is argued from that ratio and the ratio is stable, which is
   the evidence it needed; and this round is a witness for it in a second way, since two of its three
   paying issues landed on `implemented` rows.
+
+## The rule's seventeenth use, in the eight-hundred-and-nineteenth, and step 5 went flat as well
+
+**Both units have now run out of resolution.** Over live rows six rows tie at two annotations, over
+every row 30 do with 17 more at one — and the ranking by **issue**, which step 5 was added for and
+which gave a head of four against a floor of one one use ago, tops out at **two with 33 issues tied
+there** and 23 at one. Step 5 is not wrong and it is not exhausted as an idea; it decayed the way
+the row unit did, and faster, because reading the head is what takes the head out of the population:
+the sixteenth use read both issues at four annotations and both at three, which was the whole of the
+shape.
+
+**So a third unit is not what to reach for.** What chose the reading here is the third use's
+tie-break, unchanged — a cell ahead of a word in prose, and among the cells the requirement level
+first — which has now settled ties of 39, of two and of 33. The rankings are a filter and the
+tie-break is the selector, and saying that plainly is worth more than a step 6.
+
+**The head is Issue #139** and the walk down paid at **Issue #365**. ADR 0749;
+`doc/errata-read.md` has both with their rectangles.
+
+- **Issue #139 cites, and re-prices a guard.** Table 151's `/Prev` and `/Next` cells each gain
+  *shall not be present on the first / last item at each level;* beside the requirement they
+  already stated, so a level's last item has no `/Next` by the standard's word rather than by
+  custom. `outline.rs` walks `/First` and `/Next` alone and stops where `/Next` is absent, so no
+  line moves; its refusal to visit an object twice is now the repair of a file the standard calls
+  non-conforming rather than the handling of a ring a producer was free to write.
+- **Issue #365 pays, on the tree's own character classification.** §7.2.3's sentence introducing
+  Table 2 makes `{` and `}` additional delimiters *within type 4 PostScript calculator functions*,
+  and the erratum writes that condition into the table itself with the word *only* in it.
+  `pdf_syntax::lexer::class::is_delimiter` held all ten of Table 2's rows unconditionally — and
+  §7.2.3's ledger row said so — so `/A{B}` lexed as a two-byte name and three tokens where the
+  clause makes it one name of four, which by §7.3.5 is a different object. The predicate is the
+  eight general delimiters now; nothing was lost, because `pdf_model::function` tokenises a type 4
+  program itself and is the one place the two do delimit. `Name::escaped` keeps writing both as
+  `#7B` and `#7D`, which rule b) permits, so a name this program writes is read alike by a reader
+  still holding the ten — a choice, pinned by a test that also asserts the other spelling reads back
+  as the same name.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the eighth consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 56 named nowhere,
+  which is the sixteenth use's 60 less its four verdicts, and the multi-issue parse's 310 and 58
+  reproduce the same way over the same eight second-position numbers. The parse pinned into the
+  recipe last use needed no re-derivation, which is what pinning it was for.
+- **A caret can point instead of saying, and the recipe's filter is one annotation away from
+  missing that.** Both of #365's carets read only *See new table footnote (a)*; the amendment is a
+  third annotation, a `Text` under the same `/Subj`. The issue ranks correctly because it carries
+  carets, and an erratum whose *whole* substance is a `Text` annotation is dropped by step 3's
+  "neither a StrikeOut nor a Caret" filter. Read the `Text` lines `emit` prints beside a ranked
+  pair before believing the pair is the amendment.
+- **The settled/live ratio is unchanged again**: 39 of the 56 unread issues touch only a settled
+  row, 10 touch a live one and seven land on no row at all, against 42, 11 and seven at the
+  sixteenth use's base. It is a plain subtraction this time, which the last two were not: three of
+  the sixteenth use's four verdicts were on settled-only issues and the fourth on the one live
+  issue it read, and the third column has not moved in two uses. Step 4's preference is still what
+  the arithmetic says, and this round is a witness for it again — both of its verdicts landed on
+  `implemented` rows.
