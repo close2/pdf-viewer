@@ -565,10 +565,11 @@ mod tests {
         let pages = Pages::new(&one);
         let dict = pages.get(0).expect("a page").dict;
         assert_eq!(
-            articles
-                .threads
-                .first()
-                .map(|thread| thread.beads.iter().map(|bead| bead.id).collect::<Vec<_>>()),
+            articles.threads.first().map(|thread| thread
+                .beads
+                .iter()
+                .map(|bead| bead.id)
+                .collect::<Vec<_>>()),
             Some(vec![id(5), id(6)]),
             "the thread's chain is 5 then 6"
         );
