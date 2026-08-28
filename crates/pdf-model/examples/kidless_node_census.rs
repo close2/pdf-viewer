@@ -8,6 +8,11 @@
 //! and `/Count` beside it, as the number of leaf nodes descended from the node — an entry the
 //! same table's own NOTE calls redundant, because the `/Kids` arrays determine it.
 //!
+//! Errata Collection 3's Issue #271 adds to that cell that *the length of the array shall be at
+//! least one*, so an **empty** `/Kids` is the same contradiction written out: an array is
+//! present and it names no children. It is counted here beside the absent entry, because the two
+//! are one question and only one of them was ever measured.
+//!
 //! So a dictionary that states `/Type /Pages` and no `/Kids` has said in one breath that it is
 //! a node and that it has no children, which is a contradiction the file has to be read
 //! against. `pdf_model::page` treats *any* dictionary without `/Kids` as a leaf, deliberately
@@ -45,7 +50,14 @@ struct Finding {
     typed: usize,
     /// Nodes reached with no `/Kids` array that state a `/Count`, whatever their `/Type`.
     counted: usize,
-    /// Whether the root of the tree is one of them.
+    /// Nodes reached whose `/Kids` is an array of no entries — Issue #271's other shape.
+    empty: usize,
+    /// How many of those state a `/Count` beside the empty array, which is the pair that
+    /// costs a page: the entry claims descendants the array says are not there.
+    empty_counted: usize,
+    /// Whether the root of the tree is the one whose `/Kids` is empty.
+    empty_at_root: bool,
+    /// Whether the root of the tree is one of the nodes stating no `/Kids` at all.
     at_root: bool,
     /// Objects in the file declaring `/Type /Page`, which is what a recovery would find.
     declared_pages: usize,
@@ -57,6 +69,9 @@ fn main() {
     let mut with_counted = 0_usize;
     let mut with_typed_root = 0_usize;
     let mut recoverable = 0_usize;
+    let mut with_empty = 0_usize;
+    let mut with_empty_counted = 0_usize;
+    let mut with_empty_root = 0_usize;
     let mut lines: Vec<String> = Vec::new();
 
     for path in std::env::args().skip(1) {
@@ -68,7 +83,7 @@ fn main() {
         };
         opened = opened.saturating_add(1);
         let finding = examine(&document);
-        if finding.typed == 0 && finding.counted == 0 {
+        if finding.typed == 0 && finding.counted == 0 && finding.empty == 0 {
             continue;
         }
         if finding.typed > 0 {
@@ -83,12 +98,29 @@ fn main() {
         if finding.counted > 0 {
             with_counted = with_counted.saturating_add(1);
         }
+        if finding.empty > 0 {
+            with_empty = with_empty.saturating_add(1);
+            if finding.empty_counted > 0 {
+                with_empty_counted = with_empty_counted.saturating_add(1);
+            }
+            if finding.empty_at_root {
+                with_empty_root = with_empty_root.saturating_add(1);
+            }
+        }
         lines.push(format!(
             "  {path}: {} /Type /Pages without /Kids{}, {} stating /Count without /Kids, \
+             {} with an empty /Kids{} of which {} state a /Count, \
              {} object(s) declaring /Type /Page",
             finding.typed,
             if finding.at_root { " (the root)" } else { "" },
             finding.counted,
+            finding.empty,
+            if finding.empty_at_root {
+                " (the root)"
+            } else {
+                ""
+            },
+            finding.empty_counted,
             finding.declared_pages
         ));
     }
@@ -98,6 +130,9 @@ fn main() {
     println!("    of which {with_typed_root} at the root of the tree");
     println!("    of which {recoverable} hold an object declaring /Type /Page");
     println!("  {with_counted} with a node stating /Count and no /Kids, whatever its /Type");
+    println!("  {with_empty} with a node whose /Kids is an empty array");
+    println!("    of which {with_empty_root} at the root of the tree");
+    println!("    of which {with_empty_counted} state a /Count beside the empty array");
     for line in &lines {
         println!("{line}");
     }
@@ -136,6 +171,14 @@ fn walk(
     *visited = visited.saturating_add(1);
 
     let kids = document.get_key(node, "Kids");
+    if kids.as_array().is_some_and(<[Object]>::is_empty) {
+        finding.empty = finding.empty.saturating_add(1);
+        finding.empty_at_root |= is_root;
+        if !matches!(document.get_key(node, "Count"), Object::Null) {
+            finding.empty_counted = finding.empty_counted.saturating_add(1);
+        }
+        return;
+    }
     let Some(kids) = kids.as_array() else {
         let typed = document
             .get_key(node, "Type")

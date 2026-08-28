@@ -60,6 +60,12 @@ impl<'a> Node<'a> {
     /// are what producers write anyway and what resolving the entry used to accept without
     /// anybody deciding to: a dictionary written straight into the array, and a stream, which
     /// has a dictionary and is not a page but was read as one before this and still is.
+    ///
+    /// A `null` is none of the three and answers `None` here, which Errata Collection 3's Issue
+    /// #271 turns from this reader's reading into the entry's own rule: it inserts *null entries
+    /// shall not be present* into Table 30's `/Kids` cell, so stepping over one is a recovery
+    /// from a file the standard now calls malformed rather than an interpretation of a legal
+    /// array.
     fn of(entry: &'a Object) -> Option<Self> {
         match entry {
             Object::Reference(id) => Some(Self::Indirect(*id)),
@@ -529,15 +535,28 @@ impl<'a> Pages<'a> {
         // both entries of a node, so a root stating `/Count 1` and no children has contradicted
         // itself and the walk below is what settles it. One dictionary lookup, and only where
         // the root has no children — a tree with children never reaches the second condition.
-        let root_has_kids = root
-            .as_ref()
-            .is_some_and(|node| document.get_key(node, "Kids").as_array().is_some());
+        //
+        // An **empty** `/Kids` is that same contradiction, and Errata Collection 3's Issue #271
+        // is what says so: it inserts into Table 30's `/Kids` cell that the array's *length
+        // shall be at least one*, so a node writing `[]` has stated its children and stated
+        // none of them. Reading it as children left `/Count` authoritative over a tree with no
+        // pages in it at all — a document reporting the pages it claimed and producing none.
+        let root_has_kids = root.as_ref().is_some_and(|node| {
+            document
+                .get_key(node, "Kids")
+                .as_array()
+                .is_some_and(|kids| !kids.is_empty())
+        });
         let declared = root
             .as_ref()
             .filter(|_| root_has_kids)
             .and_then(|node| document.get_key(node, "Count").as_integer())
             .and_then(|value| usize::try_from(value).ok());
 
+        // `count > 0` was this reader's plausibility test and is the entry's own floor since
+        // Issue #271, whose third insertion makes `/Count` *1 or greater*. The corpus's one
+        // witness of an empty `/Kids` writes `/Count 0` beside it, so the two halves of that
+        // erratum describe one file between them.
         let count = match declared {
             Some(count) if count > 0 && count <= MAX_NODES_VISITED => count,
             _ => root.as_ref().map_or(0, |node| {
@@ -946,6 +965,11 @@ fn find_leaf(
         // Skip whole subtrees using `/Count` where it is trustworthy: for a hundred-thousand
         // page document this is the difference between a lookup costing six node reads and
         // costing fifty thousand.
+        //
+        // Trustworthy means the subtree has children to count, and an empty `/Kids` is not
+        // children — Issue #271 again, and here the cost of reading it as children was a page
+        // *index* rather than a page count: the skip consumed as many of `remaining` as the
+        // childless node claimed, so every page after it answered to an earlier page's number.
         let subtree = kid
             .key(document, "Count")
             .as_ref()
@@ -954,7 +978,7 @@ fn find_leaf(
             .key(document, "Kids")
             .as_ref()
             .and_then(Object::as_array)
-            .is_some();
+            .is_some_and(|kids| !kids.is_empty());
         if has_kids
             && let Some(count) = subtree.and_then(|value| usize::try_from(value).ok())
             && count > 0
