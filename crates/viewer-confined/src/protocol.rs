@@ -2725,6 +2725,51 @@ fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, Prot
     }))
 }
 
+/// The decoded lists a host was last handed, one per page, so the same bytes come back as the
+/// same `Arc` (ADR 0725).
+///
+/// **This is what makes [`crate::Payload::List`]'s sharing promise true across two frames.** The
+/// worker holds one *encoded* list per page and re-sends those same bytes on every
+/// [`Query::Frame`] until a re-render replaces them — but a decode that allocated a fresh
+/// `Arc<pdf_render::DisplayList>` per reply gave a host a new identity for an unchanged page on every scroll,
+/// so everything keyed by `Arc` identity on the host side — the confined screen's
+/// same-drawing-moved reuse, `render-quorra`'s retained scenes — missed on every frame. The
+/// promise was written down twice and kept only inside unit tests that shared the `Arc` by hand.
+///
+/// The key is the page and the test is the encoded bytes themselves, compared whole: the worker
+/// is the untrusted side, so nothing short of byte equality may stand in for "the same list", and
+/// a hit skips the decode as well as the allocation. What is held is bounded by the pages of the
+/// frame on hand — a page that leaves the frame, or crosses as pixels, is forgotten — and it
+/// lives on the *host* side of the pipe, outside the worker's address-space ceiling.
+#[derive(Debug, Default)]
+pub(crate) struct HeldLists {
+    /// Per page: the encoded bytes as they crossed, and what they decoded to. The target is
+    /// deliberately not held — a zoom re-encodes the *same* marks under a new target, and the
+    /// target's own decode is a few fields where the list's is the page.
+    by_page: std::collections::BTreeMap<usize, (Vec<u8>, std::sync::Arc<pdf_render::DisplayList>)>,
+}
+
+impl HeldLists {
+    /// The held list for `page`, if `bytes` are exactly what it decoded from.
+    fn same(&self, page: usize, bytes: &[u8]) -> Option<std::sync::Arc<pdf_render::DisplayList>> {
+        self.by_page
+            .get(&page)
+            .filter(|(held, _)| held == bytes)
+            .map(|(_, list)| std::sync::Arc::clone(list))
+    }
+
+    /// Records what `page` decoded from and to, replacing whatever was held.
+    fn keep(&mut self, page: usize, bytes: &[u8], list: &std::sync::Arc<pdf_render::DisplayList>) {
+        self.by_page
+            .insert(page, (bytes.to_vec(), std::sync::Arc::clone(list)));
+    }
+
+    /// Forgets every page not in `kept` — the frame on hand is the bound on what is held.
+    fn retain(&mut self, kept: &[usize]) {
+        self.by_page.retain(|page, _| kept.contains(page));
+    }
+}
+
 /// Reads one page's marks off a frame, and the target the host is to draw them at (ADR 0607).
 ///
 /// **The target is where this arm's own allocation lives, and it is eight bytes.** Every other
@@ -2744,7 +2789,11 @@ fn decode_raster_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, Prot
 /// §7's reason: the three places in this tree that ask that question are in `pdf-render`, where a
 /// device decision belongs, and a fourth answer in a codec would be a fourth place the confined
 /// path and the in-process path could differ.
-fn decode_list_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, ProtocolError> {
+fn decode_list_payload(
+    reader: &mut Reader<'_>,
+    page: usize,
+    held: &mut HeldLists,
+) -> Result<crate::Payload, ProtocolError> {
     let width = reader.u32("a target width")?;
     let height = reader.u32("a target height")?;
     if width == 0 || height == 0 {
@@ -2767,8 +2816,18 @@ fn decode_list_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, Protoc
     }
     let transform = display_list::read_transform(reader, "a target transform")?;
     let bytes = reader.bytes("a display list")?;
+    // The same bytes hand back the same `Arc` — see [`HeldLists`]. Byte equality first, because
+    // the worker is the untrusted side and nothing weaker may stand in for "the same list"; on a
+    // hit the decode is skipped too, which is most of this arm's cost on an unchanged page.
+    let list = if let Some(list) = held.same(page, bytes) {
+        list
+    } else {
+        let list = std::sync::Arc::new(display_list::decode(bytes)?);
+        held.keep(page, bytes, &list);
+        list
+    };
     Ok(crate::Payload::List {
-        list: std::sync::Arc::new(display_list::decode(bytes)?),
+        list,
         target: pdf_render::TargetSpec {
             width,
             height,
@@ -2783,11 +2842,23 @@ fn decode_list_payload(reader: &mut Reader<'_>) -> Result<crate::Payload, Protoc
 ///
 /// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
 /// or bytes are left over.
+pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
+    decode_answer_reusing(bytes, &mut HeldLists::default())
+}
+
+/// [`decode_answer`], handing back the same `Arc` for a list whose bytes are unchanged.
+///
+/// `held` is the caller's across calls — [`crate::Confined`] keeps one per worker — and it is
+/// what makes an unchanged page's identity survive two [`Query::Frame`]s (see [`HeldLists`]).
+/// [`decode_answer`] is this with a throwaway, for the callers that decode one message and stop.
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
 )]
-pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
+pub(crate) fn decode_answer_reusing(
+    bytes: &[u8],
+    held: &mut HeldLists,
+) -> Result<Reply, ProtocolError> {
     use answer_kind as k;
 
     let mut reader = Reader::new(bytes);
@@ -2850,11 +2921,18 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         k::FRAME => {
             let count = reader.usize("a frame count")?;
             let mut frames = Vec::new();
+            // The pages whose marks this frame carries: what `held` keeps is bounded by them,
+            // and a page that crossed as pixels — or left the frame — is forgotten with the
+            // frame that says so.
+            let mut listed = Vec::new();
             for _ in 0..count {
                 let page = reader.usize("a page index")?;
                 let payload = match reader.u8("a frame payload")? {
                     PAYLOAD_RASTER => decode_raster_payload(&mut reader)?,
-                    PAYLOAD_LIST => decode_list_payload(&mut reader)?,
+                    PAYLOAD_LIST => {
+                        listed.push(page);
+                        decode_list_payload(&mut reader, page, held)?
+                    }
                     value => {
                         return Err(ProtocolError::Unrecognised {
                             what: "a frame payload",
@@ -2868,6 +2946,7 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Reply, ProtocolError> {
                     origin: reader.point("an origin")?,
                 });
             }
+            held.retain(&listed);
             Reply::Frame(frames)
         }
         k::REPORTS => Reply::Reports(reader.list("a page's reports", |reader| {
@@ -4251,6 +4330,87 @@ mod tests {
         assert_eq!((target.width, target.height), (100, 200));
         assert_eq!(list.page_size, Size::new(10.0, 20.0));
         assert_eq!(list.commands().len(), 1);
+    }
+
+    /// The list of one page in a frame, for the reuse tests below.
+    fn the_list_of(reply: &Reply) -> std::sync::Arc<pdf_render::DisplayList> {
+        let Reply::Frame(frames) = reply else {
+            panic!("a frame answer decodes as one");
+        };
+        let [shown] = frames.as_slice() else {
+            panic!("one page was written")
+        };
+        let crate::Payload::List { list, .. } = &shown.payload else {
+            panic!("the marks were written, so the marks are what crossed")
+        };
+        std::sync::Arc::clone(list)
+    }
+
+    /// A page whose bytes did not change comes back as the same `Arc` — across two frames, which
+    /// is where every real scroll and zoom lives (ADR 0725).
+    ///
+    /// The worker re-sends a page's encoded marks unchanged until a re-render replaces them
+    /// ([`Marks`] holds them encoded), so byte-identical re-crossings are the ordinary case. The
+    /// contrast decode at the end is the defect this exists to pin: two stateless decodes are
+    /// exactly what [`crate::Confined::query`] did for the whole of this crate's life before,
+    /// and they hand back two identities for one unchanged page — which is why the screen's
+    /// same-drawing-moved arm and every `Arc`-keyed cache behind a host missed on every frame.
+    #[test]
+    fn an_unchanged_list_recrosses_as_the_same_arc() {
+        let mut held = HeldLists::default();
+        let first = decode_answer_reusing(&a_list_frame(100, 200), &mut held).expect("a frame");
+        let second = decode_answer_reusing(&a_list_frame(100, 200), &mut held).expect("a frame");
+        assert!(
+            std::sync::Arc::ptr_eq(&the_list_of(&first), &the_list_of(&second)),
+            "the same bytes are the same list"
+        );
+
+        // A zoom re-renders the page: the *same* marks re-encode under a new target, so the
+        // identity survives while the target moves — which is what makes a zoom a new
+        // `TargetSpec` over the same list, as `Payload::List` promises.
+        let zoomed = decode_answer_reusing(&a_list_frame(200, 400), &mut held).expect("a frame");
+        assert!(
+            std::sync::Arc::ptr_eq(&the_list_of(&second), &the_list_of(&zoomed)),
+            "a new target over unchanged bytes keeps the list's identity"
+        );
+
+        // The contrast: stateless decodes — what the host did before — give two identities.
+        let one = decode_answer(&a_list_frame(100, 200)).expect("a frame");
+        let two = decode_answer(&a_list_frame(100, 200)).expect("a frame");
+        assert!(
+            !std::sync::Arc::ptr_eq(&the_list_of(&one), &the_list_of(&two)),
+            "a throwaway state cannot carry an identity, which is why Confined keeps one"
+        );
+    }
+
+    /// What is held is bounded by the frame on hand: a page that stops crossing as marks is
+    /// forgotten, and the same bytes arriving later are a new list rather than a stale one.
+    ///
+    /// The bound is the point — the host-side store must not grow by one decoded list per page a
+    /// reader ever saw — and forgetting on the pixels arm is what keeps "the same bytes" a
+    /// statement about the frame on hand rather than about history.
+    #[test]
+    fn a_page_that_stops_crossing_as_marks_is_forgotten() {
+        let mut held = HeldLists::default();
+        let first = decode_answer_reusing(&a_list_frame(100, 200), &mut held).expect("a frame");
+
+        // The same page crosses as pixels: one 2×2 raster, page 0, any origin.
+        let mut writer = Writer::new();
+        writer.u8(answer_kind::FRAME).usize(1);
+        writer.usize(0).u8(PAYLOAD_RASTER).u32(2).u32(2).u8(0);
+        writer.bytes(&[0u8; 16]);
+        writer.point((0.0, 0.0));
+        let pixels = decode_answer_reusing(&writer.finish(), &mut held).expect("a frame");
+        assert!(matches!(
+            &pixels,
+            Reply::Frame(frames) if matches!(frames[0].payload, crate::Payload::Raster(_))
+        ));
+
+        let third = decode_answer_reusing(&a_list_frame(100, 200), &mut held).expect("a frame");
+        assert!(
+            !std::sync::Arc::ptr_eq(&the_list_of(&first), &the_list_of(&third)),
+            "the pixels arm evicted the held list, so the same bytes decode afresh"
+        );
     }
 
     /// **A frame answer holding no pixels at all still carries the page**, out of this store.

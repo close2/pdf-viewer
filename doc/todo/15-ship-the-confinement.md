@@ -2,10 +2,12 @@
 
 Status: **open, one of its two defects carried out (ADR 0597), the tier change decided (ADR 0607),
 its codec built (ADR 0626), wired into the frame path (ADR 0633), paid for (ADR 0640), the
-host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657) — and the boundary has
-its first host (ADR 0713)**: `pdf-viewer-confined`, a window whose every page comes out of
-`pdf-view-worker`, on both payload arms, with Escape ending the worker *and* taking back the
-drawing thread. The
+host's own draw made stoppable (ADR 0650), the stopping decided (ADR 0657), the boundary has
+its first host (ADR 0713) — and that host draws on the graphics device (ADR 0725)**:
+`pdf-viewer-confined`, a window whose every page comes out of `pdf-view-worker`, on both payload
+arms, presented through `render-quorra` — which is what the marks cross the pipe *for* — with
+Escape ending the worker *and* taking back the drawing thread, and `--cpu` the window with no
+device. The
 machinery exists and is verified
 against the kernel (ADRs 0218, 0223, 0235, 0241); a ceiling breach is no longer a crash; a
 frame carries either the pixels or the marks, chosen per page by comparing two byte counts the
@@ -102,9 +104,15 @@ on the amplification fixture.
 What that sharpens rather than closes: the three *established* windows still interpret in
 process, so "make `viewer-confined` the viewer's actual path" now means moving them — their
 panels already have owned `Reply` counterparts for every answer, and the page path has a working
-model to copy. And the confined window presents through the processor, while ADR 0607's whole
-argument is that the device is the host's: a `render-quorra` surface behind it is the natural
-next piece.
+model to copy. ~~And the confined window presents through the processor~~ — **it presents
+through the device since the seven-hundred-and-ninetieth** (ADR 0725): the marks as they
+crossed, the worker's rasters wrapped as one-image lists, the interruptible drawing thread kept
+for the frames the device refuses, and the `Arc` identity of an unchanged page now surviving the
+pipe, without which every host-side scene and drawing cache missed on every scroll. What that
+round could not measure is owed rather than guessed: the window's bring-up and present cadence
+on the **real adapter** need the owner's session — Xvfb's llvmpipe numbers are in ADR 0725 as
+illustration only — and the device lane's coverage choice stays quorra's default until such a
+measurement asks for more.
 
 ## What a round taking this still owes
 
