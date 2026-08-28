@@ -2002,6 +2002,26 @@ impl ViewState {
 /// so a leaf with no `/Kids` is its own widget. And a kid with no `/T` "shall not be
 /// considered a field but simply a Widget annotation", so it belongs to its parent's name
 /// rather than starting a new one.
+///
+/// **That second sentence is unconditional, and until the eight-hundred-and-fourth session it
+/// was applied to a kid alone.** A dictionary reached from `/Fields` with no `/T` of its own and
+/// no ancestor stating one has no fully qualified name at all, so it is not a field — and every
+/// such dictionary in a document was keyed here under the *empty* name, which made one field out
+/// of annotations sharing nothing. Table 226 printed `/T` as `(Required)`, so the case read as a
+/// malformed file; Errata Collection 3's Issue #28 strikes the requirement level and writes
+/// *Optional*, which is the cell catching up with §12.7.4.2's own paragraph. What decides the
+/// case is therefore the paragraph, and the paragraph says such a dictionary is a widget. It is
+/// left out of this table, drawn by `crate::annotation` as before, and handed to no host as a
+/// control — which is the path [`crate::form::fields`] already documents for a widget the field
+/// tree does not reach.
+///
+/// **And the ancestry a name is built from is the `/Parent` chain, which is why a root entry is
+/// asked for one.** §12.7.3 makes `/Fields` "an array of references to the document's root
+/// fields (those with no ancestors in the field hierarchy)", so an entry stating a `/Parent` has
+/// contradicted that — and Table 226's `/Parent` is the file's own statement of which field it
+/// belongs to. Taking it is a **recovery**, argued in §12.7.4.2's row: the alternative is to read
+/// a document's radio group as nameless when the producer listed the buttons in `/Fields` instead
+/// of their parent. `examples/unnamed_field_census` counts the population.
 pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<ObjectId>> {
     let mut out = BTreeMap::new();
     let Ok(catalog) = document.catalog() else {
@@ -2017,16 +2037,56 @@ pub fn widgets_by_field_name(document: &Document) -> BTreeMap<String, Vec<Object
     };
     let mut seen = BTreeSet::new();
     for field in &fields {
-        walk(document, field, "", &mut out, &mut seen, 0);
+        let inherited = ancestry(document, field);
+        walk(
+            document,
+            field,
+            inherited.as_deref(),
+            &mut out,
+            &mut seen,
+            0,
+        );
     }
     out
 }
 
+/// The qualified name a `/Fields` entry's `/Parent` chain gives it, if any.
+///
+/// `None` where the entry states no `/Parent`, or where nothing above it states a `/T` — the two
+/// cases in which the ancestry contributes no name. Bounded by [`MAX_FIELD_DEPTH`] for the reason
+/// `crate::appearance`'s inheritance walk is: a `/Parent` chain in a hostile file can be a cycle.
+fn ancestry(document: &Document, node: &Object) -> Option<String> {
+    let id = node.as_reference()?;
+    let object = document.get(id);
+    let mut current = document.get_key(object.as_dict()?, "Parent").as_dict()?.clone();
+    // Nearest ancestor first, so the name is assembled by walking back down at the end.
+    let mut partials: Vec<String> = Vec::new();
+    for _ in 0..MAX_FIELD_DEPTH {
+        if let Object::String(bytes) = document.get_key(&current, "T") {
+            partials.push(pdf_syntax::text_string(&bytes));
+        }
+        let Some(parent) = document.get_key(&current, "Parent").as_dict().cloned() else {
+            break;
+        };
+        current = parent;
+    }
+    if partials.is_empty() {
+        return None;
+    }
+    partials.reverse();
+    // §12.7.4.2's separator, applied between the ancestors exactly as it is between a parent and
+    // a child: this is the parent's own fully qualified name.
+    Some(partials.join("."))
+}
+
 /// Walks one node of the field tree, extending the qualified name as §12.7.4.2 states.
+///
+/// `prefix` is the fully qualified name of this node's ancestors, or `None` where no ancestor
+/// states a `/T` — which is the state in which a node stating none itself is not a field.
 fn walk(
     document: &Document,
     node: &Object,
-    prefix: &str,
+    prefix: Option<&str>,
     out: &mut BTreeMap<String, Vec<ObjectId>>,
     seen: &mut BTreeSet<ObjectId>,
     depth: usize,
@@ -2052,25 +2112,42 @@ fn walk(
     match kids.as_array().map(<[Object]>::to_vec) {
         Some(kids) if !kids.is_empty() => {
             for kid in &kids {
-                walk(document, kid, &name, out, seen, depth.saturating_add(1));
+                walk(
+                    document,
+                    kid,
+                    name.as_deref(),
+                    out,
+                    seen,
+                    depth.saturating_add(1),
+                );
             }
         }
-        // A leaf: the field dictionary and its widget annotation merged into one.
-        _ => out.entry(name).or_default().push(id),
+        // A leaf: the field dictionary and its widget annotation merged into one — unless
+        // §12.7.4.2 leaves it nameless, in which case it is "simply a Widget annotation".
+        _ => {
+            if let Some(name) = name {
+                out.entry(name).or_default().push(id);
+            }
+        }
     }
 }
 
 /// This node's fully qualified name: the prefix, and its own `/T` if it has one.
-fn qualified_name(document: &Document, dict: &Dictionary, prefix: &str) -> String {
+///
+/// `None` where neither this dictionary nor any ancestor states a `/T`, which §12.7.4.2 makes the
+/// test for a dictionary that is "simply a Widget annotation" rather than a field. The *entry* is
+/// what the clause conditions on and not the string it holds, so a `/T` of zero length still
+/// names a field — a degenerate name is a name, and two fields sharing one are the case the same
+/// clause makes the writer answer for.
+fn qualified_name(document: &Document, dict: &Dictionary, prefix: Option<&str>) -> Option<String> {
     let Object::String(bytes) = document.get_key(dict, "T") else {
-        return prefix.to_owned();
+        return prefix.map(str::to_owned);
     };
     let partial = pdf_syntax::text_string(&bytes);
-    if prefix.is_empty() {
-        partial
-    } else {
-        format!("{prefix}.{partial}")
-    }
+    Some(match prefix {
+        Some(prefix) if !prefix.is_empty() => format!("{prefix}.{partial}"),
+        _ => partial,
+    })
 }
 
 /// Whether pressing this annotation changes what is drawn.
@@ -3219,6 +3296,80 @@ mod tests {
         ]);
         let mut state = ViewState::of(&doc);
         state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert_eq!(state.annotation_hidden(id(5)), Some(true));
+        assert_eq!(state.annotation_hidden(id(6)), Some(true));
+    }
+
+    /// A `/Fields` entry no `/T` reaches is not a field, so it is in no key of the table.
+    ///
+    /// §12.7.4.2's sentence is unconditional — "A field dictionary that does not have a partial
+    /// field name ( T entry) of its own shall not be considered a field but simply a Widget
+    /// annotation" — and at the root of `/Fields` there is no ancestor to supply one. Table 226
+    /// printed `/T` as `(Required)` until Errata Collection 3's Issue #28 wrote *Optional* in its
+    /// place, which is what makes this a conforming file rather than a repair.
+    ///
+    /// The two annotations share nothing, so the failure this pins is a *merge*: keying them
+    /// under the empty name made one field of them, and a value entered into it reached both.
+    #[test]
+    fn a_root_field_that_nothing_names_is_not_a_field() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R 4 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /FT /Tx /Subtype /Widget >>",
+            "<< /FT /Tx /Subtype /Widget >>",
+        ]);
+        let table = widgets_by_field_name(&doc);
+        assert_eq!(
+            table.keys().collect::<Vec<_>>(),
+            Vec::<&String>::new(),
+            "neither is a field, so neither is under any name — the empty one included"
+        );
+    }
+
+    /// A `/T` of zero length is still an entry, so the dictionary is still a field.
+    ///
+    /// §12.7.4.2 conditions on the *entry* rather than on what it holds, and this is the pair to
+    /// the test above: the two look identical to a reader that asked whether the name came out
+    /// empty instead of whether the entry was there.
+    #[test]
+    fn an_empty_partial_name_is_still_a_name() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /T () /FT /Tx /Subtype /Widget >>",
+        ]);
+        let table = widgets_by_field_name(&doc);
+        assert_eq!(table.get("").map(Vec::as_slice), Some([id(3)].as_slice()));
+    }
+
+    /// A `/Fields` entry that states a `/Parent` takes its ancestors' name.
+    ///
+    /// §12.7.3 makes `/Fields` "an array of references to the document's root fields (those with
+    /// no ancestors in the field hierarchy)", so an entry stating a `/Parent` contradicts it —
+    /// and Table 226's `/Parent` is the file's own statement of which field the entry belongs to.
+    /// Taking it is the recovery §12.7.4.2's row argues: the alternative is a radio group read as
+    /// nameless because the producer listed the buttons rather than the field above them.
+    /// `doc/pdf.js/test/pdfs/opt_demo.pdf` is the corpus witness.
+    #[test]
+    fn a_root_field_takes_the_name_its_parent_chain_states() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 6 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /T (garden) /Kids [4 0 R] >>",
+            "<< /T (veg) /Parent 3 0 R /FT /Btn /Kids [5 0 R 6 0 R] >>",
+            "<< /Parent 4 0 R /Subtype /Widget >>",
+            "<< /Parent 4 0 R /Subtype /Widget >>",
+            "<< /S /Hide /T (garden.veg) /H true >>",
+        ]);
+        let table = widgets_by_field_name(&doc);
+        assert_eq!(
+            table.get("garden.veg").map(Vec::as_slice),
+            Some([id(5), id(6)].as_slice()),
+            "both buttons are widgets of the field their /Parent chain names"
+        );
+
+        let mut state = ViewState::of(&doc);
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(7))));
         assert_eq!(state.annotation_hidden(id(5)), Some(true));
         assert_eq!(state.annotation_hidden(id(6)), Some(true));
     }
