@@ -2159,6 +2159,14 @@ impl Ascii85 {
     fn turn(&mut self, input: &[u8], last: bool, out: &mut [u8]) -> Turned {
         let mut took = 0usize;
         let mut wrote = 0usize;
+        // §7.4.3's error, in the voice a window owes it: the bytes already handed to a lexer
+        // stand and the stream stops here. Four places reach it — a character outside the
+        // alphabet, and the two impossible combinations `close` and `expand` answer for.
+        let corrupt = |took, wrote| Turned {
+            took,
+            wrote,
+            state: Standing::Damaged(Damage::Corrupt),
+        };
         if !self.opened {
             // The optional `<~` introducer, which needs two bytes to recognise and is only ever
             // at the very beginning.
@@ -2217,8 +2225,11 @@ impl Ascii85 {
                 }
                 // The bytes ran out before the EOD marker. [`ascii85`] flushes the partial
                 // group and calls that whole, because §7.4.3 makes a partial final group the
-                // encoding rather than damage.
-                self.close();
+                // encoding rather than damage — unless the group is one of the two the same
+                // clause says shall never occur, which is `close`'s `false`.
+                if !self.close() {
+                    return corrupt(took, wrote);
+                }
                 continue;
             };
             took = took.saturating_add(1);
@@ -2226,7 +2237,9 @@ impl Ascii85 {
                 continue;
             }
             if byte == b'~' {
-                self.close();
+                if !self.close() {
+                    return corrupt(took, wrote);
+                }
                 continue;
             }
             // "if all five bytes are 0, they shall be represented by the character with code
@@ -2243,46 +2256,61 @@ impl Ascii85 {
                 // of it stand — which is ADR 0343's rule for a content stream, and a content
                 // stream is the only thing a window is ever run over. [`ascii85`] refuses the
                 // whole stream instead, for the population *it* serves, and says why.
-                return Turned {
-                    took,
-                    wrote,
-                    state: Standing::Damaged(Damage::Corrupt),
-                };
+                return corrupt(took, wrote);
             }
             if let Some(slot) = self.group.get_mut(self.count) {
                 *slot = byte.saturating_sub(b'!');
             }
             self.count = self.count.saturating_add(1);
             if self.count == 5 {
-                self.expand(5);
                 self.count = 0;
+                if !self.expand(5) {
+                    return corrupt(took, wrote);
+                }
             }
         }
     }
 
     /// Ends the stream, flushing §7.4.3's partial final group.
-    fn close(&mut self) {
+    ///
+    /// `false` where the group is one of the two the clause says shall never occur — a single
+    /// trailing character, or five digits naming more than a `u32` holds. See
+    /// [`ascii85_value`].
+    #[must_use]
+    fn close(&mut self) -> bool {
         self.ended = true;
+        // "A final partial group contains only one character" is the third of §7.4.3's
+        // impossible combinations, and one character yields `count - 1` = no bytes: the
+        // encoder writes *n* + 1 characters for *n* bytes, so there is no *n* it can be.
+        if self.count == 1 {
+            self.count = 0;
+            return false;
+        }
         if self.count > 1 {
             // "the last, partial group of 4 shall be used to produce a last, partial group of 5
             // output characters" — padded with the maximum digit and cut back to `count - 1`.
             for slot in self.group.iter_mut().skip(self.count) {
                 *slot = 84;
             }
-            self.expand(self.count);
+            let count = self.count;
+            self.count = 0;
+            return self.expand(count);
         }
         self.count = 0;
+        true
     }
 
-    /// Turns the group into the `count - 1` bytes it names.
-    fn expand(&mut self, count: usize) {
-        let mut value = 0u32;
-        for digit in self.group {
-            value = value.saturating_mul(85).saturating_add(u32::from(digit));
-        }
+    /// Turns the group into the `count - 1` bytes it names, or answers `false` where the five
+    /// digits name a number four bytes cannot hold.
+    #[must_use]
+    fn expand(&mut self, count: usize) -> bool {
+        let Some(value) = ascii85_value(self.group) else {
+            return false;
+        };
         self.spill = value.to_be_bytes();
         self.spill_len = count.saturating_sub(1).min(4);
         self.spill_at = 0;
+        true
     }
 }
 
@@ -2520,6 +2548,12 @@ fn ascii_hex(data: &[u8]) -> Arc<[u8]> {
 /// > Any other characters, and any character sequences that represent impossible combinations
 /// > in the ASCII base-85 encoding, shall cause an error.
 ///
+/// **What the impossible combinations *are* is the bullet list under that sentence, and this
+/// filter enforced one of the three.** A `z` inside a group is caught by the alphabet test,
+/// since `z` is above `u`; a group naming more than four bytes hold saturated silently, and a
+/// final group of one character was dropped. [`ascii85_value`] has the first of those, and the
+/// erratum that makes it readable at all.
+///
 /// **The whole stream is refused, and [`Ascii85`] — the same clause through a window — keeps
 /// the groups in front of the character instead. That is not a drift between two readings; it
 /// is ADR 0343's own distinction arriving by route rather than by consumer**, and the
@@ -2582,18 +2616,29 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
         count = count.saturating_add(1);
 
         if count == 5 {
-            push_ascii85_group(&mut out, group, 5);
+            if !push_ascii85_group(&mut out, group, 5) {
+                return Err(FilterRefusal::Corrupt);
+            }
             count = 0;
         }
     }
 
+    // "A final partial group contains only one character" — the third of the clause's
+    // impossible combinations, and the one this filter used to answer by dropping the
+    // character. One character yields `count - 1` = no bytes, so there is no *n* the encoder
+    // could have written it for.
+    if count == 1 {
+        return Err(FilterRefusal::Corrupt);
+    }
     if count > 1 {
         // A partial final group is padded with the maximum digit.
         let mut padded = group;
         for slot in padded.iter_mut().skip(count) {
             *slot = 84;
         }
-        push_ascii85_group(&mut out, padded, count);
+        if !push_ascii85_group(&mut out, padded, count) {
+            return Err(FilterRefusal::Corrupt);
+        }
     }
 
     if out.len() > limits.max_stream_len {
@@ -2609,15 +2654,45 @@ fn ascii85(data: &[u8], limits: Limits) -> Result<Decoded, FilterRefusal> {
     Ok(Decoded::whole(out.as_slice()))
 }
 
-/// Expands one base-85 group, keeping `count - 1` of the four decoded bytes.
-fn push_ascii85_group(out: &mut Vec<u8>, group: [u8; 5], count: usize) {
-    let mut value = 0u32;
+/// The number five base-85 digits name, or `None` where four bytes cannot hold it.
+///
+/// ISO 32000-2 §7.4.3 lists three conditions that "shall never occur in a correctly encoded
+/// byte sequence", and this is the first of them. The published sentence reads
+///
+/// > The value represented by a group of 5 characters is greater than 232 - 1.
+///
+/// **and the exponent is not a rendering accident of this tree's conversion** — `doc/md/` and
+/// the ISO PDF's own text layer both lose it, so the bound a reader could take off the page was
+/// 231. Errata Collection 3's Issue #98 strikes those characters and writes *2^32 - 1*, with the
+/// 32 superscripted, which is the bound this function applies.
+///
+/// It is a real range rather than a rounding corner: five digits reach 85⁵ − 1 = 4 437 053 124,
+/// so about 3% of the five-character groups the alphabet admits name no four bytes at all. The
+/// accumulator was a `u32` with `saturating_mul`, which decoded every one of them as four `0xFF`
+/// bytes and said nothing.
+fn ascii85_value(group: [u8; 5]) -> Option<u32> {
+    // In `u64` because the question is whether the sum leaves `u32`, and an accumulator that
+    // saturates inside the type it is being tested against cannot answer it.
+    let mut value = 0u64;
     for digit in group {
-        value = value.saturating_mul(85).saturating_add(u32::from(digit));
+        value = value.saturating_mul(85).saturating_add(u64::from(digit));
     }
+    u32::try_from(value).ok()
+}
+
+/// Expands one base-85 group, keeping `count - 1` of the four decoded bytes.
+///
+/// `false` where the group is [`ascii85_value`]'s impossible combination, which the caller
+/// turns into the error §7.4.3 asks for.
+#[must_use]
+fn push_ascii85_group(out: &mut Vec<u8>, group: [u8; 5], count: usize) -> bool {
+    let Some(value) = ascii85_value(group) else {
+        return false;
+    };
     let bytes = value.to_be_bytes();
     let keep = count.saturating_sub(1).min(4);
     out.extend_from_slice(bytes.get(..keep).unwrap_or_default());
+    true
 }
 
 /// Decodes `RunLengthDecode`, ISO 32000-2 §7.4.5.
@@ -2881,6 +2956,70 @@ mod tests {
         // "Man " encodes as "9jqo" in base 85 terms; use the canonical empty and 'z' cases.
         let out = decode(b"ASCII85Decode", b"z~>", None, Limits::DEFAULT).expect("valid");
         assert_eq!(&*out, &[0, 0, 0, 0], "'z' stands for four zero bytes");
+    }
+
+    /// ISO 32000-2 §7.4.3's first "shall never occur" condition, which the published bullet
+    /// states as "greater than 232 - 1" and Errata Collection 3's Issue #98 corrects to
+    /// 2^32 − 1. The two operands are derived rather than chosen: `s8W-!` is the base-85
+    /// spelling of 4 294 967 295, the largest number four bytes hold, and `uuuuu` is the five
+    /// maximum digits, 84 × (85⁴ + 85³ + 85² + 85 + 1) = 4 437 053 124, which they do not.
+    #[test]
+    fn a_base85_group_above_four_bytes_is_an_impossible_combination() {
+        let out = decode(b"ASCII85Decode", b"s8W-!~>", None, Limits::DEFAULT)
+            .expect("the largest group four bytes hold is not the impossible one");
+        assert_eq!(
+            &*out,
+            &[0xFF, 0xFF, 0xFF, 0xFF],
+            "the control: one below the bound decodes"
+        );
+
+        assert_eq!(
+            super::decode_reported(b"ASCII85Decode", b"uuuuu~>", None, Limits::DEFAULT).err(),
+            Some(super::FilterRefusal::Corrupt),
+            "the buffered route refuses the whole stream, as it does for a stray character"
+        );
+
+        for window in [1usize, 4, 4096] {
+            let mut pump = chain_pump(&[super::Stage::Ascii85], b"s8W-!uuuuu~>");
+            let (pumped, ended) = drain(&mut pump, window);
+            // The whole group in front of it stands, which is ADR 0343's rule for the route a
+            // content stream takes; the impossible group yields nothing.
+            same(
+                pumped.as_slice(),
+                &[0xFF, 0xFF, 0xFF, 0xFF],
+                &format!("through {window} bytes"),
+            );
+            assert!(
+                matches!(ended, super::Pumped::Damaged(_, super::Damage::Corrupt)),
+                "through {window} bytes: {ended:?}"
+            );
+        }
+    }
+
+    /// §7.4.3's third condition: "A final partial group contains only one character." The
+    /// encoder writes *n* + 1 characters for *n* bytes, so one character is no *n* — and this
+    /// filter used to drop it and report a whole stream.
+    #[test]
+    fn a_final_base85_group_of_one_character_is_refused() {
+        assert_eq!(
+            super::decode_reported(b"ASCII85Decode", b"s8W-!!~>", None, Limits::DEFAULT).err(),
+            Some(super::FilterRefusal::Corrupt),
+            "the buffered route refuses"
+        );
+
+        for window in [1usize, 4, 4096] {
+            let mut pump = chain_pump(&[super::Stage::Ascii85], b"s8W-!!~>");
+            let (pumped, ended) = drain(&mut pump, window);
+            same(
+                pumped.as_slice(),
+                &[0xFF, 0xFF, 0xFF, 0xFF],
+                &format!("through {window} bytes"),
+            );
+            assert!(
+                matches!(ended, super::Pumped::Damaged(_, super::Damage::Corrupt)),
+                "through {window} bytes: {ended:?}"
+            );
+        }
     }
 
     #[cfg_attr(
