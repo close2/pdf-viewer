@@ -2397,3 +2397,133 @@ Two things about the instruments, and only the second is new.
   third use, a character's class here. It is not enough to amend the tie-break on, and it is
   exactly enough to keep step 4's practice in force: head to a verdict, then downward until a row
   pays.
+
+## The field list a reference could not open, and a tie-break whose head is inside an exclusion — the eight-hundred-and-twenty-fourth
+
+The successor rule's eighteenth use, and the third consecutive one on which **every** ranking is
+flat. Over live rows six rows tie at two annotations with three more at one; over every row 28 tie
+at two with 17 at one; and by **issue**, which step 5 was added for, 31 tie at two with 23 at one.
+That is the seventeenth use's shape less its two verdicts and nothing else has changed, so the
+rankings decided nothing here either and the third use's tie-break decided everything — for the
+third time running.
+
+**What is new is that the tie-break's own first preference can now be read off the population.**
+*Requirement level first* has exactly three issues to choose among in the whole unread field — one
+`should` becoming a `shall`, one `should` becoming a qualified `shall`, one `is` becoming a *may
+be* — and **all three are inside `CLAUDE.md`'s clause-13 exclusion**. (A fourth modal edit is
+§7.5.7's `might` for `may`, which is ISO house style over a possibility rather than a level, and
+the tie-break does not reach it.) That is not a coincidence of one round: clause 13 is where this
+collection's requirement-level corrections have collected, and an exclusion is revisited by
+argument rather than by an erratum landing in it. The head was read to a verdict anyway, because it
+is cheap and because leaving it in the population offers it again; the payment came from the walk
+downward, which is step 4's practice for the fourth use running.
+
+Every placement below is the caret's or strikeout's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top —
+which is what `mutool run`'s `getBounds` prints for these annotations as well.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§13.2.4.2, the media clip data content type** | 636 | #257 | **confirms — inside `CLAUDE.md`'s clause-13 exclusion, and it costs minutes** | A `StrikeOut` at `[309.999 277.776 344.843 288.982]`, `Review/Completed` — (552.9)–(564.1) from the top — whose `QuadPoints` corners are at x 312.969–341.873 and y 288.359 and 278.399, which is (553.6)–(563.5) and exactly the `should` that `-bbox` puts at 312.97–341.87 in "The string should conform to the content type specification described in Internet RFC 2045." A `Caret` at `[337.839 277.851 345.906 284.425]` — (557.5)–(564.1), centred at x 341.9 where that word ends — writes *shall*. A recommendation about a media clip's `/CT` becomes a requirement, and the row is `out-of-scope` under the clause-13 exclusion and stays there. |
+| **§13.2.6.1, the media play parameters** | 643 | #662 | **confirms — the same exclusion, and the amendment is the more interesting of the two** | A `StrikeOut` at `[283.96595 382.0789 373.7812 393.752]`, `Review/Accepted` — (448.2)–(459.8) from the top — over the `should be honoured.` that `-bbox` puts at 283.97–371.38 closing "…the parameters in the MH/BE dictionary") should be honoured.", with a `Caret` at `[369.24317 380.59233 378.3192 387.9876]` — (453.9)–(461.3), centred at x 373.8 — writing *shall only be honoured in a 'best effort' sense.* A `should` becomes a `shall` **and** loses most of its force in the same stroke, which is worth noticing for clauses that are in scope: a requirement-level change is not always a strengthening. |
+| **§12.7.6.3, Table 241's `/Flags` row** | 571 | #683 | **cites — it vindicates a reader that had ignored the cell** | A `StrikeOut` at `[274.57063 514.33889 325.11769 526.01199]`, `Review/Accepted` — (315.9)–(327.6) from the top — running from x 274.57 to 325.12 across the semicolon closing the `(Optional;` that `-bbox` puts at 234.89–277.15 and the word inside the `inheritable)` at 279.34–328.82, on the row whose `Flags` is at 72.86–96.51. No caret: the words go and the cell reads *(Optional)*. `action::reset_form` reads `/Flags` off the action dictionary alone and follows no chain, which the published cell called wrong: inheritance is §7.7.3.4's page tree and §12.7.4.1's field tree, and an action dictionary is in neither, so there was no chain to follow. `emit` files it under §12.7.6.4, page 571 opening that heading. |
+| **§12.7.6.3, Table 242's Include/Exclude row** | 571 | #174 | **implements — the erratum is symmetric and the code was not** | A bare `Caret` at `[312.17 338.032 320.123 344.512]`, `Review/Completed`, `check`'s fourth blindness — (497.4)–(503.9) from the top, centred at x 316.1, just past the `array.` that `-bbox` puts at 290.93–315.98 closing "…all fields in the document's interactive form shall be reset except those listed in the Fields array." It writes *(All descendants of the specified fields in the field hierarchy are also exempt from being reset.)*, which is the mirror of the parenthesis the *clear* branch has printed all along at (456.4)–(468.1). See the finding below. |
+
+### The finding: a field list's reference form opened only a leaf
+
+**Table 241 gives `/Fields` two spellings and this tree could follow only one of them all the way
+down.** The cell says each element "shall be either an indirect reference to a field dictionary or
+(PDF 1.3) a text string representing the fully qualified name of a field", and Table 242 adds that
+either reaches further than the field named:
+
+> All descendants of the specified fields in the field hierarchy are reset as well.
+
+The *name* form was a prefix test over §12.7.4.2's qualified names and correct. The *reference* form
+was one line — the referenced object identity, used as a widget identity — under a comment arguing
+from §12.6.4.11's hide action, and **the analogy does not hold**: Table 214's `/T` names an
+*annotation*, so there the identity in the file is the thing to act on, while Table 241 names a
+*field*, and §12.7.4.1 merges a field with its widget only where the field has exactly one. So a
+reference to a **non-terminal** field reset nothing at all and none of its descendants, and a
+reference to a terminal field whose widgets are separate `/Kids` entries reset nothing either. Both
+are documents the standard describes and this reader answered by drawing the un-reset value.
+
+`view::widgets_under` walks the referenced field's subtree to its leaves now, under the same
+`MAX_FIELD_DEPTH` bound and the same cycle guard the name table's walk carries, and a leaf is kept
+whether or not §12.7.4.2 gives it a name — the caller wants annotations to reset rather than fields
+to list, and a `/Kids` entry with no `/T` is exactly the widget of the field that was named. Nothing
+about the name form changes.
+
+**Issue #174 is what makes the exclude branch legible rather than merely tolerable.** The set built
+here is one subtree per named field, used by both branches, so descendants were already spared where
+the flag was set — which the published table did not say and the erratum now does. A reader working
+from the published text alone would have had to argue that the asymmetry was an oversight; the
+erratum says it was.
+
+**No gate could have seen any of this and the corpus cannot rank it.**
+`crates/pdf-model/examples/reset_form_census` counts the population: over the documents on this disk
+the corpus's reset-form actions spell every `/Fields` element as a **name**, and not one uses the
+reference form at all. That is trap 8 exactly, and the answer is the one §12.6.4.2's `/SD` row
+already gives — a fixture that differs from its neighbour in that entry alone, calibrated per trap
+13 in two directions above the commit that makes the change.
+
+### The head was inside an exclusion for the second use running, and this time it is measurable
+
+The sixteenth use put a requirement-level head inside the clause-13 exclusion and recorded it as an
+accident of the tie-break. It is not an accident. Of the unread issues at this round's base, **seven
+land only on `out-of-scope` rows and every one of the seven is clause 13's** — and three of those
+seven are the whole of the population's requirement-level substitutions. The tie-break's first
+preference and the project's largest exclusion select the same ground, so the rule as written walks
+into an exclusion whenever the requirement-level tier is non-empty, which it has been for three
+consecutive uses.
+
+What follows is an amendment rather than a retirement, and `doc/todo/01` carries it as **step 6**:
+*rank the exclusion's issues apart, the way step 3's family guard already counts an informative
+annex's annotations apart.* An erratum whose every landing is inside a closed exclusion cannot
+produce anything but a confirmation — the exclusion is `CLAUDE.md`'s to revisit by argument, and an
+erratum is not an argument — so it belongs in a column of its own rather than at the head of the
+list. It is not dropped: a round with minutes to spare disposes of that column, which is what this
+one did with two of the seven.
+
+### The blindnesses are two lists, and this file has been numbering them as one
+
+**This file is where the blindnesses live, and it carries two numberings under one word.** Read in
+order it says *first*, *second*, *third*, *third*, **eighth**, *fifth*, *sixth* — which is not a
+list that lost count. There are two:
+
+- **the instruments' list**, which counts what `spec-errata check` and `emit` cannot see: an
+  addition over unquoted text, a strike under the four-word floor, a spelling `doc/md/` writes
+  differently, a pure insertion into a sentence this tree quotes correctly, an erratum whose
+  substance is an attached file, and a **table**'s number rather than a clause's — six, the sixth
+  closed by `spec-errata renumbered`;
+- **the rule's own list**, wider, which counts erratum-shaped blindnesses beside the instruments'
+  and had reached eight by the seventh use — where the eighth is step 2's grep being unable to tell
+  a *use* of an issue number from a *mention* of one.
+
+Neither numbering is wrong and neither is edited, here or in the ADRs that cite them (ADR 0232 §2):
+what was missing is the sentence saying they are two. **From here a new blindness is numbered on the
+instruments' list**, because that is the one a command can be written against and the one the last
+four uses have been extending; a blindness that is the rule's rather than an instrument's is
+described and not numbered. This is the same decay the *Owed* list above took, and for the same
+reason — a claim about the instruments has nothing sweeping it.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the ninth consecutive use**: 302 issues
+  carry a strike or a caret under the recipe's own single-issue line parse and **54** are named
+  nowhere — the seventeenth use's 56 less its two verdicts — while the multi-issue parse's 310 and
+  56 reproduce the same way over the same eight numbers that appear only as the second number of a
+  two-issue line. The parse pinned into the recipe at the sixteenth use has now needed no
+  re-derivation three times.
+- **The settled/live ratio is unchanged for a third use, and it is a plain subtraction again**: 37
+  of the 54 touch only a settled row, 10 touch a live one and seven land on no row at all, against
+  39, 10 and seven one use ago — both of the seventeenth use's verdicts were on settled-only issues.
+  Step 4's preference still rests on that ratio. This round is a witness against the *strong* form
+  of it, though, and the distinction is worth keeping: its payment was on a live-adjacent
+  `implemented` row, and what paid was the *reading* rather than the ranking, since #174 sits in the
+  plateau at two like 30 other issues.
+- **The head that pays is not the head that ranks, and three uses have now shown the same shape.**
+  The seventeenth use's head cited and the issue below it paid; the sixteenth's confirmed inside an
+  exclusion and three below it paid; this one's confirmed inside the same exclusion and the pair
+  below it paid. A ranking that names a head is not a ranking that names the payment, and the walk
+  downward is what the rule is actually made of. The step 6 above is the smallest change that stops
+  the walk beginning where it cannot end.
