@@ -50,7 +50,7 @@
               file should stop the run loudly"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -1045,7 +1045,9 @@ fn percentage(matched: usize, words: usize) -> f64 {
 // specification quantity (§9.4.4's glyph positioning arithmetic — the references agree to a
 // ten-thousandth of a point); the vertical *extent* of a word box is each extractor's own
 // ascent/descent convention and is deliberately unjudged; the vertical *centre* is judged
-// relative to the word's own height. Reading order is deliberately not part of any of it
+// relative to the word's own height, and only where §9.8.1's Table 120 states the band both
+// boxes are built from, because where it does not that measure carries the excluded convention
+// rather than the position (`the_band_the_file_states`, ADR 0759). Reading order is not part of it
 // (ADR 0323 Finding 4). Both axis statements are about the text's reading axis and its cross
 // axis rather than the page's x and y, so a word set vertically — §9.7.5.1's writing mode 1,
 // or any text running down a rotated page — is judged on transposed boxes (`PairDelta::of`,
@@ -1068,14 +1070,45 @@ use pdfref::{ExtractionCache, ExtractionError, Extractor};
 /// ```
 const HORIZONTAL_BOUND: f64 = 0.5;
 
-/// The vertical-centre bound, as a fraction of the matched word's own height.
+/// The cross-axis bound, as a fraction of the matched word's own height, on the pairs
+/// [`the_band_the_file_states`] admits.
 ///
-/// From ADR 0323 Finding 3: vertical *edges* are convention against convention (the two
+/// From ADR 0323 Finding 3: cross-axis *edges* are convention against convention (the two
 /// references' box-height ratio is median 1.29 on identical glyphs) and are excluded from the
 /// verdict; centres relative to the word's height agree to p99 0.455, which half the word's
 /// height admits. The height a delta is relative to is the mean of the two boxes' heights,
 /// stated here because the two conventions differ by a third and the choice moves the number.
 /// The same derivation run as [`HORIZONTAL_BOUND`] reprints it.
+///
+/// # What this bound can and cannot be about (ADR 0759)
+///
+/// A word box's cross-axis position is the baseline plus each reader's band about it, so
+/// `centre_ours − centre_theirs` is the **baseline** difference — §9.4.4's arithmetic, the
+/// quantity [`HORIZONTAL_BOUND`] is about — plus half the difference of the two bands. Where
+/// §9.8.1's Table 120 states a pair both readers use, the second term is zero and the measure
+/// is the first. Where the file states no usable pair, this tree answers §9.2.2's em box and
+/// the reference answers something of its own, and the second term is of the same size as the
+/// bound: the measure then reports a convention and cannot report a position.
+///
+/// The arithmetic behind "the same size as the bound" is worth stating, because it makes the
+/// failure a property of the construction rather than a coincidence: the mean of two heights is
+/// exactly the separation at which two bands stop overlapping, so this ratio reaches 1.0 exactly
+/// when they become disjoint — and a band built from Table 120's two entries contains its own
+/// baseline, so a ratio *below* 1.0 is consistent with the two words sharing a baseline however
+/// far apart the centres read. `bug868745.pdf` and `issue1350.pdf` state pairs ADR 0216's
+/// plausibility band refuses (`/Ascent 8 /Descent -2`, `/Ascent 9.464 /Descent -2.73`), so
+/// `pdftotext` obeys the file into a 0.2 pt band on a ten-point word while this tree answers the
+/// em box — and the ratio reads 0.98 for every word on the page, whatever the words' positions,
+/// because the reference's band sits at the em box's own lower edge.
+///
+/// **The number itself did not move, and that is a decision.** The derivation now prints its
+/// spread over the same two populations, where neither side is this tree, and the stated-band
+/// row is much the tighter of the two — so a smaller bound is *available* on this evidence. It
+/// is not taken here: this bound admits the references' own disagreement, ADR 0323's rule is
+/// that a bound moves once its instrument has held across rounds, and a bound retightened in
+/// the same round that changed what it is applied to could not be told apart from one fitted to
+/// the corpus that came out. What would justify moving it is the derivation's split holding
+/// across rounds, quoted from a run rather than from here.
 const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 
 /// The judged documents with a word out of bounds, and the ratchet's whole population.
@@ -1096,8 +1129,11 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 ///
 /// Every document here was read against its own content stream and the clause that governs it.
 /// Seven mechanisms, each named with the bound its words fail in the gate's own words — and
-/// the first of them is off this list since the instrument was taught to see it rather than to
-/// measure it (ADR 0756):
+/// three of them are off this list since the instrument was taught to see what it was measuring
+/// rather than to measure it: §12.7.4.3's hand-off (ADR 0756) and, below it, the two that were
+/// one band question wearing two names (ADR 0759). What each removal has in common is the
+/// shape: a *file*-derived condition telling the instrument which of its measures is about a
+/// quantity the file states, never a delta-derived exemption.
 ///
 /// **~~§12.7.4.3's layout hand-off~~ — off this list since [`placed_by_this_processor`], and it
 /// is the diagnosis that was already written here acted on.** `annotation-tx.pdf`,
@@ -1119,18 +1155,18 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// measure alone cannot see it — which is why the set-aside is derived from the file rather
 /// than from the delta (ADR 0756).
 ///
-/// **Table 120's pair obeyed against this tree's refusal** — `bug868745.pdf` (`/Ascent 8
-/// /Descent -2`), `issue1350.pdf` (`/Ascent 9.464 /Descent -2.73`), `issue4665.pdf`
-/// (`/Ascent 3117 /Descent -2463`), all *past the vertical centre alone* with horizontal
-/// deltas of 0.00 pt. `pdftotext` obeys the stated pair literally — its `Perenimi` box is
-/// 0.2 pt tall, its `chances` box 41 pt — where this tree's plausibility band (ADR 0216)
-/// refuses a pair no face could measure and answers §9.2.2's em box. The centre measure
-/// inherits the extent disagreement when one box collapses or balloons, which is Finding 3's
-/// convention-against-convention arriving in the judged measure.
-///
-/// **No stated pair at all** — `issue6605.pdf` (Type 3, centres 0.58–0.67), *past the vertical
-/// centre alone* at 0.00 pt horizontal: the em box against the reference's own font-derived box,
-/// the same convention difference one notch smaller.
+/// **~~Table 120's pair obeyed against this tree's refusal~~ and ~~no stated pair at all~~ —
+/// both off this list since [`the_band_the_file_states`], and they were one mechanism rather
+/// than two** (ADR 0759). `bug868745.pdf` (`/Ascent 8 /Descent -2`), `issue1350.pdf`
+/// (`/Ascent 9.464 /Descent -2.73`) and `issue4665.pdf` (`/Ascent 3117 /Descent -2463`) state
+/// pairs ADR 0216's plausibility band refuses, and `issue6605.pdf` is a Type 3 font Table 120
+/// excuses from stating one at all; on all four this tree answers §9.2.2's em box while
+/// `pdftotext` builds a band of its own — 0.2 pt tall on `bug868745.pdf`'s `Perenimi`, 41 pt on
+/// `issue4665.pdf`'s `chances`. All four agreed to **0.00 pt on both reading-axis edges**, which
+/// is what says the disagreement was never about where the word is. What the centre measure was
+/// reporting on them is the band, and the band is Finding 3's excluded quantity: the four left
+/// this list when the cross-axis measure stopped being applied where no font on the page states
+/// the pair it is built from.
 ///
 /// **§9.7.5.1's vertical writing mode, now judged in its reading frame** — `vertical.pdf`
 /// (both reading-axis edges 9.21 pt): the embedded font agrees about every position and what
@@ -1162,20 +1198,16 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// space advance at the line's 12 pt — from where **both** references put them (`pdftotext`'s
 /// xMin 165.12, `mutool`'s 165.117), so the two independent readers agree against this tree
 /// and no convention explains it. The line mixes four fonts with `Tc` kerning between them.
-const SELECTION_BELOW_FLOOR: [&str; 14] = [
+const SELECTION_BELOW_FLOOR: [&str; 10] = [
     "TrueType_without_cmap.pdf",
     "bug1771477.pdf",
-    "bug868745.pdf",
     "issue11555.pdf",
-    "issue1350.pdf",
     "issue14497.pdf",
     "issue18099_reduced.pdf",
     "issue1905.pdf",
     "issue20232.pdf",
     "issue2391-2.pdf",
-    "issue4665.pdf",
     "issue6127.pdf",
-    "issue6605.pdf",
     "vertical.pdf",
 ];
 
@@ -1194,6 +1226,23 @@ const SELECTION_BELOW_FLOOR: [&str; 14] = [
 /// counted in the printed refusal table like any other, which is what makes the fall legible as
 /// itself. A fall for any *other* reason is what this ratchet is still for.
 const JUDGED_FLOOR: usize = 503;
+
+/// The smallest cross-axis population [`VERTICAL_CENTRE_BOUND`] may be applied to.
+///
+/// [`JUDGED_FLOOR`]'s argument one measure finer, and it exists because the round that wrote
+/// [`the_band_the_file_states`] calibrated the set-aside in both directions and found only one of
+/// them caught (trap 13, ADR 0759). Disabling the set-aside fails the gate loudly — four
+/// documents come back out of bounds. **Widening it to everything failed nothing**: the cross
+/// axis would then be judged nowhere at all, and because the one document whose words fail that
+/// bound fails the reading-axis bound as well, no name enters or leaves the list above. A measure
+/// can therefore evaporate while every other figure this gate prints stays where it was, which is
+/// the exact failure this instrument was changed to stop reporting.
+///
+/// So the population is ratcheted like the judged set: it may rise, and a fall is written down
+/// here with the argument for it. It is a count of *matched pairs* rather than of documents, so a
+/// document entering or leaving the judged set moves it — that is a fall with a reason, and the
+/// reason is legible in the refusal table on the same run.
+const CROSS_AXIS_FLOOR: usize = 8562;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///
@@ -1632,7 +1681,14 @@ struct PairDelta {
     /// Vertical centre against vertical centre, in points.
     dcy: f64,
     /// [`Self::dcy`] relative to the mean of the two boxes' heights.
+    ///
+    /// Measured on every pair and printed for every pair; judged only where
+    /// [`Self::cross_axis_is_the_files`] says the two bands come from a quantity the file
+    /// states. See [`VERTICAL_CENTRE_BOUND`].
     relative_centre: f64,
+    /// Whether [`Self::relative_centre`] is a measurement of §9.4.4's arithmetic rather than of
+    /// two band conventions — [`the_band_the_file_states`], asked of the page this pair is on.
+    cross_axis_is_the_files: bool,
 }
 
 impl PairDelta {
@@ -1678,12 +1734,18 @@ impl PairDelta {
     /// A box's height is the convention quantity this instrument distrusts, so no box's shape
     /// may decide the frame; where the interpreter and the reference disagree, the pair stays
     /// in the horizontal frame and the disagreement shows up in the measures themselves.
-    fn in_reading_frame(ours: &WordBox, reference: &WordBox) -> Option<Self> {
-        if ours.vertical && ours.is_upright() && reference.is_upright() {
+    fn in_reading_frame(
+        ours: &WordBox,
+        reference: &WordBox,
+        band_is_the_files: bool,
+    ) -> Option<Self> {
+        let mut delta = if ours.vertical && ours.is_upright() && reference.is_upright() {
             Self::of(&ours.transposed(), &reference.transposed())
         } else {
             Self::of(ours, reference)
-        }
+        }?;
+        delta.cross_axis_is_the_files = band_is_the_files;
+        Some(delta)
     }
 
     fn of(left: &WordBox, right: &WordBox) -> Option<Self> {
@@ -1699,15 +1761,20 @@ impl PairDelta {
             dx1: (left.x1 - right.x1).abs(),
             dcy,
             relative_centre: dcy / height,
+            // The derivation's population is reference against reference, where the question
+            // "is this band the file's" has no answer either side can be held to; the gate
+            // overwrites this in `in_reading_frame`.
+            cross_axis_is_the_files: false,
         })
     }
 
-    /// Whether the pair is inside both bounds: horizontal edges tight, vertical centre
-    /// relative to the word's height, vertical extent deliberately unjudged.
+    /// Whether the pair is inside every bound it is in a position to be judged by: reading-axis
+    /// edges tight always, the cross-axis centre where the file states the band both readers
+    /// build their box from, the cross-axis *extent* never (ADR 0323 Finding 3, ADR 0759).
     fn in_bounds(&self) -> bool {
         self.dx0 <= HORIZONTAL_BOUND
             && self.dx1 <= HORIZONTAL_BOUND
-            && self.relative_centre <= VERTICAL_CENTRE_BOUND
+            && (!self.cross_axis_is_the_files || self.relative_centre <= VERTICAL_CENTRE_BOUND)
     }
 }
 
@@ -1723,6 +1790,9 @@ const SELECTION_DETAIL_IS_ASKED_FOR: &str = "PDFVIEWER_SELECTION_DETAIL";
 /// positioning arithmetic, which the references agree about to a hundredth of a point, and
 /// [`VERTICAL_CENTRE_BOUND`] is where a word's box sits on its line, which is where every box
 /// *convention* difference lands (ADR 0323 Finding 3, ADR 0726).
+///
+/// The line also says whether the *worst centre* it prints was judged, because a page no font
+/// of which states Table 120's pair still has one and is not held to it (ADR 0759).
 struct Outside {
     /// Words past the horizontal bound and inside the vertical one.
     horizontal: usize,
@@ -1735,6 +1805,9 @@ struct Outside {
     /// The worst vertical-centre delta over the document's matched words, as a fraction of
     /// the word's height.
     worst_centre: f64,
+    /// Whether this document's cross-axis measure was judged at all —
+    /// [`the_band_the_file_states`].
+    cross_axis_judged: bool,
     /// The out-of-bounds words themselves, printed under [`SELECTION_DETAIL_IS_ASKED_FOR`].
     failing: Vec<(String, PairDelta)>,
 }
@@ -1747,6 +1820,7 @@ impl Outside {
             both: 0,
             worst_dx: 0.0,
             worst_centre: 0.0,
+            cross_axis_judged: pairs.iter().any(|(_, pair)| pair.cross_axis_is_the_files),
             failing: Vec::new(),
         };
         for (word, pair) in pairs {
@@ -1756,7 +1830,8 @@ impl Outside {
                 continue;
             }
             let horizontal = pair.dx0 > HORIZONTAL_BOUND || pair.dx1 > HORIZONTAL_BOUND;
-            let vertical = pair.relative_centre > VERTICAL_CENTRE_BOUND;
+            let vertical =
+                pair.cross_axis_is_the_files && pair.relative_centre > VERTICAL_CENTRE_BOUND;
             match (horizontal, vertical) {
                 (true, true) => outside.both += 1,
                 (true, false) => outside.horizontal += 1,
@@ -1772,8 +1847,16 @@ impl Outside {
     fn describe(&self) -> String {
         format!(
             "{} past the horizontal bound alone, {} past the vertical centre alone, {} past \
-             both, worst centre {:.2} of the word's height",
-            self.horizontal, self.vertical, self.both, self.worst_centre
+             both, worst centre {:.2} of the word's height ({})",
+            self.horizontal,
+            self.vertical,
+            self.both,
+            self.worst_centre,
+            if self.cross_axis_judged {
+                "judged: the file states the band"
+            } else {
+                "not judged: no font on the page states Table 120's pair"
+            },
         )
     }
 }
@@ -1939,6 +2022,140 @@ fn placed_by_this_processor(
     boxes
 }
 
+/// Whether every font this page reaches states the band ISO 32000-2 §9.8.1's Table 120 defines
+/// — which is what decides whether a cross-axis comparison of two word boxes is about the file.
+///
+/// # Why an instrument about placement has to ask this
+///
+/// [`VERTICAL_CENTRE_BOUND`] compares the centres of two bands, and a band is the baseline plus
+/// an ascent above it and a depth below it. Table 120 defines both, and both definitions are
+/// about the baseline:
+///
+/// > The maximum height above the baseline reached by glyphs in this font.
+///
+/// > The maximum depth below the baseline reached by glyphs in this font.
+///
+/// So where the file states a pair, the band is the file's and two readers obeying it place the
+/// same box about the same baseline; the difference of their centres is then the difference of
+/// their **baselines**, which is §9.4.4's arithmetic and is the quantity this instrument judges
+/// on the other axis. Where the file states no usable pair, each reader invents a band — this
+/// tree answers §9.2.2's nominal line, the em box (`pdf_font::vertical_extent`, ADR 0216) — and
+/// the difference of the centres is the difference of two inventions.
+///
+/// A pair whose page fails this question keeps both of its reading-axis edges in the verdict,
+/// because §9.4.4's displacement is stated whatever a descriptor says; it is only the cross-axis
+/// measure that is set aside, and the count is printed (trap 11).
+///
+/// # What the condition is, and why it is the page's rather than the word's
+///
+/// [`pdf_font::measured_extent`] is asked — the tree's own rule rather than a copy of it, which
+/// is what that function is public for — of the descriptor of every font on the page, following
+/// a Type 0 font to its descendant's (Table 119 gives the parent none; ADR 0337). A font that
+/// reaches no descriptor, or whose descriptor states neither entry, states no band: Table 120
+/// requires the pair "except for Type 3 fonts", so a Type 3 page is one the standard itself
+/// excuses from stating it.
+///
+/// The question is asked of the *page* because [`pdf_model::Placed`] carries a span and a quad
+/// and not the font that placed it, so a per-word answer is not available to a test. A page
+/// where one font of several states no pair therefore sets aside the cross axis for all of its
+/// words — deliberately the wider condition, which is the safe direction for a set-aside on the
+/// same argument [`placed_by_this_processor`] makes: it can only take a measurement out of the
+/// verdict, never put agreement into it.
+///
+/// **The population is the page's own resources and its form `XObject`s', and that is one place
+/// narrower than the readback** — §12.5.5's appearance streams carry resources of their own, so a
+/// word drawn by an annotation whose font states no pair is judged on a page whose own fonts all
+/// state one. That is the *narrow* direction rather than the wide one, so it is written down
+/// rather than assumed away; what says it is not costing anything is the gate's own split, where
+/// the stated-band population agrees at p90 0.0000 of a word's height.
+fn the_band_the_file_states(document: &Document, page: &pdf_model::Page) -> bool {
+    /// How far a form `XObject`'s own resources are followed — `font_metric_census`'s depth,
+    /// and the interpreter finds a page's fonts down the same path.
+    const MAX_DEPTH: usize = 8;
+
+    fn descriptor(document: &Document, font: &pdf_syntax::Dictionary) -> Option<Object> {
+        let direct = document.get_key(font, "FontDescriptor");
+        if direct.as_dict().is_some() {
+            return Some(direct);
+        }
+        let descendants = document.get_key(font, "DescendantFonts");
+        let first = descendants.as_array()?.first()?;
+        let descendant = document.resolve(first);
+        let found = document.get_key(descendant.as_dict()?, "FontDescriptor");
+        found.as_dict().is_some().then_some(found)
+    }
+
+    fn states_a_band(document: &Document, font: &pdf_syntax::Dictionary) -> bool {
+        let Some(descriptor) = descriptor(document, font) else {
+            return false;
+        };
+        let Some(descriptor) = descriptor.as_dict() else {
+            return false;
+        };
+        let entry = |key: &str| {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a font metric outside f32's range is not a metric, and this is the \
+                          narrowing `pdf_font::metrics` itself applies before the same call"
+            )]
+            document
+                .get_key(descriptor, key)
+                .as_number()
+                .map(|value| value as f32)
+                .filter(|value: &f32| value.is_finite())
+        };
+        match (entry("Ascent"), entry("Descent")) {
+            (Some(ascent), Some(descent)) => pdf_font::measured_extent(ascent, descent).is_some(),
+            _ => false,
+        }
+    }
+
+    fn walk(
+        document: &Document,
+        resources: &pdf_syntax::Dictionary,
+        depth: usize,
+        seen: &mut BTreeSet<pdf_syntax::ObjectId>,
+    ) -> bool {
+        if depth > MAX_DEPTH {
+            return true;
+        }
+        if let Some(fonts) = document.get_key(resources, "Font").as_dict() {
+            for (_, value) in fonts.iter() {
+                let resolved = document.resolve(value);
+                let Some(font) = resolved.as_dict() else {
+                    continue;
+                };
+                if !states_a_band(document, font) {
+                    return false;
+                }
+            }
+        }
+        let objects = document.get_key(resources, "XObject");
+        let Some(dict) = objects.as_dict() else {
+            return true;
+        };
+        for (_, value) in dict.iter() {
+            if let Some(id) = value.as_reference()
+                && !seen.insert(id)
+            {
+                continue;
+            }
+            let resolved = document.resolve(value);
+            let Object::Stream(stream) = &resolved else {
+                continue;
+            };
+            if let Some(inner) = document.get_key(&stream.dict, "Resources").as_dict()
+                && !walk(document, inner, depth.saturating_add(1), seen)
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    walk(document, &page.resources, 0, &mut BTreeSet::new())
+}
+
 /// Runs one extractor over one page through the cache, folding failure kinds into refusals.
 fn extracted(
     cache: &ExtractionCache,
@@ -2043,6 +2260,7 @@ fn judge_against_poppler(path: &Path, cache: &ExtractionCache, work_dir: &Path) 
     let matched = paired.len();
     let reference_words = reference.words.len();
     let delegated_boxes = placed_by_this_processor(&document, &page, &frame);
+    let band_is_the_files = the_band_the_file_states(&document, &page);
     let mut delegated = 0usize;
     let pairs: Vec<(String, PairDelta)> = paired
         .iter()
@@ -2052,7 +2270,8 @@ fn judge_against_poppler(path: &Path, cache: &ExtractionCache, work_dir: &Path) 
             !set_aside
         })
         .filter_map(|(ours, reference)| {
-            PairDelta::in_reading_frame(ours, reference).map(|delta| (ours.text.clone(), delta))
+            PairDelta::in_reading_frame(ours, reference, band_is_the_files)
+                .map(|delta| (ours.text.clone(), delta))
         })
         .collect();
     // A page whose every unique match was a field's value has nothing left for this instrument
@@ -2080,8 +2299,9 @@ fn judge_against_poppler(path: &Path, cache: &ExtractionCache, work_dir: &Path) 
 ///
 /// The verdict per matched word, from the measured reference-vs-reference spread this binary
 /// re-derives (see [`HORIZONTAL_BOUND`] and [`VERTICAL_CENTRE_BOUND`]): horizontal edges
-/// within 0.5 pt, vertical centres within half the word's height, vertical extent and reading
-/// order deliberately unjudged (ADR 0323 Findings 3 and 4).
+/// within 0.5 pt, vertical centres within half the word's height **where the page states the
+/// band those centres are measured from** ([`the_band_the_file_states`]), vertical extent and
+/// reading order deliberately unjudged (ADR 0323 Findings 3 and 4, ADR 0759).
 #[test]
 #[ignore = "needs the pdf.js submodule and runs pdftotext per document"]
 #[expect(
@@ -2114,7 +2334,12 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     let (mut set_aside, mut documents_with_a_set_aside) = (0usize, 0usize);
     let (mut pairs_total, mut pairs_in_bounds) = (0usize, 0usize);
     let mut horizontal: Vec<f64> = Vec::new();
+    // The cross-axis measure, split by whether the file states the band both boxes are built
+    // from — the two populations answer different questions and a spread over their union is
+    // the sum of a measurement and a convention (ADR 0759).
     let mut relative_centres: Vec<f64> = Vec::new();
+    let mut unjudged_centres: Vec<f64> = Vec::new();
+    let mut documents_without_a_stated_band = 0usize;
     let mut matched_fractions: Vec<f64> = Vec::new();
     // (fraction in bounds, name, matched pairs, this document's out-of-bounds words) per
     // judged document.
@@ -2141,10 +2366,17 @@ fn the_word_boxes_we_place_agree_with_the_references() {
                 let in_bounds = pairs.iter().filter(|(_, pair)| pair.in_bounds()).count();
                 pairs_total += pairs.len();
                 pairs_in_bounds += in_bounds;
+                documents_without_a_stated_band += usize::from(
+                    !pairs.is_empty() && !pairs.iter().any(|(_, p)| p.cross_axis_is_the_files),
+                );
                 for (_, pair) in &pairs {
                     horizontal.push(pair.dx0);
                     horizontal.push(pair.dx1);
-                    relative_centres.push(pair.relative_centre);
+                    if pair.cross_axis_is_the_files {
+                        relative_centres.push(pair.relative_centre);
+                    } else {
+                        unjudged_centres.push(pair.relative_centre);
+                    }
                 }
                 #[expect(
                     clippy::cast_precision_loss,
@@ -2209,7 +2441,14 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     );
     println!("\nspread of our boxes against pdftotext's, over every matched pair:");
     print_spread("horizontal edge delta (pt)  ", &mut horizontal);
-    print_spread("vertical centre / word height", &mut relative_centres);
+    // Two rows rather than one, and the difference between them is ADR 0759's whole argument:
+    // where the file states Table 120's pair the two boxes are the same construction and the
+    // measure is §9.4.4's baseline, and where it does not each reader invented the band.
+    print_spread(
+        "centre/height, band stated    ",
+        &mut relative_centres.clone(),
+    );
+    print_spread("centre/height, band invented  ", &mut unjudged_centres);
     println!(
         "matched-unique fraction per judged document: median {:.2}, p10 {:.2} (Finding 5: \
          segmentation is each extractor's own, so only unique matches are compared)",
@@ -2236,6 +2475,15 @@ fn the_word_boxes_we_place_agree_with_the_references() {
          aside as §12.7.4.3's, which fixes the box and leaves the position to \"any layout \
          rules it employs\""
     );
+    // The same arithmetic for the other set-aside, which takes a *measure* off a word rather
+    // than the word off the verdict — so it moves neither the judged set nor the pair count,
+    // and would otherwise be invisible in both.
+    println!(
+        "  {} matched word(s) over {documents_without_a_stated_band} judged document(s) keep \
+         their reading-axis edges and lose the cross-axis measure: no font on the page states \
+         §9.8.1 Table 120's pair, so each reader invented the band its box is built from",
+        unjudged_centres.len(),
+    );
     #[expect(
         clippy::cast_precision_loss,
         reason = "corpus word counts are far below f64's exact integer limit"
@@ -2243,9 +2491,11 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     let fraction = pairs_in_bounds as f64 / pairs_total.max(1) as f64;
     println!(
         "verdict: {pairs_in_bounds}/{pairs_total} matched words in bounds ({:.2}%), horizontal \
-         edges within {HORIZONTAL_BOUND} pt and vertical centres within {VERTICAL_CENTRE_BOUND} \
-         of the word's height; {} of {judged} documents fully in bounds",
+         edges within {HORIZONTAL_BOUND} pt and — on the {} whose page states Table 120's pair \
+         — vertical centres within {VERTICAL_CENTRE_BOUND} of the word's height; {} of {judged} \
+         documents fully in bounds",
         fraction * 100.0,
+        relative_centres.len(),
         ranked.iter().filter(|(f, ..)| *f >= 1.0).count(),
     );
 
@@ -2260,6 +2510,13 @@ fn the_word_boxes_we_place_agree_with_the_references() {
         judged >= JUDGED_FLOOR,
         "the judged set fell to {judged} from {JUDGED_FLOOR}: {refused} documents are refused \
          above, and a document off the judged set is a document this instrument stopped judging"
+    );
+    assert!(
+        relative_centres.len() >= CROSS_AXIS_FLOOR,
+        "the cross-axis population fell to {} from {CROSS_AXIS_FLOOR}: a matched word whose page \
+         states no Table 120 pair keeps its reading-axis edges and loses its centre, so this \
+         measure can evaporate while every other figure above stays where it was",
+        relative_centres.len(),
     );
     let mut below: Vec<&str> = ranked
         .iter()
@@ -2295,7 +2552,10 @@ const SELECTION_SPREAD_IS_ASKED_FOR: &str = "PDFVIEWER_SELECTION_SPREAD";
 /// height ratios Finding 3 reports.
 enum Spread {
     Refused(Refusal),
-    Measured(Vec<PairDelta>, Vec<f64>),
+    /// The pairs, the height ratios, and whether the page states §9.8.1 Table 120's pair —
+    /// which is the split ADR 0759's set-aside rests on, re-derived here where *neither* side
+    /// is this tree.
+    Measured(Vec<PairDelta>, Vec<f64>, bool),
 }
 
 /// Where [`HORIZONTAL_BOUND`] and [`VERTICAL_CENTRE_BOUND`] come from, re-derived from the
@@ -2342,7 +2602,7 @@ fn the_selection_bounds_against_the_references_own_spread() {
     let work_dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("extract");
 
     let spread_of = |path: &Path| -> Spread {
-        let (_, page) = match our_frame(path) {
+        let (document, page) = match our_frame(path) {
             Ok(opened) => opened,
             Err(reason) => return Spread::Refused(reason),
         };
@@ -2410,6 +2670,7 @@ fn the_selection_bounds_against_the_references_own_spread() {
                 .filter_map(|(poppler, mupdf)| PairDelta::of(poppler, mupdf))
                 .collect(),
             ratios,
+            the_band_the_file_states(&document, &page),
         )
     };
 
@@ -2421,17 +2682,26 @@ fn the_selection_bounds_against_the_references_own_spread() {
     let mut horizontal: Vec<f64> = Vec::new();
     let mut centres: Vec<f64> = Vec::new();
     let mut relative_centres: Vec<f64> = Vec::new();
+    // The same measure over the pages whose fonts state §9.8.1 Table 120's pair and over the
+    // pages whose do not, with neither side this tree — ADR 0759's split, re-derived.
+    let mut stated_band: Vec<f64> = Vec::new();
+    let mut invented_band: Vec<f64> = Vec::new();
     let mut height_ratios: Vec<f64> = Vec::new();
     for spread in spreads {
         match spread {
             Spread::Refused(reason) => *refusals.entry(reason).or_default() += 1,
-            Spread::Measured(pairs, ratios) => {
+            Spread::Measured(pairs, ratios, band_is_the_files) => {
                 judged += 1;
                 for pair in pairs {
                     horizontal.push(pair.dx0);
                     horizontal.push(pair.dx1);
                     centres.push(pair.dcy);
                     relative_centres.push(pair.relative_centre);
+                    if band_is_the_files {
+                        stated_band.push(pair.relative_centre);
+                    } else {
+                        invented_band.push(pair.relative_centre);
+                    }
                 }
                 height_ratios.extend(ratios);
             }
@@ -2462,6 +2732,8 @@ fn the_selection_bounds_against_the_references_own_spread() {
     print_spread("horizontal edge delta (pt)  ", &mut horizontal);
     print_spread("vertical centre delta (pt)  ", &mut centres);
     print_spread("vertical centre / word height", &mut relative_centres);
+    print_spread("  … pages stating Table 120  ", &mut stated_band.clone());
+    print_spread("  … pages stating no pair    ", &mut invented_band.clone());
     print_spread("word-box height ratio        ", &mut height_ratios);
     println!(
         "\nshare of reference pairs outside each bound: horizontal {HORIZONTAL_BOUND} pt \
@@ -2469,6 +2741,15 @@ fn the_selection_bounds_against_the_references_own_spread() {
          word's height rejects {vertical_rejects:.2}% \
          (the vertical *extent* is excluded from any verdict on this table's own evidence: \
          the height ratio row is convention against convention, ADR 0323 Finding 3)"
+    );
+    println!(
+        "the same centre bound over the two split rows: {:.2}% of the {} pairs whose page \
+         states §9.8.1 Table 120's pair, {:.2}% of the {} whose page does not — the split the \
+         verdict's cross-axis set-aside is made on, with neither side this tree (ADR 0759)",
+        rejected(&stated_band, VERTICAL_CENTRE_BOUND),
+        stated_band.len(),
+        rejected(&invented_band, VERTICAL_CENTRE_BOUND),
+        invented_band.len(),
     );
 
     assert!(judged > 0, "the derivation has no population");

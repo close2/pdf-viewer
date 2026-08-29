@@ -331,6 +331,19 @@ were `Close` and `Focus`. **A count you wrote is a population you have not audit
 is not "is the condition right?" but "list everything in this population that satisfies the
 condition and does not satisfy the question". ADR 0603.
 
+**And a ninth, about an exemption's *other* direction: a set-aside that takes a measure rather than
+a document is invisible to every denominator the gate prints.** The word-box gate stopped applying
+its cross-axis bound where no font on the page states §9.8.1 Table 120's pair, and the round
+calibrated that both ways (trap 13). Disabling the set-aside failed loudly. **Widening it to
+everything failed nothing at all**: the judged set, the pair count, the refusal table, the verdict
+and the named list of out-of-bounds documents were all identical, because the set-aside costs a
+*measure* of a word that stays in every count — and the one document whose words failed that bound
+failed the other one as well, so no name moved. A printed count of what was set aside is what
+ADR 0756 added and it is not enough on its own; what closes it is a floor under the population the
+bound is still applied to, ratcheted like the judged set. **Ask of any exemption: if it grew to
+cover everything, which assertion would fail?** If the answer is none, the exemption has no floor
+under it yet. ADR 0759.
+
 ### 13. A sweep for a defect must be run against the defect before it is believed
 
 A round told to look for a class of defect writes a grep, gets a handful of hits, reads them and
