@@ -22,15 +22,16 @@ rather than about the standard (ADR 0455).
 vocabulary** — a `partial` whose own note argues it `implemented`, and an `inapplicable` resting on
 an account of the requirement that is not the clause's — which is the half no sweep reads, because
 a claim that nothing is owed has no missing thing to grep for (ADR 0465).
-**Twenty-two sweeps** — nineteen of them here, one over the corpus (ADR 0405), one
-in `tools/spec-errata`, where the errata are (ADR 0426), and **the twenty-second built in the
+**Twenty-three sweeps** — nineteen of them here, one over the corpus (ADR 0405), one
+in `tools/spec-errata`, where the errata are (ADR 0426), **the twenty-second built in the
 seven-hundred-and-sixty-ninth, the only one whose right-hand side is the workspace's own
-membership** (ADR 0709). **The eighteenth was built in
+membership** (ADR 0709), and **the twenty-third in the eight-hundred-and-thirtieth, whose
+right-hand side is the corpora on disk** (ADR 0758). **The eighteenth was built in
 the six-hundred-and-forty-fifth**, the only one that reads no source at all: a parent row's claim
 against its own children's denials, `--bin overstated`, ADR 0475, **whose mirror was measured and
 declined in the six-hundred-and-fifty-second** — 14 denied term-mentions over 170 parent rows, 3
 contradicted, all three noise, and it would not have printed that round's own §9.8 because a denial
-generalises where an assertion enumerates (ADR 0481) — **seventeen of them are committed
+generalises where an assertion enumerates (ADR 0481) — **eighteen of them are committed
 programs and run every round**, one was run once and declined
 (ADR 0265), a fourteenth built in the four-hundred-and-thirty-seventh, and **the fifteenth built
 in the four-hundred-and-sixtieth** — the first that ignores what a row says and asks instead who
@@ -58,8 +59,8 @@ written: a `'` … `'` is a quotation too (ADR 0375).
 Priority: 01 — the population with no gate, and it has paid on every session that touched it
 Code: `doc/conformance/ledger.toml`, checked by `cargo test -p conformance`
 
-**A sweep round commits one prose sweep as a program before running any of them.** Fifteen of the
-seventeen are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
+**A sweep round commits one prose sweep as a program before running any of them.** All but two
+of them are commands (`conformance --bin entries`, `--bin quotations`, `--bin unread` since the
 four-hundred-and-eighty-ninth, `--bin blockers` since the five-hundred-and-first, `--bin
 capabilities` since the five-hundred-and-tenth, `--bin retired` since the
 five-hundred-and-seventeenth — the fourth sweep, which is the only one whose population cannot be
@@ -345,6 +346,43 @@ depends on nothing but `thiserror`.
   of running it, which the ninth sweep has too. Calibrated per trap 13 against **767's live
   defect** rather than a plant: `Image::is_smoothed`'s doc comment is rung 1 today, and correcting
   it to name three takes it off the rung and moves the agreeing count by one.
+- **One asks which corpus a sentence counted over, and it is the newest**: `cargo run --release
+  -p conformance --bin undenominated`, ten seconds, over `ledger.toml`, the source roots and every
+  Markdown document under `doc/` bar `doc/history/` — the twenty-third sweep and the eighteenth to
+  be a program (ADR 0758). Ten seconds rather than a fraction of one because its **right-hand side
+  is the disk**: it counts the PDFs under `doc/pdf.js/test/pdfs`, under each directory of
+  `doc/corpora/` and under each of `corpus-cache/`, so a claim about "the corpus" is judged against
+  the corpora this tree actually holds rather than against a number in the program. The predicate
+  is one sentence — **a sentence quantifies over a corpus and does not say which corpus** — and
+  both halves are decidable: an absence, a uniqueness or a cardinal governing `corpus`, `document`
+  or `file`, against a sentence that names one of the corpora, one of this project's own words for
+  a population (`crawl`, `curated`, `submodule`, "both populations") or a numeral denominator.
+  **It exists because the same defect was found four times by four rounds, every one of them by
+  accident while doing something else** — a seeding recipe naming one submodule (ADR 0751), the
+  identical recipe one target down, whose re-census then falsified two written sentences (ADR
+  0754), a census whose every witness was of one shape (ADR 0753), and a merge round that found the
+  fourth and could only write it down.
+  Five rungs, closest first: a **fenced invocation** that walks some of this tree's corpora and not
+  the rest, which is the shape two of the four took and is a population of a handful; then an
+  absence or a uniqueness naming no population, in the ledger, then beside the code, then in a
+  document; then a **count** naming none, which needs a re-census rather than a witness to refute;
+  then a numeral denominator no population on disk has, which is a subset count and a population
+  that moved wearing the same clothes. A claim that names a population is counted rather than
+  listed, **with a tally of which name answered it** — because denomination is the one direction in
+  which this sweep goes quiet, and a name that answers by accident shows up there first.
+  **Where it departs from the twenty-second sweep is adjacency, and the calibration decided it**:
+  `parts` may not read across a modifier, because "both *native* hosts" counts a subset of the
+  hosts; here a modifier narrows *what* is counted and leaves the population alone, and
+  `doc/verify.md`'s "the nine **signed** corpus documents" is one of the four findings that
+  adjacency would have missed. What it cannot see: whether a claim is *true*; a denominator stated
+  in the sentence before; an absence written without a quantifier over a noun; a claim counted in
+  pages or glyphs rather than in documents; and **a recipe outside a Markdown fence** — the first
+  of the four findings is a comment in a Python file, and this reads Rust, the ledger and `doc/`.
+  Calibrated per trap 13 **above a commit**: the pre-825 wordings of `doc/verify.md`,
+  `cms.rs` and the ledger were restored into the tree and the sweep run, and all four findings
+  print — §12.8.5's row and `cms.rs`'s comments on the absence rungs, §12.8.3.4.2's "four corpus
+  documents" and `doc/verify.md`'s "nine signed corpus documents" on the count rung — while the
+  corrected wordings beside them do not.
 - **One is not run from here at all**: `cargo run --release -p spec-errata -- check doc/*.pdf`,
   seconds, asking the same spans a *different* question — does one of them quote a sentence Errata
   Collection 3 struck out? That needs none of ADR 0249's syntax, because the erratum supplies the
@@ -3688,9 +3726,18 @@ sentences.
 `CLAUDE.md`'s rule — "a fact that can be counted is not written down; what is written down is the
 command that counts it" — binds the instruction files, and the ledger has always been exempt
 because a row's job is to record a claim. That exemption is where two of this round's findings
-were. §12.8.3.3.2 said "`issue17069.pdf` is the corpus's one witness" and there are three; §12.8.5
-said "no corpus document carries a document timestamp" and that one holds. Neither number had
+were. §12.8.3.3.2 said "`issue17069.pdf` is the corpus's one witness" and there are three in
+`doc/pdf.js`; §12.8.5 said "no corpus document carries a document timestamp" and that one held of
+`doc/pdf.js`. Neither number had
 anything behind it, and the difference between them was invisible until both were re-derived. So:
+
+**Both of those re-derivations were made over `doc/pdf.js` and neither said so, which is the
+twenty-third sweep's whole subject** (ADR 0758). Run over every document this tree holds instead,
+the second is *false* — there are document timestamps, all of them in the crawl — and the first
+moves by two orders of magnitude. So the rule below is necessary and was not sufficient: a
+command without a stated population re-derives the same narrow answer, and this paragraph is left
+standing as the evidence for the sentence that follows it rather than corrected into agreement.
+So:
 
 > **A note stating a count over the corpus names the command that produces it, or the round that
 > writes the count adds one.** Two counters in an existing census is usually the whole cost —
@@ -4854,7 +4901,10 @@ to.
   tree had ever asserted the report those rows *are*. §12.8.3.4.1 turned out to be a sixth of the
   same shape — its note says "which is what a test asserts" and its array named no PAdES test at
   all. Two counted claims went with them: §12.8.3.3.2's "the corpus's one witness" is three
-  documents, and §12.8.5's "no corpus document carries a document timestamp" holds. ~~**The band's
+  documents of `doc/pdf.js`, and §12.8.5's "no corpus document carries a document timestamp"
+  holds **of `doc/pdf.js` and of nothing wider** — the eight-hundred-and-twenty-fifth session
+  found timestamps in the crawl and the eight-hundred-and-thirtieth widened the first of the two
+  the same way (ADRs 0754 and 0758). ~~**The band's
   remaining rows are §12.7.6.2 and the four §12.8.3.4.x that keep their statuses**; the next band
   begins forty-two commits above at §10.4.2.4 and §10.4.2.5.~~ **Taken in the
   six-hundred-and-forty-eighth**, over a base of 843 commits where the band had shrunk to three —

@@ -417,10 +417,18 @@ fn about_one(
             // three.
             //
             // **This comment named `issue17069.pdf` as "the corpus's one witness" and there are
-            // three**, which the six-hundred-and-forty-first session found by giving the sentence
+            // three in `doc/pdf.js`**, which the six-hundred-and-forty-first session found by giving the sentence
             // a command: `issue6127.pdf` and `xfa_filled_imm1344e.pdf` carry the attribute too.
             // `examples/signature_algorithm_census` counts and names them, so the number is not
             // written down here or in §12.8.3.3.2's ledger row again.
+            //
+            // **And "three" was a count of `doc/pdf.js`**, which is what the correction did not
+            // say and what the eight-hundred-and-thirtieth session widened: the same census over
+            // every document this tree holds finds the attribute on hundreds of signature values
+            // in hundreds of documents, nearly all of them in the crawl. Its presence is
+            // therefore ordinary rather than rare, which changes nothing this code does — the
+            // note fires on the attribute and not on a population — and everything about what a
+            // round may conclude from the three names above.
             if cms.has_signed_attribute(pdf_model::cms::ADBE_REVOCATION_INFO_ARCHIVAL) {
                 notes.push(
                     "that signature carries revocation information with it \

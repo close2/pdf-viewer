@@ -426,6 +426,17 @@ share and the two that break it:
   cross-backend test naming its pair. **The rule it comes with: a round that adds a part to this
   tree runs it**, because that is the moment every sentence counting the old population goes wrong
   at once.
+- **One asks *which corpus* a sentence counted over, and it is the newest**: `--bin
+  undenominated`, the twenty-third sweep (ADR 0758). Its right-hand side is neither the standard
+  nor the workspace but the **corpora on disk** — the PDFs under `doc/pdf.js/test/pdfs`, under each
+  directory of `doc/corpora/` and under each of `corpus-cache/` — and its predicate is that a
+  sentence quantifies over a corpus and does not say which. It exists because the same defect was
+  found four times by four rounds, every one of them by accident while doing something else: a
+  claim of absence measured over the corpus this project has always meant, in a tree that now
+  holds two orders of magnitude more documents than that. **The rule it comes with: a round that
+  widens a population runs it**, because a claim of absence is refuted by one witness and a
+  widening is where the witnesses arrive — and a round that writes a count over a corpus names the
+  corpus in the same sentence, which is the whole of what keeps it off the sweep.
 - **Two check a *number* rather than a claim.** One is arithmetic on the ledger: every row that is
   `partial`, `reported` or `unreviewed` while every one of its direct children is settled. The
   other is every `Table NNN`'s `/Key` citation against the entries ISO 32000-2 actually puts in

@@ -65,6 +65,7 @@ pub mod quoted;
 pub mod retired;
 pub mod tables;
 pub mod toml_subset;
+pub mod undenominated;
 pub mod unpriced;
 pub mod unread;
 
