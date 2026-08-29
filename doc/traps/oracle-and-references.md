@@ -446,6 +446,52 @@ measurement of that region. So ask *which pixels* a tight consensus is tight ove
 its doubled spread as a bound: the population the bound is computed on and the population the
 verdict is about need not be the same one. ADR 0494.
 
+### 26. The worst tile is measured on a fixed grid, so the same difference is worth twice as much on one page as on another
+
+Trap 12 is about the bound moving under a verdict. This one is about the *number the bound is
+compared with*, and it moves for a reason that is nothing to do with either renderer.
+
+`raster_compare` lays its 32-pixel tiles from the raster's origin rather than around the
+difference, so a mark that lands inside one tile is measured whole and the same mark straddling a
+boundary is measured in halves. The corpus pays it and the witness is a document that states its
+own control: `pdfbox/PDFBOX-2984-rotations.pdf` draws one line of 50 pt `/Helvetica` six times, and
+the only glyph the substituted face disagrees about — a `registered` sign — occupies device columns
+484 to 519 on page 1 and 526 to 561 on page 5. On page 1 that is 28 of its 36 columns inside the
+tile at `x = 480`; on page 5 it is split 18 and 18 across the tiles at 512 and 544. Ours against
+`ghostscript`, in level-pixels:
+
+```text
+                     over the glyph's own columns   worst tile
+  page 1  (480, 64)            75 004                 64 072   -> 62.57   contradicted
+  page 5  (512, 64)            78 212                 36 170   -> 35.32   agrees
+          (544, 64)                                   28 670
+```
+
+**The same glyph, the same difference to four percent, and the measure a factor of 1.77 apart.**
+And the reading that was in the tree instead is the one to recognise, because it is the natural
+one: `CONTRADICTED_SUBSTITUTED_FONT`'s note explained the split as the references' — *their
+consensus pair happens to sit further apart and the bound derived from it is wider* — which is
+trap 12's shape and would have been a good answer. Measured, the pair on pages 5 and 6 sits
+**closer** (25.33 against 28.40) and the bound is therefore **narrower** (50.66 against 56.81). The
+bound went the other way and our own number carried all of it.
+
+Three things follow for a round reading a worst-tile verdict:
+
+- **A worst tile is comparable between two renderings of one page and not between two pages.** Two
+  pages of the same document with the same defect are not ranked by it.
+- **`worst_tile_at` is the first thing to print**, because it turns a statistic into a place: on all
+  four contradicted pages of that document, ours against every reference *and* every pair of
+  references names the same tile, which is what said the whole verdict was one glyph before
+  anything had been ablated.
+- **A page that agrees is not thereby a page that matches.** Pages 5 and 6 carry the identical face
+  deficit and the gate is silent about them, so a group whose membership is read off the verdict
+  will be missing them — which is why that note's own last line says its membership is a
+  measurement and never a verdict.
+
+`raster_compare::DEFAULT_TILE`'s doc comment carries the same paragraph beside the constant, and
+`the_same_difference_reads_half_as_much_when_it_straddles_the_tile_grid` pins the halving in
+arithmetic. ADR 0755.
+
 ## Things worth knowing
 
 - **The oracle's artefacts are the fastest diagnostic in the tree.** Every non-agreeing page leaves
