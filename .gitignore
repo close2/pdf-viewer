@@ -13,6 +13,11 @@ github-token.txt
 /fuzz/artifacts
 /fuzz/corpus
 
+# What CPython writes beside a module it imports. `fuzz/seed_der.py` is imported by the two
+# seeders that share its X.690 walk, so running either of them from the repository root leaves
+# a directory of bytecode here that is neither ours nor reproducible.
+__pycache__/
+
 # Comparison-harness output: renders, diffs and heatmaps are regenerated on demand.
 /target/pdfref
 
