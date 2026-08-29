@@ -2775,7 +2775,7 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// pair. It is recorded here so that the next round to open this row is not looking for a figure
 /// the printed line no longer distinguishes.
 ///
-/// # Four more from a second corpus, and the cap-height constant predicted them
+/// # Four more from a second corpus, and the cap-height constant predicted the line
 ///
 /// `pdfbox/PDFBOX-2984-rotations.pdf` pages 1 to 4 are the first pages this group has taken from
 /// outside the pdf.js corpus (ADR 0541). The document is six pages of one line of 50 pt
@@ -2797,6 +2797,11 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// page's own scale runs 8.2% under, which is `issue9243.pdf`'s pure case again and for the same
 /// reason: at 50 pt this page is nearly all capitals.
 ///
+/// **The 8.2% is not evenly spread, and where it sits is the section after next.** Ours is 4515.78
+/// px² of ink on page 1 against `poppler`'s 4917.91; **175.5 of the 402.1 px² missing is the one
+/// `registered` sign**, which is 44% of the deficit from one glyph in fifteen, and the other 217.7
+/// is the cap height over the rest of the line. That second half fails no bound at all.
+///
 /// **And the advances are not what differs**, which is worth stating because the four pages'
 /// *centroid* moves 5.5 device pixels and reads like a shifted line. The ink's bounding box at
 /// the page's own scale is **420 × 86 at (100, 64)** in ours and **420 × 87 at (101, 63)** in
@@ -2804,12 +2809,112 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// what moves the centroid is where the missing weight sits along the line rather than where the
 /// glyphs are.
 ///
-/// **Only four of the six pages are here, and the other two are the bound rather than the face.**
-/// Pages 5 and 6 carry the same deficit — 1 150 087 and 1 128 745 against `poppler`'s 1 256 804
-/// and 1 234 906, the same 8.5% — and the gate calls them `agrees`, because their consensus pair
-/// happens to sit further apart and the bound derived from it is wider. That is trap 12 read from
-/// the other end, and it is the reason this group's membership is a measurement and never a
-/// verdict.
+/// **Only four of the six pages are here, and the other two carry the same deficit.** Pages 5 and
+/// 6 measure 1 150 087 and 1 128 745 against `poppler`'s 1 256 804 and 1 234 906, the same 8.5%,
+/// and the gate calls them `agrees`. ~~because their consensus pair happens to sit further apart
+/// and the bound derived from it is wider~~ — that clause was measured in the
+/// eight-hundred-and-twenty-sixth session and is false in both halves; the section below has what
+/// is true instead. What survives it is the reason it was written: **this group's membership is a
+/// measurement and never a verdict.**
+///
+/// # The cap height is not the bound these four fail, and one glyph is
+///
+/// Everything above is ink and cap rows, and none of it is in the units the verdict is made of —
+/// ADR 0497's sixth criterion, which ADR 0688 sharpens into *a mechanism is only priced when it is
+/// priced in the measure the row is ranked on*. These four pages fail on the **worst tile and
+/// nothing else**: 62.57 of 56.81 on pages 1 and 2, 62.01 of 56.57 on pages 3 and 4, with the mean
+/// at 0.63 of 5.00, the differing fraction at 0.57% of 5.00% and the structural similarity at
+/// 0.9905 of 0.9000. A cap height spread along a line of fifteen glyphs is not a *localised*
+/// quantity, and the worst tile is the only localised measure the gate has.
+///
+/// **The worst tile is one glyph, and `raster_compare` says which by saying where.** On all four
+/// pages, ours against every reference *and* between every pair of references, it is the same
+/// 32-pixel tile: `(480, 64)`. What is there is the line's last glyph — the `registered` sign,
+/// code `AE` under `/WinAnsiEncoding`, the shown string being
+/// `<41706163686520504446426F7820AE>`. Ours against `ghostscript` on page 1, by tile, summed in
+/// level-pixels and then over the tile's own 1024 pixels:
+///
+/// ```text
+///   (448, 64)      5 514       5.38
+///   (480, 64)     64 072      62.57      <- the registered sign
+///   (512, 64)      8 740       8.53
+/// ```
+///
+/// The page's whole difference is 317 158 level-pixels and 64 072 of it is in that one tile, whose
+/// 62.57 is therefore the `worst tile 62.57` the gate's own line prints for this page.
+///
+/// **And the glyph is each font program's own area, which is a closed form rather than an
+/// agreement.** The net outline area of `registered` read out of the two files themselves, with no
+/// renderer in it: `LiberationSans-Regular.ttf`, which `pdf_font::standard` answers `/Helvetica`
+/// with, states **664 570.5 units² over a 2048 em** — 0.158 445 em²; `NimbusSans-Regular.otf`,
+/// which the three C references resolve through this machine's fontconfig, states **228 762.3 over
+/// a 1000 em** — 0.228 762 em². At 50 pt those are 396.11 px² and 571.91 px², against the ink each
+/// renderer paints over the glyph's own box (`-alpha off -channel R`, at the page's own scale and
+/// at 576 dpi):
+///
+/// | | its own program says | 72 dpi | 576 dpi |
+/// |---|---|---|---|
+/// | ours, `LiberationSans` | **396.11** | 393.13 | **395.73** |
+/// | `poppler`, `NimbusSans` | **571.91** | 568.60 | **572.08** |
+/// | `mupdf`, `NimbusSans` | **571.91** | 569.83 | **572.06** |
+/// | `ghostscript`, `NimbusSans` | **571.91** | 574.71 | — |
+///
+/// **Every renderer paints the area its own font program states, to a tenth of a percent at eight
+/// times the resolution** — `issue15716.pdf`'s ZapfDingbats result reproduced on a second face and
+/// a single glyph. The advance is not what differs and that is the half the standard does state:
+/// Adobe's published Helvetica width for `registered` is **737**, `standard_metrics.rs` answers it,
+/// and both faces' own advances are that width to a thousandth of an em (1509/2048 = 0.7368 against
+/// 737/1000 = 0.7370). What the two programs disagree about is the drawing, which is §9.5 NOTE 5's
+/// "some details of font naming, font substitution, and glyph selection are
+/// implementation-dependent" with a number under it. The `registered` sign is 30.7% of ink short
+/// where the cap height is 5.7%, so the constant above predicts the *line* and does not predict
+/// this glyph.
+///
+/// **The mechanism owns the bound, by taking the glyph out of the document.** A §7.5.6 incremental
+/// update rewriting each content stream's `20AE` as `2020` — the registered sign replaced by a
+/// space, nothing else touched — and all four renderers re-run at 72 dpi with the invocations
+/// `pdfref::Reference::build_command` states. The bound is twice the widest worst tile inside the
+/// consensus or the text class's floor of 40.00, whichever is larger:
+///
+/// ```text
+///                  ours at worst   widest inside the consensus   the bound
+///   page 1  ships      62.57                 28.40                 56.81   contradicted
+///           ablated    38.27                 22.66                 45.32   inside every bound
+///   page 3  ships      62.01                 28.28                 56.57   contradicted
+///           ablated    39.93                 17.11                 40.00   inside every bound
+/// ```
+///
+/// Pages 2 and 4 are their neighbours to the hundredth. Note that the ablation *tightens* the bound
+/// on pages 3 and 4, because the references agree more closely once the glyph is gone and the floor
+/// takes over — and the page is inside it anyway, by 0.07 of a level, stated at the precision it was
+/// measured rather than rounded into comfort.
+///
+/// # Why pages 5 and 6 agree is the tile grid, and this note said it was the bound
+///
+/// The sentence struck through above blamed the references: *their consensus pair happens to sit
+/// further apart and the bound derived from it is wider.* Measured with the same invocations, the
+/// widest pair inside the consensus on pages 5 and 6 is **25.33** against page 1's **28.40**, so
+/// they sit **closer** and their bound is **narrower** — 50.66 against 56.81. Both halves of the
+/// sentence are wrong. What differs is our own number: **35.32 against 62.57**, on a page carrying
+/// the same face and the same glyph.
+///
+/// **All of that is where the glyph falls on a grid fixed to the raster's origin.** The registered
+/// sign occupies device columns 484 to 519 on page 1 and 526 to 561 on page 5, so on page 1 it is
+/// 28 of its 36 columns inside the tile at `x = 480`, and on page 5 it is split 18 and 18 across
+/// the tiles at 512 and 544. Ours against `ghostscript`, in level-pixels:
+///
+/// ```text
+///                        over the glyph's own columns   worst tile
+///   page 1  (480, 64)              75 004                 64 072   -> 62.57
+///   page 5  (512, 64)              78 212                 36 170   -> 35.32
+///           (544, 64)                                     28 670
+/// ```
+///
+/// **The same glyph, the same difference to four percent, and the measure a factor of 1.77 apart**
+/// — one page contradicted and one agreeing on where a 32-pixel grid happened to fall. That is a
+/// property of the instrument rather than of either page; it is
+/// `doc/traps/oracle-and-references.md` trap 26, `raster_compare::DEFAULT_TILE`'s own doc comment
+/// carries it beside the constant, and a unit test pins the halving. ADR 0755.
 ///
 /// # Four of these verdicts rest on the pair that shares a glyph rasteriser
 ///

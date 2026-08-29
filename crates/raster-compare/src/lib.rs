@@ -42,6 +42,24 @@ use pdf_render::{Raster, RasterFormat};
 /// 32 is small enough that a single missing glyph dominates its tile, and large
 /// enough that antialiasing differences along an edge are averaged within it rather
 /// than each producing their own maximum.
+///
+/// # The grid is fixed, so *where* a mark falls decides what the measure reads
+///
+/// The tiles are laid from the raster's origin rather than around the difference, so a
+/// mark that lands inside one tile is measured whole and the same mark straddling a
+/// boundary is measured in halves. The bound is a factor of two wide and the corpus pays
+/// it: `pdfbox/PDFBOX-2984-rotations.pdf` states one line six times, and the one glyph
+/// that differs — a substituted `registered` sign — occupies device columns 484 to 519 on
+/// page 1, so 28 of its 36 columns sit in the tile at `x = 480` and this measure reads
+/// **62.57**; on page 5 the same glyph occupies 526 to 561 and is split 18 and 18 across
+/// the tiles at 512 and 544, and the measure reads **35.32**. The total difference over
+/// the glyph's own columns is 75 004 level-pixels against 78 212 — the same picture to
+/// four percent — and page 1 is contradicted where page 5 agrees.
+///
+/// Nothing here is a defect of the measure: a localised difference is what it is for, and
+/// a sliding maximum would be a different instrument with its own population. What it
+/// means is that **a worst tile is not comparable between two pages**, only between two
+/// renderings of one. `doc/traps/oracle-and-references.md` trap 26 and ADR 0755.
 pub const DEFAULT_TILE: u32 = 32;
 
 /// The result of comparing two rasters.
@@ -329,6 +347,59 @@ mod tests {
             result.worst_tile_error
         );
         assert_eq!(result.worst_tile_at, (32, 64));
+    }
+
+    /// The other half of the property above, and the one a reader of a verdict needs: the
+    /// grid is fixed to the raster's origin, so the *same* difference reads at half the
+    /// level when it straddles a boundary instead of landing inside a tile.
+    ///
+    /// Both rasters here carry one identical 32 x 32 black block, placed at `x = 32`
+    /// (aligned) and at `x = 48` (split 16 and 16). The mean is the same number in both,
+    /// because the same pixels differ by the same amount; the worst tile halves. See
+    /// [`DEFAULT_TILE`] for the corpus page this cost a verdict on.
+    #[test]
+    fn the_same_difference_reads_half_as_much_when_it_straddles_the_tile_grid() {
+        let blacken = |left: usize| {
+            let white = solid(256, 256, [255, 255, 255, 255]);
+            let mut marked = white.clone();
+            for y in 64_usize..96 {
+                for x in left..left + 32 {
+                    let index = (y * 256 + x) * 4;
+                    marked.data[index..index + 3].fill(0);
+                }
+            }
+            compare_with_tile(&white, &marked, 32).expect("same size")
+        };
+
+        let aligned = blacken(32);
+        let straddling = blacken(48);
+
+        // The same pixels differ by the same amount, so the whole-image measures agree.
+        let close = |left: f64, right: f64| (left - right).abs() < 1e-9;
+        assert!(
+            close(aligned.mean_error, straddling.mean_error),
+            "means were {} and {}",
+            aligned.mean_error,
+            straddling.mean_error
+        );
+        assert!(close(
+            aligned.differing_fraction,
+            straddling.differing_fraction
+        ));
+
+        // Three channels of 255 over a full tile, against half a tile.
+        assert!(
+            close(aligned.worst_tile_error, 255.0 * 3.0 / 4.0),
+            "aligned worst tile was {}",
+            aligned.worst_tile_error
+        );
+        assert!(
+            close(straddling.worst_tile_error, aligned.worst_tile_error / 2.0),
+            "straddling worst tile was {}",
+            straddling.worst_tile_error
+        );
+        assert_eq!(aligned.worst_tile_at, (32, 64));
+        assert_eq!(straddling.worst_tile_at, (32, 64));
     }
 
     #[test]
