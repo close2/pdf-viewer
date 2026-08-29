@@ -472,7 +472,7 @@ cd fuzz && cargo +nightly fuzz run sfnt          -- -runs=50000   # §9.6.3's tw
 # what a person on a desktop still has to do is run one and listen.
 cd fuzz && cargo +nightly fuzz run fragment      -- -runs=50000   # Annex O's fragment identifier,
   # and the only untrusted input here that no document carries: it arrives with the request
-cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=1024
+cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=4000000 -rss_limit_mb=1024
   # the confined viewer's four decoders (ADR 0223). The one target whose input is not a document
   # but a *process*: `pdf-view-worker` runs hostile files behind seccomp and writes its answers to
   # a host that is not confined. **Seed its corpus first**, with `fuzz/seed_confined_wire.py` —
@@ -495,6 +495,16 @@ cd fuzz && cargo +nightly fuzz run confined_wire -- -runs=1000000 -rss_limit_mb=
   # `query_kind` and refuses to run against a discriminant it has no entry for, naming it — so the
   # answer to "is it complete" is the exit status of a run rather than a line here. The payload
   # *shapes* stay hand-written, which is what makes it a second implementation. ADR 0747
+  # **The length was a million until the eight-hundred-and-twenty-first, and it is the only one in
+  # this file that round changed.** Not because the target was "still climbing" — measured out to
+  # eight million it is still climbing there too, and *still climbing* is a property of a
+  # logarithmic curve rather than a reason. Because **this target buys more coverage per second
+  # than any other here**: at a million runs it adds coverage in tens of seconds on a quiet
+  # machine where `display_list` adds a fraction of that in ten minutes, so its budget was small
+  # relative to what its executions cost. Four million is where the return per doubling halves,
+  # and it is under three minutes. ADR 0751 has the curve
+
+
 cd fuzz && cargo +nightly fuzz run display_list  -- -max_total_time=600 -rss_limit_mb=4096
   # ADR 0607's *other* payload, and the second target whose input is a process rather than a
   # document: a window on the confinement receives display lists, so the unconfined host parses a
@@ -528,14 +538,38 @@ cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's
   # every signature shape a certificate's curve admits, including BSI TR-03111's plain `r ‖ s`. The property that matters is the last one — the target
   # verifies against a digest *it* chose, so `Ok(true)` would be a defect in the comparison rather
   # than a lucky input.
-  # **Seed its corpus** with the 22 certificates the corpus's signatures carry:
-  #   python3 fuzz/seed_x509.py fuzz/corpus/x509 doc/pdf.js/test/pdfs/*.pdf
-  # plus any certificate at all — the vectors are an RSA, a P-256 and (since the
-  # four-hundred-and-seventy-ninth session) a DSA one from `openssl req -new -x509`, and the DSA
-  # one is what reaches `dsa::verify` at all. **A P-384, a P-521, a brainpoolP256r1 and an Ed25519
-  # certificate are what reach the arms added in the six-hundred-and-eighty-ninth**;
-  # `crates/pdf-model/src/{ecdsa,eddsa}.rs`'s `fixtures` modules hold all four in hexadecimal and
-  # the module documentation has the `openssl` invocations that made them. Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
+  # **Seed its corpus** from every certificate this tree already holds, which since the
+  # eight-hundred-and-twenty-first is what `fuzz/seed_x509.py` collects, by three routes at once:
+  #   find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
+  #     | python3 fuzz/seed_x509.py fuzz/corpus/x509 crates/pdf-model/src/*.rs -
+  # The `-` is the list on standard input rather than `xargs`, because `xargs` runs the script once
+  # per batch and each run counts only its own — a corpus this size gives thirty summaries and no
+  # total. `-L` because a worktree's corpora are symbolic links to the primary checkout's.
+  # **Point it at the whole disk rather than at `doc/pdf.js` alone**, which is what this line used
+  # to say and is the whole reason this was the thinnest-seeded target in the tree. The population
+  # it is entitled to is what `grep -alr /ByteRange corpus-cache doc/corpora doc/pdf.js/test/pdfs
+  # | wc -l` prints, and naming one submodule asked for a fraction of it — a negative claim about a
+  # corpus carries its population inside it whether or not it says so, which is `doc/habits.md`'s
+  # rule under *Measuring* and was as true of a seeding recipe as of a ledger row (ADR 0751). The
+  # script's summary line says how many certificates arrived by each route and `tools/fuzz.sh
+  # --list` how many the corpus holds; no count is written here, for the reason ADR 0747 gives
+  # about the seeder next door.
+  # The three routes, because a certificate reaches a PDF in three unrelated ways: §12.8.3.3.1's
+  # CMS object, walked structurally, which is the second implementation ADR 0229 wanted;
+  # §12.8.4.3's `/DSS` `/Certs` and Table 255's `/Cert`, which a document states as objects of its
+  # own and which are found by RFC 5280 §4.1's opening bytes in the file and in its inflated
+  # streams; and the hexadecimal in `crates/pdf-model/src/{x509,dsa,pss,ecdsa,eddsa}.rs`'s
+  # `fixtures` modules. **That third route is what makes a clone's corpus complete**: the DSA
+  # certificate is the only input that reaches `dsa::verify`, and the P-384, P-521,
+  # brainpoolP256r1 and Ed25519 ones are the only inputs that reach the arms added in the
+  # six-hundred-and-eighty-ninth session — until this route existed, this line asked a round to
+  # re-make them with `openssl req -new -x509` by hand. The module documentation still has those
+  # invocations, and any certificate at all is a legal input.
+  # **RFC 5280 §5.1's `CertificateList` is the near miss to know about**: a revocation list has
+  # this same three-member shape, satisfies §4.1.1.2's rule that the two algorithm identifiers
+  # agree, and sits in `/CRLs` immediately beside `/Certs` — so the second route reads as far as
+  # `Validity`, where a certificate states two `Time`s and a revocation list one.
+  # Clean at 1 000 000 in the three-hundred-and-ninety-second (ADR 0229)
 ```
 
 **Two measurements that are not gates, and each says why in its own header.**
