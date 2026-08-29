@@ -1923,9 +1923,16 @@ impl ViewState {
     ///
     /// - no `/Fields` at all: "all fields in the document's interactive form are reset";
     /// - `/Fields` with the flag clear: those fields, "[a]ll descendants of the specified fields
-    ///   in the field hierarchy" included — which §12.7.4.2's naming makes a prefix test, since
-    ///   a descendant's fully qualified name is its ancestor's with `.` and more appended;
-    /// - `/Fields` with the flag set: everything *except* those.
+    ///   in the field hierarchy" included — which §12.7.4.2's naming makes a prefix test for the
+    ///   table's name form, since a descendant's fully qualified name is its ancestor's with `.`
+    ///   and more appended, and which [`widgets_under`] makes a walk down `/Kids` for its
+    ///   reference form;
+    /// - `/Fields` with the flag set: everything *except* those, descendants included. **The
+    ///   published table says only "those listed in the Fields array"**, and Errata Collection 3's
+    ///   Issue #174 adds the parenthesis the clear branch already had — *(All descendants of the
+    ///   specified fields in the field hierarchy are also exempt from being reset.)*, in italics
+    ///   because an erratum's added text is in no clause of `doc/md/` — so the two
+    ///   branches are one subtree question asked twice, which is what the set built below is.
     fn reset_form(&mut self, document: &Document, action: &ResetForm) {
         let table = widgets_by_field_name(document);
         if action.fields.is_empty() {
@@ -1937,7 +1944,7 @@ impl ViewState {
             .fields
             .iter()
             .flat_map(|target| match target {
-                ResetTarget::Field(id) => vec![*id],
+                ResetTarget::Field(id) => widgets_under(document, *id),
                 ResetTarget::Name(name) => table
                     .iter()
                     .filter(|(candidate, _)| {
@@ -2132,6 +2139,65 @@ fn walk(
                 out.entry(name).or_default().push(id);
             }
         }
+    }
+}
+
+/// Every widget in one field's subtree, which is what Table 241's *reference* form names.
+///
+/// ISO 32000-2 §12.7.6.3's Table 241 gives a `/Fields` element two spellings — "an indirect
+/// reference to a field dictionary or (PDF 1.3) a text string representing the fully qualified
+/// name of a field" — and Table 242 makes either of them reach further than the field itself:
+///
+/// > All descendants of the specified fields in the field hierarchy are reset as well.
+///
+/// **A field dictionary is not in general a widget annotation**, which is the whole reason this
+/// exists. §12.7.4.1 merges the two into one dictionary only where a field has a single widget,
+/// so a reference to a field with `/Kids` names an object no page draws — and a reader that took
+/// the reference for a widget identity reset *nothing* for such a field and none of the
+/// descendants of a non-terminal one. That is the shape §12.6.4.11's hide action does not have:
+/// Table 214's `/T` names an annotation, and there the object identity in the file is the thing
+/// to be hidden.
+///
+/// A leaf is kept whether or not §12.7.4.2 gives it a name, because the caller wants the
+/// annotations to reset rather than the fields to list, and a `/Kids` entry with no `/T` of its
+/// own is exactly the widget of the field that was named.
+///
+/// Bounded by [`MAX_FIELD_DEPTH`] and guarded against a cycle for [`walk`]'s reason: `/Kids` is
+/// the document's to write and §12.7.4.1 states no acyclicity rule.
+fn widgets_under(document: &Document, field: ObjectId) -> Vec<ObjectId> {
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    descend(document, field, &mut out, &mut seen, 0);
+    out
+}
+
+/// One node of [`widgets_under`]'s walk.
+fn descend(
+    document: &Document,
+    node: ObjectId,
+    out: &mut Vec<ObjectId>,
+    seen: &mut BTreeSet<ObjectId>,
+    depth: usize,
+) {
+    if depth > MAX_FIELD_DEPTH || !seen.insert(node) {
+        return;
+    }
+    let object = document.get(node);
+    let kids = object
+        .as_dict()
+        .map_or(Object::Null, |dict| document.get_key(dict, "Kids"));
+    match kids.as_array() {
+        Some(kids) if !kids.is_empty() => {
+            // Collected before the recursion: `kids` borrows the object this walk is about, and
+            // the identities are all the descent needs from it.
+            let children: Vec<ObjectId> = kids.iter().filter_map(Object::as_reference).collect();
+            for kid in children {
+                descend(document, kid, out, seen, depth.saturating_add(1));
+            }
+        }
+        // A leaf: the field dictionary and its widget annotation merged into one, or a kid of
+        // the referenced field that is simply a widget.
+        _ => out.push(node),
     }
 }
 
@@ -3573,6 +3639,76 @@ mod tests {
             all(6),
             (true, false),
             "a field named by reference rather than by name"
+        );
+    }
+
+    /// Table 241's reference form reaches the referenced field's descendants, in both branches.
+    ///
+    /// The fixture is the one shape a reference and a name answer differently: object 7 is a
+    /// **non-terminal** field, so it is not a widget and no page draws it, and object 10 is a
+    /// terminal field whose single widget is a separate `/Kids` entry rather than the merged
+    /// dictionary §12.7.4.1 permits. Under Table 242 — "[a]ll descendants of the specified fields
+    /// in the field hierarchy are reset as well" — naming either by reference reaches the widget
+    /// below it; taking the reference for a widget identity reaches nothing at all.
+    ///
+    /// The exclude branch is asserted beside it because Errata Collection 3's Issue #174 is what
+    /// says the parenthesis binds there too: *(All descendants of the specified fields in the
+    /// field hierarchy are also exempt from being reset.)*
+    #[test]
+    fn a_reset_form_action_named_by_reference_reaches_the_fields_descendants() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [7 0 R 10 0 R] >> >>",
+            "<< /Type /Pages /Count 0 /Kids [] >>",
+            "<< /S /ResetForm /Fields [7 0 R] >>",
+            "<< /S /ResetForm /Fields [7 0 R] /Flags 1 >>",
+            "<< /S /ResetForm /Fields [10 0 R] >>",
+            "<< /S /ResetForm >>",
+            "<< /T (PersonalData) /Kids [8 0 R 9 0 R] >>",
+            "<< /T (ZipCode) /Parent 7 0 R /FT /Tx /Subtype /Widget >>",
+            "<< /T (City) /Parent 7 0 R /FT /Tx /Subtype /Widget >>",
+            "<< /T (Signature) /FT /Sig /Kids [11 0 R] >>",
+            "<< /Parent 10 0 R /Subtype /Widget >>",
+        ]);
+
+        let all = |action: u32| {
+            let mut state = ViewState::of(&doc);
+            state.perform_all(&doc, &read(&doc, &Object::Reference(id(action))));
+            (
+                state.is_reset(id(8)),
+                state.is_reset(id(9)),
+                state.is_reset(id(11)),
+            )
+        };
+
+        assert_eq!(
+            all(3),
+            (true, true, false),
+            "a reference to a non-terminal field resets the widgets under it"
+        );
+        assert_eq!(
+            all(4),
+            (false, false, true),
+            "and the Include/Exclude flag spares those same descendants"
+        );
+        assert_eq!(
+            all(5),
+            (false, false, true),
+            "a terminal field's widget is a /Kids entry, and the reference reaches it"
+        );
+        assert_eq!(
+            all(6),
+            (true, true, true),
+            "no /Fields is still every widget the field tree names"
+        );
+
+        // The set this holds is of *widget annotations*, which is the whole reason the walk
+        // stops at a leaf: the non-terminal field itself is drawn by nothing, and putting it in
+        // would make `is_reset` answer about an object no page ever asks about.
+        let mut state = ViewState::of(&doc);
+        state.perform_all(&doc, &read(&doc, &Object::Reference(id(3))));
+        assert!(
+            !state.is_reset(id(7)),
+            "the non-terminal field is not itself a widget"
         );
     }
 }

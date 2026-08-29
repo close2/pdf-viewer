@@ -987,8 +987,13 @@ fn reset_form(document: &Document, dict: &Dictionary) -> ResetForm {
         Object::Array(items) => items
             .iter()
             .filter_map(|item| match item {
-                // A reference is the field itself, so it is *not* resolved: what identifies a
-                // field here is its object identity, as it is for §12.6.4.11's annotations.
+                // A reference is the field itself, so it is *not* resolved here: what the array
+                // states is an identity, and turning it into a set of widgets is the performing
+                // half's job (`crate::view::widgets_under`). **The analogy to §12.6.4.11's hide
+                // action stops at the syntax**, and this comment claimed it did not: Table 214's
+                // `/T` names an *annotation*, so there the identity in the file is the thing to
+                // act on, while Table 241 names a *field*, which §12.7.4.1 merges with a widget
+                // only when it has exactly one.
                 Object::Reference(id) => Some(ResetTarget::Field(*id)),
                 other => match document.resolve(other) {
                     Object::String(bytes) => {

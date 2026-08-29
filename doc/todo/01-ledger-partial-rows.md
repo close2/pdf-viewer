@@ -4184,6 +4184,13 @@ sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the r
 #    is where twelve uses of decay have taken them — rank the same annotations by ISSUE instead
 #    and take that head. It is the unit step 3 reads in anyway, and it still discriminates when
 #    the row unit no longer does. Say which unit the head came from.
+# 6. count the issues whose every landing is on a row `CLAUDE.md`'s closed exclusion list covers
+#    APART, the way step 3 counts an informative annex's annotations apart, and rank the rest.
+#    An erratum inside an exclusion can produce nothing but a confirmation — the exclusion is
+#    revisited by argument and an erratum is not one — and the tie-break's *first* preference
+#    selects exactly that ground, measured. So a list that ranks them together sends its head
+#    somewhere it cannot pay. They are not dropped: a round with minutes to spare disposes of the
+#    column, which is how one leaves the population at all.
 ```
 
 **What the population is counted in, since seven consecutive uses have re-derived it without the
@@ -5467,3 +5474,71 @@ tie-break is the selector, and saying that plainly is worth more than a step 6.
   issue it read, and the third column has not moved in two uses. Step 4's preference is still what
   the arithmetic says, and this round is a witness for it again — both of its verdicts landed on
   `implemented` rows.
+
+## The rule's eighteenth use, in the eight-hundred-and-twenty-fourth, and the tie-break's head is inside an exclusion
+
+**All three rankings are flat for the second consecutive use, and the shape has not moved.** Over
+live rows six rows tie at two annotations with three at one; over every row 28 tie at two with 17 at
+one; by **issue**, 31 tie at two with 23 at one. That is the seventeenth use's field less its two
+verdicts, so nothing about the count discriminated anything and the third use's tie-break chose
+again — a cell ahead of a word in prose, requirement level first — for the third time running.
+
+**The rule's answer to the retirement question is: not yet, and the amendment is step 6.** The
+eight-hundred-and-eleventh stated the condition — retire it "on the day an issue read whole stops
+changing anything" — and that day has not come: this use's reading changed a line of behaviour in
+`view.rs`, a comment in `action.rs`, a ledger row, and this file. What *has* been shown, and could
+not be shown before three flat uses in a row, is **where the tie-break sends the head**, and it is
+measurable rather than anecdotal: of the 54 unread issues, seven land only on `out-of-scope` rows,
+**every one of the seven is clause 13's**, and three of those seven are the whole of the
+population's requirement-level substitutions. So the tie-break's first preference and `CLAUDE.md`'s
+largest exclusion select the same ground. Step 6, above, counts that ground apart — the family
+guard's own move, one population over — and the argument is that an erratum inside a closed
+exclusion can only ever *confirm*, because the exclusion is revisited by argument and an erratum is
+not an argument.
+
+**The head confirmed twice and the walk downward paid twice.** ADR 0753; `doc/errata-read.md` has
+all four annotations with their rectangles.
+
+- **Issue #257 and Issue #662 confirm inside the clause-13 exclusion.** A media clip's content type
+  "should conform" becomes "shall conform"; a media play parameter that "should be honoured" becomes
+  one that "shall only be honoured in a 'best effort' sense". The second is worth carrying out of
+  the exclusion as a caution for clauses that are in scope: **a requirement-level change is not
+  always a strengthening**, and a `should` can become a `shall` while losing most of its force in
+  the same stroke.
+- **Issue #683 cites, and vindicates a reader that had ignored a cell.** It strikes `; inheritable`
+  from Table 241's `/Flags`, leaving *(Optional)*. `action::reset_form` reads the entry off the
+  action dictionary and follows no chain, which the published cell called wrong — and there was
+  never a chain to follow, since inheritance is §7.7.3.4's page tree and §12.7.4.1's field tree and
+  an action dictionary is in neither.
+- **Issue #174 pays, on Table 241's other spelling of a field.** The erratum appends to Table 242's
+  *set* branch the descendant parenthesis its *clear* branch has always printed, which makes the two
+  branches one subtree question. Reading them together is what showed that this tree could follow
+  only one of `/Fields`' two spellings to the bottom: the **name** form was a prefix test over
+  §12.7.4.2's qualified names and right, while the **reference** form took the referenced object for
+  a widget identity — on an analogy with §12.6.4.11's hide action that does not hold, since Table
+  214's `/T` names an annotation and Table 241's `/Fields` names a *field*. A reference to a
+  non-terminal field reset nothing; a reference to a terminal field with separate `/Kids` widgets
+  reset nothing. `view::widgets_under` walks the subtree now. `examples/reset_form_census` says why
+  no gate saw it: every `/Fields` element in the corpus is a name, and not one is a reference.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the ninth consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 54 named nowhere,
+  which is the seventeenth use's 56 less its two verdicts, and the multi-issue parse's 310 and 56
+  reproduce over the same eight second-position numbers. Three uses now have needed no
+  re-derivation of the parse.
+- **The settled/live ratio is a plain subtraction for the second use running**: 37 of the 54 touch
+  only a settled row, 10 touch a live one and seven land on no row at all, against 39, 10 and seven
+  one use ago. What this round adds to step 4's argument is a *qualification* rather than a
+  contradiction: the settled half is where the population is, and the payment still came from
+  reading an issue in the plateau rather than from any ranking naming it.
+- **The blindnesses were two lists under one word, and this file's own sentences are half of the
+  evidence.** `doc/errata-read.md` numbers *first*, *second*, *third*, *third*, **eighth**, *fifth*,
+  *sixth* — the instruments' list (what `check` and `emit` cannot see, six of them, the sixth closed
+  by `renumbered`) and the rule's own wider list (eight by the seventh use, its eighth being step 2's
+  grep unable to tell a use from a mention) have been sharing a word since the seventh use, and the
+  ADRs cross-reference between them (ADR 0749 cites "ADR 0691's fourth blindness", where 0691
+  recorded an eighth). Neither is edited; what is added is the sentence saying they are two, and the
+  rule that a new blindness is numbered on the **instruments'** list because that is the one a
+  command can be written against.
