@@ -14,10 +14,16 @@
 //! - [`crate::applied`] asks whether a place recording an erratum has applied it, which
 //!   presupposes somebody has recorded it.
 //!
-//! Issue #700 is the witness. It renumbers Annex O's two tables — `Table Annex O.3` becomes
-//! `Table Annex O.1`, `Table Annex O.4` becomes `Table Annex O.2` — with a `StrikeOut` over each
-//! caption's designation and a `Caret` carrying the replacement, and nothing in this tree could
-//! print it while dozens of lines stood on the retired numbers.
+//! Issue #700 is the witness. It renumbers Annex O's two tables — `Table Annex O.3`'s
+//! designation becomes *Annex O.1* and `Table Annex O.4`'s becomes *Annex O.2* — with a
+//! `StrikeOut` over each caption's designation and a `Caret` carrying the replacement, and
+//! nothing in this tree could print it while dozens of lines stood on the retired numbers.
+//!
+//! **The amended designations are written bare, and that is the convention rather than a
+//! typographical preference.** What the erratum states is a strike over a *designation*, so the
+//! designation is what a sentence about it names; writing either of them as a table would cite
+//! a caption no reader can find, which is the paragraph below and, since the
+//! eight-hundred-and-thirty-second session, a gate.
 //!
 //! **A renumbering is a class of erratum rather than a one-off**, which is the whole argument for
 //! a command: the next caption strike would have been invisible in exactly the same way, and the
@@ -63,11 +69,17 @@
 //! # What this does *not* do, and it is the standing answer rather than an omission
 //!
 //! **It renames nothing.** `doc/md/` is the published text every citation in this tree resolves
-//! against, and the conformance gate refuses a number ISO 32000-2 does not have; a tree citing
-//! `Table Annex O.1` would be citing a caption no reader can find. So the published designations
-//! stay, the amendment is recorded in the ledger row, and this command is what makes the ground
-//! findable from outside that row — which is exactly the three-part answer `doc/errata-read.md`
-//! records for a clause number an erratum moves, with its third part working for a table at last.
+//! against, and the conformance gate refuses a designation ISO 32000-2 does not caption; a tree
+//! citing the amended *Annex O.1* as a table would be citing a caption no reader can find. So
+//! the published designations stay, the amendment is recorded in the ledger row, and this
+//! command is what makes the ground findable from outside that row — which is exactly the
+//! three-part answer `doc/errata-read.md` records for a clause number an erratum moves, with its
+//! third part working for a table at last.
+//!
+//! **That sentence was a claim about an instrument and it was false when it was written**: the
+//! gate refused a *number*, and a designation no `u16` can hold — which both of these are — was
+//! not checked at all. It is true since the eight-hundred-and-thirty-second session, and this
+//! module's own first paragraph was one of the five places in the tree that broke it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

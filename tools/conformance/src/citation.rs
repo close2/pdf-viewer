@@ -81,6 +81,31 @@ pub struct ForeignCitation {
     pub line: usize,
 }
 
+/// A table that belongs to a document other than ISO 32000-2.
+///
+/// [`ForeignCitation`] one level down, and the two are not symmetrical. A `§` in this tree
+/// *means* a clause of ISO 32000-2, so naming another document in front of one is a finding;
+/// the word `Table` means nothing of the kind, and `ISO/TS 32002 Table 3` is correct writing
+/// — a table is named with the standard that captions it or with none at all, and the second
+/// case is the one that means ours.
+///
+/// **What is not correct is checking such a reference against ISO 32000-2's captions**, which
+/// is what happened for as long as [`TableReference`] existed: ISO 32000-2 has a Table 3 and a
+/// Table 4, so twenty-one references to ISO/TS 32002's supported ECDSA and `EdDSA` curves passed
+/// the gate as the escape sequences in literal strings and the examples of literal names, and
+/// the listing that prints a title beside every cited number printed those two titles. It is
+/// exactly [`ForeignCitation`]'s failure — a reference that reads correctly to a person and
+/// resolves, in silence, in the wrong document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignTable {
+    /// The document named before the word `Table`, as written.
+    pub document: String,
+    /// The designation that document captions the table with.
+    pub designation: String,
+    /// The 1-based line it appears on.
+    pub line: usize,
+}
+
 /// A reference to one of the standard's numbered tables.
 ///
 /// Table numbers are the half of a citation nothing checked until the thirteenth session,
@@ -109,11 +134,17 @@ pub struct TableReference {
 ///
 /// The two populations are kept apart rather than merged because they answer different
 /// questions. [`Scan::tables`] is what the conformance gate checks against
-/// [`crate::clause::ClauseIndex::table_title`], and it is deliberately unchanged: a bare number
-/// is the only designation `table_title` takes. This one is *every* designation the tree cites,
-/// which is what an instrument asking **which tables does this tree stand on** needs — and the
-/// first such instrument is `spec-errata renumbered`, for an erratum that renumbers a table by
-/// striking its caption.
+/// [`crate::clause::ClauseIndex::table_title`]: a bare number is the only designation
+/// `table_title` takes. This one is *every* designation the tree cites, which is what an
+/// instrument asking **which tables does this tree stand on** needs — and the first such
+/// instrument is `spec-errata renumbered`, for an erratum that renumbers a table by striking
+/// its caption.
+///
+/// **Both populations are ISO 32000-2's**, and neither was until the
+/// eight-hundred-and-thirty-second session: a reference [`ForeignTable`] claims is in neither,
+/// because it belongs to a document this tree has no conversion of and cannot check a number
+/// against. That is the one thing about `Scan::tables` that has changed since it was written,
+/// and it changed because the alternative is a gate that answers about the wrong standard.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TableDesignation {
     /// The designation as the standard's caption writes it: `104`, `125a`, `D.2`, `Annex O.3`.
@@ -135,10 +166,13 @@ pub struct Scan {
     pub foreign: Vec<ForeignCitation>,
     /// Every rustdoc blockquote, in file order.
     pub quotations: Vec<Quotation>,
-    /// Every `Table N` reference, in file order.
+    /// Every `Table N` reference of ISO 32000-2's, in file order.
     pub tables: Vec<TableReference>,
-    /// Every `Table <designation>` reference, in file order — the wider population.
+    /// Every `Table <designation>` reference of ISO 32000-2's, in file order — the wider
+    /// population.
     pub designations: Vec<TableDesignation>,
+    /// Every `Table` reference attached to a document that is not ISO 32000-2.
+    pub foreign_tables: Vec<ForeignTable>,
 }
 
 /// Reads one source file's citations and quotations.
@@ -289,12 +323,16 @@ fn read_citations(line: &str, line_number: usize, scan: &mut Scan) {
     }
 }
 
-/// The other document a `§` belongs to, from the text before it on the same line.
+/// The other document a `§` or a `Table` belongs to, from the text before it on the same line.
 ///
 /// Recognised by the shape every such citation has: an acronym and a number, immediately
-/// before the section sign — `RFC 3986 §5.2.2`, `ISO 15076-1 §6`. ISO 32000-2 itself is
-/// deliberately *not* foreign, because naming the standard before its own clause number is
-/// exactly what `CLAUDE.md` principle 5 asks for.
+/// before the section sign or the word — `RFC 3986 §5.2.2`, `ISO 15076-1 §6`,
+/// `ISO/TS 32002 Table 3`. ISO 32000-2 itself is deliberately *not* foreign, because naming
+/// the standard before its own clause number is exactly what `CLAUDE.md` principle 5 asks for.
+///
+/// **Immediately** is what keeps it honest, and it is why one rule serves both callers: a
+/// sentence that merely mentions another standard puts a word between the two — `ISO/TS 32002
+/// amends Table 21` reads *amends* here and is ISO 32000-2's table, correctly.
 ///
 /// Nothing wider is attempted. A checker that guessed at every phrase before a `§` would
 /// report the sentences that merely mention another standard, and this one has to be right
@@ -329,14 +367,24 @@ fn another_document(before: &str) -> Option<String> {
         return Some(file.to_owned());
     }
 
+    // **A number has to have a digit in it and an acronym a letter**, and neither test said so
+    // until the eight-hundred-and-thirty-second session: the character sets are permissive
+    // because `ISO/IEC` needs the solidus and `32000-2` the hyphen, and `all` over a permissive
+    // set is satisfied by a string made of nothing else. So `///` passed as an acronym — every
+    // character is a solidus — and `-` passed as a number, which made the two words in front of
+    // a wrapped doc comment's `Table` into a document called `/// -`. It was latent on the `§`
+    // side for the whole of that arm's life and needed a bare number before the sign to show;
+    // the `Table` caller reached it on the first run, twice.
     let name = words.next()?;
     let acronym = name.trim_start_matches(['(', '"', '`']);
     if !number
         .chars()
         .all(|character| character.is_ascii_digit() || character == '-')
+        || !number.contains(|character: char| character.is_ascii_digit())
         || !acronym.chars().all(|character| {
             character.is_ascii_uppercase() || character.is_ascii_digit() || character == '/'
         })
+        || !acronym.contains(|character: char| character.is_ascii_uppercase())
         || acronym.len() < 2
     {
         return None;
@@ -356,6 +404,9 @@ fn another_document(before: &str) -> Option<String> {
 /// writes one (`§9.6.4 Table 111`), and otherwise to the clause the enclosing doc comment
 /// last cited. A reference with neither is left unattributed: there is nothing to check it
 /// against, and inventing an attribution would produce a verdict about a clause nobody named.
+///
+/// A reference another standard's name stands in front of goes to [`Scan::foreign_tables`] and
+/// to neither of the two ISO 32000-2 populations, for the reason [`ForeignTable`] states.
 fn read_tables(line: &str, line_number: usize, cited: Option<&ClauseNumber>, scan: &mut Scan) {
     let Some(comment) = line.find("//").and_then(|at| line.get(at..)) else {
         return;
@@ -383,8 +434,24 @@ fn read_tables(line: &str, line_number: usize, cited: Option<&ClauseNumber>, sca
             .get(position.saturating_add("Table ".len())..)
             .unwrap_or_default();
 
-        // The numbered population, which the conformance gate checks, is unchanged: the digits
-        // that open the designation, and nothing where there are none.
+        // A table another standard captions is that standard's, and checking its designation
+        // against ISO 32000-2's captions is how it passes unnoticed — the same sentence
+        // `read_citations` writes over a `§`, and the same rule, `another_document`. Both
+        // populations below are about ISO 32000-2, so this leaves them before they are reached
+        // rather than filtering afterwards.
+        if let Some(document) = another_document(comment.get(..position).unwrap_or_default())
+            && let Some(designation) = designation_at(rest)
+        {
+            scan.foreign_tables.push(ForeignTable {
+                document,
+                designation,
+                line: line_number,
+            });
+            continue;
+        }
+
+        // The numbered population, which the conformance gate checks: the digits that open the
+        // designation, and nothing where there are none.
         let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
         if let Ok(table) = digits.parse::<u16>() {
             scan.tables.push(TableReference {
@@ -680,6 +747,73 @@ mod tests {
                 .first()
                 .map(|foreign| foreign.document.as_str()),
             Some("RENDER_LIBRARY.md")
+        );
+    }
+
+    /// A table another standard captions is not one of ISO 32000-2's, and the failure it
+    /// caused is the same one the `§` arm above exists for, one level down.
+    ///
+    /// `ISO/TS 32002 Table 3` is *correct writing* — that is where the supported ECDSA curves
+    /// are — and ISO 32000-2 has a Table 3 too, the escape sequences in literal strings. So the
+    /// reference resolved, the gate passed, and the listing that prints a title beside every
+    /// number printed the wrong document's table.
+    #[test]
+    fn a_table_after_another_documents_name_is_not_one_of_the_standards() {
+        let scan =
+            scan("// One of ISO/TS 32002 Table 3's curves, and ISO/IEC 15444-1 Table A.19.\n");
+        assert!(scan.tables.is_empty(), "{:?}", scan.tables);
+        assert!(scan.designations.is_empty(), "{:?}", scan.designations);
+        assert_eq!(
+            scan.foreign_tables
+                .iter()
+                .map(|table| (table.document.as_str(), table.designation.as_str()))
+                .collect::<Vec<(&str, &str)>>(),
+            vec![("ISO/TS 32002", "3"), ("ISO/IEC 15444-1", "A.19")],
+            "both populations the gate checks are ISO 32000-2's, and neither of these is"
+        );
+    }
+
+    /// A permissive character set is satisfied by a string made of nothing but its punctuation,
+    /// and both of `another_document`'s were.
+    ///
+    /// `///` is every character a solidus, which `ISO/IEC` needs; `-` is every character a
+    /// hyphen, which `32000-2` needs. A doc comment wrapping between a standard's name and its
+    /// table put those two words in front of the word, and the reference went to a document
+    /// called `/// -`.
+    #[test]
+    fn a_comment_marker_is_not_an_acronym_and_a_hyphen_is_not_a_number() {
+        let scan = scan(
+            "/// - Table 172 is the annotation flags.\n\
+             /// something written about ISO/TS\n\
+             /// 32002 Table 3, wrapped between the two.\n",
+        );
+        assert!(scan.foreign_tables.is_empty(), "{:?}", scan.foreign_tables);
+        assert_eq!(
+            scan.tables
+                .iter()
+                .map(|reference| reference.table)
+                .collect::<Vec<u16>>(),
+            vec![172, 3]
+        );
+    }
+
+    /// The standard's own name before its own table is the convention, and a sentence that
+    /// merely mentions another standard is not a foreign reference at all.
+    #[test]
+    fn the_standards_own_table_survives_a_neighbouring_documents_name() {
+        let scan = scan(
+            "// ISO 32000-2 Table 109 lets a standard-14 dictionary omit `/Widths`.\n\
+             // ISO/TS 32002 amends Table 21 rather than captioning it.\n",
+        );
+        assert!(scan.foreign_tables.is_empty(), "{:?}", scan.foreign_tables);
+        assert_eq!(
+            scan.tables
+                .iter()
+                .map(|reference| reference.table)
+                .collect::<Vec<u16>>(),
+            vec![109, 21],
+            "`immediately before` is the whole rule: one word between the two names and the \
+             table is the standard's"
         );
     }
 

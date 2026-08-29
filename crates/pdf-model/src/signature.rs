@@ -20,7 +20,8 @@
 //!    ([`crate::dsa`]), ECDSA ([`crate::ecdsa`]), or the `EdDSA` row ISO/TS 32002 section 5.1.2 adds
 //!    to that table ([`crate::eddsa`]). [`Signature::authenticity`] **answers this** for all four.
 //!    What is left inside it is a *curve* rather than a family: three of ISO/TS 32002 Table 3's
-//!    six and one of its Table 4's two are named by their own identifier and computed by nothing,
+//!    six and one of ISO/TS 32002 Table 4's two are named by their own identifier and computed by
+//!    nothing,
 //!    for the reason ADR 0532 records.
 //! 3. **Is the signer trusted, and had the certificate been revoked?** A trust store and a
 //!    network (§12.8.3.4.6's CRLs and OCSP). **Not answered**, and reported.
@@ -359,15 +360,17 @@ pub enum Authenticity {
     ///
     /// Separate from [`Self::KeyNotVerifiable`] because the identifier that matters is a *second*
     /// one: every certificate in this case states `1.2.840.10045.2.1` and they differ in their
-    /// `namedCurve`, so reporting the key algorithm would tell a reader nothing. ISO/TS 32002
-    /// Table 3's three Brainpool curves are what reach here today, and this program lacking them
-    /// is a gap rather than a defect in the file; a curve outside Table 3 and Table 4 is the file
+    /// `namedCurve`, so reporting the key algorithm would tell a reader nothing.
+    /// ISO/TS 32002 Table 3's three Brainpool curves are what reach here today, and this program
+    /// lacking them is a gap rather than a defect in the file; a curve outside those two tables is
+    /// the file
     /// leaving what the Technical Specification admits, and section 5.1.3's last sentence permits
     /// exactly this treatment: "PDF processors may ignore or handle in an implementation-dependent
     /// manner PDF documents which are signed with elliptic curves not listed in Table 3 or Table
     /// 4."
     CurveNotVerifiable {
-        /// The curve's object identifier as dotted decimal, with its Table 3 name where it has
+        /// The curve's object identifier as dotted decimal, with its ISO/TS 32002 Table 3 name
+        /// where it has
         /// one, or a sentence where the certificate states no `namedCurve` at all — which ISO/TS
         /// 32002 section 5.1.3 forbids: "The implicitCurve and specifiedCurve options shall not be
         /// used."
@@ -450,7 +453,7 @@ pub enum Authenticity {
 /// so there are four here rather than three. RSA has two arms because the table's "RSA Algorithm
 /// Support" row states key sizes and no padding, and the sentence a person reads should say which
 /// construction did the verifying; ECDSA carries its curve for the same reason, since ISO/TS 32002
-/// Table 3 is a list of curves rather than of key sizes.
+/// ISO/TS 32002 Table 3 is a list of curves rather than of key sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Family {
     /// "RSA Algorithm Support", as RFC 8017's RSASSA-PKCS1-v1_5.
@@ -463,7 +466,8 @@ pub enum Family {
     Ecdsa(ecdsa::Curve),
     /// The "`EdDSA` algorithm support" row ISO/TS 32002 section 5.1.2 adds ([`crate::eddsa`]).
     ///
-    /// No curve beside it, because Table 4's two are one implemented and one refused by number —
+    /// No curve beside it, because ISO/TS 32002 Table 4's two are one implemented and one refused
+    /// by number —
     /// a verification that happened was Ed25519's.
     EdDsa,
 }
@@ -1123,7 +1127,7 @@ fn pss_parameter_answer(problem: pss::ParameterProblem<'_>) -> Authenticity {
 /// keeps the key and not the identifier once it has recognised one. They are the same number.
 /// What a person is told about a `namedCurve` this program does not compute on.
 ///
-/// The number always, because it is what a reader can check; and Table 3's own spelling beside it
+/// The number always, because it is what a reader can check; and ISO/TS 32002 Table 3's own spelling beside it
 /// where the curve is one of the three this program lacks rather than one the standard never
 /// admitted, because "brainpoolP256r1, refused" and "1.3.36.3.3.2.8.1.1.7, refused" are the same
 /// fact and only one of them can be looked up in ISO/TS 32002.
@@ -3231,8 +3235,8 @@ mod tests {
     /// and nothing in this tree contradicted them.
     ///
     /// The curves are this subclause's by the standard's own words rather than by inference: the
-    /// applicability sentence above ISO/TS 32002 section 5.1.3's Table 3 and the one above section
-    /// 5.1.2's Table 4 each name `ETSI.CAdES.detached` among the `/SubFilter` values they cover.
+    /// applicability sentence above ISO/TS 32002 Table 3, in section 5.1.3, and the one above
+    /// ISO/TS 32002 Table 4, in section 5.1.2, each name `ETSI.CAdES.detached` among the `/SubFilter` values they cover.
     /// One curve is enough for that question — `an_ecdsa_signature_verifies_through_the_whole_path_a_document_takes`
     /// is where all three are exercised, and what this adds is the `/SubFilter` around them.
     #[test]

@@ -124,8 +124,9 @@ pub enum PublicKey<'a> {
     Ed25519(eddsa::PublicKey<'a>),
     /// `id-ecPublicKey` on a curve this program does not compute on, or on none it can name.
     ///
-    /// Two cases, and the difference between them is whose fault it is. `Some` is one of Table 3's
-    /// Brainpool curves — a curve the standard admits and this program lacks, so a gap here.
+    /// Two cases, and the difference between them is whose fault it is. `Some` is one of
+    /// ISO/TS 32002 Table 3's Brainpool curves — a curve the standard admits and this program
+    /// lacks, so a gap here.
     /// `None` is `ECParameters` that are not a `namedCurve` at all, which ISO/TS 32002 section
     /// 5.1.3 forbids outright: "The implicitCurve and specifiedCurve options shall not be used."
     /// A curve identifier outside both lists arrives as `Some` too, because the file's own digits
