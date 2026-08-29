@@ -908,11 +908,21 @@ fn read_attributes<'a>(
 
 /// Hand-built signature values, shared with `signature.rs`'s tests.
 ///
-/// **A fixture rather than a corpus document, and the reason is trap 8's.** Four of the six
-/// signature formats §12.8.3 defines have no witness in the 974 — no document timestamp, no `PAdES`
-/// signature, no `adbe.x509.rsa_sha1`, and nothing using four of Table 260's six digests — so a
-/// corpus can rank none of them. What it *can* do is confirm the reading on the two it has, which
-/// `tests/signatures.rs` does over all ten of its signature dictionaries.
+/// **A fixture rather than a corpus document, and the reason is trap 8's — as far as the 974
+/// go.** Four of the six signature formats §12.8.3 defines have no witness there — no document
+/// timestamp, no `PAdES` signature, no `adbe.x509.rsa_sha1`, and nothing using four of Table 260's
+/// six digests — so *that* corpus can rank none of them, and `tests/signatures.rs` confirms the
+/// reading on the two it has over all ten of its signature dictionaries.
+///
+/// **The sentence above is a claim about a population and the population was one submodule, which
+/// is the whole of what the eight-hundred-and-twenty-fifth session found (ADR 0754).** Run
+/// `examples/signature_algorithm_census` over every document the tree holds instead, which is the
+/// invocation `doc/todo/51` states, and all six formats have witnesses — `ETSI.RFC3161` and
+/// `adbe.x509.rsa_sha1` among them, found in the crawl rather than in the submodule corpora. **No fixture here
+/// is retired on that**, and the reason is the one trap 8 states from the other side: a witness
+/// found in a crawl is a file nobody wrote for this purpose, so it can rank a format and cannot
+/// *define* one. What it changes is which of these shapes the `cms` fuzz target now sees real
+/// examples of, which is `fuzz/seed_cms.py`.
 #[cfg(test)]
 pub(crate) mod fixtures {
     use super::{

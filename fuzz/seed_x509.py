@@ -13,11 +13,11 @@ corpora are large and machine-generated — so a seeded target needs a *recipe*,
 `xmp` and `confined_wire` targets each have. This is that recipe for `x509`, and it is a program
 rather than a paragraph because reaching a certificate means walking two nested structures.
 
-**And walking them by hand is half its value.** Everything below — X.690's tag-length-value with
-clause 8.1.3.6's indefinite lengths, RFC 5652's `ContentInfo` and `SignedData`, and the
-`certificates [0] IMPLICIT` member inside it — is a second implementation of `pdf_model::der` and
-`pdf_model::cms`, written from the formats rather than from the Rust. Two implementations agreeing
-is a check the round-trip tests cannot perform on themselves. See ADR 0229.
+**And walking them by hand is half its value.** RFC 5652's `ContentInfo` and `SignedData` and the
+`certificates [0] IMPLICIT` member inside it are read here, over the X.690 walk in `seed_der.py`
+that `seed_cms.py` shares — a second implementation of `pdf_model::der` and `pdf_model::cms`,
+written from the formats rather than from the Rust. Two implementations agreeing is a check the
+round-trip tests cannot perform on themselves. See ADR 0229.
 
 **Three routes, because a PDF states a certificate in three quite different places.** Each writes
 its finds out with a *definite* length whatever the file used, named by SHA-1, so a re-run adds
@@ -52,64 +52,8 @@ import hashlib
 import os
 import re
 import sys
-import zlib
 
-
-def values(data, start=0):
-    """Every tag-length-value in `data`, as `(identifier, first, last)` byte offsets."""
-    out = []
-    at = start
-    end = len(data)
-    while at < end - 1:
-        identifier = data[at]
-        at += 1
-        if identifier == 0 and data[at] == 0:
-            break
-        length = data[at]
-        at += 1
-        if length == 0x80:
-            # X.690 clause 8.1.3.6: the contents run to an end-of-contents marker that is this
-            # value's rather than a child's, so the children have to be walked to find it.
-            stop = end_of_contents(data, at)
-            out.append((identifier, at, stop))
-            at = stop + 2
-            continue
-        if length & 0x80:
-            count = length & 0x7F
-            length = int.from_bytes(data[at : at + count], "big")
-            at += count
-        out.append((identifier, at, at + length))
-        at += length
-    return out
-
-
-def end_of_contents(data, at):
-    """Where an indefinite-length value's contents stop."""
-    end = len(data)
-    while at < end - 1:
-        if data[at] == 0 and data[at + 1] == 0:
-            return at
-        at += 1
-        length = data[at]
-        at += 1
-        if length == 0x80:
-            at = end_of_contents(data, at) + 2
-        elif length & 0x80:
-            count = length & 0x7F
-            at += count + int.from_bytes(data[at : at + count], "big")
-        else:
-            at += length
-    return end
-
-
-def definite(identifier, body):
-    """One tag-length-value with a definite length, whatever the file used."""
-    if len(body) < 128:
-        header = bytes([identifier, len(body)])
-    else:
-        octets = len(body).to_bytes((len(body).bit_length() + 7) // 8, "big")
-        header = bytes([identifier, 0x80 | len(octets)]) + octets
-    return header + body
+from seed_der import definite, inflated_streams, paths, signature_values, stated, values
 
 
 def certificates(signature):
@@ -134,22 +78,6 @@ def certificates(signature):
         for kind, start, stop in values(body[first:last]):
             out.append(definite(kind, body[first:last][start:stop]))
     return out
-
-
-CONTENTS = re.compile(rb"/Contents\s*<([0-9A-Fa-f\s]+)>")
-
-
-def extent(data, at):
-    """Where the definite-length tag-length-value at `at` ends, or `None` for anything else."""
-    if at + 1 >= len(data):
-        return None
-    length = data[at + 1]
-    if length & 0x80 == 0:
-        return at + 2 + length
-    count = length & 0x7F
-    if count == 0 or count > 4 or at + 2 + count > len(data):
-        return None
-    return at + 2 + count + int.from_bytes(data[at + 2 : at + 2 + count], "big")
 
 
 def is_certificate(body):
@@ -209,26 +137,8 @@ def stated_certificates(data):
     places §12.8.4.3 and Tables 238 and 255 name, because finding *those* places means being a PDF
     reader; see this module's documentation.
     """
-    out = []
-    at = 0
-    while (match := CANDIDATE.search(data, at)) is not None:
-        at = match.start()
-        stop = extent(data, at)
-        first = at + 2 + (data[at + 1] & 0x7F)
-        if stop is not None and stop <= len(data) and is_certificate(data[first:stop]):
-            out.append(data[at:stop])
-            at = stop
-        else:
-            at += 1
-    return out
+    return stated(data, CANDIDATE, is_certificate)
 
-
-STREAM = re.compile(rb"stream\r?\n")
-
-# A stream body long enough to hold a certificate and short enough that inflating every one of
-# them over a corpus stays a scan rather than a job. Nothing here is a budget this program states;
-# it is this script's own patience.
-INFLATE_CEILING = 16 << 20
 
 # What names a certificate a document keeps as an object: §12.8.4.3's `/DSS` and its `/Certs`,
 # §12.8.4.4's `/VRI`, Table 255's `/Cert`, and the `/ByteRange` beside every signature. A file
@@ -244,26 +154,6 @@ INFLATE_CEILING = 16 << 20
 # sample states it. The raw scan below runs on every file regardless, so nothing a document
 # states uncompressed is missed either way.
 COLLECTIONS = (b"/ByteRange", b"/DSS", b"/Cert", b"/VRI")
-
-
-def inflated_streams(data):
-    """Each `stream` body in `data` that inflates, which is where a `/Certs` entry lives.
-
-    Both windows are tried: `FlateDecode` is zlib, and a producer that wrote a raw deflate stream
-    instead is exactly the kind of file this corpus is made of.
-    """
-    if not any(key in data for key in COLLECTIONS):
-        return
-    for match in STREAM.finditer(data):
-        body = data[match.end() : match.end() + INFLATE_CEILING]
-        for window in (15, -15):
-            try:
-                out = zlib.decompressobj(window).decompress(body, INFLATE_CEILING)
-            except zlib.error:
-                continue
-            if len(out) > 2:
-                yield out
-                break
 
 
 # A `fixtures` module's certificate, as this tree writes one: a `&str` of hexadecimal split
@@ -282,23 +172,6 @@ def fixture_certificates(source):
             continue
         out.extend(stated_certificates(value))
     return out
-
-
-def paths(arguments):
-    """The files to read, with `-` standing for a NUL-separated list on standard input.
-
-    `find … -print0 | xargs` runs a command once per batch of arguments, and over this tree's
-    corpora that is around thirty batches — thirty processes, each counting only its own, so the
-    one number the caller wants is the one thing the run does not print. Reading the list keeps it
-    one process and one answer.
-    """
-    for argument in arguments:
-        if argument != "-":
-            yield argument
-            continue
-        for name in sys.stdin.buffer.read().split(b"\0"):
-            if name:
-                yield os.fsdecode(name)
 
 
 def main(argv):
@@ -327,18 +200,14 @@ def main(argv):
                 keep(certificate, "fixture")
             continue
         if b"/ByteRange" in data:
-            for match in CONTENTS.finditer(data):
-                try:
-                    value = binascii.unhexlify(re.sub(rb"\s", b"", match.group(1)))
-                except binascii.Error:
-                    continue
+            for value in signature_values(data):
                 for certificate in certificates(value.rstrip(b"\x00")):
                     keep(certificate, "signed")
         # The file's own bytes and then each stream's, one at a time: a document with a thousand
         # streams would otherwise hold every inflated one of them at once.
         for certificate in stated_certificates(data):
             keep(certificate, "stated")
-        for buffer in inflated_streams(data):
+        for buffer in inflated_streams(data, COLLECTIONS):
             for certificate in stated_certificates(buffer):
                 keep(certificate, "stated")
 

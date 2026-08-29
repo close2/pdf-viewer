@@ -526,10 +526,35 @@ cd fuzz && cargo +nightly fuzz run display_list  -- -max_total_time=600 -rss_lim
   # reaches an empty list and little else, since a table count is eight bytes
 cd fuzz && cargo +nightly fuzz run cms          -- -runs=50000   # §12.8.3.3's signature value:
   # `pdf_model::der`'s X.690 reader and `pdf_model::cms`'s RFC 5652 SignedData, the tree's only
-  # ASN.1. **Seed its corpus** with the eleven `/Contents` blobs the nine signed corpus documents
-  # hold; four of them are indefinite-length BER, which is the shape a from-scratch input never
-  # forms. Clean at 1 000 000 in the three-hundred-and-seventy-seventh (ADR 0215) and again in the
-  # three-hundred-and-ninety-second, after its `SignerInfo` gained a signature and an identifier
+  # ASN.1, and the reader every signed document goes through before `x509` sees a certificate.
+  # **Seed its corpus** from every CMS object this tree already holds, which since the
+  # eight-hundred-and-twenty-fifth is what `fuzz/seed_cms.py` collects, by three routes at once:
+  #   find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' -print0 \
+  #     | python3 fuzz/seed_cms.py fuzz/corpus/cms -
+  # The `-` is the list on standard input rather than `xargs`, and `-L` because a worktree's
+  # corpora are symbolic links; `seed_x509.py`'s block below says why both, and `fuzz/seed_der.py`
+  # is the X.690 walk the two share.
+  # **Point it at the whole disk rather than at `doc/pdf.js` alone**, which is what this line used
+  # to say — "the eleven `/Contents` blobs the nine signed corpus documents hold" — while
+  # `grep -alr /ByteRange corpus-cache doc/corpora doc/pdf.js/test/pdfs | wc -l` prints the
+  # population it is entitled to. That is ADR 0751's defect one target down, in the same words,
+  # and ADR 0754 is the round that fixed it here. The script's summary line says how many arrived
+  # by each route and `tools/fuzz.sh --list` how many the corpus holds; no count is written here.
+  # The three routes, because a PDF holds a CMS object in three unrelated places: §12.8.3.3.1's
+  # signature value in `/Contents`, kept as the file's own bytes so that a producer's
+  # indefinite-length BER survives — the shape a from-scratch input never forms; the RFC 3161
+  # timestamp tokens a CAdES signature carries *inside* itself as `SignerInfo` attributes
+  # (§12.8.3.4.3), which no scan of the file can see because the file states them in hexadecimal
+  # inside another CMS object; and §12.8.4.4's Table 262 `/TS`, "[a] stream containing the
+  # DER-encoded timestamp", found by RFC 5652's opening bytes in the file and in its inflated
+  # streams. There is **no fourth route out of this tree's own fixtures**, and that is worth
+  # knowing rather than assuming: `seed_x509.py` has one because `crates/pdf-model/src/*.rs`
+  # state their certificates as hexadecimal, and `cms.rs`'s `fixtures` module *builds* its
+  # signature values in Rust at test time instead — so the shapes it constructs for the signature
+  # formats §12.8.3 defines reach no corpus, and what the corpus has of them is whatever the
+  # documents have. Clean at 1 000 000 in the three-hundred-and-seventy-seventh (ADR 0215) and
+  # again in the three-hundred-and-ninety-second, after its `SignerInfo` gained a signature and an
+  # identifier
 cd fuzz && cargo +nightly fuzz run x509         -- -runs=1000000  # the signer's certificate and
   # the verifications that run on the key inside it: `pdf_model::x509` walks RFC 5280's
   # structure and `pdf_model::pkcs1`, `pdf_model::pss` and `pdf_model::dsa` run the tree's only
