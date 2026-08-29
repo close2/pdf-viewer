@@ -445,11 +445,19 @@ depends on nothing but `thiserror`.
   is named and counted, one line apiece. **The published designations are not changed anywhere**,
   for `moved`'s own reason.
 
-  **What it does not read is a table designation's *correctness*.** `--bin tables` and the citation
-  gate both take a table number as a `u16`, so `Table Annex O.3`, `Table D.2` and `Table 125a` are
-  checked by nothing at all — `conformance::citation::Scan::designations` is the population a gate
-  for that would stand on, and what it would need first is the foreign-standard rule `read_citations`
-  already has for a SECTION SIGN, because this tree cites ISO/IEC 15444-1's `Table A.19` twice.
+  **A table designation's *correctness* was read by nothing, and is gated since the
+  eight-hundred-and-thirty-second session** (ADR 0760). `--bin tables` and the citation gate both
+  took a table number as a `u16`, so `Table Annex O.3`, `Table D.2` and `Table 125a` were checked by
+  nothing at all; `every_table_designation_names_a_table_the_standard_captions` and the ledger's
+  prose half now check `conformance::citation::Scan::designations`, on the foreign-standard rule
+  `read_citations` already had for a SECTION SIGN. **What it cost to build is the finding**: the
+  numbered population had the same hole one level up and nobody had looked — twenty-one references to
+  ISO/TS 32002's Table 3 and Table 4 were resolving against ISO 32000-2's escape sequences in literal
+  strings and examples of literal names, in silence, with the gate's own listing printing those two
+  titles. Every one of them names its document now, and the one that cannot — a verbatim quotation
+  of ISO/TS 32002 — is the stated residue. `--bin tables` is not gated by any of this and reads its
+  own population; whether it wants the same rule is a question this line leaves open rather than
+  answers.
 
 ## A twenty-third that is not built, and the reason is that its two sides agree
 

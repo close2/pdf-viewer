@@ -1,11 +1,11 @@
 //! `EdDSA` signature verification: the row ISO/TS 32002 adds to Table 260, on Ed25519.
 //!
 //! ISO 32000-2's Table 260 has three algorithm families and none of them is this one. ISO/TS
-//! 32002:2022 section 5.1.2 adds a fourth row to that table, and its Table 2 spells that row's
+//! 32002:2022 section 5.1.2 adds a fourth row to that table, and ISO/TS 32002 Table 2 spells that row's
 //! first column "IETF RFC 8032, Edwards-curve Digital Signature Algorithm (EdDSA) (PDF 2.x) using
 //! the Ed25519 or Ed448 elliptic curves" — for `adbe.pkcs7.detached`, `ETSI.CAdES.detached` and
-//! `ETSI.RFC3161`, and **No** for the other two `/SubFilter` values. Its section 5.1.3's Table 4
-//! pairs Ed25519 with SHA512 and Ed448 with SHAKE256.
+//! `ETSI.RFC3161`, and **No** for the other two `/SubFilter` values. ISO/TS 32002 Table 4, in
+//! section 5.1.3, pairs Ed25519 with SHA512 and Ed448 with SHAKE256.
 //!
 //! **Every sentence quoted from that document is in prose rather than in a blockquote**, for the
 //! reason `cms::Digest` records: `tools/conformance` checks a rustdoc blockquote verbatim against
@@ -21,7 +21,7 @@
 //! internally with SHA-512; there is no `e` to hand it. So [`verify`] takes the signed bytes,
 //! where [`crate::ecdsa::verify`] and [`crate::pkcs1::verify`] take a digest.
 //!
-//! Table 4's "SHA512" is therefore not a parameter of this verification. It is what RFC 5652's
+//! ISO/TS 32002 Table 4's "SHA512" is therefore not a parameter of this verification. It is what RFC 5652's
 //! `digestAlgorithm` must state — the digest of the content, which question 1's `message-digest`
 //! attribute carries — and ISO/TS 32002 section 5.1.4 is what ties the two together: "[i]f the
 //! signedAttrs field is present in the SignerInfo field for the signer, then the same message
@@ -30,7 +30,7 @@
 //!
 //! # Ed448 is named and not computed
 //!
-//! Table 4's second curve has no verification here. `ed448-goldilocks`'s stable line carries the
+//! ISO/TS 32002 Table 4's second curve has no verification here. `ed448-goldilocks`'s stable line carries the
 //! field arithmetic without the signature scheme and sits on an older random-number stack, and its
 //! 0.14 line is a pre-release, which this tree does not take (measured 2026-08-23; ADR 0532). A
 //! certificate stating `id-Ed448` reaches a reader as that identifier — [`ID_ED448`] is the
@@ -72,12 +72,14 @@ use ed25519_dalek::ed25519::signature::MultipartVerifier as _;
 
 /// RFC 8410 section 3's `id-Ed25519`, `1.3.101.112`.
 ///
-/// The identifier a certificate's `subjectPublicKeyInfo` states for one of Table 4's keys, and the
+/// The identifier a certificate's `subjectPublicKeyInfo` states for one of ISO/TS 32002 Table 4's
+/// keys, and the
 /// one a `SignerInfo` states as its `signatureAlgorithm` for one of its signatures — RFC 8419
 /// makes them the same number, which is why one constant serves both.
 pub const ID_ED25519: ObjectIdentifier = rfc8410::ID_ED_25519;
 
-/// RFC 8410 section 3's `id-Ed448`, `1.3.101.113` — Table 4's other curve, recognised and refused.
+/// RFC 8410 section 3's `id-Ed448`, `1.3.101.113` — ISO/TS 32002 Table 4's other curve, recognised and
+/// refused.
 pub const ID_ED448: ObjectIdentifier = rfc8410::ID_ED_448;
 
 /// RFC 8032 section 5.1's `b / 8`: an Ed25519 public key is 32 octets.
@@ -250,7 +252,8 @@ mod tests {
         }
     }
 
-    /// Table 4's other curve, recognised by its number so that a report can name it.
+    /// ISO/TS 32002 Table 4's other curve, recognised by its number so that a report can name
+    /// it.
     #[test]
     fn ed448_is_a_number_this_program_can_print() {
         assert_eq!(

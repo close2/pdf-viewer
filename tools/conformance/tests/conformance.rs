@@ -218,6 +218,19 @@ fn every_quotation_is_the_standards_own_words() {
 /// have caught the original error in one glance: "Table 106 — Text-positioning operators"
 /// beside a file that is entirely about rendering modes. A checker cannot read a comment's
 /// intent; a person reading eleven lines can.
+///
+/// # And the tables this does not check are named, rather than silently dropped
+///
+/// A table another standard captions is not one of these, and until the
+/// eight-hundred-and-thirty-second session it was: `ISO/TS 32002 Table 3` is where the
+/// supported ECDSA curves are, ISO 32000-2's Table 3 is the escape sequences in literal
+/// strings, and twenty-one such references resolved against the wrong document while this
+/// listing printed the wrong document's titles beside them. `ForeignTable` is the rule and it
+/// is `read_citations`'s own — the failure is `ForeignCitation`'s, one level down.
+///
+/// They are *printed* rather than reported: naming another standard before its table is
+/// correct writing, unlike naming one before a `§`. What a checker owes is to say where it did
+/// not look.
 #[test]
 fn every_table_reference_names_a_table_the_standard_has() {
     let root = conformance::workspace_root();
@@ -226,6 +239,7 @@ fn every_table_reference_names_a_table_the_standard_has() {
 
     let mut wrong = String::new();
     let mut cited: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    let mut elsewhere: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (path, scan) in &scanned {
         for reference in &scan.tables {
             let site = format!("{}:{}", path.display(), reference.line);
@@ -245,6 +259,12 @@ fn every_table_reference_names_a_table_the_standard_has() {
                 }
             }
         }
+        for reference in &scan.foreign_tables {
+            elsewhere
+                .entry(reference.document.clone())
+                .or_default()
+                .insert(reference.designation.clone());
+        }
     }
 
     assert!(wrong.is_empty(), "\n{wrong}");
@@ -252,6 +272,71 @@ fn every_table_reference_names_a_table_the_standard_has() {
     for (number, titles) in &cited {
         for title in titles {
             println!("  Table {number} — {title}");
+        }
+    }
+    println!("and the tables of other documents, which nothing here can check:");
+    for (document, designations) in &elsewhere {
+        for designation in designations {
+            println!("  {document} Table {designation}");
+        }
+    }
+}
+
+/// Every `Table <designation>` a comment names is a table the standard captions, whether or
+/// not a `u16` can hold the designation.
+///
+/// The test above is the same question over the *numbered* population, and for six hundred
+/// sessions that was the whole of it: `read_tables` took the digits after `Table ` and stopped,
+/// so `Table Annex O.3`, `Table D.2` and `Table 125a` were no reference to anything and nothing
+/// could be wrong about them. The eight-hundred-and-twentieth session built the wider
+/// population for `spec-errata renumbered` and named this gap in the same breath — a
+/// designation that is not a number was still unchecked, and the tree cites forty-odd of them.
+///
+/// The assertion is the weaker true one for the same reason the numbered test gives: that the
+/// designation names a table the standard has. What is printed is the designations no `u16` can
+/// carry, with their titles, because those are the ones the listing above cannot show.
+#[test]
+fn every_table_designation_names_a_table_the_standard_captions() {
+    let root = conformance::workspace_root();
+    let index = ClauseIndex::read(&root.join(conformance::STANDARD)).expect("the standard");
+    let scanned = conformance::scan_tree(&root).expect("the tree's sources");
+
+    let mut wrong = String::new();
+    let mut cited: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (path, scan) in &scanned {
+        for reference in &scan.designations {
+            let site = format!("{}:{}", path.display(), reference.line);
+            match index.designated_table_title(&reference.designation) {
+                Some(title) => {
+                    if reference.designation.parse::<u16>().is_err() {
+                        cited
+                            .entry(reference.designation.clone())
+                            .or_default()
+                            .insert(title.to_owned());
+                    }
+                }
+                None => {
+                    let _ = writeln!(
+                        wrong,
+                        "{site}: ISO 32000-2 captions no Table {}. If it is another \
+                         standard's, name that standard immediately before the word; if it is \
+                         a designation an erratum writes, write the designation rather than a \
+                         citation of a caption no reader can find.",
+                        reference.designation
+                    );
+                }
+            }
+        }
+    }
+
+    assert!(wrong.is_empty(), "\n{wrong}");
+    println!(
+        "{} distinct designations no `u16` can carry, all captioned by the standard:",
+        cited.len()
+    );
+    for (designation, titles) in &cited {
+        for title in titles {
+            println!("  Table {designation} — {title}");
         }
     }
 }
@@ -417,6 +502,24 @@ fn the_ledgers_own_prose_names_clauses_and_tables_that_exist() {
                         row.clause, table.table
                     );
                 }
+            }
+        }
+        // The wider population, for the reason `every_table_designation_names_a_table_the_
+        // standard_captions` gives: a note's `Table Annex O.3` and `Table D.6` are references
+        // the numbered check reads as nothing at all. The ledger is where the tree's densest
+        // prose about the standard lives, so it is where an unchecked designation hides best —
+        // and this half found three, all of them writing an erratum's amended designation as
+        // though it were a caption.
+        for designation in &scan.designations {
+            if index
+                .designated_table_title(&designation.designation)
+                .is_none()
+            {
+                let _ = writeln!(
+                    wrong,
+                    "  the ledger's §{} row names Table {}, which the standard captions nowhere",
+                    row.clause, designation.designation
+                );
             }
         }
     }

@@ -678,6 +678,17 @@ sweep removing it beat the memo outright (−2.35% against −2.06%).
   **So when the quantity is a latency, find the unit the run itself provides** — a frame, a refresh,
   a page — and divide by it; a ratio between two durations of the same run has no machine in it.
   ADR 0657 section 7.
+- **A baseline checkout carries less of the machine than the round's own worktree does, and the
+  difference reads as the round's change.** `tools/worktree.sh` links six gitignored things into a
+  round's tree; a `git worktree add` at the base commit, taken by hand for a before/after
+  comparison, links none of them — and the tree also holds `doc/*.pdf` and `doc/corpora/*`, which
+  the script does not name and which no `git` command will restore because they are gitignored or
+  submodules. The eight-hundred-and-thirty-second session's `--bin pointers` run moved **113
+  pointers** between *live* and *not carried* on the specification PDFs alone, with the round's
+  change nowhere near them; the shape it takes is a defect class shrinking, which is the reading
+  nobody questions. **Diff the two checkouts' walked file sets before believing the sweep** — a
+  dozen lines of `os.scandir` — or link `doc/*.pdf`, `doc/corpora/*` and everything
+  `tools/worktree.sh` lists, and rerun. ADR 0760.
 - **Take the *before* half with a patch file, never with `git stash`.** The stash stack belongs to
   the clone and not to the worktree, so every parallel round pushes onto the same one: a neighbour's
   `git stash` landing between a round's own push and pop makes the pop apply *their* diff and lets

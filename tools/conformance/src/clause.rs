@@ -468,13 +468,27 @@ impl ClauseIndex {
     /// The general form of [`Self::table_title`]: `Annex O.3` and `125a` are designations no
     /// `u16` can carry, and an instrument asking *which tables does this tree stand on* has to
     /// take them as the caption writes them.
+    ///
+    /// # An annex's table has two spellings and both are the standard's
+    ///
+    /// A caption reads `Table Annex L.2`; the body of Annex L, five lines above it, reads
+    /// "Table L.1 provides a legend for use in interpreting Table L.2". So the standard writes
+    /// the `Annex ` in the caption and drops it in every cross-reference, and a checker that
+    /// took only the caption's spelling would report the standard's own as a table nobody
+    /// captions — which is what it did to the ledger's §L row on this question's first run.
+    ///
+    /// The fallback runs one way, because that is the way the standard's two spellings differ:
+    /// a citation may omit an `Annex ` the caption carries, never add one it does not.
     #[must_use]
     pub fn designated_table_title(&self, designation: &str) -> Option<&str> {
-        self.text.lines().find_map(|line| {
-            caption_of(line)
-                .filter(|(captioned, _)| *captioned == designation)
-                .map(|(_, title)| title)
-        })
+        let captioned = |wanted: &str| {
+            self.text.lines().find_map(|line| {
+                caption_of(line)
+                    .filter(|(captioned, _)| *captioned == wanted)
+                    .map(|(_, title)| title)
+            })
+        };
+        captioned(designation).or_else(|| captioned(&format!("Annex {designation}")))
     }
 
     /// Whether `quotation` occurs verbatim in the text of `number`, subclauses included.
@@ -670,6 +684,39 @@ mod tests {
                 .to_owned(),
         );
         assert_eq!(index.title(&number("14.8.4.7.3")), Some("Link elements"));
+    }
+
+    /// An annex's table is captioned with the word `Annex` and cross-referenced without it,
+    /// both by the standard, five lines apart in Annex L.
+    ///
+    /// The tree writes both spellings for that reason, and a checker taking only the caption's
+    /// called the standard's own a table nobody captions.
+    #[test]
+    fn an_annexs_table_answers_to_the_caption_and_to_the_standards_cross_reference() {
+        let index = ClauseIndex::parse(
+            "## Annex L\nTable L.1 provides a legend for use in interpreting Table L.2.\n\n\
+             ## Table Annex L.1 -Legend for Table L.2\nrows\n"
+                .to_owned(),
+        );
+        assert_eq!(
+            index.designated_table_title("Annex L.1"),
+            Some("Legend for Table L.2")
+        );
+        assert_eq!(
+            index.designated_table_title("L.1"),
+            Some("Legend for Table L.2"),
+            "the standard's own cross-reference drops the `Annex `"
+        );
+        assert_eq!(
+            index.designated_table_title("Annex L.9"),
+            None,
+            "the fallback adds a prefix the caption may carry; it invents no caption"
+        );
+        assert_eq!(
+            index.designated_table_title("L.2"),
+            None,
+            "a designation the body merely mentions is not a caption"
+        );
     }
 
     #[test]

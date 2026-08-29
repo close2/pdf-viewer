@@ -9,7 +9,8 @@
 //! document "extends the elliptic curve digital signature support in Table 260 to add support for
 //! more recent ECDSA curves, as defined in IETF RFCs 5639 and 6932, and to add support for
 //! Edwards-curve Digital Signature Algorithm (EdDSA) based digital signatures as defined in IETF
-//! RFC 8419" — and its section 5.1.3's Table 3 enumerates six, with the digests each admits: P-256
+//! RFC 8419" — and ISO/TS 32002 Table 3, in section 5.1.3, enumerates six, with the digests each
+//! admits: P-256
 //! (SHA-256, SHA3-256), P-384 (SHA-384, SHA3-384), P-521 (SHA512, SHA3-512), brainpoolP256r1,
 //! brainpoolP384r1 and brainpoolP512r1. The Edwards pair is a different group law and lives in
 //! [`crate::eddsa`].
@@ -101,11 +102,11 @@ use ecdsa::elliptic_curve;
 /// about the packages rather than about the standard — see the module documentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Curve {
-    /// Table 3's "P-256", RFC 5912's `secp256r1` — `1.2.840.10045.3.1.7`.
+    /// ISO/TS 32002 Table 3's "P-256", RFC 5912's `secp256r1` — `1.2.840.10045.3.1.7`.
     P256,
-    /// Table 3's "P-384", RFC 5912's `secp384r1` — `1.3.132.0.34`.
+    /// ISO/TS 32002 Table 3's "P-384", RFC 5912's `secp384r1` — `1.3.132.0.34`.
     P384,
-    /// Table 3's "P-521", RFC 5912's `secp521r1` — `1.3.132.0.35`.
+    /// ISO/TS 32002 Table 3's "P-521", RFC 5912's `secp521r1` — `1.3.132.0.35`.
     P521,
 }
 
@@ -207,8 +208,11 @@ impl Curve {
 
     /// The field width in bits, which is what a report calls the key's size.
     ///
-    /// Table 260 states a ceiling in bits for RSA and DSA and states none for this family — ISO/TS
-    /// 32002 Table 3 names curves instead — so this is the curve's own width and not a limit.
+    /// Table 260 states a ceiling in bits for RSA and DSA and states none for this family —
+    /// ISO/TS 32002 Table 3 names curves instead — so this is the curve's own width and not a
+    /// limit. The document's name is kept on the table's own line because the conformance
+    /// checker reads a line at a time, so a reference broken between the two resolves against
+    /// ISO 32000-2's Table 3 — the escape sequences in literal strings — in silence (ADR 0760).
     #[must_use]
     pub fn bits(self) -> usize {
         match self {
@@ -698,7 +702,7 @@ mod tests {
     ///
     /// The constants are `const_oid`'s — a second party's reading of the registries that assign
     /// them — so what this checks is that [`crate::x509::dotted`] decodes the same encoding the
-    /// same way, in both directions, for all six of Table 3's curves.
+    /// same way, in both directions, for all six of ISO/TS 32002 Table 3's curves.
     #[test]
     fn the_curve_identifiers_decode_to_the_numbers_the_constants_state() {
         for curve in [Curve::P256, Curve::P384, Curve::P521] {
