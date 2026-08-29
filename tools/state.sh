@@ -321,6 +321,8 @@ Query:Caret|not a debt|a delegation. Both native hosts place a real GtkEntry or 
 Query:Offset|not a debt|the same delegation: a click placing the cursor inside a toolkit's own entry is the toolkit's arithmetic.
 Query:FieldSelection|not a debt|the same delegation: a drag selecting inside a toolkit's own entry is the toolkit's, and Ctrl+C in it is the toolkit's binding (ADR 0519).
 Query:FreeTextAt|a debt, named and refused out loud|§12.5.6.6's free-text drag is `t` in viewer_host::keys and both native hosts refuse it by name (ADR 0526), because authoring that annotation is a drag mode plus an editor. doc/todo/33's, not this file's.
+Command:View|not a debt, and the reason is this section's own exclusion|a window that keeps the viewer in its own process never loses the view, so it has nothing to put back. The pair exists for a host whose worker can die under it: pdf-viewer-confined asks Query::View per frame and echoes the answer back as this, so that a restarted worker resumes where the reader was rather than at page one (ADRs 0734, 0737). That window is deliberately not in this section's population — it is a second window in viewer-ui's crate — which is why a variant one real window does reach reads here as reached by nobody. Closing this line means a *counted* window gaining a worker it can lose.
+Query:View|not a debt, and the same exclusion|the question half of the pair above, and not answerable from Query::PageGeometry: recovering a magnification from that answer's scale needs a division this crate refuses to round-trip in `f32`, and inverting its origin would be a host holding a second opinion about the layout arithmetic. Asked per frame by pdf-viewer-confined, which this section does not count.
 READING
 }
 
@@ -408,12 +410,29 @@ section_disk() {
     # Asked for rather than written down: a worktree round has a `target-dir` of its own, and the
     # literal path this used to carry reported the *main* tree's directory from inside every one of
     # them (trap 15). `tools/round.sh` has derived it all along.
-    local built
+    local built root
     built=$(cargo metadata --no-deps --format-version 1 2>/dev/null |
             grep -oE '"target_directory":"[^"]+"' | head -1 | cut -d'"' -f4)
     [ -n "$built" ] || built=target
     du -sh "$built" 2>/dev/null
     du -sh "$built/tmp/pdfref-cache" 2>/dev/null
+    # And the root all of them sit in, because that is what `doc/todo/02` §5a's hundred gigabytes
+    # is about and this section could not see it. The line above is deliberately the *round's own*
+    # directory and stays — from a worktree it is a few hundred megabytes, which answers "what did
+    # I build" and reads, wrongly, as an answer to "is the disk full". The two are one line apart
+    # now rather than two orders of magnitude apart in silence (ADR 0752).
+    #
+    # The root is the parent of the round's own directory, which is a convention rather than a
+    # derivation — so three things have to hold before it is worth printing, and in an ordinary
+    # clone none of them does: the build directory has to sit *outside* the checkout (otherwise
+    # the parent is the repository and its size is a fact about the source), and the parent has
+    # to hold more than the one directory. `tools/worktree.sh list` breaks the figure down by
+    # whose each directory is.
+    root=$(dirname "$built")
+    if [ "$root" != "." ] && [ "$root" != "$(git rev-parse --show-toplevel 2>/dev/null)" ] &&
+       [ "$(find "$root" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)" -gt 1 ]; then
+        du -sh "$root" 2>/dev/null
+    fi
 }
 
 all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
