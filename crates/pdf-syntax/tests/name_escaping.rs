@@ -154,6 +154,24 @@ fn a_written_name_is_one_token_however_the_name_is_spelled() {
     }
 }
 
+/// The one byte pair this writer escapes by choice rather than by rule, pinned as a choice.
+///
+/// §7.2.3 makes `{` and `}` delimiters only inside a type 4 PostScript calculator function, so in
+/// a name they are regular characters and rule b) — "shall be written as itself **or** by using
+/// its 2-digit hexadecimal code" — leaves the writer both. It writes the code, so that a reader
+/// holding Table 2's ten delimiters unconditionally reads back the name this program meant. The
+/// reader here is this tree's own, which no longer holds them that way, and it agrees either way:
+/// what the assertion pins is the *spelling*, which is where the choice lives.
+#[test]
+fn a_brace_in_a_name_is_written_as_its_hexadecimal_code_by_choice() {
+    let name = Name::new(b"curly{braces}".to_vec());
+    assert_eq!(name.escaped(), "curly#7Bbraces#7D");
+    assert_eq!(read_back(&name.escaped()), name.as_bytes());
+    // And the raw spelling rule b) also permits is one this tree's reader answers with the same
+    // name, which is what makes the choice a choice rather than a repair.
+    assert_eq!(read_back("curly{braces}"), name.as_bytes());
+}
+
 /// §7.3.5's own sentence, at the writer: two names that are not an exact binary match are two
 /// names, so their written forms differ too.
 ///

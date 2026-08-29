@@ -21,13 +21,26 @@ mod class {
         matches!(byte, 0 | b'\t' | b'\n' | 0x0c | b'\r' | b' ')
     }
 
-    /// The nine delimiter characters.
+    /// The eight delimiter characters a byte of PDF syntax can be one of.
+    ///
+    /// ISO 32000-2 §7.2.3's Table 2 lists ten, and the two it lists beyond these are conditional
+    /// rather than general — the clause says so in the sentence that introduces the table:
+    ///
+    /// > The delimiter characters { and } (LEFT CURLY BRACE (7Bh) and RIGHT CURLY BRACE (7Dh))
+    /// > are additional delimiter characters within Type 4 PostScript calculator functions
+    /// > (see 7.10.5 "Type 4 (PostScript calculator) functions").
+    ///
+    /// Errata Collection 3's Issue #365 writes that condition into the table itself, as a
+    /// footnote on the `{` and `}` rows saying they are *additional delimiter characters only
+    /// within Type 4 PostScript calculator functions* — so outside such a program the two are
+    /// **regular** characters, and `/A{B}` is one name rather than a name and three tokens.
+    ///
+    /// This predicate is therefore the general classification and nothing here lexes a type 4
+    /// program: `pdf_model::function::compile_postscript` tokenises one itself, where the two
+    /// braces do delimit. `doc/errata-read.md` has the erratum with its rectangles.
     #[must_use]
     pub const fn is_delimiter(byte: u8) -> bool {
-        matches!(
-            byte,
-            b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%'
-        )
+        matches!(byte, b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'/' | b'%')
     }
 
     /// Which of the 256 byte values are regular, decided at compile time by the two
@@ -35,11 +48,14 @@ mod class {
     ///
     /// **A table because of what the predicates compile to in a per-byte loop.** The two
     /// `matches!` above are a dozen instructions together: the whitespace set fits one
-    /// 64-bit mask, the delimiters straddle 37 to 125 and need two — and `read_regular_run`
+    /// 64-bit mask, the delimiters straddled 37 to 125 and needed two — and `read_regular_run`
     /// asks the question once per byte of every token. On `doc/todo/44`'s witness, one page
     /// of 141 MiB carrying 20.8 million tokens, that function alone was **15.57%** of
     /// interpreting the page, at about seventeen instructions a byte; against a table it is
-    /// a load and a test. ADR 0370 has the A/B.
+    /// a load and a test. ADR 0370 has the A/B, and it was taken when the delimiter set still
+    /// held the two braces: dropping those narrows it to 37 through 93, so the predicate this
+    /// table replaces is cheaper than the one that was measured. The table stays on the
+    /// measurement that exists rather than on an argument about masks.
     ///
     /// The classification is still stated exactly once, in the two predicates: this is
     /// their answer, tabulated, not a second copy of §7.2.3's sets.
@@ -100,10 +116,6 @@ pub enum Token<'a> {
     DictOpen,
     /// `>>`
     DictClose,
-    /// `{`, used only in type 4 (PostScript calculator) functions.
-    BraceOpen,
-    /// `}`
-    BraceClose,
     /// A bare keyword such as `obj`, `endobj`, `stream`, `true`, `xref`, borrowed from
     /// the input it was lexed from.
     ///
@@ -211,14 +223,6 @@ impl<'a> Lexer<'a> {
             b']' => {
                 self.position = self.position.saturating_add(1);
                 Some(Token::ArrayClose)
-            }
-            b'{' => {
-                self.position = self.position.saturating_add(1);
-                Some(Token::BraceOpen)
-            }
-            b'}' => {
-                self.position = self.position.saturating_add(1);
-                Some(Token::BraceClose)
             }
             b'/' => {
                 self.position = self.position.saturating_add(1);
@@ -1307,6 +1311,28 @@ mod tests {
                 Token::ArrayOpen,
                 Token::ArrayClose
             ]
+        );
+    }
+
+    /// §7.2.3's two conditional delimiters, outside the one condition that makes them delimit.
+    ///
+    /// Table 2 lists ten delimiter characters and the clause's own sentence scopes two of them to
+    /// type 4 PostScript calculator functions, which nothing lexed here is — so `{` and `}` are
+    /// regular characters and end no token. What that decides is a *name*: `/A{B}` is one name of
+    /// four bytes, where a lexer holding Table 2's list unconditionally reads a two-byte name and
+    /// three tokens after it, and the two readings disagree about the key a dictionary states.
+    #[test]
+    fn a_brace_is_a_regular_character_outside_a_type_4_program() {
+        assert_eq!(
+            tokens(b"/A{B} 1"),
+            vec![Token::Name(b"A{B}".to_vec()), Token::Integer(1)]
+        );
+        // The same bytes a type 4 program is made of, lexed here: one run apiece, because the
+        // braces join their neighbours instead of standing alone. `pdf_model::function` splits a
+        // program itself and is the only place the other reading is the right one.
+        assert_eq!(
+            tokens(b"{2 mul}"),
+            vec![Token::Keyword(b"{2"), Token::Keyword(b"mul}")]
         );
     }
 

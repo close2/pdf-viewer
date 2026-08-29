@@ -1989,6 +1989,12 @@ fn rewrite(program: &[Instruction], folds: &[(usize, usize, Value)]) -> Vec<Inst
 /// with braces also delimiting `if` and `ifelse`'s expressions. Braces are therefore spaced
 /// apart from their neighbours before the split, since §7.2.3 makes them delimiters rather
 /// than white space — `{2 mul}` is three tokens.
+///
+/// **That sentence of §7.2.3 is about this function and nowhere else**, which is why the split
+/// is here rather than in `pdf_syntax::Lexer`: the two braces are additional delimiters *within
+/// Type 4 PostScript calculator functions*, and the general lexer therefore treats them as the
+/// regular characters they are everywhere else (`pdf_syntax::lexer::is_delimiter`). A type 4
+/// program is the one place in a document where they delimit, and it does not reach that lexer.
 fn compile_postscript(source: &[u8]) -> Result<Vec<Instruction>, FunctionError> {
     /// Bounds the program, so a hostile stream cannot compile to an enormous list.
     const MAX_INSTRUCTIONS: usize = 1 << 16;

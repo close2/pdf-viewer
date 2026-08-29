@@ -404,12 +404,25 @@ on the four words "the same as the". `overlaps` now asks for one segment quoting
   `conformance::quote::quoted_spans` opens a span only after a space or a bracket and closes one
   only before a space or ordinary punctuation, and stops at a double quotation mark so that
   §9.4.3's operator names cannot swallow what follows them. ADR 0375.
-- **The remaining populations nothing reads at all**, now that four are read: a quotation in a
-  Markdown file under `doc/`, and a quotation of a *table cell* rather than of prose. The first is
-  the larger — this file, `doc/HANDOVER.md`, `doc/todo/` and the ADRs quote the standard
-  constantly and no instrument compares any of it. Counting it is a round's work and is not owed
-  until somebody has a reason to think it is wrong; the reason the four unchecked populations were
-  each swept is that the first sweep of each found something.
+- ~~**The remaining populations nothing reads at all**: a quotation in a Markdown file under
+  `doc/`, and a quotation of a *table cell* rather than of prose.~~ **Both are read, and this
+  bullet outlived its truth by long enough that two rounds found it stale before one corrected
+  it.** `--bin quotations` — the sweep, not a gate — names the first population in its own opening
+  sentence ("every Markdown document this project wrote — `doc/*.md`, `doc/todo/`,
+  `doc/history/` and the ADRs"), sweeps it beside the ledger's notes, and ends every run with the
+  count of documents it read, so a clean run says what it was clean over — and `spec-errata`'s own
+  `document_landings` has been landing *errata* on that same population since the
+  four-hundred-and-seventy-fourth session, which `doc/todo/48` records as its sixth. The second is read by
+  construction rather than by a second instrument: `conformance::prose::Conversion` joins all
+  fourteen conversions into **one** body of normalised text, and `doc/md/` renders the standard's
+  tables as Markdown rows inside it, so a quotation lying within one cell is looked for exactly as
+  a quotation of prose is. What is still outside the comparison is narrow and worth stating in its
+  place: a quotation that *spans* two cells, since the `|` between them survives the fold and no
+  quotation contains one.
+
+  The reason it stood is the reason it is written down here: this bullet is a claim about the
+  *instruments*, and it decays exactly the way a ledger row's claim about the tree does — with
+  nothing watching it, because the sweeps sweep the ledger and not this file.
 
 ## Two more copies of one struck sentence, found in the four-hundred-and-twenty-ninth
 
@@ -2270,3 +2283,103 @@ because the temptation is to use it for more.
   here and was not before. What this rule has left to find still sits almost entirely on rows
   claiming to owe nothing, and this round is a witness for that: two of its three paying issues
   landed on `implemented` rows and the third on a pair of `partial` ones.
+
+## The two braces that only delimit inside a type 4 program, and a ranking that ran out a second time — the eight-hundred-and-nineteenth
+
+The successor rule's seventeenth use, and **step 5's third outing, on which step 5 went flat too**.
+Both row rankings top out at two annotations again — six rows tied there over the live rows, 30 over
+every row with 17 more at one — and the ranking by **issue**, which discriminated a head of four
+against a floor of one at the sixteenth use, now tops out at two as well with 33 issues tied there
+and 23 at one. What chose the reading is the third use's tie-break, which is what chose it last time
+too: a cell ahead of a word in prose, and within the cells the requirement level first.
+
+Every placement below is the caret's or strikeout's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top —
+which is what `mutool run`'s `getBounds` prints for these annotations as well.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§12.3.3, Table 151's `/Prev` and `/Next`** | 460 | #139 | **cites — and it re-prices a guard rather than moving a line** | Two bare `Caret`s, `Review/Completed`, `check`'s fourth blindness. `[431.953 252.941 439.906 259.421]` — (582.5)–(589.0) from the top, centred at x 435.9, where the `level;` that `-bbox` puts at 412.2–433.8 ends on the `/Prev` row — writes *shall not be present on the first item at each level;*. `[429.989 216.941 437.942 223.421]` — (618.5)–(625.0), centred at 434.0 after the `level;` at 410.4–431.9 on the `/Next` row — writes *shall not be present on the last item at each level;*. Each cell already required the entry "for all but the first/last item at each level"; the erratum makes its absence a prohibition rather than the absence of an obligation. `outline.rs` walks `/First` and `/Next` alone and stops where `/Next` is absent, so nothing moves — and what changes is the standing of its cycle guard, which was the handling of a ring a producer was free to write and is now the repair of a file the standard calls non-conforming, in the shape §8.4.3.5's miter floor took at the fifteenth use of a different instrument. |
+| **§7.2.3, Table 2's `{` and `}` rows** | 38 | #365 | **implements — the tree held ten unconditional delimiters and the clause states eight** | Two bare `Caret`s, `Review/Completed`, and the *substance is in neither of them*: each says only *See new table footnote (a)*. `[453.94145 549.415 462.42555 556.32797]` — (285.6)–(292.5) from the top, centred at x 458.2, where the `BRACKET` ending Table 2's `{` row at 416.03–458.14 ends on the line `-bbox` puts at (280.0)–(291.7) — and `[460.09815 525.88809 468.0508 532.36807]` — (309.6)–(316.0), centred at 464.1 after the `BRACKET` at 421.94–464.04 on the `}` row at (304.0)–(315.7). The footnote itself is a `Text` annotation at `[73.66896 465.29505 97.66896 489.29505]` under the same `/Subj`, reading *(a) The delimiter characters { and } (LEFT CURLY BRACKET (7Bh) and RIGHT CURLY BRACKET (7Dh)) are additional delimiter characters only within Type 4 PostScript calculator functions (see 7.10.5 "Type 4 (PostScript calculator) functions").* See the finding below. |
+
+### The finding: a delimiter set that was two characters too wide everywhere but in one function
+
+**The clause said it before the erratum did, and the table is what the code was standing on.**
+§7.2.3's own sentence introducing Table 2 reads:
+
+> The delimiter characters { and } (LEFT CURLY BRACE (7Bh) and RIGHT CURLY BRACE (7Dh)) are
+> additional delimiter characters within Type 4 PostScript calculator functions (see 7.10.5 "Type 4
+> (PostScript calculator) functions").
+
+and Table 2 then lists ten rows with no qualification on any of them. Issue #365 puts the
+qualification into the table, on the two rows it belongs to, with the word *only* in it. So the
+published text and the amended text agree, and what the erratum removes is the reading a table
+without a footnote invites — which is the reading this tree had: `pdf_syntax::lexer`'s
+`class::is_delimiter` held all ten for the whole of its life, and §7.2.3's ledger row said so in as
+many words, "Table 2's ten delimiters including the two braces type 4 functions add".
+
+What that decides is a token boundary. Outside a type 4 program `{` and `}` are **regular**
+characters, so `/A{B}` is one name of four bytes where this lexer read a two-byte name and three
+tokens after it — and by §7.3.5 the two readings then name different objects, which is a dictionary
+key found or not found. The fix is the eight general delimiters, and nothing was lost with the two:
+`pdf_model::function::compile_postscript` tokenises a type 4 program **itself**, spacing the braces
+apart before it splits, so the one place in a document where they delimit never reaches this lexer at
+all. `Token::BraceOpen` and `Token::BraceClose` went with them, having become unconstructible.
+
+**The writer keeps escaping both, and that is a choice.** §7.3.5 rule b) — "Any character in a name
+that is a regular character (other than NUMBER SIGN) shall be written as itself or by using its
+2-digit hexadecimal code" — offers a writer both spellings for a regular character, so `Name::escaped`
+may write `{` as itself and instead writes `#7B`. What it buys is that a name this program writes is
+read the same way by a reader still taking Table 2's ten unconditionally, which is how this tree read
+them until this round; what it costs is two bytes in a name almost no document has. Pinned by
+`a_brace_in_a_name_is_written_as_its_hexadecimal_code_by_choice`, which asserts the spelling and then
+asserts that the *other* spelling reads back as the same name — because a choice that is not
+reversible is a repair.
+
+Calibrated per trap 13, above the commit that makes it and in both directions: with the two braces
+put back into `is_delimiter` the lexer's own test fails with `left: [Name([65]), Keyword([66]),
+Integer(1)]` against `right: [Name([65, 123, 66, 125]), Integer(1)]`, and with the escaping exception
+taken out of `Name::escaped` the writer's test fails with `left: "curly{braces}"` against
+`right: "curly#7Bbraces#7D"`.
+
+### Where the collection filed it, and a caret that points instead of saying
+
+Two things about the instruments, and only the second is new.
+
+- **`emit` filed it one clause late**, under §7.2.4 *Comments*, because page 38 opens that heading and
+  ADR 0712's placement rule attributes an annotation by the outline section of its page. Table 2 is
+  §7.2.3's. That is the same mis-filing seven of the fourteenth use's landings had, and it is why the
+  recipe's step 3 says the bucket is a sort order.
+- **A caret's contents can be a cross-reference rather than replacement text**, which nothing here
+  had met before: both of #365's say *See new table footnote (a)* and the footnote is a third
+  annotation, a `Text` under the same `/Subj` on the same page. The rule's population is the
+  strike-or-caret annotations, so the issue ranks correctly and its *content* is not in the ranked
+  annotations at all — a round that read only what the carets say would have learned that Table 2
+  gained a footnote and not what the footnote says. `emit` prints the `Text` lines beside them, so
+  the reading costs nothing extra; what it costs is the assumption that a caret carries an amendment.
+  The near miss is worth stating: an erratum whose *whole* substance is a `Text` annotation is
+  dropped by step 3's own filter, and this one survived because it also has carets.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the eighth consecutive use**: 302 issues
+  carry a strike or a caret under the recipe's own single-issue line parse and **56** are named
+  nowhere — the sixteenth use's 60 less its four verdicts — while the multi-issue parse's 310 and 58
+  reproduce the same way, and the eight numbers that appear only as the second number of a two-issue
+  line are the same eight. The parse the sixteenth use pinned needed no re-derivation, which is what
+  writing it into the recipe was for.
+- **Step 5 went flat one use after it was adopted, and the reason is that the rule decays fastest at
+  its own head.** The sixteenth use read the two issues at four annotations and both at three; what
+  is left is a plateau of 33 at two and a floor of 23 at one, so the issue unit now ranks no better
+  than the row unit did when step 5 was written for it. **A third unit is not the answer** — what
+  chose the head here is the third use's tie-break, working on the *kind* of thing an annotation
+  moves rather than on any count, and it settled 33 exactly as it settled 39 and 2 before. The
+  honest reading is that the rankings have become a filter and the tie-break has become the
+  selector.
+- **A requirement level is the thing most likely to be obeyed already, and the tie-break prefers
+  it.** Two consecutive uses have now put a requirement-level head to a verdict of *confirms* or
+  *cites* while an issue below it paid — the sixteenth's inside an exclusion, this one's on a walk
+  no line of which moved. What paid both times was a cell of another kind: a `/PCSM` shape at the
+  third use, a character's class here. It is not enough to amend the tie-break on, and it is
+  exactly enough to keep step 4's practice in force: head to a verdict, then downward until a row
+  pays.

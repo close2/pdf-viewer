@@ -95,10 +95,18 @@ impl Name {
     /// > (~) should be written using the hexadecimal notation.
     ///
     /// So a byte goes out as itself exactly when it is regular by §7.2.3, lies inside that range,
-    /// and is not the number sign; the nine delimiters, the six white-space bytes, `#` and every
+    /// and is not the number sign; the eight delimiters, the six white-space bytes, `#` and every
     /// byte above 126 go out as `#xx`. Whitespace is not a choice at all — "[w]hitespace used as
     /// part of a name shall always be coded using the 2-digit hexadecimal notation" — and it falls
     /// out of the same test rather than being a second rule.
+    ///
+    /// **The two braces are escaped as well, and that is a choice rather than the rule.** They are
+    /// regular characters outside a type 4 program (§7.2.3, and `lexer::is_delimiter` for the
+    /// erratum that says so in Table 2 itself), so rule b) lets this writer put either out as
+    /// itself — and rule b) equally lets it write the hexadecimal code, which is what it does. The
+    /// cost is two bytes in a name almost no document has; what it buys is that a name this program
+    /// writes is read the same way by a reader that takes Table 2's ten delimiters unconditionally,
+    /// which is how this tree itself read them until the eight-hundred-and-nineteenth session.
     ///
     /// **What comes back is therefore always ASCII**, which is what lets a content stream this
     /// program builds be a `String` while the name inside it is bytes.
@@ -110,7 +118,11 @@ impl Name {
     pub fn escaped(&self) -> String {
         let mut out = String::with_capacity(self.0.len());
         for byte in self.0.iter().copied() {
-            if byte != b'#' && (0x21..=0x7e).contains(&byte) && crate::lexer::is_regular(byte) {
+            if byte != b'#'
+                && !matches!(byte, b'{' | b'}')
+                && (0x21..=0x7e).contains(&byte)
+                && crate::lexer::is_regular(byte)
+            {
                 out.push(char::from(byte));
             } else {
                 // Infallible: a `String` sink never fails, and every byte written here is ASCII.
