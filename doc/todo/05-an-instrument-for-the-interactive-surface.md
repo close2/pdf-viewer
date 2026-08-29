@@ -43,7 +43,10 @@ matched word pairs from the two references on the corpus's first pages: horizont
 essentially exactly, the vertical *extent* of a word box is each library's own convention and is
 excluded from the verdict, vertical *centres* are judged relative to word height, and reading
 order is settled **out** of the geometry verdict because the references answer the order question
-differently from each other. The frame audit that must precede any comparison — MediaBox against
+differently from each other. (The centre half was narrowed by ADR 0759: it is judged only where
+§9.8.1's Table 120 states the band both boxes are built from, because a centre is a baseline plus
+a band and where the file states no band the measure returns the excluded convention rather than
+the position.) The frame audit that must precede any comparison — MediaBox against
 CropBox, `/UserUnit`, `/Rotate`, each found by measurement — is ADR 0323's Finding 1 and trap 3's
 text-domain entry.
 
