@@ -56,7 +56,7 @@ use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
 
-use pdf_syntax::Document;
+use pdf_syntax::{Document, Object};
 
 /// How the comparison scores one page.
 struct Score {
@@ -1095,18 +1095,29 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// # The tail read as a population, in the seven-hundred-and-ninety-first session (ADR 0726)
 ///
 /// Every document here was read against its own content stream and the clause that governs it.
-/// Seven mechanisms, each named with the bound its words fail in the gate's own words:
+/// Seven mechanisms, each named with the bound its words fail in the gate's own words — and
+/// the first of them is off this list since the instrument was taught to see it rather than to
+/// measure it (ADR 0756):
 ///
-/// **§12.7.4.3's layout hand-off** — `annotation-tx.pdf`, `bug1796741.pdf`, `bug1844576.pdf`,
-/// `bug1844583.pdf`, `issue19389.pdf` (all *past the horizontal bound alone* at exactly
-/// 1.00 pt) and `issue12750.pdf` (2.00 pt). All six are `/NeedAppearances true` text fields,
-/// so both readers construct the appearance, and the clause hands the position over:
-/// "positioning values it determines to be appropriate, based on the field value, the quadding
-/// (Q) attribute, and any layout rules it employs". `pdftotext`'s rule, measured from the
-/// `/Rect` (its word xMin sits 2.000 pt in on the four with no `/BS`, 3.000 pt on
-/// `issue12750.pdf`'s `/BS /W 1`), is the `/BS` width plus 2 pt; this tree's is §12.5.4's
-/// border width alone, so the text clears the border it draws and nothing else. Two layout
-/// rules under an explicit hand-off, and the delta is exactly their difference on every word.
+/// **~~§12.7.4.3's layout hand-off~~ — off this list since [`placed_by_this_processor`], and it
+/// is the diagnosis that was already written here acted on.** `annotation-tx.pdf`,
+/// `bug1796741.pdf`, `bug1844576.pdf`, `bug1844583.pdf`, `issue19389.pdf` (all *past the
+/// horizontal bound alone* at exactly 1.00 pt) and `issue12750.pdf` (2.00 pt) were
+/// `/NeedAppearances true` text fields, so both readers construct the appearance, and the clause
+/// hands the position over: "positioning values it determines to be appropriate, based on the
+/// field value, the quadding (Q) attribute, and any layout rules it employs". `pdftotext`'s
+/// rule, measured from the `/Rect` (its word xMin sits 2.000 pt in on the four with no `/BS`,
+/// 3.000 pt on `issue12750.pdf`'s `/BS /W 1`), is the `/BS` width plus 2 pt; this tree's is
+/// §12.5.4's border width alone, so the text clears the border it draws and nothing else. Two
+/// layout rules under an explicit hand-off, and the delta is exactly their difference on every
+/// word.
+///
+/// **`issue16021.pdf` was the seventh and was filed a paragraph down.** It is a `/FreeText`
+/// with no `/AP` whose page states an empty `/Resources`, so its "Hello World" is the whole of
+/// the page's text and §12.7.4.3 places all of it; this list had it under a font-metric
+/// convention. A hand-off is a property of *who placed the word*, and a class read off the
+/// measure alone cannot see it — which is why the set-aside is derived from the file rather
+/// than from the delta (ADR 0756).
 ///
 /// **Table 120's pair obeyed against this tree's refusal** — `bug868745.pdf` (`/Ascent 8
 /// /Descent -2`), `issue1350.pdf` (`/Ascent 9.464 /Descent -2.73`), `issue4665.pdf`
@@ -1117,10 +1128,9 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// inherits the extent disagreement when one box collapses or balloons, which is Finding 3's
 /// convention-against-convention arriving in the judged measure.
 ///
-/// **No stated pair at all** — `issue16021.pdf` (standard-14 Helvetica, no descriptor, centre
-/// 0.51) and `issue6605.pdf` (Type 3, centres 0.58–0.67), *past the vertical centre alone* at
-/// 0.00 pt horizontal: the em box against the reference's own font-derived box, the same
-/// convention difference one notch smaller.
+/// **No stated pair at all** — `issue6605.pdf` (Type 3, centres 0.58–0.67), *past the vertical
+/// centre alone* at 0.00 pt horizontal: the em box against the reference's own font-derived box,
+/// the same convention difference one notch smaller.
 ///
 /// **§9.7.5.1's vertical writing mode, now judged in its reading frame** — `vertical.pdf`
 /// (both reading-axis edges 9.21 pt): the embedded font agrees about every position and what
@@ -1152,22 +1162,15 @@ const VERTICAL_CENTRE_BOUND: f64 = 0.5;
 /// space advance at the line's 12 pt — from where **both** references put them (`pdftotext`'s
 /// xMin 165.12, `mutool`'s 165.117), so the two independent readers agree against this tree
 /// and no convention explains it. The line mixes four fonts with `Tc` kerning between them.
-const SELECTION_BELOW_FLOOR: [&str; 21] = [
+const SELECTION_BELOW_FLOOR: [&str; 14] = [
     "TrueType_without_cmap.pdf",
-    "annotation-tx.pdf",
     "bug1771477.pdf",
-    "bug1796741.pdf",
-    "bug1844576.pdf",
-    "bug1844583.pdf",
     "bug868745.pdf",
     "issue11555.pdf",
-    "issue12750.pdf",
     "issue1350.pdf",
     "issue14497.pdf",
-    "issue16021.pdf",
     "issue18099_reduced.pdf",
     "issue1905.pdf",
-    "issue19389.pdf",
     "issue20232.pdf",
     "issue2391-2.pdf",
     "issue4665.pdf",
@@ -1183,7 +1186,14 @@ const SELECTION_BELOW_FLOOR: [&str; 21] = [
 /// this tree read fewer words — would shrink the denominator and leave the verdict above looking
 /// unmoved. 508 in the five-hundred-and-eighty-sixth session, 507 in the four-hundred-and-ninety-
 /// eighth; it may rise, and a rise is written down here.
-const JUDGED_FLOOR: usize = 508;
+///
+/// **It fell once, by argument rather than by attrition**, when [`placed_by_this_processor`]
+/// arrived: five documents' every unique match was a field value §12.7.4.3 tells each processor
+/// to place for itself, so there was no file-placed word left on any of them for this instrument
+/// to be about. They are refused by name — `every unique match is a value §12.7.4.3 placed` — and
+/// counted in the printed refusal table like any other, which is what makes the fall legible as
+/// itself. A fall for any *other* reason is what this ratchet is still for.
+const JUDGED_FLOOR: usize = 503;
 
 /// One point per axis before two statements of the page's frame count as the same frame.
 ///
@@ -1224,6 +1234,24 @@ impl WordBox {
 
     fn centre_y(&self) -> f64 {
         f64::midpoint(self.y0, self.y1)
+    }
+
+    /// Whether this word's centre falls inside one of the rectangles given, in the same frame.
+    ///
+    /// **The centre and not the whole box**, measured both ways. A field's value is routinely
+    /// drawn larger than the rectangle it is drawn in — `issue12750.pdf`'s 10 pt `/DA` in a
+    /// 13.9 pt `/Rect` puts the glyph quad's top 0.53 pt above it, `issue19389.pdf`'s 12 pt
+    /// `/DA` in an 11.1 pt one puts it 3.4 pt above — because §12.7.4.3 clips the value to the
+    /// box rather than shrinking it, and the readback's quad is the font's ascent-to-descent
+    /// band whatever the clip then does to the ink. Whole-box containment therefore answers
+    /// *does this value fit its field*, which is a different question and one no bound here
+    /// asks; the centre answers the question this set-aside is about, which is whether the word
+    /// was drawn by an appearance §12.7.4.3 had this processor place.
+    fn centred_within_any(&self, rectangles: &[[f64; 4]]) -> bool {
+        let (cx, cy) = (f64::midpoint(self.x0, self.x1), self.centre_y());
+        rectangles
+            .iter()
+            .any(|[x0, y0, x1, y1]| cx >= *x0 && cx <= *x1 && cy >= *y0 && cy <= *y1)
     }
 
     /// The same box with its axes exchanged, which is how a vertically-set word enters the
@@ -1796,6 +1824,121 @@ fn extraction_cache() -> ExtractionCache {
 /// because a refusal costs the instrument a document and that arithmetic is trap 11's.
 type Refusal = &'static str;
 
+/// The rectangles on a page whose text §12.7.4.3 has **this processor** place, in the
+/// reference frame.
+///
+/// # Why an instrument about placement has to know about these
+///
+/// [`HORIZONTAL_BOUND`] is derived from two references agreeing about §9.4.4's positioning
+/// arithmetic to a hundredth of a point, and that agreement is only available where both of
+/// them are reading a *file's* `Tm`. §12.7.4.3 describes the other case, in which no file
+/// states where the glyphs go:
+///
+/// > In such cases, the PDF document cannot provide a statically defined appearance stream for
+/// > displaying the field. Instead, the PDF processor shall construct an appearance stream
+/// > dynamically at rendering time.
+///
+/// and then hands the positions over in as many words — the processor shall replace a `Tm`'s
+/// translation components
+///
+/// > with positioning values it determines to be appropriate, based on the field value, the
+/// > quadding ( Q ) attribute, and any layout rules it employs.
+///
+/// What the clause *does* fix is the box: `/BBox`'s lower-left corner is the origin and "[t]he
+/// box's top and right coordinates are taken from the dimensions of the annotation rectangle".
+/// It states no margin inside that box, and "any layout rules it employs" is where a margin
+/// comes from. So two conforming processors may put a field's value at two different points on
+/// the page and neither is wrong, which makes a tolerance derived from their agreement about
+/// something else the wrong instrument to point at them.
+///
+/// # What the condition is, and why it is the instrument's rather than the interpreter's
+///
+/// A word here is set aside when it sits inside the `/Rect` of an annotation whose appearance
+/// this document does not fix: Table 224's `/NeedAppearances`, "a flag specifying whether to
+/// construct appearance streams and appearance dictionaries for all widget annotations in the
+/// document", or an annotation that states no `/AP` at all and therefore leaves §12.5.5's
+/// stream to be built (§12.5.6.19 for a widget, §12.5.6.6 for free text).
+///
+/// `pdf_model::appearance::regenerates` is the interpreter's own narrower answer — it excludes
+/// the three field types §12.7.4.3 lays out no text for — and it is deliberately not the
+/// condition used here, because it is not reachable from a test and because a *wider* set is
+/// the safe direction for a set-aside: it can only take matched words out of the verdict, never
+/// put agreement into it. The count it takes out is printed for exactly that reason (trap 11).
+fn placed_by_this_processor(
+    document: &Document,
+    page: &pdf_model::Page,
+    frame: &Frame,
+) -> Vec<[f64; 4]> {
+    let form = document
+        .catalog()
+        .ok()
+        .map(|catalog| document.get_key(&catalog, "AcroForm"));
+    let need_appearances = form.as_ref().and_then(Object::as_dict).is_some_and(|form| {
+        matches!(
+            document.get_key(form, "NeedAppearances"),
+            Object::Boolean(true)
+        )
+    });
+
+    let annotations = document.get_key(&page.dict, "Annots");
+    let Some(entries) = annotations.as_array() else {
+        return Vec::new();
+    };
+    // §7.7.3.3 Table 31 puts `/Annots` in default user space, and the display list is a
+    // translation, a quarter turn and a scale away from it — so the transform the interpreter
+    // itself applied is asked for rather than rebuilt, and two opposite corners carry a
+    // rectangle through it (§7.9.5: a rectangle's corners "can be given in any order").
+    let base = pdf_model::content::page_transform(page);
+    let mut boxes = Vec::new();
+    for entry in entries {
+        let object = document.resolve(entry);
+        let Some(annotation) = object.as_dict() else {
+            continue;
+        };
+        let subtype = document.get_key(annotation, "Subtype");
+        let widget = subtype.as_name().is_some_and(|name| *name == "Widget");
+        let free_text = subtype.as_name().is_some_and(|name| *name == "FreeText");
+        if !widget && !free_text {
+            continue;
+        }
+        let appearance = document.get_key(annotation, "AP");
+        let stated = appearance
+            .as_dict()
+            .is_some_and(|ap| !matches!(document.get_key(ap, "N"), Object::Null));
+        if stated && !(widget && need_appearances) {
+            continue;
+        }
+        let rect = document.get_key(annotation, "Rect");
+        let Some(corners) = rect.as_array() else {
+            continue;
+        };
+        let [x0, y0, x1, y1] = match corners {
+            [a, b, c, d] => match (a.as_number(), b.as_number(), c.as_number(), d.as_number()) {
+                (Some(a), Some(b), Some(c), Some(d)) => [a, b, c, d],
+                _ => continue,
+            },
+            _ => continue,
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a rectangle the file states in f32-precision numbers, carried through an \
+                      f32 transform because that is the one the interpreter applied"
+        )]
+        let corner = |x: f64, y: f64| {
+            let point = base.apply(pdf_render::Point::new(x as f32, y as f32));
+            frame.reference_point(f64::from(point.x), f64::from(point.y))
+        };
+        let (low, high) = (corner(x0, y0), corner(x1, y1));
+        boxes.push([
+            low.0.min(high.0),
+            low.1.min(high.1),
+            low.0.max(high.0),
+            low.1.max(high.1),
+        ]);
+    }
+    boxes
+}
+
 /// Runs one extractor over one page through the cache, folding failure kinds into refusals.
 fn extracted(
     cache: &ExtractionCache,
@@ -1849,6 +1992,10 @@ enum Contribution {
         /// fraction, kept as the two counts so the caller can aggregate honestly.
         matched: usize,
         reference_words: usize,
+        /// Matched words dropped from `pairs` because §12.7.4.3 placed them rather than the
+        /// file — see [`placed_by_this_processor`]. Counted so that a set-aside cannot grow
+        /// silently: it is the same arithmetic as a refusal, one grain finer.
+        delegated: usize,
     },
 }
 
@@ -1895,16 +2042,31 @@ fn judge_against_poppler(path: &Path, cache: &ExtractionCache, work_dir: &Path) 
     }
     let matched = paired.len();
     let reference_words = reference.words.len();
+    let delegated_boxes = placed_by_this_processor(&document, &page, &frame);
+    let mut delegated = 0usize;
+    let pairs: Vec<(String, PairDelta)> = paired
+        .iter()
+        .filter(|(ours, _)| {
+            let set_aside = ours.centred_within_any(&delegated_boxes);
+            delegated += usize::from(set_aside);
+            !set_aside
+        })
+        .filter_map(|(ours, reference)| {
+            PairDelta::in_reading_frame(ours, reference).map(|delta| (ours.text.clone(), delta))
+        })
+        .collect();
+    // A page whose every unique match was a field's value has nothing left for this instrument
+    // to judge, and scoring it 0 of 0 would put it in the out-of-bounds list on an empty
+    // population. It is a refusal, named and counted with the others.
+    if pairs.is_empty() && delegated > 0 {
+        return Contribution::Refused("every unique match is a value §12.7.4.3 placed");
+    }
     Contribution::Judged {
         name,
-        pairs: paired
-            .iter()
-            .filter_map(|(ours, reference)| {
-                PairDelta::in_reading_frame(ours, reference).map(|delta| (ours.text.clone(), delta))
-            })
-            .collect(),
+        pairs,
         matched,
         reference_words,
+        delegated,
     }
 }
 
@@ -1948,6 +2110,8 @@ fn the_word_boxes_we_place_agree_with_the_references() {
 
     let mut refusals: BTreeMap<Refusal, usize> = BTreeMap::new();
     let mut judged = 0usize;
+    // Matched words §12.7.4.3 placed rather than the file, and the documents they came from.
+    let (mut set_aside, mut documents_with_a_set_aside) = (0usize, 0usize);
     let (mut pairs_total, mut pairs_in_bounds) = (0usize, 0usize);
     let mut horizontal: Vec<f64> = Vec::new();
     let mut relative_centres: Vec<f64> = Vec::new();
@@ -1964,8 +2128,11 @@ fn the_word_boxes_we_place_agree_with_the_references() {
                 pairs,
                 matched,
                 reference_words,
+                delegated,
             } => {
                 judged += 1;
+                set_aside += delegated;
+                documents_with_a_set_aside += usize::from(delegated > 0);
                 #[expect(
                     clippy::cast_precision_loss,
                     reason = "word counts on one page are far below f64's exact integer limit"
@@ -2062,6 +2229,13 @@ fn the_word_boxes_we_place_agree_with_the_references() {
     for (reason, count) in &refusals {
         println!("  {count:4}  {reason}");
     }
+    // The same arithmetic one grain finer: a set-aside word leaves no document off the judged
+    // set, so it would otherwise vanish between the judged count and the verdict.
+    println!(
+        "  {set_aside} matched word(s) over {documents_with_a_set_aside} judged document(s) set \
+         aside as §12.7.4.3's, which fixes the box and leaves the position to \"any layout \
+         rules it employs\""
+    );
     #[expect(
         clippy::cast_precision_loss,
         reason = "corpus word counts are far below f64's exact integer limit"
