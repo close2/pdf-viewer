@@ -2487,8 +2487,9 @@ one did with two of the seven.
 ### The blindnesses are two lists, and this file has been numbering them as one
 
 **This file is where the blindnesses live, and it carries two numberings under one word.** Read in
-order it says *first*, *second*, *third*, *third*, **eighth**, *fifth*, *sixth* — which is not a
-list that lost count. There are two:
+order it says *third*, *first*, *second*, *first*, *third*, *third*, **eighth**, *fourth*, *fifth*,
+*sixth*, with *fourth* recurring three more times after that — which is not a list that lost count.
+There are two:
 
 - **the instruments' list**, which counts what `spec-errata check` and `emit` cannot see: an
   addition over unquoted text, a strike under the four-word floor, a spelling `doc/md/` writes
@@ -2527,3 +2528,147 @@ reason — a claim about the instruments has nothing sweeping it.
   below it paid. A ranking that names a head is not a ranking that names the payment, and the walk
   downward is what the rule is actually made of. The step 6 above is the smallest change that stops
   the walk beginning where it cannot end.
+
+## The base-85 bound a lost superscript hid, and a step that moved the head twice — the eight-hundred-and-twenty-ninth
+
+The successor rule's nineteenth use, and **the first run under step 6**. All three rankings are flat
+for a third consecutive use and the shape has not changed: over live rows 5 rows tie at two
+annotations with 3 at one; over every row 25 tie at two with 17 at one; by **issue**, 24 tie at two
+with 19 at one. That is the eighteenth use's field less its four verdicts, so once again nothing
+about a count discriminated anything.
+
+**Step 6 changed the head, and the answer is not a matter of judgement.** The third use's tie-break
+prefers a requirement level above every other kind of amendment, and in this field exactly one
+issue offers one: #58, whose caret turns a `/Asset` cell's *is also referenced* into *may also be
+referenced*. It is §13.7.2.3.4's, `out-of-scope` under the clause-13 exclusion, and it is the third
+of the three requirement-level substitutions the eighteenth use measured into that exclusion. Under
+step 5 alone the tie-break would have taken it and the round would have opened where it could only
+confirm. Step 6 counts it apart, the requirement-level tier over the ranked column is empty, and the
+head falls to the tier below it — a type in a cell.
+
+**And step 6's own first finding is that its column is only as good as the filing.** The head it
+produced, #679, strikes the type `number` out of a table cell's list of valid argument types and
+writes *real*. That cell is Table 223's, and Table 223 is **§12.6.4.18**'s — a row that is
+`out-of-scope` under the same clause-13 exclusion. `emit` files the pair under §12.7.2 because §12.7
+opens on that page, which is ADR 0712's placement rule doing what step 3 already warns it does; the step reads whichever row `emit` names, so it counted an excluded issue into the ranked column
+and handed it the head. One clause-13 head was exchanged for another, and what caught the second was
+reading it rather than counting it. The column is still worth having — it emptied the tier that had
+sent three consecutive heads into an exclusion — and what it now owes is written under *Three
+things* below.
+
+The payment came at the fourth issue of the walk downward, which is step 4's practice for the fifth
+use running.
+
+Every placement below is the caret's or strikeout's own `/Rect` against `pdftotext -bbox` over
+`doc/ISO_32000-2_sponsored_EC3.pdf`, on pages 841.92 points tall, with `y` measured from the top —
+which is what `mutool run`'s `getBounds` prints for these annotations as well.
+
+| clause | p. | issue | verdict | what it turned out to be |
+|---|---|---|---|---|
+| **§13.7.2.3.4, Table 343's `/Asset` row** | 726 | #58 | **confirms — the column step 6 counts apart, disposed of in minutes** | A `StrikeOut` at `[412.695 595.797 445.248 607.001]`, `Review/Completed`, whose `QuadPoints` corners are at x 415.665–442.278 and y 606.379 and 596.419 — (235.5)–(245.5) from the top — exactly the `is also` that `-bbox` puts at 415.67–442.28 in "a reference to a file specification dictionary that is also referenced in the Assets name tree specified in the RichMediaContent dictionary". A `Caret` at `[438.245 595.871 446.312 602.445]` — (239.5)–(246.0), centred at x 442.3 where that phrase ends — writes *may also be*, and a `Text` under the same `/Subj` adds a NOTE saying the RichMedia asset itself is not referenced by name while other assets reached from it are. A requirement on a producer becomes a permission; the row is `out-of-scope` under the clause-13 exclusion and stays there. `emit` files it under §13.7.2.3.5, page 726 reaching that heading, and the row it names carries the same exclusion — so this is the placement rule missing by one clause without moving the verdict, which is the other half of what the head below shows. **This is the head the tie-break would have taken without step 6**, which is what makes reading it worth the minutes. |
+| **§12.6.4.18, Table 223's `/A` row** | 543 | #679 | **confirms — and it is inside the exclusion `emit`'s filing hid it from** | A `StrikeOut` at `[236.09 561.25888 269.95399 572.93197]`, `Review/Accepted` — (269.0)–(280.7) from the top — over the `number` that `-bbox` puts at 236.09–271.97 in "Valid arguments are objects of type text string, integer, number, or boolean." A `Caret` at `[265.41593 559.7723 274.492 567.1676]` — (274.8)–(282.1), centred at x 270.0 where that word ends — writes *real*. A RichMediaCommand's argument list gains the type §7.3.3 actually names and loses the one it does not, which is the kind of correction that would be worth implementing anywhere else; Table 223 belongs to the rich-media-execute action and its row carries the clause-13 exclusion. |
+| **§7.8.3, Table 34's `/ColorSpace` row** | 128 | #280 | **confirms — the tree already answers every name the erratum adds** | A `StrikeOut` at `[277.836 374.977 416.263 386.182]`, `Review/Completed`, corners at x 280.806–413.293 and y 385.559 and 375.599 — (456.4)–(466.3) from the top — exactly the `device-dependent colour space` that `-bbox` puts at 280.81–413.29 in "maps each resource name to either the name of a device-dependent colour space or an array describing a colour space". A `Caret` at `[409.259 375.051 417.326 381.625]` — (460.3)–(466.9), centred at x 413.3 — writes *colour space with no additional parameters (DeviceGray, DeviceRGB, DeviceCMYK, or Pattern),*. **`Pattern` is the point**: it is not a device space, so the published cell's own words excluded the one bare name §8.7.3.1 most needs a resource entry to be able to hold. `Colour::by_name` answers all four before it ever reaches the resource table, and `parse_at` sends a name-valued entry back through it, so an entry spelled `/Cs1 /Pattern` has always resolved. The cell caught up with the code. |
+| **§8.9.7, Table 91's `Interpolate` row** | 284 | #306 | **confirms — and the letter it disambiguates is a collision this tree already had a comment about** | A `StrikeOut` at `[369.659 592.557 378.826 603.761]`, `Review/Completed`, corners at x 372.629–375.856 — (238.8)–(248.7) from the top — over the `I` of the `I)` that `-bbox` puts at 372.63–379.66 closing the abbreviation cell's "I (uppercase I)". A `Caret` at `[371.822 592.631 379.89 599.205]` — (242.7)–(249.3) — writes *i*, so the parenthesis names the letter instead of repeating it and reads the way Table 92's `Indexed` row has always read. The two rows are the collision: `I` is `Interpolate` as an inline image *key* and `Indexed` as a colour space *family*, one table apart, and `inline_image.rs` keeps them apart in `expand_colour_space_name` with a comment saying which is which. |
+| **§8.2, Table 50's shading-pattern row** | 162 | #80 | **confirms — an operator name misspelt in the table nobody copied from** | A `StrikeOut` at `[211.64 370.057 228.686 381.262]`, `Review/Completed`, corners at x 214.61–225.716 — (461.3)–(471.2) from the top — exactly the `Sh` that `-bbox` puts at 214.61–225.72 on the row whose `Shading patterns` is at 91.94–164.34. A `Caret` at `[221.682 370.131 229.75 376.705]` — (465.2)–(471.8) — writes *sh*. Table 50 is the operator *catalogue*, and the operator is `sh` everywhere the standard defines it; a reader that built its dispatch table from the catalogue rather than from Table 76 would answer nothing to the operator every shading uses. `grep` over `crates`, `tools` and the ledger finds no `Sh` in this tree at all. |
+| **§7.4.3, the three "shall never occur" conditions** | 53 | #98 | **implements — the bound was unreadable on the page and the row claimed to enforce it** | A `StrikeOut` at `[362.985 658.039 402.598 670.459]`, `Review/Completed`, corners at x 366.277–399.306 and y 669.769 and 658.729 — (172.2)–(183.2) from the top — over the `232 - 1` that `-bbox` puts at 366.28–401.57 closing "The value represented by a group of 5 characters is greater than 232 - 1." A `Caret` at `[394.835 658.122 403.777 665.408]` — (176.5)–(183.8), centred at x 399.3 — whose contents are *2^32 - 1 (32 is superscripted)*. See the finding below. `emit` files it under §7.4.4.2, page 53 reaching that heading. |
+
+### The finding: a bound no reader could take off the page, under a row that claimed to enforce it
+
+**§7.4.3 lists three conditions that "shall never occur in a correctly encoded byte sequence", and
+this filter answered one of them.** The list is worth having whole, in the published wording, because
+the first line is the finding:
+
+> - The value represented by a group of 5 characters is greater than 232 - 1.
+> - A z character occurs in the middle of a group.
+> - A final partial group contains only one character.
+
+The exponent is gone, and **it is gone from `doc/md/` and from the ISO PDF's own text layer alike** —
+which is exactly why no instrument in this project could have found it. `spec-errata check` compares
+this tree's quotations against struck passages, and a quotation of "232 - 1" would have matched the
+conversion perfectly; `every_quotation_is_the_standards_own_words` asks `doc/md/` and would have
+agreed. The bound a reader could take off the page was 231, which no five base-85 digits can even
+reach. Issue #98 strikes those characters and writes *2^32 - 1* with the 32 superscripted.
+
+It is a real range and not a rounding corner. Five digits reach 85⁵ − 1 = 4 437 053 124 where four
+bytes hold 4 294 967 295, so about 3% of the five-character groups the alphabet admits name no four
+bytes at all — and `push_ascii85_group` accumulated them in a `u32` with `saturating_mul`, which
+decodes every one of them as four `0xFF` bytes and reports nothing. The third condition was answered
+the same way from the other side: a final group of one character was dropped and the stream called
+whole. Only the second was refused, and by accident of the alphabet test rather than deliberately,
+since `z` is above `u`.
+
+**The ledger row said the opposite, in the eighteenth sweep's own shape.** It read "[a]ll three of
+the clause's 'shall never occur' conditions are refused rather than guessed at" and then listed a
+character outside the range — which is the *sentence above* the bullets, not one of them — the `z`,
+and "a final group of one character yields nothing", which is silence under a claim of refusal. So
+the row overstated by naming three and enumerating two, and the one it left out is the one the page
+could not print.
+
+Both routes answer now, each in the voice ADR 0343 gives it and which this row has carried since the
+seven-hundred-and-fourteenth session: `ascii85` refuses the whole stream, because a prefix of a
+cross-reference table is not a shorter table, and `filter::Ascii85` reports `Damage::Corrupt` over
+the groups it has already handed to a lexer, because a prefix of §7.8.2's sequence of instructions
+is a shorter sequence. The accumulator is a `u64` and the test is `u32::try_from`, since an
+accumulator that saturates inside the type it is being tested against cannot answer the question.
+
+**The two operands are derived rather than chosen**, which is what makes the test a test: `s8W-!` is
+the base-85 spelling of 4 294 967 295 and decodes to four `0xFF` bytes, and `uuuuu` is the five
+maximum digits, 84 × (85⁴ + 85³ + 85² + 85 + 1). Calibrated per trap 13, above the commit that makes
+the change and in both directions for each of the two conditions: with the accumulator put back to a
+saturating `u32` the buffered route answers `None` where the test wants `Some(Corrupt)`; with the
+bound moved one power down to `i32::MAX` the *control* fails and `s8W-!` stops decoding; with the
+one-character refusal removed the second test's buffered assertion fails the same way; and with it
+widened to every partial final group, `a_raw_deflate_stream_behind_an_armour_still_falls_back` and
+`every_pumpable_chain_agrees_with_the_whole_decode` both go red, which is the encoding itself
+failing.
+
+### The blindnesses' index, checked against what the file says
+
+The eighteenth use added the index under load, and one half of it holds and one does not.
+
+**The two lists and their contents are right.** The instruments' six are stated in three places in
+this file — the twelfth use's *now four*, the fifteenth's fifth, the sixteenth's sixth — and the
+index reproduces all six in order and attributes the sixth's closure to `spec-errata renumbered`,
+which is what the sixteenth use's own last paragraph records. The rule's own list of eight, and its
+eighth being step 2's grep unable to tell a use of an issue number from a mention, is what its
+section says.
+
+**The illustrative sequence is not what the file says, and it is missing an entry.** The index reads
+"[r]ead in order it says *first*, *second*, *third*, *third*, **eighth**, *fifth*, *sixth*". Read in
+order the file says *third*, *first*, *second*, *first*, *third*, *third*, **eighth**, *fourth*,
+*fifth*, *sixth* — and *fourth* recurs three more times after that, as the phrase `check`'s fourth
+blindness under four separate verdicts. Dropping it is the one thing the sentence could not afford,
+because *fourth* is the ordinal a reader is most likely to meet: it is the only one of the six that
+is named in the tables rather than in a section of its own. The sequence is corrected in place
+above; no blindness is renumbered, which is the index's own rule and ADR 0232 §2's.
+
+### Three things about the rule itself, from running it
+
+- **The base count reproduced the closing arithmetic for the tenth consecutive use**: 302 issues
+  carry a strike or a caret under the recipe's own single-issue line parse and **50** are named
+  nowhere — the eighteenth use's 54 less its four verdicts — while the multi-issue parse's 310 and
+  52 reproduce the same way over the same eight numbers that appear only as the second number of a
+  two-issue line. The parse pinned into the recipe at the sixteenth use has now needed no
+  re-derivation four times.
+- **The settled/live ratio is a plain subtraction for the third use running**: 35 of the 50 touch
+  only a settled row, 8 touch a live one and 7 land on no row at all, against 37, 10 and 7 one use
+  ago. Two of the eighteenth use's four verdicts were settled-only and two live-touching, and the
+  third column has not moved in four uses. This round is a witness for step 4's preference in its
+  strongest form yet: the payment is on an `implemented` row, and what it corrected there was the
+  row's own claim to have executed a requirement.
+- **The ninth sweep caught this round's own wrong table number, which is the argument for running
+  it before a commit rather than after one.** This entry first filed #58 under Table 337 — the
+  RichMediaAnimation dictionary — because `emit`'s heading names §13.7.2.3.5 and the eye went to the
+  neighbouring table rather than to the one the page prints. `--bin tables` moved its *absent* count
+  by one and named the pair. `/Asset` is Table 343's, the RichMediaInstance dictionary, and the
+  clause is §13.7.2.3.4; both rows carry the same exclusion, so nothing about the ranking moved. A
+  round that reads an erratum by rectangle owes that sweep the same way a round that adds a verb
+  does.
+- **Step 6 works and its population is the wrong one, which is a fixable thing to have learned on a
+  first run.** It counted 5 issues into the exclusion column and the head it then produced was a
+  sixth, because it asks which ledger row `emit` files an annotation under and ADR 0712's placement
+  rule files by the outline section of the *page*. The repair is not to distrust the column: it is
+  to check the head's own table or figure against the clause that captions it before reading it,
+  which costs one `grep` of `doc/md/` and is the same check the recipe's step 3 already implies when
+  it calls the bucket a sort order. What step 6 bought stands — three consecutive uses put a head
+  inside an exclusion and this one did not stay there.

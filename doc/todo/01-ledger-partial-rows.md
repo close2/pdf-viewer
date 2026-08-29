@@ -4191,6 +4191,12 @@ sed 's/&#[0-9]*;//g' doc/errata-read.md | grep -oE '#[0-9]+' | sort -u   # the r
 #    selects exactly that ground, measured. So a list that ranks them together sends its head
 #    somewhere it cannot pay. They are not dropped: a round with minutes to spare disposes of the
 #    column, which is how one leaves the population at all.
+#    THE COLUMN IS ONLY AS GOOD AS THE FILING, which the first run found: this step reads the row
+#    `emit` names, and ADR 0712's placement rule attributes an annotation by the outline section
+#    of its *page*, so an excluded issue whose table belongs to the clause before the page's
+#    heading lands in the ranked column. Check the head's own table or figure against the clause
+#    that captions it in `doc/md/` before reading it — one grep, and it is the same caution
+#    step 3 states when it calls the bucket a sort order.
 ```
 
 **What the population is counted in, since seven consecutive uses have re-derived it without the
@@ -5542,3 +5548,72 @@ all four annotations with their rectangles.
   recorded an eighth). Neither is edited; what is added is the sentence saying they are two, and the
   rule that a new blindness is numbered on the **instruments'** list because that is the one a
   command can be written against.
+
+## The rule's nineteenth use, in the eight-hundred-and-twenty-ninth, and step 6's first run
+
+**All three rankings are flat for a third consecutive use and the field is the eighteenth use's less
+its four verdicts.** Over live rows 5 rows tie at two annotations with 3 at one; over every row 25
+tie at two with 17 at one; by issue, 24 tie at two with 19 at one. The counts decided nothing again,
+and the third use's tie-break decided everything again.
+
+**Step 6 changed the head, and the demonstration is exact rather than plausible.** The tie-break's
+first preference is a requirement level, and this field offers exactly one: Issue #58, whose caret
+turns a `/Asset` cell's *is also referenced* into *may also be referenced*. Table 343 is §13.7.2.3.4's
+and `emit` files the pair one clause down; both rows are `out-of-scope` under the clause-13
+exclusion, so the placement misses without moving anything. It is the third of the three
+requirement-level substitutions the eighteenth use measured into that exclusion, and the reason the
+step exists. Ranked together it is the head; counted apart, the requirement-level tier over the
+remaining column is empty and the head falls to the tier below.
+
+**And the first run found what the step still owes.** The head it then produced, Issue #679, is a
+type struck out of Table 223's argument list — and Table 223 belongs to **§12.6.4.18**, whose row
+carries the same clause-13 exclusion. `emit` files the pair under §12.7.2, because §12.7 opens on that
+page, and the step reads whichever row `emit` names. So the step exchanged one clause-13 head for
+another and what caught the second was reading it rather than counting it. The recipe above now says
+to check the head's own table against the clause that captions it, which is one grep and the same
+caution step 3 already states about its bucket.
+
+**The payment came at the fourth issue of the walk downward**, which is step 4's practice for the
+fifth use running. ADR 0757; `doc/errata-read.md` has all six annotations with their rectangles.
+
+- **Issue #98 pays, on a bound the printed page cannot state.** §7.4.3's first "shall never occur"
+  condition prints as *greater than 232 - 1* — the superscript lost in the ISO PDF's text layer and
+  in `doc/md/`'s conversion of it alike, so no quotation gate in this project could ever have seen
+  it and a reader taking the bound off the page would have taken 231. Five base-85 digits reach
+  85⁵ − 1 where four bytes hold 4 294 967 295, and `push_ascii85_group` accumulated them in a
+  saturating `u32`: every group above the bound decoded to four `0xFF` bytes in silence. The third
+  condition, a final partial group of one character, was dropped and the stream called whole. Both
+  routes refuse now in the two voices ADR 0343 gives them. **The ledger row claimed all three were
+  refused and enumerated two of them and the sentence above the bullets**, which is the eighteenth
+  sweep's overstating shape with the unenforced condition inside the gap.
+- **Issue #679 and Issue #58 confirm inside the clause-13 exclusion**, the first as the head and the
+  second as the column disposed of. Both were read because both are minutes, and the second because
+  a head the tie-break will offer again is worth taking out of the population.
+- **Issue #280 confirms and the cell caught up with the code.** Table 34's `/ColorSpace` entry maps a
+  name to "the name of a device-dependent colour space or an array", which by its own words excluded
+  the bare `/Pattern` §8.7.3.1 needs; the erratum replaces the phrase with *a colour space with no
+  additional parameters (DeviceGray, DeviceRGB, DeviceCMYK, or Pattern)*. `Colour::by_name` has
+  always answered all four.
+- **Issue #306 and Issue #80 confirm on two tables that describe rather than require.** Table 91's
+  `Interpolate` abbreviation gains the disambiguation Table 92's `Indexed` row already had — the
+  same letter, one table apart, which `inline_image.rs` keeps apart with a comment — and Table 50's
+  operator catalogue spells the shading operator `Sh` where every defining clause spells it `sh`.
+
+**Three things about the rule itself, from running it:**
+
+- **The base count reproduced the closing arithmetic for the tenth consecutive use** — 302 issues
+  carrying a strike or a caret under the recipe's own single-issue line parse, 50 named nowhere,
+  which is the eighteenth use's 54 less its four verdicts, and the multi-issue parse's 310 and 52
+  reproduce over the same eight second-position numbers. Four uses now have needed no re-derivation
+  of the parse.
+- **The settled/live ratio is a plain subtraction for the third use running**: 35 of the 50 touch
+  only a settled row, 8 touch a live one and 7 land on no row at all, against 37, 10 and 7 one use
+  ago. This round is step 4's argument in its strongest form so far — the payment is on an
+  `implemented` row, and what it corrected there is the row's own claim to have executed a
+  requirement it had not read.
+- **A ranking that cannot discriminate is still doing work, and this use says what work.** Three
+  units have gone flat and the tie-break has chosen four heads in a row; what step 6 adds is not
+  discrimination but a *guard on where the tie-break may point*, which is a different kind of
+  instrument and the first one this rule has gained that improves the tie-break rather than
+  replacing it. The pattern to expect from here is filters on the selector rather than a fourth
+  count.
