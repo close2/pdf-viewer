@@ -98,6 +98,32 @@ pub struct TableReference {
     pub clause: Option<ClauseNumber>,
 }
 
+/// A reference to one of the standard's tables by whatever its caption designates it.
+///
+/// **A table number is not always a number**, and until the eight-hundred-and-twentieth session
+/// nothing here could say so: [`TableReference`] parses the digits after `Table ` and stops, so
+/// `Table Annex O.3`, `Table D.2` and `Table 125a` are read as no reference at all. The standard
+/// captions tables four ways — a bare integer, an integer with a letter (`Table 125a`), an
+/// annex's letter and number (`Table D.2`), and the two in Annex O, which are captioned
+/// `Table Annex O.3` and `Table Annex O.4`.
+///
+/// The two populations are kept apart rather than merged because they answer different
+/// questions. [`Scan::tables`] is what the conformance gate checks against
+/// [`crate::clause::ClauseIndex::table_title`], and it is deliberately unchanged: a bare number
+/// is the only designation `table_title` takes. This one is *every* designation the tree cites,
+/// which is what an instrument asking **which tables does this tree stand on** needs — and the
+/// first such instrument is `spec-errata renumbered`, for an erratum that renumbers a table by
+/// striking its caption.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableDesignation {
+    /// The designation as the standard's caption writes it: `104`, `125a`, `D.2`, `Annex O.3`.
+    pub designation: String,
+    /// The 1-based line it appears on.
+    pub line: usize,
+    /// The clause it is attributed to, or `None` if none is in scope to attribute it to.
+    pub clause: Option<ClauseNumber>,
+}
+
 /// Everything one source file says about the standard.
 #[derive(Debug, Clone, Default)]
 pub struct Scan {
@@ -111,6 +137,8 @@ pub struct Scan {
     pub quotations: Vec<Quotation>,
     /// Every `Table N` reference, in file order.
     pub tables: Vec<TableReference>,
+    /// Every `Table <designation>` reference, in file order — the wider population.
+    pub designations: Vec<TableDesignation>,
 }
 
 /// Reads one source file's citations and quotations.
@@ -351,22 +379,57 @@ fn read_tables(line: &str, line_number: usize, cited: Option<&ClauseNumber>, sca
         {
             continue;
         }
-        let digits: String = comment
+        let rest = comment
             .get(position.saturating_add("Table ".len())..)
-            .unwrap_or_default()
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
-        let Ok(table) = digits.parse::<u16>() else {
-            continue;
-        };
+            .unwrap_or_default();
 
-        scan.tables.push(TableReference {
-            table,
-            line: line_number,
-            clause: here.clone(),
-        });
+        // The numbered population, which the conformance gate checks, is unchanged: the digits
+        // that open the designation, and nothing where there are none.
+        let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(table) = digits.parse::<u16>() {
+            scan.tables.push(TableReference {
+                table,
+                line: line_number,
+                clause: here.clone(),
+            });
+        }
+
+        if let Some(designation) = designation_at(rest) {
+            scan.designations.push(TableDesignation {
+                designation,
+                line: line_number,
+                clause: here.clone(),
+            });
+        }
     }
+}
+
+/// The table designation `text` opens with, if it opens with one.
+///
+/// The four caption shapes the standard uses, read off `doc/md/`'s own caption lines: `104`,
+/// `125a`, `D.2` and `Annex O.3`. What separates a designation from the ordinary English after
+/// the word *Table* is that it **carries a digit** — which is the whole of the rule, and it is
+/// enough: this tree writes `Table N`, `Table NNN`, `Table structure` and `Table or` in prose
+/// about tables in general, and not one of them has one.
+///
+/// A trailing full stop is dropped because a citation ends a sentence as often as not
+/// (`Table D.4.`), and a designation never ends in one.
+pub(crate) fn designation_at(text: &str) -> Option<String> {
+    // `Annex ` is part of the caption rather than a word before it: the standard captions Annex
+    // O's two tables `Table Annex O.3` and `Table Annex O.4`, so a designation that dropped the
+    // prefix would name a table no caption has.
+    let (prefix, body) = text
+        .strip_prefix("Annex ")
+        .map_or(("", text), |body| ("Annex ", body));
+    let designation: String = body
+        .chars()
+        .take_while(|character| character.is_ascii_alphanumeric() || *character == '.')
+        .collect();
+    let designation = designation.trim_end_matches('.');
+    if !designation.contains(|character: char| character.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("{prefix}{designation}"))
 }
 
 /// Every `.rs` file under `roots`, in a stable order.
@@ -509,6 +572,35 @@ mod tests {
         let scan = scan("// Table 87's default is false.\n");
         assert_eq!(scan.tables.len(), 1);
         assert_eq!(scan.tables.first().unwrap().clause, None);
+    }
+
+    /// The four caption shapes the standard uses, and the tree's own prose about tables in
+    /// general, which carries no digit and is therefore not a designation.
+    #[test]
+    fn a_designation_is_every_caption_shape_and_the_numbered_population_is_unchanged() {
+        let scan = scan(
+            "// Table 104's modes, Table 125a, Table D.2 and Table Annex O.3's `ef`.\n\
+             // A citation ending a sentence writes Table D.4.\n\
+             // In general a Table N is cited as Table NNN, whatever the Table structure.\n",
+        );
+        assert_eq!(
+            scan.designations
+                .iter()
+                .map(|reference| reference.designation.as_str())
+                .collect::<Vec<&str>>(),
+            vec!["104", "125a", "D.2", "Annex O.3", "D.4"],
+            "the designation is the whole caption, `Annex ` included, and a full stop that \
+             ends the sentence is not part of it"
+        );
+        assert_eq!(
+            scan.tables
+                .iter()
+                .map(|reference| reference.table)
+                .collect::<Vec<u16>>(),
+            vec![104, 125],
+            "the numbered population the gate checks is exactly what it was: the digits that \
+             open a designation, and nothing where there are none"
+        );
     }
 
     #[test]

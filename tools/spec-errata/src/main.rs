@@ -9,6 +9,8 @@
 //! cargo run --release -p spec-errata -- check doc/*.pdf
 //! # the other direction: a clause number an erratum moves, and what stands on it here
 //! cargo run --release -p spec-errata -- moved doc/*.pdf
+//! # the same for a *table*, which `moved`'s predicate cannot reach
+//! cargo run --release -p spec-errata -- renumbered doc/*.pdf
 //! # the third: a place that records an erratum and quotes the words it removed
 //! cargo run --release -p spec-errata -- applied doc/*.pdf
 //! ```
@@ -25,6 +27,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use spec_errata::renumbered::Rung;
 use spec_errata::{Note, Role};
 
 /// What the tool was asked for.
@@ -38,6 +41,8 @@ enum Command {
     Check,
     /// Errata that move a clause *number*, and what this tree has standing on each.
     Moved,
+    /// Errata that renumber a *table*, and what this tree has standing on each.
+    Renumbered,
     /// Places that name an erratum and quote the text it removed.
     Applied,
 }
@@ -49,9 +54,12 @@ fn main() -> std::process::ExitCode {
         Some("census") => Command::Census,
         Some("check") => Command::Check,
         Some("moved") => Command::Moved,
+        Some("renumbered") => Command::Renumbered,
         Some("applied") => Command::Applied,
         _ => {
-            println!("usage: spec-errata <emit|census|check|moved|applied> <document.pdf>...");
+            println!(
+                "usage: spec-errata <emit|census|check|moved|renumbered|applied> <document.pdf>..."
+            );
             return std::process::ExitCode::FAILURE;
         }
     };
@@ -77,6 +85,12 @@ fn main() -> std::process::ExitCode {
         }
         Command::Moved => {
             if let Err(error) = moved(&notes) {
+                println!("{error}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+        Command::Renumbered => {
+            if let Err(error) = renumbered(&notes) {
                 println!("{error}");
                 return std::process::ExitCode::FAILURE;
             }
@@ -260,6 +274,91 @@ fn moved(notes: &[Note]) -> Result<(), spec_errata::Error> {
          gate resolves against it, so a post-erratum number is refused outright. What this answers \
          is which published numbers stand on ground an erratum has moved, and how much of this tree \
          stands with them — `doc/errata-read.md` carries the reading."
+    );
+    Ok(())
+}
+
+/// The errata that renumber a table, and what this tree has standing on each.
+///
+/// **The question `moved` cannot ask.** That command's predicate is one of four verbs in the
+/// annotation's own `/Contents` and a *clause* number named there; a renumbering written as a
+/// bare strike over a caption's designation and a caret carrying the replacement has neither, and
+/// `check` cannot see it either — the struck text is under the four-word floor, and no quotation
+/// lands on a caption. [`spec_errata::renumbered`] has the whole argument.
+///
+/// # Errors
+///
+/// Whatever [`spec_errata::renumbered::renumbered`] or
+/// [`spec_errata::renumbered::standing_on`] answered.
+fn renumbered(notes: &[Note]) -> Result<(), spec_errata::Error> {
+    let renumberings = spec_errata::renumbered::renumbered(notes, &PathBuf::from("doc/md"))?;
+    let ground = spec_errata::renumbered::standing_on(
+        &renumberings,
+        &PathBuf::from("doc/conformance/ledger.toml"),
+        &[
+            PathBuf::from("crates"),
+            PathBuf::from("tools"),
+            PathBuf::from("fuzz"),
+        ],
+        &PathBuf::from("doc"),
+    )?;
+    let near = ground
+        .iter()
+        .filter(|standing| standing.renumbering.rung == Rung::InSection)
+        .count();
+    println!(
+        "{} of {} annotation(s) strike a designation the conversion captions and pair it with \
+         another; {} strike it inside the clause that captions that very table, which is the \
+         rung to read.",
+        ground.len(),
+        notes.len(),
+        near
+    );
+    for standing in &ground {
+        let erratum = &standing.renumbering;
+        let heading = format!(
+            "{} p.{} {} [{}] — Table {} becomes Table {}",
+            erratum.note.document,
+            erratum.note.page,
+            erratum.note.subject.as_deref().unwrap_or("(no /Subj)"),
+            erratum
+                .note
+                .states
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<&str>>()
+                .join(", "),
+            erratum.retired,
+            erratum.replacement
+        );
+        if erratum.rung == Rung::Elsewhere {
+            // Counted and named rather than expanded: the far rung is where an integer struck in
+            // body text lands, and printing its ground would bury the near rung under the
+            // hundreds of lines a two-digit table number reaches.
+            println!(
+                "\n  elsewhere: {heading} — filed under {}, {} place(s)",
+                erratum.note.section.as_deref().unwrap_or("(no section)"),
+                standing.places()
+            );
+            continue;
+        }
+        println!("\n{heading}");
+        println!("  captioned: Table {} — {}", erratum.retired, erratum.title);
+        println!(
+            "  {} source citation(s), {} in this project's documents and the ledger",
+            standing.citations.len(),
+            standing.documents.len()
+        );
+        for (file, line) in standing.citations.iter().chain(&standing.documents) {
+            println!("      {}:{}", file.display(), line);
+        }
+    }
+    println!(
+        "\nThe designations are not changed anywhere, for `moved`'s own reason: `doc/md/` is the \
+         published text every citation resolves against, so a tree citing a post-erratum caption \
+         would cite one no reader can find. What this answers is which published table numbers \
+         stand on ground an erratum has moved, and how much of this tree stands with them — \
+         `doc/errata-read.md` carries the reading."
     );
     Ok(())
 }

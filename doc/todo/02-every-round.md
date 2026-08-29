@@ -437,7 +437,8 @@ share and the two that break it:
   [`01-ledger-partial-rows.md`](01-ledger-partial-rows.md)'s *The sweeps as commands* holds every
   one of them unchanged — what it asks, the command that runs it, what its output's noise looks
   like and which hits to read first. Most are `cargo run --release -p conformance --bin <name>` and
-  seconds apiece; the errata ones are `tools/spec-errata`'s `check`, `emit`, `moved` and `applied`,
+  seconds apiece; the errata ones are `tools/spec-errata`'s `check`, `emit`, `moved`, `renumbered`
+  and `applied`,
   and **a round implementing a clause runs `emit` on that document *before* it writes, rather than
   `check` afterwards alone**. `tools/state.sh counts` is where a population goes, not a sentence
   here.

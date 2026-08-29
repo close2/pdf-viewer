@@ -387,6 +387,32 @@ depends on nothing but `thiserror`.
   and what this tree does about a number an erratum has moved. A round implementing a clause runs
   `emit` on that document **before** it writes, and not `check` afterwards alone.
 
+  **And `moved` has a sibling since the eight-hundred-and-twentieth, for the number it cannot reach**
+  (ADR 0750): a **table**'s. A caption renumbering is a bare `StrikeOut` over the designation with a
+  `Caret` carrying the replacement, so it has no verb and names no clause, and `check` cannot see it
+  either — the struck text is two words and nothing quotes a caption.
+
+  ```sh
+  cargo run --release -p spec-errata -- renumbered doc/*.pdf
+  ```
+
+  Seconds beyond the read, over `doc/md/`, `ledger.toml`, the source roots and every Markdown
+  document under `doc/`. **Two groundings and the second is the ranking**: the struck text has to be
+  a designation the conversion of that same document *captions*, which is what keeps a version
+  number and a clause number out; and then — the near rung — the clause the annotation is filed
+  under has to caption that very table. Without the second, nine tenths of the population is an
+  integer struck in body text, because a bare `3` is a table designation and an array index and a
+  NOTE's number all at once. It **ranks rather than filters**, since ADR 0712's placement rule puts
+  the outline one clause out often enough that a filter would recreate the blindness; the far rung
+  is named and counted, one line apiece. **The published designations are not changed anywhere**,
+  for `moved`'s own reason.
+
+  **What it does not read is a table designation's *correctness*.** `--bin tables` and the citation
+  gate both take a table number as a `u16`, so `Table Annex O.3`, `Table D.2` and `Table 125a` are
+  checked by nothing at all — `conformance::citation::Scan::designations` is the population a gate
+  for that would stand on, and what it would need first is the foreign-standard rule `read_citations`
+  already has for a SECTION SIGN, because this tree cites ISO/IEC 15444-1's `Table A.19` twice.
+
 ## A twenty-third that is not built, and the reason is that its two sides agree
 
 **A parent restating a child's *refusal* and dropping the condition the child stated it under**, and
