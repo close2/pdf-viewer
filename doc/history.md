@@ -1090,3 +1090,136 @@ tree's own documented departures rather than misreadings — demand no longer ha
 What remains is mostly the 224 `partial` ledger rows, the twenty-eight pages in the eight contradicted
 groups the sixth criterion named, and `doc/todo/11`'s items 4, 7 and 8 — each of which now has a
 witness, which none of them had when this block opened.
+
+## The one hundred and fifty-eight rounds from the six-hundred-and-seventy-fifth
+
+**Written by the eight-hundred-and-thirty-third, which is a merge round and the last of the run the
+project owner asked for.** It is more than three times the length of any block closed before it, and
+that is itself the first thing to record: a block summary is worth writing while one round can still
+hold the run in view, and this one was close to the edge of that.
+
+**The previous block's sentence was about instruments. This one is about the claims they check:**
+
+> **A claim is two things — what is asserted, and what it is asserted over — and this project had
+> been writing down only the first.**
+
+624–673 found seven instruments that could not see the population they claimed to measure. The
+obvious repair is to widen the instrument, and this block did that repeatedly. What it discovered on
+the way is that the *sentences* have the same defect and no gate at all: a claim written when this
+tree held one corpus says "the corpus", stays in the file while the tree grows sixty-six times as
+many documents, and reads exactly like a claim that was checked.
+
+### 1. The denominator, found six times by accident and then made into a program
+
+The same defect arrived by six different routes and not one of them was looking for it. Eight
+negative claims re-derived against the population a refusal is actually about. Four corpora that had
+been *ranked* and never *voted*, where the round that fixed it found that ranked and voted had been
+the same word all along. A `shall` met by two backends out of three, under a sentence that said
+*both*, for three hundred and twenty-five sessions. A seeding recipe that named one submodule, and
+then the identical recipe one target down, whose re-census falsified two written sentences. And a
+merge round that found the fourth instance and could only write it down.
+
+Two sweeps came out of it, and they are the block's most transferable product. `--bin parts`, the
+twenty-second, judges a **cardinal counting this tree's own parts** — backends, crates, hosts,
+workers, submodules — against the workspace's own membership rather than against anybody's memory.
+`--bin undenominated`, the twenty-third, judges a sentence that quantifies over a corpus against
+**the disk**: it walks `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` and counts what is actually
+there. Its first run says the thing no single round could have: of the claims in this tree that
+quantify over a corpus, the large majority name no population at all.
+
+The last round of the block extended the same finding to a *standard*. Twenty-one references to
+ISO/TS 32002's Table 3 and Table 4 were being checked against ISO 32000-2's Table 3 and Table 4,
+and passing, because the numbers exist in both documents and the checker had no rule for a table
+another standard is named in front of. A table number is a name, and a name resolves in a namespace
+somebody has to state.
+
+**The rule the block leaves behind**: a round that widens a population owes the sweep, which is now
+`doc/todo/02` §4's own sentence.
+
+### 2. The boundary got a fourth window, and a second implementation is the only instrument that sees the first one's silence
+
+The largest arc by round count is the host arc, and its findings have one shape: *two windows
+answered the same question differently, and nothing but the second window could have asked.* A click
+two windows answered true to. A popup two hosts drew nothing of. A tree two windows handed nobody. A
+thread two windows did not have. An arrangement two windows could not see. A wait three windows
+could not tell anybody about. Each is a capability that had reached `viewer-core` and never reached
+a program, and each was invisible until something else on the same boundary was asked for it.
+
+The arc's own conclusion is the confined boundary's first host. `viewer-confined`'s machinery had
+been complete and consumerless; the block gave it `pdf-viewer-confined`, then §7.6.4.1's password
+prompt across the pipe, then the graphics device behind the window. **The tree gained a fourth
+window and its seventh consumer without gaining a crate** — which is what a boundary is supposed to
+make possible, and is the strongest evidence `doc/ui-boundary.md` has.
+
+It also produced the block's sharpest measurement about launch: a host with nothing on the screen
+yet must *wait* for page one rather than poll for it, because the toolkit's loop at launch is inside
+its own first frame. GTK's page one drew in 3.3 ms and waited 61.5 for the timer.
+
+### 3. Twelve traps, and the two that are the same defect at two altitudes
+
+`doc/HANDOVER.md`'s index held nineteen traps when this block opened and holds thirty-one now.
+Five of the twelve are the toolkit's (17, 19, 20, 21, 22) and belong to §2's arc. Two are the price
+of running rounds in parallel: a sweep binary from a neighbour's build directory measures the
+neighbour, and a gate can measure a program the build did not finish producing. Three are about
+instruments lying in the one voice nobody re-reads — `--all` and `--workspace` are scoped to a
+workspace and not to the tree; a fuzz target's exit status answers *did it crash* and never *did it
+run*; a hand-written population can name a thing that never existed, and finding nothing there reads
+as a pass.
+
+The last three are worth reading together, because two of them are one defect at two altitudes.
+`fuzz/` is a separate workspace, so `--all` had never linted a fuzz target and `--workspace` had
+never formatted one — thirty-three findings were sitting behind a green gate, five of them
+arithmetic in a target's own counters, which the fuzz profile's overflow checks would have filed as
+crashes in the parser under test. And one round further on, a fuzz run was found exiting 0 without
+having fuzzed. **A gate blind to files in the tree is not a weaker gate; it is a gate with a hole,
+and the hole is invisible from the gate's own output.**
+
+### 4. An exclusion examined by argument, twice, and left where it was
+
+The project owner asked whether it is now true that a safe ECMAScript library exists. It is — and
+the round that answered found something else: **the host object model this project had assumed the
+standard does not define is defined**, by ISO 21757-1:2020, a normative reference of ISO 32000-2. A
+second round then read the sources the owner chose and found that the proposed first step cannot pass
+its own test, because the functions it needs are in neither source and the working group has formally
+declined to specify them.
+
+Neither round took an ADR, and that was right: a research round decides nothing and a round recording
+the owner's decision is not making one. `doc/todo/56` is the file, and it awaits the owner, as do the
+three RFCs the block wrote for the transform suite. This is what `CLAUDE.md`'s "revisit an exclusion
+by argument, never by attrition" looks like when the argument runs and the exclusion stays.
+
+### 5. Parallel rounds, and the namespaces a machine hands every round by one name
+
+Every fifth round of this block was a merge of four parallel branches, and most of what went wrong
+went wrong in something the machine gives each round under the same name. A `pkill -x` narrowing a
+pattern rather than a namespace took a sibling round's mid-gate build. A scratch file named
+`gates.log` was overwritten by a neighbour's. `refs/stash` lives in the common git directory. A
+worktree's build directory outlives its worktree at 19–29 GB apiece, and twenty-three of them reached
+425 GB before anyone looked. `tools/worktree.sh` is where all of that ended up: `open` and `close`
+take the checkout and its build directory as one act, and `list` was widened — after it was caught
+reporting only the directories it had itself named — to print every directory under the build root,
+whose each one is, and what they add up to.
+
+### Where the numbers ended
+
+Against the figures the block's opening round printed: `nextest` **2437 → 2817**; the conformance
+gate **182 → 218** in its main binary, 227 across the package; the corpus's incomplete list **68 →
+63** over the same 974 documents; the oracle **908/65/786 → 983/61/836**, over a population that grew
+with it to 1945 pages; `render-quorra` **933/22/2 → 932/22/3/17** at the quantum the product ships;
+`fixed_documents` **40 → 41** rows, none absent. The ledger stayed 875 rows and moved inside them —
+**436/224/18/76 → 447/223/17/67** implemented, partial, reported, inapplicable — with 0 `unreviewed`
+throughout, and the one `silent` row the block carried closed by the round that read the clause it
+named, so the silent population ends at zero. The word-box verdict ends at **493 of 503 documents,
+99.67%**. The sweeps went **20 →
+23**, the traps **19 → 31**, and the decisions **0499 → 0760**: a hundred and fifty ADRs.
+
+### What the next block inherits
+
+Two things belong to the project owner and to nobody else: `doc/rfc/` and `doc/todo/56`, each a
+decision a round has prepared and may not take. Beyond them the queue is legible for the first time
+in a while, and it is a reading list rather than a corpus: `--bin undenominated` prints, ranked,
+every claim in this tree whose denominator cannot be read off it, and the cheapest way to pay it is a
+clause family at a time, because the census that answers one row usually answers its siblings. Beside
+that sits the half of the last round's finding it did not close — a foreign standard's clause
+citation still resolves against ours when the designation carries a year — and `doc/todo/00`'s
+contradicted pool, which no longer hands a round its subject and has not for some time.
