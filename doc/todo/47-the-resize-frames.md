@@ -68,7 +68,7 @@ resize is where page one is interpreted, which is the launch path's known larges
 a resize *can* interpret, and when it does the line says so in milliseconds rather than
 microseconds.
 
-### 3. Arm 2 on the real adapter is `encode` and nothing else
+### 3. Arm 2 on the real adapter — corrected by ADR 0767: the table below is the lane the window leaves
 
 `render-quorra/examples/zoom_frame` draws one display list at a sequence of magnifications against
 one warm device — the same commands at a target a few per cent larger, which is an arm-2 resize
@@ -85,9 +85,13 @@ ZOOM_FRAME_ROUNDS=3 ZOOM_FRAME_SEQUENCE=1,1.024,1.048,1.072 \
 | `Entwurf.pdf` p1, 58 010 cmd | 1667×474 → 1707×485 | **132.5 ms** | 0.0 | 129.0 | 0.7 | 0.5 |
 
 `scene` and `handover` are zero after the first frame, which is this file's own prediction coming
-true: a page-space scene makes the scene free and leaves the encode as the term. The term is
-quorra's `encode`, which [`47-the-encode-term.md`](47-the-encode-term.md) and
-[`46-the-kernel-floor.md`](46-the-kernel-floor.md) already own.
+true: a page-space scene makes the scene free. **But the Entwurf row is `Coverage::Cpu`, the
+example's then-fixed lane — and `surface::lane_for` takes `Coverage::Compute` for a moved view on
+a real adapter, which an arm-2 step is on every step.** Re-measured on both lanes in one sitting
+(ADR 0767): the step the window actually pays is **63–66 ms**, of which the GPU kernels are 44–46
+and host `encode` 9.4–10.1 — so arm 2 is the *kernels*, [`46-the-kernel-floor.md`](46-the-kernel-floor.md)'s
+item, and the encode term is [`47-the-encode-term.md`](47-the-encode-term.md)'s ~10 ms, not this
+table's 129. `ZOOM_FRAME_COVERAGE=compute` is the knob that measures the shipped gesture.
 
 ### 4. The three candidates this file named
 
@@ -121,9 +125,10 @@ quorra's `encode`, which [`47-the-encode-term.md`](47-the-encode-term.md) and
 
 **Nothing is owed on arm 1**, which is what "9–19 ms per step" was measured on: about a refresh of
 composition and present, with no core work and no interpretation in it. **Arm 2 is owed to
-`47-the-encode-term.md`** rather than here — buying it would mean either coalescing a gesture's
-renders, which shows a raster of the wrong size and is what the stand-in already does correctly and
-honestly, or a partial re-encode, which is that file's device-resident records.
+[`46-the-kernel-floor.md`](46-the-kernel-floor.md) first and `47-the-encode-term.md` second**
+(ADR 0767's split: kernels 44–46 ms, host terms ~19) rather than here — buying it here would mean
+coalescing a gesture's renders, which shows a raster of the wrong size and is what the stand-in
+already does correctly and honestly.
 
 **The one shape worth a decision is the accessibility republication**, and it is a decision rather
 than a patch: debouncing §14.7's publication to gesture-settle is a statement about what a screen

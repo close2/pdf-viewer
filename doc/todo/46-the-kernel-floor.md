@@ -20,7 +20,10 @@ After stage B, an Entwurf zoom step is 53–66 ms headless on the 890M and decom
 encode 7–10 (host — [`47-the-encode-term.md`](47-the-encode-term.md)), upload 4–5, and
 **"content beyond pass" 39–49, which is the GPU chain itself: count 12–18 ms, emit+deposit
 24–28 ms**. The kernels' costs move together (their ADR 0092's finding), so this file is one
-item and not two.
+item and not two. Re-measured whole in the eight-hundred-and-fortieth (ADR 0767,
+`ZOOM_FRAME_COVERAGE=compute` on resize-sized steps): 63–66 ms, encode 9.4–10.1
+record-replayed, residency+records 4.0–4.2, count 13.8–17.5, emit+deposit 28.2–31.2 — the
+same shape, the kernels still 2.3× everything the host does.
 
 ## What was tried and declined, so nobody re-buys it
 

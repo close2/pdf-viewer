@@ -12,7 +12,18 @@
 //! ZOOM_FRAME_ENCODE_PHASES=1 cargo run --release -p render-quorra --example zoom_frame -- …
 //! ZOOM_FRAME_ROUNDS=5        cargo run --release -p render-quorra --example zoom_frame -- …
 //! ZOOM_FRAME_SEQUENCE=1,1.25,1.5,1.25,1 cargo run … --example zoom_frame -- …
+//! ZOOM_FRAME_COVERAGE=compute cargo run … --example zoom_frame -- …
 //! ```
+//!
+//! **`ZOOM_FRAME_COVERAGE` names the coverage lane, and `cpu` — quorra's own default — is what
+//! every earlier table was taken at.** It exists because the default is *not* the lane the shipped
+//! window draws this gesture with: `viewer-ui`'s `lane_for` takes `Coverage::Compute` for any
+//! moved view on a real adapter (this tree's ADR 0700, quorra's 0080/0081), so a zoom or drag step
+//! measured here without this knob is the configuration the window leaves on exactly that gesture
+//! — which is how a round read a 58k-fill page's step as 129 ms of `encode` when the window pays
+//! the compute lane's 63–66, of which encode is 9.4–10.1 (ADR 0767). `doc/todo/02` §2 has the
+//! general sentence: a gate that turns a shipped setting off is measuring a configuration nobody
+//! runs.
 //!
 //! **`ZOOM_FRAME_SEQUENCE` is the two-frame pair generalised to a session**, and it is what
 //! answers ADR 0368's open question: that ADR's fourth frame returned to the second's
@@ -88,7 +99,11 @@ struct Sample {
     bytes: u64,
     commands: u32,
     culled: u32,
-    replayed: bool,
+    /// `" replayed"` or `" record-replayed"` after quorra's own word for where the encode
+    /// came from, empty for a full walk — a zoom step that record-replays (ADR 0087) is
+    /// paying seat-and-instance arithmetic only, and reading its `encode` as the walk's
+    /// would repeat the misattribution the coverage knob above exists to prevent.
+    replayed: &'static str,
     /// Whether the device threw every tile's atlas placement away after this frame.
     repacked: bool,
     phases: Vec<(String, f64)>,
@@ -127,7 +142,11 @@ impl Sample {
             bytes: cost.bytes_uploaded,
             commands: cost.commands,
             culled: cost.commands_culled,
-            replayed: matches!(cost.encode_source, Some(quorra_gpu::EncodeSource::Replayed)),
+            replayed: match cost.encode_source {
+                Some(quorra_gpu::EncodeSource::Replayed) => " replayed",
+                Some(quorra_gpu::EncodeSource::RecordReplayed) => " record-replayed",
+                Some(quorra_gpu::EncodeSource::Encoded) | None => "",
+            },
             repacked: cost.atlas_repacked,
             phases: phases
                 .iter()
@@ -170,6 +189,14 @@ fn main() {
     let threads: usize = variable("ZOOM_FRAME_ENCODE_THREADS")
         .and_then(|n| n.parse().ok())
         .unwrap_or_else(|| render_quorra::options().encode_threads);
+    // The lane, defaulting to quorra's own default so every earlier table stays comparable;
+    // `compute` is the lane the shipped window takes on this gesture (module comment).
+    let coverage = match variable("ZOOM_FRAME_COVERAGE").as_deref() {
+        None | Some("cpu") => quorra_gpu::Coverage::Cpu,
+        Some("gpu") => quorra_gpu::Coverage::Gpu,
+        Some("compute") => quorra_gpu::Coverage::Compute,
+        Some(other) => panic!("ZOOM_FRAME_COVERAGE={other}: cpu, gpu or compute"),
+    };
 
     let document =
         Document::open(std::fs::read(&path).expect("the document is readable")).expect("it opens");
@@ -226,6 +253,7 @@ fn main() {
             ..render_quorra::options()
         })
         .expect("an adapter");
+        backend.set_coverage(coverage);
         backend.adapter_description().clone_into(&mut adapter);
         for (slot, target) in best.iter_mut().zip(targets.iter().copied()) {
             let frame = PresentFrame {
@@ -247,7 +275,7 @@ fn main() {
 
     println!("{path} page {index}, {adapter}");
     println!(
-        "{threads} encode thread(s), load average {} → {}, minima of {rounds} round(s){}",
+        "{coverage:?} coverage, {threads} encode thread(s), load average {} → {}, minima of {rounds} round(s){}",
         before.map_or_else(|| "?".to_owned(), |load| format!("{load:.2}")),
         load_average().map_or_else(|| "?".to_owned(), |load| format!("{load:.2}")),
         if instrument {
@@ -291,7 +319,7 @@ fn main() {
             sample.bytes,
             sample.uploads,
             sample.culled,
-            if sample.replayed { " replayed" } else { "" },
+            sample.replayed,
             if sample.repacked { " repacked" } else { "" }
         );
         println!(
