@@ -610,11 +610,11 @@ pub enum Answer<'a> {
     Frame(Vec<FrameView<'a>>),
     /// What the pages on the screen could not draw, one entry per page, in page order.
     Reports(Vec<PageReports<'a>>),
-    /// What the pages on the screen could not be *read* as, in the three ways this tree tells
+    /// What the pages on the screen could not be *read* as, in the four ways this tree tells
     /// apart, one entry per page.
     ///
     /// See [`Query::Readback`] for why this is not a report, and
-    /// [`pdf_model::content::Shortfall`] for why the three counts travel together.
+    /// [`pdf_model::content::Shortfall`] for why the four counts travel together.
     Readback(Vec<PageReadback>),
 }
 

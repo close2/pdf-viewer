@@ -122,6 +122,16 @@ cargo run --release -p pdf-model --example rebuild_census -- corpus-cache doc/pd
   # the count is the documents' rather than the recovery's (trap 8), which is what lets one run
   # print both arms of a before-and-after. It is also where the recovery's budget comes from: the
   # widest object-stream expansion among the rebuilt documents on this disk (ADR 0395)
+cargo run --release -p pdf-model --example vertical_form_census            # curated; also --pdfjs, --crawl
+  # the two populations §9.7.5.1's NOTE has, printed side by side, which is trap 13's second shape:
+  # **the clause's** — a `Type0` stating writing mode 1, embedding no program, in a collection Table
+  # 116 publishes a vertical `CMap` for — read out of the files' own dictionaries and the same on
+  # every machine; and **the program's**, how many codes those documents then draw upright because
+  # the substituted face states no `vert` form, which is this catalogue's (§9.5 NOTE 5). It walks
+  # every dictionary *nested* inside an object as well as the objects the table names, because a
+  # `Type0` need not be an indirect object — `issue11555.pdf` writes one inline in its page's
+  # `/Resources`, and the walk without the recursion found no font in it at all (ADR 0764, trap 25).
+  # `PDFVIEWER_TRACE_VERTICAL_FORM=1` names each code with its font and character
 cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
   # which of §12.7's twenty field flags any real document states (ADR 0197)
 cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf

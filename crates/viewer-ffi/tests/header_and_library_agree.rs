@@ -563,6 +563,10 @@ fn the_other_half_of_the_queries(expected: &mut BTreeMap<String, i64>) {
             "PDFV_SHORTFALL_BLANK_GLYPH",
             ShortfallKind::ReachingABlankGlyph,
         ),
+        (
+            "PDFV_SHORTFALL_UPRIGHT_VERTICAL_FORM",
+            ShortfallKind::WithoutAVerticalForm,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }

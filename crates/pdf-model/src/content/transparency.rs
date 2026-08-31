@@ -1186,6 +1186,7 @@ struct ReadbackMark {
     glyphs: usize,
     codes_without_a_glyph: usize,
     codes_reaching_a_blank_glyph: usize,
+    codes_without_a_vertical_form: usize,
     codes_without_a_character: super::UnnamedCodes,
     glyph_coverage: std::collections::BTreeMap<String, super::Coverage>,
     inferred_separators: usize,
@@ -1207,6 +1208,7 @@ impl Interpreter<'_> {
             glyphs: self.glyphs,
             codes_without_a_glyph: self.codes_without_a_glyph,
             codes_reaching_a_blank_glyph: self.codes_reaching_a_blank_glyph,
+            codes_without_a_vertical_form: self.codes_without_a_vertical_form,
             codes_without_a_character: self.codes_without_a_character,
             glyph_coverage: self.glyph_coverage.clone(),
             inferred_separators: self.inferred_separators,
@@ -1227,6 +1229,7 @@ impl Interpreter<'_> {
         self.glyphs = mark.glyphs;
         self.codes_without_a_glyph = mark.codes_without_a_glyph;
         self.codes_reaching_a_blank_glyph = mark.codes_reaching_a_blank_glyph;
+        self.codes_without_a_vertical_form = mark.codes_without_a_vertical_form;
         self.codes_without_a_character = mark.codes_without_a_character;
         self.glyph_coverage = mark.glyph_coverage;
         self.inferred_separators = mark.inferred_separators;

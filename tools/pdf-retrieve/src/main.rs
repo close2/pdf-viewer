@@ -245,11 +245,18 @@ fn page(read: &PageText) -> Value {
 /// `missing_glyphs` is the other direction and *is* a loss on the page; `blank_glyphs` is not one
 /// at all, because a glyph the program describes as empty is how every font stores a space
 /// (ADR 0270). ADR 0422.
+///
+/// `upright_vertical_forms` is a fourth thing again and is about the *shape* rather than about the
+/// text: the character is there and reads back correctly, and the substituted face drew it
+/// standing up where §9.7.5.1's NOTE says the producer's CID asked for a vertical form. A caller
+/// extracting text is unaffected by it, which is exactly why it is reported here as its own
+/// number rather than folded into either of the two above (ADR 0764).
 fn shortfall(counts: pdf_model::content::Shortfall) -> Value {
     let pdf_model::content::Shortfall {
         unnamed,
         without_a_glyph,
         reaching_a_blank_glyph,
+        without_a_vertical_form,
     } = counts;
     Value::Object(vec![
         ("unnamed".to_owned(), Value::count(unnamed.total())),
@@ -283,6 +290,10 @@ fn shortfall(counts: pdf_model::content::Shortfall) -> Value {
         (
             "blank_glyphs".to_owned(),
             Value::count(reaching_a_blank_glyph),
+        ),
+        (
+            "upright_vertical_forms".to_owned(),
+            Value::count(without_a_vertical_form),
         ),
     ])
 }

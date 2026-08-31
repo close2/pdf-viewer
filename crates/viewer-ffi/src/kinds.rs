@@ -1178,12 +1178,16 @@ impl PreferenceKey {
     }
 }
 
-/// Which of §9.10.2's shortfalls `pdfv_readback_count` is being asked for.
+/// Which of a page's readback shortfalls `pdfv_readback_count` is being asked for.
 ///
 /// **Not a report**, and [`viewer_core::Query::Readback`] says why at length: a code the standard
 /// itself says "there is no way to determine what the character code represents" is an answer
 /// rather than a failure of this program. Counted, because the causes are
 /// `pdf_font::NamingGap`'s and that list has grown.
+///
+/// **This sentence said "§9.10.2's shortfalls" and the last of them is §9.7.5.1's**, which is a
+/// different clause and a different kind of loss: a character drawn in the shape the substitute
+/// had rather than the one the producer's CID named. ADR 0764.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
 pub enum ShortfallKind {
@@ -1205,11 +1209,13 @@ pub enum ShortfallKind {
     WithoutAGlyph = 7,
     /// Codes whose glyph is blank, which is a space in most fonts and a defect in some.
     ReachingABlankGlyph = 8,
+    /// Codes drawn standing up where the producer's CID named a vertical form (§9.7.5.1).
+    WithoutAVerticalForm = 9,
 }
 
 impl ShortfallKind {
     /// How many counts this build answers for.
-    pub const COUNT: u32 = 9;
+    pub const COUNT: u32 = 10;
 
     /// The kind for a number, or `None` for one this build does not define.
     #[must_use]
@@ -1224,6 +1230,7 @@ impl ShortfallKind {
             6 => Self::UnnamedTotal,
             7 => Self::WithoutAGlyph,
             8 => Self::ReachingABlankGlyph,
+            9 => Self::WithoutAVerticalForm,
             _ => return None,
         })
     }
@@ -1241,6 +1248,7 @@ impl ShortfallKind {
             Self::UnnamedTotal => "UnnamedTotal\0",
             Self::WithoutAGlyph => "WithoutAGlyph\0",
             Self::ReachingABlankGlyph => "ReachingABlankGlyph\0",
+            Self::WithoutAVerticalForm => "WithoutAVerticalForm\0",
         }
     }
 
@@ -1263,6 +1271,7 @@ impl ShortfallKind {
             Self::UnnamedTotal => shortfall.unnamed.total(),
             Self::WithoutAGlyph => shortfall.without_a_glyph,
             Self::ReachingABlankGlyph => shortfall.reaching_a_blank_glyph,
+            Self::WithoutAVerticalForm => shortfall.without_a_vertical_form,
         }
     }
 }

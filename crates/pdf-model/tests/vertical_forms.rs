@@ -140,3 +140,73 @@ fn only_the_collections_vertical_forms_are_drawn_differently_downwards() {
         );
     }
 }
+
+/// A vertical form the producer chose is drawn, or counted, or the character is missing entirely
+/// — exactly one of the three, on any machine.
+///
+/// **This is the instrument's own calibration and it needs no skip**, which is what makes it
+/// different from the test above. Which face stands in for a non-embedded Adobe-Japan1 font is
+/// §9.5's NOTE 5 and this machine's catalogue, so *which* of the three arms fires is a fact about
+/// the machine — but that exactly one fires is a fact about the code, and it is the whole of what
+/// ADR 0764 built: a face with no vertical form and a face with no glyph at all were one silence
+/// with one number under it, and they are now two.
+///
+/// The three, in the order the routes run:
+///
+/// 1. the face has no glyph for the character at all, which is `uncovered_character` and is
+///    already counted (ADR 0152, `Interpretation::codes_without_a_glyph`'s neighbours);
+/// 2. the face states the form, so the glyph the vertical reading reaches differs from the one
+///    the horizontal reading of the same CID reaches;
+/// 3. the face has the glyph and states no form for it, which is
+///    `unsupplied_vertical_form` and `Shortfall::without_a_vertical_form`.
+///
+/// **Calibrated against the defect rather than assumed** (trap 13): with `VerticalForms::read`
+/// made to return an empty map — a face with no `vert` or `vrt2`, which is what every Latin face
+/// is — this machine's run moves from arm 2 to arm 3 for all four pairs and the count rises by
+/// one per code the page shows. ADR 0764 records both runs.
+#[test]
+fn a_vertical_form_is_drawn_or_counted_and_never_both() {
+    let Some((document, dict)) = witness_font() else {
+        println!("skipped: doc/corpora/pdf-differences is not checked out");
+        return;
+    };
+    let downward = LoadedFont::load(&document, &dict, "Japanese")
+        .expect("a non-embedded Adobe-Japan1 CIDFontType0 is substituted rather than refused");
+    let mut horizontal_dict = dict.clone();
+    let _ = horizontal_dict.insert(
+        Name::new(b"Encoding".to_vec()),
+        Object::Name(Name::new(b"Identity-H".to_vec())),
+    );
+    let upright = LoadedFont::load(&document, &horizontal_dict, "Japanese")
+        .expect("the same descendant under the horizontal identity CMap loads");
+
+    for (character, vertical, _) in PAIRS {
+        let code = code(vertical);
+        let absent = downward.uncovered_character(code).is_some();
+        let supplied = downward.glyph_index(code) != upright.glyph_index(code);
+        let counted = downward.unsupplied_vertical_form(code).is_some();
+        assert_eq!(
+            usize::from(absent) + usize::from(supplied) + usize::from(counted),
+            1,
+            "CID {vertical} is {character:?}'s vertical form, and the face either cannot draw \
+             the character ({absent}), draws the form ({supplied}), or draws it upright and is \
+             counted for it ({counted}) — exactly one"
+        );
+        assert_eq!(
+            downward.unsupplied_vertical_form(code),
+            (!absent && !supplied).then_some(character),
+            "the count names the character whose form was lost, and nothing else"
+        );
+    }
+
+    // The other side of the condition, which is what stops the count from meaning "a vertical
+    // page": a CID the collection gives one form has none to lose, whatever the face states.
+    for cid in UNROTATED {
+        assert_eq!(
+            downward.unsupplied_vertical_form(code(cid)),
+            None,
+            "CID {cid} is the same CID in both of the collection's Unicode CMaps, so no form of \
+             it was chosen and none can be missing"
+        );
+    }
+}

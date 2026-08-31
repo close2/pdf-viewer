@@ -632,6 +632,17 @@ struct Tally {
     /// contains and draws as nothing is a space, however its `/ToUnicode` reads it back.
     /// ADR 0270.
     codes_reaching_a_blank_glyph: Vec<(String, usize)>,
+    /// Every code shown on a page one whose *vertical form* the substituted face did not have.
+    ///
+    /// The fourth silence, and the newest (ADR 0764). §9.7.5.1's NOTE makes a vertical `CMap`'s
+    /// CID a choice of **shape** — "different shapes are used when writing horizontally and
+    /// vertically" — and §9.7.4.2 leaves a substitute reachable only by character, so a face
+    /// with no `vert` or `vrt2` feature draws the character standing up. Unlike the three above
+    /// it is a mark *made*, in the producer's place, in the wrong shape; ADR 0763 declined to
+    /// report it on ADR 0152's arithmetic and left it counted by nothing, which is what this
+    /// line ends. **A zero here is a statement about `doc/pdf.js` and about the faces this
+    /// machine has**, and `examples/vertical_form_census` is what asks a wider population.
+    codes_without_a_vertical_form: Vec<(String, usize)>,
     /// Every code shown on a page one that §9.10.2 could not name, on pages that report nothing.
     ///
     /// The reading half of the two above, and the population `doc/todo/21` §5 is about: the
@@ -1018,13 +1029,42 @@ fn print_the_composition(incomplete: &[(String, Vec<Unsupported>)]) {
     );
 }
 
-/// Prints one of the three populations a page can lose *without reporting*, worst ten first.
+/// The four populations a page can lose *without reporting*, printed together.
 ///
-/// One function for all three because they are the same measurement of different things — a
+/// Together because reading them side by side is what makes each of them mean anything: the same
+/// code can be a mark missed, a mark the font meant not to make, a mark made in a shape its
+/// producer did not choose, or a mark made that nothing can name. Not one of the four is a gate —
+/// `doc/todo/21` is the standing question they are the input to.
+fn the_silences(tally: &Tally) {
+    silence(
+        "codes reaching no glyph *in silence*",
+        "measurement, not a gate; doc/todo/21",
+        &tally.codes_without_a_glyph,
+    );
+    silence(
+        "codes reaching a glyph the font draws blank",
+        "not a mark missed; ADR 0270",
+        &tally.codes_reaching_a_blank_glyph,
+    );
+    silence(
+        "codes drawn upright where §9.7.5.1 named a vertical form",
+        "a mark made in the wrong shape; ADR 0764",
+        &tally.codes_without_a_vertical_form,
+    );
+    silence(
+        "codes §9.10.2 could not name *in silence*",
+        "a readback missed, not a mark; doc/todo/21 §5, ADR 0311",
+        &tally.codes_without_a_character,
+    );
+}
+
+/// Prints one of the four populations a page can lose *without reporting*, worst ten first.
+///
+/// One function for all four because they are the same measurement of different things — a
 /// total, a document count, and the documents that carry most of it — and because reading them
 /// side by side is the whole point: a code can be a mark missed, a mark the font meant not to
-/// make, or a mark made that nothing can name, and only the last of those leaves the picture
-/// right.
+/// make, a mark made in a shape the producer did not choose, or a mark made that nothing can
+/// name, and only the last of those leaves the picture right.
 fn silence(what: &str, caveat: &str, counted: &[(String, usize)]) {
     let total: usize = counted.iter().map(|(_, count)| *count).sum();
     println!(
@@ -1237,6 +1277,13 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
             t.codes_reaching_a_blank_glyph.push((named, blank));
         });
     }
+    if interpretation.codes_without_a_vertical_form > 0 && interpretation.is_complete() {
+        let upright = interpretation.codes_without_a_vertical_form;
+        let named = name.clone();
+        record(tally, |t| {
+            t.codes_without_a_vertical_form.push((named, upright));
+        });
+    }
     if interpretation.codes_without_a_character.total() > 0 && interpretation.is_complete() {
         let unnamed = interpretation.codes_without_a_character.total();
         let named = name.clone();
@@ -1332,21 +1379,7 @@ fn the_corpus_opens_interprets_and_rasterises() {
         tally.incomplete.len(),
         tally.slow.len()
     );
-    silence(
-        "codes reaching no glyph *in silence*",
-        "measurement, not a gate; doc/todo/21",
-        &tally.codes_without_a_glyph,
-    );
-    silence(
-        "codes reaching a glyph the font draws blank",
-        "not a mark missed; ADR 0270",
-        &tally.codes_reaching_a_blank_glyph,
-    );
-    silence(
-        "codes §9.10.2 could not name *in silence*",
-        "a readback missed, not a mark; doc/todo/21 §5, ADR 0311",
-        &tally.codes_without_a_character,
-    );
+    the_silences(&tally);
     print_the_composition(&tally.incomplete);
     for (name, reported) in &tally.incomplete {
         println!("  incomplete: {name}: {reported:?}");

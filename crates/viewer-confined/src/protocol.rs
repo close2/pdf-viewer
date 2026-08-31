@@ -2439,7 +2439,8 @@ mod answer_kind {
     pub(super) const FREE_TEXT: u8 = 30;
     // Annex O's highlighted rectangles, since the five-hundred-and-twenty-second. ADR 0357.
     pub(super) const HIGHLIGHTED: u8 = 31;
-    // The three per-code counts, since the five-hundred-and-eighty-seventh session. ADR 0422.
+    // The per-code counts, since the five-hundred-and-eighty-seventh session (ADR 0422); a
+    // fourth joined them in the eight-hundred-and-thirty-seventh (ADR 0764).
     pub(super) const READBACK: u8 = 32;
     // Where the reader is looking, since the eight-hundred-and-fifth session. ADR 0737.
     pub(super) const VIEW: u8 = 33;
@@ -2656,6 +2657,7 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                         },
                     without_a_glyph,
                     reaching_a_blank_glyph,
+                    without_a_vertical_form,
                 } = page.shortfall;
                 writer
                     .usize(page.page)
@@ -2666,7 +2668,8 @@ pub(crate) fn encode_answer(answer: &Answer<'_>, marks: &Marks) -> Result<Vec<u8
                     .usize(unaddressable_cid)
                     .usize(unnamed_glyph)
                     .usize(without_a_glyph)
-                    .usize(reaching_a_blank_glyph);
+                    .usize(reaching_a_blank_glyph)
+                    .usize(without_a_vertical_form);
             }
         }
         Answer::Accessibility(pages) => {
@@ -3018,6 +3021,7 @@ pub(crate) fn decode_answer_reusing(
                     },
                     without_a_glyph: reader.usize("a missing-glyph count")?,
                     reaching_a_blank_glyph: reader.usize("a blank-glyph count")?,
+                    without_a_vertical_form: reader.usize("an upright vertical-form count")?,
                 },
             })
         })?),
@@ -4254,10 +4258,11 @@ mod tests {
         };
         assert_eq!(read, fields);
 
-        // The eight per-code counts, each a different number: an encoder that wrote them in the
+        // The nine per-code counts, each a different number: an encoder that wrote them in the
         // wrong order would pass with any two of them equal, and a host reading "3 codes no
         // /ToUnicode named" for "3 codes an Identity ordering left unaddressable" would be told
-        // the wrong thing about whose gap it is.
+        // the wrong thing about whose gap it is. The page's own number is distinct from all nine
+        // for the same reason.
         let shortfall = pdf_model::content::Shortfall {
             unnamed: pdf_model::content::UnnamedCodes {
                 empty_mapping: 1,
@@ -4269,15 +4274,19 @@ mod tests {
             },
             without_a_glyph: 7,
             reaching_a_blank_glyph: 8,
+            without_a_vertical_form: 9,
         };
-        let counted = vec![viewer_core::PageReadback { page: 9, shortfall }];
+        let counted = vec![viewer_core::PageReadback {
+            page: 10,
+            shortfall,
+        }];
         let Reply::Readback(read) = round_trip(&Answer::Readback(counted)) else {
             panic!("a readback shortfall comes back as one");
         };
         let [read] = read.as_slice() else {
             panic!("one page's counts crossed");
         };
-        assert_eq!(read.page, 9);
+        assert_eq!(read.page, 10);
         assert_eq!(read.shortfall, shortfall);
         assert_eq!(read.shortfall.unnamed.total(), 21);
 

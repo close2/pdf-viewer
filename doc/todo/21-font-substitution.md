@@ -1,12 +1,14 @@
 # What is left of font substitution
 
-Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below** (ADR 0763).
+Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below — and the first of those remainders closed by an instrument rather than a decision** (ADRs 0763, 0764).
 Priority: 21
-Corpus: 40 documents. **The corpus gate's own three silence lines are where the counts are, and
+Corpus: 40 documents. **The corpus gate's own four silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
 reaching a glyph the font draws blank` are the split ADR 0270 drew, the first of the two being what
-§3 below is about, and `codes §9.10.2 could not name *in silence*` is §5's, added in the
-four-hundred-and-seventy-sixth. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
+§3 below is about, `codes §9.10.2 could not name *in silence*` is §5's, added in the
+four-hundred-and-seventy-sixth, and `codes drawn upright where §9.7.5.1 named a vertical form` is
+§7's, added in the eight-hundred-and-thirty-seventh — the only one of the four that is a mark
+**made**, in the wrong shape. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
 not-implemented table stated the first of them wrongly for long enough to be worth this sentence.
 Clauses: §9.10.2, §9.7.4.2, §9.6.2.1, §9.6.2.2, §9.6.4 (Type 3, for §5's `/a192`), §9.6.5.3, §9.6.5.4, §9.7.5.1, §9.7.5.2, §9.8.1, §9.8.3
 Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`, `crates/pdf-font/src/vertical.rs`, `crates/pdf-font/src/metrics.rs`, `crates/pdf-model/src/content.rs`
@@ -377,12 +379,28 @@ calibration.
 
 **What is left, priced:**
 
-- **A face with no `vert` still draws the horizontal shape, and nothing counts it.** Deliberate, on
-  ADR 0152's arithmetic — it is the same shortfall as a face with no glyph for a character, which
-  this file's §3 keeps as a number rather than a report. What would change it is the same thing that
-  would change §3: a channel that is not a report. Cost: whatever
-  `Interpretation::shortfall` costs to grow by a field, which is small; the argument for *not*
-  growing it is that a reader cannot act on it either.
+- **A face with no `vert` drew the horizontal shape and nothing counted it — closed in the
+  eight-hundred-and-thirty-seventh** (ADR 0764). The refusal to *report* stands and is ADR 0152's;
+  what did not stand is "exactly as ADR 0270 left its neighbours", because ADR 0270 left its
+  neighbours **counted** and this was counted by nothing at all. So the field was built:
+  `Interpretation::codes_without_a_vertical_form`, `Shortfall::without_a_vertical_form`, and every
+  consumer ADR 0422 gave the other three — `Query::Readback`, the confined pipe, `pdfv_readback_count`
+  and `pdf-retrieve`'s `readback` object. The two silences are disjoint by construction: this
+  question is asked of a glyph the face *reached*, so a character it cannot draw at all is
+  `uncovered_character`'s and never gets here.
+
+  The corpus gate prints it as a **fourth silence line**, and the population question has a command
+  of its own — the clause's population out of the files' own dictionaries beside this machine's
+  losses, because those are two different censuses (trap 13):
+
+  ```sh
+  cargo run --release -p pdf-model --example vertical_form_census -- --crawl   # or --pdfjs, or curated
+  ```
+
+  Its first crawl run found the witness `doc/pdf.js` does not have, and the shortfall turned out to
+  be **per glyph rather than per face**: a face that supplies `VerticalText.pdf`'s brackets states
+  no form for Adobe-Japan1's small kana. `PDFVIEWER_TRACE_VERTICAL_FORM=1` names each code with its
+  character.
 - **Two collections have no pair to ask.** Table 116 publishes `UniAKR-UTF16-H` and no vertical
   counterpart for Adobe-KR — one of the four §9.7.5.2 requires — and Adobe-Japan2 is deprecated.
   Nothing can be derived for them from Table 116, and the only other route anybody has is a

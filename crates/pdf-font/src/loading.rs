@@ -48,7 +48,7 @@ use crate::substituted::{
 use crate::tounicode;
 use crate::truetype::{invert_charmap, truetype_code_table};
 use crate::type1;
-use crate::vertical::{Downward, VerticalForms};
+use crate::vertical::{Downward, Form, VerticalForms};
 
 /// A character code's glyph, for each of the 256 codes a simple font can use.
 pub(crate) type CodeTable = [Option<u16>; 256];
@@ -118,7 +118,10 @@ pub(crate) enum CodeMapping {
         ///
         /// `None` for every horizontal font and for a vertical one whose collection Table 116
         /// publishes no vertical `CMap` for — see [`crate::vertical`], which holds the whole
-        /// argument and both of its halves.
+        /// argument and both of its halves. **`Some` for a face that states no vertical form at
+        /// all**, which is not the same thing: there the question arises and the answer is that
+        /// the reader loses the shape, which is what `Form::Unsupplied` says and what
+        /// `LoadedFont::unsupplied_vertical_form` counts (ADR 0764).
         downward: Option<Box<Downward>>,
     },
 }
@@ -1476,25 +1479,67 @@ impl LoadedFont {
             // and the face states one for the glyph, that is the glyph the file asked for.
             // [`crate::vertical`] holds the argument and names what neither half is derived
             // from.
-            CodeMapping::Substituted {
-                text,
-                cmap,
-                downward,
-            } => {
-                let font = FontRef::new(&self.data).ok()?;
-                let character = text.char_for(cmap, code)?;
-                let id = font.charmap().map(character)?;
-                let glyph = u16::try_from(id.to_u32()).ok()?;
-                let rotated = downward
-                    .as_ref()
-                    .and_then(|downward| downward.form_of(character, cmap.cid(code)?, glyph));
-                Some(rotated.unwrap_or(glyph))
+            CodeMapping::Substituted { .. } => {
+                let (_, glyph, form) = self.substituted_glyph(code)?;
+                Some(match form {
+                    Form::Rotated(rotated) => rotated,
+                    Form::Upright | Form::Unsupplied => glyph,
+                })
             }
             // Resolved when the font was loaded. A code with no entry has no glyph, and
             // that is final: falling back to the code as a glyph index here is exactly
             // how a font draws plausible, wrong text.
             CodeMapping::Named(table) => *table.get(usize::try_from(code.value()).ok()?)?,
         }
+    }
+
+    /// One code's whole answer from a substituted composite font: what it means, which glyph of
+    /// the face that is, and what the writing mode makes of it.
+    ///
+    /// One function because two callers must not be able to disagree. [`Self::glyph_for`] draws
+    /// what this returns and [`Self::unsupplied_vertical_form`] counts what it could not draw,
+    /// and a count taken from a second walk of the same route would be a measurement of that
+    /// walk (trap 13). `None` for every font that is not a substituted composite one, and for a
+    /// code §9.10.2 gives no character or the face has no glyph for — that second silence is
+    /// [`Self::uncovered_character`]'s and is deliberately not this one's.
+    fn substituted_glyph(&self, code: Code) -> Option<(char, u16, Form)> {
+        let CodeMapping::Substituted {
+            text,
+            cmap,
+            downward,
+        } = &self.mapping
+        else {
+            return None;
+        };
+        let font = FontRef::new(&self.data).ok()?;
+        let character = text.char_for(cmap, code)?;
+        let glyph = u16::try_from(font.charmap().map(character)?.to_u32()).ok()?;
+        let form = downward.as_ref().map_or(Form::Upright, |downward| {
+            cmap.cid(code)
+                .map_or(Form::Upright, |cid| downward.form_of(character, cid, glyph))
+        });
+        Some((character, glyph, form))
+    }
+
+    /// The character whose *vertical form* this code named and the substituted face did not have.
+    ///
+    /// `Some` in one situation, which is ISO 32000-2 §9.7.5.1's NOTE going unhonoured: the font
+    /// is substituted, its `CMap` is in writing mode 1, the character collection calls this code's
+    /// CID that character's vertical form, the face has a glyph for the character — and states no
+    /// `vert` or `vrt2` substitution for it. The page then draws the producer's character in the
+    /// producer's place in whatever shape the substitute had, which is a mark made and not a mark
+    /// missed.
+    ///
+    /// **A count and not a report**, on ADR 0152's arithmetic: this says something about a face
+    /// rather than about a file, and a report would take a page off the oracle's judged set for
+    /// it. **And disjoint from [`Self::uncovered_character`]**, which is the distinction ADR 0764
+    /// exists to draw: that one is a character the face cannot draw at all, this one is a
+    /// character it draws in the wrong shape, and until they were counted apart they were one
+    /// silence with one number.
+    #[must_use]
+    pub fn unsupplied_vertical_form(&self, code: Code) -> Option<char> {
+        let (character, _, form) = self.substituted_glyph(code)?;
+        (form == Form::Unsupplied).then_some(character)
     }
 
     /// The character a code stands for, where the substitute cannot draw it.

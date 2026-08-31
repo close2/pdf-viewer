@@ -58,6 +58,14 @@
 //! rather than reports: the page draws the producer's character in the producer's place, in a
 //! shape the substitute had. Calling that a drawing fault would take a page off the oracle's
 //! judged set to say something about a face rather than about the file.
+//!
+//! **It is counted, though, and that is the eight-hundred-and-thirty-seventh session's** (ADR
+//! 0764). "Counted rather than reported" was the decision ADR 0763 recorded and nothing counted
+//! it: a face with no vertical form and a face with no glyph at all were one silence, and only
+//! the second had a number. [`Form::Unsupplied`] is the first of the two, and
+//! `pdf_model::content::Shortfall::without_a_vertical_form` is where it arrives. The two
+//! populations are disjoint by construction — this question is asked of a glyph the face
+//! *reached*, and a character it has no glyph for never gets here.
 
 use std::collections::BTreeMap;
 
@@ -84,17 +92,24 @@ pub(crate) struct Downward {
 }
 
 impl Downward {
-    /// The route for one substituted vertical font, or `None` where there is nothing to do.
+    /// The route for one substituted vertical font, or `None` where there is nothing to ask.
     ///
-    /// `None` for four reasons, each of which is a fact and not a failure: the `CMap` is in
+    /// `None` for three reasons, each of which is a fact and not a failure: the `CMap` is in
     /// writing mode 0, so §9.7.5.1's NOTE is not about it; the descendant states no readable
     /// `/CIDSystemInfo` (Table 115 makes it required, so §9.10.2 step (b) has nothing to obtain
-    /// either); Table 116 publishes no vertical `CMap` for the collection it does state, which
-    /// includes every `Identity` ordering; or the face this machine offered states no vertical
-    /// form of any glyph, which is every Latin face.
+    /// either); or Table 116 publishes no vertical `CMap` for the collection it does state, which
+    /// includes every `Identity` ordering. In all three the *question* does not arise, which is
+    /// what separates them from the fourth thing that can happen.
+    ///
+    /// **A face that states no vertical form of any glyph is not one of them, and used to be.**
+    /// It is an answer rather than an absence of one — the collection still says which CIDs are
+    /// vertical forms, and a page drawing one of them through such a face loses the shape its
+    /// producer chose. Returning `None` there made that loss unaskable, so the route is now kept
+    /// and [`Form::Unsupplied`] is what it says (ADR 0764). Nothing about the picture changed:
+    /// the caller drew the glyph it had then and draws it now.
     ///
     /// The writing mode is a parameter rather than the caller's `if` so that every one of the
-    /// four sits in one place, which is what makes the list above checkable.
+    /// three sits in one place, which is what makes the list above checkable.
     pub(crate) fn read(
         document: &Document,
         descendant: &Dictionary,
@@ -110,27 +125,46 @@ impl Downward {
         }
         let font = FontRef::new(data).ok()?;
         let forms = VerticalForms::read(&font);
-        (!forms.is_empty()).then(|| {
-            Box::new(Self {
-                registry,
-                ordering,
-                forms,
-            })
-        })
+        Some(Box::new(Self {
+            registry,
+            ordering,
+            forms,
+        }))
     }
 
-    /// The glyph to draw where the producer's CID is the collection's vertical form.
+    /// What this face can do with the form the producer's CID names.
     ///
     /// `character` and `glyph` are what the horizontal route already produced — §9.10.2's third
     /// method and the face's `cmap` — and `cid` is what the file wrote. Both halves have to
-    /// agree: the collection has to call this CID that character's vertical form, and the face
-    /// has to state one for the glyph. `None` where either does not, and then the caller draws
-    /// what it had.
-    pub(crate) fn form_of(&self, character: char, cid: u32, glyph: u16) -> Option<u16> {
-        predefined::is_vertical_form(&self.registry, &self.ordering, character, cid)
-            .then(|| self.forms.of(glyph))
-            .flatten()
+    /// agree for a rotation: the collection has to call this CID that character's vertical form,
+    /// and the face has to state one for the glyph.
+    pub(crate) fn form_of(&self, character: char, cid: u32, glyph: u16) -> Form {
+        if !predefined::is_vertical_form(&self.registry, &self.ordering, character, cid) {
+            return Form::Upright;
+        }
+        self.forms.of(glyph).map_or(Form::Unsupplied, Form::Rotated)
     }
+}
+
+/// What a substituted face had for the form a vertical `CMap`'s CID named.
+///
+/// Three answers rather than an `Option<u16>`, because the two `None`s are different facts and
+/// only one of them costs the reader anything: a CID that is not a vertical form is the producer
+/// writing an upright shape, which is legal and is a statement about that glyph, while a vertical
+/// form the face cannot supply is §9.7.5.1's NOTE going unhonoured. ADR 0764 is why the second is
+/// counted; ADR 0763 is why neither is reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Form {
+    /// The collection does not call this CID that character's vertical form, so the glyph the
+    /// horizontal route reached is the one the producer asked for.
+    Upright,
+    /// The collection calls it a vertical form and the face states which glyph that is.
+    Rotated(u16),
+    /// The collection calls it a vertical form and the face states none.
+    ///
+    /// The page draws the character in the producer's place in the shape the substitute had,
+    /// which is the silence `pdf_model::content::Shortfall::without_a_vertical_form` counts.
+    Unsupplied,
 }
 
 /// The vertical form of each glyph the face states one for.

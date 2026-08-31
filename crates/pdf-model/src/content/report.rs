@@ -449,6 +449,32 @@ pub struct Interpretation {
     /// lost. [`Self::codes_without_a_glyph`] asks the opposite question and therefore does not
     /// wait for a character.
     pub codes_reaching_a_blank_glyph: usize,
+    /// Codes this page drew whose *vertical form* the substituted face did not have.
+    ///
+    /// ISO 32000-2 §9.7.5.1's NOTE is what makes this a loss:
+    ///
+    /// > Writing mode is specified as part of the CMap because, in some cases, different shapes
+    /// > are used when writing horizontally and vertically. In such cases, the horizontal and
+    /// > vertical variants of a CMap specify different CIDs for a given character code.
+    ///
+    /// So a producer writing a vertical CID has chosen a *shape*, and §9.7.4.2 leaves a
+    /// substitute reachable only by character — which is where the choice is thrown away unless
+    /// the face states the form. `pdf_font::vertical` puts it back where it can; this counts
+    /// where it cannot.
+    ///
+    /// **A mark made and not a mark missed**, which is why it is neither of the two counts above:
+    /// the character is drawn, in the producer's place, in whatever shape the substitute had. A
+    /// bracket lies on its side and a full stop sits in the middle of the column instead of at
+    /// its top right.
+    ///
+    /// **Counted apart from [`Self::codes_without_a_glyph`] since the
+    /// eight-hundred-and-thirty-seventh session, and the two were one silence before it** (ADR
+    /// 0764). ADR 0763 decided not to *report* it, on ADR 0152's arithmetic — a report costs the
+    /// oracle a judged page and this is a statement about a face rather than about a file — and
+    /// left it counted by nothing at all, which is a decision the tree had no instrument for. The
+    /// two populations are disjoint by construction: this is asked of a glyph the face reached,
+    /// and a character it has no glyph for never gets here.
+    pub codes_without_a_vertical_form: usize,
     /// Codes this page showed that §9.10.2 could not name, whether or not a glyph was drawn.
     ///
     /// The reading half of what the two counts above measure for the drawing half, and the one
@@ -860,7 +886,7 @@ impl Interpretation {
         self.unsupported.is_empty()
     }
 
-    /// The three per-code counts, as one value a consumer outside this crate can hold.
+    /// The four per-code counts, as one value a consumer outside this crate can hold.
     ///
     /// See [`Shortfall`] for why they travel together.
     #[must_use]
@@ -869,27 +895,33 @@ impl Interpretation {
             unnamed: self.codes_without_a_character,
             without_a_glyph: self.codes_without_a_glyph,
             reaching_a_blank_glyph: self.codes_reaching_a_blank_glyph,
+            without_a_vertical_form: self.codes_without_a_vertical_form,
         }
     }
 }
 
-/// What a page's codes cost the reader, in the three ways this tree can tell apart.
+/// What a page's codes cost the reader, in the four ways this tree can tell apart.
 ///
-/// [`Interpretation`] carries the three as separate fields because they are counted at three
+/// [`Interpretation`] carries the four as separate fields because they are counted at four
 /// different places; they are one type here because a **consumer** of them cannot use one without
-/// the others. Two of them are about the picture and one is about the readback, and the
+/// the others. Three of them are about the picture and one is about the readback, and the
 /// distinction between the first two is the whole of ADR 0270 — a code that reached a glyph the
 /// program describes as empty is a space and not a loss, so a host told only
 /// [`Self::without_a_glyph`] would be reading a fraction of a fraction. `Answer::Field` and
 /// `Answer::Fields` carry one type for the same reason: a host must not be able to learn an
 /// exception from one question and miss it in the other.
 ///
-/// **None of the three is an [`Unsupported`] report, and that is a decision rather than an
+/// **None of the four is an [`Unsupported`] report, and that is a decision rather than an
 /// omission.** ADR 0152's arithmetic prices one: a page that reports leaves the oracle's judged
 /// set, and these are shortfalls on pages that otherwise draw perfectly — 41 of the 892 corpus
 /// page ones that report nothing show a code §9.10.2 could not name. So the number crosses to a
 /// host and to `pdf-retrieve` instead, where a reader who searched, selected or extracted can be
 /// told that what came back is short and by how much. ADR 0422.
+///
+/// **The fourth arrived in the eight-hundred-and-thirty-seventh session** (ADR 0764) and is the
+/// same decision made a second time: ADR 0763 declined to report a substituted face with no
+/// vertical form and left it counted by nothing, so it and a face with no glyph at all were one
+/// silence with one number under it. [`Self::without_a_vertical_form`] is the other one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Shortfall {
     /// Codes ISO 32000-2 §9.10.2 could not name, by which of its methods could have.
@@ -905,6 +937,11 @@ pub struct Shortfall {
     /// [`Interpretation::codes_reaching_a_blank_glyph`]. Carried beside the one above rather than
     /// folded into it because only the other is a loss; ADR 0270 measured what folding them cost.
     pub reaching_a_blank_glyph: usize,
+    /// Codes drawn in the wrong shape: the producer's CID named a vertical form (§9.7.5.1's
+    /// NOTE) and the substituted face states none.
+    ///
+    /// [`Interpretation::codes_without_a_vertical_form`].
+    pub without_a_vertical_form: usize,
 }
 
 impl Shortfall {
@@ -912,6 +949,14 @@ impl Shortfall {
     ///
     /// [`Self::reaching_a_blank_glyph`] does **not** make this false: a glyph the program
     /// describes as empty is the program saying the code makes no mark, which is what a space is.
+    ///
+    /// **Neither does [`Self::without_a_vertical_form`]**, and that is a reading rather than an
+    /// oversight: that code *was* named and *was* drawn, in the producer's place, and what
+    /// differs is the shape of the mark. Saying otherwise here would tell every consumer of this
+    /// method — including `viewer-accessibility`'s status group, which speaks a sentence for a
+    /// page that is not whole — that characters are missing from a page that has all of them.
+    /// A reader who cannot see the page loses nothing to a bracket drawn upright, so the count
+    /// crosses for the consumers that show a picture and is deliberately not spoken. ADR 0764.
     #[must_use]
     pub const fn is_whole(&self) -> bool {
         self.unnamed.total() == 0 && self.without_a_glyph == 0
@@ -927,6 +972,7 @@ impl Shortfall {
             unnamed,
             without_a_glyph,
             reaching_a_blank_glyph,
+            without_a_vertical_form,
         } = other;
         Self {
             unnamed: self.unnamed.merge(unnamed),
@@ -934,6 +980,9 @@ impl Shortfall {
             reaching_a_blank_glyph: self
                 .reaching_a_blank_glyph
                 .saturating_add(reaching_a_blank_glyph),
+            without_a_vertical_form: self
+                .without_a_vertical_form
+                .saturating_add(without_a_vertical_form),
         }
     }
 }

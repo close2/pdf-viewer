@@ -451,6 +451,31 @@ impl Interpreter<'_> {
                                 painting,
                             );
                             coverage.drawn = coverage.drawn.saturating_add(1);
+                            // A mark was made, and the question this asks is whether it is the
+                            // *shape* the producer chose. §9.7.5.1's NOTE: "the horizontal and
+                            // vertical variants of a CMap specify different CIDs for a given
+                            // character code", so a vertical CID names a form — and a
+                            // substituted face, reached by character alone (§9.7.4.2), draws
+                            // whatever it has unless it states that form. Counted where it does
+                            // not, and counted here rather than beside the two arms below
+                            // because this is the arm where something was drawn: the other two
+                            // are a mark missed and a mark the font meant not to make, and this
+                            // is a mark made in the wrong shape. A report would cost the oracle
+                            // a judged page for a statement about a face (ADRs 0152, 0763), so
+                            // this is a number and `Shortfall` is where it goes (ADR 0764).
+                            if let Some(character) = program.unsupplied_vertical_form(code) {
+                                self.codes_without_a_vertical_form =
+                                    self.codes_without_a_vertical_form.saturating_add(1);
+                                // The same idiom as the two traces below, and it prints the
+                                // character because that is what says which form was wanted.
+                                if std::env::var_os("PDFVIEWER_TRACE_VERTICAL_FORM").is_some() {
+                                    eprintln!(
+                                        "UPRIGHT font=/{} code={} char={character:?}",
+                                        state.text.font_name,
+                                        code.value()
+                                    );
+                                }
+                            }
                         } else if program.uncovered_character(code).is_some() {
                             // §9.10.2 gave this code a character and the substitute face has
                             // no glyph for it, so a mark the document states is not made.

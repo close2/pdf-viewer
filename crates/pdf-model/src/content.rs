@@ -541,6 +541,7 @@ impl<'a> Interpreter<'a> {
             glyphs: 0,
             codes_without_a_glyph: 0,
             codes_reaching_a_blank_glyph: 0,
+            codes_without_a_vertical_form: 0,
             codes_without_a_character: UnnamedCodes::default(),
             operations: 0,
             fonts: BTreeMap::new(),
@@ -784,6 +785,7 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         glyphs: interpreter.glyphs,
         codes_without_a_glyph: interpreter.codes_without_a_glyph,
         codes_reaching_a_blank_glyph: interpreter.codes_reaching_a_blank_glyph,
+        codes_without_a_vertical_form: interpreter.codes_without_a_vertical_form,
         codes_without_a_character: interpreter.codes_without_a_character,
         described: interpreter.described,
         artifacts: interpreter.artifacts,
@@ -986,6 +988,9 @@ struct Interpreter<'a> {
     /// Codes shown that reached an empty glyph; see
     /// `Interpretation::codes_reaching_a_blank_glyph`.
     codes_reaching_a_blank_glyph: usize,
+    /// Codes drawn whose vertical form the substituted face lacked; see
+    /// `Interpretation::codes_without_a_vertical_form`.
+    codes_without_a_vertical_form: usize,
     /// Codes shown that §9.10.2 could not name; see
     /// `Interpretation::codes_without_a_character`.
     codes_without_a_character: UnnamedCodes,

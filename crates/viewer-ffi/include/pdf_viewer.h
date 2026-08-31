@@ -256,7 +256,8 @@ extern "C" {
 #define PDFV_DUPLEX_FLIP_LONG_EDGE      2u
 
 /*
- * §9.10.2's counts, which `pdfv_readback_count` answers and which are DELIBERATELY NOT REPORTS.
+ * A page's readback counts, which `pdfv_readback_count` answers and which are DELIBERATELY NOT
+ * REPORTS. §9.10.2's, except the last, which is §9.7.5.1's.
  *
  * That clause's own closing sentence is "there is no way to determine what the character code
  * represents", so a code this route ends at is an answer the standard states rather than something
@@ -273,7 +274,9 @@ extern "C" {
 #define PDFV_SHORTFALL_UNNAMED_TOTAL         6u  /* the six above, which is what a status bar shows */
 #define PDFV_SHORTFALL_WITHOUT_A_GLYPH       7u
 #define PDFV_SHORTFALL_BLANK_GLYPH           8u
-#define PDFV_SHORTFALL_KIND_COUNT            9u
+#define PDFV_SHORTFALL_UPRIGHT_VERTICAL_FORM 9u  /* §9.7.5.1's NOTE, not §9.10.2's: a mark made
+                                                  * in the shape the substituted face had */
+#define PDFV_SHORTFALL_KIND_COUNT            10u
 
 /* §12.3.4's two producer-side constraints, as bits `pdfv_thumbnail_info` sets when the FILE breaks
  * one. Carried rather than enforced: such a file is wrong and its picture is still what the file
