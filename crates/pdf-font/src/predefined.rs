@@ -32,7 +32,7 @@
 //! parse time on first use, measured in the ADR beside the alternative.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use crate::cmap::CMap;
 
@@ -128,6 +128,110 @@ fn resolve_unicode(name: &str, depth: u32) -> Option<crate::tounicode::ToUnicode
         .filter(|table| !table.is_empty());
     if let Ok(mut held) = ucs2_cache().lock() {
         let _ = held.insert(name.to_owned(), built.clone());
+    }
+    built
+}
+
+/// Whether a CID is the *vertical form* of a character in its own character collection.
+///
+/// # What the question is, and why the collection can answer it
+///
+/// §9.7.5.1's NOTE says that "in some cases, different shapes are used when writing horizontally
+/// and vertically", and that "the horizontal and vertical variants of a `CMap` specify different
+/// CIDs for a given character code". Table 116 then publishes both variants for each collection
+/// — `UniJIS-UCS2-H` and, in the row below it, "Vertical version of UniJIS-UCS2-H" — so the pair
+/// *is* the collection's statement of which characters have a distinct vertical form and which
+/// CID each one is.
+///
+/// This asks that pair the question directly: the vertical `CMap` sends `character` to `cid` and
+/// the horizontal one sends it somewhere else. Both halves matter. Without the first, a producer
+/// that chose the *horizontal* CID in a vertical `CMap` — which is legal, and is a statement —
+/// would be answered with a rotated glyph it did not ask for. Without the second, every kanji on
+/// the page would qualify, because a character with no vertical form is sent to one CID by both.
+///
+/// # Where it is used, and where it is not
+///
+/// Only [`crate::LoadedFont`]'s substituted composite route: a font whose program the document
+/// embedded reaches the producer's own glyph through the CID and needs nothing here. See
+/// [`crate::vertical`] for the other half — asking the substitute face which of its glyphs is
+/// that form.
+///
+/// `false` for a registry that is not Adobe's, for a collection Table 116 publishes no vertical
+/// `CMap` for, and for a character outside the basic multilingual plane. The last of those is
+/// the encoding these two files are keyed by — §9.7.5.2 says that "`CMap` names containing UCS2 use
+/// UCS-2 encoding" — and UCS-2 has no code for a character above U+FFFF.
+#[must_use]
+pub fn is_vertical_form(registry: &str, ordering: &str, character: char, cid: u32) -> bool {
+    let Some(names) = unicode_pair(registry, ordering) else {
+        return false;
+    };
+    let Ok(code) = u16::try_from(u32::from(character)) else {
+        return false;
+    };
+    let Some(pair) = unicode_pair_maps(names) else {
+        return false;
+    };
+    let (horizontal, vertical) = (&pair.0, &pair.1);
+    let bytes = code.to_be_bytes();
+    let upright = horizontal.cid(horizontal.next_code(&bytes));
+    let downward = vertical.cid(vertical.next_code(&bytes));
+    downward == Some(cid) && upright != Some(cid)
+}
+
+/// Whether Table 116 publishes a vertical `CMap` for this character collection at all.
+///
+/// [`is_vertical_form`] answers `false` for a collection without one, so this changes no answer;
+/// what it saves is reading a substitute's `GSUB` for a font whose CIDs no table can rank. An
+/// `Identity` ordering is the population that matters — §9.7.3 makes its CIDs "the glyph order of
+/// a program nobody supplied", so no published pair could say which of them are vertical forms.
+#[must_use]
+pub fn has_vertical_forms(registry: &str, ordering: &str) -> bool {
+    unicode_pair(registry, ordering).is_some()
+}
+
+/// Table 116's Unicode `CMap` pair for a character collection: horizontal, then vertical.
+///
+/// One row per collection the table publishes both variants for, and the names are the table's
+/// own. **Adobe-KR has no row and that is the table's doing rather than an omission here**: the
+/// collection §9.7.5.2 requires alongside the other three is published with `UniAKR-UTF16-H` and
+/// no vertical counterpart, so there is no pair to compare and no CID it could name.
+/// Adobe-Japan2 has none either, being deprecated in this edition.
+fn unicode_pair(registry: &str, ordering: &str) -> Option<(&'static str, &'static str)> {
+    if registry != "Adobe" {
+        return None;
+    }
+    Some(match ordering {
+        "Japan1" => ("UniJIS-UCS2-H", "UniJIS-UCS2-V"),
+        "GB1" => ("UniGB-UCS2-H", "UniGB-UCS2-V"),
+        "CNS1" => ("UniCNS-UCS2-H", "UniCNS-UCS2-V"),
+        "Korea1" => ("UniKS-UCS2-H", "UniKS-UCS2-V"),
+        _ => return None,
+    })
+}
+
+/// One collection's pair of Unicode `CMap`s, inflated and parsed once.
+type CMapPair = Arc<(CMap, CMap)>;
+
+/// The pairs [`is_vertical_form`] has been asked for.
+///
+/// A memo of its own rather than [`cmap`]'s, because [`cmap`] hands out a **clone** — which is
+/// right for a caller that keeps the map on a font and wrong for one asking a question per glyph
+/// drawn. `UniJIS-UCS2-H` is twenty thousand ranges.
+static UNICODE_PAIRS: OnceLock<RwLock<HashMap<&'static str, Option<CMapPair>>>> = OnceLock::new();
+
+/// Builds or recalls one collection's pair, keyed by the vertical name.
+fn unicode_pair_maps(names: (&'static str, &'static str)) -> Option<CMapPair> {
+    let memo = UNICODE_PAIRS.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(held) = memo.read()
+        && let Some(found) = held.get(names.1)
+    {
+        return found.clone();
+    }
+    let built = cmap(names.0)
+        .zip(cmap(names.1))
+        .map(|(horizontal, vertical)| Arc::new((horizontal, vertical)));
+    if let Ok(mut held) = memo.write() {
+        let _ = held.insert(names.1, built.clone());
     }
     built
 }
@@ -321,6 +425,57 @@ mod tests {
                 map.has_mappings(),
                 "{name} states no mapping, so every code would be .notdef"
             );
+        }
+    }
+
+    /// §9.7.5.1's NOTE, read off the two files Table 116 publishes for one collection.
+    ///
+    /// The collection is Adobe-Japan1 and the character is U+300C LEFT CORNER BRACKET, whose
+    /// two CIDs are what `VerticalText.pdf` is about: `UniJIS-UCS2-H` sends the character to
+    /// 686 and `UniJIS-UCS2-V` to 7911, so 7911 is its vertical form and 686 is not. **Neither
+    /// number is written anywhere but here and in Adobe's own files**, which is what makes this
+    /// a reading of the data rather than a table somebody typed.
+    ///
+    /// The negative rows are the half that keeps the rule from firing on everything: 縦 has one
+    /// CID in both files, so it has no vertical form at all, and a CID belonging to another
+    /// character is not this character's form however vertical it is elsewhere.
+    #[test]
+    fn a_collection_says_which_of_two_cids_is_the_vertical_form() {
+        use super::is_vertical_form;
+
+        // U+300C: 7911 in the vertical file, 686 in the horizontal one.
+        assert!(is_vertical_form("Adobe", "Japan1", '\u{300c}', 7911));
+        assert!(!is_vertical_form("Adobe", "Japan1", '\u{300c}', 686));
+        // U+3002 IDEOGRAPHIC FULL STOP, the other shape `VerticalText.pdf` shows.
+        assert!(is_vertical_form("Adobe", "Japan1", '\u{3002}', 7888));
+        assert!(!is_vertical_form("Adobe", "Japan1", '\u{3002}', 635));
+        // 縦 is the same CID in both files, so neither of its readings is a vertical form.
+        assert!(!is_vertical_form("Adobe", "Japan1", '\u{7e26}', 2382));
+        // 7911 is U+300C's form and not U+3002's.
+        assert!(!is_vertical_form("Adobe", "Japan1", '\u{3002}', 7911));
+        // A collection Table 116 publishes no vertical CMap for, and a registry that is not
+        // Adobe's, are both `false` rather than a guess.
+        assert!(!is_vertical_form("Adobe", "Identity", '\u{300c}', 7911));
+        assert!(!is_vertical_form("Fontworks", "Japan1", '\u{300c}', 7911));
+    }
+
+    /// Every collection this reader names a vertical `CMap` for has both halves of the pair.
+    ///
+    /// A row naming a file this binary does not carry would make the whole rule silently
+    /// inapplicable for that collection, which is the shape of failure nothing else here could
+    /// see: the answer would be `false` for every CID and the page would draw exactly as it did
+    /// before.
+    #[test]
+    fn each_collections_vertical_pair_is_carried() {
+        for ordering in ["Japan1", "GB1", "CNS1", "Korea1"] {
+            let (horizontal, vertical) =
+                super::unicode_pair("Adobe", ordering).expect("a row for the collection");
+            assert!(exists(horizontal), "{horizontal} is not carried");
+            assert!(exists(vertical), "{vertical} is not carried");
+            let pair = super::unicode_pair_maps((horizontal, vertical))
+                .expect("both halves of the pair parse");
+            assert_eq!(pair.0.wmode(), 0, "{horizontal} is the horizontal half");
+            assert_eq!(pair.1.wmode(), 1, "{vertical} is the vertical half");
         }
     }
 

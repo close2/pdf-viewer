@@ -17,11 +17,36 @@
 //! `/Filter` naming ASCII85, and `#8`'s Flate stream was PNG-predicted against a full
 //! `/DecodeParms` of nulls. The argument lives on `inline_image::expand_key`; what lives here
 //! is that the eight pictures agree, which is false under any other rule.
+//!
+//! # Two copies of one construction, and the second is not a duplicate
+//!
+//! `doc/corpora/pdf-differences/Inline-Image-Abbreviations/InlineAbbreviations.pdf` is the PDF
+//! Association's own copy of the same file, and the eight-hundred-and-thirty-sixth session added
+//! the second test below rather than treating it as one already gated. **The two differ in
+//! seventeen bytes and every one of them is a `/L` or a `/Length`**: the corpus copy states 1276
+//! and 201 where `doc/pdf.js`'s states 1240 and 197, and those are not two spellings of one
+//! number — 1276 is where `EI` actually is.
+//!
+//! That puts the two documents on *different routes* through `inline_image::data_extent`, which
+//! is the whole reason the second is worth a gate. §8.9.7 makes `/L` "the length of the data
+//! between the `ID` and `EI` operators", and this tree checks a stated length against the `EI` it
+//! predicts before believing it: the corpus copy is answered by its own arithmetic and
+//! `doc/pdf.js`'s falls through to asking the first filter of the chain where its data ends. One
+//! picture, two ways of finding the end of it.
 
 #![expect(
     clippy::indexing_slicing,
     reason = "test code: the page's geometry is fixed by the document, so a slice out of \
               range would mean the corpus file changed shape and should fail loudly"
+)]
+#![expect(
+    clippy::expect_used,
+    reason = "test code: a witness that stops opening should fail loudly, naming itself"
+)]
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "test code: the page's geometry is the document's own constants, and an overflow \
+              would mean the corpus file changed shape and should fail loudly"
 )]
 
 use std::path::Path;
@@ -46,11 +71,30 @@ const IMAGE: (u32, u32) = (200, 100);
 
 #[test]
 fn eight_spellings_of_one_inline_image_draw_one_picture() {
-    let path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/pdf.js/test/pdfs/issue14256.pdf");
+    // `doc/pdf.js`'s copy, whose `/L` entries do not predict the `EI` they precede, so each
+    // image's extent comes from its own filter's end-of-data marker.
+    eight_pictures_agree("../../doc/pdf.js/test/pdfs/issue14256.pdf");
+}
+
+/// The same eight cases in the PDF Association's own copy, whose lengths are the right ones.
+///
+/// Not a duplicate of the test above: seventeen bytes separate the two files and all of them are
+/// a stated length, so this one is answered by §8.9.7's `/L` where the other falls through to the
+/// filter. See the module comment.
+#[test]
+fn the_same_eight_spellings_agree_where_the_stated_length_is_the_right_one() {
+    eight_pictures_agree(
+        "../../doc/corpora/pdf-differences/Inline-Image-Abbreviations/InlineAbbreviations.pdf",
+    );
+}
+
+/// Renders one copy of the file and asserts its eight images are one picture.
+fn eight_pictures_agree(relative: &str) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
     let Ok(bytes) = std::fs::read(&path) else {
         // A missing submodule is a skip; a present one that lacks this file is not, and the
         // corpus gate would have said so first.
+        println!("skipped: {} is not checked out", path.display());
         return;
     };
 

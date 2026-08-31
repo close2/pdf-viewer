@@ -360,6 +360,27 @@ pub(crate) fn cid_to_glyph(
 /// table for — which is every registry but Adobe's, and `Identity` orderings, where the codes
 /// are indices into a font nobody supplied and no table could say what they mean.
 pub(crate) fn collection_meaning(document: &Document, descendant: &Dictionary) -> Option<Meaning> {
+    let (registry, ordering) = collection_names(document, descendant)?;
+    predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
+}
+
+/// §9.7.3's registry and ordering, which between them name a character collection.
+///
+/// > A character collection shall be uniquely identified by the Registry , Ordering , and
+/// > Supplement entries in the CIDSystemInfo dictionary
+///
+/// The supplement is deliberately not read, on the clause's own words two sentences later:
+/// "This value shall not be used in determining compatibility between character collections."
+///
+/// One reader for the three questions that need it — what a CID *means* (§9.10.2 step b), which
+/// script a substitute has to cover, and which of its glyphs are vertical forms — so that a font
+/// cannot belong to one collection for one of them and another for the next. `None` where the
+/// descendant states no `/CIDSystemInfo` or states one without both strings, which Table 115
+/// makes a malformed descendant rather than a choice.
+pub(crate) fn collection_names(
+    document: &Document,
+    descendant: &Dictionary,
+) -> Option<(String, String)> {
     let info = document.get_key(descendant, "CIDSystemInfo");
     let info = info.as_dict()?;
     let text = |key: &str| {
@@ -368,8 +389,7 @@ pub(crate) fn collection_meaning(document: &Document, descendant: &Dictionary) -
             .as_string()
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
     };
-    let (registry, ordering) = (text("Registry")?, text("Ordering")?);
-    predefined::cid_to_unicode(&registry, &ordering).map(Meaning::ByCid)
+    Some((text("Registry")?, text("Ordering")?))
 }
 
 /// Why [`collection_meaning`] answered `None`, in the file's own terms.
@@ -421,18 +441,7 @@ pub(crate) fn collection_gap(
         );
     }
 
-    let info = document.get_key(descendant, "CIDSystemInfo");
-    let named = info.as_dict().and_then(|info| {
-        let text = |key: &str| {
-            document
-                .get_key(info, key)
-                .as_string()
-                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-        };
-        Some((text("Registry")?, text("Ordering")?))
-    });
-
-    let Some((registry, ordering)) = named else {
+    let Some((registry, ordering)) = collection_names(document, descendant) else {
         return "the descendant states no readable /CIDSystemInfo, which Table 115 makes \
                 required, so §9.10.2 step (b) has no character collection to obtain — and it \
                 states no /ToUnicode either"

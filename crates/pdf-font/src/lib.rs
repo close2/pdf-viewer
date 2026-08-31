@@ -19,7 +19,9 @@
 //! under the Identity encoding or an embedded `CMap` (§9.7.5.3) — which between them cover
 //! the overwhelming majority of modern documents. A font this crate cannot load returns an
 //! error naming why, so the caller reports the text as undrawn rather than silently omitting
-//! it. What is left is the predefined `CMap`s of Table 116, whose data is not in the tree.
+//! it. Table 116's predefined `CMap`s are carried as data (see [`predefined`]) rather than
+//! refused, which is where this paragraph said the gap was for hundreds of sessions after the
+//! hundred-and-fifty-sixth closed it.
 
 #![forbid(unsafe_code)]
 
@@ -45,6 +47,7 @@ mod substituted;
 pub mod tounicode;
 mod truetype;
 pub mod type1;
+mod vertical;
 
 pub use crate::cmap::Code;
 pub use crate::loading::{CharacterGlyph, FontError, LoadedFont, Meaning, NOTDEF_GLYPH, NamingGap};

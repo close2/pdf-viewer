@@ -377,18 +377,11 @@ pub(crate) fn wound_counter_clockwise(path: Path) -> Path {
 /// they had — the codes there index a font nobody supplied and §9.10.2's third method has
 /// nothing to read either way.
 pub(crate) fn script_sample(document: &Document, descendant: &Dictionary) -> &'static [char] {
-    let info = document.get_key(descendant, "CIDSystemInfo");
-    let Some(info) = info.as_dict() else {
+    let Some((registry, ordering)) = crate::composite::collection_names(document, descendant)
+    else {
         return &[];
     };
-    let text = |key: &str| {
-        document
-            .get_key(info, key)
-            .as_string()
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-            .unwrap_or_default()
-    };
-    match (text("Registry").as_str(), text("Ordering").as_str()) {
+    match (registry.as_str(), ordering.as_str()) {
         ("Adobe", "Japan1") => &['\u{3042}'],
         ("Adobe", "GB1" | "CNS1") => &['\u{7684}'],
         ("Adobe", "Korea1" | "KR") => &['\u{d55c}'],

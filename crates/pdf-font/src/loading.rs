@@ -48,6 +48,7 @@ use crate::substituted::{
 use crate::tounicode;
 use crate::truetype::{invert_charmap, truetype_code_table};
 use crate::type1;
+use crate::vertical::{Downward, VerticalForms};
 
 /// A character code's glyph, for each of the 256 codes a simple font can use.
 pub(crate) type CodeTable = [Option<u16>; 256];
@@ -113,6 +114,12 @@ pub(crate) enum CodeMapping {
         cmap: Box<CMap>,
         /// What each code means, by whichever of §9.10.2's methods answered.
         text: Box<Meaning>,
+        /// The vertical forms this substitute draws, for a `CMap` in writing mode 1.
+        ///
+        /// `None` for every horizontal font and for a vertical one whose collection Table 116
+        /// publishes no vertical `CMap` for — see [`crate::vertical`], which holds the whole
+        /// argument and both of its halves.
+        downward: Option<Box<Downward>>,
     },
 }
 
@@ -790,6 +797,9 @@ impl LoadedFont {
             CodeMapping::Substituted {
                 cmap: Box::new(cmap),
                 text: Box::new(text),
+                // §9.7.5.1's NOTE: a vertical `CMap` names *different CIDs*, so a substituted
+                // face has to be asked for a different glyph too.
+                downward: Downward::read(document, &descendant, &data, vertical),
             }
         } else {
             CodeMapping::Composite {
@@ -857,6 +867,28 @@ impl LoadedFont {
     #[must_use]
     pub fn is_substituted(&self) -> bool {
         self.substituted
+    }
+
+    /// Whether the face this font draws from states vertical forms of its own glyphs.
+    ///
+    /// A question about the **face** and about nothing else: it reads the program's `GSUB` for
+    /// the OpenType `vert` and `vrt2` features, whatever the font's writing mode is and whether
+    /// or not the glyphs are a substitute. See [`crate::vertical`] for what those features are
+    /// and why this crate reads them at all.
+    ///
+    /// **Public for a reason worth stating, because it is the only one.** Which face
+    /// [`crate::substitute`] finds is a property of the machine, so a test of the vertical route
+    /// has to be able to say *this machine's face has no vertical forms* — and it may not say it
+    /// by observing that the route changed no glyph, because that is also exactly what a broken
+    /// route looks like. A skip condition read off the output of the thing under test turns a
+    /// defect into a green run, which is `doc/traps/instruments-and-reports.md`'s trap 13. This
+    /// answers from the bytes of the face instead, so deleting the route cannot make it `false`.
+    ///
+    /// Reads the table on every call rather than from a memo, deliberately: nothing on a drawing
+    /// path asks it, and a cache would be an optimisation of a question the program does not put.
+    #[must_use]
+    pub fn face_states_vertical_forms(&self) -> bool {
+        FontRef::new(&self.data).is_ok_and(|font| !VerticalForms::read(&font).is_empty())
     }
 
     /// The horizontal scale this font's outlines are drawn at, one being the face as it is.
@@ -1435,11 +1467,28 @@ impl LoadedFont {
             }
             // The substitute has no notion of this document's CIDs, so the code is taken
             // to the character it stands for and that character is looked up.
-            CodeMapping::Substituted { text, cmap } => {
+            //
+            // **And then the writing mode is asked, because the character is not the whole of
+            // what the producer chose.** §9.7.5.1's NOTE says a vertical `CMap` names a
+            // different CID where the shape differs, and the CID-to-Unicode table this arm
+            // reaches the substitute through is keyed to the *character* — Adobe-Japan1's 7911
+            // and 686 are both U+300C. So where the collection says this CID is a vertical form
+            // and the face states one for the glyph, that is the glyph the file asked for.
+            // [`crate::vertical`] holds the argument and names what neither half is derived
+            // from.
+            CodeMapping::Substituted {
+                text,
+                cmap,
+                downward,
+            } => {
                 let font = FontRef::new(&self.data).ok()?;
                 let character = text.char_for(cmap, code)?;
                 let id = font.charmap().map(character)?;
-                u16::try_from(id.to_u32()).ok()
+                let glyph = u16::try_from(id.to_u32()).ok()?;
+                let rotated = downward
+                    .as_ref()
+                    .and_then(|downward| downward.form_of(character, cmap.cid(code)?, glyph));
+                Some(rotated.unwrap_or(glyph))
             }
             // Resolved when the font was loaded. A code with no entry has no glyph, and
             // that is final: falling back to the code as a glyph index here is exactly
@@ -1468,7 +1517,7 @@ impl LoadedFont {
     /// distinguishable without the caller having to know which is which.
     #[must_use]
     pub fn uncovered_character(&self, code: Code) -> Option<char> {
-        let CodeMapping::Substituted { text, cmap } = &self.mapping else {
+        let CodeMapping::Substituted { text, cmap, .. } = &self.mapping else {
             return None;
         };
         let font = FontRef::new(&self.data).ok()?;

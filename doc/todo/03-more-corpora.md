@@ -1638,23 +1638,37 @@ colour spaces both ways — and the four this file already records are as their 
   whenever both were on, so both drew the document's round join where one of them wants two end
   caps. `pdf_render::opened_where_a_dash_ends_at_the_close` is the rule and
   `render-quorra/tests/dashed_close.rs` holds all three backends to it.
-- **`VerticalText.pdf` is the case left standing, and it is `doc/todo/21`'s rather than this
-  file's.** `/Encoding /Identity-V` over a non-embedded `CIDFontType0` of `Adobe-Japan1`: the
-  producer has already chosen the vertical-form CIDs, and a substitute reached through Unicode
-  draws the horizontal brackets and the centred punctuation the corpus publishes as wrong. The
-  displacement is right — `/DW2 [ 880 −1600 ]` puts the columns where the references do — so what
-  is missing is a CID-to-glyph route for a substituted face rather than anything in clause 9's
-  vertical metrics. §9.5 NOTE 5 permits the substitution, so no clause supplies the expected glyph
-  and this is a `doc/todo/21` §3 shape rather than a per-case gate.
+- **`VerticalText.pdf` was the case left standing, and the eight-hundred-and-thirty-sixth session
+  took it** (ADR 0763). `/Encoding /Identity-V` over a non-embedded `CIDFontType0` of
+  `Adobe-Japan1`: the producer had already chosen the vertical-form CIDs, and a substitute reached
+  through Unicode drew the horizontal brackets and the centred punctuation the corpus publishes as
+  wrong. The displacement was right all along — `/DW2 [ 880 −1600 ]` puts the columns where the
+  references do — so what was missing was a *form* rather than anything in clause 9's vertical
+  metrics. §9.5 NOTE 5 leaves the substitute's shapes open, so the two halves of the route are
+  published tables read for what they say rather than a picture matched: the collection's own
+  Unicode `CMap` pair, and the face's `vert`/`vrt2` feature. `doc/todo/21` §7 carries what is left.
 - **`TextClippingModeChanges.pdf` and `PageLabels-UX` are not raster questions** in the way the
   rest are: the first draws what §9.3.6's two paragraphs ask for as far as three read-throughs can
   establish, and the second is about what a *user interface* shows for §12.4.2's labels.
 
-**What this chunk leaves** is one gate rather than a population: the two cases above whose expected
-value a clause does supply — `IndexedCS_negative_and_high.pdf`, where §8.6.6.3 makes the top row of
-patches identical to the bottom row, and `InlineAbbreviations.pdf`, where §8.9.7's Tables 91 and 92 make
-all eight images identical — are one-line assertions over a document already on this disk, and
-neither needs a reference. Nothing gates them today.
+**What this chunk left was one gate rather than a population, and the eight-hundred-and-thirty-sixth
+session added both.** `crates/pdf-model/tests/indexed_out_of_range.rs` holds §8.6.6.3's row of
+patches and `inline_image_abbreviations.rs` gained a second test for §8.9.7's eight images. Two
+things were learned in the writing and neither was in the sentence this paragraph replaces.
+
+- **The indexed file's two rows do not match exactly and its README says they do.** The reference
+  row writes `0.95 0.5 1 rg` for a palette entry of `F380FF`, and 0.95 × 255 is 242.25 against
+  0xF3's 243, so three of the eleven patches are a level apart in any renderer that rounds. The gate
+  therefore reads the **upper** row against the file's own lookup string and the clause, which is
+  what "derived rather than voted" means here — comparing the rows would have gated a decimal
+  literal. Trap 8's shape: a corpus states an invariant about itself and the invariant is not quite
+  true.
+- **`InlineAbbreviations.pdf` is not the copy `doc/pdf.js` already carries.** The two files are the
+  same 15 125 bytes and differ in seventeen of them, every one inside a `/L` or a `/Length`: the
+  corpus copy states 1276 and 201 where `issue14256.pdf` states 1240 and 197, and 1276 is where the
+  `EI` actually is. So the two take *different routes* through `inline_image::data_extent` — one
+  answered by §8.9.7's stated length, the other falling through to the first filter's own
+  end-of-data — and the second gate is a second witness rather than a duplicate.
 
 ## What not to do
 

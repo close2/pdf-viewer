@@ -1,6 +1,6 @@
 # What is left of font substitution
 
-Status: reported at runtime; six distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396).
+Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below** (ADR 0763).
 Priority: 21
 Corpus: 40 documents. **The corpus gate's own three silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
@@ -8,8 +8,8 @@ reaching a glyph the font draws blank` are the split ADR 0270 drew, the first of
 §3 below is about, and `codes §9.10.2 could not name *in silence*` is §5's, added in the
 four-hundred-and-seventy-sixth. The line's own worst-ten follows each. `doc/HANDOVER.md`'s
 not-implemented table stated the first of them wrongly for long enough to be worth this sentence.
-Clauses: §9.10.2, §9.7.4.2, §9.6.2.1, §9.6.2.2, §9.6.4 (Type 3, for §5's `/a192`), §9.6.5.3, §9.6.5.4, §9.8.1, §9.8.3
-Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`, `crates/pdf-font/src/metrics.rs`, `crates/pdf-model/src/content.rs`
+Clauses: §9.10.2, §9.7.4.2, §9.6.2.1, §9.6.2.2, §9.6.4 (Type 3, for §5's `/a192`), §9.6.5.3, §9.6.5.4, §9.7.5.1, §9.7.5.2, §9.8.1, §9.8.3
+Code: `crates/pdf-font/src/substitute.rs`, `crates/pdf-font/src/substituted.rs`, `crates/pdf-font/src/vertical.rs`, `crates/pdf-font/src/metrics.rs`, `crates/pdf-model/src/content.rs`
 
 ## 1. A per-character fallback — **0 documents, and this section was wrong about its own two**
 
@@ -359,3 +359,40 @@ What the fix cost and what moved is ADR 0396: the witness at −8.989 → −1.1
 first-page display lists changed with every oracle metric line and every ink-sweep line
 byte-identical, and 0.19% to 0.36% of interpretation on two substituted-text pages.
 
+## 7. The form the producer chose — **taken in the eight-hundred-and-thirty-sixth** (ADR 0763)
+
+A substitute is reached by character (§9.7.4.2) and §9.10.2's `-UCS2` table gives a character, so
+the **form** a vertical `CMap`'s CID named was thrown away one step before the face was asked.
+§9.7.5.1's NOTE is the sentence that makes that a loss — "in some cases, different shapes are used
+when writing horizontally and vertically" — and `doc/corpora/pdf-differences`'s `VerticalText.pdf`
+is the witness: `/Identity-V` over a non-embedded `Adobe-Japan1` `CIDFontType0` whose producer wrote
+CIDs 7887, 7888, 7891, 7911–7916, drawn with horizontal brackets and centred punctuation on columns
+`/DW2` already placed correctly.
+
+`pdf_font::vertical` is the route, in two halves that are each a published table read for what it
+says: the collection's own Unicode `CMap` pair says which CID is a vertical form
+(`predefined::is_vertical_form`), and the chosen face's OpenType `vert`/`vrt2` feature says which
+glyph that form is. ADR 0763 has the argument, the two designs that were declined and the
+calibration.
+
+**What is left, priced:**
+
+- **A face with no `vert` still draws the horizontal shape, and nothing counts it.** Deliberate, on
+  ADR 0152's arithmetic — it is the same shortfall as a face with no glyph for a character, which
+  this file's §3 keeps as a number rather than a report. What would change it is the same thing that
+  would change §3: a channel that is not a report. Cost: whatever
+  `Interpretation::shortfall` costs to grow by a field, which is small; the argument for *not*
+  growing it is that a reader cannot act on it either.
+- **Two collections have no pair to ask.** Table 116 publishes `UniAKR-UTF16-H` and no vertical
+  counterpart for Adobe-KR — one of the four §9.7.5.2 requires — and Adobe-Japan2 is deprecated.
+  Nothing can be derived for them from Table 116, and the only other route anybody has is a
+  convention, which principle 5 forbids. **Closed unless Adobe publishes a pair**, rather than owed.
+- **Only `GSUB` lookup type 1 is read.** A `vert` feature is one glyph for one glyph by
+  construction, and a contextual or chained rule under that tag would be a statement about a
+  sequence — which is shaping, and `doc/stack.md`'s standing refusal. No face on this machine states
+  one; a round that finds one has a *measurement* to make before it has a decision.
+- **The half-width vertical variants are not consulted.** `UniJIS-UCS2-HW-V` and its siblings state
+  a second set of forms for the same collection, and the row here names only the proportional pair.
+  A document whose producer chose a half-width vertical CID would be answered `false` and drawn
+  upright. No corpus document does; the fix is one more row and the question is which pair wins when
+  both name a CID, which wants a witness first.
