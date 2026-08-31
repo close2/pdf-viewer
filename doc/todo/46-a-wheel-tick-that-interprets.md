@@ -10,6 +10,16 @@ Code: `crates/viewer-core/src/viewer.rs` (the `set_magnification` → `reinterpr
 Instrument: the trace's event lines — `zoom In … -> 3 event(s) in 19.3ms` — on any
 view-dependent document; the owner's `/tmp/trace.txt` of 2026-08-28 is the standing witness.
 
+**The wheel is not the only gesture on this path, and the file said it was.** `Viewer::settle`
+derives the magnification from the *viewport*, so a window resize under a fit mode changes it
+exactly as a wheel notch does, and a view-dependent page then re-interprets inside
+`Command::Resize` rather than inside `Command::Zoom`. `doc/todo/47`'s attribution round drove that
+case — the ISO specification with `0` pressed, forty resize steps — and the line stayed at 3–12 µs
+because the pages on the screen carry no such annotation; the mechanism is reachable and the cost
+is this item's wherever a page that would notice is showing. So the instrument line above is
+`resize …` as well as `zoom …`, and a drag pays it per step where a gesture pays it per notch
+(ADR 0766 §1).
+
 ## The mechanism, and what ADR 0707 already took
 
 §12.5.3 makes a `NoZoom` annotation's placement a function of the magnification, so a zoom

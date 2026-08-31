@@ -1,41 +1,141 @@
-# The resize frames: 9–19 ms per step of a drag, parked by the owner
+# The resize frames: attributed, and the two arms a resize turns out to have
 
-Status: **open — parked.** This was point 8 of the seven-point GPU round; the owner
-excluded it from that round's scope and nothing has been built or priced since.
-Priority: 47 — performance, measured in passing, never attributed.
-Corpus: any document; the numbers were taken on `tmp/Entwurf.pdf` and dense text pages
-alike during the ADR 0704 round.
-Code: `crates/viewer-ui/src/bin/pdf-viewer/surface.rs` (the resize path),
-`crates/viewer-ui/src/bin/pdf-viewer/stale.rs` (`Refusal::Resized` and the retained-page
-answer to it).
-Instrument: the frame trace during a window drag — resize frames print as ordinary frames
-with their own totals; drive with `xdotool` window resizes on the measurement loop, which
-is the one input that provably reaches the owner's session (ADR 0700's lesson).
+Status: **open — attributed, and nothing is owed on the arm that was suspected.** ADR 0766 is the
+reading; what is left is one shape worth a decision and one term that belongs to another item.
+Priority: 47 — performance, measured, and now priced.
+Corpus: `doc/ISO_32000-2_sponsored_EC3.pdf` (a page whose raster does not follow the window) and
+`tmp/Entwurf.pdf` (one whose raster does); `doc/PDF20_AN001-BPC.pdf` as a third.
+Code: `crates/viewer-ui/src/bin/pdf-viewer/window.rs` (`WindowEvent::Resized`),
+`crates/viewer-core/src/viewer.rs` (`Command::Resize` and `settle`),
+`crates/viewer-ui/src/bin/pdf-viewer/renderer.rs` (the render thread, `sharp_pass_affordable`),
+`crates/viewer-ui/src/bin/pdf-viewer/stale.rs` (`Refusal::Resized` and the retained-page answer).
 
-## What is known, which is little
+## The attribution, and the command that reproduces it
 
-A resize costs 9–19 ms per step on the 890M (recorded in passing during ADR 0704's
-measurements). **The 1.3 s `resize` line in the owner's first Windows trace is not this
-item**: `tmp/win/entwurf.2.trace.txt`'s `resize 1200x1500 … in 1.3014148s` at t=1.862 is
-the same instant and the same duration as the launch table's own `interpreted, 58009 cmd
-… (+1302.964)` — the first resize is where page one is interpreted, which is the launch
-path's known largest step (`doc/todo/44` §6), not a per-step drag cost (ADR 0761 §1). What has never been done is the attribution: how much is the surface
-reconfigure, how much the chrome rebuild, how much the re-render at the new extent — the
-trace's columns exist and nobody has read them for a drag.
+`doc/environment.md`'s `Xvfb` recipe with `xdotool windowsize` for the drag. **The device is
+llvmpipe** — a swapchain on `Xvfb` has no DRI3 and the viewer's first line says which adapter it
+got — so `present` and `device` below are that software stack's. Everything the attribution turns
+on is not: which events a resize produces, what the core spends, what the host queries and the
+scene build spend, and which arm a document is in.
 
-What is already decided and not owed here: the *base* stand-in is impossible on a resize
-by design — the held picture is the old window's own pixels, chrome included
-(`Refusal::Resized`'s doc comment carries the argument) — and the retained pages already
-answer a resize, so a drag is not frozen. A per-page placement in the presenter, which
-would let the base carry across a resize, was priced and declined in `doc/todo/37`'s
-close-out. This item is therefore about the *cost of the real frame*, not about standing
-in.
+```sh
+Xvfb :78 -screen 0 1600x1200x24 &
+DISPLAY=:78 target/pdf-viewer --trace=frames,events,window,panel <document> > trace.txt &
+sleep 25                                     # a large document takes its time to open
+id=$(DISPLAY=:78 xdotool search --name . | tail -1)
+for step in $(seq 0 39); do                  # one drag: forty steps, no settle between them
+    DISPLAY=:78 xdotool windowsize "$id" $(( 800 + (step % 20) * 8 )) 1000
+    sleep 0.03
+done
+```
 
-## What taking it would look like
+Then read the trace's own three lines per step: `resize WxH at S -> N event(s) in T` is the core,
+`frame … | present … | host … scene … device …` is each frame, and `sharpened: the settled view at
+2x, T ms on the render thread` is ADR 0699's pass. Add `xdotool key 0` before the loop to put the
+view into a mode whose magnification the *window* decides, which is the second arm below.
 
-One measurement round first: a driven drag under the trace, three samples, the columns
-read. If the render at the new extent dominates, the question becomes quorra's (a resize
-is a viewport change over an unchanged scene — page-space scenes should make the scene
-free and the encode the term, same decomposition as the zoom step). If the reconfigure
-dominates, it is the host's swapchain handling. Do not build before attributing; the
-seven-point round's lesson was that the attribution changes the plan every time.
+### 1. Interpretation and the core: microseconds, on every document
+
+`resize … -> N event(s) in **6–12 µs**`, over four 39-step drags and three 12-step sequences on
+three documents. `Command::Resize` writes the viewport and the scale and pushes a damage; `settle`
+re-places Table 29's arrangement and asks for whatever raster is now wrong. **None of the 9–19 ms
+is interpretation and none of it is core re-layout.**
+
+§12.5.3's re-interpretation *is* reachable from here — `settle` derives the magnification from the
+viewport, so a fit mode changes it on every step and a page with a `NoZoom` annotation
+re-interprets exactly as a wheel tick does. Driven with `0` pressed first on the ISO
+specification, which carries such annotations, the line stays at 3–12 µs because the pages on the
+screen are not the ones that carry them. That cost is [`46-a-wheel-tick-that-interprets.md`](46-a-wheel-tick-that-interprets.md)'s
+and that file now names the resize as its second gesture.
+
+### 2. The two arms, and which one a document is in decides everything
+
+| | arm 1 — the raster does not follow the window | arm 2 — it does |
+|---|---|---|
+| when | the magnification is a number the reader chose and the page fits | a fit mode, or an opening view that is one (`Entwurf.pdf`) |
+| events per step | `damage`, and **nothing else** | `damage` + one `NeedsRender` per page shown |
+| what the step is | a re-composition: retained pictures re-placed under a chrome scene rebuilt at the new extent | a whole re-render of the page |
+| per step (ISO spec / `Entwurf`) | host 0.2, scene 0.2, `present` 4.0–4.4 ms, one frame presented per step | 38 renders asked in 39 steps; **one** real frame presented in a 1.26 s drag and 89 stand-ins at 2.9 ms of `present` |
+
+The retained-page stand-in is what keeps arm 2 from freezing and it works: no step of any drag
+measured showed the person nothing.
+
+**The 1.3 s `resize` line in the owner's first Windows trace is not this item and never was**:
+`tmp/win/entwurf.2.trace.txt`'s `resize 1200x1500 … in 1.3014148s` at t=1.862 is the same instant
+and the same duration as that launch table's `interpreted, 58009 cmd … (+1302.964)` — the first
+resize is where page one is interpreted, which is the launch path's known largest step
+(`doc/todo/44` §6), not a per-step drag cost (ADR 0761 §1). §1 above is the general form of that:
+a resize *can* interpret, and when it does the line says so in milliseconds rather than
+microseconds.
+
+### 3. Arm 2 on the real adapter is `encode` and nothing else
+
+`render-quorra/examples/zoom_frame` draws one display list at a sequence of magnifications against
+one warm device — the same commands at a target a few per cent larger, which is an arm-2 resize
+step exactly. On **AMD Radeon 890M (RADV STRIX1)**, headless, minima of three rounds:
+
+```sh
+ZOOM_FRAME_ROUNDS=3 ZOOM_FRAME_SEQUENCE=1,1.024,1.048,1.072 \
+  cargo run --release -p render-quorra --example zoom_frame -- <document> 1 1.0
+```
+
+| page | step | total | scene | encode | transfer | execute |
+|---|---|---|---|---|---|---|
+| ISO 32000-2 p1, 548 cmd | 596×842 → 610×863 | **2.0 ms** | 0.0 | 1.3 | 0.2 | 0.1 |
+| `Entwurf.pdf` p1, 58 010 cmd | 1667×474 → 1707×485 | **132.5 ms** | 0.0 | 129.0 | 0.7 | 0.5 |
+
+`scene` and `handover` are zero after the first frame, which is this file's own prediction coming
+true: a page-space scene makes the scene free and leaves the encode as the term. The term is
+quorra's `encode`, which [`47-the-encode-term.md`](47-the-encode-term.md) and
+[`46-the-kernel-floor.md`](46-the-kernel-floor.md) already own.
+
+### 4. The three candidates this file named
+
+- **The surface reconfigure** — *not the term.* A resize changes the surface extent and quorra's
+  presenter reconfigures at the next acquire, inside `Stages::present`. The control is the run's
+  own frames split by whether a resize preceded them: `present` medians **4.14 ms after a resize
+  against 3.89 ms not** on one document and **7.58 against 11.60** — the wrong way round — on
+  another. Below the spread of `present` itself.
+- **The chrome rebuild** — *not the term.* `host` is 0.2–0.4 ms and `scene` 0.2–0.3 ms per step
+  with the sidebar open.
+- **The re-render at the new extent** — the whole of arm 2 and none of arm 1.
+
+### 5. Two things this file did not predict
+
+- **ADR 0699's sharp pass runs once per drag step and costs the drag nothing here.** A size change
+  invalidates the sharp picture, so the render thread redraws the settled view at 2× after every
+  step — 39 passes in a 39-step drag, 3.9–4.1 ms each. A/B, alternating in one sitting on a quiet
+  machine, `--supersample 2` against `--supersample 1`: presented-frame totals 4.90 / 5.00 ms
+  against 5.15 / 4.60, `present` 4.22 / 4.14 against 4.60 / 4.01. Indistinguishable. **And on the
+  arm where it would hurt it never starts** — `Entwurf`'s drag ran zero passes, because
+  `sharp_pass_affordable` predicts 4 × 210 ms against ADR 0761's 400 ms budget and declines. That
+  budget was chosen from two machines' *zoom* frames and is here watched working on a gesture it
+  was never measured on.
+- **§14.7's tree is republished on every step.** `App::attend` compares
+  `viewer_accessibility::Showing::of(&self.viewer, width, height)` and the viewport is in it, so a
+  drag republishes the accessibility tree per step: **0.8–1.3 ms** beside each frame. On llvmpipe
+  that is a fifth of the step; on an adapter whose `present` is a tenth of this one's it is a
+  larger share than anything else the event thread does.
+
+## What is left, and what is not
+
+**Nothing is owed on arm 1**, which is what "9–19 ms per step" was measured on: about a refresh of
+composition and present, with no core work and no interpretation in it. **Arm 2 is owed to
+`47-the-encode-term.md`** rather than here — buying it would mean either coalescing a gesture's
+renders, which shows a raster of the wrong size and is what the stand-in already does correctly and
+honestly, or a partial re-encode, which is that file's device-resident records.
+
+**The one shape worth a decision is the accessibility republication**, and it is a decision rather
+than a patch: debouncing §14.7's publication to gesture-settle is a statement about what a screen
+reader is owed *during* a drag, and this program has no evidence about what a client does with a
+tree that changes forty times a second. It is 0.8–1.3 ms a step, it is on the event thread, and it
+is the largest term on that thread once `present` belongs to the adapter. **Ask the owner before
+building it**; `doc/todo/31` is where the accessibility argument lives.
+
+The number this file used to carry — 9–19 ms per step on the 890M, from ADR 0704's traces — was
+not reproducible here and did not need to be: the owner's window has an adapter this account
+cannot open one on, and what the attribution needed was the *shape*, which is the same on any
+adapter. What the 890M would still settle, in one trace of the recipe above, is whether arm 1's
+`present` there is the 4 ms this machine's software stack shows or the 9–19 the passing
+measurement recorded — and if it is the latter, the term is the acquire, which is the swapchain's
+and not this program's.
