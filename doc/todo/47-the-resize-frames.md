@@ -15,7 +15,11 @@ is the one input that provably reaches the owner's session (ADR 0700's lesson).
 ## What is known, which is little
 
 A resize costs 9–19 ms per step on the 890M (recorded in passing during ADR 0704's
-measurements). What has never been done is the attribution: how much is the surface
+measurements). **The 1.3 s `resize` line in the owner's first Windows trace is not this
+item**: `tmp/win/entwurf.2.trace.txt`'s `resize 1200x1500 … in 1.3014148s` at t=1.862 is
+the same instant and the same duration as the launch table's own `interpreted, 58009 cmd
+… (+1302.964)` — the first resize is where page one is interpreted, which is the launch
+path's known largest step (`doc/todo/44` §6), not a per-step drag cost (ADR 0761 §1). What has never been done is the attribution: how much is the surface
 reconfigure, how much the chrome rebuild, how much the re-render at the new extent — the
 trace's columns exist and nobody has read them for a drag.
 

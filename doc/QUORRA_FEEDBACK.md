@@ -4842,3 +4842,85 @@ this position, and the answer then was that the bytes were being spent wrongly, 
 budget was small. If the scene-byte spend at `5fb011a` is as intended, this section is only a
 record; if 272 MB for this page's scene is more than the encode means to spend, the run's message
 above is the reproduction.
+
+## 41. The first DX12 traces from the owner's Windows machine — ADR 0078 confirmed there, the compute lane priced on a second adapter, and one ask about submission granularity
+
+Written in this viewer's eight-hundred-and-thirty-fourth session, from the owner's first traces
+of the Windows build (2026-08-31): DX12 on an Intel UHD integrated adapter, a 120 Hz surface,
+the 58 009-command Entwurf page. This is the retest our `doc/todo/50` has owed your ADR 0078
+since it landed, and most of it is good news with numbers; §41.2 is the one ask.
+
+### 41.1 What the backend you never measured on says
+
+- **The atlas flush batch holds on DX12.** The pathology it was written for — ~58 000
+  `queue.write_texture` calls, 6.4 s of transfer on this page's first present — reads back as
+  **`transfer 2.6 ms`** on the same page's first frame (device 256.2 = encode 228.2 +
+  transfer 2.6 + execute 6.2 + elsewhere 19.2). Your fix was taken on Linux evidence alone and
+  is now confirmed on the backend most likely to have priced it differently.
+- **The launch path holds its shape**: device up in 181.6 ms (adapter 93.8, device 79.1),
+  pipelines compiled in 244.1 ms in the background with nothing waiting on them, first present
+  2300.1 ms of which 1303.0 is our interpreter on a slower processor. No stall span appears
+  anywhere on the launch.
+- **The compute lane is priced very differently there.** A moved-view frame mid-zoom:
+  `device 2161.3` ms of which `elsewhere 2123.6` — which on our side is the frame's own
+  end-wait for the chain, your ADR 0095's readback — against 53–66 ms for the same page's zoom
+  step on the 890M. Raw throughput between the two adapters is roughly 12–20×; the observed
+  ratio is ~35–150× (the worst single observation: our settled-view 2× pass, four times the
+  window's pixels through the compute lane, **8 867.6 ms** where the 890M's whole zoom step is
+  66). Your ADR 0091 named `flatten_cubic`'s ~170 scalars of per-thread state as the occupancy
+  wall; a small-register-file adapter paying disproportionately is exactly what that predicts,
+  and it is another datum for the flatten-from-quadratics idea your ADR 0092 left on the table
+  (our `doc/todo/46`). One frame of the session moved 171 400 618 bytes of encoded scene in one
+  transfer, which on a shared-memory adapter is a term worth knowing about too. We cannot
+  attribute deeper from a frame trace; the owner's machine is available for a directed
+  experiment if you name one.
+
+### 41.2 The ask: a frame submitted as one piece starves every present behind it, for the frame's whole length
+
+On DX12 a present is a queue operation and executes after whatever was submitted to the queue
+before it. Our host presents reprojection quads from the event thread — tenths of a millisecond
+each, the thing that keeps the window alive — while your device renders on our render thread,
+one submission per frame since stage B. On the 890M that submission is tens of milliseconds and
+nobody notices. On the Intel UHD it is seconds, and the trace shows the presents queuing behind
+it: intervals between presents *median 8.7 ms, p90 2302.4, max 5253.9*, with individual presents
+blocked for 5250, 2582, 2097 and 2297 ms. The event loop delivered no input for 5.25 s at the
+worst of it. The one-submission chain was the right fix for the mid-frame sync (your ADR 0092/
+0095 measured it); what this trace adds is its cost at the other end of the adapter range: **the
+submission is also the unit of present latency, and on a slow adapter one frame's submission is
+seconds of frozen window.**
+
+The ask, shaped as a question rather than a design: can a long frame be submitted in bounded
+pieces — the compute chain in chunks, or the coverage work in bands — so that a present
+submitted from another thread lands between pieces rather than after the whole? We know the
+counter-arguments from your own ADRs (the mid-frame readback was removed for cause; barriers
+between pieces cost), so the honest framing is: the 890M cannot see this cost and the UHD pays
+it in seconds, and only you can price the middle. Our side has taken the one host-side step that
+needed no API change — the settled-view 2× pass that produced the 8.9 s submission is now
+declined where a prediction says the machine cannot afford it (our ADR 0761) — so what remains
+exposed is the ordinary moved-view frame's own 2.2 s.
+
+The same granularity would, incidentally, bound §41.3.
+
+### 41.3 `--backend gl` on Windows panics in wgpu-hal 30.0.0, and we checked whose fault it is first
+
+Both GL runs the owner made panic on the main thread at `gles/device.rs:649` (`create_buffer`):
+
+```
+thread 'main' panicked at …wgpu-hal-30.0.0\src\gles\device.rs:649:39:
+Could not lock adapter context. This is most-likely a deadlock.
+```
+
+The gles backend guards its WGL context with `try_lock_for(Duration::from_secs(1)).expect(…)`
+(`gles/wgl.rs`), so any single GL operation holding the context longer than one second panics
+whichever other thread touches the device inside that second. The trace cannot say which
+render-thread call was the holder — on gles a `submit` executes its translated GL commands on
+the submitting thread under that lock, and this page's first frame is 58 010 uploads and a
+58 009-command scene, so a >1 s hold there on this adapter is the plausible reading rather than
+a shown one. We read our own usage before writing this up: two threads sharing one wgpu
+`Device` is inside wgpu's `Send + Sync` contract, and the panicking call is the main thread
+creating a buffer for a present. So it is wgpu-hal's
+limitation, not our misuse and not yours — but it is your dependency, so it is recorded here as
+well as in our `doc/todo/50`: if you have an upstream channel, the reproduction is any
+multi-second GL submission beside a second thread's device call; and bounded submissions
+(§41.2) would keep every context hold under the timeout as a side effect. Our practical answer
+stays "DX12 is the default and the answer", and we have not filed upstream from this side.

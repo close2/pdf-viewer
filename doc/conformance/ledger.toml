@@ -2050,7 +2050,7 @@ title = "Intent"
 status = "implemented"
 code = ["crates/pdf-model/src/optional_content.rs"]
 test = ["crates/pdf-model/tests/optional_content.rs::a_group_whose_intent_the_configuration_ignores_does_not_hide_anything"]
-note = "Both directions: a group whose intents miss the configuration's has no effect on visibility, and a configuration whose /Intent is an empty array makes all content visible. /All is expanded as the set of all intents."
+note = "Both directions: a group whose intents miss the configuration's has no effect on visibility, and a configuration whose /Intent is an empty array makes all content visible. /All is expanded as the set of all intents. Read in the eight-hundred-and-thirty-fourth session against `intents_of` and `covers`: all three claims hold, and the two boundary readings the code makes are deliberate — a group's own empty /Intent array is treated as naming no intent (the clause gives an empty array a meaning only for the configuration's entry), and /All is expanded on the configuration's side alone, because Table 98 defines the special name for the configuration's value and Table 96 does not define it for a group's. Table 98's parenthetical that a default configuration's /Intent shall be View is a requirement on the file, read but not enforced: a processor reads whatever intent the configuration states."
 
 [[clause]]
 clause = "8.11.3"

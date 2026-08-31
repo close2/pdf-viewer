@@ -864,6 +864,11 @@ fn draw_until_told_to_stop(
     // a refusal (a device limit, most likely) must not spin, exactly as `draw_whole_page`'s
     // silence must not — the next view change resets it.
     let mut sharpened = false;
+    // What the last frame this thread had to *build* cost — [`sharp_pass_affordable`]'s
+    // prediction. A replay says what a replay costs and nothing about what a 4× render
+    // will, which is the same reading the event thread makes for rule 5's prediction
+    // (`crate::surface`'s `adopt`, ADR 0384).
+    let mut last_built: Option<Duration> = None;
     // The chrome lane needs a target of its own even where there is no chrome, so one scratch
     // texture is kept for whatever size the proxies are and remade when a page of another shape
     // arrives. One allocation per page shape rather than one per proxy.
@@ -887,6 +892,12 @@ fn draw_until_told_to_stop(
             showing.clone_from(&job.pages);
             shown_size = (job.width, job.height);
             let finished = draw(&mut renderer, job);
+            if !matches!(
+                finished.cost.encode_source,
+                Some(quorra_gpu::EncodeSource::Replayed)
+            ) {
+                last_built = Some(finished.cost.total);
+            }
             // A send that fails is an event thread that has gone, and there is nobody left to draw
             // for. The loop would end at the next `recv` anyway; leaving now saves a frame nobody
             // would see.
@@ -896,10 +907,16 @@ fn draw_until_told_to_stop(
             continue;
         }
         // The sharp pass goes before the proxies: it is what the person is looking at now,
-        // where a proxy is for a view change that has not happened yet.
+        // where a proxy is for a view change that has not happened yet. Declined without a
+        // word where the prediction says the machine cannot afford it — `draw_sharp`'s own
+        // silence rule: this is a picture nobody asked for, and what a decline costs is a
+        // seam drawn at full width rather than half (ADR 0699), not a wrong pixel. The flag
+        // is set either way, so a declined view is not re-asked until the view changes.
         if supersample >= 2 && !sharpened && !showing.is_empty() {
             sharpened = true;
-            if let Some(sharp) = draw_sharp(&mut renderer, &showing, shown_size, coverage) {
+            if sharp_pass_affordable(last_built)
+                && let Some(sharp) = draw_sharp(&mut renderer, &showing, shown_size, coverage)
+            {
                 if done.send(Finished::Sharp(Box::new(sharp))).is_err() {
                     return;
                 }
@@ -938,6 +955,37 @@ fn draw_until_told_to_stop(
 /// picture is still true and whether a job invalidates it.
 fn same_pages(a: &[crate::stale::Placed], b: &[crate::stale::Placed]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.is(b))
+}
+
+/// The most the settled view's sharp pass may be *predicted* to cost before it is declined.
+///
+/// The prediction is four times the last frame this thread had to build — the pass draws
+/// the same commands at four times the pixels — and the pass is uninterruptible: quorra
+/// draws it in one call and one submission, so for its whole length a newly arrived view
+/// change waits behind it, and on DirectX 12 so does every present the event thread
+/// issues, because a present is a queue operation and executes after whatever was
+/// submitted before it. This budget bounds that stall; it is the cost ADR 0699 already
+/// priced and accepted (~350 ms of idle-thread time on the worst page), written down as a
+/// bound rather than left open-ended.
+///
+/// **The number is a choice between two measured machines, not a derivation** (ADR 0761).
+/// On the owner's Radeon 890M a settled zoom frame of the worst page builds in 53–66 ms
+/// (`doc/todo/46`), predicting the pass at ~270 ms, inside the budget — it runs. On the
+/// owner's Windows Intel UHD (DX12, the 2026-08-31 trace) the first frame of the same
+/// page built in 431.6 ms, and the unbounded pass measured **8 867.6 ms**, during which
+/// the window's presents blocked for up to 5.25 s and a zoom the person had already made
+/// waited eight seconds for its first real frame. Any bound between those two populations
+/// decides both correctly.
+const SHARP_STALL_BUDGET: Duration = Duration::from_millis(400);
+
+/// Whether the sharp pass is predicted to land inside [`SHARP_STALL_BUDGET`].
+///
+/// `last_built` is the cost of the last frame this thread built rather than replayed.
+/// `None` — no frame built yet — declines, because a pass nobody asked for is not worth
+/// starting with no evidence it is affordable; in practice the pass is only reachable
+/// after a first job, which always builds.
+fn sharp_pass_affordable(last_built: Option<Duration>) -> bool {
+    last_built.is_some_and(|frame| frame.saturating_mul(4) <= SHARP_STALL_BUDGET)
 }
 
 /// The settled view again, at twice the window's resolution, for the presenter to show
@@ -1146,5 +1194,32 @@ fn draw(renderer: &mut QuorraWindowRenderer, job: Job) -> Done {
         function_refusals: renderer.last_function_paints().refusals().to_vec(),
         pipelines: renderer.startup().pipeline_compilation,
         finished: Instant::now(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two machines [`SHARP_STALL_BUDGET`] was chosen between (ADR 0761). The 890M's
+    /// settled zoom frame of the worst page builds in 53–66 ms, so its pass is predicted
+    /// inside the budget and runs.
+    #[test]
+    fn the_sharp_pass_runs_where_the_frame_it_doubles_was_cheap() {
+        assert!(sharp_pass_affordable(Some(Duration::from_millis(66))));
+    }
+
+    /// The Windows Intel UHD's first frame of the same page built in 431.6 ms, and its
+    /// unbounded sharp pass measured 8 867.6 ms — the pass is declined there.
+    #[test]
+    fn the_sharp_pass_is_declined_where_the_frame_itself_took_hundreds_of_milliseconds() {
+        assert!(!sharp_pass_affordable(Some(Duration::from_micros(431_600))));
+    }
+
+    /// No built frame means no prediction, and a pass nobody asked for is not started on
+    /// no evidence.
+    #[test]
+    fn the_sharp_pass_waits_for_a_built_frame_to_predict_from() {
+        assert!(!sharp_pass_affordable(None));
     }
 }
