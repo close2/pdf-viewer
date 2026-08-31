@@ -592,6 +592,17 @@ impl CpuRasterizer {
         // cannot answer them differently.
         let split = pdf_render::split_degenerate(path, stroke.cap, width, substitute);
         let geometry = split.as_ref().map_or(path, |s| &s.stroked);
+        // §8.4.3.6's "the end cap is painted before the corner" at the vertex a closed subpath's
+        // own close makes, decided in `pdf-render` for all three backends (trap 2). Skia's dasher
+        // merges the first and last dash of a closed contour whenever both are on, which is
+        // §8.4.3.4's answer for a dash the close cuts short and the wrong one for a dash that
+        // finishes there.
+        let opened = pdf_render::opened_where_a_dash_ends_at_the_close(
+            geometry,
+            &stroke.dash_array,
+            stroke.dash_phase,
+        );
+        let geometry = opened.as_ref().unwrap_or(geometry);
         let mut dots = split.as_ref().map_or_else(Path::new, |s| s.dots.clone());
         // The two rules make marks of one width under one cap, so they are stated at one
         // coverage; whichever produced marks answers for both.

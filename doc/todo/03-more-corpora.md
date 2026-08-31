@@ -1608,6 +1608,54 @@ diagnostic (§1's argument); a round that wants to close a departure should come
 that shows what closing it would buy.
 
 
+### 28. The chunk the eight-hundred-and-thirty-fifth took: `pdf-differences` read as clauses
+
+**Not a new population but the one §14 left owed**, and §4's own words for it: *the per-case gates
+this corpus makes possible, one clause and one hand-built witness apiece, each with its expected
+value derived rather than voted.* There was nothing else to take — the crawl is 65 944 of 65 944
+ranked, the four submodule corpora are ranked, the oracle's seven verdicts are each held by name
+and its undiagnosed queue is empty, so the round's fallback had no unexplained head either. What is
+left in this file for a *population* is the 31 GB issue-tracker corpus and nothing else.
+
+Every one of the 37 documents was rendered and read against the clause its own README quotes,
+never against the picture beside it. **Fourteen cases agree** — ISO 32000-2's corrected ColorBurn
+and ColorDodge edge cases (`cb` = 1, `cs` = 0 and their mirror), §8.6.6.3's out-of-range indices,
+§8.4.3.6's negative dash phase, §8.5.3.2's degenerate line caps, §8.9.7's inline-image
+abbreviations, §11.7.4.4's atomic fill-and-stroke, §9.4.4's negative font size, and the default
+colour spaces both ways — and the four this file already records are as their ADRs left them.
+
+- **The negative dash phase was measured rather than eyeballed**, because the corpus's own
+  "incorrect" picture differs from the correct one only in which way a slope leans:
+  `[ 20 0 0 10 10 ]` at phases 0 to −7 puts the leading edge of the first dash at device columns
+  200, 202, 204 … 214, one unit right per unit of negative phase, which is `(−p) mod 2Σ` and
+  nothing else. `[ 10 10 ] −1 d` moves one unit the same way and the empty array with a negative
+  phase draws solid.
+- **One case is a defect of this tree, on all three rasterisers, and it is fixed** (ADR 0762).
+  `DegenerateDashing.pdf`'s two rectangle heights state §8.4.3.4's "ends *within* an on-dash" and
+  §8.4.3.6's "coincides *exactly* with a join point" in one file: 200 × 45 has a perimeter of 490
+  and finishes an on-dash at the lower-left corner, 200 × 44 has 488 and stops eight units inside
+  one. Every dasher this tree draws through merged the first and last dash of a closed contour
+  whenever both were on, so both drew the document's round join where one of them wants two end
+  caps. `pdf_render::opened_where_a_dash_ends_at_the_close` is the rule and
+  `render-quorra/tests/dashed_close.rs` holds all three backends to it.
+- **`VerticalText.pdf` is the case left standing, and it is `doc/todo/21`'s rather than this
+  file's.** `/Encoding /Identity-V` over a non-embedded `CIDFontType0` of `Adobe-Japan1`: the
+  producer has already chosen the vertical-form CIDs, and a substitute reached through Unicode
+  draws the horizontal brackets and the centred punctuation the corpus publishes as wrong. The
+  displacement is right — `/DW2 [ 880 −1600 ]` puts the columns where the references do — so what
+  is missing is a CID-to-glyph route for a substituted face rather than anything in clause 9's
+  vertical metrics. §9.5 NOTE 5 permits the substitution, so no clause supplies the expected glyph
+  and this is a `doc/todo/21` §3 shape rather than a per-case gate.
+- **`TextClippingModeChanges.pdf` and `PageLabels-UX` are not raster questions** in the way the
+  rest are: the first draws what §9.3.6's two paragraphs ask for as far as three read-throughs can
+  establish, and the second is about what a *user interface* shows for §12.4.2's labels.
+
+**What this chunk leaves** is one gate rather than a population: the two cases above whose expected
+value a clause does supply — `IndexedCS_negative_and_high.pdf`, where §8.6.6.3 makes the top row of
+patches identical to the bottom row, and `InlineAbbreviations.pdf`, where §8.9.7's Tables 91 and 92 make
+all eight images identical — are one-line assertions over a document already on this disk, and
+neither needs a reference. Nothing gates them today.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not
