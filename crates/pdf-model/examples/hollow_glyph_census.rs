@@ -40,7 +40,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use pdf_syntax::{Document, ObjectId};
+use pdf_syntax::{Document, Object, ObjectId};
 use rayon::prelude::*;
 
 /// How many witnessing document names are printed per finding before the list is truncated.
@@ -197,7 +197,20 @@ fn main() {
     );
 }
 
-/// Every `CIDFontType2` this document's cross-reference table names, read for its glyphs.
+/// Every `CIDFontType2` this document contains, read for its glyphs.
+///
+/// **Every object the cross-reference table names *and every dictionary nested inside one*.** A
+/// font dictionary need not be an indirect object at all: `issue11555.pdf` writes its whole
+/// composite font inline in the page's `/Resources`, and a walk of `object_numbers()` alone finds
+/// not one descendant in it — which is how the first version of `vertical_form_census` reported
+/// the pdf.js corpus free of substituted vertical fonts while that document sat in it (ADR 0764,
+/// trap 25: a population that misses what arrived reads exactly like a clean tree). This census
+/// was the walk that one was copied from, and it had the same hole. The recursion is finite and
+/// needs no cycle guard: a *direct* object is a tree, and the only references followed are the
+/// ones this function resolves by name.
+///
+/// A font found inline is named for the object that **contains** it, since it has no number of
+/// its own — `name (in 42)` against `name (42)` — because a witness has to be findable again.
 fn measure(document: &Document, name: &str) -> Answer {
     let mut answer = Answer::default();
     for number in document.xref().object_numbers() {
@@ -205,47 +218,96 @@ fn measure(document: &Document, name: &str) -> Answer {
             number,
             generation: 0,
         });
-        let Some(dict) = object.as_dict() else {
-            continue;
-        };
-        let subtype = document.get_key(dict, "Subtype");
-        if subtype
-            .as_name()
-            .is_none_or(|n| n.as_bytes() != b"CIDFontType2")
-        {
-            continue;
-        }
-        answer.fonts += 1;
-
-        let mapping = document.get_key(dict, "CIDToGIDMap");
-        let route = if mapping.as_stream().is_some() {
-            Route::Stream
-        } else {
-            Route::Identity
-        };
-        if route == Route::Stream {
-            answer.through_stream += 1;
-        }
-
-        let Some(program) = embedded_program(document, dict) else {
-            continue;
-        };
-        answer.embedded += 1;
-        if program.empty == 0 {
-            continue;
-        }
-        if program.empty == program.glyphs {
-            answer.wholly_hollow += 1;
-            if route == Route::Stream {
-                answer
-                    .hollow_under_stream
-                    .push(format!("{name} ({number})"));
-            }
-        } else {
-            answer.partly_hollow += 1;
+        let mut fonts = Vec::new();
+        collect_descendants(document, &object, &mut fonts);
+        for (dict, inline) in fonts {
+            let where_it_is = if inline {
+                format!("{name} (in {number})")
+            } else {
+                format!("{name} ({number})")
+            };
+            measure_font(document, &dict, &where_it_is, &mut answer);
         }
     }
     answer
+}
+
+/// Every `CIDFontType2` dictionary inside one object, itself included; the flag says whether the
+/// dictionary was nested rather than the object itself.
+fn collect_descendants(
+    document: &Document,
+    object: &Object,
+    into: &mut Vec<(pdf_syntax::Dictionary, bool)>,
+) {
+    fn walk(
+        document: &Document,
+        object: &Object,
+        nested: bool,
+        into: &mut Vec<(pdf_syntax::Dictionary, bool)>,
+    ) {
+        match object {
+            Object::Dictionary(dict) => {
+                if document
+                    .get_key(dict, "Subtype")
+                    .as_name()
+                    .is_some_and(|name| name.as_bytes() == b"CIDFontType2")
+                {
+                    into.push((dict.clone(), nested));
+                }
+                for (_, value) in dict.iter() {
+                    walk(document, value, true, into);
+                }
+            }
+            Object::Stream(stream) => {
+                for (_, value) in stream.dict.iter() {
+                    walk(document, value, true, into);
+                }
+            }
+            Object::Array(items) => {
+                for item in items {
+                    walk(document, item, true, into);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(document, object, false, into);
+}
+
+/// One `CIDFontType2` dictionary against the four facts, counting each it satisfies.
+fn measure_font(
+    document: &Document,
+    dict: &pdf_syntax::Dictionary,
+    where_it_is: &str,
+    answer: &mut Answer,
+) {
+    answer.fonts += 1;
+
+    let mapping = document.get_key(dict, "CIDToGIDMap");
+    let route = if mapping.as_stream().is_some() {
+        Route::Stream
+    } else {
+        Route::Identity
+    };
+    if route == Route::Stream {
+        answer.through_stream += 1;
+    }
+
+    let Some(program) = embedded_program(document, dict) else {
+        return;
+    };
+    answer.embedded += 1;
+    if program.empty == 0 {
+        return;
+    }
+    if program.empty == program.glyphs {
+        answer.wholly_hollow += 1;
+        if route == Route::Stream {
+            answer.hollow_under_stream.push(where_it_is.to_owned());
+        }
+    } else {
+        answer.partly_hollow += 1;
+    }
 }
 
 /// Names with their font counts, as the other censuses print them.

@@ -132,6 +132,21 @@ cargo run --release -p pdf-model --example vertical_form_census            # cur
   # `Type0` need not be an indirect object — `issue11555.pdf` writes one inline in its page's
   # `/Resources`, and the walk without the recursion found no font in it at all (ADR 0764, trap 25).
   # `PDFVIEWER_TRACE_VERTICAL_FORM=1` names each code with its font and character
+cargo run --release -p pdf-model --example hollow_glyph_census            # curated; also --pdfjs, --crawl
+  # how many `CIDFontType2` dictionaries embed a `TrueType` program whose `loca` says every glyph
+  # is empty, and how many of those reach their glyphs through a `/CIDToGIDMap` stream — the
+  # intersection ADR 0350's hand-built fixture was justified by a negative about. It reads the
+  # `loca` by hand rather than through `skrifa`, so it measures the corpus and not the reader, and
+  # it walks every dictionary *nested* inside an object as well as the objects the table names,
+  # because a font need not be an indirect object — `issue16553.pdf` writes one inline and the walk
+  # without the recursion could not see it (ADR 0765, trap 25)
+cargo run --release -p pdf-font --example vertical_feature_census
+  # which of OpenType's six registered vertical features the faces *on this machine* state, which
+  # `GSUB` lookup shapes appear under `vert`/`vrt2`, and how many of Adobe-Japan1's own 251
+  # vertical forms each such face supplies. It answers two questions `doc/todo/21` §7 had written
+  # down as sentences — whether a second registered feature is worth consulting for what `vert`
+  # misses, and whether any face here states a lookup that is not a single substitution — and both
+  # are claims about a font catalogue, so both decay the moment a font is installed (ADR 0765)
 cargo run --release -p pdf-model --example field_flag_census -- doc/pdf.js/test/pdfs/*.pdf
   # which of §12.7's twenty field flags any real document states (ADR 0197)
 cargo run --release -p pdf-model --example variable_text_census -- doc/pdf.js/test/pdfs/*.pdf

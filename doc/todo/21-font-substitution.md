@@ -1,6 +1,6 @@
 # What is left of font substitution
 
-Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below — and the first of those remainders closed by an instrument rather than a decision** (ADRs 0763, 0764).
+Status: reported at runtime; seven distinct gaps — the first still **empty of witnesses**, the second unchanged, the third **characterised, fixed and re-measured** (ADR 0270), the fourth **half taken — the width on Table 109's own sentence (ADR 0358), the cap height still declined** (ADR 0267), the fifth **refused on the clause's own words, counted, split by cause, one population of it closed out of Annex D, and the rest given a voice outside `pdf-model` rather than a report** (ADR 0311, ADR 0318, ADR 0422), the sixth **closed** — the compiled-in fourteen no longer disagree with themselves about contour direction (ADR 0396) — the seventh **taken, with its remainder priced below — the first of those remainders closed by an instrument rather than a decision, and the two that followed it settled by measuring this machine's font catalogue rather than by arguing about a feature** (ADRs 0763, 0764, 0765).
 Priority: 21
 Corpus: 40 documents. **The corpus gate's own four silence lines are where the counts are, and
 this file does not repeat them** (ADR 0281): `codes reaching no glyph *in silence*` and `codes
@@ -401,14 +401,45 @@ calibration.
   be **per glyph rather than per face**: a face that supplies `VerticalText.pdf`'s brackets states
   no form for Adobe-Japan1's small kana. `PDFVIEWER_TRACE_VERTICAL_FORM=1` names each code with its
   character.
+
+  **What that face actually carries was measured in the eight-hundred-and-thirty-eighth, and it
+  closed the question the witness opened** (ADR 0765). `7311602.pdf`'s 33 codes are eight distinct
+  small kana — っ ょ ァ ィ ャ ョ ッ ヶ, traced with the variable above — shown through non-embedded
+  `HGMaruGothicMPRO` and `MS-Mincho` descendants stating Adobe-Japan1, and the face
+  `installed_covering` picks for all four of the document's fonts is the same one: Droid Sans
+  Fallback, the widest `cmap` on this machine that can draw あ.
+
+  ```sh
+  cargo run --release -p pdf-font --example vertical_feature_census
+  ```
+
+  It prints the collection's population beside the machine's, the way the census above prints the
+  clause's beside the program's. Adobe-Japan1's own `CMap` pair states **251** characters with a
+  distinct vertical form; of this machine's 2652 face files **5** can draw あ, **2** state any
+  vertical feature at all, and both state `vert` alone — 86 single substitutions, supplying **46 of
+  the 251**, none of them a small kana. **Not one face here states `valt`, `vhal`, `vkna`, `vpal`
+  or `vrt2`.**
+
+  **So consulting a second registered feature is not warranted, and the reason is a measurement
+  rather than a reading.** There is no second feature on this machine to consult: the code path
+  would be dead on every face the chooser can pick, which is §1's own objection — a feature whose
+  only test says "on this machine, in August 2026" — with the sign reversed, because here the
+  machine says *nothing at all*. The price of the gap is the other half of the same run: 205 of the
+  251 forms are missing from the chosen face, so the eight small kana are 3.2% of a face-shaped
+  hole rather than a feature this tree fails to read. What would open the question is a *face*, not
+  a clause — one that states `vkna` or `vrt2` where `vert` is silent — and the command above is what
+  says whether one has arrived.
 - **Two collections have no pair to ask.** Table 116 publishes `UniAKR-UTF16-H` and no vertical
   counterpart for Adobe-KR — one of the four §9.7.5.2 requires — and Adobe-Japan2 is deprecated.
   Nothing can be derived for them from Table 116, and the only other route anybody has is a
   convention, which principle 5 forbids. **Closed unless Adobe publishes a pair**, rather than owed.
 - **Only `GSUB` lookup type 1 is read.** A `vert` feature is one glyph for one glyph by
   construction, and a contextual or chained rule under that tag would be a statement about a
-  sequence — which is shaping, and `doc/stack.md`'s standing refusal. No face on this machine states
-  one; a round that finds one has a *measurement* to make before it has a decision.
+  sequence — which is shaping, and `doc/stack.md`'s standing refusal. "No face on this machine
+  states one" was written as a sentence and is a command since the eight-hundred-and-thirty-eighth:
+  `vertical_feature_census` prints the lookup shapes it found under `vert` and `vrt2`, and on this
+  machine they are `single` and nothing else. A round that sees another shape in that line has a
+  *measurement* to make before it has a decision.
 - **The half-width vertical variants are not consulted.** `UniJIS-UCS2-HW-V` and its siblings state
   a second set of forms for the same collection, and the row here names only the proportional pair.
   A document whose producer chose a half-width vertical CID would be answered `false` and drawn
