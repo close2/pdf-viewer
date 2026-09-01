@@ -28,8 +28,12 @@
 //!   be a defect of the scan rather than of the file.
 //!
 //! ```sh
-//! cargo run --profile gates -p pdf-model --example standing_count_census -- <file-or-directory>…
+//! cargo build --profile gates -p pdf-model --example standing_count_census
+//! tools/bounded.sh -- <target-dir>/gates/examples/standing_count_census <file-or-directory>…
 //! ```
+//!
+//! Through `tools/bounded.sh` because a census over five batches is a corpus walk like any other,
+//! and a walk's cost is the documents in flight rather than the documents read (ADR 0798).
 
 #![expect(
     clippy::print_stdout,
