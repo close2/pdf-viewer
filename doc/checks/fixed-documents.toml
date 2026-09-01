@@ -393,3 +393,19 @@ session = 856
 reports = []
 ink = refused: transparency groups would blit 299325349323 pixels
 why = "73 047 unclipped page-spanning transparency groups, ~300 billion blitted pixels and ~640 s of drawing that nothing bounded: MAX_GROUP_DEPTH counts nesting and this page is wide (ADR 0780, 11.4.1)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4777-0.pdf"
+page = 1
+session = 857
+reports = []
+ink = 1.501 .. 3.501
+why = "an encrypted document whose startxref is wrong by nineteen bytes: the rebuild scanned for a `trailer` keyword §7.5.8.1 forbids such a file to carry, so /Encrypt was lost and every string and stream came back as ciphertext with nothing reported (ADR 0781, 7.5.8.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4777-1.pdf"
+page = 1
+session = 857
+reports = []
+ink = 9.208 .. 11.208
+why = "the same defect on the same tracker's other attachment, 1 page against 25 and 22 384 inked pixels against 2474 at 36 dpi — the two ends of the same recovery (ADR 0781, 7.5.8.2)"

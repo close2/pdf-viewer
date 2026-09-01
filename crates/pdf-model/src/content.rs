@@ -129,10 +129,14 @@ const MAX_OPERANDS: usize = 8192;
 /// A form may draw another form, and a form that draws itself is a cycle. The
 /// specification forbids it; files do it anyway.
 ///
-/// **Every document on the web that reaches this bound is such a cycle**, which the
+/// **Every document that reaches this bound is such a cycle**, which the
 /// four-hundred-and-thirty-fifth session established by lifting it sixteenfold to 256 in a
-/// scratch build and running the four of 65 944 that reported it: all four reached 256 as
-/// well. So this is the one of the four bounds whose population is entirely the attack it
+/// scratch build and running the four of the 65 944-document `SafeDocs` crawl that reported
+/// it: all four reached 256 as well. **The eight-hundred-and-fifty-seventh ran the same
+/// experiment over a population that did not exist then** — the Tika issue-tracker corpus's
+/// 6835-document Mozilla directory, where **seven** documents report it — and all seven
+/// reach 256 too. Two corpora, eleven documents, no legitimate one among them. So this is
+/// the one of the four bounds whose population is entirely the attack it
 /// exists for, and it is also the one nothing else could catch — unbounded recursion exhausts
 /// the *stack*, which the confined worker's address-space ceiling does not see and which Rust
 /// turns into an abort rather than into a report. ISO 32000-2 §C.2's Table C.1 lists

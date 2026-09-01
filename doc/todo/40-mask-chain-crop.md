@@ -100,6 +100,16 @@ The third is still the honest one and the round that takes it should say so befo
 ADR 0328 is the precedent for the *shape* of the split — band what is outside the drawing
 arithmetic, decline what is inside it — not for taking the departure.
 
+**And there is now a witness outside the 974 that is worse than anything this file names**, found
+by the eight-hundred-and-fifty-seventh session's walk of the Tika issue-tracker corpus's Mozilla
+directory (`doc/todo/03` §30): `corpus-cache/tika-issue-tracker/batch3/MOZILLA/MOZILLA-831621-14.pdf`
+opens in 2.1 ms and interprets in 414 ms into **3166 commands referencing 3149 distinct clips** —
+very nearly one clip apiece, where `bug1721218_reduced.pdf`'s census counts 3551 leaves through
+7066 shared nodes — and then spends **41 seconds** rasterising them onto a 1280 × 800 target, with
+nothing reported. It is not diagnosed further here and it is not a substitute for the census: what
+it is, is a page on which this file's subject is the *whole* cost rather than the largest term, and
+a round taking the third road above should measure on it as well as on the corpus's worst page.
+
 ## The cheapest thing left, and it is not the chain
 
 **`convert::path` runs for every chain node**, including the three in four ADR 0656 now drops, and

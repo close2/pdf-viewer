@@ -458,6 +458,77 @@ fn a_cross_reference_streams_own_dictionary_is_the_trailer() {
     );
 }
 
+/// ISO 32000-2 §7.5.8.2: a rebuild takes its trailer from the cross-reference *stream*.
+///
+/// §C.4 licenses the rebuild — "[w]hen a PDF processor reads a PDF file with a damaged or missing
+/// cross-reference table, it may attempt to rebuild the table by scanning all the objects in the
+/// file" — and §7.5.8.1 says why scanning for the `trailer` keyword cannot finish the job:
+///
+/// > For PDF files that use cross-reference streams entirely … the keywords xref and trailer shall
+/// > no longer be used.
+///
+/// So the trailer of such a file is somewhere else, and §7.5.8.2 says where:
+///
+/// > Cross-reference streams shall contain the required entries and may contain the optional
+/// > entries shown in "Table 17 -Additional entries specific to a cross-reference stream
+/// > dictionary" in addition to the entries common to all streams ("Table 5 -Entries common to all
+/// > stream dictionaries") and trailer dictionaries ("Table 15 -Entries in the file trailer
+/// > dictionary").
+///
+/// **Each half is a pair differing only in the `startxref` address**, because the rule is that the
+/// two answers agree: an entry the trailer states cannot depend on the offset being right.
+///
+/// `/Root` alone does not discriminate — a reader that scans for `/Type /Catalog` finds it without
+/// reading a trailer at all — so the first half asks for `/Info`, which nothing but the trailer
+/// names, and the second asks the question that decides whether the file is readable. Before the
+/// eight-hundred-and-fifty-seventh session both witnesses in
+/// `doc/checks/fixed-documents.toml` opened as though they were not encrypted, and every string
+/// and stream in them came back as ciphertext with nothing reported (ADR 0781).
+#[test]
+fn a_rebuild_takes_its_trailer_from_the_cross_reference_stream() {
+    for addressed in [true, false] {
+        let bytes = skeleton_with_xref_stream_addressed([1, 4, 2], true, "/Info 3 0 R ", addressed);
+        assert!(
+            !bytes.windows(7).any(|window| window == b"trailer"),
+            "the fixture must not contain the keyword whose absence is the point"
+        );
+        let document = Document::open(bytes).expect("the fixture's objects are all intact");
+        assert_eq!(
+            document.was_recovered(),
+            !addressed,
+            "the wrong address is what sends this document down §C.4's rebuild"
+        );
+        assert!(
+            document.catalog().is_ok(),
+            "/Root comes from the stream's dictionary either way"
+        );
+        assert!(
+            document.trailer().get("Info").is_some(),
+            "the whole of Table 15 comes with it, not only /Root"
+        );
+    }
+
+    for addressed in [true, false] {
+        let bytes = skeleton_with_xref_stream_addressed(
+            [1, 4, 2],
+            true,
+            "/Encrypt << /Filter /Fictional >> ",
+            addressed,
+        );
+        let Err(refusal) = Document::open(bytes) else {
+            panic!("§7.6.1 makes a handler this reader does not implement a refusal");
+        };
+        assert!(
+            matches!(
+                refusal,
+                pdf_syntax::SyntaxError::UnsupportedEncryption { .. }
+            ),
+            "an encrypted document must not open as though it were plaintext, \
+             whether or not its startxref is right: got {refusal:?}"
+        );
+    }
+}
+
 /// ISO 32000-2 §7.5.8.2: `/Index` is optional and defaults to the whole file.
 ///
 /// > Default value: [0 Size ].
@@ -685,6 +756,21 @@ fn a_hybrid_reference_file_finds_through_xrefstm_what_a_previous_section_marks_f
 /// The stream carries an entry for itself, which §7.5.8.3 requires: "an entry for it shall exist
 /// in either a cross-reference stream (usually itself) or in a cross-reference table".
 fn skeleton_with_xref_stream(widths: [usize; 3], stated: bool) -> Vec<u8> {
+    skeleton_with_xref_stream_addressed(widths, stated, "", true)
+}
+
+/// The same skeleton, with `extra` added to the stream's dictionary and a `startxref` that can be
+/// made wrong.
+///
+/// A wrong one is what sends [`Document::open`] down §C.4's rebuild, and the entries the stream's
+/// dictionary states are then all that distinguishes a reader which knows §7.5.8.2 from one which
+/// finds `/Root` by looking for a catalogue and calls that a trailer.
+fn skeleton_with_xref_stream_addressed(
+    widths: [usize; 3],
+    stated: bool,
+    extra: &str,
+    addressed: bool,
+) -> Vec<u8> {
     let (out, offsets) = body(&SKELETON);
     let mut bytes = out.into_bytes();
     let stream_at = bytes.len();
@@ -701,10 +787,13 @@ fn skeleton_with_xref_stream(widths: [usize; 3], stated: bool) -> Vec<u8> {
         4,
         index,
         &entries,
-        "/Root 1 0 R ",
+        &format!("/Root 1 0 R {extra}"),
         widths,
     ));
-    bytes.extend_from_slice(format!("startxref\n{stream_at}\n%%EOF\n").as_bytes());
+    // Wrong by one object: an offset that lands on `2 0 obj` names a dictionary that is not a
+    // cross-reference section at all, which is the shape the witnesses below have.
+    let at = if addressed { stream_at } else { offsets[1] };
+    bytes.extend_from_slice(format!("startxref\n{at}\n%%EOF\n").as_bytes());
     bytes
 }
 

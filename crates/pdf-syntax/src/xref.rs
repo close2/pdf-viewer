@@ -312,6 +312,33 @@ pub fn rebuild(input: &[u8], limits: Limits, had_header: bool) -> SyntaxResult<X
     {
         table.merge_trailer(&dict);
     }
+    // And in a file written entirely with cross-reference streams there is no `trailer`
+    // keyword to find, because §7.5.8.1 forbids one:
+    //
+    // > For PDF files that use cross-reference streams entirely (that is, PDF files that are
+    // > not hybrid-reference files; see 7.5.8.4, "Compatibility with applications that do not
+    // > support compressed reference streams"), the keywords xref and trailer shall no longer
+    // > be used.
+    //
+    // §7.5.8.2 says where the trailer went in such a file — a cross-reference stream's own
+    // dictionary holds Table 15's entries — so that dictionary is the second place to look,
+    // and looking is reading the file rather than guessing at it:
+    //
+    // > Cross-reference streams shall contain the required entries and may contain the
+    // > optional entries shown in "Table 17 -Additional entries specific to a cross-reference
+    // > stream dictionary" in addition to the entries common to all streams ("Table 5 -Entries
+    // > common to all stream dictionaries") and trailer dictionaries ("Table 15 -Entries in the
+    // > file trailer dictionary").
+    //
+    // What this recovers is the whole trailer and not only `/Root`, and `/Encrypt` is the
+    // entry that makes it a correctness fix rather than a convenience: without it an encrypted
+    // document whose `startxref` is wrong opens as though it were not encrypted, and every
+    // string and stream in it comes back as ciphertext that nothing reports (trap 5).
+    if table.trailer.get("Root").is_none()
+        && let Some(dict) = find_xref_stream_trailer_by_scan(input, limits, &table)
+    {
+        table.merge_trailer(&dict);
+    }
     if table.trailer.get("Root").is_none()
         && let Some(id) = find_catalog_by_scan(input, limits, &table)
     {
@@ -999,6 +1026,62 @@ fn find_trailer_by_scan(input: &[u8], limits: Limits) -> Option<Dictionary> {
         .parse_object()
         .ok()
         .and_then(|object| object.as_dict().cloned())
+}
+
+/// Finds the last cross-reference stream's dictionary, which §7.5.8.2 makes a trailer.
+///
+/// The companion to [`find_trailer_by_scan`] for the file §7.5.8.1 describes, which carries no
+/// `trailer` keyword at all — so without this a rebuild of such a file recovers `/Root` from
+/// [`find_catalog_by_scan`] and loses every other entry Table 15 states, `/Encrypt` included.
+///
+/// **Last means greatest offset**, for [`find_trailer_by_scan`]'s reason: §7.5.6 appends each
+/// incremental update, so the one furthest into the file is the newest.
+///
+/// The name `/XRef` is searched for in the bytes first and each hit is attributed to the object
+/// the scanned table puts it inside, so a well-formed file costs one pass over its bytes and one
+/// or two object parses rather than a parse of every object it holds. A hit inside a stream's
+/// data attributes to that stream's own object, which then fails the `/Type` test below — the
+/// byte search proposes and the parse disposes.
+fn find_xref_stream_trailer_by_scan(
+    input: &[u8],
+    limits: Limits,
+    table: &XrefTable,
+) -> Option<Dictionary> {
+    let mut headers: Vec<usize> = table
+        .object_numbers()
+        .filter_map(|number| match table.location(number) {
+            Some(Location::Offset(offset)) => Some(offset),
+            _ => None,
+        })
+        .collect();
+    headers.sort_unstable();
+
+    let mut candidates: Vec<usize> = input
+        .windows(b"/XRef".len())
+        .enumerate()
+        .filter(|(_, window)| *window == b"/XRef")
+        .filter_map(|(at, _)| headers.partition_point(|start| *start <= at).checked_sub(1))
+        .filter_map(|index| headers.get(index).copied())
+        .collect();
+    candidates.sort_unstable();
+    candidates.dedup();
+
+    for offset in candidates.into_iter().rev() {
+        let Ok((_, object)) = Parser::at(input, offset, limits).parse_indirect_object() else {
+            continue;
+        };
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        if dict
+            .get("Type")
+            .and_then(Object::as_name)
+            .is_some_and(|name| name == &"XRef")
+        {
+            return Some(dict.clone());
+        }
+    }
+    None
 }
 
 /// Finds an object whose dictionary says `/Type /Catalog`.

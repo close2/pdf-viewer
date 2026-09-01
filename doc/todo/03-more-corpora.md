@@ -1712,11 +1712,28 @@ its first 160 bytes. Each attempt starts from nothing.
 4.2G, `batch3` 3.4G, `batch4` 5.0G, `batch5` 3.9G, `batch6` 1.2G — **19.5 GB compressed**, which is
 where this file's "31 GB" figure comes from uncompressed. One directory per tracker inside each.
 
-**Fetched and verified in this round: `batch6` and `batch1`, 3.27 GB compressed and 4.2 GB on
-disk.** `batch2` was attempted eleven times and never matched its digest — one attempt returned
-4 201 315 360 bytes against the 4 201 352 112 the listing states, so the Archive's copy of that one
-may be short as well as rate-limited; `batch3`, `batch4` and `batch5` are untried. That is the
-remainder, and it is recorded rather than glossed.
+**Fetched and verified in the eight-hundred-and-fifty-fifth: `batch6` and `batch1`, 3.27 GB
+compressed and 4.2 GB on disk.** `batch2` was attempted eleven times there and never matched its
+digest; `batch3`, `batch4` and `batch5` were untried.
+
+**Retried in the eight-hundred-and-fifty-seventh: `batch3` landed, the other three did not.** Six
+attempts apiece, each starting from nothing. `batch3.tgz` came back on its fifth attempt at
+3 606 571 824 bytes matching its published digest exactly; `batch5`'s six attempts were all the
+Archive's 160-byte nginx `504` page; `batch2` and `batch4` each got one transfer that started and
+stopped short, the rest error pages.
+
+**The suspicion that the Archive's copy is *short* is not supported and should not be carried
+forward** — `batch2`'s two truncated attempts stopped at two *different* lengths (4 201 315 360 and
+4 201 109 128), which is a connection dropping rather than a file ending, and `batch3` came back
+byte-exact through the same throttling. `HEAD` on `batch4` answers 302 naming its capture, so all
+six captures exist.
+
+**What to test next, stated as a hypothesis because n is 2.** The only two transfers that ever
+started on a file larger than `batch3` stopped near the *same* size — 4 201 109 128 and
+4 201 227 576, against stated sizes of 4.2 and 5.4 GB — while the one that completed is 3.6 GB. If
+that is a ceiling on this route rather than a coincidence, then `batch2`, `batch4` and `batch5`
+want HTTP `Range` requests in pieces rather than one `GET`; the Archive serves byte ranges, which
+is how this recipe found the corpus at all. Try that before spending another six attempts.
 
 **The population, in one line each** — a baseline for these directories, never a ratchet, and one
 process per directory for the reason §1 gives:
@@ -1777,21 +1794,125 @@ denominators `CLAUDE.md` separates, not one number twice.
   of its fonts and whose objects the bug report's reduction removed — §7.3.10's null, a different
   clause and a different producer's mistake. ADR 0779 has the split and its three populations; the
   974 do not move and twenty-two reports in this corpus do.
-- **The claim that has held for six populations breaks here, and it breaks softly.** "Nothing
-  failed to open for a reason that is this tree's" is what every chunk since the
-  four-hundred-and-twenty-fifth has been able to say. Of the sixteen documents these four
-  directories could not open or found no page in, **eight get a page count out of `pdfinfo`** — so
-  the sentence cannot be repeated. Two were read by hand and neither is ours: `poppler-303-0.pdf`
-  states `/Kids 3 0 R` with `/Count 1` and **has no object 3**, so poppler is reporting the count
-  rather than a page; `poppler-732-0.pdf` has no `%PDF-` header anywhere in it and poppler answers
-  33 pages for a 3511-byte fragment of two objects. The other six are unread, and that is the
-  cheapest thing this chunk leaves for the next round.
+- ~~**The claim that has held for six populations breaks here, and it breaks softly.**~~ **Read in
+  the eight-hundred-and-fifty-seventh, and both of the numbers above were wrong.** The population
+  is **28** documents rather than sixteen — the four directories' own survey lines add to it — and
+  **13** of them get a page count out of `pdfinfo` rather than eight. What matters more is that the
+  count was the wrong instrument: **`pdfinfo`'s `Pages:` is the page tree's `/Count`, not a page**,
+  and this tree prints the *same* number for ten of the thirteen, because `Pages::len` reads
+  `/Count` too. Asked to draw page one at 36 dpi instead, poppler answers a 1×1 image or a blank
+  US-Letter sheet for eleven of the thirteen — the `/Kids` those trees name are objects the bug
+  reports' reductions removed, so neither reader has a page and neither is wrong. **Two carry ink,
+  and those two were ours**: `PDFBOX-4777-0.pdf` and `PDFBOX-4777-1.pdf`, encrypted files written
+  entirely with cross-reference streams whose `startxref` is nineteen bytes short, where the
+  rebuild searched for a `trailer` keyword §7.5.8.1 forbids such a file to carry, lost `/Encrypt`
+  with the rest of Table 15, and handed back ciphertext with nothing reported. Fixed and pinned
+  (ADR 0781). Of the remaining eleven, three disagree with `pdfinfo` on the count and none of the
+  three is ours: `cairo-274-0.pdf` writes its catalogue's header as `1 0 Ybj`, `cairo-51-0.pdf`
+  writes `/Type` as `\x1dType` inside it, and `poppler-732-0.pdf` has no `%PDF-` header anywhere.
+  **So the sentence was right to be withdrawn and is true again now**: two documents did fail to
+  open for a reason that was this tree's, they are fixed, and the rest are the files' own. What
+  the episode is really about is the instrument — a page *count* cannot answer "did the other
+  reader open this", and asking it to is trap 9's shape. Ask for a raster.
 
 **What this corpus is for, now that a chunk of it has been taken.** It is the *diagnostic* kind by
 §1's ranking — every file is an attachment somebody filed because a reader got it wrong — and its
 directories are named for the reader that failed, which the crawl's hash buckets are not. A round
 wanting a defect should take another tracker; a round wanting a rate should not, because a bug
 tracker's rate is a fact about bug reports.
+
+### 30. The chunk the eight-hundred-and-fifty-seventh took: `batch3`, which is one tracker
+
+**`batch3.tgz` landed and verified**, 3 606 571 824 bytes against Apache's published SHA-512
+`a00bbb1e97f101db…c15cbd1b`, on the fifth attempt of a day whose first four came back as the
+Archive's 160-byte `504` page. It holds **one directory**, `MOZILLA` — the Firefox bug tracker —
+with **6835 documents**, more than `batch1`'s whole `PDFBOX` shard set.
+
+Surveyed as eight shards, one process each, §1's method. **The shard directories are symlink
+farms and they are deleted after the walk**, which is not tidiness: `--bin undenominated` counts
+the PDFs on this disk, and a farm left behind by `batch1`'s walk was making the issue-tracker
+corpus report 21 987 documents where it holds 11 360. Re-making one is a shell loop.
+
+
+| directory | documents | line |
+|---|---|---|
+| `batch3/MOZILLA` | 6835 | 5 unopenable, 1 locked, 3 encrypted beyond us, 17 pageless, 169 incomplete, 36 slow |
+
+**The rate is the finding, and it goes the other way from §29's.** 169 of 6835 is **2.47%**
+incomplete, against **7.25%** for `PDFBOX`, **11.7%** for `poppler-gitlab`, **6.98%** for the
+pdf.js corpus and **1.735%** for the whole 65 944-document crawl. So "a corpus of bug attachments
+is four to seven times harder than the web" is a statement about *which* tracker: PDFBOX's and
+poppler's attachments are reduced and fuzzed test cases somebody built to break a parser, and
+Firefox's are documents a person found in the wild and could not read. **The Mozilla directory is
+nearer the web than it is to its own corpus's other three directories.**
+
+- **The claim §29 could not repeat holds here without qualification.** Of the 22 documents this
+  tree cannot open or finds no page in, **not one gets a page count out of `pdfinfo`** — checked
+  on every one. Fourteen of the seventeen pageless are one zip attachment,
+  `MOZILLA-552567-0.zip-*`, so the seventeen are five bug reports.
+- **The bound `MAX_FORM_DEPTH` is reached by seven documents, and all seven are cycles.** ADR
+  0271 established that over the crawl by lifting the bound sixteenfold to 256 and finding all
+  four of its witnesses still reached it; the same experiment over these seven gives the same
+  answer, so the claim now rests on eleven documents in two corpora and neither of them holds a
+  legitimate one. The constant's own comment says so, with both denominators named.
+- **`MAX_TILES` is reached by five, which is the departure ADR 0271 already documented**: the
+  population is legitimate hatching, the count is the wrong quantity, and `affordable_span` spends
+  the sites it affords rather than discarding them. More witnesses, no new question.
+- **The 169 reports are the ones this project already owns.** 85 are a glyph a document's own
+  embedded subset does not contain, closed by decision; 16 are `Identity-H` over a descendant
+  with no embedded program, which is [`21`](21-font-substitution.md); 58 are §11.4.7's
+  non-isolated and knockout groups, which is [`23`](23-transparency-departures.md); 17 are a
+  resource name the dictionary does not define. The 181 `Operator` reports are one garbled token
+  each, in files whose content streams are damaged.
+- **The `slow` count is again mostly the instrument**, and this is the third chunk to say so:
+  four of the 36 were timed alone and two are not slow at all — `MOZILLA-1296262-0.pdf` 1.6 s and
+  `MOZILLA-1120249-0.pdf` 0.5 s against 45.0 s and 43.2 s under eight-way load.
+- **Two are genuinely slow, and the first is the best witness [`40`](40-mask-chain-crop.md) has
+  ever had.** `MOZILLA-831621-14.pdf` opens in 2.1 ms and interprets in 414 ms into **3166
+  commands referencing 3149 distinct clips** — very nearly one clip apiece — and then spends
+  **41 seconds** rasterising them onto a 1280 × 800 target, reporting nothing. That is the chain
+  arithmetic that item prices, on a page where the chain is the whole page.
+  `MOZILLA-892314-0.pdf` is the other shape: **162** commands, 83 clips, and an 8646 × 3544
+  target, 32 s. Neither is diagnosed further here; the first is handed to `40` and the second is
+  a size rather than a structure.
+
+### 31. What the eight-hundred-and-fifty-seventh leaves: a recovery whose condition is not its comment
+
+**`Pages::new` runs the wrong test, and its own comment states the right one.** `scan_for_pages` —
+the recovery that finds a page by Table 31's `/Type /Page` declaration when the tree cannot be
+walked, "a recovery from the file's own declarations rather than from any other reader's behaviour"
+— is guarded by `count == 0`, under a comment that says "[i]t runs only where the tree produced
+nothing". Those are not the same test. `count` is `/Count`'s claim; a root stating `/Count 5` over
+five `/Kids` that do not exist produces no page at all and no scan either, because the claim is not
+zero.
+
+**Four documents of the fetched chunk are witnesses**, each carrying exactly one self-declaring
+page object the tree cannot reach:
+
+| document | what the tree says | what the file carries |
+|---|---|---|
+| `batch1/PDFBOX/PDFBOX-4623-1.pdf` | `/Pages 2 0 R`, and object 2's `/Kids` is `[2 0 R]` — its own kid | object 3, `/Type /Page`, `/Contents 5 0 R`, one `Tj` of *Hello World* at 48 pt under the `/MediaBox` object 2 states |
+| `batch1/PDFBOX/PDFBOX-4339-0.pdf` | `/Count 1`, kid unreachable | one `/Type /Page` |
+| `batch6/poppler-gitlab/poppler-742-0.pdf` | `/Count 1`, `/Kids [8 0 R]` | one `/Type /Page` |
+| `batch6/poppler-gitlab/poppler-750-0.tgz-0.pdf` | `/Count 2`, `/Kids [14 0 R 45 0 R]` | object 14, whose `/ProcSets` array a mutation left unterminated |
+
+poppler refuses the first of those four out loud — *Syntax Error: Loop in Pages tree* — and draws a
+1×1 image, which is agreement about the tree and not about the page.
+
+**What stopped this round taking it is a design question rather than the code.** The guard is one
+condition and the probe is one leftmost-spine descent, which `get(0)` performs anyway. But changing
+it forces an answer to *what `len()` means when the tree contradicts its own `/Count`*: today it is
+`/Count`, which is why this tree and `pdfinfo` print the same wrong number for ten documents above
+and neither of them is lying about anything except by omission. A scan that finds one page under a
+`/Count` of five leaves `len()` saying five and `get(1..4)` saying nothing, or moves `len()` and
+makes it disagree with every other reader on a file that states a number. Settle that first, in
+writing, and cite §7.7.3.2's own definition — `/Count` is "[t]he number of leaf nodes (page
+objects) that are descendants of this node", which a node with no reachable descendants has none of.
+
+**And the probe belongs behind `count == 0` rather than in front of it**, so that a well-formed
+document pays nothing: `CLAUDE.md`'s startup rule is what decides the order of the two conditions,
+not their truth. A round taking this owes §5's rebuild and a launch measurement either way, because
+`Pages::new` is on the path to page one. ADR 0781 §*What this does not fix*.
 
 ## What not to do
 

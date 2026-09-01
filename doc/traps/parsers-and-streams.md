@@ -163,6 +163,19 @@ of files differing only in the rule.
 
 ## Things worth knowing
 
+- **A recovery searches for something, and *where that thing can be* is a claim the standard
+  settles.** A rebuild of a damaged cross-reference table looked for its trailer by searching the
+  bytes for the `trailer` keyword — reasonable, and blind to the file §7.5.8.1 describes, in which
+  "the keywords xref and trailer shall no longer be used" and §7.5.8.2 puts Table 15's entries in
+  the cross-reference *stream*'s dictionary instead. So the recovery found `/Root` by scanning for a
+  catalogue and silently lost everything else the trailer said. **`/Encrypt` is what made that a
+  correctness defect rather than a lost convenience**: two documents opened as though they were not
+  encrypted and handed back every string and stream as ciphertext, reporting nothing — trap 5's
+  failure reached through a *fallback* rather than through a feature, which is why no report could
+  have caught it. The general form: when a fallback looks for a token, read the clause that says
+  which files write that token, because the files a fallback runs on are exactly the ones least
+  likely to. ADR 0781.
+
 - **A font is reported as a whole, and that is not fine-grained enough.** `FontError` is the only
   channel a font has, so a font that maps *some* of its document's codes draws those and says
   nothing about the rest. `LoadedFont` distinguishes "this code has no glyph" from "this code's
