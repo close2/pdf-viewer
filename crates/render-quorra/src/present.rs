@@ -392,6 +392,16 @@ impl FrameSlot {
         into: quorra_gpu::Target<'_>,
         reported: &mut Reported<'_>,
     ) -> Result<quorra_gpu::Frame, QuorraRasterError> {
+        // Every path into this backend funnels through here — `Rasterizer::rasterize`,
+        // `QuorraRasterizer::rasterize_frame` and the window's own `render` — which is why the
+        // group-cost bound is asked here and not at each of the three. The *overlays* are not
+        // asked: they are this program's own chrome rather than a document's, and a bound on
+        // what we ourselves draw would be a bound on a bug. `pdf_render::group_cost` has the
+        // measure, the census that sized it and the page that made it necessary.
+        for (list, target) in frame.pages {
+            pdf_render::check_group_blit(list, *target)?;
+        }
+
         let Reported {
             cost,
             functions,

@@ -30,6 +30,7 @@ pub mod degenerate;
 pub mod display_list;
 pub mod edge;
 pub mod geom;
+pub mod group_cost;
 pub mod medium;
 pub mod mitre;
 pub mod outline;
@@ -58,6 +59,7 @@ pub use edge::{
     DeviceRectangles, RECTANGLES_PER_PATH, device_rectangle, device_rectangles, rectangle_coverage,
 };
 pub use geom::{Path, PathCommand, Point, Rect, Size, Transform};
+pub use group_cost::{MAX_GROUP_BLIT_PIXELS, check_group_blit, group_blit_demand};
 pub use medium::{
     Medium, SURROUND, crop_area, crop_to_page, impose_on_medium, impose_within, page_area,
 };

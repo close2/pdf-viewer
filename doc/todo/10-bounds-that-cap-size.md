@@ -160,6 +160,7 @@ lookup walk, and can a document grow that population without limit?*
 | **`MAX_OPERATIONS` 4 M** | nothing a bomb needs: the memory is already spent, and the time is unbounded either way because one `sh` can paint the whole page | **caps an honest document** — and capped it seven times harder than it said, until ADR 0306 |
 | **`MAX_STATE_DEPTH` 256** | nothing — the cost is per saved state and the ceiling sees it (1 document of 65 944 wants 337; Table C.1's own figure is 28) | **caps an honest document** |
 | `readback::BUDGET`, `MASK_BUDGET`, quorra's device budget, `MAX_PIXELS`, the zoom range | LRU clamps and refusals sized to a device, not refusals of content | **neither — good citizens** |
+| **`MAX_GROUP_BLIT_PIXELS` 2^35** | state 73 047 page-spanning transparency groups — 300 billion blitted pixels, ~640 s, and no interpretation budget sees it because 298 379 commands is not many (ADR 0780) | **load-bearing**, and the third of these that bounds *work* rather than a count: it reads the demand off the display list and refuses before a pixel is spent |
 
 ## 3. Three defects that were owed on any road — **all three carried out, ADR 0306**
 

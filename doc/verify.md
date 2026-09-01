@@ -191,6 +191,13 @@ cargo run --release -p pdf-model --example group_shape_census -- doc/pdf.js/test
   # Written to answer one line of a dependency's question and kept because it is how the two proofs
   # are compared: 162 groups over the 964 first pages, 135 carrying shape, 61 of them beyond a
   # command-list proof and none the other way (ADR 0554)
+cargo run --release -p pdf-model --example group_blit_census -- doc/pdf.js/test/pdfs/*.pdf
+  # what each first page's transparency groups would cost to composite, in blitted pixels, and it
+  # is `pdf_render::group_blit_demand` itself rather than a second reading of the same idea — the
+  # instrument that sized `MAX_GROUP_BLIT_PIXELS` (ADR 0780). **It interprets and never
+  # rasterises**, which is what lets it be run over a population holding `poppler-978-0.pdf`, whose
+  # 73 047 page-spanning groups take some 640 s to draw and 2.5 s to interpret. Run over a corpus
+  # in several processes with `xargs -0 -n 40 -P 8`; the summaries add
 cargo run --release -p render-quorra --example filtered_edge_colour
   # what each of the three backends' image filters does to the *colour* of a partly transparent
   # sample — §8.9.6.2's "smooth the edges of the mask, not … the painted colour values", which is

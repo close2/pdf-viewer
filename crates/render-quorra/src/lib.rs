@@ -72,6 +72,14 @@ pub enum QuorraRasterError {
     /// A command or paint this backend cannot draw as asked.
     #[error("this backend cannot draw {0}")]
     Unsupported(String),
+    /// A bound every backend holds refused the page before it was drawn.
+    ///
+    /// Today that is [`pdf_render::BackendError::GroupsTooCostly`] and nothing else, because
+    /// this backend states the extent and depth bounds through its own device. It is the
+    /// shared variant rather than a quorra-specific one so that a host reports one refusal by
+    /// one name whichever backend drew.
+    #[error("{0}")]
+    Target(#[from] pdf_render::BackendError),
 }
 
 /// quorra's options as *this host* asks for them: [`quorra_gpu::Options::default`] with the one
@@ -411,6 +419,12 @@ impl QuorraRasterizer {
         target: TargetSpec,
         cost: &mut FrameCost,
     ) -> Result<Vec<u8>, QuorraRasterError> {
+        // Before the device is touched at all. This path builds its scene directly rather
+        // than through [`present::FrameSlot::render`], so the two ask separately — a bound
+        // asked in one funnel and not the other is a bound the offscreen lane holds and the
+        // window does not. `pdf_render::group_cost` has the measure and the census.
+        pdf_render::check_group_blit(list, target)?;
+
         let began = std::time::Instant::now();
         // A single-list rasterisation is a different scene, and this path evicts: an entry the
         // retained window frame's scene still names could go, leaving that scene holding

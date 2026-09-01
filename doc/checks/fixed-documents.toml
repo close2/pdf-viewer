@@ -21,7 +21,11 @@
 #             an unlisted report is a failure either way
 #   ink       `low .. high` on the mean of `255 - luma` over page one at scale 1.0, this tree's
 #             own raster and no reference in the room. Empty pins nothing, which is right where
-#             a fix was about a report rather than about pixels
+#             a fix was about a report rather than about pixels. `refused: <words>` is the third
+#             form and pins the opposite — the page must *not* rasterise, and the backend's own
+#             sentence must contain those words. What a round fixes with it is a page that never
+#             finished, where a band would be meaningless and an empty `ink` would let the bound
+#             stop firing in silence
 #   why       the defect, in one line, with its ADR and clause
 #
 # **The bands below are the value measured at seeding plus and minus 1.0 of 255.** Every defect
@@ -381,3 +385,11 @@ session = 855
 reports = ["Text { operations: 1975 }", "the /Font entry f-0-0 is stated and is not a font dictionary", "the /Font entry f-1-0 is stated and is not a font dictionary", "the /Font entry f-2-0 is stated and is not a font dictionary", "the /Font entry f-3-0 is stated and is not a font dictionary", "the /Font entry f-4-0 is stated and is not a font dictionary", "the /Font entry f-5-0 is stated and is not a font dictionary"]
 ink =
 why = "six fonts the page's /Font names by reference, whose objects the bug report's reduction removed, reported as fonts the file does not name — §7.8.3's sentence for §7.3.10's condition (ADR 0779, 7.3.10)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch6/poppler-gitlab/poppler-978-0.pdf"
+page = 1
+session = 856
+reports = []
+ink = refused: transparency groups would blit 299325349323 pixels
+why = "73 047 unclipped page-spanning transparency groups, ~300 billion blitted pixels and ~640 s of drawing that nothing bounded: MAX_GROUP_DEPTH counts nesting and this page is wide (ADR 0780, 11.4.1)"

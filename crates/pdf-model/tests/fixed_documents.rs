@@ -41,7 +41,7 @@ use render_cpu::CpuRasterizer;
 ///
 /// A named pair rather than an `Option`, because "this row deliberately pins nothing" is a
 /// statement a round makes and not the absence of one.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 enum Ink {
     /// The fix this row stands for was about a report rather than about pixels.
     Unpinned,
@@ -51,6 +51,21 @@ enum Ink {
         low: f64,
         /// Highest.
         high: f64,
+    },
+    /// The page must not rasterise at all: a backend bound refuses it, in these words.
+    ///
+    /// The third thing a round can fix about a page, after a report and a picture — a page
+    /// that never *finished*. Pinning it as a band would be meaningless (there is no raster)
+    /// and pinning it as [`Ink::Unpinned`] would let the refusal go away silently, which is
+    /// the one direction that matters: a bound that stops firing turns this row from a third
+    /// of a second into ten minutes.
+    ///
+    /// The words are carried here rather than in [`Row::reports`], which is about what the
+    /// *interpretation* said, and they are mandatory: a refusal row that pinned only "it did
+    /// not draw" would pass for a target that failed to size, which is trap 27 exactly.
+    Refused {
+        /// A substring the refusal's own sentence must contain.
+        naming: String,
     },
 }
 
@@ -108,10 +123,20 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Reads an `ink` value: `low .. high`, or empty for [`Ink::Unpinned`].
+/// Reads an `ink` value: `low .. high`, `refused` for [`Ink::Refused`], or empty for
+/// [`Ink::Unpinned`].
 fn band(value: &str, at: usize) -> Result<Ink, String> {
     if value.is_empty() {
         return Ok(Ink::Unpinned);
+    }
+    if let Some(naming) = value.trim().strip_prefix("refused:") {
+        let naming = naming.trim();
+        if naming.is_empty() {
+            return Err(format!("line {at}'s `refused:` names no words to expect"));
+        }
+        return Ok(Ink::Refused {
+            naming: naming.to_owned(),
+        });
     }
     let (low, high) = value
         .split_once("..")
@@ -254,8 +279,14 @@ fn list(value: &str, at: usize) -> Result<Vec<String>, String> {
 struct Observed {
     /// Every report the interpretation carries, as the page would name them.
     reports: Vec<String>,
-    /// The page's ink, or `None` where no target could be sized.
+    /// The page's ink, or `None` where it did not rasterise.
     ink: Option<f64>,
+    /// What the backend said when it would not draw the page, or `None` where it drew.
+    ///
+    /// Kept rather than discarded because a row may pin the *refusal* — see [`Ink::Refused`]
+    /// — and a row that only knew "there is no raster" could not tell a bound firing from a
+    /// target that would not size (trap 27: an assertion is only as good as what it excludes).
+    refusal: Option<String>,
 }
 
 /// Opens, interprets and rasterises one page.
@@ -275,15 +306,22 @@ fn observe(path: &Path, page: usize) -> Result<Observed, String> {
         .collect();
     // The same scale and budget `open_one` uses, so that a person reproducing a row by hand
     // gets the same picture. 64 MiB is the display list's own target budget.
-    let ink = TargetSpec::for_page(&interpretation.display_list, 1.0, 64 << 20)
-        .ok()
+    let drawn = TargetSpec::for_page(&interpretation.display_list, 1.0, 64 << 20)
+        .map_err(|error| error.to_string())
         .and_then(|target| {
             CpuRasterizer::new()
                 .rasterize(&interpretation.display_list, target)
-                .ok()
-        })
-        .map(|raster| ink(&raster.data));
-    Ok(Observed { reports, ink })
+                .map_err(|error| error.to_string())
+        });
+    let (ink, refusal) = match drawn {
+        Ok(raster) => (Some(ink(&raster.data)), None),
+        Err(said) => (None, Some(said)),
+    };
+    Ok(Observed {
+        reports,
+        ink,
+        refusal,
+    })
 }
 
 /// Every report the row expects is present, no report it does not expect is, and the ink is in
@@ -306,16 +344,25 @@ fn judge(row: &Row, observed: &Observed) -> Vec<String> {
             complaints.push(format!("unexpected report {report}"));
         }
     }
-    if let Ink::Band { low, high } = row.ink {
-        match observed.ink {
-            Some(measured) if measured >= low && measured <= high => {}
+    match &row.ink {
+        Ink::Unpinned => {}
+        Ink::Band { low, high } => match observed.ink {
+            Some(measured) if measured >= *low && measured <= *high => {}
             Some(measured) => {
                 complaints.push(format!(
                     "ink {measured:.3} is outside {low:.3} .. {high:.3}"
                 ));
             }
-            None => complaints.push("the page did not rasterise".to_owned()),
-        }
+            None => complaints.push(format!(
+                "the page did not rasterise: {}",
+                observed.refusal.as_deref().unwrap_or("no reason given")
+            )),
+        },
+        Ink::Refused { naming } => match &observed.refusal {
+            Some(said) if said.contains(naming.as_str()) => {}
+            Some(said) => complaints.push(format!("the refusal {said:?} does not name {naming:?}")),
+            None => complaints.push("the page rasterised, where the row pins a refusal".to_owned()),
+        },
     }
     complaints
 }

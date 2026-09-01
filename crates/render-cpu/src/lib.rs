@@ -274,6 +274,13 @@ impl Rasterizer for CpuRasterizer {
             }
         }
 
+        // Before the pixmap for the same reason the interrupt is: refusing a page that would
+        // spend minutes inside `draw_group` is worth nothing if the refusal is paid for after
+        // the allocation. `pdf_render::check_group_blit` reads the list and draws nothing —
+        // see `pdf_render::group_cost` for the measure, the census that sized it and the page
+        // that made it necessary.
+        pdf_render::check_group_blit(list, target)?;
+
         let mut pixmap = tiny_skia::Pixmap::new(target.width, target.height).ok_or(
             CpuRasterError::Allocation {
                 width: target.width,

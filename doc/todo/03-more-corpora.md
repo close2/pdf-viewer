@@ -1760,15 +1760,18 @@ denominators `CLAUDE.md` separates, not one number twice.
   `0423548.pdf` 2.35 → 2.37 s and `3990833.pdf` 2.78 → 2.79 s, three samples each, which is noise
   in the wrong direction. Reverted on `CLAUDE.md`'s own rule that an optimisation is justified by a
   benchmark.
-- **So what this page needs is a bound, and this round did not invent one.** Nothing in the
-  interpreter's five budgets sees it — `MAX_OPERATIONS` counts tokens, and 298 379 commands is not
-  many — and `render-cpu`'s only group bound is `MAX_GROUP_DEPTH`, which a page 73 047 groups
-  *wide* never reaches. What is owed is the measure and the constant, in that order: the pathology
-  is cumulative **group blit pixels** rather than a group count, since a page of 73 047 groups a
-  few rows tall is cheap and this one is not, and the constant has to be sized against a population
-  the way `MASK_BUDGET` was — the maximum any first page of the 974, the 65 944 and this corpus
-  demands. A bound invented without that census is what `doc/todo/49` exists to prevent. The
-  refusal itself is already shaped: `BackendError::GroupsTooDeep` is its sibling.
+- ~~**So what this page needs is a bound, and this round did not invent one.**~~ **Taken in the
+  eight-hundred-and-fifty-sixth** (ADR 0780), in the order this paragraph asked for. The measure is
+  cumulative **group blit pixels** — `pdf_render::group_blit_demand`, read off the display list and
+  drawing nothing — and the constant is `MAX_GROUP_BLIT_PIXELS`, sized by
+  `examples/group_blit_census` over the three populations the way `MASK_BUDGET` was sized, with
+  `BackendError::GroupsTooCostly` as `GroupsTooDeep`'s sibling and all three backends asking at
+  five call sites. Two things the census settled that the paragraph could not: the bound has to be
+  **absolute** rather than a ratio to the target, because wall clock tracks the product and a page
+  demanding 660 repaints of a small sheet draws in 0.2 s while one demanding 301 of a large one
+  takes 11.2; and the population's tail is a cliff rather than a slope — the heaviest first page
+  that is *not* this one demands 23.08 G pixels against its 299.3 G. This document is a row in
+  `doc/checks/fixed-documents.toml` now, on that file's new third form: `ink = refused: <words>`.
 - **The report that misstated the file, which is the defect this chunk yielded and it is fixed.**
   §7.8.3's *no `/Font` resource named `/f-0-0`* was printed for a page whose `/Font` names all six
   of its fonts and whose objects the bug report's reduction removed — §7.3.10's null, a different

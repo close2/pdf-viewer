@@ -318,6 +318,29 @@ pub enum BackendError {
         /// Configured maximum.
         limit: usize,
     },
+    /// Compositing the list's transparency groups would blit more pixels than
+    /// [`crate::group_cost::MAX_GROUP_BLIT_PAGES`] repaints of the target.
+    ///
+    /// [`GroupsTooDeep`]'s sibling one axis over: that one bounds how deeply groups nest,
+    /// this one how much they cost side by side. A page 73 047 groups *wide* reaches
+    /// neither the depth bound nor any of `pdf-model`'s interpretation budgets, and asks
+    /// for some three hundred billion blitted pixels — see [`crate::group_cost`] for the
+    /// witness and for how the constant was sized.
+    ///
+    /// A refusal about the *resource* and not about the document: the file is valid and
+    /// says what it says. The page is not drawn, and a host reports this by name.
+    ///
+    /// [`GroupsTooDeep`]: BackendError::GroupsTooDeep
+    #[error(
+        "compositing this page's transparency groups would blit {demanded} pixels, over the limit of {limit}"
+    )]
+    GroupsTooCostly {
+        /// Pixels the list's groups would blit.
+        demanded: u64,
+        /// Configured maximum, which is the target's area times
+        /// [`crate::group_cost::MAX_GROUP_BLIT_PAGES`].
+        limit: u64,
+    },
 }
 
 #[cfg(test)]

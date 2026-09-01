@@ -690,6 +690,12 @@ pub(crate) fn build(
     target: TargetSpec,
     masks: &SoftMaskRasters,
 ) -> Result<vello::Scene, GpuRasterError> {
+    // Here rather than in `GpuRasterizer::rasterize`, because `crate::build_scene` is the
+    // tier-2 entry a window comes through and a bound only the tier-1 path holds is trap 12b's
+    // own mistake. `build_commands` below is deliberately *not* guarded: a soft mask's list is
+    // part of the same page and was already counted by
+    // [`pdf_render::group_blit_demand`](pdf_render::group_blit_demand).
+    pdf_render::check_group_blit(list, target)?;
     build_commands(list, list.commands(), target, masks)
 }
 
