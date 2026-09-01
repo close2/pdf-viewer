@@ -53,6 +53,45 @@ impl Interpreter<'_> {
         }
     }
 
+    /// Whether any annotation on this page sets ISO 32000-2 §12.5.3's `NoZoom`.
+    ///
+    /// Table 167's bit 4 is exactly what `ViewGeometry::adjustment` reports back as
+    /// `ViewAdjust::view_dependent`, so this is the same question one pass earlier — asked before
+    /// the pass runs because what it decides is whether the interpreter's state is worth keeping
+    /// at all (`content::Checkpoint`).
+    ///
+    /// **It over-approximates in one direction only, and that is the direction that costs
+    /// nothing.** An annotation this pass then declines to draw — §12.5.3's Hidden or `NoView`,
+    /// §8.11.3.3's `/OC`, §12.6.4.11's action, §6.3.2.2's delegation — leaves the page not
+    /// view-dependent after all, and the checkpoint is discarded once the pass has said so. The
+    /// other direction cannot happen: nothing sets the flag that the file did not.
+    ///
+    /// The annotations a *person* added are asked too, for `draw_annotations`' reason: an
+    /// annotation this program constructed is not a second kind of annotation.
+    pub(super) fn any_no_zoom(&self, page: &Page) -> bool {
+        let annotations = self.document.get_key(&page.dict, "Annots");
+        let stated = annotations.as_array().is_some_and(|entries| {
+            entries.iter().any(|entry| {
+                let resolved = self.document.resolve(entry);
+                resolved.as_dict().is_some_and(|dict| {
+                    let view = entry
+                        .as_reference()
+                        .map(|id| self.view.annotation(id))
+                        .unwrap_or_default();
+                    crate::annotation::no_zoom_in_force(self.document, dict, view)
+                })
+            })
+        });
+        stated
+            || self.view.added_on(page.id).any(|added| {
+                crate::annotation::no_zoom_in_force(
+                    self.document,
+                    &added.dict,
+                    self.view.annotation(added.id),
+                )
+            })
+    }
+
     /// Draws one annotation, whether the file states it or a person added it.
     fn draw_annotation(
         &mut self,

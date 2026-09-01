@@ -91,7 +91,7 @@ fn main() {
         VIEWPORT.0, VIEWPORT.1
     );
     println!(
-        "  {} of {} page(s) carry Table 167's NoZoom",
+        "  {} of {} page(s) state Table 167's NoZoom in an /F",
         found.dependent.len(),
         found.pages
     );
@@ -272,9 +272,18 @@ fn median(spans: &[Duration]) -> Duration {
 
 /// Which pages §12.5.3 makes view-dependent, and one page it does not.
 ///
-/// Table 167's flags are read straight off `/Annots` rather than by interpreting the page: the
-/// question is which pages `Interpretation::view_dependent` will be true of, and the flag is what
-/// decides it — `pdf_model::annotation::Adjustment` reads the same bit.
+/// Table 167's flags are read straight off `/Annots` rather than by interpreting the page, which
+/// is cheap and is a **superset** of the pages `Interpretation::view_dependent` is true of. Two
+/// subclauses move that population in both directions and neither is visible in `/F`: §12.5.6.4
+/// makes a `Text` annotation behave as though both flags were always set whatever the file says,
+/// and §12.5.6.10's four markup subtypes are drawn in the text of the document and therefore have
+/// them cleared (ADR 0172). ISO 32000-2's own 341 are mostly the second
+/// of those — 211 strike-outs at one flag value — so the count printed above is what the *files*
+/// state and not what the clause decides. `pdf_model::annotation::no_zoom_in_force` is the reading
+/// that decides, and `pdf-model/examples/replacement_census` is what compares the two.
+///
+/// The superset costs this example nothing: a page the clause is not about drives its arm in a
+/// few hundred nanoseconds and sorts to the bottom of the run.
 struct Witnesses {
     /// How many pages the document has, so the population below has a denominator.
     pages: usize,

@@ -387,6 +387,81 @@ const FLAG_NO_ROTATE: i64 = 1 << 4;
 /// `/F` bit 9: read [`FLAG_NO_VIEW`] the other way round while the pointer is on this annotation.
 const FLAG_TOGGLE_NO_VIEW: i64 = 1 << 8;
 
+/// Whether ISO 32000-2 §12.5.3's `NoZoom` is in force for one annotation.
+///
+/// The one bit in Table 167 that makes an annotation's placement a function of the *reader's*
+/// magnification rather than of the file, which is what [`ViewAdjust::view_dependent`] reports and
+/// what `content::Interpreter::any_no_zoom` asks one pass earlier, before the annotation is drawn.
+///
+/// **Here rather than at either caller, because it is not a question about `/F`.** Two subclauses
+/// override the file's flags by *subtype* — see [`view_flags`] — and a caller that read `/F` alone
+/// would miss every `Text` annotation, which §12.5.6.4 makes view-dependent with no flag set at
+/// all. That is not hypothetical: `examples/replacement_census` named five corpus pages where the
+/// two readings disagreed, all five of them exactly that (ADR 0777).
+pub(crate) fn no_zoom_in_force(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> bool {
+    view_flags(document, annotation, view) & FLAG_NO_ZOOM != 0
+}
+
+/// Table 167's flags as §12.5.3's two view-dependent bits are read from them, which is not `/F`
+/// alone.
+///
+/// [`stated_flags`] is the file's `/F` under whatever §12.6.4.11's action changed, and two
+/// subclauses then override that by subtype.
+///
+/// ISO 32000-2 §12.5.6.4, of a text annotation and of nothing else:
+///
+/// > Text annotations shall not scale and rotate with the page; they shall behave as if the
+/// > NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were always set.
+///
+/// A `shall` about the *subtype* rather than about the file's `/F`, so it is applied to an
+/// annotation that sets neither flag and cannot be cleared by one that clears them. Unreachable
+/// until the two-hundred-and-seventeenth session gave the two flags a meaning, and `icon.rs`'s
+/// module comment carried the blocker in prose the whole time.
+///
+/// §12.5.6.10, of the four text markup subtypes and of nothing else:
+///
+/// > Text markup annotations shall appear as highlights, underlines, strikeouts (all PDF 1.3), or
+/// > jagged ("squiggly") underlines ( PDF 1.4 ) in the text of a document.
+///
+/// **Two `shall`s that cannot both hold, and the standard states no precedence.** At any
+/// magnification but 1, §12.5.3's "the annotation shall always maintain the same fixed size on the
+/// screen" moves a strike-out off the words it strikes out, and §12.5.6.10's "in the text of a
+/// document" is then false. Table 182 is the second half of it: the quadrilaterals are stated "in
+/// default user space" and each "shall encompasses a word or group of contiguous words in the text
+/// underlying the annotation", so this annotation's geometry is defined *by reference to the
+/// page's text* and cannot be held still while the text moves.
+///
+/// The choice, recorded as a choice (ADR 0172): §12.5.6.10 says what the annotation *is* and
+/// §12.5.3 offers a display option that annotations have in general, so the general option does
+/// not get to make the object stop being what its own subclause defines it as. Counted before it
+/// was made: the corpus holds 511 text markup annotations across 34 documents, **211 of them carry
+/// `NoZoom` and all 211 are in one document** — every strike-out of
+/// `ISO_32000-2_sponsored_EC3.pdf`, at one flag value, which is a producer's habit rather than 211
+/// decisions.
+fn view_flags(
+    document: &Document,
+    annotation: &Dictionary,
+    view: crate::view::AnnotationView<'_>,
+) -> i64 {
+    let mut flags = stated_flags(document, annotation, view);
+    let subtype = document.get_key(annotation, "Subtype");
+    let subtype = subtype.as_name().map(Name::as_bytes);
+    if subtype == Some(b"Text".as_slice()) {
+        flags |= FLAG_NO_ZOOM | FLAG_NO_ROTATE;
+    }
+    if matches!(
+        subtype,
+        Some(b"Highlight" | b"Underline" | b"Squiggly" | b"StrikeOut")
+    ) {
+        flags &= !(FLAG_NO_ZOOM | FLAG_NO_ROTATE);
+    }
+    flags
+}
+
 /// How large a text annotation's icon is, in default user space at magnification 1.
 ///
 /// **A choice, and one this module is the right place for**, since `crate::icon` is already the
@@ -732,55 +807,9 @@ pub(crate) fn decide(
     // annotation rather than about its appearance, and because the fixed point it pivots about
     // is `/Rect`'s corner, which both paths already have.
     if let Decision::Draw { adjust, .. } = &mut decision {
-        let stated = document
-            .get_key(annotation, "F")
-            .as_integer()
-            .unwrap_or_default();
-        let mut flags = view
-            .flags
-            .map_or(stated, |change| change.applied_to(stated));
-        // §12.5.6.4, of a text annotation and of nothing else:
-        //
-        // > Text annotations shall not scale and rotate with the page; they shall behave as if
-        // > the NoZoom and NoRotate annotation flags (see "Table 167 -Annotation flags") were
-        // > always set.
-        //
-        // A `shall` about the *subtype* rather than about the file's `/F`, so it is applied to
-        // an annotation that sets neither flag and cannot be cleared by one that clears them.
-        // Unreachable until the two-hundred-and-seventeenth session gave the two flags a
-        // meaning, and `icon.rs`'s module comment carried the blocker in prose the whole time.
-        let subtype = document.get_key(annotation, "Subtype");
-        let subtype = subtype.as_name().map(Name::as_bytes);
-        if subtype == Some(b"Text".as_slice()) {
-            flags |= FLAG_NO_ZOOM | FLAG_NO_ROTATE;
-        }
-        // §12.5.6.10, of the four text markup subtypes and of nothing else:
-        //
-        // > Text markup annotations shall appear as highlights, underlines, strikeouts (all
-        // > PDF 1.3), or jagged ("squiggly") underlines ( PDF 1.4 ) in the text of a document.
-        //
-        // **Two `shall`s that cannot both hold, and the standard states no precedence.** At any
-        // magnification but 1, §12.5.3's "the annotation shall always maintain the same fixed
-        // size on the screen" moves a strike-out off the words it strikes out, and §12.5.6.10's
-        // "in the text of a document" is then false. Table 182 is the second half of it: the
-        // quadrilaterals are stated "in default user space" and each "shall encompasses a word
-        // or group of contiguous words in the text underlying the annotation", so this
-        // annotation's geometry is defined *by reference to the page's text* and cannot be held
-        // still while the text moves.
-        //
-        // The choice, recorded as a choice (ADR 0172): §12.5.6.10 says what the annotation *is*
-        // and §12.5.3 offers a display option that annotations have in general, so the general
-        // option does not get to make the object stop being what its own subclause defines it
-        // as. Counted before it was made: the corpus holds 511 text markup annotations across 34
-        // documents, **211 of them carry `NoZoom` and all 211 are in one document** — every
-        // strike-out of `ISO_32000-2_sponsored_EC3.pdf`, at one flag value, which is a
-        // producer's habit rather than 211 decisions.
-        if matches!(
-            subtype,
-            Some(b"Highlight" | b"Underline" | b"Squiggly" | b"StrikeOut")
-        ) {
-            flags &= !(FLAG_NO_ZOOM | FLAG_NO_ROTATE);
-        }
+        // The flags Table 167 has in force here, which two subclauses decide by subtype as well
+        // as by `/F`; `view_flags` carries both readings and their argument.
+        let flags = view_flags(document, annotation, view);
         *adjust = geometry.adjustment(flags, rectangle(document, annotation, "Rect"));
     }
     decision

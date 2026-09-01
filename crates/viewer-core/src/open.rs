@@ -415,6 +415,18 @@ pub(crate) struct OnScreen {
     pub(crate) raster: (u32, u32),
     /// Its drawing commands, once it has been interpreted.
     pub(crate) interpreted: Option<Interpreted>,
+    /// What §12.5.3's annotations could be re-placed from, for a page the clause is about.
+    ///
+    /// `None` for every page whose display list the magnification cannot change, which is all but
+    /// the pages carrying a `NoZoom` annotation. Kept **beside** [`Self::interpreted`] rather than
+    /// inside it, because the two have different lifetimes and that is the whole point of it: a
+    /// zoom throws the display list away and keeps this, which is what turns a wheel notch from an
+    /// interpretation of the page into a re-run of its annotations (ADR 0777).
+    ///
+    /// **It is dropped by [`Open::stale`] and only there.** The content half was interpreted
+    /// against `Open::view` as it then was, so everything but the magnification is baked into it —
+    /// and `stale` is this crate's one funnel for the view state's ink having moved.
+    pub(crate) replaceable: Option<pdf_model::content::Replacement>,
     /// Which interpretation of this page [`Self::interpreted`] holds.
     ///
     /// What makes a frame stale for a reason other than the resolution: an edit, a layer switch
@@ -700,10 +712,15 @@ impl Open {
     /// **And it is where [`Self::ink`] moves**, for the same reason it is where the display lists
     /// go: a host holding pixels of a page cannot tell a re-interpretation of unchanged ink from
     /// an interpretation of changed ink, and this is the only place in this crate that knows.
+    /// **And it is where the replacements go**, which is the difference between this and
+    /// [`Self::reinterpret`] stated once more in the other direction: §12.5.3's content half was
+    /// interpreted against the view state as it then was, so a layer switched or a value typed
+    /// invalidates it exactly as it invalidates the display list beside it.
     pub(crate) fn stale(&mut self) {
         self.ink = self.ink.saturating_add(1);
         for on_screen in &mut self.on_screen {
             on_screen.interpreted = None;
+            on_screen.replaceable = None;
         }
         self.readbacks.clear();
     }
@@ -735,6 +752,13 @@ impl Open {
     /// for the same reason the lists are**: a page whose display list is kept cannot have a
     /// readback that moved, so a gesture no longer makes a document-wide search cold — which,
     /// on ISO 32000-2, was 1023 pages of readback dropped per wheel notch.
+    ///
+    /// **And what replaces the list is the annotation pass rather than the page**, which is the
+    /// other half of ADR 0777: [`OnScreen::replaceable`] survives this, so the next `arrange`
+    /// runs §12.5.3's pass again over the content half `pdf-model` kept instead of reading the
+    /// content stream a second time. That is why this drops the list rather than rebuilding it
+    /// here: the work belongs where every other interpretation of an arranged page happens, and
+    /// a page about to leave the screen should not pay for a placement nothing will draw.
     pub(crate) fn reinterpret(&mut self) {
         for on_screen in &mut self.on_screen {
             let view_dependent = on_screen
@@ -1775,17 +1799,64 @@ fn fitted(viewport: u32, extent: f32) -> f32 {
     scale
 }
 
+/// What one page of an arrangement is interpreted into, with its reports already worded.
+pub(crate) struct Read {
+    /// The interpretation itself.
+    pub(crate) interpretation: Interpretation,
+    /// What it could not draw, as sentences.
+    pub(crate) reports: Vec<String>,
+    /// The page object, so that the caller need not walk the page tree for it again.
+    pub(crate) object: Page,
+    /// What §12.5.3's annotations can be re-placed from, where this read made one.
+    ///
+    /// **`None` means "nothing new", not "throw the old one away"**: a read that *used* a
+    /// replacement did not make a second one, and the one it used is still good — so the caller
+    /// installs a `Some` and leaves a `None` alone. [`Open::stale`] is what discards them.
+    pub(crate) replaceable: Option<pdf_model::content::Replacement>,
+}
+
 /// The interpretation of a page, with its reports already worded.
-pub(crate) fn interpret(open: &Open, index: usize) -> Option<(Interpretation, Vec<String>, Page)> {
+///
+/// **`replace` where there is something to replace from, and a whole interpretation otherwise**,
+/// and the two produce the same [`Interpretation`] — which is a property rather than a hope:
+/// `pdf_model::content::replace` restores the interpreter's state at the seam before §12.5.3's
+/// annotation pass and runs that pass again, and `pdf-model`'s
+/// `a_replaced_page_is_the_page_it_would_have_been_interpreted_as` compares the two field by field
+/// over every corpus page the clause is about. ADR 0777.
+pub(crate) fn interpret(open: &Open, index: usize) -> Option<Read> {
     let page = open.page(index)?;
-    let interpretation =
-        pdf_model::content::interpret_with_fonts(&open.document, &page, &open.view, &open.fonts);
+    let replacement = open
+        .on(index)
+        .and_then(|on_screen| on_screen.replaceable.as_ref());
+    let (interpretation, replaceable) = match replacement {
+        Some(replacement) => (
+            pdf_model::content::replace(
+                &open.document,
+                &page,
+                &open.view,
+                &open.fonts,
+                replacement,
+            ),
+            None,
+        ),
+        None => pdf_model::content::interpret_replaceable(
+            &open.document,
+            &page,
+            &open.view,
+            &open.fonts,
+        ),
+    };
     let reports = interpretation
         .unsupported
         .iter()
         .map(crate::report::describe)
         .collect();
-    Some((interpretation, reports, page))
+    Some(Read {
+        interpretation,
+        reports,
+        object: page,
+        replaceable,
+    })
 }
 
 /// A byte string out of a URI's fragment, worded for a person to read.

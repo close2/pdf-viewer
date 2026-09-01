@@ -1339,8 +1339,8 @@ impl Viewer {
             return Some(text);
         }
         let open = self.documents.get(&id)?;
-        let (interpretation, _, _) = crate::open::interpret(open, page)?;
-        let text: Arc<str> = Arc::from(interpretation.text);
+        let read = crate::open::interpret(open, page)?;
+        let text: Arc<str> = Arc::from(read.interpretation.text);
         if let Some(open) = self.documents.get_mut(&id) {
             open.readbacks.put(page, &text);
         }
@@ -2342,6 +2342,7 @@ impl Viewer {
                 origin: placed.origin,
                 raster: placed.raster,
                 interpreted: None,
+                replaceable: None,
                 revision: 0,
                 shown: None,
                 frame: None,
@@ -2366,7 +2367,12 @@ impl Viewer {
                 continue;
             }
             let page = open.on_screen[index].page;
-            let Some((interpretation, mut reports, object)) = crate::open::interpret(open, page)
+            let Some(crate::open::Read {
+                interpretation,
+                mut reports,
+                object,
+                replaceable,
+            }) = crate::open::interpret(open, page)
             else {
                 continue;
             };
@@ -2393,6 +2399,12 @@ impl Viewer {
             let on_screen = &mut open.on_screen[index];
             on_screen.object = object;
             on_screen.revision = revision;
+            // A `None` is a read that *used* the replacement this page already holds rather than
+            // one that made a new one, so it says nothing about whether to keep it; see
+            // `open::Read::replaceable`.
+            if replaceable.is_some() {
+                on_screen.replaceable = replaceable;
+            }
             on_screen.interpreted = Some(Interpreted {
                 shortfall: interpretation.shortfall(),
                 list: Arc::new(interpretation.display_list),

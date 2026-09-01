@@ -452,6 +452,101 @@ pub fn interpret_with_fonts(
     state: &crate::view::ViewState,
     fonts: &FontCache,
 ) -> Interpretation {
+    interpreted(document, page, state, fonts, Keep::Nothing).0
+}
+
+/// Interprets a page and keeps what re-running §12.5.3's annotation pass would need.
+///
+/// The same [`Interpretation`] [`interpret_with_fonts`] produces, plus — for a page that carries
+/// an annotation whose placement §12.5.3 makes a function of the magnification — a
+/// [`Replacement`] that [`replace`] turns into the same page at another magnification without
+/// reading a byte of its content stream again. `None` is a page the clause has nothing to say
+/// about, and a caller that gets one re-interprets or does nothing at all.
+///
+/// **The replacement is against this `state`**, and that is a precondition rather than a
+/// courtesy: everything but the magnification — §8.11's optional content, §12.7.5's field values,
+/// §12.5.5's appearance under the pointer, §6.3.2.2's delegated widgets — was resolved while the
+/// content half ran and is baked into what this carries. A caller that changes any of those
+/// throws the replacement away and interprets again; `viewer_core::Open::stale` is that one
+/// place, and `viewer_core::Open::reinterpret` is the one that keeps it.
+///
+/// [`interpret_with_fonts`] is this function with the replacement dropped, so the two cannot
+/// diverge.
+#[must_use]
+pub fn interpret_replaceable(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    fonts: &FontCache,
+) -> (Interpretation, Option<Replacement>) {
+    interpreted(document, page, state, fonts, Keep::Replacement)
+}
+
+/// Runs §12.5.3's annotation pass again, over the content half a [`Replacement`] kept.
+///
+/// The page's content stream is not read: `draw_annotations` runs last, so everything it
+/// contributes is a tail on every one of the interpreter's accumulators, and this restores the
+/// state at that seam and runs the tail against `state`'s magnification. The result is the
+/// [`Interpretation`] a whole re-interpretation would have produced —
+/// `a_replaced_page_is_the_page_it_would_have_been_interpreted_as` checks that field by field
+/// over every corpus page the clause is about.
+///
+/// `state` must be the one the replacement was made against but for
+/// [`ViewState::set_magnification`](crate::view::ViewState::set_magnification); see
+/// [`interpret_replaceable`].
+#[must_use]
+pub fn replace(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    fonts: &FontCache,
+    replacement: &Replacement,
+) -> Interpretation {
+    let mut interpreter = Interpreter::for_page(
+        document,
+        page,
+        state,
+        replacement.checkpoint.compositing.clone(),
+        &replacement.presses,
+        fonts,
+    );
+    interpreter.restore(replacement.checkpoint.clone());
+    complete(document, page, base_transform(page), interpreter).0
+}
+
+/// Whether an interpretation is asked to keep what [`replace`] would need.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Keep {
+    /// Nothing: the caller will interpret the page again if it needs it again.
+    Nothing,
+    /// The content half, where §12.5.3 makes this page's placement depend on the magnification.
+    Replacement,
+}
+
+/// What [`replace`] needs to put §12.5.3's annotations somewhere else on an already-interpreted
+/// page.
+///
+/// Opaque on purpose: what it holds is decided by the compiler rather than by an interface, and
+/// naming a field here would be a second place for that decision to live. `doc/todo/46` has the
+/// two constructions this is the cheaper of, and ADR 0777 the measurement that chose it.
+#[derive(Debug, Clone)]
+pub struct Replacement {
+    /// The interpreter's own accumulated state at the seam.
+    checkpoint: Checkpoint,
+    /// §11.4.7's press table, shared with the run that made this so that a press this page named
+    /// is sampled once and counted once against [`crate::colour::MAX_PRESSES`] however many times
+    /// the annotations are re-placed. ADR 0417 is why that budget is per interpretation.
+    presses: Arc<crate::colour::Presses>,
+}
+
+/// One interpretation of a page, and the replacement it was asked to keep.
+fn interpreted(
+    document: &Document,
+    page: &Page,
+    state: &crate::view::ViewState,
+    fonts: &FontCache,
+    keep: Keep,
+) -> (Interpretation, Option<Replacement>) {
     // ISO 32000-2 §11.4.7 puts a colour space under the whole page — "[a]ll page-level
     // compositing shall be done in the default blending colour space of the page" — and where
     // that space is `DeviceCMYK` this tree draws the page in it rather than on the device's
@@ -462,24 +557,32 @@ pub fn interpret_with_fonts(
     // One table for the whole interpretation, so that the two runs of the pair below name the
     // same press once between them and §11.7.2's refusal is a fact about this page rather than
     // about what the process opened before it. ADR 0417.
-    let presses = crate::colour::Presses::default();
+    let presses = Arc::new(crate::colour::Presses::default());
+    // **§11.4.7's pair is interpreted whole, every time, and that is the documented fallback.**
+    // A page drawn in its own subtractive space is two interpretations of one content stream
+    // merged by geometry digest, so the seam below is two seams and the merge is a third thing to
+    // get right — and `examples/press_census` says how rare such a page is. So a page in this
+    // branch keeps no replacement and a zoom of it re-interprets, at the price this branch
+    // already pays twice over. `doc/todo/46` asked for this decision and for its cost in writing.
     if let PagePress::In(press) = page_press(document, page, &presses) {
-        let (chromatic, drawable) = interpret_into(
+        let (chromatic, drawable, _) = interpret_into(
             document,
             page,
             state,
             Compositing::Subtractive(crate::colour::Half::Chromatic, Arc::clone(&press)),
             &presses,
             fonts,
+            Keep::Nothing,
         );
         if drawable {
-            let (black, _) = interpret_into(
+            let (black, _, _) = interpret_into(
                 document,
                 page,
                 state,
                 Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press)),
                 &presses,
                 fonts,
+                Keep::Nothing,
             );
             // The two runs differ only in what a colour resolves to, so their geometry is
             // identical by construction — and this is what checks it, because the halves are
@@ -492,11 +595,31 @@ pub fn interpret_with_fonts(
                 chromatic
                     .display_list
                     .set_blending(press.blending_space(), black.display_list);
-                return chromatic;
+                return (chromatic, None);
             }
         }
     }
-    interpret_into(document, page, state, Compositing::Device, &presses, fonts).0
+    let (interpretation, _, checkpoint) = interpret_into(
+        document,
+        page,
+        state,
+        Compositing::Device,
+        &presses,
+        fonts,
+        keep,
+    );
+    // A checkpoint the pass then found nothing to use is dropped rather than kept: the seam's
+    // condition is Table 167's bit read off the file, and `draw_annotations` may decline to draw
+    // the annotation that set it (§12.5.3's Hidden, §8.11.3.3's `/OC`, §12.6.4.11's action,
+    // §6.3.2.2's delegation), in which case the page is not view-dependent after all and a
+    // replacement of it would be a second copy of a list nothing will ask for.
+    let replacement = checkpoint
+        .filter(|_| interpretation.view_dependent)
+        .map(|checkpoint| Replacement {
+            checkpoint,
+            presses,
+        });
+    (interpretation, replacement)
 }
 
 impl<'a> Interpreter<'a> {
@@ -600,6 +723,319 @@ impl<'a> Interpreter<'a> {
             blending_beyond: beyond,
         }
     }
+
+    /// Everything this interpretation has accumulated, so that a later run can carry on from here.
+    ///
+    /// **The destructure below is exhaustive on purpose and `..` may not be added to it.** A field
+    /// added to [`Interpreter`] stops this function compiling until somebody has decided which of
+    /// the three kinds it is — accumulated, memoised or derived from the page — and a `..` would
+    /// make that decision silently. `doc/todo/46` states the cost of getting it wrong: a field
+    /// forgotten is a report lost, on a page that still looks right.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one line per field of an interpreter that has fifty-nine of them, twice over. \
+                  The length is the guard rather than an accident: shortening it means a `..`, \
+                  which is the one thing this function may not have"
+    )]
+    fn checkpoint(&self) -> Checkpoint {
+        let Self {
+            // Borrowed, or derived from the page and the view state, so [`Interpreter::for_page`]
+            // produces them again from the same inputs.
+            document: _,
+            across: _,
+            view: _,
+            presses: _,
+            base: _,
+            pattern_initial: _,
+            page: _,
+            structure: _,
+            output_intent: _,
+            optional_content: _,
+            delegated: _,
+            blending: _,
+            blending_beyond: _,
+            // Memos of pure functions. A resumed run starts with empty ones and computes the same
+            // answers — the cost is that an annotation's appearance loads its own fonts, shadings
+            // and images again, which `Self::across` already answers for the fonts. Carrying them
+            // would be carrying a decoded image per notch to save a decode the annotation half
+            // rarely makes.
+            fonts: _,
+            shadings: _,
+            resource_tables: _,
+            icc_spaces: _,
+            image_masks: _,
+            image_rasters: _,
+            stream_structures: _,
+            clip_extents: _,
+            // Accumulated: the tail of every one of these is what the annotation pass appends.
+            list,
+            unsupported,
+            notes_raised,
+            text_operations,
+            segments_without_a_current_point,
+            glyph_coverage,
+            glyphs,
+            codes_without_a_glyph,
+            codes_reaching_a_blank_glyph,
+            codes_without_a_vertical_form,
+            codes_without_a_character,
+            operations,
+            text,
+            described,
+            artifacts,
+            marked,
+            marking,
+            associated,
+            reversed_chars,
+            view_dependent,
+            text_cursor,
+            text_layer,
+            inferred_separators,
+            stream,
+            hidden,
+            glyph_depth,
+            soft_mask_depth,
+            uncoloured,
+            inside_knockout,
+            transparent_initial_backdrop,
+            alpha_sources,
+            alpha_sources_mark,
+            compositing,
+            blending_changed,
+            black_generation_stated,
+            opaque_ancestry,
+            transfer_painted_opaquely,
+            nested_space_departed,
+        } = self;
+        Checkpoint {
+            list: list.clone(),
+            unsupported: unsupported.clone(),
+            notes_raised: *notes_raised,
+            text_operations: *text_operations,
+            segments_without_a_current_point: *segments_without_a_current_point,
+            glyph_coverage: glyph_coverage.clone(),
+            glyphs: *glyphs,
+            codes_without_a_glyph: *codes_without_a_glyph,
+            codes_reaching_a_blank_glyph: *codes_reaching_a_blank_glyph,
+            codes_without_a_vertical_form: *codes_without_a_vertical_form,
+            codes_without_a_character: *codes_without_a_character,
+            operations: *operations,
+            text: text.clone(),
+            described: described.clone(),
+            artifacts: artifacts.clone(),
+            marked: marked.clone(),
+            marking: marking.clone(),
+            associated: associated.clone(),
+            reversed_chars: *reversed_chars,
+            view_dependent: *view_dependent,
+            text_cursor: *text_cursor,
+            text_layer: text_layer.clone(),
+            inferred_separators: *inferred_separators,
+            stream: *stream,
+            hidden: *hidden,
+            glyph_depth: *glyph_depth,
+            soft_mask_depth: *soft_mask_depth,
+            uncoloured: *uncoloured,
+            inside_knockout: *inside_knockout,
+            transparent_initial_backdrop: *transparent_initial_backdrop,
+            alpha_sources: *alpha_sources,
+            alpha_sources_mark: *alpha_sources_mark,
+            compositing: compositing.clone(),
+            blending_changed: *blending_changed,
+            black_generation_stated: *black_generation_stated,
+            opaque_ancestry: *opaque_ancestry,
+            transfer_painted_opaquely: *transfer_painted_opaquely,
+            nested_space_departed: *nested_space_departed,
+        }
+    }
+
+    /// Puts a [`Checkpoint`] back into an interpreter [`Interpreter::for_page`] has just built.
+    ///
+    /// The destructure is exhaustive for [`Interpreter::checkpoint`]'s reason, and every binding
+    /// is used: a field this stopped installing would be a warning, and warnings are errors here.
+    fn restore(&mut self, checkpoint: Checkpoint) {
+        let Checkpoint {
+            list,
+            unsupported,
+            notes_raised,
+            text_operations,
+            segments_without_a_current_point,
+            glyph_coverage,
+            glyphs,
+            codes_without_a_glyph,
+            codes_reaching_a_blank_glyph,
+            codes_without_a_vertical_form,
+            codes_without_a_character,
+            operations,
+            text,
+            described,
+            artifacts,
+            marked,
+            marking,
+            associated,
+            reversed_chars,
+            view_dependent,
+            text_cursor,
+            text_layer,
+            inferred_separators,
+            stream,
+            hidden,
+            glyph_depth,
+            soft_mask_depth,
+            uncoloured,
+            inside_knockout,
+            transparent_initial_backdrop,
+            alpha_sources,
+            alpha_sources_mark,
+            compositing,
+            blending_changed,
+            black_generation_stated,
+            opaque_ancestry,
+            transfer_painted_opaquely,
+            nested_space_departed,
+        } = checkpoint;
+        self.list = list;
+        self.unsupported = unsupported;
+        self.notes_raised = notes_raised;
+        self.text_operations = text_operations;
+        self.segments_without_a_current_point = segments_without_a_current_point;
+        self.glyph_coverage = glyph_coverage;
+        self.glyphs = glyphs;
+        self.codes_without_a_glyph = codes_without_a_glyph;
+        self.codes_reaching_a_blank_glyph = codes_reaching_a_blank_glyph;
+        self.codes_without_a_vertical_form = codes_without_a_vertical_form;
+        self.codes_without_a_character = codes_without_a_character;
+        self.operations = operations;
+        self.text = text;
+        self.described = described;
+        self.artifacts = artifacts;
+        self.marked = marked;
+        self.marking = marking;
+        self.associated = associated;
+        self.reversed_chars = reversed_chars;
+        self.view_dependent = view_dependent;
+        self.text_cursor = text_cursor;
+        self.text_layer = text_layer;
+        self.inferred_separators = inferred_separators;
+        self.stream = stream;
+        self.hidden = hidden;
+        self.glyph_depth = glyph_depth;
+        self.soft_mask_depth = soft_mask_depth;
+        self.uncoloured = uncoloured;
+        self.inside_knockout = inside_knockout;
+        self.transparent_initial_backdrop = transparent_initial_backdrop;
+        self.alpha_sources = alpha_sources;
+        self.alpha_sources_mark = alpha_sources_mark;
+        self.compositing = compositing;
+        self.blending_changed = blending_changed;
+        self.black_generation_stated = black_generation_stated;
+        self.opaque_ancestry = opaque_ancestry;
+        self.transfer_painted_opaquely = transfer_painted_opaquely;
+        self.nested_space_departed = nested_space_departed;
+    }
+}
+
+/// What one interpretation of a page has accumulated when its content stream has finished and
+/// §12.5.3's annotation pass has not started.
+///
+/// `draw_annotations` runs **last** in [`interpret_into`], so everything the clause's pass
+/// contributes is a tail on every one of the interpreter's accumulators — and re-placing an
+/// annotation at a new magnification means keeping the content half and running that tail again.
+/// This is that content half, and it is what makes a wheel notch on a page carrying a `NoZoom`
+/// annotation cost the annotations rather than the page (`doc/todo/46`, ADR 0777).
+///
+/// **Which fields it holds is decided by the compiler**, not by this comment: see
+/// [`Interpreter::checkpoint`].
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the same independent facts about the run in progress that `Interpreter` carries \
+              and for the same reason — this is those fields and not a configuration, so \
+              grouping them here would put a shape in front of a mirror"
+)]
+#[derive(Debug, Clone)]
+struct Checkpoint {
+    /// The marks the content stream made.
+    list: DisplayList,
+    /// What it could not draw, keyed as [`Interpreter::unsupported`] keys it.
+    unsupported: BTreeMap<Unsupported, Unsupported>,
+    /// [`Interpreter::notes_raised`], which a marked-content sequence brackets against.
+    notes_raised: usize,
+    /// The four counters `finished` turns into reports of their own.
+    text_operations: usize,
+    /// See [`Interpreter::segments_without_a_current_point`].
+    segments_without_a_current_point: usize,
+    /// Per-font coverage, **undrained**: the "this font drew nothing" report is computed over
+    /// the whole page, and a page whose content half drew a font's glyphs and whose annotation
+    /// half draws none of them must not report the font as blank. That report is why this is a
+    /// checkpoint of the interpreter rather than a merge of two interpretations.
+    glyph_coverage: BTreeMap<String, Coverage>,
+    /// See [`Interpretation::glyphs`].
+    glyphs: usize,
+    /// See [`Interpretation::codes_without_a_glyph`].
+    codes_without_a_glyph: usize,
+    /// See [`Interpretation::codes_reaching_a_blank_glyph`].
+    codes_reaching_a_blank_glyph: usize,
+    /// See [`Interpretation::codes_without_a_vertical_form`].
+    codes_without_a_vertical_form: usize,
+    /// See [`Interpretation::codes_without_a_character`].
+    codes_without_a_character: UnnamedCodes,
+    /// See [`Interpreter::operations`].
+    operations: usize,
+    /// The readback so far, which every span below is an offset into.
+    text: String,
+    /// See [`Interpretation::described`].
+    described: Vec<crate::accessibility::Described>,
+    /// See [`Interpretation::artifacts`].
+    artifacts: Vec<ArtifactSpan>,
+    /// See [`Interpretation::marked`].
+    marked: Vec<MarkedSpan>,
+    /// Marked-content sequences a malformed content stream left open, which the annotation pass
+    /// would otherwise close on a stack that had not been opened.
+    marking: Vec<marked::OpenSequence>,
+    /// See [`Interpretation::associated_files`].
+    associated: Vec<(std::ops::Range<usize>, crate::attachment::Attachment)>,
+    /// See [`Interpreter::reversed_chars`].
+    reversed_chars: usize,
+    /// False at every seam — nothing but §12.5.3's own pass sets it — and carried rather than
+    /// assumed, because assuming it is what would make this list say something the code does not.
+    view_dependent: bool,
+    /// See [`Interpreter::text_cursor`].
+    text_cursor: Option<(f32, f32)>,
+    /// See [`Interpretation::text_layer`].
+    text_layer: Vec<Placed>,
+    /// See [`Interpreter::inferred_separators`].
+    inferred_separators: usize,
+    /// Which content stream was running, which is [`ContentStream::Page`] at every seam.
+    stream: ContentStream,
+    /// The graphics-state facts §11.6, §11.7 and §9.6.4 carry across a stream boundary, each of
+    /// which the annotation pass reads or narrows in turn.
+    hidden: usize,
+    /// See [`Interpreter::glyph_depth`].
+    glyph_depth: usize,
+    /// See [`Interpreter::soft_mask_depth`].
+    soft_mask_depth: usize,
+    /// See [`Interpreter::uncoloured`].
+    uncoloured: bool,
+    /// See [`Interpreter::inside_knockout`].
+    inside_knockout: bool,
+    /// See [`Interpreter::transparent_initial_backdrop`].
+    transparent_initial_backdrop: bool,
+    /// See [`Interpreter::alpha_sources`].
+    alpha_sources: AlphaSourcesSeen,
+    /// An index into [`Self::list`], which is why the two are carried together.
+    alpha_sources_mark: usize,
+    /// What the page is painting into, which decides what a colour becomes.
+    compositing: Compositing,
+    /// See [`Interpreter::blending_changed`].
+    blending_changed: bool,
+    /// See [`Interpreter::black_generation_stated`].
+    black_generation_stated: bool,
+    /// See [`Interpreter::opaque_ancestry`].
+    opaque_ancestry: bool,
+    /// See [`Interpreter::transfer_painted_opaquely`].
+    transfer_painted_opaquely: bool,
+    /// See [`Interpreter::nested_space_departed`].
+    nested_space_departed: bool,
 }
 
 /// One interpretation of a page, into the components `compositing` names.
@@ -613,7 +1049,8 @@ fn interpret_into(
     compositing: Compositing,
     presses: &crate::colour::Presses,
     fonts: &FontCache,
-) -> (Interpretation, bool) {
+    keep: Keep,
+) -> (Interpretation, bool, Option<Checkpoint>) {
     // **The page's `/Contents` is read through a window and never assembled into one buffer**,
     // which is road D of `doc/todo/10` §5 and ADR 0365. What it buys, measured: a
     // decompression bomb costs 8.4 MB of resident memory instead of a gibibyte, and the
@@ -691,6 +1128,27 @@ fn interpret_into(
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
     }
+    // **The seam, and it is here because §12.5.3's pass is the only thing left.** Taken before
+    // the annotations rather than after them, and only where Table 167's bit says the page has
+    // one whose placement the magnification decides: on every other page the clone below would
+    // be a second copy of a list nothing will ever ask to move. `doc/todo/46`, ADR 0777.
+    let checkpoint = (keep == Keep::Replacement && interpreter.any_no_zoom(page))
+        .then(|| interpreter.checkpoint());
+    let (interpretation, drawable) = complete(document, page, base, interpreter);
+    (interpretation, drawable, checkpoint)
+}
+
+/// §12.5.3's annotation pass and everything the page owes after it.
+///
+/// Split from [`interpret_into`] because it is exactly what [`replace`] runs a second time: the
+/// annotations, and the three answers that are about the *whole* page and therefore cannot be
+/// taken before them.
+fn complete(
+    document: &Document,
+    page: &Page,
+    base: Transform,
+    mut interpreter: Interpreter<'_>,
+) -> (Interpretation, bool) {
     // §12.5: an annotation is drawn *over* the page content, and in `/Annots` order, so
     // this pass follows the content stream rather than being folded into it. It is not exempt
     // from the boundary set above — an annotation is displayed content of the page — and it
