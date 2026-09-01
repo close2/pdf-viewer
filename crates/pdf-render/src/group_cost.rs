@@ -195,8 +195,8 @@ fn walk(owner: &DisplayList, commands: &[Command], target: TargetSpec) -> u64 {
                 pixels =
                     pixels.saturating_add(u64::from(target.width).saturating_mul(u64::from(rows)));
                 pixels = pixels.saturating_add(walk(owner, commands, target));
-                if let Some(pair) = blending {
-                    pixels = pixels.saturating_add(walk(owner, &pair.black, target));
+                if let Some(black) = blending.as_deref().and_then(crate::GroupBlending::black) {
+                    pixels = pixels.saturating_add(walk(owner, black, target));
                 }
             }
             // §11.4.6's shaped pair is two commands drawn one after the other, and either

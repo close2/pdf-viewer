@@ -19,7 +19,10 @@ A PDF **viewer**, and every sentence below is a capability rather than a plan.
 It **draws** what a page says: geometry, colour, images, shadings — including §8.7.4.3 Table 77's
 `/Background`, the wash a shading *pattern* asks for outside its own bounds, which §11.6.7 makes
 one painting operation with the shading rather than two — patterns, embedded text,
-transparency groups, soft masks, and annotations both from stored appearance streams and
+transparency groups — composited in the blending colour space the page or an isolated group
+states, four components as two rasters (ADR 0262) and one component as one, `DeviceGray` on the
+channel (ADR 0790) and `CalGray` or a one-component profile through its curve (ADR 0792) — soft
+masks, and annotations both from stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
 §12.5.6.16's two, whose clauses only *recommend* one and whose names name objects — and a markup

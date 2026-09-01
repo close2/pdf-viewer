@@ -201,10 +201,12 @@ fn command_composites(command: &Command) -> bool {
 /// `None` for an absent entry as well as for an RGB one, which is why a caller deciding
 /// §11.6.6's inheritance tests the entry's presence itself rather than reading it off this.
 ///
-/// **A `DeviceGray` space is named here and is not reported**, since the eight-hundred-and-
-/// sixty-fifth session: it is what [`Interpreter::group_grey`] and
-/// [`page_composites_in_grey`] draw, and it stays a [`Departure`] so that a group *inside* it
-/// introducing a different space is still a change of space (ADR 0790).
+/// **A one-component space is named here and is not reported where it is drawn**: `DeviceGray`
+/// since the eight-hundred-and-sixty-fifth session (ADR 0790), and `CalGray` and a
+/// one-component profile since the eight-hundred-and-seventy-first (ADR 0792) — what
+/// [`Interpreter::group_one_component`] and [`page_one_component`] draw. Each stays a
+/// [`Departure`] so that a group *inside* it introducing a different space is still a change
+/// of space.
 fn space_departure(document: &Document, entry: &Object) -> Option<Departure> {
     let object = document.resolve(entry);
     if matches!(object, Object::Null) {
@@ -236,7 +238,10 @@ fn space_departure(document: &Document, entry: &Object) -> Option<Departure> {
 /// one-component space has no inverse: a red mark painted into it is a grey, whatever
 /// composites over it, so the departure is every mark on the page and not only the ones
 /// §11.3.3 blends. [`Interpreter::note_page_blending_space`] and
-/// [`Interpreter::note_group_departures`] read the count for exactly that condition.
+/// [`Interpreter::note_group_departures`] read the count for exactly that condition — on
+/// the one-component spaces this tree does *not* draw, which since ADR 0792 are the ones
+/// §11.3.4 does not list (a `Separation` or `Indexed` space as a group's `/CS`) and a
+/// profile whose curve has no inverse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Departure {
     /// What the file wrote — `/DeviceCMYK`, `/CalGray`, or "an array-formed space".
@@ -255,46 +260,54 @@ impl Departure {
     }
 }
 
-/// Whether a `/CS` entry names `DeviceGray` itself, after the default colour spaces' remapping.
+/// What a `/CS` entry of one component asks a page or group to composite in, after the
+/// default colour spaces' remapping — or `None` where it is not one this tree draws.
 ///
-/// §11.6.6's Table 145 subjects a group's device colour space to that remapping —
+/// §11.3.4 lists three one-component spaces a processor "shall" support as blending colour
+/// spaces, and this answers for all three: `DeviceGray` is
+/// [`crate::colour::Compositing::Grey`], whose component is the channel; `CalGray` and an
+/// `ICCBased` 'GRAY' profile are [`crate::colour::Compositing::Calibrated`], whose component
+/// leaves through a curve ([`crate::colour::GreyRoute`]). §11.6.6's Table 145 subjects a
+/// group's device colour space to remapping first —
 ///
 /// > Device colour spaces shall be subject to remapping according to the DefaultGray ,
 /// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the current
 /// > resource dictionary (see 8.6.5.6, "Default colour spaces").
 ///
-/// — so a `/DeviceGray` beside a `/DefaultGray` is that default
-/// and not device grey — a `CalGray` or a one-component profile, which
-/// [`crate::colour::Compositing::Grey`] deliberately does not stand in for. The parse is
-/// against `resources` for that reason, where [`space_departure`]'s is not: that one names
-/// what the file *wrote*, and this one asks what it means here.
-fn names_device_grey(document: &Document, entry: &Object, resources: &Dictionary) -> bool {
-    matches!(
-        ColourSpace::parse(document, entry, resources),
-        Some(ColourSpace::Gray)
-    )
+/// — so a `/DeviceGray` beside a `/DefaultGray` is that default, and takes the default's
+/// route. The parse is against `resources` for that reason, where [`space_departure`]'s is
+/// not: that one names what the file *wrote*, and this one asks what it means here.
+fn one_component_compositing(
+    document: &Document,
+    entry: &Object,
+    resources: &Dictionary,
+) -> Option<Compositing> {
+    match ColourSpace::parse(document, entry, resources)? {
+        ColourSpace::Gray => Some(Compositing::Grey),
+        space => crate::colour::GreyRoute::of(&space)
+            .map(Arc::new)
+            .map(Compositing::Calibrated),
+    }
 }
 
-/// Whether §11.4.7's page group asks the page to composite in `DeviceGray`.
+/// What §11.4.7's page group asks the page to composite in, where it is one component.
 ///
-/// The one-component counterpart of [`page_press`]: a page whose group states `/DeviceGray`
-/// — and whose resources do not remap it — is interpreted once under
-/// [`crate::colour::Compositing::Grey`], which `interpreted` chooses on this answer. A page
-/// group with no `/S /Transparency` asks for nothing, as [`page_blending_space`] reads it.
-pub(super) fn page_composites_in_grey(document: &Document, page: &Page) -> bool {
+/// The one-component counterpart of [`page_press`]: a page whose group states `/DeviceGray`,
+/// `CalGray` or a one-component profile is interpreted once under the [`Compositing`] this
+/// returns, which `interpreted` chooses on this answer. A page group with no
+/// `/S /Transparency` asks for nothing, as [`page_blending_space`] reads it.
+pub(super) fn page_one_component(document: &Document, page: &Page) -> Option<Compositing> {
     let attributes = document.get_key(&page.dict, "Group");
-    let Some(attributes) = attributes.as_dict() else {
-        return false;
-    };
+    let attributes = attributes.as_dict()?;
     if document
         .get_key(attributes, "S")
         .as_name()
         .is_none_or(|name| name.as_bytes() != b"Transparency")
     {
-        return false;
+        return None;
     }
     let entry = document.get_key(attributes, "CS");
-    names_device_grey(document, &entry, &page.resources)
+    one_component_compositing(document, &entry, &page.resources)
 }
 
 /// The blending colour space §11.4.7 gives a page, named where it is one this tree departs from.
@@ -1258,15 +1271,17 @@ fn press_or_beyond(profile: &crate::icc::Profile, presses: &Presses) -> PagePres
 
 /// What one run of a transparency group's content produced.
 ///
-/// The answer [`Interpreter::group_commands`] hands back: the elements, the second half of
-/// a four-component pair where one was built, which of §11.6.4.3's readings the elements
+/// The answer [`Interpreter::group_commands`] hands back: the elements, the conversion out of
+/// a space of the group's own where one was built, which of §11.6.4.3's readings the elements
 /// painted under, and whether the group was drawn in the space its `/CS` names — a pair that
-/// held together, or a `DeviceGray` group run under [`Compositing::Grey`] — so that the
-/// caller reports the space only where it was *not*.
+/// held together, a `DeviceGray` group run under [`Compositing::Grey`], or a calibrated one
+/// run under [`Compositing::Calibrated`] — so that the caller reports the space only where it
+/// was *not*.
 pub(super) struct GroupRun {
     /// The group's elements, resolved for whatever the group composites in.
     pub(super) commands: Vec<Command>,
-    /// The black half of a four-component pair, where the group states such a space.
+    /// The conversion out of the group's own space, where it states one this tree draws: the
+    /// black half of a four-component pair, or a one-component space's curve.
     pub(super) pair: Option<pdf_render::GroupBlending>,
     /// Which of §11.6.4.3's readings the elements painted under.
     pub(super) alpha_sources: AlphaSourcesSeen,
@@ -1420,17 +1435,20 @@ impl Interpreter<'_> {
         }
     }
 
-    /// Whether this group is drawn in `DeviceGray`, which is §11.6.6's one-component case.
+    /// What this group is drawn in where its `/CS` is one component: §11.6.6's one-component
+    /// case, in either of its shapes.
     ///
     /// The counterpart of [`Interpreter::group_press`] for a space of one component rather
     /// than four, and it needs fewer of that function's conditions because it needs no pair:
-    /// the group's content runs once under [`Compositing::Grey`], its result is grey in every
-    /// channel, and §10.4.2.2's conversion out — a grey level "equivalent to an RGB value with
-    /// all three components the same" — is
-    /// what the raster already holds, so the group composites onto its parent as any other
-    /// group does. So a knockout group is drawn too (§11.4.6's staged rewrites edit one list,
-    /// and there is only one), and Table 57's black generation does not enter — §11.7.5.3 puts
-    /// it inside §10.4.2.4's conversion into `DeviceCMYK`, which is on no route into grey.
+    /// the group's content runs once, its result is one number in every channel, and the
+    /// conversion out is either what the raster already holds — `DeviceGray` under
+    /// [`Compositing::Grey`], §10.4.2.2's grey level "equivalent to an RGB value with all
+    /// three components the same" — or a curve the group carries out to its backend
+    /// ([`Compositing::Calibrated`], `pdf_render::GroupBlending::OneComponent`), so the group
+    /// composites onto its parent as any other group does. So a knockout group is drawn too
+    /// (§11.4.6's staged rewrites edit one list, and there is only one), and Table 57's black
+    /// generation does not enter — §11.7.5.3 puts it inside §10.4.2.4's conversion into
+    /// `DeviceCMYK`, which is on no route into grey.
     ///
     /// Two of [`Interpreter::group_press`]'s conditions stay, for the reasons given there: the
     /// group must be isolated, because §11.6.6 gives a non-isolated group's `/CS` no effect;
@@ -1438,11 +1456,15 @@ impl Interpreter<'_> {
     /// compositing on the device — a grey group inside a press is a conversion between two
     /// spaces at its `Do`, which `doc/todo/23` keeps. A grey group inside a grey page is not
     /// this function's: it inherits, and [`group_blending`] says so.
-    fn group_grey(&self, group: &TransparencyGroup, resources: &Dictionary) -> bool {
-        self.compositing == Compositing::Device
-            && group.isolated
-            && !self.uncoloured
-            && names_device_grey(self.document, &group.colour_space, resources)
+    fn group_one_component(
+        &self,
+        group: &TransparencyGroup,
+        resources: &Dictionary,
+    ) -> Option<Compositing> {
+        if self.compositing != Compositing::Device || !group.isolated || self.uncoloured {
+            return None;
+        }
+        one_component_compositing(self.document, &group.colour_space, resources)
     }
 
     /// Reports a blend mode inside a mask group whose channel is more than one component.
@@ -1982,7 +2004,8 @@ impl Interpreter<'_> {
 
     /// Runs a group's content and collects its commands — twice where the group states a
     /// blending colour space of four components, once more where the two runs diverge, and
-    /// once under [`Compositing::Grey`] where it states one component ([`Interpreter::group_grey`]).
+    /// once under [`Compositing::Grey`] or [`Compositing::Calibrated`] where it states one
+    /// component ([`Interpreter::group_one_component`]).
     ///
     /// The first run is the one whose readback is kept, because a colour changes no glyph's
     /// place; every run after it is rewound (see [`ReadbackMark`]). Where
@@ -2028,8 +2051,12 @@ impl Interpreter<'_> {
         );
         let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
         let ink = self.group_press(group, resources);
-        let grey = ink.is_none() && self.group_grey(group, resources);
-        let own_space = ink.is_some() || grey;
+        let grey = if ink.is_none() {
+            self.group_one_component(group, resources)
+        } else {
+            None
+        };
+        let own_space = ink.is_some() || grey.is_some();
         let saved = self.compositing.clone();
         // Scoped only where the group is being drawn in a space of its own: everywhere else
         // the record has to propagate *up* to whatever such run this group may be inside.
@@ -2040,15 +2067,17 @@ impl Interpreter<'_> {
         };
         if let Some(press) = ink.clone() {
             self.compositing = Compositing::Subtractive(crate::colour::Half::Chromatic, press);
-        } else if grey {
-            self.compositing = Compositing::Grey;
+        } else if let Some(one_component) = grey.clone() {
+            self.compositing = one_component;
         }
         self.run(content, resources, inner, form_depth.saturating_add(1));
         self.compositing = saved.clone();
         let mut commands = self.list.split_off_commands(mark);
         let mut pair = None;
         let mut in_own_space = false;
-        if grey && !commands.is_empty() {
+        if let Some(one_component) = grey
+            && !commands.is_empty()
+        {
             if self.nested_space_departed {
                 // A group inside changed the space with something compositing in it, so its
                 // `Do` owes a conversion between two spaces per pixel that no list here
@@ -2056,6 +2085,13 @@ impl Interpreter<'_> {
                 commands = self.rerun_on_device(content, resources, inner, form_depth, mark);
             } else {
                 in_own_space = true;
+                // A calibrated component leaves by its curve, which the backend applies
+                // before painting the group onto its parent; device grey leaves as it is.
+                if let Compositing::Calibrated(route) = one_component {
+                    pair = Some(pdf_render::GroupBlending::OneComponent {
+                        curve: route.curve().clone(),
+                    });
+                }
             }
         }
         if let Some(press) = ink.clone()
@@ -2073,7 +2109,7 @@ impl Interpreter<'_> {
                 self.rewind_readback(rewind);
                 let black = self.list.split_off_commands(mark);
                 if paired(&commands, &black) {
-                    pair = Some(pdf_render::GroupBlending {
+                    pair = Some(pdf_render::GroupBlending::FourComponents {
                         space: press.blending_space(),
                         black,
                     });
@@ -2190,9 +2226,10 @@ impl Interpreter<'_> {
         let because = self.blending_undrawable().unwrap_or_else(|| {
             if departure.loses_chroma() {
                 BeyondPress::stated(
-                    "its one component reaches the device through a curve rather than as a \
-                     channel (§8.6.5.2, §8.6.5.5), so compositing in it is not compositing in \
-                     device grey and §11.3.4 has no conversion back out of it",
+                    "its one component is neither device grey's channel nor one this tree can \
+                     composite through a curve with an inverse — §11.3.4 lists DeviceGray, \
+                     CalGray and ICCBased 'GRAY' (§8.6.5.2, §8.6.5.5) — so §11.6.6 has no \
+                     conversion into it and §11.3.4 none back out",
                 )
             } else {
                 BeyondPress::stated(

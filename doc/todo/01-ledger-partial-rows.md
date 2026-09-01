@@ -5054,6 +5054,15 @@ to.
   'CMYK', which is `doc/todo/23`'s ICC `B2A` row. The reading also found the row's own report
   fired on a condition inherited from four components — *something composites* — that is false
   for one, and widened it. **Re-derive the order before believing this sentence.**
+  **The eight-hundred-and-seventy-first took the two curved greys** (ADR 0792): `CalGray` and
+  `ICCBased` 'GRAY' composite their own component under `Compositing::Calibrated` and leave by
+  a sampled curve the display list carries (`pdf_render::GreyCurve`, `resolve_grey`), for the
+  page and for an isolated group; the conversion in is the curve's inverse on the greys, which
+  the standard leaves unstated and ADR 0263 answered the same way for a press. The row stays
+  `partial` on two things: `ICCBased` 'CMYK', still `doc/todo/23`'s `B2A` row, and the choice of
+  route *into* a one-component space — §10.4.2.2 here, §10.3's for two references — which is
+  one decision with the masks and is priced in `doc/todo/23`. **Re-derive the order before
+  believing this sentence.**
 - **The self-contradicting note has no instrument, and the seven-hundred-and-first measured the
   obvious one and declined it.** ADR 0551 closed on a shape all eighteen sweeps are blind to — two
   paragraphs of one note contradicting each other — and the construction that would see part of it

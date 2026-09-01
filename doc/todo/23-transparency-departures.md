@@ -73,7 +73,7 @@ Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/colo
 | ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed in the 441st, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — the collapse went further than the round set out to take it, and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
 | a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses), four components no profile backs, §11.7.5.3's black generation — each still reported by name where it composites |
 | an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
-| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` left this row in the eight-hundred-and-sixty-fifth** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. What stays is `CalGray` and a one-component profile — a component that reaches the device through a curve — and `Lab`, which the clause forbids; the first two are reported on every mark now rather than only where something composites, and the population of that widening is a number the corpus gate prints |
+| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` left this row in the eight-hundred-and-sixty-fifth** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile left it in the eight-hundred-and-seventy-first** (ADR 0792): the component is composited and a sampled curve out rides on the display list. What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`) and a profile whose curve has no inverse — reported on every mark, and the population of that is a number the corpus gate prints |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
@@ -226,16 +226,22 @@ four functions returns a grey for two greys. `Compositing::Grey` converts every 
 in and nothing converts out; a `/DeviceGray` page group is one interpretation under it and an
 isolated `/DeviceGray` group on a device page one run of its content. ADR 0790.
 
-**What is left of the row is two things, and neither is a construction.**
+**What is left of the row is one thing, and it is not a construction.**
 
-- **`CalGray` and `ICCBased` 'GRAY'.** Their component reaches the device through §8.6.5.2's
-  gamma or a profile's curve, so the space's own component is not the channel's and compositing
-  in device grey is a different picture. Drawing them means compositing in the space's component
-  and applying the curve per pixel at the end — a one-dimensional `blending::resolve`, which the
-  four-component `BlendingSpace` is the sixteen-corner form of. No corpus document states one;
-  ADR 0272's census found six one-component page groups in 65 703 crawled documents and three of
-  the six were profiles this tree evaluates. Reported on every mark since ADR 0790, which is the
-  condition the clause states for one component and not the one the report had inherited.
+- ~~**`CalGray` and `ICCBased` 'GRAY'.**~~ **Drawn since the eight-hundred-and-seventy-first**
+  (ADR 0792). Their component reaches the device through §8.6.5.2's gamma or a profile's curve,
+  so the space's own component is not the channel's and compositing in device grey is a
+  different picture; what was built is exactly what this bullet priced — compositing in the
+  space's component under `Compositing::Calibrated` and applying the curve per pixel at the end,
+  `pdf_render::GreyCurve` and `resolve_grey`, the one-dimensional form of the four-component
+  `BlendingSpace` and `resolve` — for the page and for an isolated group. The conversion *in*,
+  which no clause states, is the curve's inverse on the greys (`colour::GreyRoute`), ADR 0263's
+  right inverse one dimension down. `press_census` over all 145 archives names the crawl's
+  population: three `ICCBased` 'GRAY' page groups (`1407449.pdf`, `2760152.pdf`,
+  `6942624.pdf`, all `kTRC`), three `/DeviceGray` ones, and no `CalGray`; the three draw and
+  agree with the references by eye. `mupdf` and `ghostscript` composite the fixture's half-alpha
+  black over white in a `/Gamma 1` `CalGray` group to 188 and 187 of 255 against this tree's
+  188, so the construction is the one the two references that honour the space use.
 - **Which conversion *into* the grey.** This tree takes §10.4.2.2 and §10.4.2.3 — the route
   every `/Luminosity` mask has taken since ADR 0217 — and `mupdf` and `ghostscript` take
   §10.4.2.1's other one, sRGB's linear-light luminance re-encoded, which puts a pure red at 129

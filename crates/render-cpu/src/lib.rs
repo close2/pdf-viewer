@@ -311,6 +311,13 @@ impl Rasterizer for CpuRasterizer {
             self.encode_in_strips(&mut ink, black, target)?;
             pdf_render::resolve_blending(pixmap.data_mut(), ink.data(), space);
         }
+        // The same clause for a space of one component that reaches the device through a
+        // curve (`CalGray`, an `ICCBased` 'GRAY' profile): the page composited its component
+        // in every channel, and the curve is applied here, at the same point — before the
+        // medium. See `pdf_render::blending::GreyCurve`.
+        if let Some(curve) = list.grey_curve() {
+            pdf_render::resolve_grey(pixmap.data_mut(), curve);
+        }
 
         // §11.4.7's page group is isolated, so the medium's colour is composited with the
         // finished page rather than being the backdrop its blend modes saw. Before the
@@ -1016,8 +1023,8 @@ impl CpuRasterizer {
         // per pixel, exactly the page-level construction in `rasterize` one scope down.
         // §11.4.6 with `isolated: false` is the other construction with a buffer discipline
         // of its own; everything else is one buffer and one pass.
-        let mut buffer = if let Some(pair) = group.blending {
-            self.composite_in_own_space(list, pair, &group, surface, masks, depth)?
+        let mut buffer = if let Some(blending) = group.blending {
+            self.composite_in_own_space(list, blending, &group, surface, masks, depth)?
         } else if !group.isolated && group.compose == Compose::Knockout {
             self.knockout_on_backdrop(pixmap, list, &group, surface, band, masks, depth)?
         } else {
@@ -1149,26 +1156,28 @@ impl CpuRasterizer {
         Ok(())
     }
 
-    /// Composites a group's elements in the four-component space the group states, and
+    /// Composites a group's elements in the blending colour space the group states, and
     /// converts the result out (ISO 32000-2 §11.6.6, §11.7.2).
     ///
     /// §11.7.2: "all blending and compositing computations shall be done in that space",
     /// and "[t]he resulting colours shall then be interpreted in the group's colour space
-    /// when the group is subsequently composited with its backdrop". The first sentence is
-    /// the two `encode` passes — §11.3.4 composites per component, so four components are
-    /// two passes of three, the same construction `rasterize` applies to §11.4.7's page —
-    /// and the second is `pdf_render::blending::resolve`, run before the caller paints the
-    /// buffer onto the parent. The group is isolated by `pdf_render::GroupBlending`'s own
-    /// guarantee, so both passes start on transparency.
+    /// when the group is subsequently composited with its backdrop". For four components the
+    /// first sentence is two `encode` passes — §11.3.4 composites per component, so four
+    /// components are two passes of three, the same construction `rasterize` applies to
+    /// §11.4.7's page — and the second is `pdf_render::blending::resolve`; for one component
+    /// through a curve it is one pass with every colour painted as its component, and
+    /// `pdf_render::blending::resolve_grey`. Either runs before the caller paints the buffer
+    /// onto the parent. The group is isolated by `pdf_render::GroupBlending`'s own
+    /// guarantee, so every pass starts on transparency.
     ///
     /// # Errors
     ///
     /// As [`CpuRasterizer::encode`], plus [`CpuRasterError::UnsupportedCommand`] for a
-    /// non-isolated group carrying a pair, which `pdf-model` never builds.
+    /// non-isolated group carrying a space of its own, which `pdf-model` never builds.
     fn composite_in_own_space(
         &self,
         list: &DisplayList,
-        pair: &pdf_render::GroupBlending,
+        blending: &pdf_render::GroupBlending,
         group: &Group<'_>,
         surface: Surface,
         masks: &mut MaskCache,
@@ -1185,10 +1194,10 @@ impl CpuRasterizer {
             width: surface.width(),
             height: surface.rows.height,
         };
-        let mut chromatic =
+        let mut composited =
             tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or_else(allocation)?;
         self.encode(
-            &mut chromatic.as_mut(),
+            &mut composited.as_mut(),
             list,
             group.commands,
             surface,
@@ -1196,19 +1205,26 @@ impl CpuRasterizer {
             depth,
             group.compose,
         )?;
-        let mut black =
-            tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or_else(allocation)?;
-        self.encode(
-            &mut black.as_mut(),
-            list,
-            &pair.black,
-            surface,
-            masks,
-            depth,
-            group.compose,
-        )?;
-        pdf_render::resolve_blending(chromatic.data_mut(), black.data(), &pair.space);
-        Ok(chromatic)
+        match blending {
+            pdf_render::GroupBlending::FourComponents { space, black } => {
+                let mut ink = tiny_skia::Pixmap::new(surface.width(), surface.rows.height)
+                    .ok_or_else(allocation)?;
+                self.encode(
+                    &mut ink.as_mut(),
+                    list,
+                    black,
+                    surface,
+                    masks,
+                    depth,
+                    group.compose,
+                )?;
+                pdf_render::resolve_blending(composited.data_mut(), ink.data(), space);
+            }
+            pdf_render::GroupBlending::OneComponent { curve } => {
+                pdf_render::resolve_grey(composited.data_mut(), curve);
+            }
+        }
+        Ok(composited)
     }
 
     /// Accumulates §11.4.6's two stages for a non-isolated knockout group, whose initial
@@ -1902,8 +1918,8 @@ struct Group<'a> {
     /// [`Compose::Over`] everywhere except the two halves of a [`Command::Shaped`], where a
     /// group is one element of a knockout group and §11.4.6's two stages are two draws.
     into: Compose,
-    /// The four-component blending colour space the elements composite in, with the same
-    /// elements drawn in its black component — see `pdf_render::GroupBlending`.
+    /// The blending colour space of its own the elements composite in, as the conversion out
+    /// of it — see `pdf_render::GroupBlending`.
     blending: Option<&'a pdf_render::GroupBlending>,
 }
 

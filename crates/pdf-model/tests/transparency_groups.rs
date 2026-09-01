@@ -3114,68 +3114,300 @@ fn a_grey_page_whose_inner_group_blends_in_colour_falls_back_and_reports() {
     );
 }
 
-/// A one-component space that is not device grey is reported whether or not anything composites.
+/// A `CalGray` page group composites its component and leaves by §8.6.5.2's curve.
 ///
-/// §11.6.6 has every painting operator convert its colour into the group's space, and for a
-/// space of one component that conversion keeps a grey and nothing else — so an opaque red
-/// is a departure by itself, where in a space of three or four components it would come out
-/// red again. Two such spaces: a `CalGray` page group, whose component reaches the device
-/// through §8.6.5.2's gamma, and a `/DeviceGray` that §11.6.6's Table 145 remaps:
+/// ISO 32000-2 §11.3.4 lists `CalGray` among the spaces that "shall be supported as blending
+/// colour spaces", and §11.4.7 puts the conversion out at the end: "the entire result shall
+/// then, if the colour spaces are not equivalent, be converted to the native colour space of
+/// the output device before being composited with the context-dependent backdrop". The
+/// component is §8.6.5.2's `A`, which "shall be first decoded by the gamma function, and the
+/// result shall be multiplied by the components of the white point to obtain the L, M , and N
+/// components" — and with `/Gamma 1` those are `A` times the white, so the composited
+/// component is a CIE `Y` relative to white, and the device shows it through sRGB's own
+/// transfer function (IEC 61966-2-1, the route `xyz_d50_to_srgb` takes).
+///
+/// So the three expected values are: an opaque white is white; half of black over white is
+/// §11.3.6's average of the two *components*, `0.5`, which leaves through the curve as
+/// `1.055 × 0.5^(1/2.4) − 0.055 = 0.735`, 188 of 255 — where `DeviceGray` composites the same
+/// two greys to 128; and an opaque red is §10.4.2.2's grey of red, 0.3, converted in and back
+/// out, which is the round trip [`GreyRoute`] exists for. The control is the same page under
+/// `/DeviceGray`.
+#[test]
+fn a_calibrated_page_group_composites_its_component_and_leaves_by_the_curve() {
+    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 1 >>]";
+    let calibrated = interpret(one_component_fixture(
+        &format!("/Group << /S /Transparency /CS {cal_gray} >>"),
+        "",
+        WHITE_HALF_BLACK_RED,
+        "",
+        "",
+    ));
+    assert!(
+        calibrated.is_complete(),
+        "a CalGray page group is drawn, not reported: {:?}",
+        calibrated.unsupported
+    );
+    // Device y is the page's flipped: page (75, 75) is device (75, 25).
+    assert_grey("an opaque white", pixel(&calibrated, 75, 25), 1.0);
+    assert_grey(
+        "half of black over white composites the components to ½ and leaves by sRGB's curve",
+        pixel(&calibrated, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "an opaque red is its §10.4.2.2 grey, in and back out",
+        pixel(&calibrated, 75, 75),
+        0.3,
+    );
+
+    let device_grey = interpret(one_component_fixture(
+        "/Group << /S /Transparency /CS /DeviceGray >>",
+        "",
+        WHITE_HALF_BLACK_RED,
+        "",
+        "",
+    ));
+    assert_grey(
+        "the same two greys composited as device grey are their average",
+        pixel(&device_grey, 25, 50),
+        0.5,
+    );
+}
+
+/// White, half of black over the left half, and an opaque red in the bottom right.
+///
+/// The marks that tell compositing in a component from compositing in device grey: the
+/// second is where the curve moves the result and the third is where it does not.
+const WHITE_HALF_BLACK_RED: &str = "1 g 0 0 100 100 re f\n\
+                                    q /GS gs 0 g 0 0 50 100 re f Q\n\
+                                    1 0 0 rg 50 0 50 50 re f";
+
+/// IEC 61966-2-1's transfer function, which is what a linear `Y` shows as on this device.
+fn srgb_encode(linear: f32) -> f32 {
+    if linear <= 0.003_130_8 {
+        linear * 12.92
+    } else {
+        1.055 * linear.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// An isolated `CalGray` group on a device page composites in its component and comes out
+/// through the curve at its `Do` (ISO 32000-2 §11.6.6, §11.7.2).
+///
+/// §11.7.2: "all blending and compositing computations shall be done in that space", and
+/// "[t]he resulting colours shall then be interpreted in the group's colour space when the
+/// group is subsequently composited with its backdrop". The same marks and the same three
+/// values as the page test, one scope down; the control is the same group non-isolated, whose
+/// `/CS` §11.6.6 gives no effect, so its half of black over white is the device's 128.
+#[test]
+fn an_isolated_calibrated_group_composites_in_its_component_and_leaves_by_the_curve() {
+    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 1 >>]";
+    let calibrated = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        &format!("/Group << /S /Transparency /I true /CS {cal_gray} >>"),
+        WHITE_HALF_BLACK_RED,
+    ));
+    assert!(
+        calibrated.is_complete(),
+        "an isolated CalGray group is drawn, not reported: {:?}",
+        calibrated.unsupported
+    );
+    assert_grey(
+        "an opaque white inside the group",
+        pixel(&calibrated, 75, 25),
+        1.0,
+    );
+    assert_grey(
+        "half of black over white inside the group leaves by the curve",
+        pixel(&calibrated, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "an opaque red inside the group is its grey, in and back out",
+        pixel(&calibrated, 75, 75),
+        0.3,
+    );
+
+    let inherited = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        &format!("/Group << /S /Transparency /I false /CS {cal_gray} >>"),
+        WHITE_HALF_BLACK_RED,
+    ));
+    assert!(inherited.is_complete(), "{:?}", inherited.unsupported);
+    assert_grey(
+        "a non-isolated group's /CS is not the space anything composites in",
+        pixel(&inherited, 25, 50),
+        0.5,
+    );
+    assert_eq!(
+        pixel(&inherited, 75, 75)[..3],
+        [255, 0, 0],
+        "and its red stays red on the device"
+    );
+}
+
+/// Table 145's remapping takes a `/DeviceGray` page group into its `/DefaultGray`.
+///
+/// ISO 32000-2 §11.6.6, Table 145:
 ///
 /// > Device colour spaces shall be subject to remapping according to the DefaultGray ,
 /// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the current
 /// > resource dictionary (see 8.6.5.6, "Default colour spaces").
 ///
-/// which is then that `CalGray` under the device's name. Both stay red on the device and say
-/// so; neither is `Compositing::Grey`'s, which stands in for device grey alone.
+/// So a `/DeviceGray` beside a `/DefaultGray` of `CalGray` is that `CalGray`, drawn by its
+/// route and not by device grey's: the half of black over white is the curve's 188 and not
+/// the channel's 128.
 #[test]
-fn a_calibrated_one_component_page_group_is_reported_though_nothing_composites() {
-    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 2.2 >>]";
-    let red = "1 0 0 rg 0 0 100 100 re f";
-    let calibrated = interpret(one_component_fixture(
-        &format!("/Group << /S /Transparency /CS {cal_gray} >>"),
-        "",
-        red,
-        "",
-        "",
-    ));
-    let reported = format!("{:?}", calibrated.unsupported);
-    assert!(
-        reported.contains(
-            "the page group's blending colour space an array-formed space (§11.4.7): its one \
-             component reaches the device through a curve"
-        ),
-        "a CalGray page group is named though nothing on the page composites: {reported}"
-    );
-    assert_eq!(pixel(&calibrated, 50, 50)[..3], [255, 0, 0]);
-
+fn a_default_gray_takes_the_page_group_into_the_calibrated_space_it_names() {
+    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 1 >>]";
     let remapped = interpret(one_component_fixture(
         "/Group << /S /Transparency /CS /DeviceGray >>",
         &format!("/ColorSpace << /DefaultGray {cal_gray} >>"),
+        WHITE_HALF_BLACK_RED,
+        "",
+        "",
+    ));
+    assert!(remapped.is_complete(), "{:?}", remapped.unsupported);
+    assert_grey(
+        "the remapped page composites in the default's component",
+        pixel(&remapped, 25, 50),
+        srgb_encode(0.5),
+    );
+}
+
+/// A page whose group is a one-component `ICCBased` space composites in the profile's
+/// component and leaves by its tone curve (ISO 32000-2 §11.3.4, §8.6.5.5).
+///
+/// §11.3.4 lists a bi-directional `ICCBased` 'GRAY' profile beside `CalGray`, and §8.6.5.5
+/// says which half of the profile a source colour uses — only the to-CIE (`AToB`) information,
+/// the from-CIE (`BToA`) being ignored — which is the conversion out of the group's result,
+/// since "the group colour space shall be used as both the destination for objects being
+/// painted within the group and the source for the group's results". The profile below is a
+/// 'GRAY' display profile whose `kTRC` is a gamma of 1.0, so its component is a `Y` on the
+/// connection space's white, and the expected values are the `CalGray` test's for the same
+/// reason.
+#[test]
+fn a_one_component_profile_page_group_composites_in_its_component() {
+    let profiled = interpret(icc_gray_fixture(
+        "/Group << /S /Transparency /CS [/ICCBased 5 0 R] >>",
+        WHITE_HALF_BLACK_RED,
+    ));
+    assert!(
+        profiled.is_complete(),
+        "an ICCBased 'GRAY' page group is drawn, not reported: {:?}",
+        profiled.unsupported
+    );
+    assert_grey("an opaque white", pixel(&profiled, 75, 25), 1.0);
+    assert_grey(
+        "half of black over white leaves by the profile's curve",
+        pixel(&profiled, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "an opaque red is its grey, in and back out",
+        pixel(&profiled, 75, 75),
+        0.3,
+    );
+}
+
+/// A one-page fixture whose page group is `/CS [/ICCBased 5 0 R]`, object 5 being
+/// [`icc_gray_profile`] as an `ASCIIHexDecode` stream with `/N 1`.
+fn icc_gray_fixture(page_group: &str, page: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in icc_gray_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> /Contents 4 0 R >>\n\
+         endobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 1 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        page.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A v2 'GRAY' display profile whose one tag is a `kTRC` gamma of 1.0.
+///
+/// Positional like [`icc_cmyk_profile_of`]: a 128-byte header naming `GRAY` data and an
+/// `XYZ ` connection space, a tag count of one, the tag entry, then a `curv` of one entry —
+/// a `u8Fixed8` gamma, `0x0100` being 1.0.
+fn icc_gray_profile() -> Vec<u8> {
+    let mut header = vec![0u8; 128];
+    header[8] = 2; // major version
+    header[12..16].copy_from_slice(b"mntr");
+    header[16..20].copy_from_slice(b"GRAY");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let mut tag = Vec::new();
+    tag.extend_from_slice(b"curv");
+    tag.extend_from_slice(&[0; 4]);
+    tag.extend_from_slice(&1u32.to_be_bytes()); // one entry: a gamma
+    tag.extend_from_slice(&0x0100u16.to_be_bytes()); // 1.0 in u8Fixed8
+    tag.extend_from_slice(&[0; 2]); // padding to four bytes
+
+    let mut out = header;
+    out.extend_from_slice(&1u32.to_be_bytes()); // one tag
+    out.extend_from_slice(b"kTRC");
+    out.extend_from_slice(&144u32.to_be_bytes()); // 128 + 4 + 12
+    out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+    out.extend_from_slice(&tag);
+    out
+}
+
+/// A one-component space §11.3.4 does not list is reported, whether or not anything composites.
+///
+/// §11.3.4's list is `DeviceGray`, `CalGray` and an `ICCBased` 'GRAY' profile, and it says of
+/// the other one-component spaces that spot colours "shall not be converted to a blending
+/// colour space" — so a `Separation` as a page group's `/CS` is a space this tree has no
+/// conversion into. §11.6.6 would have every painting operator convert into it, and for one
+/// component that conversion keeps a grey and nothing else, so the departure is every mark on
+/// the page and not only one that composites (ADR 0790). The page stays on the device — red
+/// for red — and says so.
+#[test]
+fn a_one_component_space_the_clause_does_not_list_is_reported_though_nothing_composites() {
+    let spot = "[/Separation /Spot /DeviceGray << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] \
+                /N 1 >>]";
+    let red = "1 0 0 rg 0 0 100 100 re f";
+    let separation = interpret(one_component_fixture(
+        &format!("/Group << /S /Transparency /CS {spot} >>"),
+        "",
         red,
         "",
         "",
     ));
-    let reported = format!("{:?}", remapped.unsupported);
+    let reported = format!("{:?}", separation.unsupported);
     assert!(
         reported.contains(
-            "the page group's blending colour space /DeviceGray (§11.4.7): its one component \
-             reaches the device through a curve"
+            "the page group's blending colour space an array-formed space (§11.4.7): its one \
+             component is neither device grey's channel nor one this tree can composite \
+             through a curve with an inverse"
         ),
-        "a /DefaultGray takes the page group out of device grey: {reported}"
+        "a Separation page group is named though nothing on the page composites: {reported}"
     );
-    assert_eq!(pixel(&remapped, 50, 50)[..3], [255, 0, 0]);
+    assert_eq!(pixel(&separation, 50, 50)[..3], [255, 0, 0]);
 
     let group = interpret(one_component_fixture(
         "",
         "",
         "/Fm Do",
-        &format!("/Group << /S /Transparency /I true /CS {cal_gray} >>"),
+        &format!("/Group << /S /Transparency /I true /CS {spot} >>"),
         red,
     ));
     let reported = format!("{:?}", group.unsupported);
     assert!(
         reported.contains("blending colour space an array-formed space"),
-        "and an isolated CalGray group is named on the same condition: {reported}"
+        "and an isolated Separation group is named on the same condition: {reported}"
     );
 }

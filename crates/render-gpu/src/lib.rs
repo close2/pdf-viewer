@@ -865,6 +865,17 @@ impl Rasterizer for GpuRasterizer {
                 "a page composited in a four-component blending colour space (§11.4.7)".to_owned(),
             ));
         }
+        // And its one-component form, a `CalGray` or `ICCBased` 'GRAY' page group whose
+        // composited component leaves through a curve (`pdf_render::blending::GreyCurve`):
+        // the scene's colours would be components and not light, and a Vello scene has no
+        // pass over its own result to put the curve in.
+        if list.grey_curve().is_some() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a page composited in a one-component blending colour space through a curve \
+                 (§11.4.7)"
+                    .to_owned(),
+            ));
+        }
         // Before the scene, because every mask a command names has to exist by the time that
         // command is encoded — and because a mask is a render of its own, at this target.
         let masks = evaluate_soft_masks(

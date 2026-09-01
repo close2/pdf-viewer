@@ -175,7 +175,7 @@ fn non_isolated_group() -> GpuRasterError {
 fn refuse_untranslatable_group(
     compose: Compose,
     isolated: bool,
-    in_own_space: bool,
+    own_space: Option<&pdf_render::GroupBlending>,
 ) -> Result<(), GpuRasterError> {
     if compose == Compose::Knockout {
         return Err(nested_group_in_knockout());
@@ -183,15 +183,25 @@ fn refuse_untranslatable_group(
     if !isolated {
         return Err(non_isolated_group());
     }
-    if in_own_space {
-        return Err(GpuRasterError::UnsupportedCommand(
-            "a group compositing in a blending colour space of four components \
-             (ISO 32000-2 §11.6.6, §11.7.2): the pair resolves per pixel, which a scene \
-             under composition cannot"
-                .to_owned(),
-        ));
+    match own_space {
+        Some(pdf_render::GroupBlending::FourComponents { .. }) => {
+            Err(GpuRasterError::UnsupportedCommand(
+                "a group compositing in a blending colour space of four components \
+                 (ISO 32000-2 §11.6.6, §11.7.2): the pair resolves per pixel, which a scene \
+                 under composition cannot"
+                    .to_owned(),
+            ))
+        }
+        Some(pdf_render::GroupBlending::OneComponent { .. }) => {
+            Err(GpuRasterError::UnsupportedCommand(
+                "a group compositing in a blending colour space of one component through a \
+                 curve (ISO 32000-2 §11.6.6, §11.7.2): the curve resolves per pixel, which a \
+                 scene under composition cannot"
+                    .to_owned(),
+            ))
+        }
+        None => Ok(()),
     }
-    Ok(())
 }
 
 /// Empties the area an element is about to knock out (§11.4.6).
@@ -870,7 +880,7 @@ fn encode(
                 blending,
                 ..
             } => {
-                refuse_untranslatable_group(spec.compose, *isolated, blending.is_some())?;
+                refuse_untranslatable_group(spec.compose, *isolated, blending.as_deref())?;
                 encode_group(scene, list, commands, (*alpha, *blend), *knockout, spec)?;
             }
             other => {

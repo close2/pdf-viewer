@@ -604,24 +604,22 @@ fn interpreted(
         }
     }
     // §11.3.4's one-component case, and it is one interpretation rather than two: a page
-    // whose group states `/DeviceGray` composites one number per pixel, and a raster holding
-    // that number in each channel runs the clause's per-component arithmetic three times over
-    // with §10.4.2.2's conversion out — a grey level "equivalent to an RGB value with all
-    // three components the same" — already in place. `Compositing::Grey` says what every colour becomes on the way in. The one thing
+    // whose group states `/DeviceGray`, `CalGray` or a one-component profile composites one
+    // number per pixel, and a raster holding that number in each channel runs the clause's
+    // per-component arithmetic three times over. For `DeviceGray` §10.4.2.2's conversion out
+    // — a grey level "equivalent to an RGB value with all three components the same" — is
+    // already in place; for the other two the number is the space's own component, and the
+    // curve it leaves by rides on the display list for the backend to apply where §11.4.7
+    // puts the conversion (`finished` sets it). `Compositing::Grey` and
+    // `Compositing::Calibrated` say what every colour becomes on the way in. The one thing
     // that sends the page back to the device is a group inside it changing the space with
     // something compositing in it, whose `Do` would need a conversion per pixel; the device
     // run then reports it, as it always has. The seam is kept, because one run has one seam
-    // and the annotations' appearance streams inherit the page's space (Table 145). ADR 0790.
-    if transparency::page_composites_in_grey(document, page) {
-        let (grey, drawable, checkpoint) = interpret_into(
-            document,
-            page,
-            state,
-            Compositing::Grey,
-            &presses,
-            fonts,
-            keep,
-        );
+    // and the annotations' appearance streams inherit the page's space (Table 145). ADRs
+    // 0790 and 0792.
+    if let Some(one_component) = transparency::page_one_component(document, page) {
+        let (grey, drawable, checkpoint) =
+            interpret_into(document, page, state, one_component, &presses, fonts, keep);
         if drawable {
             let replacement = checkpoint
                 .filter(|_| grey.view_dependent)
@@ -1255,7 +1253,7 @@ fn complete(
     // that changed the space with something compositing in it — because §11.7.5.3's black
     // generation is on no route into grey and there is no press to be beyond.
     let drawable = match interpreter.compositing {
-        Compositing::Grey => !interpreter.nested_space_departed,
+        Compositing::Grey | Compositing::Calibrated(_) => !interpreter.nested_space_departed,
         Compositing::Device | Compositing::Luminosity(_) | Compositing::Subtractive(..) => {
             interpreter.blending_undrawable().is_none()
         }
@@ -1304,8 +1302,17 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
         .then(|| crate::structure::document_language(document))
         .flatten();
 
+    // §11.4.7's conversion out of a one-component page group whose component leaves through
+    // a curve, stated on the list for the backend to apply before the medium. Here rather
+    // than in `interpreted` so that `replace` — which rebuilds the list from a checkpoint
+    // under the same compositing — states it again.
+    let mut list = interpreter.list;
+    if let Compositing::Calibrated(route) = &interpreter.compositing {
+        list.set_grey_curve(route.curve().clone());
+    }
+
     Interpretation {
-        display_list: interpreter.list,
+        display_list: list,
         view_dependent: interpreter.view_dependent,
         unsupported,
         text: interpreter.text,

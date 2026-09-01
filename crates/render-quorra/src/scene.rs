@@ -164,18 +164,19 @@ const MAX_CLIP_DEPTH: usize = 4096;
 ///   per-element backdrop, and quorra's staged `DestOut`/`Plus` pair is written on the
 ///   transparent start §11.4.5 gives (its ADRs 0025, 0032). Passing the flags through
 ///   would substitute one backdrop for the other in silence.
-/// - **A group compositing in a four-component blending colour space** (§11.6.6, §11.7.2,
-///   `blending: Some`): the pair's colours are ink complements resolved per pixel after
-///   the group composites, and a scene under composition cannot be read back. The page
-///   -level pair is drawn by two whole `render` passes (ADR 0275); a group-scoped one has
-///   no lane.
+/// - **A group compositing in a blending colour space of its own** (§11.6.6, §11.7.2,
+///   `blending: Some`): the pair's colours are ink complements, or a curve's components,
+///   resolved per pixel after the group composites, and a scene under composition cannot be
+///   read back. The page-level pair is drawn by two whole `render` passes and the
+///   page-level curve by one pass over the readback (ADR 0275); a group-scoped one has no
+///   lane.
 ///
 /// Both go to the CPU backend, which draws them; refusing here is what keeps either from
 /// becoming a wrong picture in silence, which is trap 5.
 fn refuse_untranslatable_group(
     isolated: bool,
     knockout: bool,
-    in_own_space: bool,
+    own_space: Option<&pdf_render::GroupBlending>,
 ) -> Result<(), QuorraRasterError> {
     if knockout && !isolated {
         return Err(QuorraRasterError::Unsupported(
@@ -185,14 +186,24 @@ fn refuse_untranslatable_group(
                 .to_owned(),
         ));
     }
-    if in_own_space {
-        return Err(QuorraRasterError::Unsupported(
-            "a group compositing in a blending colour space of four components: the pair \
-             resolves per pixel after the group composites (ISO 32000-2 §11.6.6, §11.7.2)"
-                .to_owned(),
-        ));
+    match own_space {
+        Some(pdf_render::GroupBlending::FourComponents { .. }) => {
+            Err(QuorraRasterError::Unsupported(
+                "a group compositing in a blending colour space of four components: the pair \
+                 resolves per pixel after the group composites (ISO 32000-2 §11.6.6, §11.7.2)"
+                    .to_owned(),
+            ))
+        }
+        Some(pdf_render::GroupBlending::OneComponent { .. }) => {
+            Err(QuorraRasterError::Unsupported(
+                "a group compositing in a blending colour space of one component through a \
+                 curve: the curve resolves per pixel after the group composites (ISO 32000-2 \
+                 §11.6.6, §11.7.2)"
+                    .to_owned(),
+            ))
+        }
+        None => Ok(()),
     }
-    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -425,7 +436,7 @@ impl<'a> Encoder<'a> {
                     alpha_is_shape: _,
                     blending,
                 } => {
-                    refuse_untranslatable_group(*isolated, *knockout, blending.is_some())?;
+                    refuse_untranslatable_group(*isolated, *knockout, blending.as_deref())?;
                     self.group(
                         builder,
                         GroupParts {
@@ -579,7 +590,7 @@ impl<'a> Encoder<'a> {
             blending,
         } = half
         {
-            refuse_untranslatable_group(*isolated, *knockout, blending.is_some())?;
+            refuse_untranslatable_group(*isolated, *knockout, blending.as_deref())?;
             return self.group(
                 builder,
                 GroupParts {

@@ -46,7 +46,7 @@ pub use backend::{
     BackendError, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer,
     TargetSpec,
 };
-pub use blending::{BlendingSpace, resolve as resolve_blending};
+pub use blending::{BlendingSpace, GreyCurve, resolve as resolve_blending, resolve_grey};
 pub use closing::opened_where_a_dash_ends_at_the_close;
 pub use collapsed::{CollapsedFill, split_collapsed_fill};
 pub use crop::cropped_rectangle;

@@ -49,7 +49,9 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_render::{Command, DisplayList, ImageSource, Paint, ShadingKind, SoftMaskId};
+use pdf_render::{
+    Command, DisplayList, GroupBlending, ImageSource, Paint, ShadingKind, SoftMaskId,
+};
 use viewer_confined::wire;
 
 /// Everything a decoded list must satisfy, whatever the bytes said.
@@ -129,8 +131,8 @@ fn walk(command: &Command, clips: usize, masks: usize) {
         Command::Group {
             commands, blending, ..
         } => {
-            if let Some(pair) = blending {
-                for element in &pair.black {
+            if let Some(black) = blending.as_deref().and_then(GroupBlending::black) {
+                for element in black {
                     walk(element, clips, masks);
                 }
             }

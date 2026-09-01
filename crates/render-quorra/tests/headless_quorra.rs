@@ -368,6 +368,25 @@ fn quorra_refuses_a_group_in_its_own_blending_space() {
     );
 }
 
+/// And the one-component shape of the same clause is refused by the same name.
+///
+/// A curve resolves per pixel after the group composites exactly as the pair does, and a
+/// group drawn without it would paint its components as light — a plausible wrong picture —
+/// so this fails if the refusal ever becomes silent.
+#[test]
+fn quorra_refuses_a_group_in_a_one_component_blending_space() {
+    let list = test_scenes::group_in_a_one_component_blending_space();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = quorra()
+        .rasterize(&list, target)
+        .expect_err("a scene under composition cannot resolve a curve per pixel")
+        .to_string();
+    assert!(
+        refusal.contains("§11.6.6") && refusal.contains("one component"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
 /// One non-isolated group over a page, composited under `blend` — the geometry of
 /// [`test_scenes::non_isolated_group`] with the group's own blend mode made a parameter.
 fn a_non_isolated_group_composited_with(blend: pdf_render::BlendMode) -> pdf_render::DisplayList {

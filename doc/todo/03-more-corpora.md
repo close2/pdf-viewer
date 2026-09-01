@@ -2221,7 +2221,7 @@ web's is 1.735% and the pdf.js gate's 6.98%. A bug tracker's rate is a fact abou
   on eleven documents in two corpora, and these sixteen have not had that experiment run on them.
   **It is what this chunk leaves owed**: lift the bound sixteenfold in a scratch build, one
   process apiece, and see whether any of the sixteen stops reaching it. A single legitimate one
-  would move `doc/todo/49`'s constant.
+  would move `doc/todo/49`'s constant. **Run in section 39**: two of the sixteen stop.
 - **The `slow` count is again mostly the instrument, and this is the fourth chunk to say so.**
   Four of the 76 were timed alone against 8-way load: 66.6 s against 408.6, 86.3 against 350.8,
   **2.4 against 130.4** and 9.7 against 106.6. Two are genuinely slow, one is a 5700 × 3504 target
@@ -2306,3 +2306,57 @@ trackers, the `MAX_FORM_DEPTH` sixteen, and `40`'s clip cost.
   runs `pdftotext`, `pdftoppm` or `gs` per document is a different proposition and the timing is
   the argument either way.
 - **Do not commit a SafeDocs file** without reading `doc/third-party-data.md`'s entry for it.
+
+### 39. What the eight-hundred-and-seventy-first ran: ADR 0271's experiment on section 37's sixteen, and two of them are not cycles
+
+Section 37 left one thing owed by name: sixteen documents in `batch2/GHOSTSCRIPT` reach
+`MAX_FORM_DEPTH`, and ADR 0271's experiment — lift the bound sixteenfold in a scratch build, one
+process apiece, and see which still reach it — had been run on every earlier witness (four in the
+crawl, seven in `MOZILLA`) and on none of these. Every earlier witness was a cycle, and the ADR
+argued from that: "this is the attack the bound exists for".
+
+**Method.** The survey was re-run over the directory to name the sixteen —
+`tools/bounded.sh --data 32 -- safedocs survey --dir corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT`,
+one process at 24 threads, 172 s, 13.5 GiB peak, and its line is *5442 documents: 15 unopenable,
+47 locked, 19 encrypted beyond us, 52 pageless, 471 incomplete, 9 slow* against section 37's 472
+and 85 — the same sixteen `MAX_FORM_DEPTH` documents by name. Then `MAX_FORM_DEPTH` was set to
+256, 32 and 64 in turn in a scratch build of `examples/open_one` under its own `--target-dir`,
+the constant put back after each build, and each of the sixteen run through
+`tools/bounded.sh --data 2 -- timeout 120 open_one <document> 0.1`, reading the `unsupported`
+list `open_one` prints after interpretation. No run needed the timeout; the slowest interpreted
+in 97 ms at 256.
+
+**The split: fourteen cycles, two legitimate nestings.**
+
+| at 256 | documents |
+|---|---|
+| still reach the bound — a form that reaches itself | `689439-0`, `690847-0`, `690847-1`, `690847-2`, `691755-1`, `692217-0`, `692368-0`, `692733-0`, `693033-1`, `693134-0`, `693144-0`, `694531-0`, `698226-0`, `700301-0` (all `GHOSTSCRIPT-…pdf`) |
+| **stop** — finite nesting deeper than 16 | `GHOSTSCRIPT-697655-0.pdf` (stops at **32**; pdftk 2.02 over iText), `GHOSTSCRIPT-695948-0.zip-0.pdf` (stops at **64**, not at 32; Aspose.Pdf for .NET 9.3.0) |
+
+**Both of the two are real documents by real producers, and both draw a blank page at 16.**
+`697655` is a French company's articles of association — a coloured banner, headings, body text —
+which `mupdf` draws whole and this tree draws as nothing, reporting the bound; pdftk's stamp and
+background operations wrap the previous page content in a form each time they are applied, which
+is how a page comes to be seventeen or more forms deep with no cycle in it. `695948` is a boxed
+paragraph of regulation text with one image inside it, nested between thirty-three and sixty-four
+forms deep, and again `mupdf` draws it and this tree draws nothing. Rendered and looked at (trap
+1), both.
+
+**So ADR 0271's argument for `MAX_FORM_DEPTH` no longer holds as stated**, and this section says
+so rather than moving the constant: "every one of them is a form that reaches itself" was true of
+eleven witnesses and is false of two in sixteen more. The bound is still what stands between a
+cycle and a stack exhaustion, and the fourteen cycles here reach 256 as fast as they reach 16 —
+the whole population of sixteen interprets in under a tenth of a second apiece at 256 — so the
+cost of a higher bound is not time. What a higher bound costs is stack per level, which is the
+figure a round that raises it owes: the interpreter's frame per nested form, times the bound,
+against the thread's stack. **`doc/todo/49` carries the item**: the constant is a decision, the two
+documents are its witnesses, 64 draws both, and the crawl's four and `MOZILLA`'s seven should be
+run at the candidate bound in the same sitting so that the claim about cycles is re-made over all
+twenty-seven rather than inherited.
+
+**Two things this section does not claim.** The survey line's 471 against 472 is one document
+this tree now draws that it did not in section 37, and it was not chased — the round's own
+change (ADR 0792, calibrated one-component blending spaces) is the likely cause and the survey
+is a baseline rather than a ratchet. And a "legitimate" nesting is one that terminates; whether
+the sixty-four-deep Aspose page is a producer's intent or a producer's accident is not a question
+the bound can answer, and the page it holds is a page.

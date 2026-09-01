@@ -69,7 +69,7 @@ use std::sync::Arc;
 
 use pdf_render::{
     BlendMode, BlendingSpace, Clip, ClipId, Color, Command, Corners, DisplayList, FillRule,
-    GroupBlending, Image, ImageSource, LineCap, LineJoin, MAX_GROUP_DEPTH, Paint, Path,
+    GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin, MAX_GROUP_DEPTH, Paint, Path,
     PathCommand, Point, Ramp, Rect, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind,
     Stop, Stroke, Transfer, Transform, Triangle,
 };
@@ -446,11 +446,16 @@ fn write_list(
     write_tables(writer, &tables)?;
     writer.append(&body);
 
-    match (page, list.blending(), list.black()) {
-        (true, Some(space), Some(black)) => {
+    match (page, list.blending(), list.black(), list.grey_curve()) {
+        (true, Some(space), Some(black), _) => {
             writer.u8(1);
             write_blending_space(writer, space);
             write_list(writer, black, false, budget.saturating_sub(writer.len()))?;
+        }
+        // §11.4.7's one-component form: the curve the composited component leaves by.
+        (true, None, None, Some(curve)) => {
+            writer.u8(2);
+            write_grey_curve(writer, curve);
         }
         // A list with a space and no companion, or a companion and no space, cannot be built
         // through `set_blending`, which takes both. Writing the absent case is the honest
@@ -722,12 +727,15 @@ fn write_group(
     writer.f32(*alpha);
     write_mark_state(writer, *clip, *mask, *blend)?;
     writer.bool(*isolated).bool(*knockout).bool(*alpha_is_shape);
-    match blending {
-        Some(pair) => {
-            let GroupBlending { space, black } = pair.as_ref();
+    match blending.as_deref() {
+        Some(GroupBlending::FourComponents { space, black }) => {
             writer.u8(1);
             write_blending_space(writer, space);
             write_commands(writer, black, tables, depth.saturating_add(1))?;
+        }
+        Some(GroupBlending::OneComponent { curve }) => {
+            writer.u8(2);
+            write_grey_curve(writer, curve);
         }
         None => {
             writer.u8(0);
@@ -900,6 +908,15 @@ fn write_blending_space(writer: &mut Writer, space: &BlendingSpace) {
     writer.usize(space.side());
     writer.usize(space.grid().len());
     for sample in space.grid() {
+        for component in sample {
+            writer.f32(*component);
+        }
+    }
+}
+
+fn write_grey_curve(writer: &mut Writer, curve: &GreyCurve) {
+    writer.usize(curve.samples().len());
+    for sample in curve.samples() {
         for component in sample {
             writer.f32(*component);
         }
@@ -1108,16 +1125,28 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
         list.push(command);
     }
 
-    if reader.bool("a page's blending space")? {
-        if !page {
+    match reader.u8("a page's blending space")? {
+        0 => {}
+        // The pair and the curve are two shapes of one statement — §11.4.7's space is the
+        // *page's* — so the companion list may carry neither.
+        1 | 2 if !page => {
             return Err(ProtocolError::Unbuildable {
                 what: "a blending space",
                 why: "the companion list carrying the black component states one of its own",
             });
         }
-        let space = read_blending_space(reader)?;
-        let black = read_list(reader, false)?;
-        list.set_blending(space, black);
+        1 => {
+            let space = read_blending_space(reader)?;
+            let black = read_list(reader, false)?;
+            list.set_blending(space, black);
+        }
+        2 => list.set_grey_curve(read_grey_curve(reader)?),
+        value => {
+            return Err(ProtocolError::Unrecognised {
+                what: "a page's blending space",
+                value: u32::from(value),
+            });
+        }
     }
     Ok(list)
 }
@@ -1258,13 +1287,8 @@ fn read_command(
             let knockout = reader.bool("a group's knockout")?;
             let alpha_is_shape = reader.bool("a group's shape")?;
             let deeper = depth.saturating_add(1);
-            let blending = if reader.bool("a group's blending space")? {
-                let space = read_blending_space(reader)?;
-                let black = read_commands(reader, paths, samples, shadings, clips, masks, deeper)?;
-                Some(Box::new(GroupBlending { space, black }))
-            } else {
-                None
-            };
+            let blending =
+                read_group_blending(reader, paths, samples, shadings, clips, masks, deeper)?;
             let commands = read_commands(reader, paths, samples, shadings, clips, masks, deeper)?;
             Ok(Command::Group {
                 commands,
@@ -1581,6 +1605,52 @@ fn read_blending_space(reader: &mut Reader<'_>) -> Result<BlendingSpace, Protoco
     BlendingSpace::new(side, Arc::from(grid)).ok_or(ProtocolError::Unbuildable {
         what: "a blending space",
         why: "its stated side and its sample count are not a grid",
+    })
+}
+
+/// A group's own blending colour space, in whichever of its two shapes the writer stated.
+fn read_group_blending(
+    reader: &mut Reader<'_>,
+    paths: &[Arc<Path>],
+    samples: &[Arc<[u8]>],
+    shadings: &[Arc<Shading>],
+    clips: usize,
+    masks: usize,
+    depth: usize,
+) -> Result<Option<Box<GroupBlending>>, ProtocolError> {
+    match reader.u8("a group's blending space")? {
+        0 => Ok(None),
+        1 => {
+            let space = read_blending_space(reader)?;
+            let black = read_commands(reader, paths, samples, shadings, clips, masks, depth)?;
+            Ok(Some(Box::new(GroupBlending::FourComponents {
+                space,
+                black,
+            })))
+        }
+        2 => Ok(Some(Box::new(GroupBlending::OneComponent {
+            curve: read_grey_curve(reader)?,
+        }))),
+        value => Err(ProtocolError::Unrecognised {
+            what: "a group's blending space",
+            value: u32::from(value),
+        }),
+    }
+}
+
+fn read_grey_curve(reader: &mut Reader<'_>) -> Result<GreyCurve, ProtocolError> {
+    let samples = table(reader, "a grey curve's samples", least::SAMPLE, |reader| {
+        let mut sample = [0.0_f32; 3];
+        for component in &mut sample {
+            *component = reader.f32("a grey curve's sample")?;
+        }
+        Ok(sample)
+    })?;
+    // `GreyCurve::new` owns the one condition — two samples at least — so the refusal is its
+    // answer, as `read_blending_space`'s is `BlendingSpace::new`'s.
+    GreyCurve::new(Arc::from(samples)).ok_or(ProtocolError::Unbuildable {
+        what: "a grey curve",
+        why: "fewer than two samples is not a curve",
     })
 }
 
@@ -1947,7 +2017,7 @@ mod tests {
             isolated: true,
             knockout: true,
             alpha_is_shape: true,
-            blending: Some(Box::new(GroupBlending {
+            blending: Some(Box::new(GroupBlending::FourComponents {
                 space: a_blending_space(),
                 black: vec![Command::Fill {
                     path: a_path(),
@@ -1983,6 +2053,43 @@ mod tests {
     #[test]
     fn a_whole_page_round_trips_to_an_equal_list() {
         let list = a_whole_page();
+        let bytes = encode(&list).expect("a list with no deferred producer");
+        let back = decode(&bytes).expect("what this encoder wrote");
+        assert_eq!(back, list);
+    }
+
+    /// The one-component shapes of §11.4.7 and §11.7.2 — a page curve, and a group carrying
+    /// one — round-trip too. Their own list, because a page carries the pair or the curve
+    /// and never both.
+    #[test]
+    fn a_page_in_one_component_round_trips_to_an_equal_list() {
+        let curve = |scale: f32| {
+            let samples: Vec<[f32; 3]> = (0..3)
+                .map(|index| [index as f32 * scale / 2.0; 3])
+                .collect();
+            GreyCurve::new(Arc::from(samples)).expect("three samples is a curve")
+        };
+        let mut list = DisplayList::new(Size::new(200.0, 100.0));
+        list.push(Command::Group {
+            commands: vec![Command::Fill {
+                path: a_path(),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(Color::grey(0.25)),
+                clip: None,
+                mask: None,
+                blend: BlendMode::Normal,
+            }],
+            alpha: 0.75,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+            isolated: true,
+            knockout: false,
+            alpha_is_shape: false,
+            blending: Some(Box::new(GroupBlending::OneComponent { curve: curve(0.5) })),
+        });
+        list.set_grey_curve(curve(1.0));
         let bytes = encode(&list).expect("a list with no deferred producer");
         let back = decode(&bytes).expect("what this encoder wrote");
         assert_eq!(back, list);

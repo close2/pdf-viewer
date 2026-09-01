@@ -145,9 +145,16 @@ impl ColourSpace {
     /// and only a page that states such a space pays for it (ADR 0262).
     fn reduced(space: crate::colour::ColourSpace, into: Compositing) -> Self {
         match (space, into) {
-            (space, Compositing::Luminosity(_) | Compositing::Subtractive(..)) => {
-                Self::Resolved(space)
-            }
+            // A calibrated one-component page is the argument once more, and it takes the
+            // converting arm before the `DeviceGray` exception below: a `DeviceGray` sample
+            // is *not* its own component there, because the component is the curve's
+            // inverse of that grey (ADR 0792).
+            (
+                space,
+                Compositing::Luminosity(_)
+                | Compositing::Subtractive(..)
+                | Compositing::Calibrated(_),
+            ) => Self::Resolved(space),
             // A page composited in `DeviceGray` is the same argument once more, with one
             // exception the arm order states: a `DeviceGray` sample *is* its own grey, so the
             // fast arm is exact there, and every other space's sample becomes §10.4.2.2's or

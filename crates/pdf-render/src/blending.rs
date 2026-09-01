@@ -213,8 +213,119 @@ pub fn resolve(chromatic: &mut [u8], black: &[u8], space: &BlendingSpace) {
     }
 }
 
+/// The conversion out of a one-component blending colour space, as a sampled curve
+/// (ISO 32000-2 §11.3.4, §8.6.5.2, §8.6.5.5).
+///
+/// §11.3.4 names three one-component spaces a processor "shall" support as blending colour
+/// spaces — `DeviceGray`, `CalGray` and an `ICCBased` 'GRAY' profile — and the compositing
+/// formula is per component, so each composites one number per pixel. What tells the last
+/// two apart from the first is how that number reaches the device: `DeviceGray`'s is the
+/// channel itself (§10.4.2.2), where a `CalGray` component "shall be first decoded by the
+/// gamma function" and then scaled by the white point (§8.6.5.2), and a profile's goes through
+/// its tone curve. Neither is affine, so a raster that composites the *component* and applies
+/// the curve at the end is a different picture from one that composites the device grey — and
+/// §11.4.7 puts the conversion at the end: "the entire result shall then, if the colour spaces
+/// are not equivalent, be converted to the native colour space of the output device before
+/// being composited with the context-dependent backdrop".
+///
+/// This is that conversion, sampled: `samples[i]` is the device colour of the component
+/// `i ÷ (len − 1)`, and [`GreyCurve::convert`] interpolates between neighbours. The
+/// interpreter resolves the samples — the space's own gamma and white point, or the answers
+/// a profile gives — and hands them over; a backend never sees the space, which is
+/// [`BlendingSpace`]'s argument one dimension down.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GreyCurve {
+    /// At least two device colours, from the component at 0 to the component at 1.
+    samples: std::sync::Arc<[[f32; 3]]>,
+}
+
+impl GreyCurve {
+    /// A curve from its samples, or `None` for fewer than two, which is not a curve.
+    #[must_use]
+    pub fn new(samples: std::sync::Arc<[[f32; 3]]>) -> Option<Self> {
+        (samples.len() >= 2).then_some(Self { samples })
+    }
+
+    /// The samples themselves, evenly spaced over the component's `0.0..=1.0`.
+    #[must_use]
+    pub fn samples(&self) -> &[[f32; 3]] {
+        &self.samples
+    }
+
+    /// The device colour of one component in `0.0..=1.0`.
+    #[must_use]
+    pub fn convert(&self, component: f32) -> [f32; 3] {
+        let last = self.samples.len().saturating_sub(1);
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a sample count far below f32's exact range"
+        )]
+        let scaled = component.clamp(0.0, 1.0) * last as f32;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "`scaled` is in 0..=last, so its floor is a valid index"
+        )]
+        let cell = (scaled as usize).min(last.saturating_sub(1));
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a cell index below the sample count"
+        )]
+        let fraction = scaled - cell as f32;
+        let (Some(low), Some(high)) = (
+            self.samples.get(cell),
+            self.samples.get(cell.saturating_add(1)),
+        ) else {
+            // Unreachable by construction — `new` requires two samples — and the last sample
+            // is the honest answer if it ever were.
+            return self.samples.last().copied().unwrap_or([0.0; 3]);
+        };
+        let mut rgb = [0.0f32; 3];
+        for ((channel, from), to) in rgb.iter_mut().zip(low).zip(high) {
+            *channel = from.mul_add(1.0 - fraction, to * fraction);
+        }
+        rgb
+    }
+}
+
+/// Converts a premultiplied RGBA8 raster out of a one-component blending colour space.
+///
+/// Every channel of `pixels` holds the composited component — the interpreter painted each
+/// colour as its component in all three, so §11.3.4's per-component arithmetic ran on one
+/// number three times over — and is overwritten with the device colour the curve gives it.
+/// The first channel is the one read; the three are equal by construction and a backend's
+/// rounding cannot separate them by more than it separates any grey.
+///
+/// The alpha is divided out and multiplied back exactly as [`resolve`] does for four
+/// components, and the error bound is the same one level of 255: a premultiplied channel
+/// resolves a component to `1 ÷ (255 α)`, the curve is a convex combination of colours in
+/// `0..=1`, and the result is scaled by `α` again. A pixel nothing painted is left alone.
+pub fn resolve_grey(pixels: &mut [u8], curve: &GreyCurve) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let alpha = f32::from(pixel[3]);
+        if pixel[3] == 0 {
+            continue;
+        }
+        let component = (f32::from(pixel[0]) / alpha).clamp(0.0, 1.0);
+        let rgb = curve.convert(component);
+        for (channel, value) in pixel.iter_mut().zip(rgb) {
+            let scaled = value.clamp(0.0, 1.0).mul_add(alpha, 0.5);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a value in 0..=1 scaled by an alpha in 0..=255 is in 0..=255"
+            )]
+            {
+                *channel = scaled as u8;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     /// The sixteen corners this tree's `DeviceCMYK` conversion assumes, as this module's
@@ -355,5 +466,59 @@ mod tests {
         let mut cyan = vec![0, 255, 255, 255];
         resolve(&mut cyan, &[255, 255, 255, 255], &space);
         assert_eq!(cyan, vec![0, 173, 239, 255]);
+    }
+
+    /// A curve of two samples is the straight line between them, and a component lands on
+    /// the sample whose index it is.
+    #[test]
+    fn a_curve_interpolates_between_its_samples() {
+        let curve = GreyCurve::new(Arc::from(vec![
+            [0.0, 0.0, 0.0],
+            [0.5, 0.5, 0.5],
+            [1.0, 1.0, 1.0],
+        ]))
+        .expect("three samples is a curve");
+        let close = |component: f32, want: f32, what: &str| {
+            let got = curve.convert(component);
+            assert!(
+                got.iter().all(|channel| (channel - want).abs() < 1e-6),
+                "{what}: {got:?} against {want}"
+            );
+        };
+        close(0.0, 0.0, "the first sample");
+        close(0.5, 0.5, "the middle sample");
+        close(1.0, 1.0, "the last sample");
+        close(0.25, 0.25, "half way to the middle sample");
+        close(-1.0, 0.0, "clamped below");
+        close(2.0, 1.0, "clamped above");
+        assert!(
+            GreyCurve::new(Arc::from(vec![[0.0; 3]])).is_none(),
+            "one sample is not a curve"
+        );
+    }
+
+    /// `resolve_grey` reads the component through the alpha and writes the curve's colour
+    /// back premultiplied, and leaves a pixel nothing painted alone.
+    #[test]
+    fn a_grey_raster_resolves_through_the_curve_under_its_own_alpha() {
+        // A curve that squares its component, so the arithmetic is visibly not the identity.
+        let samples: Vec<[f32; 3]> = (0..=16u8)
+            .map(|index| {
+                let component = f32::from(index) / 16.0;
+                [component * component; 3]
+            })
+            .collect();
+        let curve = GreyCurve::new(Arc::from(samples)).expect("seventeen samples is a curve");
+        // Component ½ at full alpha, component ½ at half alpha, and an unpainted pixel.
+        let mut pixels = [128, 128, 128, 255, 64, 64, 64, 128, 7, 7, 7, 0];
+        resolve_grey(&mut pixels, &curve);
+        // ½² is ¼: 64 of 255 at full alpha, and 32 under an alpha of 128.
+        assert_eq!(&pixels[..4], &[64, 64, 64, 255]);
+        assert_eq!(&pixels[4..8], &[32, 32, 32, 128]);
+        assert_eq!(
+            &pixels[8..],
+            &[7, 7, 7, 0],
+            "an unpainted pixel is left alone"
+        );
     }
 }

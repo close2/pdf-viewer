@@ -823,10 +823,98 @@ pub fn group_in_its_own_blending_space() -> DisplayList {
         isolated: true,
         knockout: false,
         alpha_is_shape: false,
-        blending: Some(Box::new(pdf_render::GroupBlending {
+        blending: Some(Box::new(pdf_render::GroupBlending::FourComponents {
             space,
             black: elements(),
         })),
+    });
+    list
+}
+
+/// An isolated group compositing in a one-component blending colour space through a curve
+/// (ISO 32000-2 §11.6.6, §11.7.2, §8.6.5.2).
+///
+/// The same geometry as [`group_in_its_own_blending_space`] — paper, and black at constant
+/// alpha ½ over it — inside a group whose space is one component leaving by a curve
+/// ([`pdf_render::GroupBlending::OneComponent`]): every colour in the list is its component
+/// in all three channels, and the curve is sRGB's transfer function, which is what a
+/// `/Gamma 1` `CalGray` group's component shows as on this device (its component is a `Y`).
+///
+/// # The arithmetic
+///
+/// The composite happens in the component, so half of black over paper is ½, and the curve
+/// puts ½ at `1.055 × 0.5^(1/2.4) − 0.055 = 0.735`, **188** of 255 — against the 128 that
+/// compositing in device grey gives. Column 80 is half covered, so it holds ¾ and the curve
+/// at ¾.
+///
+/// # What each backend does with it
+///
+/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-quorra`
+/// refuse it by name, as they refuse the four-component pair.
+///
+/// # Panics
+///
+/// Cannot panic: [`pdf_render::GreyCurve::new`] returns `None` only for fewer than two
+/// samples, and this one has seventeen.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "seventeen samples is a curve by construction; a Result here would push an \
+              impossible error case onto every caller"
+)]
+pub fn group_in_a_one_component_blending_space() -> DisplayList {
+    let square = Size {
+        width: 100.0,
+        height: 100.0,
+    };
+    let fill = |x0: f32, y0: f32, x1: f32, y1: f32, colour: Color| Command::Fill {
+        path: Arc::new(rect(x0, y0, x1, y1)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(colour),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    };
+    let samples: Vec<[f32; 3]> = (0..=16u8)
+        .map(|index| {
+            let component = f32::from(index) / 16.0;
+            let encoded = if component <= 0.003_130_8 {
+                component * 12.92
+            } else {
+                1.055 * component.powf(1.0 / 2.4) - 0.055
+            };
+            [encoded; 3]
+        })
+        .collect();
+    let curve =
+        pdf_render::GreyCurve::new(Arc::from(samples)).expect("seventeen samples is a curve");
+    let mut list = DisplayList::new(square);
+    list.push(fill(0.0, 0.0, 100.0, 100.0, Color::WHITE));
+    list.push(Command::Group {
+        commands: vec![
+            fill(10.0, 10.0, 90.0, 90.0, Color::WHITE),
+            fill(
+                20.0,
+                20.0,
+                80.5,
+                80.0,
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.5,
+                },
+            ),
+        ],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: false,
+        alpha_is_shape: false,
+        blending: Some(Box::new(pdf_render::GroupBlending::OneComponent { curve })),
     });
     list
 }

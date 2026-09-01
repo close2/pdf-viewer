@@ -159,7 +159,10 @@ fn a_group_with_its_own_blending_space_composites_in_it() {
             Command::Group {
                 blending: Some(pair),
                 ..
-            } => Some(pair.space.clone()),
+            } => match pair.as_ref() {
+                pdf_render::GroupBlending::FourComponents { space, .. } => Some(space.clone()),
+                pdf_render::GroupBlending::OneComponent { .. } => None,
+            },
             _ => None,
         })
         .expect("the scene states a group blending space");
@@ -189,6 +192,65 @@ fn a_group_with_its_own_blending_space_composites_in_it() {
         "a half-covered pixel carries a quarter of each ink through the same grid",
         pixel(&raster, 80, 50),
         [level(quarter[0]), level(quarter[1]), level(quarter[2]), 255],
+        2,
+    );
+}
+
+/// §11.6.6's group blending colour space of one component: the component composites and
+/// the curve resolves once (ISO 32000-2 §11.3.4, §11.7.2, §8.6.5.2).
+///
+/// [`test_scenes::group_in_a_one_component_blending_space`] carries the geometry and the
+/// curve; the expectation is the scene's own curve evaluated at the composited component,
+/// which for half of black over paper is ½ — sRGB's 188 of 255 rather than device grey's
+/// 128 — and for the half-covered column ¾.
+#[test]
+fn a_group_in_a_one_component_blending_space_composites_its_component() {
+    let list = test_scenes::group_in_a_one_component_blending_space();
+    let curve = list
+        .commands()
+        .iter()
+        .find_map(|command| match command {
+            Command::Group {
+                blending: Some(pair),
+                ..
+            } => match pair.as_ref() {
+                pdf_render::GroupBlending::OneComponent { curve } => Some(curve.clone()),
+                pdf_render::GroupBlending::FourComponents { .. } => None,
+            },
+            _ => None,
+        })
+        .expect("the scene states a one-component group blending space");
+    let raster = render(&list);
+
+    let level = |value: f32| (value * 255.0 + 0.5) as u8;
+    let half = curve.convert(0.5);
+    assert_close(
+        "half of black over paper composites to ½ and leaves by the curve",
+        pixel(&raster, 50, 50),
+        [level(half[0]), level(half[1]), level(half[2]), 255],
+        1,
+    );
+    assert!(
+        (187..=189).contains(&pixel(&raster, 50, 50)[0]),
+        "and that is sRGB's 188 of 255, not device grey's 128: {:?}",
+        pixel(&raster, 50, 50)
+    );
+    assert_close(
+        "paper alone leaves as white",
+        pixel(&raster, 15, 50),
+        [255, 255, 255, 255],
+        1,
+    );
+    let three_quarters = curve.convert(0.75);
+    assert_close(
+        "a half-covered pixel holds three quarters and leaves through the same curve",
+        pixel(&raster, 80, 50),
+        [
+            level(three_quarters[0]),
+            level(three_quarters[1]),
+            level(three_quarters[2]),
+            255,
+        ],
         2,
     );
 }

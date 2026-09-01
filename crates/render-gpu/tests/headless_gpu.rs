@@ -368,6 +368,25 @@ fn the_gpu_refuses_a_group_in_its_own_blending_space() {
         .expect("the correctness oracle draws what the device refuses");
 }
 
+/// And the one-component shape of the same clause is refused by the same name.
+///
+/// A curve resolves per pixel after the group composites exactly as the pair does, and a
+/// group drawn without it would paint its components as light — a plausible wrong picture —
+/// so this fails if the refusal ever becomes silent.
+#[test]
+fn the_gpu_refuses_a_group_in_a_one_component_blending_space() {
+    let list = test_scenes::group_in_a_one_component_blending_space();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("a scene under composition cannot resolve a curve per pixel")
+        .to_string();
+    assert!(
+        refusal.contains("§11.6.6") && refusal.contains("one component"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///

@@ -482,10 +482,12 @@ impl Displaced<'_> {
                 ..
             } => {
                 self.commands(commands)?;
-                if let Some(pair) = blending {
+                if let Some(crate::GroupBlending::FourComponents { black, .. }) =
+                    blending.as_deref_mut()
+                {
                     // §11.7.2's second list is the same elements in the black component; it is
                     // geometry too, and the two halves are composited per pixel.
-                    self.commands(&mut pair.black)?;
+                    self.commands(black)?;
                 }
                 self.refer(clip, mask)?;
             }

@@ -350,7 +350,15 @@ impl Rasterizer for QuorraRasterizer {
         // asked for even where the caller wants the page's own alpha back. `None` for a
         // page-sized target, where the raster's own edge is already the boundary.
         let crop = pdf_render::crop_area(list, target);
-        if four_components.is_some() || self.medium.marks_anything() || crop.is_some() {
+        // The one-component form of the same clause — a `CalGray` or `ICCBased` 'GRAY' page
+        // group, whose composited component leaves through a curve — is one render and one
+        // pass over the readback, at the same point (`pdf_render::blending::GreyCurve`).
+        let one_component = list.grey_curve();
+        if four_components.is_some()
+            || one_component.is_some()
+            || self.medium.marks_anything()
+            || crop.is_some()
+        {
             premultiply(&mut data);
             if let Some((space, black)) = four_components {
                 let mut ink_cost = FrameCost::default();
@@ -359,6 +367,9 @@ impl Rasterizer for QuorraRasterizer {
                 let mut ink = drawn?;
                 premultiply(&mut ink);
                 pdf_render::resolve_blending(&mut data, &ink, space);
+            }
+            if let Some(curve) = one_component {
+                pdf_render::resolve_grey(&mut data, curve);
             }
             // The page's own ink is cut where §14.11.2.1 says it stops, before anything is put
             // under it: the crop is about what the page may show, and a pass that ran after the

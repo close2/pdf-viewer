@@ -38,8 +38,8 @@ impl ClipId {
     }
 }
 
-/// The four-component blending colour space one group's elements composite in
-/// (ISO 32000-2 §11.6.6, §11.7.2).
+/// The blending colour space of its own that one group's elements composite in, as the
+/// conversion out of it (ISO 32000-2 §11.6.6, §11.7.2).
 ///
 /// §11.7.2 states what a group's own colour space means for the marks inside it:
 ///
@@ -49,26 +49,56 @@ impl ClipId {
 /// > "Blending colour space"). The resulting colours shall then be interpreted in the
 /// > group's colour space when the group is subsequently composited with its backdrop.
 ///
-/// Where that space has four components and the parent composites on the device's three,
-/// the same construction that draws §11.4.7's page group applies one scope down
-/// ([`crate::blending`]): the group's elements are interpreted twice, once carrying the
-/// additive complements of cyan, magenta and yellow — [`Command::Group`]'s own `commands` —
-/// and once carrying the complement of black, which is [`GroupBlending::black`]. A backend
-/// composites each list onto §11.4.5's transparent backdrop, resolves the pair through
-/// [`GroupBlending::space`] with [`crate::blending::resolve`], and only then paints the
-/// result onto the parent — which is exactly where §11.7.2's second sentence puts the
-/// interpretation of the group's accumulated colour.
+/// Where the parent composites on the device's three components, the same construction that
+/// draws §11.4.7's page group applies one scope down, in one of two shapes:
 ///
-/// The two lists are two interpretations of one content stream and differ only in what a
-/// colour resolved to; their geometry, clips, blend modes and nesting are identical by
-/// construction, and `pdf-model` verifies that before pairing them.
+/// - **Four components** ([`crate::blending`]): the group's elements are interpreted twice,
+///   once carrying the additive complements of cyan, magenta and yellow —
+///   [`Command::Group`]'s own `commands` — and once carrying the complement of black, which
+///   is [`GroupBlending::FourComponents`]'s `black`. A backend composites each list onto
+///   §11.4.5's transparent backdrop, resolves the pair through the space with
+///   [`crate::blending::resolve`], and only then paints the result onto the parent.
+/// - **One component through a curve** ([`crate::blending::GreyCurve`]): the elements are
+///   interpreted once, each colour painted as its component in every channel, and a backend
+///   composites the one list and resolves it through [`crate::blending::resolve_grey`]
+///   before painting it. A `DeviceGray` group needs neither, because its component *is* the
+///   channel (§10.4.2.2), and `pdf-model` builds no `GroupBlending` for it.
+///
+/// Either way the resolution runs before the group is painted, which is exactly where
+/// §11.7.2's second sentence puts the interpretation of the group's accumulated colour.
+///
+/// The two lists of the four-component shape are two interpretations of one content stream
+/// and differ only in what a colour resolved to; their geometry, clips, blend modes and
+/// nesting are identical by construction, and `pdf-model` verifies that before pairing them.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GroupBlending {
-    /// The conversion out of the group's four components, applied to the composited pair
-    /// before the group is painted onto its parent.
-    pub space: crate::blending::BlendingSpace,
-    /// The same elements, drawn in the black component of the space.
-    pub black: Vec<Command>,
+pub enum GroupBlending {
+    /// A space of four components: the conversion out, and the same elements drawn in the
+    /// black component of the space.
+    FourComponents {
+        /// The conversion out of the group's four components, applied to the composited pair
+        /// before the group is painted onto its parent.
+        space: crate::blending::BlendingSpace,
+        /// The same elements, drawn in the black component of the space.
+        black: Vec<Command>,
+    },
+    /// A space of one component that reaches the device through a curve — `CalGray`, or an
+    /// `ICCBased` 'GRAY' profile — applied to the composited elements before the group is
+    /// painted onto its parent.
+    OneComponent {
+        /// The conversion out of the group's component.
+        curve: crate::blending::GreyCurve,
+    },
+}
+
+impl GroupBlending {
+    /// The elements drawn in the space's black component, where the space has four.
+    #[must_use]
+    pub fn black(&self) -> Option<&[Command]> {
+        match self {
+            Self::FourComponents { black, .. } => Some(black),
+            Self::OneComponent { .. } => None,
+        }
+    }
 }
 
 /// A clip region: an intersected path, optionally nested inside another clip.
@@ -375,16 +405,17 @@ pub enum Command {
         /// shape whatever this flag says — a fact about the *buffer* rather than about the
         /// commands, and one every backend that reads this flag tests for itself.
         alpha_is_shape: bool,
-        /// The four-component blending colour space this group's elements composite in,
-        /// or `None` for a group composited in the space its parent already composites in
-        /// (§11.6.6, §11.7.2). See [`GroupBlending`].
+        /// The blending colour space of its own this group's elements composite in, as the
+        /// conversion out of it, or `None` for a group composited in the space its parent
+        /// already composites in (§11.6.6, §11.7.2). See [`GroupBlending`].
         ///
         /// `pdf-model` emits `Some` only for an isolated group, because §11.6.6 gives a
         /// `/CS` effect for isolated groups alone — "[f]or non-isolated groups, or if no
         /// group colour space is specified, the group colour space shall be inherited from
-        /// the parent group or page". A backend that cannot composite the pair and resolve
-        /// it must refuse the command: the colours the two lists hold are ink complements,
-        /// and drawing either list alone paints the page in them.
+        /// the parent group or page". A backend that cannot composite the elements and
+        /// resolve them must refuse the command: the colours the lists hold are ink
+        /// complements or a curve's components, and drawing a list alone paints the page
+        /// in them.
         blending: Option<Box<GroupBlending>>,
     },
     /// An object of a knockout group whose shape is not the coverage it is drawn with
@@ -663,6 +694,9 @@ pub struct DisplayList {
     blending: Option<crate::blending::BlendingSpace>,
     /// The same page, drawn in the black component of that space.
     black: Option<Box<DisplayList>>,
+    /// §11.4.7's blending colour space, where it is one component that reaches the device
+    /// through a curve. See [`DisplayList::set_grey_curve`].
+    grey_curve: Option<crate::blending::GreyCurve>,
     /// §14.11.2.1's boundary, in this list's own space, or `None` for a list that is not a
     /// page. See [`DisplayList::content_clip`].
     content_clip: Option<Rect>,
@@ -680,6 +714,7 @@ impl DisplayList {
             clip_index: BTreeMap::new(),
             blending: None,
             black: None,
+            grey_curve: None,
             content_clip: None,
         }
     }
@@ -751,6 +786,29 @@ impl DisplayList {
         self.black.as_deref()
     }
 
+    /// States that this page composites in a one-component blending colour space whose
+    /// component reaches the device through a curve.
+    ///
+    /// ISO 32000-2 §11.4.7 again — the page's compositing is done in its group's space and
+    /// "the entire result shall then, if the colour spaces are not equivalent, be converted
+    /// to the native colour space of the output device" — for a `CalGray` or `ICCBased`
+    /// 'GRAY' page group. Every colour in this list is its component in all three channels,
+    /// so a backend composites the list as it would any other and then resolves the raster
+    /// through the curve with [`crate::blending::resolve_grey`], before the medium. A backend
+    /// that cannot must refuse the list, because what it holds are components and not light.
+    ///
+    /// A list carries at most one of this and [`DisplayList::set_blending`]; the interpreter
+    /// chooses one construction per page, and a reader that finds both refuses the list.
+    pub fn set_grey_curve(&mut self, curve: crate::blending::GreyCurve) {
+        self.grey_curve = Some(curve);
+    }
+
+    /// The curve this page's composited component leaves by, where it composites in one.
+    #[must_use]
+    pub fn grey_curve(&self) -> Option<&crate::blending::GreyCurve> {
+        self.grey_curve.as_ref()
+    }
+
     /// A digest of everything about this list that is *not* a colour.
     ///
     /// The two lists [`DisplayList::set_blending`] pairs are two interpretations of one page
@@ -794,8 +852,8 @@ impl DisplayList {
                     // halves diverged structurally would be resolved against a shape that
                     // never drew it, exactly the failure this digest exists to catch.
                     blending.is_some().hash(hasher);
-                    if let Some(pair) = blending {
-                        Self::hash_commands(&pair.black, hasher);
+                    if let Some(black) = blending.as_deref().and_then(GroupBlending::black) {
+                        Self::hash_commands(black, hasher);
                     }
                 }
                 Command::Shaped { object, shape, .. } => {
