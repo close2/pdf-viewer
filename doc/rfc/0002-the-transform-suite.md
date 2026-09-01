@@ -1,7 +1,11 @@
 # RFC 0002 — The transform suite
 
-Status: **draft**
-Round: 785, commissioned by the owner
+Status: **accepted** — 2026-09-01, by the owner's word: "Please start the command line features."
+Round: 785, commissioned by the owner; implementation from round 867 (ADR 0800), on the long-lived
+branch `round-867`. **§13's seven questions were not individually answered**: the recommendations
+this document makes stand as defaults, each recorded as a stated assumption in ADR 0800 §6 for the
+owner to overrule, and §11's amendment of `CLAUDE.md` is not yet ratified because no writer has
+landed.
 Companions: RFC 0001 (the survey this argues from), RFCs 0003–0005 (file-system faces,
 print, text editing — each consumes the transform layer proposed here). The number 0002
 held at merge (round 788); no collision arose.
