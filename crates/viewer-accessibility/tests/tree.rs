@@ -321,6 +321,15 @@ fn a_figure_that_drew_no_text_is_placed_by_its_stated_bounds() {
 /// producer *also* wrote a rectangle, the marks win, because the attribute is a claim about a
 /// layout this program has already carried out. `doc/PDF20_AN001-BPC.pdf` states
 /// `[-32768 -32768 32767 32767]` for a figure, which is the shape of that claim going wrong.
+///
+/// The third is the element that has **both** kinds of mark, and this test asserted the text won
+/// until the eight-hundred-and-forty-first session (ADR 0768). §14.8.5.4.5 states the derivation
+/// for that element too — "[f]or an ILSE that contains a mixture of elements, the height of the
+/// content rectangle shall be determined by … finding the extreme top and bottom for all elements"
+/// — so a figure whose only text is its caption is not placed on the caption. Over the pdf.js
+/// corpus, `doc/corpora/` and `doc/` — 1245 documents, 153 of them tagged — 3032 elements enclose
+/// marks reaching outside their text, 1885 of them by more than a tenth of the area
+/// (`pdf-model --example element_bounds_census`).
 #[test]
 fn an_element_with_no_text_and_no_stated_bounds_is_placed_by_what_it_drew() {
     let mut figure = element(None, "Figure", "a chart of sales");
@@ -332,10 +341,12 @@ fn an_element_with_no_text_and_no_stated_bounds_is_placed_by_what_it_drew() {
     );
     plane.bounds = Some([0.0, 0.0, 400.0, 400.0]);
     plane.drawn = Some([10.0, 10.0, 30.0, 30.0]);
-    let mut caption = element(None, "P", "a caption");
-    caption.quads = vec![[10.0, 20.0, 110.0, 20.0, 110.0, 32.0, 10.0, 32.0]];
-    caption.drawn = Some([0.0, 0.0, 400.0, 400.0]);
-    let nodes = [figure, plane, caption];
+    // A figure whose caption is its only text and whose picture is drawn beside it: the two
+    // together are what the element encloses.
+    let mut captioned = element(None, "Figure", "sales, with a caption");
+    captioned.quads = vec![[10.0, 20.0, 110.0, 20.0, 110.0, 32.0, 10.0, 32.0]];
+    captioned.drawn = Some([10.0, 40.0, 300.0, 240.0]);
+    let nodes = [figure, plane, captioned];
     let update = built(view(&nodes, &[]));
 
     let placed = node(&update, NodeId(16))
@@ -352,13 +363,45 @@ fn an_element_with_no_text_and_no_stated_bounds_is_placed_by_what_it_drew() {
         "the marks win over the producer's rectangle: {over_the_claim:?}"
     );
 
-    let measured = node(&update, NodeId(18))
+    let mixture = node(&update, NodeId(18))
         .bounds()
-        .expect("a paragraph is placed by what was drawn");
+        .expect("a figure with a caption is placed by both of them");
     assert!(
-        (measured.x1 - 110.0).abs() < 1e-6,
-        "the text quadrilaterals win over the coarser union: {measured:?}"
+        (mixture.x0 - 10.0).abs() < 1e-6
+            && (mixture.y0 - 20.0).abs() < 1e-6
+            && (mixture.x1 - 300.0).abs() < 1e-6
+            && (mixture.y1 - 240.0).abs() < 1e-6,
+        "the caption and the picture are both the element's content: {mixture:?}"
     );
+}
+
+/// A cell whose only content is a widget places the row and the table above it.
+///
+/// §14.8.5.4.5 derives a container's content rectangle from the elements it contains — "the sum of
+/// the heights of all BLSEs it contains" — so an element whose own sequences marked nothing is
+/// placed by what it encloses, however that was placed. The witness this is modelled on is
+/// `annotation-text-widget.pdf`, where ten container nodes reported no extents at all until the
+/// eight-hundred-and-forty-first session and now report the union of their widgets' rectangles,
+/// read back off a real AT-SPI bus (ADR 0768).
+#[test]
+fn a_container_whose_content_marked_nothing_is_placed_by_what_it_encloses() {
+    let row = element(None, "TR", "");
+    let cell = element(Some(0), "TD", "");
+    let mut widget = element(Some(1), "Form", "");
+    // §12.5.2's rectangle, the route ADR 0338 gave an element whose content is an annotation.
+    widget.bounds = Some([20.0, 30.0, 120.0, 50.0]);
+    let nodes = [row, cell, widget];
+    let update = built(view(&nodes, &[]));
+
+    for id in [NodeId(16), NodeId(17), NodeId(18)] {
+        let placed = node(&update, id)
+            .bounds()
+            .expect("the widget's rectangle places the cell and the row as well as itself");
+        assert!(
+            (placed.x0 - 20.0).abs() < 1e-6 && (placed.x1 - 120.0).abs() < 1e-6,
+            "{id:?}: {placed:?}"
+        );
+    }
 }
 
 /// §12.4.2's page label names the page where the document states one.

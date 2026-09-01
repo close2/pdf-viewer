@@ -19,7 +19,9 @@ which is what `tools/state.sh windows` had named as the largest debt on that bou
 **§12.7.5.2's click carried out rather than refused, in all three, in the
 seven-hundred-and-thirty-fifth** (ADR 0630), and **Table 384's `/Summary` and `/Short` — the
 table's last two entries, the first witnessed only in the SafeDocs crawl and the second nowhere —
-in the seven-hundred-and-seventy-seventh** (ADR 0715).
+in the seven-hundred-and-seventy-seventh** (ADR 0715), and **§14.8.5.4.5's other two derivations —
+the container's rectangle and the mixed element's — in the eight-hundred-and-forty-first**
+(ADR 0768), which closes both of the two remainders this file carried about where an element is.
 Priority: 31 — capability
 Clauses: §12.5.2, §12.7.5, §14.7, §14.7.5.2, §14.7.5.3, §14.7.5.4, §14.8.3.3, §14.8.4,
 §14.8.4.7.2, §14.8.4.8.3, §14.8.5.4.3, §14.8.5.4.5, §14.8.5.7, §14.9
@@ -27,6 +29,8 @@ Code: `crates/viewer-accessibility/` (`role.rs`, `tree.rs`, `bridge.rs`, `readin
 `crates/viewer-core/src/accessibility.rs`, `crates/pdf-model/src/structure.rs`,
 `crates/viewer-ui/src/bin/pdf-viewer/access.rs`, `crates/viewer-gtk/src/access.rs`,
 `crates/viewer-qt/src/access.rs` (`attend`, `speak`, `act`, one shape in three windows)
+Code (continued): `crates/viewer-core/src/accessibility.rs`'s `places`, which is the one place the
+routes to an element's rectangle are composed and is what all three windows and the census ask.
 Instruments: `tools/state.sh accessibility` — the corpus-scale census of what a screen reader is
 told, a **ratchet** and a `doc/todo/02` §2 line since ADR 0425 (built by ADR 0342) — `pdf-model --example element_bounds_census`,
 `pdf-model --example cell_header_census`, `pdf-model --example mcid_stream_census`,
@@ -186,12 +190,21 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   moment `split_off_commands` collects a form `XObject`'s commands into a `Command::Group`, which
   §14.7.5.2 explicitly permits. `Interpreter::draw` is the one moment both are in hand.
 
-  **What is left is the residue and it is the largest of the four routes.** Of the 2124 corpus
-  elements that mark no text: 406 state a `/BBox`, 348 are placed by an annotation, **349 by their
-  own marks**, and **1021 by nothing** — because their sequences marked nothing at all. `P`, `TD`,
-  `Div`, `Span` and `TR` elements around an empty `BDC` … `EMC`, or around content a clip excludes.
-  No clause derives a rectangle from no marks, so that is an answer rather than a debt; the count
-  is `pdf-model --example element_bounds_census` and it is what will say if it stops being true.
+  ~~**What is left is the residue and it is the largest of the four routes**~~ — **a quarter of it
+  was a clause nobody had read, and it is taken in the eight-hundred-and-forty-first session**
+  (ADR 0768). The entry said "[n]o clause derives a rectangle from no marks", which is true and is
+  not the question: §14.8.5.4.5's second bullet derives a *container's* rectangle from the elements
+  it contains — "the sum of the heights of all BLSEs it contains" — so an element whose own
+  sequences marked nothing has one whenever what it encloses is placed by any route. A `TD` holding
+  only a widget annotation, a `Div` around a `Figure` that states a `/BBox`. `viewer_core::places`
+  asks it last, after the element's own marks and after the producer's own rectangle, and the
+  accessibility census counts it: **245 elements of its 988 documents**, which is what took its
+  placeless count to 1091.
+
+  **What is left of the residue is an element that encloses nothing placed at all**, and that is an
+  answer rather than a debt: 253 of `element_bounds_census`'s 1082 are the enclosure route's and
+  the rest marked nothing anywhere below them. The count is that example and it is what will say if
+  it stops being true.
 
   **An `XObject` object reference is refused rather than pending**: its place is the matrix in
   force at the `Do` that painted it, and Table 358's NOTE 2 says one reference suffices however
@@ -237,19 +250,23 @@ both named for the binary, one carrying the toolkit's widgets and one carrying �
   `Interpretation::codes_without_a_character`'s reason (ADR 0152): there is no channel here for a
   readback shortfall, and a *report* would cost the oracle a judged page (trap 11).
 
-- **Whether a stated `/BBox` should win over the shapes that were drawn.** `tree::place` prefers
-  the quads where an element has both, on the conservative reading — the marks are what is on the
-  screen. A `Figure` holding a caption *and* a picture has text quads covering only the caption
-  while the attribute covers both, so the two disagree by exactly the picture. Nothing has measured
-  how often that happens or by how much.
+- ~~**Whether a stated `/BBox` should win over the shapes that were drawn**~~ — **measured and
+  closed in the eight-hundred-and-forty-first session** (ADR 0768), and the standard settled it
+  without the precedence having to be argued again. The question was about the mixed element: a
+  `Figure` holding a caption *and* a picture had text quadrilaterals covering the caption alone, so
+  the presence of one glyph decided that nothing else the element enclosed counted. §14.8.5.4.5's
+  fifth bullet is that element — "[f]or an ILSE that contains a mixture of elements, the height of
+  the content rectangle shall be determined by … finding the extreme top and bottom for all
+  elements" — so the answer is the **union** of the two, and the stated rectangle's place in the
+  order never came into it.
 
-  **Since ADR 0486 the question is measurable and one third of it is answered.** The sequence's own
-  content rectangle covers the caption *and* the picture, so `AccessibilityNode::drawn` is the
-  quantity the attribute should be compared against — and where an element has no text at all the
-  comparison has been made and the marks win, on `doc/PDF20_AN001-BPC.pdf`'s `[-32768 -32768 32767
-  32767]`. What is still unmeasured is the mixed element: `tree::place` asks the quadrilaterals
-  first and they exist, so the picture inside a `Figure` that also has a caption is still outside
-  the ring. `element_bounds_census` now has both rectangles and could count the disagreement.
+  **The price is `element_bounds_census`'s, as this entry predicted**: over the pdf.js corpus,
+  `doc/corpora/` and `doc/`, 3032 of the 119 530 elements that enclose both text and other marks
+  have marks reaching outside their text, **1885 of them by more than a tenth of the area** — and
+  the documents where it is worst are the specifications this project reads all day
+  (`ISO-14289-2-2024` 743, `ISO_32000-2_sponsored_EC3` 557). It moves no count in the accessibility
+  census, correctly: it changes which rectangle an element answers with rather than whether it has
+  one.
 
 - ~~A `Form` element's control role~~ — **closed in the five-hundred-and-third session**
   (ADR 0338), and checked on a real bus against a document that labels its own answers.

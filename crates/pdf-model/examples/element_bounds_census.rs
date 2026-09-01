@@ -25,6 +25,20 @@
 //!    annotation and associated content, if any", so the count says how many of them a screen
 //!    reader could be told the control of instead of a generic group.
 //!
+//! Two more, added in the eight-hundred-and-forty-first session, and each prices one of the two
+//! questions `doc/todo/31` had left open about §14.8.3.3:
+//!
+//! 7. of the elements no route places, how many **enclose an element that one does**. §14.8.5.4.5
+//!    derives a container's content rectangle from what it contains — "the height of the content
+//!    rectangle shall be the sum of the heights of all BLSEs it contains" for a BLSE, and "finding
+//!    the extreme top and bottom for all elements" for an ILSE holding a mixture — so a container
+//!    whose own sequences marked nothing is not necessarily an element the standard leaves
+//!    placeless. This is the population that fifth route would rescue;
+//! 8. of the elements whose content is **both** text and other marks, on how many the marks reach
+//!    outside the text. That is the question `tree::place` answers by asking the quadrilaterals
+//!    first: §14.8.5.4.5 gives an ILSE holding a mixture the extremes of everything it contains, so
+//!    where the two disagree the text alone is not the content rectangle.
+//!
 //! The second and third need the page's readback, so **every tagged document is interpreted** and
 //! not only the ones stating a `/BBox`: taking the denominator from a subset of the documents the
 //! numerator comes from would put two different populations in one ratio.
@@ -38,7 +52,7 @@
     reason = "an example whose entire output is a measurement"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use pdf_model::structure::{Child, Tree};
 use pdf_syntax::{Document, ObjectId};
@@ -84,6 +98,32 @@ struct Counts {
     marked_by_type: BTreeMap<String, usize>,
     /// Which structure types the residue are.
     unanswered_by_type: BTreeMap<String, usize>,
+    /// Of [`Self::placeless_unanswered`], those enclosing an element that some route places.
+    ///
+    /// §14.8.5.4.5 derives a container's content rectangle from the elements it contains, so an
+    /// element whose own sequences marked nothing still has one where what it encloses does. This
+    /// is the population that route would rescue, and it is a subset of the residue rather than a
+    /// fifth thing beside it.
+    residue_over_placed: usize,
+    /// Which structure types those are.
+    residue_over_placed_by_type: BTreeMap<String, usize>,
+    /// Elements whose enclosed sequences produced **both** text and marks with an extent.
+    ///
+    /// The denominator for the two counts below: where an element has only one of the two there is
+    /// nothing to disagree about.
+    text_and_marks: usize,
+    /// Of [`Self::text_and_marks`], those whose marks reach outside the text.
+    ///
+    /// `tree::place` asks the text quadrilaterals first, so on these elements what a magnifier is
+    /// pointed at is smaller than the content rectangle §14.8.3.3 defines.
+    marks_outside_text: usize,
+    /// Of [`Self::marks_outside_text`], those where the loss is more than a tenth of the area.
+    ///
+    /// A rule and a rounding error are different findings, and a count that cannot tell them apart
+    /// would rank a stroke's mitre with a picture beside a caption.
+    marks_outside_text_widely: usize,
+    /// Which structure types those are, over the wider set.
+    outside_by_type: BTreeMap<String, usize>,
     /// Of [`Self::placeless`], those with **no** `/BBox` that §12.5.2's annotation rectangle
     /// places.
     ///
@@ -136,6 +176,21 @@ impl Counts {
             .saturating_add(other.placeless_unanswered);
         merge(&mut self.marked_by_type, &other.marked_by_type);
         merge(&mut self.unanswered_by_type, &other.unanswered_by_type);
+        self.residue_over_placed = self
+            .residue_over_placed
+            .saturating_add(other.residue_over_placed);
+        merge(
+            &mut self.residue_over_placed_by_type,
+            &other.residue_over_placed_by_type,
+        );
+        self.text_and_marks = self.text_and_marks.saturating_add(other.text_and_marks);
+        self.marks_outside_text = self
+            .marks_outside_text
+            .saturating_add(other.marks_outside_text);
+        self.marks_outside_text_widely = self
+            .marks_outside_text_widely
+            .saturating_add(other.marks_outside_text_widely);
+        merge(&mut self.outside_by_type, &other.outside_by_type);
         self.placeless_by_annotation = self
             .placeless_by_annotation
             .saturating_add(other.placeless_by_annotation);
@@ -170,6 +225,12 @@ fn bump(tally: &mut BTreeMap<String, usize>, name: &str) {
 struct Element {
     /// The role, after §14.7.3's map, or the empty name for an element stating no `/S`.
     role: String,
+    /// The element enclosing this one, as an index into the walk's own list.
+    parent: Option<usize>,
+    /// The union of the text quadrilaterals of every sequence below it, where there is one.
+    text_extent: Option<[f32; 4]>,
+    /// The union of §14.8.3.3's content rectangles of every sequence below it.
+    drawn_extent: Option<[f32; 4]>,
     /// Whether the element states a readable Table 379 `/BBox`.
     bounded: bool,
     /// Whether any marked-content sequence below it produced text.
@@ -268,46 +329,133 @@ fn produced(document: &Document) -> Produced {
             // Both halves of §14.7.5.2's key: the identifier and the stream it is unique within.
             let sequence = (span.mcid, span.stream);
             if span.range.start < span.range.end {
-                text.insert(sequence);
-                answer.text_anywhere.insert(sequence);
+                let quads = text_extent(&interpretation, span.range.start, span.range.end);
+                text.insert(sequence, quads);
+                grow(answer.text_anywhere.entry(sequence).or_default(), quads);
             }
-            if span.drawn.is_some() {
-                drawn.insert(sequence);
-                answer.drawn_anywhere.insert(sequence);
+            if let Some(rect) = span.drawn {
+                drawn.insert(sequence, Some(rect));
+                grow(
+                    answer.drawn_anywhere.entry(sequence).or_default(),
+                    Some(rect),
+                );
             }
         }
     }
     answer
 }
 
+/// The box round the glyphs a range of the readback was drawn with.
+///
+/// [`pdf_model::content::Placed`] carries one quadrilateral per character code, in the same space
+/// [`pdf_model::content::MarkedSpan::drawn`] is in, which is what makes the two comparable at all.
+/// A code whose readback is empty is included where it sits inside the range, for
+/// `viewer_core::select`'s reason: it is ink the sequence drew, and leaving it out would understate
+/// where the text is.
+fn text_extent(
+    interpretation: &pdf_model::Interpretation,
+    from: usize,
+    to: usize,
+) -> Option<[f32; 4]> {
+    let mut union: Option<[f32; 4]> = None;
+    for placed in &interpretation.text_layer {
+        let overlaps = placed.span.start < to && placed.span.end > from;
+        let unnameable = placed.span.is_empty() && placed.span.start > from && placed.span.end < to;
+        if !(overlaps || unnameable) {
+            continue;
+        }
+        for corner in placed.quad.chunks_exact(2) {
+            let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
+                continue;
+            };
+            grow(&mut union, Some([x, y, x, y]));
+        }
+    }
+    union
+}
+
+/// Unions `rect` into `into`, which is the only arithmetic these two extents need.
+fn grow(into: &mut Option<[f32; 4]>, rect: Option<[f32; 4]>) {
+    let Some(rect) = rect else {
+        return;
+    };
+    *into = Some(match *into {
+        None => rect,
+        Some(so_far) => [
+            so_far[0].min(rect[0]),
+            so_far[1].min(rect[1]),
+            so_far[2].max(rect[2]),
+            so_far[3].max(rect[3]),
+        ],
+    });
+}
+
+/// What one §14.7.5.2 sequence produced: that it produced something, and where it is.
+///
+/// A type rather than a nested option, so that "this sequence is not in the set" and "this sequence
+/// is in it and marked nowhere" are two answers a reader can tell apart.
+#[derive(Clone, Copy)]
+struct Marks {
+    /// The union of the shapes, in the display list's own coordinates.
+    extent: Option<[f32; 4]>,
+}
+
 /// What one document's pages turned each `/MCID` into.
 #[derive(Default)]
 struct Produced {
-    /// The sequences that read back text, per page.
-    text: BTreeMap<ObjectId, BTreeSet<Sequence>>,
+    /// The sequences that read back text, per page, and where their glyphs were drawn.
+    text: BTreeMap<ObjectId, BTreeMap<Sequence, Option<[f32; 4]>>>,
     /// The same, for an element whose ancestry names no page at all.
-    text_anywhere: BTreeSet<Sequence>,
+    text_anywhere: BTreeMap<Sequence, Option<[f32; 4]>>,
     /// The sequences that marked the page — §14.8.3.3's content rectangle, per page.
-    drawn: BTreeMap<ObjectId, BTreeSet<Sequence>>,
+    drawn: BTreeMap<ObjectId, BTreeMap<Sequence, Option<[f32; 4]>>>,
     /// The same, for an element whose ancestry names no page at all.
-    drawn_anywhere: BTreeSet<Sequence>,
+    drawn_anywhere: BTreeMap<Sequence, Option<[f32; 4]>>,
 }
 
 impl Produced {
-    /// Whether `mcid` is in `set`, taking the page where the content item named one.
+    /// The entry `mcid` has in one of the two sets, taking the page where the content item named
+    /// one.
+    ///
+    /// The pair is *whether* the sequence is in the set and *where* its marks are, and the two are
+    /// asked separately below because a sequence can be in the set with no extent — which happens
+    /// to no member as the sets are filled above, and is not a distinction worth a type.
+    fn entry(
+        per_page: &BTreeMap<ObjectId, BTreeMap<Sequence, Option<[f32; 4]>>>,
+        anywhere: &BTreeMap<Sequence, Option<[f32; 4]>>,
+        mcid: i64,
+        page: Option<ObjectId>,
+        stream: Option<ObjectId>,
+    ) -> Option<[f32; 4]> {
+        Self::found(per_page, anywhere, mcid, page, stream).and_then(|marks| marks.extent)
+    }
+
+    /// Whether `mcid` is in the set at all.
     fn holds(
-        per_page: &BTreeMap<ObjectId, BTreeSet<Sequence>>,
-        anywhere: &BTreeSet<Sequence>,
+        per_page: &BTreeMap<ObjectId, BTreeMap<Sequence, Option<[f32; 4]>>>,
+        anywhere: &BTreeMap<Sequence, Option<[f32; 4]>>,
         mcid: i64,
         page: Option<ObjectId>,
         stream: Option<ObjectId>,
     ) -> bool {
-        let names = |set: &BTreeSet<Sequence>| {
+        Self::found(per_page, anywhere, mcid, page, stream).is_some()
+    }
+
+    /// The lookup both of the two above are made of.
+    fn found(
+        per_page: &BTreeMap<ObjectId, BTreeMap<Sequence, Option<[f32; 4]>>>,
+        anywhere: &BTreeMap<Sequence, Option<[f32; 4]>>,
+        mcid: i64,
+        page: Option<ObjectId>,
+        stream: Option<ObjectId>,
+    ) -> Option<Marks> {
+        let names = |set: &BTreeMap<Sequence, Option<[f32; 4]>>| {
             set.iter()
-                .any(|(is, within)| *is == mcid && within.named_by(stream))
+                .find(|((is, within), _)| *is == mcid && within.named_by(stream))
+                .map(|(_, extent)| Marks { extent: *extent })
         };
         match page {
-            Some(object) => per_page.get(&object).is_some_and(names),
+            Some(object) => per_page.get(&object).and_then(names),
             None => names(anywhere),
         }
     }
@@ -393,9 +541,13 @@ fn census(document: &Document) -> Counts {
                 if role == "Form" {
                     counts.form = counts.form.saturating_add(1);
                 }
+                let parent = stack.last().copied();
                 stack.push(elements.len());
                 elements.push(Element {
                     role,
+                    parent,
+                    text_extent: None,
+                    drawn_extent: None,
                     bounded: present && readable,
                     marks_text: false,
                     marks_drawn: false,
@@ -416,11 +568,23 @@ fn census(document: &Document) -> Counts {
                     page,
                     stream,
                 );
+                let (text_at, drawn_at) = (
+                    Produced::entry(&produced.text, &produced.text_anywhere, mcid, page, stream),
+                    Produced::entry(
+                        &produced.drawn,
+                        &produced.drawn_anywhere,
+                        mcid,
+                        page,
+                        stream,
+                    ),
+                );
                 for index in &stack {
                     if let Some(element) = elements.get_mut(*index) {
                         element.marked_items = element.marked_items.saturating_add(1);
                         element.marks_text |= text;
                         element.marks_drawn |= drawn;
+                        grow(&mut element.text_extent, text_at);
+                        grow(&mut element.drawn_extent, drawn_at);
                     }
                 }
             }
@@ -442,9 +606,69 @@ fn census(document: &Document) -> Counts {
     counts
 }
 
+/// Whether `inner` sits inside `outer`, allowing a unit of slack on each edge.
+///
+/// The slack is there because the two rectangles are measured differently and not because a
+/// tolerance is wanted: a glyph's quadrilateral is its advance box between the font's ascent and
+/// descent (§9.4.4), and a command's own bound counts a curve by its control polygon, so a
+/// well-behaved line of text can put a fraction of a unit either side of its own text layer. What
+/// this question is about is a mark somewhere the text is not.
+fn inside(inner: [f32; 4], outer: [f32; 4]) -> bool {
+    const SLACK: f32 = 1.0;
+    inner[0] >= outer[0] - SLACK
+        && inner[1] >= outer[1] - SLACK
+        && inner[2] <= outer[2] + SLACK
+        && inner[3] <= outer[3] + SLACK
+}
+
+/// The area of a rectangle, for ranking one disagreement against another.
+fn area(rect: [f32; 4]) -> f32 {
+    (rect[2] - rect[0]).max(0.0) * (rect[3] - rect[1]).max(0.0)
+}
+
 /// Turns the walked elements into the counts the header comment names.
 fn tally(elements: &[Element], referenced: &Referenced, counts: &mut Counts) {
+    // Whether some route places this element itself, which is what a container's own rectangle is
+    // derived from one level up (§14.8.5.4.5).
+    let places = |element: &Element| {
+        element.marks_text
+            || element.marks_drawn
+            || element.bounded
+            || element
+                .own_objects
+                .iter()
+                .any(|object| referenced.places.contains_key(object))
+    };
+    let mut over_placed = vec![false; elements.len()];
     for element in elements {
+        if !places(element) {
+            continue;
+        }
+        let mut at = element.parent;
+        while let Some(index) = at {
+            match over_placed.get_mut(index) {
+                // An ancestor already marked has marked ancestors of its own.
+                Some(true) | None => break,
+                Some(slot) => *slot = true,
+            }
+            at = elements.get(index).and_then(|above| above.parent);
+        }
+    }
+
+    for (index, element) in elements.iter().enumerate() {
+        if let (Some(text), Some(drawn)) = (element.text_extent, element.drawn_extent) {
+            counts.text_and_marks = counts.text_and_marks.saturating_add(1);
+            if !inside(drawn, text) {
+                counts.marks_outside_text = counts.marks_outside_text.saturating_add(1);
+                bump(&mut counts.outside_by_type, &element.role);
+                let mut both = Some(text);
+                grow(&mut both, Some(drawn));
+                if both.is_some_and(|union| area(union) > area(text) * 1.1) {
+                    counts.marks_outside_text_widely =
+                        counts.marks_outside_text_widely.saturating_add(1);
+                }
+            }
+        }
         if element.role == "Form"
             && let Some(name) = element
                 .own_objects
@@ -490,7 +714,31 @@ fn tally(elements: &[Element], referenced: &Referenced, counts: &mut Counts) {
         if !element.bounded && !by_annotation && !element.marks_drawn {
             counts.placeless_unanswered = counts.placeless_unanswered.saturating_add(1);
             bump(&mut counts.unanswered_by_type, &element.role);
+            if over_placed.get(index).copied().unwrap_or(false) {
+                counts.residue_over_placed = counts.residue_over_placed.saturating_add(1);
+                bump(&mut counts.residue_over_placed_by_type, &element.role);
+            }
         }
+    }
+}
+
+/// §14.8.5.4.5's other two derivations, which `viewer_core::places` reads and this prices.
+fn the_two_derivations_a_container_and_a_mixture_need(total: &Counts) {
+    println!(
+        "{} of the elements no route places enclose an element that some route places, which is \
+         what §14.8.5.4.5 derives a container's own rectangle from",
+        total.residue_over_placed
+    );
+    for (role, count) in &total.residue_over_placed_by_type {
+        println!("  {role}: {count}");
+    }
+    println!(
+        "{} elements enclose both text and other marks; on {} of them the marks reach outside the \
+         text, {} of those by more than a tenth of the area",
+        total.text_and_marks, total.marks_outside_text, total.marks_outside_text_widely
+    );
+    for (role, count) in &total.outside_by_type {
+        println!("  {role}: {count}");
     }
 }
 
@@ -517,6 +765,15 @@ fn main() {
                 counts.placeless_bounded,
                 counts.placeless_by_annotation,
                 counts.form,
+            );
+        }
+        if counts.marks_outside_text > 0 || counts.residue_over_placed > 0 {
+            println!(
+                "{path}: {} element(s) whose marks reach outside their text ({} widely), \
+                 {} placeless element(s) enclosing a placed one",
+                counts.marks_outside_text,
+                counts.marks_outside_text_widely,
+                counts.residue_over_placed,
             );
         }
         total.absorb(&counts);
@@ -553,6 +810,7 @@ fn main() {
     for (role, count) in &total.unanswered_by_type {
         println!("  {role}: {count}");
     }
+    the_two_derivations_a_container_and_a_mixture_need(&total);
     println!(
         "{} Form elements, {} of which name a widget whose field type is readable",
         total.form, total.form_with_control

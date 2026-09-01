@@ -407,6 +407,10 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
     }
 
     // The nodes themselves, in the same order, once every child list is complete.
+    // Where each of them is, once for the page rather than once per node: the third of
+    // `viewer_core::places`' three routes is a walk of the whole answer, so asking it per node
+    // would be asking it n times over.
+    let places = viewer_core::places(view.nodes);
     let mut allocated: u64 = 0;
     for (index, node) in view.nodes.iter().enumerate() {
         if !published.get(index).copied().unwrap_or(false) {
@@ -459,7 +463,7 @@ fn elements(view: &PageView, band: Band, out: &mut Vec<(NodeId, Node)>) -> Vec<N
         if let Some(language) = node.language.as_deref() {
             built.set_language(language);
         }
-        if let Some(bounds) = place(node) {
+        if let Some(bounds) = place(&places, index) {
             built.set_bounds(bounds);
             // **An element that has a place can be brought into view**, and that is the whole
             // condition: `Command::Scroll` takes a rectangle of the viewport and an element with no
@@ -983,38 +987,20 @@ fn readback_note(shortfall: pdf_model::content::Shortfall) -> String {
     }
 }
 
-/// Where a magnifier is pointed at this element, and which of three statements decides it.
+/// Where a magnifier is pointed at this element.
 ///
-/// **Measured first, stated last**, which is one ordering applied twice rather than two rules.
+/// **The decision is `viewer_core::places`' and not this crate's**, which is what changed in the
+/// eight-hundred-and-forty-first session: the order — what the page drew inside the element, then
+/// what the document says about it, then what it encloses — is §14.8.3.3's content rectangle
+/// assembled out of the clauses that state it, and it was written here and again in the census that
+/// prices it. What is left in this file is the loss AccessKit's own type asks for, which is this
+/// function.
 ///
-/// 1. The **text quads**: the shapes this program drew, glyph by glyph. Where they exist they are
-///    what the ring should sit on, because they are the marks themselves and nothing coarser.
-/// 2. §14.8.3.3's **content rectangle**, which `viewer_core::AccessibilityNode::drawn` carries —
-///    the union of what the element's marked-content sequences painted, for an element that marks
-///    no text. A `Figure` holding an image, a `TD` holding a logo, a `Div` around a rule. Still
-///    measured, and coarser only because a picture has no glyphs to be precise about.
-/// 3. **Table 379's `/BBox`**, and then §12.5.2's annotation rectangle, which
-///    `viewer_core::AccessibilityNode::bounds` carries. These are what the *document* says, and
-///    they answer where this program drew nothing it could measure.
-///
-/// The order is the conservative one and ADR 0301 argued its first half: a document's rectangle is
-/// a *claim* about a layout this program has already carried out, so it is used where there is
-/// nothing to compare it against and not in place of what was drawn. Extending that to the second
-/// statement is the same argument — a rectangle a producer wrote is a claim whether the marks
-/// under it are glyphs or a picture, and `doc/PDF20_AN001-BPC.pdf` states
-/// `[-32768 -32768 32767 32767]` for one figure, which is a producer writing "somewhere".
-///
-/// Three statements rather than one merged rectangle, because they are different *kinds* of fact
-/// and a host that wants to know which it has can still ask. Whether a stated `/BBox` should win
-/// over measured text — a `Figure` holding a caption and a picture has both, and the text quads
-/// cover only the caption — is a question nothing has measured, and `doc/todo/31` carries it.
-///
-/// `None` where the element has none of the three: an untagged region, an element whose sequences
-/// marked nothing, or one reached only through §14.7.5.3's object reference and stating no bounds.
-fn place(node: &AccessibilityNode) -> Option<Rect> {
-    bounding_box(&node.quads)
-        .or_else(|| node.drawn.map(rectangle))
-        .or_else(|| node.bounds.map(rectangle))
+/// `None` where the element has no place at all: an untagged region, an element whose sequences
+/// marked nothing and that encloses nothing placed, or one reached only through §14.7.5.3's object
+/// reference and stating no bounds.
+fn place(places: &[Option<[f32; 4]>], index: usize) -> Option<Rect> {
+    places.get(index).copied().flatten().map(rectangle)
 }
 
 /// One of `viewer_core`'s rectangles as AccessKit's.
@@ -1025,38 +1011,4 @@ fn rectangle(rect: [f32; 4]) -> Rect {
         x1: f64::from(rect[2]),
         y1: f64::from(rect[3]),
     }
-}
-
-/// The smallest axis-aligned rectangle covering an element's quadrilaterals.
-///
-/// AccessKit takes a rectangle and `viewer_core` answers with quadrilaterals, because a page's
-/// own space may be rotated or sheared and a selection has to be drawn in it. A screen reader
-/// wants somewhere to point a magnifier, so the bounding box is the right loss to take — and
-/// `None` where the element covers nothing, which is a figure, a table cell holding an image, or
-/// an element reached only through §14.7.5.3's object reference.
-fn bounding_box(quads: &[[f32; 8]]) -> Option<Rect> {
-    let mut bounds: Option<Rect> = None;
-    for quad in quads {
-        for corner in quad.chunks_exact(2) {
-            let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
-                continue;
-            };
-            let (x, y) = (f64::from(x), f64::from(y));
-            bounds = Some(match bounds {
-                None => Rect {
-                    x0: x,
-                    y0: y,
-                    x1: x,
-                    y1: y,
-                },
-                Some(rect) => Rect {
-                    x0: rect.x0.min(x),
-                    y0: rect.y0.min(y),
-                    x1: rect.x1.max(x),
-                    y1: rect.y1.max(y),
-                },
-            });
-        }
-    }
-    bounds
 }

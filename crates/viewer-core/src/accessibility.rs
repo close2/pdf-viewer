@@ -1149,6 +1149,109 @@ pub(crate) fn finish(
     }
 }
 
+/// Where each element of one page's answer is, in the device pixels [`AccessibilityNode::quads`]
+/// are in — §14.8.3.3's content rectangle, assembled from the four things that can state it.
+///
+/// # Why this is one function and not each consumer's own arithmetic
+///
+/// [`AccessibilityNode`] carries the *facts* apart — the glyphs, the marks, the producer's
+/// rectangle — because they are different kinds of fact and a consumer that merged them could no
+/// longer tell which it had. But "where is this element" has one answer, and it was being composed
+/// twice: once in `viewer_accessibility::tree`, which is what a screen reader is told, and once in
+/// `viewer-core`'s own accessibility census, which is what says whether that is any good. Two
+/// copies of a precedence is how an instrument comes to price a program it is not measuring.
+///
+/// # The order, and which clause each step is
+///
+/// 1. **What the page drew inside the element**, which is §14.8.3.3's own definition: the content
+///    rectangle "shall be derived from the shape of the enclosed content". §14.8.5.4.5 divides that
+///    derivation by structure type, and two of its five cases are the two halves this program
+///    measures — an inline element containing text has a rectangle set by the line height and "the
+///    widths of the contained characters", which is what [`AccessibilityNode::quads`] are, and one
+///    containing an illustration or a table has "the bounding box of all graphics objects in the
+///    content", which is [`AccessibilityNode::drawn`]. **The union where an element has both**,
+///    because the clause's fifth case is exactly that element: "[f]or an ILSE that contains a
+///    mixture of elements, the height of the content rectangle shall be determined by … finding the
+///    extreme top and bottom for all elements". A `Figure` holding a caption *and* a picture has
+///    text quadrilaterals covering the caption alone, and answering with those would point a
+///    magnifier at half the figure.
+/// 2. **What the document says**, which is [`AccessibilityNode::bounds`]: Table 379's `/BBox`, then
+///    §12.5.2's annotation rectangle. Measured before stated, which is ADR 0301's argument as ADR
+///    0486 amended it — a rectangle a producer wrote is a claim about a layout this program has
+///    already carried out, and `doc/PDF20_AN001-BPC.pdf` states `[-32768 -32768 32767 32767]` for a
+///    badge the page draws five pixels square.
+/// 3. **What the element encloses.** §14.8.5.4.5 derives a container's own rectangle from the
+///    elements inside it — "the height of the content rectangle shall be the sum of the heights of
+///    all BLSEs it contains" for a block-level element, and the extremes of the child objects for an
+///    inline one — so a `TD` whose only content is a widget annotation, or a `Div` around a `Figure`
+///    that states a `/BBox`, has a place even though nothing it holds directly marked the page.
+///    Asked last, so that an element's own content and its own producer's statement both outrank a
+///    derivation from below.
+///
+/// `None` where none of the three answers: an element enclosing nothing that was drawn, stated or
+/// placed. No clause derives a rectangle from nothing, and inventing one would turn "this element's
+/// content marked nothing" into a place.
+///
+/// # The shape of the walk
+///
+/// One reverse pass. [`AccessibilityNode::parent`] is an index into this same slice and the answer
+/// is built by a walk that pushes an element before its descendants, so a single sweep from the end
+/// finishes every child before the element enclosing it. An answer whose order did not have that
+/// property would lose a contribution rather than mis-place one, which is the direction to fail in.
+#[must_use]
+pub fn places(nodes: &[AccessibilityNode]) -> Vec<Option<[f32; 4]>> {
+    let mut enclosed: Vec<Option<[f32; 4]>> = vec![None; nodes.len()];
+    let mut answer: Vec<Option<[f32; 4]>> = vec![None; nodes.len()];
+    for (index, node) in nodes.iter().enumerate().rev() {
+        let mut own = quad_bounds(&node.quads);
+        union_into(&mut own, node.drawn);
+        let place = own
+            .or(node.bounds)
+            .or_else(|| enclosed.get(index).copied().flatten());
+        if let Some(slot) = answer.get_mut(index) {
+            *slot = place;
+        }
+        if let Some(above) = node.parent.and_then(|parent| enclosed.get_mut(parent)) {
+            union_into(above, place);
+        }
+    }
+    answer
+}
+
+/// The smallest axis-aligned rectangle covering an element's quadrilaterals.
+///
+/// A quadrilateral rather than a rectangle is what [`AccessibilityNode::quads`] carries, because a
+/// page's own space may be rotated or sheared; a place is one rectangle, so this is the loss taken
+/// to get there. `None` where the element drew no text.
+fn quad_bounds(quads: &[[f32; 8]]) -> Option<[f32; 4]> {
+    let mut union: Option<[f32; 4]> = None;
+    for quad in quads {
+        for corner in quad.chunks_exact(2) {
+            let (Some(&x), Some(&y)) = (corner.first(), corner.get(1)) else {
+                continue;
+            };
+            union_into(&mut union, Some([x, y, x, y]));
+        }
+    }
+    union
+}
+
+/// Unions `rect` into `into`, which is the whole of the arithmetic above.
+fn union_into(into: &mut Option<[f32; 4]>, rect: Option<[f32; 4]>) {
+    let Some(rect) = rect else {
+        return;
+    };
+    *into = Some(match *into {
+        None => rect,
+        Some(so_far) => [
+            so_far[0].min(rect[0]),
+            so_far[1].min(rect[1]),
+            so_far[2].max(rect[2]),
+            so_far[3].max(rect[3]),
+        ],
+    });
+}
+
 /// Whether any of an element's sequences enclosed content this program refused to draw.
 ///
 /// The element's own identifiers **and its descendants'**, which is [`Gathered::mcids`] and is
@@ -1215,4 +1318,99 @@ fn referenced_rectangle(
         });
     }
     union
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AccessibilityNode, places};
+
+    /// One element with nothing on it, to be given the one fact each case is about.
+    fn element(parent: Option<usize>) -> AccessibilityNode {
+        AccessibilityNode {
+            parent,
+            role: "P".to_owned(),
+            name: String::new(),
+            substituted: false,
+            language: None,
+            quads: Vec::new(),
+            header_scope: None,
+            summary: None,
+            short: None,
+            bounds: None,
+            control: None,
+            annotation: None,
+            headers: Vec::new(),
+            continues_a_list: false,
+            continued_from: None,
+            lines: Vec::new(),
+            drawn: None,
+            enclosed_a_refusal: false,
+        }
+    }
+
+    /// §14.8.5.4.5's mixed element: the marks reach past the text and both are the content.
+    ///
+    /// "[F]or an ILSE that contains a mixture of elements, the height of the content rectangle
+    /// shall be determined by … finding the extreme top and bottom for all elements" — so a
+    /// `Figure` whose caption is the only text does not have the caption for a place.
+    #[test]
+    fn an_element_with_text_and_a_picture_is_placed_over_both() {
+        let mut caption = element(None);
+        caption.quads = vec![[10.0, 90.0, 50.0, 90.0, 50.0, 100.0, 10.0, 100.0]];
+        caption.drawn = Some([10.0, 10.0, 60.0, 100.0]);
+        assert_eq!(places(&[caption]), vec![Some([10.0, 10.0, 60.0, 100.0])]);
+    }
+
+    /// And the union is a union rather than a preference: a glyph box outside the marks stays in.
+    #[test]
+    fn the_text_is_not_lost_where_the_marks_are_narrower() {
+        let mut line = element(None);
+        line.quads = vec![[0.0, 0.0, 40.0, 0.0, 40.0, 12.0, 0.0, 12.0]];
+        // Ink inside the advance box, which is where a line of text without ascenders sits.
+        line.drawn = Some([1.0, 3.0, 38.0, 9.0]);
+        assert_eq!(places(&[line]), vec![Some([0.0, 0.0, 40.0, 12.0])]);
+    }
+
+    /// §14.8.5.4.5's derivation of a container's rectangle from the elements it contains.
+    ///
+    /// The `TD` and the `TR` above it mark nothing; the `Form` inside them is placed by §12.5.2's
+    /// annotation rectangle, and that is what a magnifier is pointed at for all three.
+    #[test]
+    fn a_container_that_marked_nothing_is_placed_by_what_it_encloses() {
+        let row = element(None);
+        let cell = element(Some(0));
+        let mut widget = element(Some(1));
+        widget.role = "Form".to_owned();
+        widget.bounds = Some([20.0, 30.0, 120.0, 50.0]);
+        assert_eq!(
+            places(&[row, cell, widget]),
+            vec![
+                Some([20.0, 30.0, 120.0, 50.0]),
+                Some([20.0, 30.0, 120.0, 50.0]),
+                Some([20.0, 30.0, 120.0, 50.0]),
+            ]
+        );
+    }
+
+    /// An element's own content outranks what it encloses, which is the order the routes are in.
+    #[test]
+    fn an_element_with_its_own_marks_keeps_them() {
+        let mut section = element(None);
+        section.drawn = Some([0.0, 0.0, 10.0, 10.0]);
+        let mut figure = element(Some(0));
+        figure.bounds = Some([-100.0, -100.0, 500.0, 500.0]);
+        let answered = places(&[section, figure]);
+        assert_eq!(
+            answered.first().copied().flatten(),
+            Some([0.0, 0.0, 10.0, 10.0])
+        );
+    }
+
+    /// And an element enclosing nothing that was placed has no place, which is an answer.
+    #[test]
+    fn an_element_that_encloses_nothing_placed_has_no_place() {
+        let outer = element(None);
+        let inner = element(Some(0));
+        assert_eq!(places(&[outer, inner]), vec![None, None]);
+    }
 }

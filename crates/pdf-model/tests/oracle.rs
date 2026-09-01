@@ -1613,6 +1613,44 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// failures agree here and the verdict still rests on them; what is available to say so is this
 /// paragraph, `tests/jbig2.rs`'s invariant and the three logs above, and not a raster.
 ///
+/// # Re-derived in the eight-hundred-and-forty-first session, where the rule was tried and the
+/// harness's own tests refused it
+///
+/// This page is the head of `rank_the_contradicted` — 28.91 bounds from its nearest reference,
+/// failing on the **worst tile** at 28.91× — so it is where a round told to take the worst standing
+/// contradicted page arrives. Everything above it holds on this run's artefacts: `poppler` white
+/// after *Too many symbols in JBIG2 symbol dictionary*, `ghostscript` white and `mupdf` black after
+/// the same three `jbig2dec` warnings, ours two colours and 10 950 black pixels of 159 600.
+///
+/// **`hayro`'s raster is byte-identical to ours, and that is not a fourth reading**: `pdf-sandbox`
+/// decodes §7.4.7 through `hayro-jbig2`, so the two rasters are one decoder run twice. Trap 9's
+/// standing rule — agreement with `hayro` is never evidence about us — has a sharper form here than
+/// it does on a font page, and what *does* establish our decode is ADR 0381's: the `bitmap-*` family
+/// is one drawing encoded through nearly every path ISO/IEC 14492 defines, so each program is
+/// compared with itself and this tree returns one image where `jbig2dec` returns six.
+///
+/// **The rule that would move this page was written, tested and reverted.** It is the narrowest
+/// reading of the abstention above: where *no* reference drew marks and the flat sheets disagree
+/// with each other, none of them is a reading of the page, so all abstain and the page is
+/// `not comparable`. The argument is sound and it is not circular — the disagreement is the
+/// evidence, and our own render never enters it. What refutes it is `pdfref`'s own test suite:
+/// `a_two_of_three_majority_forms_the_consensus` and
+/// `references_disagreeing_among_themselves_is_not_our_failure` are two uniform white rasters
+/// against a uniform black one, which is this page's shape **exactly**, and they are there because a
+/// genuinely blank page with one broken renderer looks the same from the rasters as a page nobody
+/// decoded with one broken renderer. A predicate over rasters cannot separate them, and the one
+/// that fires on both would forgive a render of ours that painted marks on an empty sheet — the
+/// defect ADR 0513's rule exists not to suppress.
+///
+/// **What would separate them is evidence the harness throws away**: the renderer's own words. All
+/// three logs above say *failed to decode*, and `Reference::render` captures both streams into
+/// `work_dir` — but only a cache **miss** writes one, so on a run with a 100% hit rate the verdict
+/// is taken from rasters and the diagnosis from files some earlier run left behind. Remembering the
+/// log beside the raster is what would let an abstention rest on a renderer's testimony rather than
+/// on its pixels; it costs a `cache::FORMAT` bump, which re-renders every cached entry once
+/// (6707 on this corpus, about a thousand seconds of `pdftoppm`, `mutool` and `gs`). That is the
+/// next round's, and it is the one route this page has left. ADR 0768.
+///
 /// On the remaining three of the original seven `jbig2dec` returns ink rather than silence, so
 /// no reference abstains and the comparison is a real one; there the ink table stops being an
 /// identity and starts being a floor. The gate's mean exceeds ¾ of the ink *difference* by 1.4×

@@ -310,7 +310,9 @@ table described by its stated `/Summary` (ADR 0715), a `TH` carrying the axis §
 rather than a guess, a list that §14.8.5.5 says **carries an earlier one on** saying so and
 pointing at it with AT-SPI's `FlowTo` where the earlier one is on the same page (ADR 0748), an
 element placed by
-Table 379's `/BBox` where its content marked no text, and a `StatusBar` group carrying **what the
+§14.8.3.3's content rectangle — everything its own content drew, then what the document says
+about it, then what it encloses, which is what places a table cell whose only content is a widget
+(ADR 0768) — and a `StatusBar` group carrying **what the
 page could not draw**, because the person who cannot see the page is the one for whom a count in
 the title bar is no answer. An untagged page says that it is one rather than being given an
 invented reading order. **And a client may now *act* rather than only listen**: a check box says a

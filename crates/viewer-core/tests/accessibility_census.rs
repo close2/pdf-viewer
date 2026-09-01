@@ -174,7 +174,20 @@ struct Census {
     /// what the page turned out to draw. Their sum is not a total — an element may have both, and
     /// most of the ones that have this have neither `/BBox` nor an annotation (ADR 0486).
     derived: usize,
-    /// Elements with no place by any of the three routes, which is what a client cannot point at.
+    /// Elements placed by **what they enclose**, and by nothing of their own.
+    ///
+    /// §14.8.5.4.5's third derivation and the one added in the eight-hundred-and-forty-first
+    /// session: a container's content rectangle comes from the elements inside it — "the sum of the
+    /// heights of all BLSEs it contains" for a block-level element — so a `TD` whose only content
+    /// is a widget annotation, or a `Div` around a `Figure` that states a `/BBox`, has a place
+    /// although nothing it holds directly marked the page. Counted apart from the two above for
+    /// their reason: it is a third kind of fact, and it is the only one of the three whose operand
+    /// is another element's answer.
+    ///
+    /// **Printed and not ratcheted**, on `doc/todo/05`'s rule that a count enters a gate once it
+    /// has held across rounds.
+    contained: usize,
+    /// Elements with no place by any of the routes, which is what a client cannot point at.
     placeless: usize,
     /// Elements enclosing content this program refused to draw (`AccessibilityNode::
     /// enclosed_a_refusal`).
@@ -269,6 +282,7 @@ impl Census {
         self.substituted = self.substituted.saturating_add(from.substituted);
         self.placed = self.placed.saturating_add(from.placed);
         self.derived = self.derived.saturating_add(from.derived);
+        self.contained = self.contained.saturating_add(from.contained);
         self.placeless = self.placeless.saturating_add(from.placeless);
         self.refused = self.refused.saturating_add(from.refused);
         self.placeless_and_refused
@@ -301,8 +315,12 @@ impl Census {
     /// A count with no sentence beside it is the silence this class was added to break.
     fn carried(&mut self, nodes: &[AccessibilityNode], where_: &str, reports: &[String]) {
         self.nodes = self.nodes.saturating_add(nodes.len());
+        // Where each element is, asked of `viewer_core::places` rather than composed here: this
+        // census exists to say what a screen reader is told, and a second copy of the precedence
+        // would be pricing a program the hosts do not run.
+        let places = viewer_core::places(nodes);
         let mut placeless_and_refused = 0usize;
-        for node in nodes {
+        for (index, node) in nodes.iter().enumerate() {
             if node.substituted {
                 self.substituted = self.substituted.saturating_add(1);
             }
@@ -315,10 +333,14 @@ impl Census {
             if node.enclosed_a_refusal {
                 self.refused = self.refused.saturating_add(1);
             }
-            // The three routes `viewer_accessibility::tree::place` asks in order. A node that has
-            // none of them implements no `Component` interface on AT-SPI at all, so this is the
-            // count of what a magnifier cannot be pointed at.
-            if node.bounds.is_none() && node.drawn.is_none() && node.quads.is_empty() {
+            let placed_by_enclosure =
+                node.bounds.is_none() && node.drawn.is_none() && node.quads.is_empty();
+            if placed_by_enclosure && places.get(index).copied().flatten().is_some() {
+                self.contained = self.contained.saturating_add(1);
+            }
+            // A node `viewer_core::places` cannot place implements no `Component` interface on
+            // AT-SPI at all, so this is the count of what a magnifier cannot be pointed at.
+            if places.get(index).copied().flatten().is_none() {
                 self.placeless = self.placeless.saturating_add(1);
                 if node.enclosed_a_refusal {
                     placeless_and_refused = placeless_and_refused.saturating_add(1);
@@ -699,9 +721,10 @@ fn report(census: &Census, files: usize, seconds: f64) {
         census.derived
     );
     println!(
-        "  with no place by any of the three routes: {}",
-        census.placeless
+        "  placed by §14.8.5.4.5's derivation from what they enclose, and by nothing else: {}",
+        census.contained
     );
+    println!("  with no place by any of the routes: {}", census.placeless);
     println!(
         "  enclosing content this program refused to draw: {}",
         census.refused
