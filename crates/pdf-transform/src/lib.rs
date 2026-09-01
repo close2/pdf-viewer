@@ -502,7 +502,7 @@ pub enum Origin {
         /// Its height.
         height: u32,
     },
-    /// An image `XObject`.
+    /// An image: an `XObject`, or §8.9.7's inline image.
     Image {
         /// Which source.
         source: usize,
@@ -510,6 +510,10 @@ pub enum Origin {
         page: usize,
         /// The object it is, where it is an indirect object.
         object: Option<String>,
+        /// Whether it was written into the content stream itself (§8.9.7).
+        inline: bool,
+        /// Which file form it was written in — decoded PNG, or the codec's own stream.
+        file: images::ImageFile,
         /// Its width in samples.
         width: u32,
         /// Its height.
@@ -642,6 +646,8 @@ impl Output {
                 source,
                 page,
                 object,
+                inline,
+                file,
                 width,
                 height,
             } => vec![
@@ -649,6 +655,8 @@ impl Output {
                 ("source".to_owned(), Value::count(*source)),
                 ("page".to_owned(), Value::count(*page)),
                 ("object".to_owned(), Value::optional(object.clone())),
+                ("inline".to_owned(), Value::Bool(*inline)),
+                ("file".to_owned(), Value::text(file.extension())),
                 ("width".to_owned(), Value::Integer(i64::from(*width))),
                 ("height".to_owned(), Value::Integer(i64::from(*height))),
             ],

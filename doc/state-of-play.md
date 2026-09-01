@@ -274,13 +274,16 @@ measurement this project has of its own extraction. ADR 0257.
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
 to PNG or PPM at a dpi (§8.3.2.3's 72 units to the inch, the oracle backend's own raster byte for
-byte, in parallel across pages), extracts the image `XObject`s a page reaches — decoded through
-the same path the viewer draws them by, so the three confined codecs stay confined — and lists or
-saves §7.11.4's embedded files, over one plan-and-sinks seam a KIO worker, a FUSE filesystem or a
-menu item can call the same way (RFC 0002 §5). One page-range grammar for every verb, with
-§12.4.2's labels addressable as `@iv`; a document's Table 22 bits are honoured at `off` (the
-default: the program is the reader's), `on` or `warn`, asked once where a host can supply the
-answer. ADR 0800.
+byte, in parallel across pages over one shared font cache), extracts the image `XObject`s a page
+reaches and §8.9.7's inline images at every placement — decoded through the same path the viewer
+draws them by, so the three confined codecs stay confined, or under `--native` as the JPEG or JPX
+file the stream already is — and lists or saves §7.11.4's embedded files from all three of their
+homes, the name tree, the catalog's `/AF` and §12.5.6.15's annotations, over one plan-and-sinks
+seam a KIO worker, a FUSE filesystem or a menu item can call the same way (RFC 0002 §5). One
+page-range grammar for every verb, with §12.4.2's labels addressable as `@iv`; a document's Table
+22 bits are honoured at `off` (the default: the program is the reader's), `on` or `warn`, asked
+once where a host can supply the answer. The suite has its own gate, with RFC 0002 §12's perf
+floor and its inventories held to the document's own structure. ADRs 0800, 0801.
 
 **It can tell a person that a signed document changed after it was signed, and whether its
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the

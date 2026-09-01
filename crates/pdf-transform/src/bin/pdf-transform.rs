@@ -5,6 +5,7 @@
 //! pdf-transform render      in.pdf --pages 7 --scale-to 1600 -o -
 //! pdf-transform images      in.pdf --pages 1-10 --min-pixels 32 -o 'img-%d.png'
 //! pdf-transform images      in.pdf --list --report=json
+//! pdf-transform images      in.pdf --native -o 'img-%d'
 //! pdf-transform attachments in.pdf --list
 //! pdf-transform attachments in.pdf --save-all -o dir/
 //! pdf-transform attachments in.pdf --save NAME -o file.bin
@@ -107,6 +108,7 @@ const KNOWN: &[&str] = &[
     "--format",
     "--min-pixels",
     "--list",
+    "--native",
     "--save-all",
     "--save",
     "--password-fd",
@@ -339,6 +341,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 pages,
                 min_pixels: arguments.parsed::<u64>(&["--min-pixels"])?.unwrap_or(0),
                 list_only,
+                native: arguments.switch("--native"),
                 names: if list_only {
                     "%d".parse()
                         .map_err(|error| Failure::Usage(format!("{error}")))?
@@ -501,7 +504,8 @@ usage: pdf-transform <verb> <file.pdf> [options] -o <name>
 verbs:
   render       pages to raster images        -o 'page-%d.png' | -o -
   images       the images the pages embed     -o 'img-%d.png' | --list
-  attachments  embedded files (ISO 32000-2 §7.11.4)
+  attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
+               /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
 
 render:
@@ -515,7 +519,12 @@ images:
   --pages <selection>   which pages to look on (default: all)
   --min-pixels <n>      leave out images with fewer samples
   --list                inventory only; nothing decoded, nothing written
-  every image is decoded to PNG with its soft mask in the alpha, each object once
+  --native              the embedded stream as it is where it is a file on its own: DCT as
+                        .jpg, JPX as .jp2, the rest decoded to PNG (JBIG2 and CCITT say so);
+                        the extension is appended to the name, so -o 'img-%d'. A native
+                        JPEG is the JPEG: its /SMask and /Decode are not in it
+  every image is decoded to PNG with its soft mask in the alpha; an XObject once, an inline
+  image (BI … ID … EI) at every placement
 
 options for every verb:
   --report=json         the report on stdout (not with -o -)

@@ -13,17 +13,18 @@
               skipped test says so"
 )]
 
+mod support;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use pdf_model::content::FontCache;
-use pdf_model::view::ViewState;
-use pdf_render::{Rasterizer as _, TargetSpec};
 use pdf_transform::attachments::{Action, AttachmentsPlan};
-use pdf_transform::images::ImagesPlan;
+use pdf_transform::images::{ImageFile, ImagesPlan};
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
-use pdf_transform::{Budget, Exit, Listed, MemorySinks, Origin, Plan, Policy, Source, apply};
+use pdf_transform::{
+    Budget, Exit, Listed, MemorySinks, Origin, Output, Plan, Policy, Source, apply,
+};
 
 /// A committed document, which every checkout has once `doc/specifications.zip` is unpacked.
 fn committed(name: &str) -> PathBuf {
@@ -67,34 +68,7 @@ fn run(dir: &Path, arguments: &[&str]) -> (i32, Vec<u8>, String) {
     )
 }
 
-/// The oracle backend's raster of one page at 150 dpi — the pipeline
-/// `crates/pdf-model/examples/render_at.rs` runs, stated here independently of the crate.
-fn oracle(bytes: &[u8], index: usize) -> pdf_render::Raster {
-    let document = pdf_syntax::Document::open(bytes.to_vec()).expect("a PDF");
-    let pages = pdf_model::Pages::new(&document);
-    let page = pages.get(index).expect("that page");
-    let view = ViewState::of(&document);
-    let interpretation =
-        pdf_model::content::interpret_with_fonts(&document, &page, &view, &FontCache::new());
-    let list = interpretation.display_list;
-    // ISO 32000-2 §8.3.2.3: 72 user-space units to the inch, so 150 dpi is 150/72.
-    let target = TargetSpec::for_page(&list, 150.0 / 72.0, 1 << 28).expect("a target");
-    render_cpu::CpuRasterizer::new()
-        .rasterize(&list, target)
-        .expect("drawn")
-}
-
-/// Decodes a PNG to its RGBA8 samples.
-fn decode_png(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
-    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    let mut reader = decoder.read_info().expect("a PNG");
-    let mut data = vec![0; reader.output_buffer_size().expect("a bounded size")];
-    let info = reader.next_frame(&mut data).expect("a frame");
-    assert_eq!(info.color_type, png::ColorType::Rgba);
-    assert_eq!(info.bit_depth, png::BitDepth::Eight);
-    data.truncate(info.buffer_size());
-    (info.width, info.height, data)
-}
+use support::{decode_png, oracle};
 
 /// The rendered page is `render-cpu`'s own raster, through the seam and through the program,
 /// and the two agree byte for byte — RFC 0002 section 9's determinism, and the reason the tool is not a
@@ -343,6 +317,7 @@ fn images_are_listed_and_extracted() {
             pages: Selection::all(),
             min_pixels: 0,
             list_only: true,
+            native: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -375,6 +350,7 @@ fn images_are_listed_and_extracted() {
             pages: Selection::all(),
             min_pixels: floor,
             list_only: true,
+            native: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -392,6 +368,7 @@ fn images_are_listed_and_extracted() {
             pages: Selection::all(),
             min_pixels: 0,
             list_only: false,
+            native: false,
             names: "img-%d.png".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -557,4 +534,264 @@ fn one_attachment_is_saved_by_name() {
     );
     assert_eq!(code, 2, "{stderr}");
     assert!(stderr.contains("no embedded file is named"), "{stderr}");
+}
+
+/// §8.9.7's inline image is listed and extracted: `issue11124.pdf` writes one whose data —
+/// unfiltered, `/W 4 /H 4 /CS /RGB /BPC 8` — contains the bytes `EI` twenty-four bytes in, so
+/// its end can only be found by §8.9.3's arithmetic (4 × 4 × 3 components × 1 byte = 48
+/// bytes), never by searching for the operator. The data begins `000` `00z`: §8.9.3's samples,
+/// first row first, each an RGB triple, so pixel (0, 0) is (0x30, 0x30, 0x30) and pixel (1, 0)
+/// is (0x30, 0x30, 0x7a), opaque.
+#[test]
+fn an_inline_image_is_listed_at_its_placement_and_extracted() {
+    let Some(path) = corpus("issue11124.pdf") else {
+        eprintln!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(&path).expect("a corpus document");
+    let listing = apply(
+        &Plan::Images(ImagesPlan {
+            source: 0,
+            pages: Selection::all(),
+            min_pixels: 0,
+            list_only: true,
+            native: false,
+            names: "%d".parse().expect("a pattern"),
+        }),
+        &[Source::new(bytes.clone())],
+        &MemorySinks::new(),
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("lists");
+    assert!(listing.warnings.is_empty(), "{:?}", listing.warnings);
+    let [Listed::Image(entry)] = listing.listed.as_slice() else {
+        panic!("one inline image, listed once: {:?}", listing.listed);
+    };
+    assert!(entry.inline);
+    assert_eq!(entry.object, None);
+    assert_eq!((entry.width, entry.height), (4, 4));
+    assert_eq!(entry.bits_per_component, Some(8));
+    // Table 92's abbreviation `/RGB` expanded to the name the clause says it means.
+    assert_eq!(entry.colour_space.as_deref(), Some("DeviceRGB"));
+    assert!(entry.filters.is_empty());
+    assert_eq!(entry.page, 1);
+
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Images(ImagesPlan {
+            source: 0,
+            pages: Selection::all(),
+            min_pixels: 0,
+            list_only: false,
+            native: false,
+            names: "img-%d.png".parse().expect("a pattern"),
+        }),
+        &[Source::new(bytes)],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("extracts");
+    assert_eq!(report.exit(false, false), Exit::Success, "{report:?}");
+    assert!(matches!(
+        report.outputs.as_slice(),
+        [Output {
+            origin: Origin::Image {
+                inline: true,
+                object: None,
+                file: ImageFile::Png,
+                ..
+            },
+            ..
+        }]
+    ));
+    let outputs = sinks.into_outputs();
+    let (width, height, data) = decode_png(&outputs[0].1);
+    assert_eq!((width, height), (4, 4));
+    assert_eq!(&data[0..8], &[0x30, 0x30, 0x30, 255, 0x30, 0x30, 0x7a, 255]);
+}
+
+/// `--native`: a `DCTDecode` image is written as the JPEG it is — the bytes begin with
+/// ISO/IEC 10918-1's SOI marker `FF D8` — under `.jpg`, and every other image as decoded PNG
+/// under `.png`, the report naming the file form; and where the codec has no standalone file
+/// form the image is decoded and the report says so, per image.
+#[test]
+fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not() {
+    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("a committed document");
+    let listing = apply(
+        &Plan::Images(ImagesPlan {
+            source: 0,
+            pages: "100-130".parse().expect("a selection"),
+            min_pixels: 0,
+            list_only: true,
+            native: true,
+            names: "%d".parse().expect("a pattern"),
+        }),
+        &[Source::new(bytes.clone())],
+        &MemorySinks::new(),
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("lists");
+    let entries: Vec<_> = listing
+        .listed
+        .iter()
+        .map(|listed| match listed {
+            Listed::Image(entry) => entry,
+            Listed::Attachment(_) => panic!("an attachment in an image listing"),
+        })
+        .collect();
+    let jpegs = entries
+        .iter()
+        .filter(|entry| entry.filters.last().is_some_and(|f| f == "DCTDecode"))
+        .count();
+    assert!(jpegs > 0, "pages 100 to 130 of the standard embed JPEGs");
+    assert!(jpegs < entries.len(), "and images that are not JPEGs");
+
+    let dir = scratch();
+    std::fs::create_dir(dir.join("out")).expect("created");
+    let (code, _stdout, stderr) = run(
+        &dir,
+        &[
+            "images",
+            path.to_str().expect("utf-8"),
+            "--pages",
+            "100-130",
+            "--native",
+            "-o",
+            "out/img-%d",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    for (at, entry) in entries.iter().enumerate() {
+        let is_jpeg = entry.filters.last().is_some_and(|f| f == "DCTDecode");
+        let name = format!("out/img-{}.{}", at + 1, if is_jpeg { "jpg" } else { "png" });
+        let written = std::fs::read(dir.join(&name)).expect(&name);
+        if is_jpeg {
+            assert_eq!(&written[..2], &[0xFF, 0xD8], "{name} is not a JPEG");
+        } else {
+            let (width, height, _) = decode_png(&written);
+            assert_eq!((width, height), (entry.width, entry.height), "{name}");
+        }
+    }
+
+    // A CCITT-encoded inline image has no file form: decoded, and the run says so.
+    let Some(path) = corpus("images_1bit_grayscale.pdf") else {
+        eprintln!("skipped the CCITT half: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(&path).expect("a corpus document");
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Images(ImagesPlan {
+            source: 0,
+            pages: Selection::all(),
+            min_pixels: 0,
+            list_only: false,
+            native: true,
+            names: "img-%d".parse().expect("a pattern"),
+        }),
+        &[Source::new(bytes)],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("extracts");
+    assert_eq!(report.exit(false, false), Exit::Warnings, "{report:?}");
+    assert!(
+        report.warnings.iter().any(|warning| warning
+            .detail
+            .contains("CCITTFaxDecode has no standalone file form")),
+        "{:?}",
+        report.warnings
+    );
+    assert!(
+        report.outputs.iter().all(|output| matches!(
+            output.origin,
+            Origin::Image {
+                file: ImageFile::Png,
+                ..
+            }
+        ) && Path::new(&output.name)
+            .extension()
+            .is_some_and(|ext| ext == "png")),
+        "{:?}",
+        report.outputs
+    );
+}
+
+/// §12.5.6.15's file attachment annotations are the third home of an embedded file: the
+/// specification's own PDF files nothing in its name tree and carries every one of its files
+/// on an annotation, and each is listed with its page and saved with Table 46's `/Size` bytes.
+#[test]
+fn file_attachment_annotations_are_listed_with_their_page_and_saved() {
+    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("a committed document");
+    let document = pdf_syntax::Document::open(bytes.clone()).expect("a PDF");
+    let expected = support::annotation_file_names(&document);
+    assert!(!expected.is_empty());
+
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Attachments(AttachmentsPlan {
+            source: 0,
+            action: Action::SaveAll {
+                names: "%t".parse().expect("a pattern"),
+            },
+        }),
+        &[Source::new(bytes)],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("saves");
+    assert_eq!(report.exit(false, false), Exit::Success, "{report:?}");
+    assert!(
+        report
+            .outputs
+            .iter()
+            .all(|output| matches!(output.origin, Origin::Attachment { .. })),
+        "{:?}",
+        report.outputs
+    );
+    let listing = apply(
+        &Plan::Attachments(AttachmentsPlan {
+            source: 0,
+            action: Action::List,
+        }),
+        &[Source::new(std::fs::read(&path).expect("read"))],
+        &MemorySinks::new(),
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("lists");
+    let entries: Vec<_> = listing
+        .listed
+        .iter()
+        .map(|listed| match listed {
+            Listed::Attachment(entry) => entry,
+            Listed::Image(_) => panic!("an image in an attachment listing"),
+        })
+        .collect();
+    let listed: Vec<(usize, String)> = entries
+        .iter()
+        .map(|entry| {
+            (
+                entry.page.expect("every file here is an annotation's"),
+                entry.file_name.clone().expect("a file name"),
+            )
+        })
+        .collect();
+    assert_eq!(listed, expected);
+    let outputs = sinks.into_outputs();
+    assert_eq!(outputs.len(), entries.len());
+    for (entry, (name, written)) in entries.iter().zip(&outputs) {
+        assert_eq!(
+            *name,
+            pdf_transform::pattern::sanitise(entry.file_name.as_deref().unwrap())
+        );
+        assert_eq!(i64::try_from(written.len()).ok(), entry.size, "{name}");
+    }
 }

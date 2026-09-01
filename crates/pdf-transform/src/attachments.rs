@@ -1,18 +1,29 @@
 //! `attachments` — §7.11.4's embedded files, listed or extracted, RFC 0002 section 6.6's read
 //! direction.
 //!
-//! Plumbing over a reader that already ships: `pdf_model::attachment::attachments` reads both
-//! homes an embedded file has — the catalog's `/EmbeddedFiles` name tree (§7.7.4) and the
+//! Plumbing over readers that already ship. `pdf_model::attachment::attachments` reads two of
+//! the homes an embedded file has — the catalog's `/EmbeddedFiles` name tree (§7.7.4) and the
 //! catalog's `/AF` associated files (§14.13) — deduplicated by stream, exactly as the viewer's
-//! files panel lists them. Per-page file-attachment annotations (§12.5.6.15) are the third home
-//! and are not enumerated this round; `doc/todo/57`.
+//! files panel lists them. The third home is §12.5.6.15's file attachment annotation, which
+//! "contains a reference to a file, which typically shall be embedded in the PDF file", under
+//! Table 187's required `/FS` and reachable from no tree: every page's `/Annots` is walked for
+//! `/Subtype /FileAttachment` and `pdf_model::attachment::of_annotation` reads each — the
+//! viewer's own reader, which is what makes the annotation's `/Contents` the description, as
+//! that clause's one `shall` requires. A file the tree names *and* an annotation carries is one
+//! file, deduplicated by stream as the first two homes already are, and listed once under the
+//! home that came first: the tree's. An annotation's file is listed with its page.
+//!
+//! The order is the document's: the tree's files, then `/AF`'s, then the annotations' page by
+//! page in `/Annots` order, so an ordinal names the same file on every run.
 //!
 //! The write direction (`--attach`, pdftk's `attach_files`) is the smallest consumer of a writer
 //! and is the serializer round's.
 
 use std::io::Write as _;
+use std::sync::Arc;
 
-use pdf_model::attachment::{Attachment, attachments};
+use pdf_model::Pages;
+use pdf_model::attachment::{Attachment, attachments, of_annotation};
 use pdf_syntax::Document;
 
 use crate::json::Value;
@@ -70,13 +81,17 @@ pub struct AttachmentEntry {
     pub modified: Option<String>,
     /// Table 43's `/AFRelationship`.
     pub relationship: String,
+    /// The page whose §12.5.6.15 annotation carries it, counted from 1, where that is the
+    /// home it was found in.
+    pub page: Option<usize>,
 }
 
 impl AttachmentEntry {
     /// The entry from the reader's own record.
-    fn of(source: usize, attachment: &Attachment) -> Self {
+    fn of(source: usize, attachment: &Attachment, page: Option<usize>) -> Self {
         Self {
             source,
+            page,
             name: attachment.name.clone(),
             file_name: attachment.file_name.clone(),
             description: attachment.description.clone(),
@@ -119,6 +134,7 @@ impl AttachmentEntry {
                 "relationship".to_owned(),
                 Value::text(self.relationship.clone()),
             ),
+            ("page".to_owned(), Value::optional_count(self.page)),
         ])
     }
 }
@@ -130,11 +146,11 @@ pub(crate) fn run(
     sinks: &dyn Sinks,
     report: &mut Report,
 ) -> Result<(), Refusal> {
-    let all = attachments(document);
+    let all = every_home(document);
     match &plan.action {
         Action::List => {
-            report.listed.extend(all.iter().map(|attachment| {
-                Listed::Attachment(AttachmentEntry::of(plan.source, attachment))
+            report.listed.extend(all.iter().map(|(attachment, page)| {
+                Listed::Attachment(AttachmentEntry::of(plan.source, attachment, *page))
             }));
             Ok(())
         }
@@ -148,7 +164,7 @@ pub(crate) fn run(
                 )));
             }
             let count = all.len();
-            for (at, attachment) in all.iter().enumerate() {
+            for (at, (attachment, page)) in all.iter().enumerate() {
                 save(
                     plan,
                     document,
@@ -157,24 +173,72 @@ pub(crate) fn run(
                     at.saturating_add(1),
                     count,
                     attachment,
+                    *page,
                     report,
                 )?;
             }
             Ok(())
         }
         Action::Save { name, names } => {
-            let attachment = all
+            let (attachment, page) = all
                 .iter()
-                .find(|attachment| {
+                .find(|(attachment, _)| {
                     attachment.name == *name || attachment.file_name.as_deref() == Some(name)
                 })
                 .ok_or_else(|| Refusal::NoSuchAttachment {
                     at: plan.source,
                     name: name.clone(),
                 })?;
-            save(plan, document, sinks, names, 1, 1, attachment, report)
+            save(
+                plan, document, sinks, names, 1, 1, attachment, *page, report,
+            )
         }
     }
+}
+
+/// Most annotation-borne files listed from one document, beside the reader's own bound on
+/// the tree's: a page a producer fills with a thousand attachment icons is one making a reader
+/// work.
+const MAX_ANNOTATION_FILES: usize = 4096;
+
+/// Every embedded file in every home, each stream once, with the page where the home is an
+/// annotation.
+fn every_home(document: &Document) -> Vec<(Attachment, Option<usize>)> {
+    let mut all: Vec<(Attachment, Option<usize>)> = attachments(document)
+        .into_iter()
+        .map(|attachment| (attachment, None))
+        .collect();
+    let pages = Pages::new(document);
+    let mut from_annotations = 0_usize;
+    for index in 0..pages.len() {
+        let Some(page) = pages.get(index) else {
+            continue;
+        };
+        for annotation in pdf_model::retrieval::annotations(document, &page) {
+            if from_annotations >= MAX_ANNOTATION_FILES {
+                return all;
+            }
+            let subtype = document.get_key(&annotation, "Subtype");
+            if subtype.as_name().and_then(|name| name.as_str()) != Some("FileAttachment") {
+                continue;
+            }
+            let Some(attachment) = of_annotation(document, &annotation) else {
+                continue;
+            };
+            // One payload filed in two homes is one file, and the tree's entry is the one
+            // kept: the streams share an `Arc` because the document caches resolved objects by
+            // identity, the argument `pdf_model::attachment::attachments` already rests on.
+            if all
+                .iter()
+                .any(|(seen, _)| Arc::ptr_eq(&seen.stream, &attachment.stream))
+            {
+                continue;
+            }
+            from_annotations = from_annotations.saturating_add(1);
+            all.push((attachment, Some(index.saturating_add(1))));
+        }
+    }
+    all
 }
 
 /// Decodes and writes one embedded file, accounting for it in the report.
@@ -183,8 +247,8 @@ pub(crate) fn run(
 /// written; a sink that fails is the machine's and ends the run (exit 2).
 #[expect(
     clippy::too_many_arguments,
-    reason = "the two callers differ only in the ordinal and the count, and a struct for eight \
-              things used once would name the same eight"
+    reason = "the two callers differ only in the ordinal and the count, and a struct for nine \
+              things used once would name the same nine"
 )]
 fn save(
     plan: &AttachmentsPlan,
@@ -194,6 +258,7 @@ fn save(
     ordinal: usize,
     count: usize,
     attachment: &Attachment,
+    page: Option<usize>,
     report: &mut Report,
 ) -> Result<(), Refusal> {
     // `%t` is the file's own name where it has one and the filing name otherwise: what a person
@@ -208,7 +273,7 @@ fn save(
     });
     let declined = |detail: String| Declined {
         source: plan.source,
-        page: None,
+        page,
         subject: expanded.name.clone(),
         detail,
     };
@@ -223,7 +288,7 @@ fn save(
     if let Some(damage) = &decoded.damage {
         report.warnings.push(Warning {
             source: plan.source,
-            page: None,
+            page,
             detail: format!(
                 "{}: the embedded file's stream is damaged ({damage:?})",
                 attachment.name
@@ -233,7 +298,7 @@ fn save(
     if let Some(false) = attachment.checksum_matches(&decoded.data) {
         report.warnings.push(Warning {
             source: plan.source,
-            page: None,
+            page,
             detail: format!(
                 "{}: the bytes do not match Table 46's /CheckSum",
                 attachment.name

@@ -17,9 +17,34 @@
 //!
 //! The oracle backend is the correctness reference and a batch tool wants no device dependency;
 //! what throughput there is to be had comes from rayon across pages, which are independent (RFC
-//! 0002 section 12). One font cache and one rasteriser per worker thread rather than one shared, because
-//! `pdf_model::content::FontCache` is behind a mutex nothing in this workspace contends for from
-//! two threads, and a transform is the first thing that would.
+//! 0002 section 12).
+//!
+//! **One font cache, shared by every page.** The first landing gave each rayon job its own
+//! `FontCache` through `map_init`, on the argument that the cache's mutex had never been
+//! contended from two threads. That was the wrong unit as well as the wrong argument:
+//! `map_init` runs its constructor once per *split* of the iterator rather than once per thread,
+//! and a split is what a steal makes, so the number of caches grew with the stealing rather
+//! than with the pool — and every one of them parsed the document's fonts again. Measured in the
+//! eight-hundred-and-sixty-eighth session (ADR 0801), pages 1–200 of ISO 32000-2 at 150 dpi,
+//! the `gates` profile, one sitting:
+//!
+//! | threads | one cache per job | one cache shared |
+//! |---|---|---|
+//! | 1 | 8.17 s wall, 7.96 s CPU | 8.09 s wall, 7.88 s CPU |
+//! | 2 | 7.92 s wall, 14.35 s CPU | 4.12 s wall, 7.91 s CPU |
+//! | 4 | 2.93 s wall, 11.26 s CPU | 2.43 s wall, 9.31 s CPU |
+//! | 24 | 1.06 s wall, 20.38 s CPU | 1.08 s wall, 19.86 s CPU |
+//!
+//! Two threads did the work of one at twice the processor time; sharing the cache halves the
+//! wall clock there and takes a fifth off it at four. What it *cannot* take off is the
+//! 24-thread row, and that row is the machine's rather than this crate's: twenty-four separate
+//! single-threaded processes over disjoint page ranges, sharing nothing, cost **20.6 s** of CPU
+//! between them for the same pages — twelve cores with two hardware threads each, at an all-core
+//! clock below the single-core one. So the "2.4× CPU gap" the first landing recorded is a
+//! property of CPU-seconds as a unit under simultaneous multithreading, and not a cost this
+//! code pays. The cache is `Sync` already — `pdf_font::LoadedFont`'s header says what that
+//! cost, and ADR 0710 measured it — so sharing it is one field moved. The rasteriser stays per
+//! job: it is two words and an empty memo.
 //!
 //! # What is a warning and what is a refusal
 //!
@@ -299,21 +324,22 @@ pub(crate) fn run(
         pages: &pages,
         labels: &labels,
         view: ViewState::of(document),
+        fonts: FontCache::new(),
         budget,
         sinks,
         count: selected.len(),
     };
 
-    // Every page is independent, so this is the embarrassingly parallel shape RFC 0002 section 12 asks for.
-    // The results come back in selection order whatever order the threads finished in, which
-    // is what keeps the report deterministic.
+    // Every page is independent, so this is the embarrassingly parallel shape RFC 0002 section 12
+    // asks for. The results come back in selection order whatever order the threads finished
+    // in, which is what keeps the report deterministic. The font cache is the job's, shared —
+    // `map_init` would make one per split, and the module comment has what that cost.
     let done: Vec<Done> = selected
         .par_iter()
         .enumerate()
-        .map_init(
-            || (FontCache::new(), CpuRasterizer::new()),
-            |(fonts, rasterizer), (at, &index)| job.page(fonts, rasterizer, at, index),
-        )
+        .map_init(CpuRasterizer::new, |rasterizer, (at, &index)| {
+            job.page(rasterizer, at, index)
+        })
         .collect();
 
     for Done { outcome, warnings } in done {
@@ -339,6 +365,9 @@ struct Job<'a> {
     labels: &'a PageLabels,
     /// The state the pages are interpreted against: the document's own defaults.
     view: ViewState,
+    /// The one font cache every page shares: a font parsed once is a font parsed once, whichever
+    /// thread meets it first. The module comment has the measurement.
+    fonts: FontCache,
     /// The ceilings.
     budget: &'a Budget,
     /// Where the outputs go.
@@ -350,13 +379,7 @@ struct Job<'a> {
 impl Job<'_> {
     /// Renders, encodes and writes the page at zero-based `index`, the `at`-th of the
     /// selection.
-    fn page(
-        &self,
-        fonts: &FontCache,
-        rasterizer: &mut CpuRasterizer,
-        at: usize,
-        index: usize,
-    ) -> Done {
+    fn page(&self, rasterizer: &mut CpuRasterizer, at: usize, index: usize) -> Done {
         let page_number = index.saturating_add(1);
         let label = self.labels.label(index);
         let expanded = self.plan.names.expand(&Fill {
@@ -382,7 +405,7 @@ impl Job<'_> {
             self.document,
             &page,
             &self.view,
-            fonts,
+            &self.fonts,
             rasterizer,
             self.plan.size,
             self.budget,

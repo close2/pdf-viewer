@@ -527,6 +527,21 @@ from this crate and is the faster of the two here — and a 4× first-search spe
 4.3× the peak memory, against an owner's stated "1 GB is definitely too much". ADR 0260 declines it
 for now and says what would change the answer.
 
+### And what a CPU-second is worth under simultaneous multithreading, which the transform suite found out
+
+`pdf-transform render` over pages 1–200 of ISO 32000-2 at 150 dpi, the `gates` profile, one
+sitting (session 868, ADR 0801): one thread 8.1 s wall at 7.9 s CPU; twenty-four threads 1.1 s wall
+at 19.9 s CPU. The first landing read the ratio as a 2.4× cost to attribute. **Twenty-four
+single-threaded processes over disjoint page ranges, sharing nothing, cost 20.6 s of CPU for the
+same pages** — so the whole of it is the machine's: twelve cores with two hardware threads each,
+at an all-core clock below the single-core boost, make a CPU-second at 24 threads worth less than
+half of one at 1. The rule from it: **on this machine, user time across thread counts is not a
+measure of work; compare against N separate processes before attributing anything to sharing.**
+What *was* this crate's showed only at low thread counts, where a CPU-second is worth what it was:
+`map_init` gave every rayon *split* — not every thread — its own `FontCache`, so two threads cost
+14.3 s of CPU for 7.9 s of wall clock, no faster than one. One shared cache: 7.9 s CPU, 4.1 s wall.
+The table is in `crates/pdf-transform/src/render.rs`'s module comment.
+
 ## What the window itself has been measured at
 
 **This was `doc/HANDOVER.md`'s gate table's `window` row**, moved here whole in the three-hundred-and-ninety-fifth rather than deleted with the rest of that table's narrative: it is not a gate — `Xvfb` and `xdotool` are not build dependencies and a test that skipped silently would be worse than none (`doc/environment.md` has the recipe) — but every figure in it was taken by running the program, and the loop it exercises is the one no gate touches.
