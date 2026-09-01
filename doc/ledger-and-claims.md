@@ -181,6 +181,13 @@ is about *this file's* claims rather than about the ledger's.
   auditing (ADRs 0098, 0100, 0101, 0102), **every one of which found a false or unheld claim**.
   It does *not* say the right test was named: three of the four false claims it hid were caught
   by the oracle rather than by a row.
+- **`PARTIAL_FILE_ONLY_EVIDENCE_CEILING` is the same instrument pointed at the other status that
+  owes a test, and it is zero and asserted with `==` too.** 23 → 0 over three sessions. It was
+  built because the count above filters on `implemented`, so a third of the ledger — every
+  `partial` row, whose named test is the evidence for the half that *is* executed — sat outside
+  the only instrument that reads the shape. The last five it held were **aggregate** rows, whose
+  evidence is one named test per child that states requirements; that is a shape a rename cannot
+  produce, which is why they outlived the renames.
 - **A gate cannot see a cache.** ADR 0115's defect drew wrong glyphs on two documents in silence
   for thirty-one sessions: no report, no contradicted page, and one of them sat on the text gate's
   "undiagnosed" list at 83%. **Where a lookup is memoised, ask what the key claims.** Every cache

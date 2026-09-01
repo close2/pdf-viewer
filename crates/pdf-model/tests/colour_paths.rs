@@ -671,6 +671,52 @@ fn a_devicen_of_only_none_colourants_marks_nothing() {
     );
 }
 
+/// A `DeviceN` reverting to its alternate passes every component, `/None` included.
+///
+/// ISO 32000-2 §8.6.6.5 states the two halves as a pair, and only the second can be reached on
+/// a screen:
+///
+/// > When a DeviceN colour space is painting the named device colourants directly, colour
+/// > components corresponding to None colourants shall be discarded. However, when the
+/// > DeviceN colour space reverts to its alternate colour space, those components shall be
+/// > passed to the tint transformation function, which may use them as desired.
+///
+/// This device has none of the named colourants, so it always reverts; discarding a `/None`
+/// component here would be the first sentence applied where the clause states the second.
+/// The tint transform is `red = first, green = second, blue = 0`, so the `/None` component
+/// carries the whole of the green channel and a discarded one is black rather than a shade.
+///
+/// The second assertion is the other sentence of the same clause — "[o]perand values supplied
+/// to SCN or scn shall be interpreted as colour component values in the order in which the
+/// colours are given in the names array" — which the same transform pins by being asymmetric
+/// in its two inputs.
+#[test]
+fn a_devicen_passes_its_none_components_to_the_tint_transform() {
+    // The two inputs are already on the stack when the program starts (§7.10.5), so pushing
+    // one zero leaves exactly the three values the `/Range` asks for. A two-input function has
+    // to be a stream: Table 38's exponential and stitching types take one input each.
+    let space = "5 0 obj\n[/DeviceN [/Spot /None] /DeviceRGB 6 0 R]\nendobj\n\
+                 6 0 obj\n<< /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] \
+                 /Length 5 >>\nstream\n{ 0 }\nendstream\nendobj\n";
+    let draw = |tints: &str| {
+        centre_colour(pdf_with(
+            space,
+            "/ColorSpace << /Sep 5 0 R >>",
+            &format!("/Sep cs {tints} scn 0 0 20 20 re f"),
+        ))
+    };
+    assert_eq!(
+        draw("0 1"),
+        (0, 255, 0),
+        "the /None component reached the tint transform"
+    );
+    assert_eq!(
+        draw("1 0"),
+        (255, 0, 0),
+        "the operands are in the order the names array gives"
+    );
+}
+
 /// The `/All` colourant is the tint complemented, applied to every colourant.
 ///
 /// §8.6.6.4: "When outputting to an additive device, such as a computer monitor, the

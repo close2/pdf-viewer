@@ -169,6 +169,8 @@ struct Answers {
     label_ranges: Option<String>,
     /// §12.5.1's rotated page carrying a widget annotation.
     rotated_widget: Option<String>,
+    /// §8.7.3.3's underlying colour space, where it is one the operand count cannot stand in for.
+    underlying_space: Option<String>,
 }
 
 fn main() {
@@ -325,6 +327,12 @@ fn report_every_claim(results: &[(String, Answers)]) {
         |a| a.reference_xobject.as_deref(),
     );
     report(
+        "§8.7.3.3's underlying colour space — the claim is that no document names a base the \
+         operand-count fallback could not stand in for",
+        results,
+        |a| a.underlying_space.as_deref(),
+    );
+    report(
         "§11.6.5.2's codec-carrying /SMask — the claim was \"no corpus document states\" one",
         results,
         |a| a.codec_mask.as_deref(),
@@ -391,6 +399,66 @@ struct Sightings {
     deferred_codec_masks: Vec<String>,
     /// §12.3.2.2: where each integer-first destination was stated.
     numbered_destinations: Vec<String>,
+    /// §8.7.3.3: what each `/Pattern` colour space names as its underlying space.
+    underlying_spaces: Vec<String>,
+}
+
+/// §8.7.3.3's underlying colour space, where the operand count could not have stood in for it.
+///
+/// > A Pattern colour space representing an uncoloured tiling pattern shall have a parameter: an
+/// > object identifying the underlying colour space in which the actual colour of the pattern
+/// > shall be specified.
+///
+/// The claim being re-asked is `doc/todo/01`'s: `content::pattern` falls back on the *operand
+/// count* wherever a bare `/Pattern` names no space, and for a base that is `DeviceGray`,
+/// `DeviceRGB` or `DeviceCMYK` the fallback and the stated space agree on every value — so only a
+/// base outside those three can tell a reader that reads the parameter from one that guesses it.
+/// This is the only claim here whose subject is an *array* rather than a dictionary, which is why
+/// it is asked in the array arm.
+///
+/// A `/Pattern` array with no second element is a *coloured* pattern's space and is not counted:
+/// the clause makes the parameter a `shall` for the uncoloured case alone.
+fn underlying_space(document: &Document, items: &[Object], into: &mut Sightings) {
+    let Some(first) = items.first().map(|item| document.resolve(item)) else {
+        return;
+    };
+    if first.as_name().map(|name| name.as_bytes().to_vec()) != Some(b"Pattern".to_vec()) {
+        return;
+    }
+    let Some(base) = items.get(1).map(|item| document.resolve(item)) else {
+        return;
+    };
+    // The abbreviations are §8.9.5.1's inline-image forms, which `ColourSpace::parse_at` accepts
+    // in either place; the fallback picks between the same three by arity. The *array* form is
+    // asked as well, because `[/DeviceRGB]` is the same space written differently and a condition
+    // that counted it would over-report — which it did on its first run, by one document.
+    let family = match &base {
+        Object::Name(name) => Some(name.as_bytes().to_vec()),
+        Object::Array(nested) => nested
+            .first()
+            .map(|item| document.resolve(item))
+            .and_then(|item| item.as_name().map(|name| name.as_bytes().to_vec())),
+        _ => None,
+    };
+    if matches!(
+        family.as_deref(),
+        Some(b"DeviceGray" | b"DeviceRGB" | b"DeviceCMYK" | b"G" | b"RGB" | b"CMYK")
+    ) {
+        return;
+    }
+    let described = match &base {
+        Object::Name(name) => format!("/{}", String::from_utf8_lossy(name.as_bytes())),
+        Object::Array(nested) => nested
+            .first()
+            .map(|item| document.resolve(item))
+            .and_then(|item| {
+                item.as_name()
+                    .map(|name| format!("[/{} …]", String::from_utf8_lossy(name.as_bytes())))
+            })
+            .unwrap_or_else(|| "an array naming no family".to_owned()),
+        other => format!("{other:?}"),
+    };
+    into.underlying_spaces.push(described);
 }
 
 /// Asks one object, and everything nested inside it, the six object-scoped claims.
@@ -411,6 +479,7 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
         Object::Dictionary(dict) => dict,
         Object::Stream(stream) => &stream.dict,
         Object::Array(items) => {
+            underlying_space(document, items, into);
             for item in items {
                 visit(document, item, depth + 1, into);
             }
@@ -1152,6 +1221,15 @@ fn measure(path: &Path) -> Answers {
         sightings.groups.sort();
         sightings.groups.dedup();
         answers.group_subtype = Some(sightings.groups.join(", "));
+    }
+    if !sightings.underlying_spaces.is_empty() {
+        let total = sightings.underlying_spaces.len();
+        sightings.underlying_spaces.sort();
+        sightings.underlying_spaces.dedup();
+        answers.underlying_space = Some(format!(
+            "{total} — {}",
+            sightings.underlying_spaces.join(", ")
+        ));
     }
     if !sightings.codec_masks.is_empty() {
         sightings.codec_masks.sort();

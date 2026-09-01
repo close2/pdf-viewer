@@ -81,8 +81,11 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// outside it. Twenty-three of them named a file.
 ///
 /// **The shape is the one round 851 was bitten by**, which is why this is a ratchet rather than a
-/// reading list: §8.6.6's backwards fold-over rule sat under a row whose evidence was
-/// `tests/colour_paths.rs`, a file that passes whatever it contains. A row naming
+/// reading list: §8.7.4.5.7's backwards fold-over rule sat under a row whose evidence was
+/// `tests/shadings.rs`, a file that passes whatever it contains — and a file holding no type 6 or
+/// type 7 fixture at all. (**This paragraph named §8.6.6 and `tests/colour_paths.rs` until the
+/// eight-hundred-and-fifty-fourth session**, which is one row of the population wearing another's
+/// defect: §8.6.6 was on the list, but the fold-over is the mesh clause's.) A row naming
 /// `file.rs::a_test` is a claim something would fail if it stopped being true; a row naming
 /// `file.rs` is a claim nothing checks, and neither status is exempt from that.
 ///
@@ -103,7 +106,19 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// contained `"/R 5"` — which §7.6.4.1's crypt-filter refusal contains too, so revision 5 could be
 /// accepted outright with the test green. Naming a test is where a row's claim gets read; the
 /// ratchet is what makes somebody read it.
-const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 5;
+///
+/// **23 to 0 over three sessions, and the last five were the aggregates.** §8.6.6, §11.7.5, §14.9
+/// and §7.7 are rows *over a family*, and a family's evidence is one named test per child that
+/// states requirements — which is a shape a rename cannot produce and is why they were left until
+/// last. The reading that produced them found what a whole-file row hides: `/Pattern`'s underlying
+/// colour space can be dropped entirely without failing a test in this tree, because §8.7.3.3's
+/// fallback by operand count answers identically for every device space, and only a base that is
+/// `Indexed`, `Lab`, `ICCBased` or `Separation` could tell them apart. §8.6.6.5's reverting rule —
+/// a `/None` component passed to the tint transform rather than discarded — had no test at all.
+///
+/// **At zero the assertion below is `==`, exactly as the ratchet above it became**: a `partial`
+/// row arriving with a file for evidence now fails the build rather than raising a number.
+const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
@@ -465,12 +480,12 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
         partial_file_only.len()
     );
     assert!(
-        partial_file_only.len() <= PARTIAL_FILE_ONLY_EVIDENCE_CEILING,
+        partial_file_only.len() == PARTIAL_FILE_ONLY_EVIDENCE_CEILING,
         "{} partial rows name a whole file as their evidence, against the ratchet of \
          {PARTIAL_FILE_ONLY_EVIDENCE_CEILING}: {partial_file_only:?}. A row that names a file \
-         names something that passes whatever it contains. This number may only fall: name the \
-         test that would fail if the implemented half of the row stopped being true, and write \
-         it if there is none.",
+         names something that passes whatever it contains. This number may only fall, and it has \
+         reached zero: name the test that would fail if the implemented half of the row stopped \
+         being true, and write it if there is none.",
         partial_file_only.len()
     );
 

@@ -36,7 +36,7 @@ fn with_extra_object(pattern: &str, content: &str, extra: &str) -> Vec<u8> {
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
          2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
          3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
-         /Resources << /Pattern << /P0 5 0 R >> \
+         /Resources << /Pattern << /P0 5 0 R >> /ColorSpace << /CS0 6 0 R >> \
          /ExtGState << /Half << /ca 0.5 >> >> >> /Contents 4 0 R >>\nendobj\n\
          4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
          5 0 obj\n{pattern}\nendobj\n{extra}",
@@ -197,6 +197,48 @@ fn an_uncoloured_pattern_takes_its_colour_from_the_operator() {
     assert!(
         b > 240 && r < 15 && g < 15,
         "and take the colour given to scn, got {r},{g},{b}"
+    );
+}
+
+/// The stencil's colour is read in the *underlying* space, not in one guessed from the operands.
+///
+/// ISO 32000-2 §8.7.3.3 makes the underlying space a `shall` and says where it is written:
+///
+/// > A Pattern colour space representing an uncoloured tiling pattern shall have a parameter: an
+/// > object identifying the underlying colour space in which the actual colour of the pattern
+/// > shall be specified. The underlying colour space shall be given as the second element of the
+/// > array that defines the Pattern colour space.
+///
+/// **The two tests above cannot see that half of the clause**, and nothing else in this tree could
+/// either: they write a bare `/Pattern cs`, for which there is no stated space and the operand
+/// count is the only evidence — so `content::pattern`'s fallback picks `DeviceGray`, `DeviceRGB` or
+/// `DeviceCMYK` by arity, and for a *device* base that fallback and the stated space agree on every
+/// value. Dropping the base from `ColourSpace::parse_at` altogether failed no test in the workspace,
+/// which is how this gap was found.
+///
+/// A `Separation` base is what tells them apart: one operand, so the fallback would read it as a
+/// `DeviceGray` level, while the clause reads it as a tint through the space's own transform. The
+/// tint of 1.0 is red here and the grey of 1.0 is white, which is also the page's background — so
+/// the assertion is on a channel rather than on a pixel being marked, and a stencil that painted
+/// the fallback's colour would be invisible rather than merely wrong.
+#[test]
+fn an_uncoloured_patterns_colour_is_read_in_its_underlying_space() {
+    let underlying = "6 0 obj\n[/Pattern 7 0 R]\nendobj\n\
+                      7 0 obj\n[/Separation /Spot /DeviceRGB 8 0 R]\nendobj\n\
+                      8 0 obj\n<< /FunctionType 2 /Domain [0 1] /C0 [1 1 1] /C1 [1 0 0] /N 1 >>\n\
+                      endobj\n";
+    let raster = render(with_extra_object(
+        &dotted_cell(2, ""),
+        "/CS0 cs 1 /P0 scn 0 0 100 100 re f",
+        underlying,
+    ));
+
+    let (r, g, b, a) = pixel(&raster, 4, 95);
+    assert_eq!(a, 255, "the stencil should paint");
+    assert!(
+        r > 240 && g < 15 && b < 15,
+        "a tint of 1.0 in the Separation base is that space's red, not a DeviceGray white: \
+         got {r},{g},{b}"
     );
 }
 

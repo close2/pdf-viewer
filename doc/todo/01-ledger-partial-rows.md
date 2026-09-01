@@ -5721,15 +5721,20 @@ only instrument that reads the shape.
 
 **Twenty-three of them named a file**, and they cluster where the aggregate rows are: §8.11's
 optional content ×4, §8.10.4's reference XObjects ×3, §11.3.7 and §11.6's transparency ×4. The shape
-is the one the eight-hundred-and-fifty-first session was bitten by — §8.6.6's backwards fold-over
-rule under a row whose evidence was `tests/colour_paths.rs`.
+is the one the eight-hundred-and-fifty-first session was bitten by — §8.7.4.5.7's backwards fold-over
+rule under a row whose evidence was `tests/shadings.rs`, a file holding no type 6 or type 7 fixture
+at all. (That sentence named §8.6.6 and `tests/colour_paths.rs` until the
+eight-hundred-and-fifty-fourth session, which is one row of the population wearing another's defect:
+§8.6.6 *was* on the list, and the fold-over is the mesh clause's.)
 
 `PARTIAL_FILE_ONLY_EVIDENCE_CEILING` is that count, ratcheted downward, printed with its row list so
 that it is a reading list as well as a gate. **It is calibrated rather than believed** (trap 13): at
 23 it reproduces the hand-derived population to the row, and with §11.4.4's four named tests
-truncated to their two files it reports 24 and fails. It is `<=` rather than `==` because the
-population is not zero yet; when it reaches zero it becomes the second `==` in this gate, for the
-reason the first one is.
+truncated to their two files it reports 24 and fails. **It reached zero in the
+eight-hundred-and-fifty-fourth session and is asserted with `==`**, which is the second `==` in this
+gate and is there for the reason the first one is — a `partial` row arriving with a file for
+evidence fails the build rather than raising a number. Calibrated again at zero, both ways: §11.7.5's
+two named tests truncated to their files reports 1 and fails.
 
 **What the first ten rows off it cost, and what they bought.** Ten moved in one session — §8.9.6,
 §8.11, §8.11.1, §8.11.4, §8.11.4.1, §11.3.7, §11.3.7.2, §11.4, §11.6, §11.6.5.2 — every named test
@@ -5769,3 +5774,23 @@ something the reading would not have:
   outright and the test stayed green, because it asserted a substring that a *different* clause's
   refusal of the same document also contains. That is trap 27, and it is the reason naming a test
   is a reading rather than a rename: the plant is what reads it.
+
+- **The last five were the *aggregates*, and that is a shape rather than a coincidence.** §7.7,
+  §8.6.6, §8.6.6.5, §11.7.5 and §14.9 are rows over a family, and a family's evidence is one named
+  test per child that states requirements — so there is nothing to rename to, and the row is only
+  as good as somebody having asked what each child owes. Both readings paid. §8.6.6.5's reverting
+  rule — "when the DeviceN colour space reverts to its alternate colour space, those components
+  shall be passed to the tint transformation function" — had **no test in the tree**, and the
+  clause's other reading (discard the `/None` component) is a one-line plant that fails nothing
+  else; `a_devicen_passes_its_none_components_to_the_tint_transform` is what closes it. And a plant
+  against §8.6.6.2's named test found something no count can see: **a `/Pattern` space's underlying
+  colour space can be dropped from the parser entirely and every test in the tree still passes**,
+  because §8.7.3.3's fallback picks `DeviceGray`, `DeviceRGB` or `DeviceCMYK` by operand count and
+  agrees with the stated base for all three. The base only decides where it is `Indexed`, `Lab`,
+  `ICCBased` or `Separation`, and no fixture in this tree stated one. **That one was taken in the
+  same round**, because it is the demand-side half of the same reading: the test is
+  `an_uncoloured_patterns_colour_is_read_in_its_underlying_space`, the population is 0 of the
+  curated 1251 and **16 of the crawl's 65 944**, and `0300357.pdf` page 1 of 12 draws 2920 pixels
+  differently with the base dropped. A `shall` implemented, exercised in the wild, and held by
+  nothing — which is the shape this ratchet exists to surface, arriving through a *plant* rather
+  than through the count.
