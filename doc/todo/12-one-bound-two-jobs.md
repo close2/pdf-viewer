@@ -7,9 +7,11 @@ Opened in the four-hundred-and-seventh session, answered in the eight-hundred-an
 Priority: 12 — demand-driven, and it is about the instrument rather than about a page
 Code: `tools/pdfref/src/lib.rs` (`Tolerance`, `Judgement`, `widened_to`),
 `crates/pdf-model/tests/oracle.rs` (`the_fixed_bounds_against_the_references_own_spread`,
-`substitutions_of`, `the_excluded_reference_the_consensus_also_convicts`)
-Derivation and numbers: **ADRs 0243, 0717 and 0771**. Read 0771 first; it supersedes the reason
-the other two give for leaving the bound alone without changing what they measured.
+`substitutions_of`, `the_excluded_reference_under_the_same_bound`,
+`name_the_pages_the_excluded_reference_survives`)
+Derivation and numbers: **ADRs 0243, 0717, 0771 and 0772**. Read 0771 first; it supersedes the
+reason the other two give for leaving the bound alone without changing what they measured, and
+0772 corrects two populations it stated in prose.
 
 ## What was asked
 
@@ -45,7 +47,9 @@ control — where the consensus would contradict the voting reference it exclude
 one an independent implementation meets. The gate counts it every run now, and it holds on **52 of
 the 60** contradicted pages, across the JBIG2 pages, the colour pages and the link border alike.
 ADR 0717's *32 of 32* is the pool's base rate rather than that population's signature; a rule
-resting on it would acquit us wherever two references agree for any reason at all.
+resting on it would acquit us wherever two references agree for any reason at all. (0717's own
+figure is **31 of 32** when the gate counts it rather than a document quoting it, and the
+exception is `freeculture.pdf` page 313 — ADR 0772.)
 
 **What replaced `widened_to`'s standing request.** It asked for "a measurement of how far a
 *fourth* independent rasteriser sits from the three", and `pdfium` is still not packaged. The
@@ -74,10 +78,19 @@ Three things, and none of them is the number this item was named for.
    population, which is the only mechanism anybody has named for why that bucket is the size it
    is. Nothing here argues for or against it; what ADR 0771 removes is the *floor* as a reason to
    go near it.
-2. **The three pages the control does not excuse.** `bug847420.pdf`, `issue19633.pdf` and
-   `issue7891_bc1.pdf` page 1 are the whole of the pool on which a voting reference outside the
-   consensus meets the bound while we do not. That is the sharpest population the oracle produces
-   and it has never been read as one.
+2. ~~**The three pages the control does not excuse.**~~ **Read in the
+   eight-hundred-and-forty-fifth session, and closed** (ADR 0772). Two things came out of it. The
+   population is not what this item said — the gate names it now rather than a document naming it,
+   and it is `bug847420.pdf` page 1, `issue7891_bc1.pdf` page 1 and `freeculture.pdf` page **313**,
+   where `issue19633.pdf` is convicted by the control like the other 52. And on each of the three
+   the reason is in its group's note: three references drawing **one substituted face** on the
+   first, a reference inside the bound by 0.06 of a level while 25.6× further from the page's own
+   closed form on the second, and a bound that falls *inside* the continuous spread of the pairs
+   that do not define it on the third. **None of the three is an accusation, and the shape they
+   share is the finding**: the control asks where a renderer sits on the deciding measure, so it
+   fires whenever we are the extreme of an ordering — which is what being on the clause looks like
+   when the pair that sets the bound departs in one direction. Nothing is owed. What is left of
+   this item is items 1 and 3.
 3. **The vector row of the substitution table, which nobody went looking for.** The `mupdf` +
    `ghostscript` consensus contradicts `poppler` on 119 of 226 vector pages against 13 of us.
    Every one of our contradictions under that consensus sits beneath an error rate of 52.7% on a

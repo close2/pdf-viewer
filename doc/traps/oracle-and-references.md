@@ -122,6 +122,22 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   `ldd` that founded this entry was reaching FreeType through `libfontconfig`. Same family, not
   the same object. Recorded on `Reference::independence` and acted on nowhere — marking all three
   `Shared` for text would leave nothing to vote.
+
+  **And one level further out than the object: the three can share the *face they hand it*, which
+  is this bullet's subject and the sixth bullet's mechanism.** On `bug847420.pdf` — a 200 × 50
+  page whose one line names a non-embedded `/Arial,Italic` — all three voting references draw the
+  same substituted design, and it is measurable without opening a font: at 8× the line's ink
+  bounding box is device columns **98 to 1515 in all three** and the capital `T` is **82 device
+  rows in all three**, where ours is 90 to 1509 and 77. Three programs agreeing to the pixel over
+  1420 columns is one face. `ghostscript` says so itself when it is not passed `-q` — *Loading font
+  Arial,Italic (or substitute) from …/Resource/Font/NimbusSans-Italic* — `fc-match
+  Helvetica:italic` answers `…/gsfonts/NimbusSans-Italic.otf`, and `mupdf` carries the URW set
+  compiled in. **The two files on disk are different files**: a 120 927-byte Type 1 program and a
+  95 244-byte OpenType one, different digests, so `objdump -p`, a digest comparison and a `desc`
+  tag all come back empty. What is shared is URW's Base-35 clone of Helvetica, which each of the
+  three went and got separately. **On a page naming a font nobody embedded, the three voting
+  references are one type foundry**, and the tell is a rendering metric — a cap height, an ink box
+  — rather than anything a dependency graph shows. ADR 0772.
 - **And where the corpus states an invariant about itself, ask the *references* that invariant.**
   Shared code is a reason their agreement is not evidence; it is not a reason to believe ours. The
   `bitmap-*` family is one drawing encoded through nearly every path ISO/IEC 14492 defines, so every
@@ -381,8 +397,11 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   the gate's ranking prints the count every run now: the convicting pair's differing fraction
   runs 0.00% to 4.37% (an exact 0.00% on three pages) while **every pair containing
   `ghostscript` runs 5.32% to 13.37%** — no overlap — and `ghostscript`, whose FreeType is its
-  own statically linked copy, fails the same bound against both pair members on all 32 pages,
-  further than we do on 27 of them. So the one voting pair inside the class floor of each other
+  own statically linked copy, fails the same bound against both pair members on **31 of the 32**
+  pages, further than we do on 27 of them. (This read *all 32* until the
+  eight-hundred-and-forty-fifth session made the gate count it; the exception is
+  `freeculture.pdf` p313, where the widened bound is 6.01% rather than the 5.00% class floor and
+  `ghostscript` is at 5.32% and 5.35%. ADR 0772.) So the one voting pair inside the class floor of each other
   is the pair hinting through one `libfreetype.so.6`, and the bound those verdicts rest on is
   one a voting reference cannot meet. No verdict moved on it: the measurement says what the
   bound is made of, not that our phases are right, and `doc/todo/12` prices what moving the
@@ -398,8 +417,28 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   shared profile included — where the first bullets of this list say the consensus is
   manufactured and say nothing whatever about who is right. **The general shape outlives the
   number: a control measured on the population it was invented for is a hypothesis until it is
-  run on the population it excludes.** What survives it is three pages, on which a reference
-  outside the consensus meets the bound while we do not, and that is the sharp end of the pool.
+  run on the population it excludes.**
+
+  **What survives it is three pages, and the gate names them rather than an ADR** — which is the
+  correction the eight-hundred-and-forty-fifth session had to make before it could read them,
+  because the list ADR 0771 wrote in prose held one page that is not in the population and was
+  missing one that is (`name_the_pages_the_excluded_reference_survives`, ADR 0772). They are
+  `bug847420.pdf` p1, `issue7891_bc1.pdf` p1 and `freeculture.pdf` p313. **None of the three is an
+  accusation and they fail in three different ways, which is the finding.** On the first, the
+  reference that meets the bound is not an independent reading at all — all three draw *one
+  substituted face*, measured at 8× as an ink box identical to the pixel and a cap height identical
+  to the row. On the second, `poppler` is inside the worst-tile bound by 0.06 of a level while
+  sitting **25.6 times further from the page's own closed form** than we are. On the third, the
+  five cross-pair differing fractions that do not define the bound run 5.32% to 6.15% with the
+  bound at 6.01%, so the excluded reference is 0.69 points inside a cut through a spread with no
+  gap in it and we are 0.04 outside. **The control asks where a renderer sits on the deciding
+  measure, so it fires wherever we are the extreme of an ordering — which is what being on the
+  clause looks like when the pair that sets the bound departs in one direction.**
+
+  And ADR 0717's *32 of 32*, which the paragraph above this bullet's parent and the gate's own line
+  both quoted, is **31 of 32** now that the gate counts it instead of a document repeating it. The
+  exception is `freeculture.pdf` p313 again: the widening lifted that page's bound from the 5.00%
+  class floor to 6.01% and carried `ghostscript` inside with it.
 
   **And the mechanism has a second half that is nothing to do with shared code, which is where
   the sharing gets its leverage.** `pdfref::decide` does not take *a* pair: it takes the pairs

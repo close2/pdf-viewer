@@ -1059,6 +1059,23 @@ const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf p
 /// the two clauses above changes: the rival set rejects us too, and the third table's `poppler`
 /// column is the one it rejects us on — the one renderer of the three the sign is worth anything
 /// against.
+///
+/// # This page is **not** one of the three where the excluded reference meets the bound, and ADR
+/// 0771 said it was
+///
+/// The eight-hundred-and-forty-fourth session ran trap 12's control over the whole contradicted
+/// pool and named the three pages that survive it in prose. This page was one of the three names
+/// and does not belong: the taken consensus is `poppler` and `mupdf`, the excluded voting
+/// reference is `ghostscript`, and `ghostscript` against `mupdf` is structural similarity
+/// **0.98828** where the vector class floor this page is held to is 0.9900. The consensus
+/// contradicts it too, so the page is in the pool's 52 rather than its 3, and the ink ladder above
+/// says why in a unit the verdict does not use: `ghostscript` paints 0.564 of a device pixel
+/// between `mupdf`'s 0.219 and our 1.006, which is *between* rather than *inside*.
+///
+/// **The correction is the gate's rather than this note's**, since the
+/// eight-hundred-and-forty-fifth session:
+/// [`name_the_pages_the_excluded_reference_survives`] prints the population every run, so nothing
+/// here has to be believed. ADR 0772.
 const CONTRADICTED_NEGATIVE_LINE_WIDTH: [&str; 1] = ["issue19633.pdf page 1"];
 
 /// Contradicted, where the difference is how `DeviceCMYK` becomes a pixel.
@@ -2948,6 +2965,58 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// (`examples/compare_rasters` over the gate's artefacts, not the gate's line). The
 /// substitution is this group's mechanism; the *bound* those four verdicts rest on is that
 /// section's, and ADR 0717 is the measurement.
+///
+/// # `bug847420.pdf` page 1 is one of three pages in the pool where a reference outside the
+/// consensus meets the bound, and on it the three references are **one face**
+///
+/// The gate names that population now (`name_the_pages_the_excluded_reference_survives`, ADR
+/// 0772), and this page is its head: the consensus is `poppler` and `mupdf`, and `ghostscript` —
+/// the voting reference it excludes — is inside every one of the four bounds our own render is
+/// held to (mean 3.48 of 5.00, worst tile 7.21 of 40.00, differing 7.53% of 8.09%, ssim 0.9681 of
+/// 0.9000 at its worst against either member, by `examples/compare_rasters` over the gate's
+/// artefacts because the gate prints no line for a reference) where we fail three. On the face of it that
+/// is the sharpest accusation this pool can produce, because `ghostscript`'s `FreeType` is its own
+/// statically linked copy and trap 9's usual answer — *the pair shares a glyph rasteriser* — does
+/// not reach it.
+///
+/// **It does not survive asking what the three references are reading.** Every one of them draws
+/// the *same substituted design*, which is measurable without opening a font at all: at 8× through
+/// `render_at` against `pdftoppm -cropbox -r 576`,
+/// `mutool draw -r 576` and `gs -dUseCropBox -r576`, the line's ink bounding box is device columns
+/// **98 to 1515 in all three of them** and the capital `T` is **82 device rows in all three**,
+/// where ours is columns 90 to 1509 and 77 rows. Three programs agreeing to the pixel over 1420
+/// columns and to the row on a cap height is one face, not three readings; ours is Liberation
+/// Sans's 0.687500 em against `NimbusSans`'s, which is §9.8.1's row and ADR 0267.
+///
+/// **The face is named, and by the programs rather than by inference where that was available.**
+/// `ghostscript` without `-q` says it outright — *Loading font Arial,Italic (or substitute) from
+/// /usr/share/ghostscript/Resource/Font/NimbusSans-Italic*, a 120 927-byte Type 1 program in its
+/// own `Resource` tree, reached because `Fontmap.GS` maps `/Arial,Italic` to `/Arial-ItalicMT`
+/// and nothing maps that. `fc-match Helvetica:italic` on this machine answers
+/// `/usr/share/fonts/gsfonts/NimbusSans-Italic.otf`, 95 244 bytes, which is where `poppler` goes
+/// once it has taken `Arial` for the base-14 Helvetica. `mupdf`'s route was not asked and does not
+/// need to be: whatever it reads, the raster says it is this design.
+/// **The two files that were named are not the same file** — different formats, different lengths,
+/// different digests — so no dependency graph, digest comparison or `desc` tag finds this, which
+/// is trap 9's *sixth* bullet exactly: implementations agree because each independently went and
+/// got a copy of the same published design. The tell is a rendering metric, and the tell is what
+/// the paragraph above measures.
+///
+/// It is worth saying which bullet it is **not**. Trap 9's font entries are about
+/// `libfreetype.so.6`, the rasteriser *object*, and [`CONTRADICTED_GLYPH_EDGES`]' note says in as
+/// many words that sharing a rasteriser is not what makes two references agree. This is one level
+/// further out: the three do not share the object here — `ghostscript`'s `FreeType` is its own
+/// statically linked copy — they share what they hand it.
+///
+/// **And the specification puts the choice beyond itself twice over.** §9.5 NOTE 5 is quoted at
+/// the head of this note — the results "depend on the availability of fonts in the PDF processor's
+/// environment" — and §9.8.1's route is blocked by this file's own descriptor: it states
+/// `/CapHeight 500` beside `/Ascent 728` and a `/FontBBox` reaching 998, so a processor that did
+/// scale a substitute to the stated cap height would draw capitals **27% shorter than ours and
+/// 31% shorter than the references'**. Nobody honours it, ours included. **`/CapHeight` unread is
+/// what ADR 0267 decided and this page is its third witness**, after `issue7580.pdf`'s zeroes and
+/// `bug1671312_ArialNarrow.pdf`'s 922: the entry is stated and unusable, on the very page whose
+/// cap-height deficit §9.8's row prices.
 const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
     "bug847420.pdf page 1",
     "bug850854.pdf page 1",
@@ -3134,19 +3203,35 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
 /// ladders answer it outright:
 ///
 /// ```text
-///            1x       8x
-/// ours     5.9139   6.0729
-/// poppler  6.0271   6.0658
-/// mupdf    6.0725   6.0819
+///          the 242nd session      re-run in the 845th
+///            1x       8x            1x       8x
+/// ours     5.9139   6.0729        5.854    5.993
+/// poppler  6.0271   6.0658        5.943    5.983
+/// mupdf    6.0725   6.0819        6.013    6.019
 /// ```
 ///
-/// **Ours at eight times the resolution is 6.0729 against a two-ladder limit of 6.0658 and
-/// 6.0819** — inside the references' own spread, which is this group's diagnosis exactly: the
-/// marks are the right marks and the difference is glyph coverage at the page's own scale, 0.16
-/// of 255 of it. Every printed metric is *inside* the class bound — mean 2.56 against 5.00,
-/// worst tile 12.54 against 40.00, ssim 0.9445 against 0.9000 — and the page is contradicted
-/// only because `poppler` and `mupdf` agree so closely that twice their spread is a tighter
-/// bound than the floor. Trap 12, on the eleven pages above's own subject.
+/// (Both columns are ink in levels of 255, `-alpha off -channel R`, `render_at` against
+/// `pdftoppm` and `mutool draw` at 72 and 576 dpi. The absolute figures moved — this tree's own
+/// scan conversion changed under them, ADR 0476 among the reasons — and the *reading* did not:
+/// ours at 8× is between the two references that vote in both columns.)
+///
+/// **Ours at eight times the resolution is inside the references' own spread**, which is this
+/// group's diagnosis exactly: the marks are the right marks and the difference is glyph coverage
+/// at the page's own scale.
+///
+/// **The three figures this paragraph then quoted from the gate went stale, and the sentence
+/// after them was backwards.** It said "[e]very printed metric is *inside* the class bound — mean
+/// 2.56 against 5.00, worst tile 12.54 against 40.00, ssim 0.9445 against 0.9000 — and the page is
+/// contradicted only because `poppler` and `mupdf` agree so closely that twice their spread is a
+/// tighter bound than the floor". The gate prints mean **1.88**, worst tile **9.54**, ssim
+/// **0.9685** and differing **6.05%** against a bound of **6.01%** — so the failing measure is one
+/// the sentence did not mention, and the widening on this page runs the other way: twice the
+/// pair's 3.00% is 6.01%, which is *looser* than the 5.00% class floor, and the page is
+/// contradicted with a bound the consensus **widened**. The ladder was re-run in the
+/// eight-hundred-and-forty-fifth session and its conclusion is unchanged while its numbers moved
+/// with the rasteriser — ours 5.854 → **5.993** against `poppler` 5.943 → **5.983** and `mupdf`
+/// 6.013 → **6.019**, which puts us between the two that vote at 8×. ADR 0772, and the last
+/// section of this note is where the page's verdict is accounted for.
 ///
 /// # Five more in the four-hundred-and-thirty-first, and every one had a *substituted* face
 ///
@@ -3234,20 +3319,53 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
 ///   inside the class floor of each other are the two hinting through one `FreeType`;
 /// - **ours, best against a pair member, is median 5.70% against `ghostscript`'s 6.75%** —
 ///   the third voting reference fails the bound these verdicts rest on against *both* members
-///   of the pair on 32 of 32 pages, and sits further outside it than we do on 27 of the 32.
+///   of the pair on **31 of 32** pages, and sits further outside it than we do on 27 of the 32.
 ///
 /// That is the control trap 12 asks for, taken over the population instead of a page: put
-/// `ghostscript` where our render stands and the same consensus contradicts it on every page
-/// of this group. It is **not** evidence that our phases are right — agreement and its absence
-/// run in one direction only — and no bound moves on it (`doc/todo/12` says what moving one
-/// costs). What it establishes is that these verdicts rest on a bound derived from the one
+/// `ghostscript` where our render stands and the same consensus contradicts it on nearly every
+/// page of this group. It is **not** evidence that our phases are right — agreement and its
+/// absence run in one direction only — and no bound moves on it (`doc/todo/12` says what moving
+/// one costs). What it establishes is that these verdicts rest on a bound derived from the one
 /// pair whose agreement trap 9's tenth mechanism manufactures, and that a voting reference
 /// with its own rasteriser cannot meet that bound either. ADR 0717.
+///
+/// **The two figures above read "32 of 32" and "on every page" until the
+/// eight-hundred-and-forty-fifth session, and the gate counts them now** rather than quoting the
+/// ADR, which is how the exception was found: the printed line under
+/// [`rank_the_contradicted_by_the_bound`] takes the count off `ExcludedReading` every run. ADR
+/// 0772.
+///
+/// # `freeculture.pdf` page 313 is the exception, and it is where the bound falls inside one
+/// continuous spread
+///
+/// It is the one page of the 32 on which `ghostscript` is **inside** the bound — 5.32% against
+/// `poppler` and 5.35% against `mupdf`, where the bound is 6.01% — while ours is 6.05% against
+/// `poppler` and misses by 0.04 of a percentage point. Every other measure is inside with room:
+/// mean 1.88 of 5.00, worst tile 9.54 of 40.00, ssim 0.9685 of 0.9000, so the differing fraction
+/// is the whole verdict. It is therefore also one of the three pages in the whole pool where the
+/// voting reference the consensus excludes meets the bound we do not, which the gate names.
+///
+/// **What the page is** is one leaf of a book whose other three hundred are `ambiguous`, and its
+/// diagnosis is this group's: `examples/render_at` at 1× and 8× against `pdftoppm` and
+/// `mutool draw` at 72 and 576 dpi, ink in levels of 255 with `-alpha off -channel R`, gives ours
+/// 5.854 → **5.993** against `poppler` 5.943 → **5.983** and `mupdf` 6.013 → **6.019**, so at
+/// eight times the resolution we are *between* the two references that vote and the difference at
+/// the page's own scale is glyph coverage. The marks are the right marks.
+///
+/// **And what the verdict is** is where a threshold fell in a spread with no gap in it. The five
+/// cross-pair differing fractions that do *not* define the bound run **5.32%, 5.35%, 5.88%, 6.05%
+/// and 6.15%** — `ghostscript` against each pair member, ours against each pair member, and ours
+/// against `ghostscript` — and the bound derived from the sixth, the pair's own 3.00%, lands at
+/// 6.01%, inside that range and 0.13 points from the top of it. Nobody is on one side of a
+/// boundary the page states; `ghostscript` is 0.69 points inside a cut and we are 0.04 outside it.
+/// That is trap 12's mechanism at its purest — a bound that is a *selected minimum* rather than a
+/// spread — and it is why this page's membership of the excluded-reference population is not an
+/// accusation. ADR 0772.
 ///
 /// # And *32 of 32* is the pool's base rate, which is what the population could not say
 ///
 /// The eight-hundred-and-forty-fourth session ran the same control over the **whole**
-/// contradicted pool — [`the_excluded_reference_the_consensus_also_convicts`], counted by
+/// contradicted pool — [`the_excluded_reference_under_the_same_bound`], counted by
 /// [`rank_the_contradicted_by_the_bound`] every run — and it holds on **52 of the 60** pages,
 /// across the JBIG2 pages, the `CalRGB` pages, the CMYK shading pages and the link border alike.
 /// So it is not this group's signature, it discriminates nothing, and no verdict rule can rest
@@ -3832,6 +3950,31 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 ///
 /// `issue7891_bc1.pdf` is untouched by any of this and is why the group still exists: one pair, one
 /// reading, a bound tighter than eight-bit arithmetic, and no rival set at all.
+///
+/// # `poppler` meets this page's bound by 0.06 of a level while sitting 26 times further from the
+/// page's own arithmetic than we do
+///
+/// This is one of three pages in the pool where the voting reference the consensus excludes is
+/// inside the bound our own render is outside — the population
+/// [`name_the_pages_the_excluded_reference_survives`] prints, and the sharpest accusation the
+/// oracle can construct. Taken at face value it says an independent implementation managed what
+/// we did not.
+///
+/// The two numbers are three lines apart in this note and had never been put beside each other.
+/// The consensus is `mupdf` and `ghostscript`, agreeing on the worst tile at **3.02**, so the
+/// bound is **6.04**; `poppler` against each of them is **5.98**, inside by 0.06; ours against
+/// `mupdf` is **6.73**, outside by 0.69. (Every figure but the bound and our own is
+/// `examples/compare_rasters` over the gate's artefacts — the gate prints no line for a
+/// reference.) And the closed-form table above, on that same tile,
+/// measures each renderer against the page's own arithmetic: ours **0.166**, `poppler` **4.255**,
+/// `ghostscript` 4.596, `mupdf` 6.723. **Being inside the bound and being right are different
+/// facts**, and here they point at different renderers: the reference that meets it is 25.6 times
+/// further from what the file says than the render that does not.
+///
+/// It is the same sentence this group is named for, arriving through the control instead of
+/// through the verdict — a bound derived from two agreeing references is tighter than the
+/// arithmetic, and *which* third implementation happens to fall inside it is a fact about where it
+/// sits on the spread rather than about the clause. ADR 0772.
 const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
 /// Documents where our page geometry differs from the references' by more than the one
@@ -11485,13 +11628,13 @@ struct Examined {
     /// See [`outside_the_bound`] for what the number is made of and why it is a minimum, and
     /// [`worst_ratio`] for why the measure's name travels with it.
     outside_the_bound: Option<(f64, &'static str)>,
-    /// The voting reference outside the consensus that the consensus would contradict as well.
+    /// How the voting reference the consensus excludes fares under that same consensus and bound.
     ///
-    /// `None` where every voting reference is in the consensus, where the excluded one abstained,
-    /// or where it sits inside the bound the consensus set. See
-    /// [`the_excluded_reference_the_consensus_also_convicts`] for what it is for, which is trap
-    /// 12's own control turned into a count the gate prints.
-    excluded_reference_also_convicted: Option<Reference>,
+    /// `None` where every voting reference is in the consensus, or where the excluded one
+    /// abstained or never drew. See [`ExcludedReading`], which is trap 12's own control turned
+    /// into something the gate prints — a count on one side and, since the
+    /// eight-hundred-and-forty-fifth session, a **named population** on the other.
+    excluded_reference: Option<ExcludedReading>,
     /// How many references produced a raster of one colour on a page another one drew, and
     /// therefore took no part in the consensus — `pdfref::consensus_abstentions`.
     ///
@@ -11558,7 +11701,7 @@ impl Examined {
             outside_what_the_closest_pair_would_allow: None,
             alone_on: None,
             outside_the_bound: None,
-            excluded_reference_also_convicted: None,
+            excluded_reference: None,
             abstentions: 0,
             absent: Vec::new(),
             flat_sheets: Vec::new(),
@@ -12098,9 +12241,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         outside_what_the_closest_pair_would_allow,
         alone_on,
         outside_the_bound,
-        excluded_reference_also_convicted: the_excluded_reference_the_consensus_also_convicts(
-            &triangulation,
-        ),
+        excluded_reference: the_excluded_reference_under_the_same_bound(&triangulation),
         abstentions: triangulation.abstained.len(),
         absent,
         flat_sheets,
@@ -12517,18 +12658,51 @@ fn outside_the_bound(triangulation: &pdfref::Triangulation) -> Option<(f64, &'st
         })
 }
 
-/// The voting reference outside the consensus that the same consensus, at the same bound, would
-/// contradict as well.
+/// How the voting reference outside the consensus fares under that same consensus and bound.
 ///
-/// # What it is, and why the gate counts it
+/// Trap 12's own control — *put each reference where our render stands and ask what the sets it
+/// is not a member of conclude about it* — reduced to two integers, so that the two questions
+/// that have been asked of it are answers rather than citations.
+#[derive(Debug)]
+struct ExcludedReading {
+    /// The voting reference the head consensus leaves out.
+    reference: Reference,
+    /// How many consensus members hold it outside the bound our own verdict rested on.
+    outside_of: usize,
+    /// How many members it was compared with.
+    members: usize,
+}
+
+impl ExcludedReading {
+    /// Whether the consensus would contradict the excluded reference as well.
+    ///
+    /// One member is enough, which is the same rule `verdict_of` applies to us: a page is
+    /// contradicted when the *worst* comparison against the consensus is outside the bound.
+    fn convicted(&self) -> bool {
+        self.outside_of > 0
+    }
+
+    /// Whether every member of the consensus holds it outside — the stricter reading.
+    ///
+    /// ADR 0717's sentence is in this form ("outside the same bound against *both* members"), and
+    /// ADR 0771's hand check found the strict population four pages smaller than the loose one.
+    /// Both are printed, because a claim written in one of them cannot be checked against the
+    /// other.
+    fn outside_of_every_member(&self) -> bool {
+        self.members > 0 && self.outside_of == self.members
+    }
+}
+
+/// Reads [`ExcludedReading`] off the numbers the gate has already computed.
 ///
-/// It is trap 12's own control — *put each reference where our render stands and ask what the
-/// sets it is not a member of conclude about it* — asked of the page the gate has in hand, on the
-/// numbers it has already computed. No render and no comparison is added: `between_references`
-/// holds the excluded reference against each consensus member, and `Consensus::judged_by` is the
-/// bound our own verdict rested on.
+/// # What it is
 ///
-/// # The reason it is a *count* rather than a signature
+/// No render and no comparison is added: `between_references` holds the excluded reference
+/// against each consensus member, and `Consensus::judged_by` is the bound our own verdict rested
+/// on. The set asked is the head of `consensuses`, which is the set `verdict_of` names on the
+/// page's own line.
+///
+/// # Why the gate prints a count *and* a list
 ///
 /// ADR 0717 measured this by hand over one population — the 32 pages convicted on the differing
 /// fraction by `poppler` and `mupdf` — and found `ghostscript` outside the same bound on 32 of
@@ -12538,18 +12712,25 @@ fn outside_the_bound(triangulation: &pdfref::Triangulation) -> Option<(f64, &'st
 /// the link border. So it is the pool's **base rate** and not that population's signature, and a
 /// verdict rule resting on it would acquit us wherever two references agree for any reason at all
 /// — including the shared decoder and the shared profile, where trap 9's first bullets say the
-/// consensus is manufactured and say nothing whatever about who is right. Printing the count is
-/// what stops the next round reading a per-population figure as a discriminator. ADR 0771.
+/// consensus is manufactured and say nothing whatever about who is right. ADR 0771.
 ///
-/// `None` where every voting reference is in the consensus, where the excluded one abstained or
-/// never drew, or where it sits inside the bound. The set asked is the head of `consensuses`,
-/// which is the set `verdict_of` names on the page's own line.
-fn the_excluded_reference_the_consensus_also_convicts(
+/// **The count alone was not enough, and the eight-hundred-and-forty-fifth session is why.** The
+/// interesting half of that measurement is its *complement* — the pages where the excluded
+/// reference meets the bound while we do not — and ADR 0771 named those three pages by reading
+/// them off a run by hand. One of the three is not in the population (`issue19633.pdf` page 1,
+/// where `ghostscript` is at structural similarity 0.98828 against `mupdf` and the vector floor
+/// is 0.9900) and one that is was missing (`freeculture.pdf` page 313). A population handed to
+/// the next round in prose is a population the next round cannot check, so the gate names it.
+/// ADR 0772.
+///
+/// `None` where every voting reference is in the consensus, or where the excluded one abstained
+/// or never drew.
+fn the_excluded_reference_under_the_same_bound(
     triangulation: &pdfref::Triangulation,
-) -> Option<Reference> {
+) -> Option<ExcludedReading> {
     let consensus = triangulation.consensuses.first()?;
     let voting = Reference::voting();
-    let excluded = triangulation
+    let reference = triangulation
         .ours
         .iter()
         .map(|(reference, _)| *reference)
@@ -12558,16 +12739,25 @@ fn the_excluded_reference_the_consensus_also_convicts(
                 && !consensus.references.contains(reference)
                 && !triangulation.abstained.contains(reference)
         })?;
-    let convicted = consensus.references.iter().any(|member| {
-        triangulation
-            .between_references
-            .iter()
-            .find(|(left, right, _)| {
-                (*left == excluded && right == member) || (left == member && *right == excluded)
-            })
-            .is_some_and(|(_, _, comparison)| !consensus.judged_by.accepts(comparison))
-    });
-    convicted.then_some(excluded)
+    let against_members: Vec<bool> = consensus
+        .references
+        .iter()
+        .filter_map(|member| {
+            triangulation
+                .between_references
+                .iter()
+                .find(|(left, right, _)| {
+                    (*left == reference && right == member)
+                        || (left == member && *right == reference)
+                })
+                .map(|(_, _, comparison)| !consensus.judged_by.accepts(comparison))
+        })
+        .collect();
+    Some(ExcludedReading {
+        reference,
+        outside_of: against_members.iter().filter(|outside| **outside).count(),
+        members: against_members.len(),
+    })
 }
 
 /// The largest of [`outside_by`]'s four ratios, and the name of the measure it belongs to.
@@ -13718,22 +13908,37 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
         // prefix match is against `verdict_of`'s own format string, and a three-way consensus
         // reads "poppler and mupdf and ghostscript agree", which it deliberately does not match.
         //
-        // ADR 0717 measured what the count means: on every such page `ghostscript` fails this
-        // same differing-fraction bound against *both* members of the convicting pair — the two
-        // distributions do not overlap — so each of these verdicts rests on a bound a voting
-        // reference sits outside on the same page.
-        let convicted_by_the_sharing_pair = ranked
+        // ADR 0717 measured what the count means: on such a page `ghostscript` fails this same
+        // bound against *both* members of the convicting pair, so the verdict rests on a bound a
+        // voting reference sits outside on the same page. **That was written as "on every page of
+        // this population" and it is not**, which the eight-hundred-and-forty-fifth session found
+        // by asking the gate for the exception instead of citing the ADR — so the second figure is
+        // counted here rather than quoted, and the page that breaks it is named by the block below
+        // (ADR 0772).
+        let of_the_sharing_pair: Vec<_> = ranked
             .iter()
             .filter(|(examined, _, of)| {
                 *of == "differing fraction"
                     && matches!(&examined.verdict, Verdict::Contradicted(description)
                         if description.starts_with("poppler and mupdf agree"))
             })
+            .collect();
+        let excluded_outside_of_both = of_the_sharing_pair
+            .iter()
+            .filter(|(examined, _, _)| {
+                examined
+                    .excluded_reference
+                    .as_ref()
+                    .is_some_and(ExcludedReading::outside_of_every_member)
+            })
             .count();
         println!(
-            "    and {convicted_by_the_sharing_pair} of those are convicted by `poppler` and \
-             `mupdf` alone, the one voting pair that shares a glyph rasteriser (trap 9; ADR \
-             0717 measured `ghostscript` outside the same bound on every page of this population)"
+            "    and {} of those are convicted by `poppler` and `mupdf` alone, the one voting \
+             pair that shares a glyph rasteriser (trap 9), with `ghostscript` outside the same \
+             bound against both of them on {excluded_outside_of_both} of the {} — ADR 0717 \
+             measured that as all of them",
+            of_the_sharing_pair.len(),
+            of_the_sharing_pair.len(),
         );
     }
     // And the base rate that figure has to be read against, which is what ADR 0717 could not know
@@ -13741,17 +13946,21 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
     // bound, also contradict the voting reference it excludes. Printed rather than described,
     // because a control that holds nearly everywhere is not a discriminator and a round reading
     // the line above would otherwise take it for one. See
-    // [`the_excluded_reference_the_consensus_also_convicts`], and ADR 0771.
+    // [`the_excluded_reference_under_the_same_bound`], and ADR 0771.
     println!(
         "    and on {} of the {} the consensus would contradict the voting reference it \
          excludes as well, at the same bound — so that control is the pool's base rate rather \
          than any population's signature (ADR 0771)",
         ranked
             .iter()
-            .filter(|(examined, _, _)| examined.excluded_reference_also_convicted.is_some())
+            .filter(|(examined, _, _)| examined
+                .excluded_reference
+                .as_ref()
+                .is_some_and(ExcludedReading::convicted))
             .count(),
         ranked.len(),
     );
+    name_the_pages_the_excluded_reference_survives(&ranked);
     // What the other ranking's unit says about the same pages: at or under 1.0 it says the page is
     // inside every bound it can see. Printed rather than described, because it is the whole reason
     // this second ordering exists.
@@ -13763,6 +13972,44 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
             .filter(|(examined, _, _)| examined.distance.is_some_and(|d| d.nearest <= 1.0))
             .count()
     );
+}
+
+/// The contradicted pages on which the voting reference the consensus excludes meets the bound.
+///
+/// # Why this one is a list where its neighbour is a count
+///
+/// The line above prints the base rate — how often the consensus would contradict the excluded
+/// reference as well — and a control that holds nearly everywhere is not a discriminator. Its
+/// **complement** is: a page where an independent implementation is inside the bound our own
+/// render is outside is the sharpest thing this pool produces, and it is small enough to read
+/// page by page rather than to rank.
+///
+/// ADR 0771 measured the base rate and named the complement's members in prose, from a run it had
+/// in front of it. Two of the three names were wrong — `issue19633.pdf` page 1 is convicted by the
+/// control (`ghostscript` at structural similarity 0.98828 against `mupdf`, where the vector floor
+/// is 0.9900) and `freeculture.pdf` page 313 was missing — and the round that inherited the list
+/// spent its first hour reconstructing it. **A population handed on in prose is a population the
+/// next round cannot check**, which is `CLAUDE.md`'s own rule about counted facts arriving on a
+/// list of pages instead of on a number. ADR 0772.
+fn name_the_pages_the_excluded_reference_survives(ranked: &[(&Examined, f64, &str)]) {
+    let survives: Vec<_> = ranked
+        .iter()
+        .filter_map(|(examined, _, _)| {
+            examined
+                .excluded_reference
+                .as_ref()
+                .filter(|reading| !reading.convicted())
+                .map(|reading| (&examined.name, reading.reference))
+        })
+        .collect();
+    println!(
+        "    and on {} of them the voting reference the consensus excludes meets that same bound \
+         while we do not — the population `doc/todo/12`'s consensus half is read from (ADR 0772):",
+        survives.len(),
+    );
+    for (name, reference) in survives {
+        println!("      {name} — {} is inside the bound", reference.name());
+    }
 }
 
 /// The ten ambiguous pages on which the *references* missed each other by the most.
