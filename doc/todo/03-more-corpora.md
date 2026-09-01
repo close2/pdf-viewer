@@ -2167,6 +2167,100 @@ refusal out loud is the answer for all six.
 now **ask what made the prefix the producer's**. Where the answer is byte continuity from a known
 position, no recovery may skip bytes and keep the guarantee.
 
+### 37. What the eight-hundred-and-sixty-fourth took: `batch5`, the GHOSTSCRIPT tracker, and a silence that was the reader's
+
+**`batch5` landed and is on disk.** The fetch shepherd of the round before verified it against
+Apache's published SHA-512 and this round verified it again before extracting; `ls
+corpus-cache/tika-issue-tracker/` is what says which batches are here, and `batch4` was still
+being fetched piece by piece while this round ran and was left alone. `batch5` is the widest of
+the six by directory count — two dozen trackers rather than one or four — and `ls
+corpus-cache/tika-issue-tracker/batch5/*/*.pdf | wc -l` counts what it holds.
+
+**The chunk is `batch2`'s GHOSTSCRIPT directory, walked as eight shards, one process each**, plus
+the TIKA directory beside it. §1's method, and the shard directories are symlink farms outside the
+tree, deleted after the walk for `--bin undenominated`'s sake (§30's rule).
+
+| directory | documents | line |
+|---|---|---|
+| `batch2/GHOSTSCRIPT`, eight shards | 5442 | 15 unopenable, 47 locked, 19 encrypted beyond us, 52 pageless, 472 incomplete, 85 slow |
+| `batch2/TIKA` | 154 | 0 unopenable, 4 locked, 0 encrypted beyond us, 0 pageless, 7 incomplete, 0 slow |
+
+The line is the tree with this round's own fix in it; the walk before it read 473 incomplete and
+76 slow, and the whole of the first difference is one document named below. The second is load.
+
+**The rate places the tracker rather than the corpus, which is §30's finding confirmed on a fifth
+directory.** 472 of 5442 is **8.67%** incomplete, between `PDFBOX`'s 7.25% and `poppler-gitlab`'s
+11.7% and nowhere near `MOZILLA`'s 2.47% — and TIKA's 7 of 154 is **4.55%**, which is a corpus of
+documents somebody could not *extract text* from rather than one somebody could not parse. The
+web's is 1.735% and the pdf.js gate's 6.98%. A bug tracker's rate is a fact about the tracker.
+
+- **The directory holds 16 `.ai` files the survey never sees**, because the walker takes `.pdf`.
+  Illustrator has written PDF since version 9, so those are documents; nothing here depends on
+  them and the count above is stated over the 5442 the instrument read.
+- **The reports are the ones this project already owns**, ranked by report rather than by
+  document: 5473 `Operator` and 3845 `MissingResource` — a fuzzed content stream's garbled tokens
+  and the resources its reduction removed — then 296 `Font`, 142 `Shading`, 124 `Image`, 103
+  `Text`. Of the fonts, 67 are a glyph the document's own subset does not contain (closed by
+  decision), 35 a font program decoded only as far as its damage, 17 `Identity-H` over a
+  descendant with no embedded program ([`21`](21-font-substitution.md)) and 11 a `/Font` the
+  dictionary does not define. The 26 `TransparencyGroup` are
+  [`23`](23-transparency-departures.md)'s.
+- **The bounds are tripped 40 times: `MAX_TILES` 21, `MAX_FORM_DEPTH` 16, `MAX_OPERATIONS` 2,
+  `MAX_STATE_DEPTH` 1.** That is by far the widest `MAX_FORM_DEPTH` population this project has
+  met — ADR 0271 established over the crawl and §30 over `MOZILLA` that every witness is a cycle,
+  on eleven documents in two corpora, and these sixteen have not had that experiment run on them.
+  **It is what this chunk leaves owed**: lift the bound sixteenfold in a scratch build, one
+  process apiece, and see whether any of the sixteen stops reaching it. A single legitimate one
+  would move `doc/todo/49`'s constant.
+- **The `slow` count is again mostly the instrument, and this is the fourth chunk to say so.**
+  Four of the 76 were timed alone against 8-way load: 66.6 s against 408.6, 86.3 against 350.8,
+  **2.4 against 130.4** and 9.7 against 106.6. Two are genuinely slow, one is a 5700 × 3504 target
+  — a size rather than a structure — and one is not slow at all.
+- **The slowest is the best witness [`40`](40-mask-chain-crop.md) has ever had, and it is not
+  where that item is looking.** `GHOSTSCRIPT-692419-3.bz2-0.pdf` spends **66.5 s of its 66.6 in
+  `interpret`**, producing 25 125 commands that reference **24 743 distinct clips** on a 596 × 842
+  page, and reports nothing. §30 handed `40` a document at 3166 commands and 3149 clips whose 41 s
+  were the *rasteriser's*; this one is eight times the clips with the time on the other side of
+  the boundary, so the two together say the chain costs at both ends. `GHOSTSCRIPT-688696-0.pdf`
+  is the ordinary shape beside it — 2.45 s of interpretation and 83.8 s of rasterising 88 077
+  commands over 649 clips.
+- **The 130.4-second one is the file this corpus has now filed three times.**
+  `GHOSTSCRIPT-692158-0.pdf` is byte-identical to §29's `poppler-978-0.pdf` and
+  `PDFBOX-3688-0.pdf` — the same SHA-256, filed against three readers by three people — and it
+  draws in **2.4 s** because ADR 0780's `MAX_GROUP_BLIT_PIXELS` refuses its 73 047 groups. A third
+  copy is a third confirmation that the bound is where the document is.
+
+**The defect this chunk yielded is not in the GHOSTSCRIPT directory at all**, and finding it is an
+argument for running the settled census over a *new* population rather than over the one being
+walked:
+
+```sh
+cargo run --profile gates -p pdf-model --example standing_count_census -- corpus-cache/tika-issue-tracker/batch{1,2,3,5,6}
+```
+
+Over five batches it prints every document that states a page count and produces no page, split by
+cause, and exactly one of them fell in the class the census's own doc comment calls "a defect of
+the scan rather than of the file": an object that **parses whole**, declares `/Type /Page`, is
+named by the tree's `/Kids`, and still yields nothing. **That class is empty now** — the census's
+`have one that parses whole` column reads 0 — which is the mechanical form of this round's fix. That is `batch5/cairo/cairo-85141-3.pdf`, and the cause is a cross-reference subsection
+this reader abandoned at its fourth entry because a corrupter wrote `000/0` where a generation
+belongs. Everything after it — twenty-five entries, the page among them — became a number with no
+entry, which everywhere else in this reader means *deleted*. ADR 0789 separates the two conditions
+out of §7.5.4's own subsection header and the page draws; the other five are §34's and §36's
+already-argued refusals.
+
+**And the same defect has a witness inside the walked chunk after all, which only the re-run
+found.** `GHOSTSCRIPT-692248-0.pdf` reported §7.3.10's null for its own `/Contents` — object 4,
+one of the numbers its subsection declared and never described — and drew a blank 240 × 240 sheet.
+It draws with ink and reports nothing now, and it is the difference between the two survey lines
+above. Both documents are rows in `doc/checks/fixed-documents.toml`; the second is the one with
+marks on it, which is why it is worth having beside the first.
+
+**What is left here, in the order its value is clearest**: `batch4`, once its pieces land;
+`batch5`'s two dozen trackers, none of them walked; the `MAX_FORM_DEPTH` sixteen above; and the
+interpretation-side clip cost, which is [`40`](40-mask-chain-crop.md)'s to price with a witness it
+did not have.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not

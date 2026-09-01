@@ -122,7 +122,7 @@ pub struct Document {
     /// derived from it. Empty until [`Document::damaged_dictionary`] is called, which is only
     /// ever from a recovery that has already found the document pageless.
     damaged: RwLock<Option<Arc<BTreeMap<u32, crate::parser::DamagedDictionary>>>>,
-    /// How many object numbers were found by their own header after the table misfiled them.
+    /// Which object numbers were found by their own header rather than through the table.
     ///
     /// Counted rather than merely handled, because a document that needed this is a document
     /// whose cross-reference table is wrong, and a reader that repairs one in silence is a
@@ -516,13 +516,15 @@ impl Document {
         self.xref.recovered_by_scan()
     }
 
-    /// The object numbers whose cross-reference entry was disproved by the object at it.
+    /// The object numbers this reader found by their own header rather than through the table.
     ///
-    /// Empty for a well-formed document. A number in here was filed at an offset where a
-    /// *different* object's header stands, and was found instead by its own — see
-    /// [`Document::load_by_header`] for why the header wins. It is here so that the repair is
-    /// answerable rather than silent: a caller that wants to tell a person their file is
-    /// damaged can, and `pdf_syntax` still does not decide whether that is worth saying.
+    /// Empty for a well-formed document. **Two conditions reach it**, and both are the table
+    /// failing to describe an object the file states twice (§7.5.4's entry and §7.3.10's
+    /// header): a number filed at an offset where a *different* object's header stands, and a
+    /// number the table's own subsection header declared while the entry itself was never read
+    /// — see [`Document::load_by_header`] for why the header wins in each. It is here so that
+    /// the repair is answerable rather than silent: a caller that wants to tell a person their
+    /// file is damaged can, and `pdf_syntax` still does not decide whether that is worth saying.
     ///
     /// Grows as objects are loaded, because nothing is parsed until it is asked for. Ask
     /// after the pages that matter have been read.
@@ -807,7 +809,19 @@ impl Document {
 
     /// Loads an object from wherever the cross-reference table says it is.
     fn load(&self, id: ObjectId) -> Option<Object> {
-        match self.xref.location(id.number)? {
+        let Some(location) = self.xref.location(id.number) else {
+            // The table's own header said an entry for this number was there and the entry
+            // itself was not read, so nothing has said the number names nothing — which is
+            // what `XrefTable::declared_and_unread` separates from an absent entry. The
+            // object's own header is then the file's one surviving statement about it, read
+            // exactly as `load_by_header` reads it for an entry that was disproved.
+            return self
+                .xref
+                .declared_and_unread(id.number)
+                .then(|| self.load_by_header(id))
+                .flatten();
+        };
+        match location {
             Location::Offset(offset) => {
                 // A table pointing at the wrong object is a real corruption. Returning
                 // another object's contents under this number would corrupt the document
@@ -850,12 +864,15 @@ impl Document {
     ///
     /// # What it deliberately does not do
     ///
-    /// It runs only where an entry *exists* and is disproved. An object number the table
-    /// does not mention, or mentions as **free**, names nothing — §7.5.6 makes a deletion the
-    /// most recent statement about an object, and ADR 0100 is the session that stopped this
-    /// reader resurrecting objects its own file had deleted. Scanning for a header there
-    /// would undo exactly that. The caller's `?` on [`crate::xref::XrefTable::location`] is
-    /// what keeps the two cases apart.
+    /// It runs where an entry *exists* and is disproved, and — since ADR 0789 — where the
+    /// section's own header declared an entry this reader never read
+    /// ([`crate::xref::XrefTable::declared_and_unread`]). It does **not** run for a number the
+    /// file did not mention at all, or mentioned as **free**: that names nothing, because
+    /// §7.5.6 makes a deletion the most recent statement about an object and ADR 0100 is the
+    /// session that stopped this reader resurrecting objects its own file had deleted.
+    /// Scanning for a header there would undo exactly that. The caller's two questions —
+    /// [`crate::xref::XrefTable::location`] first, then `declared_and_unread` — are what keep
+    /// the three cases apart.
     ///
     /// # Cost
     ///

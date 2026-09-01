@@ -5034,6 +5034,16 @@ to.
   document's logical structure". ADR 0560. **The rows left at the top are §7.6.4.4 and §11.3.4**,
   then the cluster of seven; §9.8.3 with §9.8.3.1 is the family shape one size down, two rows whose
   notes argue with each other about Table 122.
+  **The eight-hundred-and-sixty-fourth took §7.6.4.4 by the same rule and it is `implemented`, with
+  §7.6.4.4.2 under it** (ADR 0788). Nothing in `crypt.rs` was wrong; what was wrong was one row
+  against its siblings. Algorithms 3, 4 and 5 have one shape — a reader runs the steps its
+  authentication needs and the remainder computes the entry a writer stores — and two of the three
+  were `implemented` with the storing step named while the third was `partial` on the same facts,
+  under a parent whose own note argued the choice as `partial` *or* `writer-side` and left out the
+  status its siblings hold. A `partial` naming only a generator's requirement names no debt, which
+  is the fourteenth sweep's subject. **Re-derive the order before believing this sentence** — the
+  round that did found §11.3.4 at the top with a debt that is named and real, the one-component
+  blending spaces and `ICCBased` 'CMYK'.
 - **The self-contradicting note has no instrument, and the seven-hundred-and-first measured the
   obvious one and declined it.** ADR 0551 closed on a shape all eighteen sweeps are blind to — two
   paragraphs of one note contradicting each other — and the construction that would see part of it

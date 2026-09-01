@@ -61,6 +61,9 @@ pub struct XrefTable {
     /// §7.5.7's compressed objects into a rebuilt table. A table read from the file itself needs
     /// nothing of the kind: it already says which objects are in which stream.
     object_streams: Vec<u32>,
+    /// `(first, count)` ranges the file's own section headers declared and this reader did not
+    /// read. See [`Self::declared_and_unread`].
+    unread: Vec<(u32, u32)>,
 }
 
 impl XrefTable {
@@ -88,6 +91,34 @@ impl XrefTable {
     #[must_use]
     pub fn entries_lost(&self) -> u64 {
         self.entries_lost
+    }
+
+    /// Whether the file's own cross-references *mentioned* this object and said nothing about it.
+    ///
+    /// **This is not the same fact as an absent entry, and the difference is a clause.** §7.5.4
+    /// gives a subsection a header stating "the object number of the first object in this
+    /// subsection" and "the number of entries in the subsection", and §7.5.8.2's `/Index` states
+    /// the same pair for a cross-reference stream. So a file makes two statements about an object
+    /// number: the header says an entry for it is here, and the entry says where the object is or
+    /// that it is free. Where the first was read and the second was not — a subsection abandoned
+    /// mid-way because a field will not lex, a stream whose data stops before its `/Index` does —
+    /// the number has been mentioned and not described.
+    ///
+    /// Everywhere else in this reader a number with no entry names nothing, which is §7.5.6's
+    /// deletion rule and ADR 0100's: the statement of absence is §7.5.4's `f` keyword or
+    /// §7.5.8.3's type 0, and both are entries that were *read*. A number this returns `true` for
+    /// carries neither, so a reader may still take §7.3.10's own header — the object's number
+    /// written next to its bytes — without resurrecting anything the file deleted.
+    ///
+    /// `false` for a number some section did describe, free entries included, so the caller's
+    /// order — [`Self::location`] first — cannot be inverted by accident.
+    #[must_use]
+    pub fn declared_and_unread(&self, number: u32) -> bool {
+        !self.entries.contains_key(&number)
+            && self.unread.iter().any(|&(first, count)| {
+                number >= first
+                    && u64::from(number) < u64::from(first).saturating_add(u64::from(count))
+            })
     }
 
     /// Returns the number of known objects.
@@ -397,6 +428,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
         };
         entries.extend(section.entries);
         table.entries_lost = table.entries_lost.saturating_add(section.lost);
+        table.unread.extend(section.unread);
         table.merge_trailer(&section.trailer);
 
         // A cross-reference stream may also carry `/XRefStm`, a hybrid-reference file's
@@ -411,6 +443,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
         {
             entries.extend(extra.entries);
             table.entries_lost = table.entries_lost.saturating_add(extra.lost);
+            table.unread.extend(extra.unread);
         }
 
         match section
@@ -437,6 +470,12 @@ struct Section {
     /// Zero for a classic table, whose short subsection is a different shape and is handled
     /// where it is read. See [`read_xref_stream`] for what states the number.
     lost: u64,
+    /// Object numbers this section's own headers declared and whose entries were not read.
+    ///
+    /// `(first, count)` pairs, in the section's own order. See
+    /// [`XrefTable::declared_and_unread`] for what a caller may do with one and why it is not
+    /// the same fact as an absent entry.
+    unread: Vec<(u32, u32)>,
 }
 
 /// Reads either a classic `xref` table or a cross-reference stream at `offset`.
@@ -460,6 +499,7 @@ fn read_section(input: &[u8], offset: usize, base: usize, limits: Limits) -> Opt
 fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) -> Option<Section> {
     let mut lexer = crate::lexer::Lexer::at(input, offset);
     let mut entries = Vec::new();
+    let mut unread: Vec<(u32, u32)> = Vec::new();
 
     loop {
         let rewind = lexer.position();
@@ -487,15 +527,18 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                     let entry_at = lexer.position();
                     let Some(crate::Token::Integer(position)) = lexer.next_token() else {
                         entries.extend(realigned(input, subsection));
-                        return Some(finish(entries, input, entry_at, limits));
+                        unread.push((first.saturating_add(index), count.saturating_sub(index)));
+                        return Some(finish(entries, unread, input, entry_at, limits));
                     };
                     let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
                         entries.extend(realigned(input, subsection));
-                        return Some(finish(entries, input, entry_at, limits));
+                        unread.push((first.saturating_add(index), count.saturating_sub(index)));
+                        return Some(finish(entries, unread, input, entry_at, limits));
                     };
                     let Some(crate::Token::Keyword(kind)) = lexer.next_token() else {
                         entries.extend(realigned(input, subsection));
-                        return Some(finish(entries, input, entry_at, limits));
+                        unread.push((first.saturating_add(index), count.saturating_sub(index)));
+                        return Some(finish(entries, unread, input, entry_at, limits));
                     };
 
                     // `f` marks a free entry: the object number names nothing *in this
@@ -514,9 +557,18 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                                 number,
                                 Some(Location::Offset(position.saturating_add(base))),
                             ));
+                        } else {
+                            unread.push((number, 1));
                         }
                     } else if kind == b"f" {
                         subsection.push((number, None));
+                    } else {
+                        // §7.5.4's third field is "the keyword n" or "the keyword f" and
+                        // nothing else, so a run of regular characters that merely begins with
+                        // one — `n\x1f`, where the entry's two-byte end-of-line is not one of
+                        // the three the clause allows — says neither *in use* nor *free*. It is
+                        // therefore an entry this reader did not read rather than a deletion.
+                        unread.push((number, 1));
                     }
                 }
                 entries.extend(realigned(input, subsection));
@@ -532,6 +584,7 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                     entries,
                     trailer,
                     lost: 0,
+                    unread,
                 });
             }
             _ => {
@@ -541,7 +594,7 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
         }
     }
 
-    Some(finish(entries, input, lexer.position(), limits))
+    Some(finish(entries, unread, input, lexer.position(), limits))
 }
 
 /// How many of a subsection's in-use entries are checked against the objects they point at.
@@ -651,6 +704,7 @@ fn header_number_at(input: &[u8], offset: usize) -> Option<u32> {
 /// Builds a section, looking for a trailer from `offset` onwards.
 fn finish(
     entries: Vec<(u32, Option<Location>)>,
+    unread: Vec<(u32, u32)>,
     input: &[u8],
     offset: usize,
     limits: Limits,
@@ -660,6 +714,7 @@ fn finish(
         entries,
         trailer,
         lost: 0,
+        unread,
     }
 }
 
@@ -744,7 +799,7 @@ fn read_xref_stream(
     let carried = u64::try_from(data.len().checked_div(row).unwrap_or(0)).unwrap_or(u64::MAX);
     let lost = stated.saturating_sub(carried);
 
-    for pair in index.chunks(2) {
+    for (pair_index, pair) in index.chunks(2).enumerate() {
         let (Some(&first), Some(&count)) = (pair.first(), pair.get(1)) else {
             break;
         };
@@ -762,6 +817,7 @@ fn read_xref_stream(
                     entries,
                     trailer: stream.dict.clone(),
                     lost,
+                    unread: subsections_from(&index, pair_index, first, offset),
                 });
             };
             cursor = cursor.saturating_add(row);
@@ -779,7 +835,39 @@ fn read_xref_stream(
         entries,
         trailer: stream.dict.clone(),
         lost,
+        unread: Vec::new(),
     })
+}
+
+/// The object numbers `/Index` states from the record a short stream stopped at onwards.
+///
+/// The other half of [`XrefTable::entries_lost`]: that count says *how many* numbers the file
+/// meant to describe and this reader read nothing about, and this says *which*. §7.5.8.2's
+/// `/Index` is what states them — "[a]n array containing a pair of integers for each subsection
+/// in this section" — so a number inside a declared subsection whose record the data does not
+/// carry has been mentioned by the file and not described by it, which is
+/// [`XrefTable::declared_and_unread`]'s subject.
+fn subsections_from(index: &[i64], from_pair: usize, first: u32, reached: i64) -> Vec<(u32, u32)> {
+    let mut unread = Vec::new();
+    for (pair_index, pair) in index.chunks(2).enumerate().skip(from_pair) {
+        let (Some(&pair_first), Some(&count)) = (pair.first(), pair.get(1)) else {
+            break;
+        };
+        let (start, remaining) = if pair_index == from_pair {
+            (
+                u64::from(first).saturating_add(u64::try_from(reached).unwrap_or(0)),
+                count.max(0).saturating_sub(reached),
+            )
+        } else {
+            (u64::try_from(pair_first).unwrap_or(0), count.max(0))
+        };
+        let (Ok(start), Ok(remaining)) = (u32::try_from(start), u32::try_from(remaining.max(0)))
+        else {
+            continue;
+        };
+        unread.push((start, remaining));
+    }
+    unread
 }
 
 /// Where each of Table 18's three fields sits inside one record.
