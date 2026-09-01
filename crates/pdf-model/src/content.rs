@@ -603,6 +603,35 @@ fn interpreted(
             }
         }
     }
+    // §11.3.4's one-component case, and it is one interpretation rather than two: a page
+    // whose group states `/DeviceGray` composites one number per pixel, and a raster holding
+    // that number in each channel runs the clause's per-component arithmetic three times over
+    // with §10.4.2.2's conversion out — a grey level "equivalent to an RGB value with all
+    // three components the same" — already in place. `Compositing::Grey` says what every colour becomes on the way in. The one thing
+    // that sends the page back to the device is a group inside it changing the space with
+    // something compositing in it, whose `Do` would need a conversion per pixel; the device
+    // run then reports it, as it always has. The seam is kept, because one run has one seam
+    // and the annotations' appearance streams inherit the page's space (Table 145). ADR 0790.
+    if transparency::page_composites_in_grey(document, page) {
+        let (grey, drawable, checkpoint) = interpret_into(
+            document,
+            page,
+            state,
+            Compositing::Grey,
+            &presses,
+            fonts,
+            keep,
+        );
+        if drawable {
+            let replacement = checkpoint
+                .filter(|_| grey.view_dependent)
+                .map(|checkpoint| Replacement {
+                    checkpoint,
+                    presses,
+                });
+            return (grey, replacement);
+        }
+    }
     let (interpretation, _, checkpoint) = interpret_into(
         document,
         page,
@@ -1221,7 +1250,16 @@ fn complete(
         interpreter.note(Unsupported::Font { detail });
     }
 
-    let drawable = interpreter.blending_undrawable().is_none();
+    // Whether the page may keep the run it was drawn in. A four-component pair answers to
+    // every reason `blending_undrawable` names; a grey run answers to one — a group inside
+    // that changed the space with something compositing in it — because §11.7.5.3's black
+    // generation is on no route into grey and there is no press to be beyond.
+    let drawable = match interpreter.compositing {
+        Compositing::Grey => !interpreter.nested_space_departed,
+        Compositing::Device | Compositing::Luminosity(_) | Compositing::Subtractive(..) => {
+            interpreter.blending_undrawable().is_none()
+        }
+    };
     (finished(document, interpreter), drawable)
 }
 
@@ -1783,8 +1821,10 @@ struct Interpreter<'a> {
     /// it at the page group and §11.6.6 inherits it down the group stack, taking a group's own
     /// `/CS` only where that group is isolated. `None` is a space whose components are the
     /// three the device raster already holds, which is what this tree composites in; `Some`
-    /// names one that is not, and is what gets reported where it is introduced.
-    blending: Option<String>,
+    /// names one that is not, and is what gets reported where it is introduced — unless it
+    /// is drawn: a four-component space by [`Interpreter::group_press`]'s pair, and
+    /// `DeviceGray` under [`Compositing::Grey`] since ADR 0790.
+    blending: Option<transparency::Departure>,
     /// Whether the space in force changed anywhere below the page group, on the page itself.
     ///
     /// §11.4.7's page group is drawn in its own space by running the page twice, once per half

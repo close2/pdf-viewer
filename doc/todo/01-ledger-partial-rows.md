@@ -5044,6 +5044,16 @@ to.
   is the fourteenth sweep's subject. **Re-derive the order before believing this sentence** — the
   round that did found §11.3.4 at the top with a debt that is named and real, the one-component
   blending spaces and `ICCBased` 'CMYK'.
+  **The eight-hundred-and-sixty-fifth took §11.3.4's one-component row and closed `DeviceGray`**
+  (ADR 0790): the clause's per-component sentence makes one component three equal channels, so a
+  `/DeviceGray` page or isolated group is one interpretation under `Compositing::Grey` and no
+  second raster. The row stays `partial`, and what it names now is smaller and different in kind:
+  `CalGray` and `ICCBased` 'GRAY', whose component reaches the device through a curve and would
+  want a one-dimensional conversion out per pixel; the choice §10.4.2.1 leaves between the classic
+  conversion into grey and §10.3's, on which two references take the other route; and `ICCBased`
+  'CMYK', which is `doc/todo/23`'s ICC `B2A` row. The reading also found the row's own report
+  fired on a condition inherited from four components — *something composites* — that is false
+  for one, and widened it. **Re-derive the order before believing this sentence.**
 - **The self-contradicting note has no instrument, and the seven-hundred-and-first measured the
   obvious one and declined it.** ADR 0551 closed on a shape all eighteen sweeps are blind to — two
   paragraphs of one note contradicting each other — and the construction that would see part of it

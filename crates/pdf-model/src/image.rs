@@ -148,7 +148,12 @@ impl ColourSpace {
             (space, Compositing::Luminosity(_) | Compositing::Subtractive(..)) => {
                 Self::Resolved(space)
             }
+            // A page composited in `DeviceGray` is the same argument once more, with one
+            // exception the arm order states: a `DeviceGray` sample *is* its own grey, so the
+            // fast arm is exact there, and every other space's sample becomes §10.4.2.2's or
+            // §10.4.2.3's grey through the one conversion.
             (crate::colour::ColourSpace::Gray, _) => Self::Gray,
+            (space, Compositing::Grey) => Self::Resolved(space),
             (crate::colour::ColourSpace::Rgb, _) => Self::Rgb,
             (crate::colour::ColourSpace::Cmyk, _) => Self::Cmyk,
             (other, _) => Self::Resolved(other),
