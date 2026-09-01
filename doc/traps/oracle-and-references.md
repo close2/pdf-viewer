@@ -388,6 +388,33 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   bound is made of, not that our phases are right, and `doc/todo/12` prices what moving the
   bound costs.
 
+  **And *32 of 32* is the pool's base rate, which is the one thing a figure measured on its own
+  population cannot say about itself** (ADR 0771). The gate counts the same control over the
+  whole contradicted pool now — for every page, would this consensus at this bound contradict the
+  voting reference it excludes — and the answer is **52 of 60**, holding on the JBIG2 pages, the
+  `CalRGB` pages, the CMYK shading pages and the link border as squarely as on the glyph pages.
+  So it is not that population's signature and it cannot carry a verdict rule: one resting on it
+  would acquit us wherever two references agree for *any* reason, the shared decoder and the
+  shared profile included — where the first bullets of this list say the consensus is
+  manufactured and say nothing whatever about who is right. **The general shape outlives the
+  number: a control measured on the population it was invented for is a hypothesis until it is
+  run on the population it excludes.** What survives it is three pages, on which a reference
+  outside the consensus meets the bound while we do not, and that is the sharp end of the pool.
+
+  **And the mechanism has a second half that is nothing to do with shared code, which is where
+  the sharing gets its leverage.** `pdfref::decide` does not take *a* pair: it takes the pairs
+  agreeing within the fixed bounds, so on a page carrying one the bound is derived from the
+  **closest** pair in the room — a selected minimum rather than a typical spread. Shared code
+  makes a pair tighter; selection then makes that pair the one the verdict rests on. Both are
+  measurable from the references alone, by running the gate's own judgement with a reference
+  standing where our render stands (`oracle.rs`'s `substitutions_of`): on text pages the
+  `poppler` + `mupdf` consensus contradicts `ghostscript` on **9.1%** of the pages it judges,
+  where the `poppler` + `ghostscript` consensus — the one whose members do not share the object —
+  contradicts `mupdf` on **0.6%**. Same bound, same class, same corpus, fifteenfold difference in
+  the instrument's error rate. **The bound is not what varies; the consensus is**, which is why
+  `doc/todo/12` did not move the number. The same table's *vector* row is unread work rather than
+  a finding: that consensus contradicts `poppler` on 119 of 226 vector pages.
+
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose
 key is missing. **Two against two is not a tie; it is a question with an answer, and the answer is
@@ -454,6 +481,17 @@ so the numbers accusing us are literally `ghostscript`'s distance from `poppler`
 **not** distinguish is a division of *camps* from a division of *width*: on `issue11403_reduced.pdf`
 one reference is in both sets and we are further from all three than any two are from each other, so
 `ambiguous` there is the absence of a verdict rather than an acquittal.
+
+**And the pair the bound is derived from is *selected for being the closest*, so the bound is a
+minimum order statistic rather than a spread.** That is this trap's own subject stated as a
+mechanism instead of as a witness, and it acts on every page carrying one consensus, whether or
+not its members share anything: `decide` keeps the pairs that agree within the fixed bounds, and
+what a third implementation is then held to is twice the distance between the two programs that
+happened to agree most closely. The control is cheap and it is the gate's own code —
+`triangulate_with` with a *reference* standing where our render stands, judged by the other two —
+and `oracle.rs`'s `substitutions_of` runs it over the corpus. Read the rate before reading a
+verdict: on text pages a `poppler` + `mupdf` consensus contradicts the reference it excludes on
+9.1% of what it judges, a `poppler` + `ghostscript` one on 0.6%. ADR 0771.
 
 **And a bound derived from an aggregate is not a bound on the pixels the aggregate is made of.**
 `calrgb.pdf` page 1's consensus pair differs by 4.41%, so the gate holds us to 8.82%. Over the

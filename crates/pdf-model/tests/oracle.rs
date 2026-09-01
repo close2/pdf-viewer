@@ -2942,7 +2942,7 @@ const CONTRADICTED_SYMBOLIC_FONT_FLAGS: [&str; 0] = [];
 /// `issue6069.pdf`, `issue6108.pdf`, `issue7580.pdf` and `bug850854.pdf` are convicted on the
 /// differing fraction by `poppler` and `mupdf` alone, and they are members of the population
 /// [`CONTRADICTED_GLYPH_EDGES`]'s last section measures whole: on all four, `ghostscript` —
-/// the voting reference with its own statically linked FreeType — fails the same
+/// the voting reference with its own statically linked `FreeType` — fails the same
 /// differing-fraction bound against both members of the convicting pair, and on `issue7580.pdf`
 /// that pair agrees to an exact 0.00% on the count while `ghostscript` sits at 5.50%
 /// (`examples/compare_rasters` over the gate's artefacts, not the gate's line). The
@@ -3215,7 +3215,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
 /// Every page of this group is convicted on the differing fraction by `poppler` and `mupdf`
 /// alone, and those two are the one voting pair that hints its glyphs through a single
 /// rasteriser: `pdftoppm` and `mutool` each load the machine's `libfreetype.so.6` where `gs`
-/// links no FreeType and carries its own statically linked copy — `objdump -p` on this
+/// links no `FreeType` and carries its own statically linked copy — `objdump -p` on this
 /// machine's binaries, re-checked in the seven-hundred-and-eightieth session rather than
 /// inherited from trap 9's bullet. The gate's ranking prints the count of such convictions
 /// every run since that session.
@@ -3231,7 +3231,7 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
 ///   the count's own zero;
 /// - **every pair containing `ghostscript` runs 5.32% to 13.37%, median 6.8%** — the two
 ///   distributions do not overlap, so on every one of the 32 pages the only two renderers
-///   inside the class floor of each other are the two hinting through one FreeType;
+///   inside the class floor of each other are the two hinting through one `FreeType`;
 /// - **ours, best against a pair member, is median 5.70% against `ghostscript`'s 6.75%** —
 ///   the third voting reference fails the bound these verdicts rest on against *both* members
 ///   of the pair on 32 of 32 pages, and sits further outside it than we do on 27 of the 32.
@@ -3243,6 +3243,36 @@ const CONTRADICTED_SUBSTITUTED_FONT: [&str; 11] = [
 /// costs). What it establishes is that these verdicts rest on a bound derived from the one
 /// pair whose agreement trap 9's tenth mechanism manufactures, and that a voting reference
 /// with its own rasteriser cannot meet that bound either. ADR 0717.
+///
+/// # And *32 of 32* is the pool's base rate, which is what the population could not say
+///
+/// The eight-hundred-and-forty-fourth session ran the same control over the **whole**
+/// contradicted pool — [`the_excluded_reference_the_consensus_also_convicts`], counted by
+/// [`rank_the_contradicted_by_the_bound`] every run — and it holds on **52 of the 60** pages,
+/// across the JBIG2 pages, the `CalRGB` pages, the CMYK shading pages and the link border alike.
+/// So it is not this group's signature, it discriminates nothing, and no verdict rule can rest
+/// on it. **This group's diagnosis is untouched by that**, and the reason is worth being clear
+/// about: it never rested on the control. It rests on three instruments that read no bound at
+/// all — the ink is conserved to a third of a level where the three references span as much
+/// among themselves, the marks are in the same box at eight times the resolution, and
+/// `issue7696.pdf` draws its glyphs twice so that the page measures grid-fitting with no
+/// reference in the room.
+///
+/// Seven members whose numbers appear in none of the tables above were measured pair by pair in
+/// that session, chosen off the verdict list rather than off this note — `bug894572.pdf`,
+/// `openoffice.pdf`, `issue6889.pdf`, `bug1200096.pdf`, `issue2017r.pdf`, `issue8570.pdf`,
+/// `bug1108301.pdf`. The convicting pair runs **1.28% to 3.79%** differing, every pair containing
+/// `ghostscript` **6.72% to 10.11%**, and ours against the nearer pair member **5.06% to 7.02%**
+/// — nearer than `ghostscript` is to that same member on all seven — with our ink within 0.43 of
+/// 255 of both pair members while `ghostscript` sits up to 2.7 away. The group reproduces on the
+/// pages it never listed.
+///
+/// **And the bound that convicts them was derived and priced in that session, and left where it
+/// is.** A floor of 12.04%, the 99th percentile of the pairs whose `FreeType` copies are separate,
+/// takes every page of this group off the list — and takes `CONTRADICTED_CALRGB_TO_SCREEN`'s five
+/// and `CONTRADICTED_SUBPIXEL_IMAGE`'s one with them, which are a §8.6.5.3 colour reading and a
+/// §10.7.4 departure. A differing fraction is a threshold count, so a glyph phase and a small
+/// colour error over a large area reach the same 5–12% and no bound can separate them. ADR 0771.
 const CONTRADICTED_GLYPH_EDGES: [&str; 27] = [
     "pdfbox/unencrypted.pdf page 2",
     "bad-PageLabels.pdf page 1",
@@ -8941,7 +8971,7 @@ const AMBIGUOUS_SPACE_DRAWN_AS_A_MARK: [&str; 1] = ["issue7074_reduced.pdf page 
 /// `loca` states 72 long offsets for 71 glyphs, which is the shape ISO/IEC 14496-22 requires,
 /// and its contents begin `16776 16776 16776 16776 10674 2188 2590 1886`: the offsets are
 /// **not ascending**, so 36 of the 71 glyphs have a negative stated length. `read-fonts` refuses
-/// those and FreeType derives each entry's extent from the entry itself.
+/// those and `FreeType` derives each entry's extent from the entry itself.
 ///
 /// **Fixed in the two-hundred-and-twenty-third session** (ADR 0170): `repaired_loca_order`
 /// rebuilds `glyf` in glyph order with a new monotonic `loca` beside it, which is exact because
@@ -11455,6 +11485,13 @@ struct Examined {
     /// See [`outside_the_bound`] for what the number is made of and why it is a minimum, and
     /// [`worst_ratio`] for why the measure's name travels with it.
     outside_the_bound: Option<(f64, &'static str)>,
+    /// The voting reference outside the consensus that the consensus would contradict as well.
+    ///
+    /// `None` where every voting reference is in the consensus, where the excluded one abstained,
+    /// or where it sits inside the bound the consensus set. See
+    /// [`the_excluded_reference_the_consensus_also_convicts`] for what it is for, which is trap
+    /// 12's own control turned into a count the gate prints.
+    excluded_reference_also_convicted: Option<Reference>,
     /// How many references produced a raster of one colour on a page another one drew, and
     /// therefore took no part in the consensus — `pdfref::consensus_abstentions`.
     ///
@@ -11521,6 +11558,7 @@ impl Examined {
             outside_what_the_closest_pair_would_allow: None,
             alone_on: None,
             outside_the_bound: None,
+            excluded_reference_also_convicted: None,
             abstentions: 0,
             absent: Vec::new(),
             flat_sheets: Vec::new(),
@@ -12060,6 +12098,9 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         outside_what_the_closest_pair_would_allow,
         alone_on,
         outside_the_bound,
+        excluded_reference_also_convicted: the_excluded_reference_the_consensus_also_convicts(
+            &triangulation,
+        ),
         abstentions: triangulation.abstained.len(),
         absent,
         flat_sheets,
@@ -12474,6 +12515,59 @@ fn outside_the_bound(triangulation: &pdfref::Triangulation) -> Option<(f64, &'st
         .fold(None::<(f64, &'static str)>, |mildest, ratio| {
             Some(mildest.map_or(ratio, |m| if m.0 <= ratio.0 { m } else { ratio }))
         })
+}
+
+/// The voting reference outside the consensus that the same consensus, at the same bound, would
+/// contradict as well.
+///
+/// # What it is, and why the gate counts it
+///
+/// It is trap 12's own control — *put each reference where our render stands and ask what the
+/// sets it is not a member of conclude about it* — asked of the page the gate has in hand, on the
+/// numbers it has already computed. No render and no comparison is added: `between_references`
+/// holds the excluded reference against each consensus member, and `Consensus::judged_by` is the
+/// bound our own verdict rested on.
+///
+/// # The reason it is a *count* rather than a signature
+///
+/// ADR 0717 measured this by hand over one population — the 32 pages convicted on the differing
+/// fraction by `poppler` and `mupdf` — and found `ghostscript` outside the same bound on 32 of
+/// 32, which read as a property of the shared glyph rasteriser. Taken over the **whole**
+/// contradicted pool in the eight-hundred-and-forty-fourth session it holds on most of it, across
+/// every mechanism the pool contains: the JBIG2 pages, the `CalRGB` pages, the CMYK shading pages,
+/// the link border. So it is the pool's **base rate** and not that population's signature, and a
+/// verdict rule resting on it would acquit us wherever two references agree for any reason at all
+/// — including the shared decoder and the shared profile, where trap 9's first bullets say the
+/// consensus is manufactured and say nothing whatever about who is right. Printing the count is
+/// what stops the next round reading a per-population figure as a discriminator. ADR 0771.
+///
+/// `None` where every voting reference is in the consensus, where the excluded one abstained or
+/// never drew, or where it sits inside the bound. The set asked is the head of `consensuses`,
+/// which is the set `verdict_of` names on the page's own line.
+fn the_excluded_reference_the_consensus_also_convicts(
+    triangulation: &pdfref::Triangulation,
+) -> Option<Reference> {
+    let consensus = triangulation.consensuses.first()?;
+    let voting = Reference::voting();
+    let excluded = triangulation
+        .ours
+        .iter()
+        .map(|(reference, _)| *reference)
+        .find(|reference| {
+            voting.contains(reference)
+                && !consensus.references.contains(reference)
+                && !triangulation.abstained.contains(reference)
+        })?;
+    let convicted = consensus.references.iter().any(|member| {
+        triangulation
+            .between_references
+            .iter()
+            .find(|(left, right, _)| {
+                (*left == excluded && right == member) || (left == member && *right == excluded)
+            })
+            .is_some_and(|(_, _, comparison)| !consensus.judged_by.accepts(comparison))
+    });
+    convicted.then_some(excluded)
 }
 
 /// The largest of [`outside_by`]'s four ratios, and the name of the measure it belongs to.
@@ -13642,6 +13736,22 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
              0717 measured `ghostscript` outside the same bound on every page of this population)"
         );
     }
+    // And the base rate that figure has to be read against, which is what ADR 0717 could not know
+    // from one population: on how much of the *whole* pool would the same consensus, at the same
+    // bound, also contradict the voting reference it excludes. Printed rather than described,
+    // because a control that holds nearly everywhere is not a discriminator and a round reading
+    // the line above would otherwise take it for one. See
+    // [`the_excluded_reference_the_consensus_also_convicts`], and ADR 0771.
+    println!(
+        "    and on {} of the {} the consensus would contradict the voting reference it \
+         excludes as well, at the same bound — so that control is the pool's base rate rather \
+         than any population's signature (ADR 0771)",
+        ranked
+            .iter()
+            .filter(|(examined, _, _)| examined.excluded_reference_also_convicted.is_some())
+            .count(),
+        ranked.len(),
+    );
     // What the other ranking's unit says about the same pages: at or under 1.0 it says the page is
     // inside every bound it can see. Printed rather than described, because it is the whole reason
     // this second ordering exists.
@@ -14044,16 +14154,34 @@ struct Spread {
 
 /// What a pair of reference renderers can say about the noise floor between two renderers.
 ///
-/// The distinction exists because of one `ldd`: `pdftoppm`, `mutool` and `gs` link the same
+/// # The split, and the `ldd` it used to rest on
+///
+/// This enumeration had two variants until the eight-hundred-and-forty-fourth session, and the
+/// doc comment above them read: "`pdftoppm`, `mutool` and `gs` link the same
 /// `libfreetype.so.6` and grid-fit glyphs through it, so on a page whose difference is a
-/// letter's edges the three of them are one rasteriser — `Reference::independence` records
-/// that, and `Tolerance::widened_to` says the consequence is one-sided. A pair including
-/// `hayro` is the other thing: two implementations sharing no code *with each other*, one of
-/// which hints and one of which does not.
+/// letter's edges the three of them are one rasteriser". **The second half of that sentence is
+/// false and trap 9's fifth bullet has said so since the six-hundred-and-fifty-sixth session**:
+/// `ldd` reports a transitive closure, and `gs` was reaching `FreeType` through `libfontconfig`.
+/// What each binary *asks for* is `objdump -p`'s `NEEDED`, and re-checked on this machine's
+/// packages: `libpoppler.so` and `libmupdf.so` both name `libfreetype.so.6` — one shared
+/// object, loaded by both — while `libgs.so.10` names no `FreeType` at all and defines **194**
+/// `FT_*` symbols with none undefined, which is a statically linked copy of its own.
+///
+/// So the three C references are not one population. Two of them hint through a single object;
+/// the third carries its own copy, configured by its own font machinery. That is a weaker
+/// independence than a different rasteriser would be — it is the same *algorithm*, and this
+/// type does not claim otherwise — but it is exactly the boundary
+/// [`Tolerance::widened_to`]'s standing sentence is about, and until this session the
+/// derivation averaged across it.
+///
+/// A pair including `hayro` stays the third thing: two implementations sharing no code *with
+/// each other*, one of which hints and one of which does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PairKind {
-    /// Two of `poppler`, `mupdf` and `ghostscript`.
-    OneGlyphRasteriser,
+    /// `poppler` against `mupdf`: both load the machine's one `libfreetype.so.6`.
+    OneFreeTypeObject,
+    /// `ghostscript` against `poppler` or `mupdf`: two separately linked `FreeType` copies.
+    SeparateFreeTypeCopies,
     /// `hayro` against one of those three.
     AcrossTheHintingBoundary,
 }
@@ -14063,15 +14191,20 @@ impl PairKind {
     fn of(left: Reference, right: Reference) -> Self {
         if left == Reference::Hayro || right == Reference::Hayro {
             Self::AcrossTheHintingBoundary
+        } else if left == Reference::Ghostscript || right == Reference::Ghostscript {
+            Self::SeparateFreeTypeCopies
         } else {
-            Self::OneGlyphRasteriser
+            Self::OneFreeTypeObject
         }
     }
 
     /// How the printed table names this population.
     fn label(self) -> &'static str {
         match self {
-            Self::OneGlyphRasteriser => "poppler/mupdf/ghostscript pairs (one FreeType)",
+            Self::OneFreeTypeObject => "poppler v mupdf (one libfreetype.so.6)",
+            Self::SeparateFreeTypeCopies => {
+                "ghostscript v poppler/mupdf (separate FreeType copies)"
+            }
             Self::AcrossTheHintingBoundary => "hayro against one of the three (hinting boundary)",
         }
     }
@@ -14349,13 +14482,22 @@ fn the_fixed_bounds_against_the_references_own_spread() {
     assert!(!items.is_empty(), "no pages selected");
 
     let started = Instant::now();
-    let spreads: Vec<Spread> = items
+    let measured: Vec<(Vec<Spread>, Vec<Substitution>)> = items
         .par_iter()
-        .flat_map(|work| spreads_of(work, &work_root, &voting, fourth, &cache))
+        .map(|work| spreads_of(work, &work_root, &voting, fourth, &cache))
+        .collect();
+    let spreads: Vec<Spread> = measured
+        .iter()
+        .flat_map(|(s, _)| s.iter().copied())
+        .collect();
+    let substitutions: Vec<Substitution> = measured
+        .iter()
+        .flat_map(|(_, s)| s.iter().copied())
         .collect();
     println!(
-        "\n{} reference pairs over {} pages in {:.1}s",
+        "\n{} reference pairs and {} substitution verdicts over {} pages in {:.1}s",
         spreads.len(),
+        substitutions.len(),
         items.len(),
         started.elapsed().as_secs_f64()
     );
@@ -14373,7 +14515,8 @@ fn the_fixed_bounds_against_the_references_own_spread() {
         ("vector pages, Tolerance::VECTOR", Tolerance::VECTOR, false),
     ] {
         for kind in [
-            PairKind::OneGlyphRasteriser,
+            PairKind::OneFreeTypeObject,
+            PairKind::SeparateFreeTypeCopies,
             PairKind::AcrossTheHintingBoundary,
         ] {
             let population: Vec<Spread> = spreads
@@ -14383,6 +14526,12 @@ fn the_fixed_bounds_against_the_references_own_spread() {
                 .collect();
             print_the_distribution(class, kind, &population, &bounds);
         }
+        let population: Vec<Substitution> = substitutions
+            .iter()
+            .copied()
+            .filter(|row| row.text == text)
+            .collect();
+        print_the_substitutions(class, &population);
     }
 }
 
@@ -14400,7 +14549,7 @@ fn spreads_of(
     voting: &[Reference],
     fourth: Option<Reference>,
     cache: &Cache,
-) -> Vec<Spread> {
+) -> (Vec<Spread>, Vec<Substitution>) {
     let stem = work.path.file_stem().unwrap_or_default().to_string_lossy();
     let work_dir = work_root
         .join(stem.as_ref())
@@ -14408,10 +14557,11 @@ fn spreads_of(
     let cleanup = || {
         let _ = std::fs::remove_dir_all(&work_dir);
     };
+    let nothing = (Vec::new(), Vec::new());
 
     let Ok(ours) = render_ours(work) else {
         cleanup();
-        return Vec::new();
+        return nothing;
     };
     // `absent` is the gate's to report; this is the spread derivation, whose population is pairs
     // of references and which says nothing about any page.
@@ -14421,13 +14571,18 @@ fn spreads_of(
     }) = render_references(work, &work_dir, voting, cache)
     else {
         cleanup();
-        return Vec::new();
+        return nothing;
     };
     let mut raster = ours.raster;
     if reconcile(&mut raster, &mut references).is_err() {
         cleanup();
-        return Vec::new();
+        return nothing;
     }
+    // Collected before the fourth renderer joins and before the directory goes, because the
+    // substitution below runs `pdfref::triangulate_with` exactly as `examine` does and that
+    // includes what each program said while it drew (ADR 0769).
+    let testimony = what_they_said(&references, &work_dir);
+    let substitutions = substitutions_of(&raster, &references, &testimony, ours.has_text);
     if let Some(fourth) = fourth
         && let Ok(extra) = cache.render(fourth, &work.path, work.page, DPI, &work_dir)
         && extra.width == raster.width
@@ -14449,7 +14604,154 @@ fn spreads_of(
             }
         }
     }
-    spreads
+    (spreads, substitutions)
+}
+
+/// One page's answer to *what would this gate say about a program known to be independent?*
+///
+/// One row per (pair, candidate): the pair of voting references whose agreement is the
+/// consensus, and the program judged by it — either the third voting reference or our own
+/// render. Both candidates are judged by the same consensus, at the same widened bound, in the
+/// same run, which is what makes the two counts comparable.
+#[derive(Debug, Clone, Copy)]
+struct Substitution {
+    /// Whether this page is judged by [`Tolerance::TEXT_HEAVY`], decided as [`examine`] does.
+    text: bool,
+    /// The two references whose agreement judged this row.
+    pair: (Reference, Reference),
+    /// Who was put where our render stands — `None` for our render itself.
+    stood_in: Option<Reference>,
+    /// Whether the pair agreed at all, and whether it contradicted the candidate.
+    contradicted: bool,
+    /// Which of [`MEASURES`] the candidate was outside, at the bound the pair's own spread set.
+    outside: [bool; MEASURES.len()],
+}
+
+/// Every voting reference put where our render stands, judged by the other two — and us judged
+/// by the same two, in the same call, so the two answers are like for like.
+///
+/// # Why this is the control the bound needs, and not another spread
+///
+/// [`print_the_distribution`] measures how far reference pairs sit from one another. That is
+/// the population [`Tolerance`]'s four numbers are claims about, and it is not the question a
+/// verdict asks. `pdfref::decide` does not take *a* pair: it takes the pairs that agree within
+/// the fixed bounds, which on a page where one exists is the **closest** pair in the room. So
+/// the bound a verdict rests on is derived from a selected minimum, and what a third
+/// implementation owes is not "be as close as two implementations typically are" but "be as
+/// close to the closest pair as the excluded one of three manages". Nothing had measured the
+/// second, and it is measurable without us: run the gate's own judgement with a *reference*
+/// standing where our render stands.
+///
+/// That is trap 12's `colors.pdf` control and ADR 0617's — *put each reference where our render
+/// stands and ask what the sets it is not a member of conclude about it* — taken over the corpus
+/// as a distribution instead of over one page as a check. ADR 0771.
+///
+/// The bound is `Judgement::CORPUS`'s and the tolerance is the page's own class, both exactly as
+/// [`examine`] passes them, so a row here is the gate's verdict about that program on that page
+/// and not a re-derivation of one.
+fn substitutions_of(
+    ours: &Raster,
+    references: &[(Reference, Raster)],
+    testimony: &[pdfref::Testimony],
+    text: bool,
+) -> Vec<Substitution> {
+    let tolerance = bounds_for(text);
+    let mut rows = Vec::new();
+    for (index, (left_name, left)) in references.iter().enumerate() {
+        for (right_name, right) in references.iter().skip(index.saturating_add(1)) {
+            let pair = [(*left_name, left.clone()), (*right_name, right.clone())];
+            let said: Vec<pdfref::Testimony> = testimony
+                .iter()
+                .filter(|said| said.reference() == *left_name || said.reference() == *right_name)
+                .cloned()
+                .collect();
+            let third = references
+                .iter()
+                .find(|(name, _)| name != left_name && name != right_name);
+            let candidates = std::iter::once((None, ours))
+                .chain(third.map(|(name, raster)| (Some(*name), raster)));
+            for (stood_in, raster) in candidates {
+                let Ok(triangulation) =
+                    pdfref::triangulate_with(raster, &pair, &said, &tolerance, Judgement::CORPUS)
+                else {
+                    continue;
+                };
+                // A pair that did not agree judged nobody, and a row for it would count a page
+                // on which this instrument has no reading.
+                if !matches!(
+                    triangulation.outcome,
+                    Outcome::Agrees { .. } | Outcome::Regression { .. }
+                ) {
+                    continue;
+                }
+                let contradicted = matches!(triangulation.outcome, Outcome::Regression { .. });
+                let bound = triangulation.judged_by;
+                let mut outside = [false; MEASURES.len()];
+                for (index, measure) in MEASURES.iter().enumerate() {
+                    outside[index] = triangulation.ours.iter().any(|(_, comparison)| {
+                        (measure.distance)(comparison) > (measure.limit)(&bound)
+                    });
+                }
+                rows.push(Substitution {
+                    text,
+                    pair: (*left_name, *right_name),
+                    stood_in,
+                    contradicted,
+                    outside,
+                });
+            }
+        }
+    }
+    rows
+}
+
+/// One block of the substitution table: what one pair's consensus says about each candidate.
+fn print_the_substitutions(class: &str, rows: &[Substitution]) {
+    let mut pairs: Vec<(Reference, Reference)> = rows.iter().map(|row| row.pair).collect();
+    pairs.sort_by_key(|(left, right)| (left.name(), right.name()));
+    pairs.dedup();
+    println!("\n  {class} — the gate's own verdict, with a reference standing where we stand");
+    println!(
+        "    {:<36} {:>7} {:>16} {:>7} {:>7} {:>7} {:>7}",
+        "consensus, and who it judged", "pages", "contradicted", "mean", "tile", "diff", "ssim"
+    );
+    for pair in pairs {
+        let of_pair: Vec<&Substitution> = rows.iter().filter(|row| row.pair == pair).collect();
+        let mut candidates: Vec<Option<Reference>> =
+            of_pair.iter().map(|row| row.stood_in).collect();
+        candidates.sort_by_key(|stood_in| stood_in.map_or("ours", Reference::name));
+        candidates.dedup();
+        for stood_in in candidates {
+            let rows: Vec<&&Substitution> = of_pair
+                .iter()
+                .filter(|row| row.stood_in == stood_in)
+                .collect();
+            let pages = rows.len();
+            let contradicted = rows.iter().filter(|row| row.contradicted).count();
+            let per_measure: Vec<usize> = (0..MEASURES.len())
+                .map(|index| {
+                    rows.iter()
+                        .filter(|row| row.outside.get(index).copied().unwrap_or(false))
+                        .count()
+                })
+                .collect();
+            println!(
+                "    {:<36} {pages:>7} {:>8} ({:>5.1}%) {:>7} {:>7} {:>7} {:>7}",
+                format!(
+                    "{} + {} judging {}",
+                    pair.0.name(),
+                    pair.1.name(),
+                    stood_in.map_or("ours", Reference::name)
+                ),
+                contradicted,
+                share(contradicted, pages) * 100.0,
+                per_measure.first().copied().unwrap_or(0),
+                per_measure.get(1).copied().unwrap_or(0),
+                per_measure.get(2).copied().unwrap_or(0),
+                per_measure.get(3).copied().unwrap_or(0),
+            );
+        }
+    }
 }
 
 /// One block of the table: every measure's distribution over one class and one pair kind.

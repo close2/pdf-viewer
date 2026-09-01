@@ -178,6 +178,35 @@ impl Tolerance {
     /// adopted without arguing 278 pages, and adopting it for our own side alone would loosen
     /// the gate in the one direction that flatters us. `doc/todo/12` is the work.
     ///
+    /// # The two jobs were separated and priced, and the price is why they stay one number
+    ///
+    /// The eight-hundred-and-forty-fourth session took the narrower move ADR 0243 left open —
+    /// **keep 5% for consensus, floor our own judgement higher** — and the two things ADR 0243
+    /// says must be true first were both supplied. The rule is that ADR's own: the 99th
+    /// percentile of the reference-against-reference distribution, which is where this class's
+    /// other three bounds already sit. The population is the one the `ldd` in
+    /// [`Self::widened_to`] had hidden: `ghostscript` against `poppler` or `mupdf` is two
+    /// *separately linked* `FreeType` copies and neither member is ours, and on text pages its
+    /// differing fraction runs median **2.50%**, p99 **12.04%**, against the sharing pair's
+    /// median **0.86%**, p99 11.21% — the median nearly tripling across the boundary while the
+    /// other three measures do not move across it at all (0.0%, 0.7%, 0.4% rejected against
+    /// 0.0%, 1.5%, 0.4%).
+    ///
+    /// Floored at that 12.04% for our judgement alone, with consensus formation untouched, the
+    /// corpus gate reports **1017 agrees / 24 contradicted / 835 ambiguous** against 980 / 60 /
+    /// 836. Thirty-six pages leave `contradicted` and none arrives.
+    ///
+    /// **Six of the thirty-six are why it was not taken.** Five are
+    /// `CONTRADICTED_CALRGB_TO_SCREEN`, where `mupdf` and `ghostscript` build an ICC profile out
+    /// of Table 63's dictionary and hand it to Little CMS while `poppler` and this tree evaluate
+    /// §8.6.5.3 in their own code, and one is `CONTRADICTED_SUBPIXEL_IMAGE`, whose note measures
+    /// our §10.7.4 departure and shows it owning the whole margin. A differing fraction is a
+    /// *threshold count*, so the same 5–12% arises from a sub-pixel phase on glyph edges and from
+    /// a small colour error over a large area — the two mechanisms are indistinguishable in this
+    /// measure, and a floor over the class cannot forgive the first without forgiving the second.
+    /// **That is why the two jobs cannot be separated by a number**: not because no number could
+    /// be derived, but because the measure the number bounds conflates two mechanisms. ADR 0771.
+    ///
     /// # The pixel bounds here are weak, and the structural bound is what gates
     ///
     /// A worst tile of 40 would let a genuinely wrong glyph through. Whole-page pixel
@@ -247,19 +276,54 @@ impl Tolerance {
     /// among them that two independent renderers genuinely contradict.
     ///
     /// **This comment used to add "or with each other", and that is false on any page whose
-    /// difference is a glyph.** `ldd` on this machine puts the same `libfreetype.so.6` under
-    /// `pdftoppm`, `mutool` and `gs` — so where two of them agree closely about a letter's
-    /// edges they are one rasteriser agreeing with itself, while this tree uses `skrifa` and
-    /// `tiny-skia` and is the only genuinely third opinion in the room. The consequence is
-    /// one-sided and worth stating plainly: on a text page their spread *understates* the
-    /// floor, so a bound derived from it is too tight rather than too loose. What limits the
-    /// damage is that widening only ever loosens — the fixed bounds are a floor and
-    /// [`Self::TEXT_HEAVY`] was itself measured against these same three programs — so such a
-    /// page ends up judged by the fixed bounds rather than by a tighter derived one. Nothing
-    /// has been changed on the strength of this: loosening a gate to make contradictions
-    /// disappear is the move this project forbids itself, and what would justify a change is a
-    /// measurement of how far a *fourth* independent rasteriser sits from the three, which
-    /// nobody has.
+    /// difference is a glyph.** Two of the three references grid-fit through one shared object,
+    /// so where those two agree closely about a letter's edges they are one rasteriser agreeing
+    /// with itself, while this tree uses `skrifa` and `tiny-skia`. The consequence is one-sided
+    /// and worth stating plainly: on a text page their spread *understates* the floor, so a
+    /// bound derived from it is too tight rather than too loose. What limits the damage is that
+    /// widening only ever loosens — the fixed bounds are a floor and [`Self::TEXT_HEAVY`] was
+    /// itself measured against these same three programs — so such a page ends up judged by the
+    /// fixed bounds rather than by a tighter derived one. Nothing has been changed on the
+    /// strength of this: loosening a gate to make contradictions disappear is the move this
+    /// project forbids itself.
+    ///
+    /// **Which two, and the `ldd` that said three.** This paragraph read "`ldd` on this machine
+    /// puts the same `libfreetype.so.6` under `pdftoppm`, `mutool` and `gs`" for four hundred
+    /// sessions, and `ldd` reports a transitive closure: `gs` was reaching `FreeType` through
+    /// `libfontconfig`. `objdump -p`, which is what a binary *asks for*, says `libpoppler.so`
+    /// and `libmupdf.so` both name `libfreetype.so.6` while `libgs.so.10` names none and
+    /// defines 194 `FT_*` symbols of a statically linked copy of its own. So the sharing pair is
+    /// `poppler` + `mupdf`, and `ghostscript` against either is two separate copies —
+    /// `crate::Reference::independence` records it and the eight-hundred-and-forty-fourth
+    /// session measured what it is worth (below). It is the same algorithm either way, which is
+    /// why that population is a weak independence and not a fourth rasteriser.
+    ///
+    /// # The measurement this asked for, taken a different way
+    ///
+    /// This paragraph used to end "what would justify a change is a measurement of how far a
+    /// *fourth* independent rasteriser sits from the three, which nobody has", and `pdfium` is
+    /// still not packaged. **The question a verdict asks is answerable without one**, because it
+    /// is not *how far do two implementations sit* but *how far may the excluded one of three sit
+    /// from the pair that agreed* — and [`crate::decide`] does not take an arbitrary pair, it
+    /// takes the pairs that agree within the fixed bounds, which on a page carrying one is the
+    /// **closest** pair in the room. The bound is therefore derived from a selected minimum, and
+    /// the honest control is to run this judgement with a *reference* standing where our render
+    /// stands. `oracle.rs`'s `substitutions_of` does exactly that, over the corpus; on text pages
+    /// the rate at which a consensus contradicts the voting reference it excludes, beside the
+    /// rate at which the same consensus contradicts us on the same pages:
+    ///
+    /// | consensus | it contradicts the reference it excludes | it contradicts us |
+    /// |---|---|---|
+    /// | `poppler` + `mupdf` | 9.1% of 758 | 5.1% of 759 |
+    /// | `mupdf` + `ghostscript` | 3.4% of 675 | 2.4% of 677 |
+    /// | `poppler` + `ghostscript` | 0.6% of 650 | 0.9% of 652 |
+    ///
+    /// **The bound is not what varies; the consensus is.** The same 5% floor convicts a
+    /// known-good independent implementation on 0.6% of text pages under the one consensus whose
+    /// members do not share the `FreeType` object, and on 9.1% under the one whose members do — and
+    /// under all three this tree is contradicted at a rate between a third less and half again as
+    /// much as the reference beside it. ADR 0771; `doc/todo/12` says why that does not move the
+    /// number.
     ///
     /// # The four-hundred-and-seventh session took that measurement and it is still not that
     /// renderer
