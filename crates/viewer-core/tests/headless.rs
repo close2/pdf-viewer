@@ -5954,6 +5954,101 @@ fn a_no_zoom_annotation_is_the_one_thing_a_zoom_re_interprets() {
     );
 }
 
+/// The page *beside* a `NoZoom` page is not re-interpreted, and for two rounds it was.
+///
+/// §12.5.3 makes one annotation's placement a function of the magnification, so the page carrying
+/// it has to be read again on a zoom — and the page next to it in Table 29's column has no such
+/// annotation and therefore has a display list the magnification cannot change. The test above
+/// says the first half on a one-page document, which is why it could not see that `reinterpret`
+/// asked the question of the *arrangement*: one annotation anywhere on the screen threw away every
+/// page's list. On the standard's own PDF, scrolled across a page boundary, the worst wheel notch
+/// was 13.99 ms of which the neighbour was most (ADR 0775).
+///
+/// The discriminator is `Arc::ptr_eq` on the two requests' display lists, which is the same
+/// instrument the test above uses and the only one that can tell a page that was read again from
+/// a page that was drawn again.
+#[test]
+fn a_zoom_re_interprets_the_page_with_the_annotation_and_not_the_page_beside_it() {
+    let mut viewer = Viewer::new(300, 400, 1.0);
+    let opened: Vec<Event> = viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: with_a_view_dependent_page_above_a_plain_one(),
+            password: None,
+            fragment: None,
+        })
+        .collect();
+    let first = requests(&opened);
+    assert_eq!(
+        first.len(),
+        2,
+        "the fixture's column has to put both pages on the screen for this to test anything"
+    );
+    for request in &first {
+        serve(&mut viewer, request);
+    }
+
+    let zoomed: Vec<Event> = viewer
+        .handle(Command::Zoom {
+            zoom: Zoom::In,
+            at: None,
+        })
+        .collect();
+    let second = requests(&zoomed);
+    assert_eq!(
+        second.len(),
+        2,
+        "both pages are drawn again at the new size"
+    );
+    let list = |batch: &[viewer_core::RenderRequest], page: usize| {
+        batch
+            .iter()
+            .find(|request| request.page == page)
+            .map(|request| std::sync::Arc::clone(&request.list))
+            .expect("a request for this page")
+    };
+    assert!(
+        !std::sync::Arc::ptr_eq(&list(&first, 0), &list(&second, 0)),
+        "§12.5.3 makes page one's list a function of the magnification, so it is read again"
+    );
+    assert!(
+        std::sync::Arc::ptr_eq(&list(&first, 1), &list(&second, 1)),
+        "page two carries no such annotation, so its list is the one it already had"
+    );
+}
+
+/// Two 100×100 pages in Table 29's `OneColumn`: the first carries `/F 12`, the second `/F 4`.
+///
+/// The flags are the whole of the fixture's claim. Table 167 puts `NoZoom` at bit position 4, so
+/// 12 is Print and `NoZoom` together and 4 is Print alone — two annotations that differ in
+/// nothing else, on two pages that differ in nothing else. `/PageLayout /OneColumn` is what puts
+/// both on one screen, which is the arrangement the defect lived in.
+fn with_a_view_dependent_page_above_a_plain_one() -> Vec<u8> {
+    let appearance = "0 0 0 rg 0 0 30 30 re f";
+    let form = format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 30 30] /Length {} >>\n\
+         stream\n{appearance}\nendstream",
+        appearance.len().saturating_add(1)
+    );
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /PageLayout /OneColumn >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 4 0 R /Annots [5 0 R] >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /Annot /Subtype /Square /Rect [40 40 70 70] /F 12 \
+         /AP << /N 6 0 R >> >>\nendobj\n\
+         6 0 obj\n{form}\nendobj\n\
+         7 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << >> /Contents 8 0 R /Annots [9 0 R] >>\nendobj\n\
+         8 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         9 0 obj\n<< /Type /Annot /Subtype /Square /Rect [40 40 70 70] /F 4 \
+         /AP << /N 10 0 R >> >>\nendobj\n\
+         10 0 obj\n{form}\nendobj\n"
+    );
+    assemble(&body)
+}
+
 /// The same fixture as `pdf-model`'s: a 100×100 page and one 30×30 `Square` at `/F 12`.
 fn with_no_zoom_annotation() -> Vec<u8> {
     use std::fmt::Write as _;

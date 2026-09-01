@@ -2234,9 +2234,10 @@ impl Viewer {
         // person sees and a doubled display should draw it sharper rather than smaller.
         //
         // Re-interpreting only where the last interpretation said the page would notice is what
-        // keeps the display list's promise: 923 of the 974 corpus documents have no such
-        // annotation and pay nothing for this, and the 51 that do pay exactly what the clause
-        // asks for.
+        // keeps the display list's promise, and **the question is asked of each page rather than
+        // of the arrangement**: `Open::reinterpret` decides it per page now, because Table 29's
+        // continuous arrangements put two pages on the screen and one annotation was costing the
+        // interpretation of both. `tools/state.sh` counts the population; ADR 0775 has the price.
         //
         // `reinterpret` and not `stale`, because the ink did not move: a zoom changes where
         // §12.5.3 puts the annotation, not what the document's state is, and a host holding a
@@ -2248,14 +2249,7 @@ impl Viewer {
         let magnification = open
             .magnification(viewport, scale)
             .map(|device| device / scale);
-        if open.view.set_magnification(magnification)
-            && open.on_screen.iter().any(|on_screen| {
-                on_screen
-                    .interpreted
-                    .as_ref()
-                    .is_some_and(|interpreted| interpreted.view_dependent)
-            })
-        {
+        if open.view.set_magnification(magnification) {
             open.reinterpret();
         }
 

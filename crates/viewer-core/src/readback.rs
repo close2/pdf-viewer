@@ -173,6 +173,20 @@ impl Readbacks {
         self.bytes = 0;
     }
 
+    /// Forgets one page, because that page — and no other — was interpreted again.
+    ///
+    /// [`Self::clear`]'s reason is a move of the view state, which every page was interpreted
+    /// against; this one's is §12.5.3's magnification, which moves the display list of exactly
+    /// the pages carrying a `NoZoom` annotation (`Open::reinterpret`). Dropping the rest would
+    /// make a wheel notch cost the next search a whole document.
+    ///
+    /// The counters are not touched, for the reason [`Self::clear`] gives.
+    pub(crate) fn forget(&mut self, page: usize) {
+        if let Some(entry) = self.held.remove(&page) {
+            self.bytes = self.bytes.saturating_sub(entry.text.len());
+        }
+    }
+
     /// What this cache is holding, for a host that wants to say so.
     pub(crate) fn report(&self) -> ReadbackCache {
         ReadbackCache {

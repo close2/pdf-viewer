@@ -721,14 +721,31 @@ impl Open {
     /// [`Self::ink`] here made every zoom of such a page freeze for the length of the real
     /// frame, because a host correctly refuses to show a picture of other ink.
     ///
+    /// **Only the pages the clause is about.** `Interpretation::view_dependent` records whether
+    /// a page carries an annotation whose placement §12.5.3 makes a function of the
+    /// magnification, and a page that carries none has a display list the magnification cannot
+    /// change — so re-interpreting it produces the list it already holds, at the price of the
+    /// page. That price is per page and Table 29's continuous arrangements show more than one:
+    /// a column scrolled across a boundary is two pages, of which one was being re-interpreted
+    /// because the *other* one has an annotation on it. ADR 0775 has the measurement.
+    ///
     /// The readbacks go with the lists — not because the text moved, but because the two are
     /// invalidated together everywhere else and a cache with two lifetimes needs an argument
-    /// this one has not earned: re-interpretation repopulates it on the next pass.
+    /// this one has not earned: re-interpretation repopulates it on the next pass. **Per page,
+    /// for the same reason the lists are**: a page whose display list is kept cannot have a
+    /// readback that moved, so a gesture no longer makes a document-wide search cold — which,
+    /// on ISO 32000-2, was 1023 pages of readback dropped per wheel notch.
     pub(crate) fn reinterpret(&mut self) {
         for on_screen in &mut self.on_screen {
-            on_screen.interpreted = None;
+            let view_dependent = on_screen
+                .interpreted
+                .as_ref()
+                .is_some_and(|interpreted| interpreted.view_dependent);
+            if view_dependent {
+                on_screen.interpreted = None;
+                self.readbacks.forget(on_screen.page);
+            }
         }
-        self.readbacks.clear();
     }
 
     /// The arrangement's entry for a page, where the arrangement shows it.
