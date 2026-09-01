@@ -94,6 +94,19 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   digest** compiled in. Two binaries, one file. **The scan is the instrument worth keeping**:
   every ICC profile in a binary is a four-byte big-endian length followed by `acsp` at offset 36,
   so `objdump` is not needed to find what a reference is reading.
+
+  **And the mechanism is now *priced* rather than named, which took eight hundred sessions and
+  moved the number a long way down** (ADR 0773). `gs -sDefaultCMYKProfile=` takes the file away —
+  `PDFREF_GS_CMYK_PROFILE` is the harness's knob for it, in `Reference::build_command` so that
+  `Cache` sees a changed invocation as a changed key — and over the substitution table's *vector*
+  row, where the `mupdf` + `ghostscript` consensus contradicts `poppler` on 119 of 226 pages, the
+  removal moves **five**: `function_based_shading_cmyk.pdf` pages 1 and 2,
+  `postscript_type4_many_outputs.pdf`, `transparent.pdf` and `type4psfunc.pdf`, which is
+  `CONTRADICTED_DEVICE_CMYK_CONVERSION` and nothing else. **The shared profile owns 4.2% of that
+  row and not one page outside the group ADR 0048 already gave it.** It owns five of *our* thirteen
+  contradictions under the same consensus, which is the honest direction: the mechanism is real,
+  it is where it was always said to be, and it is not what that row is made of. A hypothesis that
+  names a mechanism this list already carries is still a hypothesis (the fourth bullet below).
 - **A shared *default*, which is neither of the two above and needed a third instrument.** On a page
   whose images run through a profile the *document* embeds, all three references sit within four
   levels of each other and up to twenty from us — and the data is not shared, because it came out of
@@ -138,6 +151,25 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   three went and got separately. **On a page naming a font nobody embedded, the three voting
   references are one type foundry**, and the tell is a rendering metric — a cap height, an ink box
   — rather than anything a dependency graph shows. ADR 0772.
+- **And the limit case of shared code, which is not an agreement at all: the two rasters are the
+  same bytes.** Over the 119 vector pages the `mupdf` + `ghostscript` consensus contradicts
+  `poppler` on, rendered with the harness's own arguments and compared with
+  `examples/compare_rasters`, that pair is at **`max 0` on 97 of the 117 pages the comparison can
+  read** — median mean 0.0000 and structural similarity 1.00000 — where `poppler` sits a median
+  0.8318 and 0.97549 from each of them. All 76 of the `bitmap-*` family are among the 97. Two
+  things follow and the second is the one to carry. **The bound has no widening in it**:
+  `Tolerance::widened_to` takes the larger of the class floor and twice the consensus's own spread,
+  twice zero is zero, so what the excluded reference is held to is the bare class floor with the
+  whole relative-bound mechanism inert — trap 12's selected minimum at its minimum. **And a
+  consensus of two identical rasters is one reading counted twice**, whatever the two source trees
+  say: ADR 0005's inference is about two implementations, and on a page of images decoded by
+  `jbig2dec`, `libjpeg` and `libopenjp2` in both, two Artifex programs are not two of them. The
+  population asymmetry is the same fact from outside — that pair forms a consensus on **226**
+  vector pages where `poppler` + `ghostscript` forms one on 120 and `poppler` + `mupdf` on 123, and
+  the hundred-page difference is judged at a spread of zero. **The tell costs one command and is
+  not a threshold**: `compare_rasters` on the two reference panels, reading `max`, because every
+  other number on that line rounds to zero long before the rasters are equal. ADR 0773.
+
 - **And where the corpus states an invariant about itself, ask the *references* that invariant.**
   Shared code is a reason their agreement is not evidence; it is not a reason to believe ours. The
   `bitmap-*` family is one drawing encoded through nearly every path ISO/IEC 14492 defines, so every
@@ -189,6 +221,19 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   copy of the same published standard**, which no dependency graph shows, no digest comparison
   finds and no shared file explains — only the profiles' own `desc` tags do. §10.3.2's NOTE is
   where all four assumptions live, ours included. ADR 0484.
+
+  **And this bullet is what decides whether a *removal* of the second one means anything, which is
+  worth a number before the next round runs one** (ADR 0773). Substituting hayro's
+  `CGATS001Compat-v2-micro.icc` for Artifex's `default_cmyk.icc` inside `ghostscript` moves the
+  vector row not at all — the same 226 pages, the same 119 convictions, the page lists `diff`-clean
+  — and on `function_based_shading_cmyk.pdf` page 1 the two renders are **mean 0.1257 of 255 apart,
+  max 7**. Two files of different authors, lengths and licences, twenty-two times apart in size,
+  agreeing to an eighth of a level, because both are SWOP. Against `ghostscript`'s own
+  `ps_cmyk.icc` the same page moves **mean 12.9954, max 116, 32.84% of channels** — a different
+  press, and the removal that removes something. **So a shared-data removal that substitutes
+  another copy of the same published press has taken the file away and left the mechanism, and its
+  null result is a measurement of this bullet rather than of that one.** Read both profiles' `desc`
+  tags before believing a null.
 
 - **And a seventh, which is the same agreement being evidence on one line of pixels and a shared
   departure on the next.** On `issue7891_bc1.pdf` page 1 the voting pair agrees about the soft mask
@@ -451,8 +496,10 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   where the `poppler` + `ghostscript` consensus — the one whose members do not share the object —
   contradicts `mupdf` on **0.6%**. Same bound, same class, same corpus, fifteenfold difference in
   the instrument's error rate. **The bound is not what varies; the consensus is**, which is why
-  `doc/todo/12` did not move the number. The same table's *vector* row is unread work rather than
-  a finding: that consensus contradicts `poppler` on 119 of 226 vector pages.
+  `doc/todo/12` did not move the number. The same table's *vector* row is read now, and its answer
+  is a different bullet of this list: the `mupdf` + `ghostscript` consensus contradicts `poppler`
+  on 119 of 226 vector pages because on 97 of them it is not two readings at all — the two rasters
+  are the same bytes (ADR 0773).
 
 The shape recurs with *us* in the minority: `mupdf` and `ghostscript` both refuse two files for
 wanting a password, `poppler` and we open them, and §7.6.6 puts the refusal on the stream whose

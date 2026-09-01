@@ -664,7 +664,10 @@ three gates' common half — every one of the 974 first pages rasterised, and §
 four-component page twice since ADR 0262. **If the clock ever becomes the constraint, that is where to
 look and not at the subprocesses.** `PDFREF_CACHE=off` asks the three renderers again — how "the cache changes no verdict" is
 re-checked; `PDFVIEWER_ORACLE_ONLY=a,b` compares only matching pages in 0.2 s and refuses to check
-the ratchets, saying so. `PDFVIEWER_CORPUS_TRACE=1` names each document as it starts, which is how
+the ratchets, saying so. **`PDFREF_GS_CMYK_PROFILE=<file>` points `ghostscript` at another press**,
+which is trap 9's shared-data removal made runnable: it is `-sDefaultCMYKProfile=` and nothing
+else, it costs a full `gs` re-render because the cache keys on the invocation, and it is never set
+by a gate. ADR 0773 has what it measured and the two controls a null result needs. `PDFVIEWER_CORPUS_TRACE=1` names each document as it starts, which is how
 a hang is identified from a killed run.
 
 Cargo prints one line about `proc-macro-error2` being rejected by a future compiler. It arrives

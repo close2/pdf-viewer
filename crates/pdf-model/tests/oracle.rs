@@ -73,6 +73,7 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
 use pdf_render::{Raster, Rasterizer, TargetSpec};
@@ -14739,7 +14740,7 @@ fn the_fixed_bounds_against_the_references_own_spread() {
         .collect();
     let substitutions: Vec<Substitution> = measured
         .iter()
-        .flat_map(|(_, s)| s.iter().copied())
+        .flat_map(|(_, s)| s.iter().cloned())
         .collect();
     println!(
         "\n{} reference pairs and {} substitution verdicts over {} pages in {:.1}s",
@@ -14775,8 +14776,8 @@ fn the_fixed_bounds_against_the_references_own_spread() {
         }
         let population: Vec<Substitution> = substitutions
             .iter()
-            .copied()
             .filter(|row| row.text == text)
+            .cloned()
             .collect();
         print_the_substitutions(class, &population);
     }
@@ -14829,7 +14830,8 @@ fn spreads_of(
     // substitution below runs `pdfref::triangulate_with` exactly as `examine` does and that
     // includes what each program said while it drew (ADR 0769).
     let testimony = what_they_said(&references, &work_dir);
-    let substitutions = substitutions_of(&raster, &references, &testimony, ours.has_text);
+    let page: Arc<str> = Arc::from(work.name());
+    let substitutions = substitutions_of(&page, &raster, &references, &testimony, ours.has_text);
     if let Some(fourth) = fourth
         && let Ok(extra) = cache.render(fourth, &work.path, work.page, DPI, &work_dir)
         && extra.width == raster.width
@@ -14860,8 +14862,15 @@ fn spreads_of(
 /// consensus, and the program judged by it — either the third voting reference or our own
 /// render. Both candidates are judged by the same consensus, at the same widened bound, in the
 /// same run, which is what makes the two counts comparable.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Substitution {
+    /// The page this row is about, as [`Work::name`] writes it.
+    ///
+    /// A row without it is a count, and ADR 0772 is what a count costs: the population of
+    /// trap 12's control lived in an ADR's prose for one round, two of its three names were
+    /// wrong, and the round that had to read the pages rebuilt the list before it could start.
+    /// This table's vector row was handed on the same way — *119 of 226* with no page in it.
+    page: Arc<str>,
     /// Whether this page is judged by [`Tolerance::TEXT_HEAVY`], decided as [`examine`] does.
     text: bool,
     /// The two references whose agreement judged this row.
@@ -14897,6 +14906,7 @@ struct Substitution {
 /// [`examine`] passes them, so a row here is the gate's verdict about that program on that page
 /// and not a re-derivation of one.
 fn substitutions_of(
+    page: &Arc<str>,
     ours: &Raster,
     references: &[(Reference, Raster)],
     testimony: &[pdfref::Testimony],
@@ -14940,6 +14950,7 @@ fn substitutions_of(
                     });
                 }
                 rows.push(Substitution {
+                    page: Arc::clone(page),
                     text,
                     pair: (*left_name, *right_name),
                     stood_in,
@@ -14953,6 +14964,13 @@ fn substitutions_of(
 }
 
 /// One block of the substitution table: what one pair's consensus says about each candidate.
+///
+/// Every row's contradicted pages are **named** under the table, not only counted. ADR 0772 is
+/// why: the count is a population somebody will have to read, a count cannot be handed to the
+/// next round as a to-do list, and the two times this project wrote such a list into a document
+/// instead it wrote it wrong. The 119 vector pages this table's `mupdf` + `ghostscript` row
+/// convicts `poppler` on were handed to the eight-hundred-and-forty-sixth session as a number
+/// alone, and naming them was that round's first act (ADR 0773).
 fn print_the_substitutions(class: &str, rows: &[Substitution]) {
     let mut pairs: Vec<(Reference, Reference)> = rows.iter().map(|row| row.pair).collect();
     pairs.sort_by_key(|(left, right)| (left.name(), right.name()));
@@ -14962,6 +14980,7 @@ fn print_the_substitutions(class: &str, rows: &[Substitution]) {
         "    {:<36} {:>7} {:>16} {:>7} {:>7} {:>7} {:>7}",
         "consensus, and who it judged", "pages", "contradicted", "mean", "tile", "diff", "ssim"
     );
+    let mut named: Vec<(String, Vec<&str>)> = Vec::new();
     for pair in pairs {
         let of_pair: Vec<&Substitution> = rows.iter().filter(|row| row.pair == pair).collect();
         let mut candidates: Vec<Option<Reference>> =
@@ -14974,7 +14993,11 @@ fn print_the_substitutions(class: &str, rows: &[Substitution]) {
                 .filter(|row| row.stood_in == stood_in)
                 .collect();
             let pages = rows.len();
-            let contradicted = rows.iter().filter(|row| row.contradicted).count();
+            let contradicted: Vec<&str> = rows
+                .iter()
+                .filter(|row| row.contradicted)
+                .map(|row| row.page.as_ref())
+                .collect();
             let per_measure: Vec<usize> = (0..MEASURES.len())
                 .map(|index| {
                     rows.iter()
@@ -14982,21 +15005,32 @@ fn print_the_substitutions(class: &str, rows: &[Substitution]) {
                         .count()
                 })
                 .collect();
+            let heading = format!(
+                "{} + {} judging {}",
+                pair.0.name(),
+                pair.1.name(),
+                stood_in.map_or("ours", Reference::name)
+            );
             println!(
-                "    {:<36} {pages:>7} {:>8} ({:>5.1}%) {:>7} {:>7} {:>7} {:>7}",
-                format!(
-                    "{} + {} judging {}",
-                    pair.0.name(),
-                    pair.1.name(),
-                    stood_in.map_or("ours", Reference::name)
-                ),
-                contradicted,
-                share(contradicted, pages) * 100.0,
+                "    {heading:<36} {pages:>7} {:>8} ({:>5.1}%) {:>7} {:>7} {:>7} {:>7}",
+                contradicted.len(),
+                share(contradicted.len(), pages) * 100.0,
                 per_measure.first().copied().unwrap_or(0),
                 per_measure.get(1).copied().unwrap_or(0),
                 per_measure.get(2).copied().unwrap_or(0),
                 per_measure.get(3).copied().unwrap_or(0),
             );
+            named.push((heading, contradicted));
+        }
+    }
+    for (heading, mut pages) in named {
+        if pages.is_empty() {
+            continue;
+        }
+        pages.sort_unstable();
+        println!("\n    {heading} — contradicted ({}):", pages.len());
+        for page in pages {
+            println!("      {page}");
         }
     }
 }

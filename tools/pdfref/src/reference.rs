@@ -683,7 +683,11 @@ impl Reference {
                     .arg("-dGraphicsAlphaBits=4")
                     .arg("-dTextAlphaBits=4")
                     .arg(format!("-dFirstPage={page}"))
-                    .arg(format!("-dLastPage={page}"))
+                    .arg(format!("-dLastPage={page}"));
+                if let Some(profile) = substituted_cmyk_profile() {
+                    command.arg(format!("-sDefaultCMYKProfile={}", profile.display()));
+                }
+                command
                     .arg(format!("-sOutputFile={}", output.display()))
                     .arg(pdf);
                 command
@@ -817,6 +821,34 @@ impl std::fmt::Display for Reference {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.name())
     }
+}
+
+/// The CMYK profile `ghostscript` is to be pointed at instead of its own, when a caller is
+/// running trap 9's shared-data removal.
+///
+/// # What this is for, and why it is a knob rather than a hand-run command
+///
+/// Trap 9's second bullet: `mupdf` and `ghostscript` agree about `DeviceCMYK` because they
+/// read **one file** — `/usr/share/ghostscript/iccprofiles/default_cmyk.icc`, which `libgs`
+/// reads off the disk and `libmupdf` carries compiled in at the same 187 484 bytes and the
+/// same digest. ADR 0048 established that by *evaluating* the profile; what it never did was
+/// **take it away**, and a mechanism named is not a mechanism priced (ADR 0497). `gs`'s
+/// `-sDefaultCMYKProfile` is the removal: point one member of the pair at a different press
+/// and whatever agreement the shared file was manufacturing has to go with it.
+///
+/// The knob is here rather than in a round's shell script because [`crate::Cache`] keys a
+/// remembered render on [`Reference::command_signature`], so an invocation this function
+/// changes is a **different key** and cannot be answered out of the baseline's cache — which
+/// is the one way an experiment like this silently measures nothing. A hand-run `gs` outside
+/// the harness has neither that protection nor the harness's page box, antialiasing and
+/// timeout (trap 3).
+///
+/// Unset — which is every gate, every ratchet and every verdict in this tree — it adds no
+/// argument at all, so `gs` uses the profile it would have used and nothing about the
+/// baseline depends on this function having been written. ADR 0773.
+fn substituted_cmyk_profile() -> Option<PathBuf> {
+    let named = std::env::var_os("PDFREF_GS_CMYK_PROFILE")?;
+    (!named.is_empty()).then(|| PathBuf::from(named))
 }
 
 /// Where a renderer's intermediate files are kept by default.
