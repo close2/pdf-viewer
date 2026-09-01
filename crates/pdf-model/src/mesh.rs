@@ -504,6 +504,12 @@ impl MeshReader<'_> {
     }
 
     /// Types 6 and 7: Bézier patches, evaluated into triangles.
+    ///
+    /// Each patch's triangles are appended in the order the stream states its patches, which
+    /// is what ISO 32000-2 §8.7.4.5.7's other overlap rule asks for — "[i]f one patch overlaps
+    /// another, the patch that appears later in the data stream shall paint over the earlier
+    /// one" — given that a mesh is painted triangle by triangle in this order.
+    /// [`tessellate`] owns the rule for an overlap *within* one patch.
     fn patches<C: Corner>(&self, bits: &mut BitReader<'_>, tensor: bool) -> Vec<Triangle> {
         let boundary = 12usize;
         let total = if tensor { 16 } else { boundary };
@@ -557,7 +563,22 @@ impl MeshReader<'_> {
             if !complete {
                 break;
             }
-            // A patch's data is *not* padded to a byte boundary, unlike a vertex's.
+            // A patch's data is *not* padded to a byte boundary, unlike a vertex's, and that
+            // is a reading rather than an omission. §8.7.4.5.5's padding sentence is about a
+            // vertex — "[e]ach set of vertex data shall occupy a whole number of bytes. If the
+            // total number of bits required is not divisible by 8, the last data byte for each
+            // vertex is padded at the end" — and §8.7.4.5.7 states that a patch is laid out
+            // differently for exactly this reason: "[a]ll of a patch's control points shall be
+            // given first, followed by the colour values for its corners. This differs from a
+            // triangle mesh (shading types 4 and 5), in which the coordinates and colour of
+            // each vertex are given together." A patch has no vertices, so the sentence it
+            // cross-refers to has nothing in a patch to apply to, and the clause says nothing
+            // else about alignment. No document in `doc/pdf.js/test/pdfs` or in the four
+            // `doc/corpora/` submodules — 1249 files, holding nine distinct type 6 or 7
+            // shadings between them — can tell the two readings apart: every one of the nine
+            // states `/BitsPerFlag 8` with coordinate and component widths that are whole
+            // bytes, so each patch's own total is a whole number of bytes either way. A file
+            // with `/BitsPerFlag 2` would be the witness that decides it.
 
             let grid = control_grid(&points, tensor);
             triangles.extend(tessellate(&grid, &corners));
@@ -674,6 +695,23 @@ fn control_grid(points: &[Point; 16], tensor: bool) -> [[Point; 4]; 4] {
 }
 
 /// Evaluates a bicubic Bézier surface into triangles.
+///
+/// # The order the triangles come out in is the clause's, not the loop's
+///
+/// A patch may fold over itself, and ISO 32000-2 §8.7.4.5.7 says which of the parameter
+/// points landing on one device point wins:
+///
+/// > If more than one point ( u, v ) in parameter space is mapped to the same point in device
+/// > space, the point selected shall be the one with the largest value of v . If multiple
+/// > points have the same v , the one with the largest value of u shall be selected.
+///
+/// Every rasteriser here paints a mesh's triangles in the order this function returns them,
+/// each overwriting what is under it, so *later in this vector* is *what the reader sees* —
+/// which makes the emission order the whole of how that sentence is obeyed. The precedence
+/// is therefore lexicographic in `(v, u)`, so `v` is the outer loop: the last cell written
+/// over any point is the one with the largest `v`, and among equal `v` the largest `u`.
+/// Nesting them the other way round answers with the largest `u` instead, which is the
+/// clause's *tie-breaker* promoted over its rule (ADR 0778).
 fn tessellate<C: Corner>(grid: &[[Point; 4]; 4], patch: &[C; 4]) -> Vec<Triangle> {
     let mut points = Vec::with_capacity(
         PATCH_STEPS
@@ -682,15 +720,15 @@ fn tessellate<C: Corner>(grid: &[[Point; 4]; 4], patch: &[C; 4]) -> Vec<Triangle
     );
     let mut corners = Vec::with_capacity(points.capacity());
 
-    for row in 0..=PATCH_STEPS {
-        for column in 0..=PATCH_STEPS {
+    for u_step in 0..=PATCH_STEPS {
+        for v_step in 0..=PATCH_STEPS {
             #[expect(
                 clippy::cast_precision_loss,
                 reason = "PATCH_STEPS is a small constant"
             )]
             let (u, v) = (
-                row as f32 / PATCH_STEPS as f32,
-                column as f32 / PATCH_STEPS as f32,
+                u_step as f32 / PATCH_STEPS as f32,
+                v_step as f32 / PATCH_STEPS as f32,
             );
             points.push(surface(grid, u, v));
             // The corners are `c1` at (0,0), `c2` at (0,1), `c3` at (1,1), `c4` at (1,0),
@@ -702,14 +740,14 @@ fn tessellate<C: Corner>(grid: &[[Point; 4]; 4], patch: &[C; 4]) -> Vec<Triangle
     let stride = PATCH_STEPS.saturating_add(1);
     let mut triangles =
         Vec::with_capacity(PATCH_STEPS.saturating_mul(PATCH_STEPS).saturating_mul(2));
-    for row in 0..PATCH_STEPS {
-        for column in 0..PATCH_STEPS {
-            let at = |r: usize, c: usize| r.saturating_mul(stride).saturating_add(c);
+    for v_step in 0..PATCH_STEPS {
+        for u_step in 0..PATCH_STEPS {
+            let at = |u: usize, v: usize| u.saturating_mul(stride).saturating_add(v);
             let (a, b, c, d) = (
-                at(row, column),
-                at(row, column.saturating_add(1)),
-                at(row.saturating_add(1), column),
-                at(row.saturating_add(1), column.saturating_add(1)),
+                at(u_step, v_step),
+                at(u_step, v_step.saturating_add(1)),
+                at(u_step.saturating_add(1), v_step),
+                at(u_step.saturating_add(1), v_step.saturating_add(1)),
             );
             let corner = |index: usize| Vertex {
                 point: points.get(index).copied().unwrap_or(Point::new(0.0, 0.0)),

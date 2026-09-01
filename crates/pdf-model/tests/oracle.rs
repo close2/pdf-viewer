@@ -8701,7 +8701,7 @@ const AMBIGUOUS_FOUR_ANSWERS: [&str; 3] = [
 ///
 /// # `tensor-allflags-withfunction.pdf`, where five renderers split three ways
 ///
-/// A §8.7.4.5.7 tensor-product mesh on a 612 × 792 page. Two rows of the profile are singular and
+/// A §8.7.4.5.8 tensor-product mesh on a 612 × 792 page. Two rows of the profile are singular and
 /// nothing else on the page is:
 ///
 /// ```text
@@ -8737,8 +8737,8 @@ const AMBIGUOUS_FOUR_ANSWERS: [&str; 3] = [
 /// useful"; three answers among five renderers is what a clause that decides nothing produces.
 /// # And its sibling, which is the same two rows
 ///
-/// `coons-allflags-withfunction.pdf` page 1 is §8.7.4.5.6's Coons patch mesh where the other is
-/// §8.7.4.5.7's tensor-product one, and its profile is the same page's:
+/// `coons-allflags-withfunction.pdf` page 1 is §8.7.4.5.7's Coons patch mesh where the other is
+/// §8.7.4.5.8's tensor-product one, and its profile is the same page's:
 ///
 /// ```text
 /// row 203    ours   0   poppler 100   mupdf   0   ghostscript 100   hayro   0
@@ -8749,6 +8749,14 @@ const AMBIGUOUS_FOUR_ANSWERS: [&str; 3] = [
 /// on the list is the same file" paying its seventh time — with the caution that goes with it,
 /// since `issue840.pdf`'s two pages were a colour and an edge respectively. Here the profile is
 /// what says they are the same rather than the name.
+///
+/// **The tensor page's pixels moved in the eight-hundred-and-fifty-first session and these two
+/// rows did not** (ADR 0778). §8.7.4.5.7's fold-over precedence was ranking `u` above `v` where the
+/// clause ranks `v` above `u`, and over `doc/pdf.js/test/pdfs` — `examples/raster_digest`, 975
+/// documents — correcting it moves the pixels of exactly one page, this file's. Rows 203 and 492
+/// were re-measured off the corrected render and are still 0 ink and 0 non-white pixels on both
+/// files, which is what this note is about: the split is over the mesh's top and bottom *edge*
+/// rows, and a precedence between two preimages of one interior point cannot reach an edge.
 const AMBIGUOUS_BOUNDARY_PIXELS: [&str; 3] = [
     "bug_jpx.pdf page 1",
     "tensor-allflags-withfunction.pdf page 1",

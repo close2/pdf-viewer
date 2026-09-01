@@ -1052,6 +1052,56 @@ fn an_unknown_shading_type_is_reported() {
     );
 }
 
+/// A Coons patch that folds over itself takes the colour of the *larger* `v` (§8.7.4.5.7).
+///
+/// > If more than one point ( u, v ) in parameter space is mapped to the same point in device
+/// > space, the point selected shall be the one with the largest value of v . If multiple
+/// > points have the same v , the one with the largest value of u shall be selected.
+///
+/// The patch below folds along its own diagonal, which is the one shape that tells the rule
+/// apart from its tie-breaker. Its control points are symmetric — `p(i,j) = p(j,i)` for every
+/// one of them, which for a Coons patch the derived interior points inherit — so the surface
+/// satisfies `S(u, v) = S(v, u)` and every point off the diagonal is covered exactly twice, by
+/// `(u, v)` and by `(v, u)`. The corner colours are red where `v = 0` and blue where `v = 1`,
+/// making the colour a function of `v` alone: the clause's answer at such a point is the
+/// colour of `max(u, v)` and the answer a reader gets by ranking `u` first is the colour of
+/// `min(u, v)`. At the pixel sampled below those are 0.9 and 0.05 of the way from red to
+/// blue, so nothing but the precedence decides it.
+///
+/// Concretely the two boundary curves are the straight segments (10,10)→(90,10) and
+/// (90,10)→(10,90), each serving as two of the patch's four sides.
+#[test]
+fn a_folded_patchs_overlap_is_resolved_by_the_larger_parameter_v() {
+    // Eight bits each for the flag, both coordinates and all three components, so every value
+    // is a whole byte. `/Decode` maps the raw 0..255 range onto page units, so a byte *is* a
+    // coordinate: 0x0A is 10 and 0x5A is 90.
+    //
+    // Table 84's order for a new patch (f = 0) is the twelve boundary control points
+    // p00 p01 p02 p03 p13 p23 p33 p32 p31 p30 p20 p10, then the four corner colours.
+    let data = "00 \
+                0A0A 250A 3F0A 5A0A \
+                3F25 253F 0A5A \
+                253F 3F25 5A0A \
+                3F0A 250A \
+                FF0000 0000FF 0000FF FF0000 >";
+    let mesh = format!(
+        "<< /ShadingType 6 /ColorSpace /DeviceRGB /BitsPerCoordinate 8 \
+         /BitsPerComponent 8 /BitsPerFlag 8 /Decode [0 255 0 255 0 1 0 1 0 1] \
+         /Filter /ASCIIHexDecode /Length {} >>\nstream\n{data}\nendstream",
+        data.len()
+    );
+    let raster = render(pdf_with(&mesh, "/Sh0 sh"));
+
+    // Page (82.5, 12.5) is raster row 87, which the fold covers from both sides: the branch
+    // through it with the larger v is at v ≈ 0.9, the other at v ≈ 0.05.
+    let (r, g, b, a) = pixel(&raster, 82, 87);
+    assert_eq!(a, 255, "the folded patch covers this pixel twice over");
+    assert!(
+        b > 180 && r < 80,
+        "§8.7.4.5.7 selects the point with the largest v, which is blue here: {r},{g},{b}"
+    );
+}
+
 /// A mesh whose stream is truncated must be reported rather than drawn in part.
 #[test]
 fn a_truncated_mesh_is_reported() {
