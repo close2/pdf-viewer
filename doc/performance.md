@@ -283,7 +283,12 @@ to the group's own band was `doc/todo/40`'s item. **The copying half of it was t
 four-hundred-and-ninety-third session** (ADR 0328): the backdrop copy, the mask conversion and the
 mask storage are banded — byte-identically, because none of the three is drawing arithmetic — while
 the drawing buffers stay target-sized on ADR 0219's argument. The numbers are that ADR's; the chain
-half of the item stays in the todo file.
+half of the item stays in the todo file. **The drawing itself followed in the
+eight-hundred-and-fifty-ninth for the one construction where nobody can read most of it** (ADR
+0783): a soft mask's group is evaluated only over the rows its consumers' clips can reach, which
+took a Tika-corpus page of 3059 one-consumer masks from 41.5 s to 1.5 s, and these two documents
+down again to 2.27 s and 1.07 s, at a departure of one level on one pixel of one corpus page —
+the ADR carries the A/B and the exactness argument.
 
 **What the four resource bounds cost, over the same 65 944 documents** (ADR 0271, and
 `doc/todo/49` has the reasoning). Every one of the 83 documents they refuse was opened with its

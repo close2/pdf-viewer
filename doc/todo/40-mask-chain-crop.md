@@ -11,8 +11,10 @@ any covering step at all and the rest of them carry 147 between them
 Code: `crates/render-cpu/src/lib.rs`, `MaskCache::build`; `crates/render-cpu/src/scan.rs`,
 `admits_every_pixel`
 Instrument: `cargo run --release -p pdf-model --example clip_chain_census -- <file.pdf> [page]`,
-which prints all three arms and the covering-step count. **Every number below comes off that
-command or off `examples/callgrind_rasterise`; none of them is written down here.**
+which prints all three arms, the covering-step count, and — since ADR 0783 — the soft-mask lists
+the main walk cannot reach, which is what told this file's newest witness apart from its subject.
+**Every number below comes off that command or off `examples/callgrind_rasterise`; none of them
+is written down here.**
 
 ## The half that was taken, and why it could be exact
 
@@ -100,15 +102,18 @@ The third is still the honest one and the round that takes it should say so befo
 ADR 0328 is the precedent for the *shape* of the split — band what is outside the drawing
 arithmetic, decline what is inside it — not for taking the departure.
 
-**And there is now a witness outside the 974 that is worse than anything this file names**, found
-by the eight-hundred-and-fifty-seventh session's walk of the Tika issue-tracker corpus's Mozilla
-directory (`doc/todo/03` §30): `corpus-cache/tika-issue-tracker/batch3/MOZILLA/MOZILLA-831621-14.pdf`
-opens in 2.1 ms and interprets in 414 ms into **3166 commands referencing 3149 distinct clips** —
-very nearly one clip apiece, where `bug1721218_reduced.pdf`'s census counts 3551 leaves through
-7066 shared nodes — and then spends **41 seconds** rasterising them onto a 1280 × 800 target, with
-nothing reported. It is not diagnosed further here and it is not a substitute for the census: what
-it is, is a page on which this file's subject is the *whole* cost rather than the largest term, and
-a round taking the third road above should measure on it as well as on the corpus's worst page.
+**The witness the eight-hundred-and-fifty-seventh session handed this file was not this file's,
+and the census extension that proved it is now part of the instrument** (ADR 0783).
+`corpus-cache/tika-issue-tracker/batch3/MOZILLA/MOZILLA-831621-14.pdf` — 3166 commands, 3149
+distinct clips, 41 s onto 1280 × 800 — *looked* like the chain arithmetic priced here, and the
+census read it apart in one run: its chains are 3134 of 3158 **depth one** (63 082 scanned mask
+rows in total, ~2% of the page), and the cost was the **soft-mask lists the census had never
+walked** — 3059 masks, each one page-sized shading fill whose consumers' clips admit ~0.1% of the
+page, ~3.1 G shaded pixels plus as many luminosity derivations. `build_soft_mask` now evaluates a
+mask's group only over the rows its consumers can read (`mask_consumer_reach`), and the page draws
+in 1.5 s. The census prints `soft-mask lists`, `soft-mask shading fills` and `soft-mask value-pass
+rows` arms so the next page like it is diagnosable in one command rather than a round. The
+departure and its price are ADR 0783's: one level on one pixel of one page across the 974.
 
 ## The cheapest thing left, and it is not the chain
 

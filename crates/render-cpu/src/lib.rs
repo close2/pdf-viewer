@@ -434,9 +434,17 @@ impl CpuRasterizer {
     ) -> Result<(), CpuRasterError> {
         let boundaries = plan_strips(list, target, self.strips);
         let strips = boundaries.len().saturating_sub(1);
+        // Computed once per rasterisation, before any mask is built, so that every build —
+        // serial, in a strip, or nested inside another mask's — restricts against the same
+        // complete answer. A list with no soft masks skips even the walk.
+        let reach = if list.soft_mask_count() == 0 {
+            Arc::new(HashMap::new())
+        } else {
+            Arc::new(mask_consumer_reach(list, target.transform))
+        };
         if strips < 2 {
             let surface = Surface::whole(target);
-            let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET);
+            let mut masks = MaskCache::new(surface, self.anti_alias, MASK_BUDGET).with_reach(reach);
             return self.encode(
                 &mut pixmap.as_mut(),
                 list,
@@ -488,7 +496,8 @@ impl CpuRasterizer {
                         height: rows,
                     },
                 )?;
-                let mut masks = MaskCache::new(surface, self.anti_alias, budget);
+                let mut masks =
+                    MaskCache::new(surface, self.anti_alias, budget).with_reach(Arc::clone(&reach));
                 self.encode(
                     &mut piece,
                     list,
@@ -1319,13 +1328,15 @@ impl CpuRasterizer {
 
     /// Evaluates a soft mask into the cache, if it is not there already (§11.5).
     ///
-    /// The mask's group is drawn onto a fully transparent buffer covering this surface — the same
-    /// isolated backdrop [`CpuRasterizer::draw_group`] uses, and what both §11.5.2 and
-    /// §11.5.3 ask for — and each pixel is then turned into a mask value by
-    /// [`pdf_render::SoftMask::value`], which is the function the GPU backend calls on its
-    /// own readback. That shared derivation is the whole reason the display list carries a
-    /// mask's *commands* rather than a raster: the group is evaluated at device resolution,
-    /// which only a backend knows, while what the pixels mean is decided once for both.
+    /// The mask's group is drawn onto a fully transparent buffer — the same isolated backdrop
+    /// [`CpuRasterizer::draw_group`] uses, and what both §11.5.2 and §11.5.3 ask for —
+    /// covering the rows of this surface the mask's consumers can read
+    /// ([`mask_consumer_reach`]; every row of it, wherever some consumer is unclipped) — and
+    /// each pixel is then turned into a mask value by [`pdf_render::SoftMask::value`], which
+    /// is the function the GPU backend calls on its own readback. That shared derivation is
+    /// the whole reason the display list carries a mask's *commands* rather than a raster:
+    /// the group is evaluated at device resolution, which only a backend knows, while what
+    /// the pixels mean is decided once for both.
     ///
     /// # Errors
     ///
@@ -1346,23 +1357,74 @@ impl CpuRasterizer {
             .soft_mask(id)
             .ok_or(CpuRasterError::UnknownSoftMask(id))?;
 
-        let mut buffer = tiny_skia::Pixmap::new(surface.width(), surface.rows.height).ok_or(
+        // §11.6.5.1 gives a mask a value everywhere, but a value is only *read* where some
+        // consumer reads it — and every consumer reads through [`MaskCache::effective`], over
+        // its own clip's band. So the group is evaluated over the rows
+        // [`mask_consumer_reach`] says its consumers can reach, not over the whole surface,
+        // through the same [`Surface`] machinery a strip uses: the band's first row composed
+        // into the translation once and last (ADR 0219). The rows it drops are rows whose
+        // values no read can observe; the rows it keeps carry ADR 0219's residue — a command
+        // whose clip band clamps to a different first row rounds `y·sy + ty` in another
+        // binade — measured across the 974-document corpus at one level on one pixel of one
+        // page, and priced in ADR 0783. A mask with an unclipped consumer — including
+        // everything [`MaskCache::expand_soft_mask`] serves — reaches this with no
+        // restriction and takes the path below unchanged, byte for byte.
+        //
+        // The benchmark that justifies it, per `CLAUDE.md`'s rule:
+        // `MOZILLA-831621-14.pdf` states 3059 soft masks, each one page-sized shading fill
+        // read through a clip admitting ~0.1% of the 1280×800 page, and rasterised in 41.5 s
+        // — ~3.1 G shaded pixels and as many luminosity derivations for masks whose read
+        // rows total ~2% of that (`pdf-model/examples/clip_chain_census`, soft-mask lines).
+        // With the restriction the page draws in 1.5 s, byte-identically. ADR 0783.
+        let marked = marked_rows(&mask.commands, surface);
+        let restricted = masks.soft_mask_rows(id, marked);
+        let narrowed = restricted != marked;
+        // The drawing surface: the page's own target with the restricted run of rows, so the
+        // group's elements draw under the very transforms they draw under on the page.
+        let draw = if narrowed {
+            Surface {
+                page: surface.page,
+                rows: restricted,
+            }
+        } else {
+            surface
+        };
+        let mut buffer = tiny_skia::Pixmap::new(draw.width(), draw.rows.height).ok_or(
             CpuRasterError::Allocation {
-                width: surface.width(),
-                height: surface.rows.height,
+                width: draw.width(),
+                height: draw.rows.height,
             },
         )?;
         // A soft mask's group is evaluated as §11.4.5's ordinary group: `SoftMask` carries
         // no knockout flag, and `pdf-model` reports a mask group that asks for one.
-        self.encode(
-            &mut buffer.as_mut(),
-            list,
-            &mask.commands,
-            surface,
-            masks,
-            depth,
-            Compose::Over,
-        )?;
+        if narrowed {
+            // A cache of its own, because a clip mask is banded against the surface it was
+            // built for and this one is narrower than `masks.surface`: an entry built here
+            // would be wrong for the outer encode and one built there wrong for this. What
+            // sharing would have reused is bounded by the very rows this evaluation was
+            // narrowed to, so the rebuild costs a fraction of what the narrowing saves.
+            let mut own = MaskCache::new(draw, self.anti_alias, masks.budget)
+                .with_reach(Arc::clone(&masks.reach));
+            self.encode(
+                &mut buffer.as_mut(),
+                list,
+                &mask.commands,
+                draw,
+                &mut own,
+                depth,
+                Compose::Over,
+            )?;
+        } else {
+            self.encode(
+                &mut buffer.as_mut(),
+                list,
+                &mask.commands,
+                surface,
+                masks,
+                depth,
+                Compose::Over,
+            )?;
+        }
 
         // Straight alpha, which is what `SoftMask::value` is defined over and what the GPU
         // backend reads back; `tiny-skia` stores premultiplied, so the conversion happens
@@ -1396,9 +1458,9 @@ impl CpuRasterizer {
         // when the pass and the storage stopped being surface-sized (ADR 0328's A/B, two
         // binaries built in one sitting).
         let outside = mask.outside();
-        let reach = marked_rows(&mask.commands, surface);
-        let width = surface.width() as usize;
-        let start = (reach.top.saturating_sub(surface.rows.top) as usize).saturating_mul(width);
+        let reach = restricted;
+        let width = draw.width() as usize;
+        let start = (reach.top.saturating_sub(draw.rows.top) as usize).saturating_mul(width);
         let end = start.saturating_add((reach.height as usize).saturating_mul(width));
         let values: Vec<u8> = buffer
             .pixels()
@@ -2648,6 +2710,19 @@ impl Band {
     fn mask_bytes(self, width: u32) -> usize {
         (self.height as usize).saturating_mul(width as usize)
     }
+
+    /// The rows this band and `other` share, or `None` where they share none.
+    fn intersection(self, other: Self) -> Option<Self> {
+        let top = self.top.max(other.top);
+        let bottom = self
+            .top
+            .saturating_add(self.height)
+            .min(other.top.saturating_add(other.height));
+        (bottom > top).then(|| Self {
+            top,
+            height: bottom.saturating_sub(top),
+        })
+    }
 }
 
 /// The rows of a page one call draws into, and the page they belong to.
@@ -2993,6 +3068,201 @@ fn vertical_extent(
     true
 }
 
+/// The device rows a set of commands can *read* of a soft mask, before any is built.
+///
+/// A y-extent on the page's own device grid, so it is strip-independent; each strip clamps
+/// it with [`Band::covering`]. `Everywhere` is the safe answer and the default.
+#[derive(Debug, Clone, Copy)]
+enum MaskReach {
+    /// Some consumer can read every row — it has no clip, or a clip nobody could measure.
+    Everywhere,
+    /// Every consumer reads through a clip, and their chains' bounds reach only these rows.
+    Rows { top: f32, bottom: f32 },
+    /// Every consumer's clip admits nothing, so no row of the mask is ever read.
+    Nothing,
+}
+
+impl MaskReach {
+    /// The reach of a consumer whose clip chain bounds are `extent`, joined with `self`.
+    fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Everywhere, _) | (_, Self::Everywhere) => Self::Everywhere,
+            (Self::Nothing, reach) | (reach, Self::Nothing) => reach,
+            (Self::Rows { top, bottom }, Self::Rows { top: t, bottom: b }) => Self::Rows {
+                top: top.min(t),
+                bottom: bottom.max(b),
+            },
+        }
+    }
+}
+
+/// The rows each soft mask's *consumers* can read, over the whole display list.
+///
+/// Every reader of a stored soft mask goes through [`MaskCache::effective`], and each of its
+/// arms reads the mask over the band of the consuming command's clip — or over the whole
+/// surface where the command has none (§11.6.5.1 gives a mask a value everywhere, so an
+/// unclipped consumer reads all of it). So the union, per mask, of its consumers' clip-chain
+/// bounds is a bound on the rows whose values can ever matter, and it is computable before
+/// anything is built: the same per-clip path bounds [`MaskCache::build`] measures, intersected
+/// along each chain, united across consumers. A clip that cannot be measured widens the answer
+/// — the direction `build` errs in too — and a walk that cannot finish (nesting past
+/// [`MAX_GROUP_DEPTH`], which `encode` refuses anyway) answers the empty map, which restricts
+/// nothing.
+///
+/// Consumers inside *other masks'* groups are walked as well, with their own clip chains: the
+/// rows such a consumer actually reads are those drawn during the enclosing mask's build,
+/// which are a subset of its clip's band, so the answer stays a superset of every read.
+fn mask_consumer_reach(list: &DisplayList, page: Transform) -> HashMap<SoftMaskId, MaskReach> {
+    let mut reach = HashMap::new();
+    let mut known = HashMap::new();
+    let mut complete = note_mask_consumers(list, list.commands(), page, &mut known, &mut reach, 0);
+    for number in 0..list.soft_mask_count() {
+        let mask = u32::try_from(number)
+            .ok()
+            .and_then(|index| list.soft_mask(SoftMaskId::new(index)));
+        let Some(mask) = mask else {
+            complete = false;
+            break;
+        };
+        complete =
+            complete && note_mask_consumers(list, &mask.commands, page, &mut known, &mut reach, 0);
+    }
+    if complete {
+        reach
+    } else {
+        // A walk that could not see every consumer must not restrict any mask.
+        HashMap::new()
+    }
+}
+
+/// The y-extent of the chain ending at `id`, from the same bounds [`MaskCache::build`]
+/// measures, memoised per node. [`mask_consumer_reach`]'s half that reads geometry.
+fn chain_reach(
+    list: &DisplayList,
+    id: ClipId,
+    page: Transform,
+    known: &mut HashMap<ClipId, MaskReach>,
+) -> MaskReach {
+    // The chain, leaf to root, stopping at the first memoised ancestor. Iterative and
+    // bounded by a seen-set for `MaskCache::resolve_chain`'s reason: a cyclic chain is
+    // reachable from a malformed document, and `build` will report it — here it only
+    // needs a safe answer.
+    let mut walk = Vec::new();
+    let mut seen = HashSet::new();
+    let mut current = Some(id);
+    let mut reach = MaskReach::Everywhere;
+    while let Some(this) = current {
+        if let Some(&known) = known.get(&this) {
+            reach = known;
+            break;
+        }
+        if !seen.insert(this) {
+            return MaskReach::Everywhere;
+        }
+        walk.push(this);
+        current = match list.clip(this) {
+            Some(clip) => clip.parent,
+            // Dangling: `build` errors the page; any answer here is moot, so the safe one.
+            None => return MaskReach::Everywhere,
+        };
+    }
+    // Root-first, so each memoised entry is the extent of the chain ending there.
+    for &this in walk.iter().rev() {
+        let Some(clip) = list.clip(this) else {
+            return MaskReach::Everywhere;
+        };
+        if clip.admits_nothing() {
+            reach = MaskReach::Nothing;
+        } else if let Some(own) = convert::path(&clip.path).and_then(|path| {
+            path.bounds()
+                .transform(convert::transform(clip.transform.then(page)))
+        }) {
+            reach = match reach {
+                MaskReach::Nothing => MaskReach::Nothing,
+                MaskReach::Everywhere => MaskReach::Rows {
+                    top: own.top(),
+                    bottom: own.bottom(),
+                },
+                MaskReach::Rows { top, bottom } => {
+                    let (top, bottom) = (top.max(own.top()), bottom.min(own.bottom()));
+                    // `<=`, not `<`: `tiny_skia::Rect::intersect` admits a touching,
+                    // zero-area overlap, and `Band::covering`'s row of outset makes such
+                    // a chain read real rows — so `build` will, and this may not say no.
+                    if top <= bottom {
+                        MaskReach::Rows { top, bottom }
+                    } else {
+                        MaskReach::Nothing
+                    }
+                }
+            };
+        }
+        // A clip whose path cannot be converted or measured widens nothing and narrows
+        // nothing, exactly as `MaskCache::build` treats an unmeasurable bound.
+        known.insert(this, reach);
+    }
+    reach
+}
+
+/// Joins each mask-consuming command's clip reach into `reach`, recursively.
+///
+/// [`mask_consumer_reach`]'s walking half. `false` the moment the walk cannot see a subtree
+/// — nesting past [`MAX_GROUP_DEPTH`], which [`CpuRasterizer::encode`] refuses anyway — at
+/// which point the caller must restrict nothing, because an unseen consumer could read
+/// anywhere.
+fn note_mask_consumers(
+    list: &DisplayList,
+    commands: &[Command],
+    page: Transform,
+    known: &mut HashMap<ClipId, MaskReach>,
+    reach: &mut HashMap<SoftMaskId, MaskReach>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_GROUP_DEPTH {
+        return false;
+    }
+    for command in commands {
+        if let Some(id) = command.mask() {
+            let this = match command.clip() {
+                None => MaskReach::Everywhere,
+                Some(clip) => chain_reach(list, clip, page, known),
+            };
+            let joined = reach
+                .get(&id)
+                .copied()
+                .unwrap_or(MaskReach::Nothing)
+                .union(this);
+            reach.insert(id, joined);
+        }
+        let walked = match command {
+            Command::Group { commands, .. } => {
+                note_mask_consumers(list, commands, page, known, reach, depth.saturating_add(1))
+            }
+            Command::Shaped { object, shape } => {
+                note_mask_consumers(
+                    list,
+                    std::slice::from_ref(&**object),
+                    page,
+                    known,
+                    reach,
+                    depth,
+                ) && note_mask_consumers(
+                    list,
+                    std::slice::from_ref(&**shape),
+                    page,
+                    known,
+                    reach,
+                    depth,
+                )
+            }
+            _ => true,
+        };
+        if !walked {
+            return false;
+        }
+    }
+    true
+}
+
 /// The rows at which to cut this target, or one strip's worth if it may not be cut.
 ///
 /// The strip count asked for is what this machine offers, bounded by [`MAX_STRIPS`] and by
@@ -3212,6 +3482,10 @@ struct MaskCache {
     /// Where a mark's own coverage is built before §10.7.4's intersection composes the two.
     /// Here because it is one buffer per band, which is what this cache already is.
     scratch: scan::Scratch,
+    /// The rows each soft mask's consumers can read ([`mask_consumer_reach`]), shared by
+    /// every cache of one rasterisation. Empty restricts nothing, which is what a cache
+    /// built without a display list — every test's — gets.
+    reach: Arc<HashMap<SoftMaskId, MaskReach>>,
 }
 
 /// Largest total size of the masks a [`MaskCache`] holds, in bytes.
@@ -3254,6 +3528,38 @@ impl MaskCache {
             soft_bytes: 0,
             budget,
             scratch: scan::Scratch::default(),
+            reach: Arc::new(HashMap::new()),
+        }
+    }
+
+    /// The same cache, restricting each soft mask to the rows its consumers can read.
+    fn with_reach(mut self, reach: Arc<HashMap<SoftMaskId, MaskReach>>) -> Self {
+        self.reach = reach;
+        self
+    }
+
+    /// The rows [`CpuRasterizer::build_soft_mask`] evaluates mask `id` over: `marked` — the
+    /// rows the group's own marks can reach on this surface — narrowed to the rows the
+    /// mask's consumers can read ([`mask_consumer_reach`]).
+    fn soft_mask_rows(&self, id: SoftMaskId, marked: Band) -> Band {
+        let one_row = Band {
+            top: self.surface.rows.top,
+            height: 1,
+        };
+        match self.reach.get(&id).copied() {
+            // Not walked, or readable everywhere: evaluate over every row the group can mark.
+            None | Some(MaskReach::Everywhere) => marked,
+            // No consumer can read any row; `marked_rows`' own degenerate answer, whose
+            // every value is the `outside` constant an unmarked pixel derives.
+            Some(MaskReach::Nothing) => one_row,
+            Some(MaskReach::Rows { top, bottom }) => {
+                tiny_skia::Rect::from_ltrb(0.0, top, 1.0, bottom)
+                    .and_then(|rows| Band::covering(rows, self.surface))
+                    .and_then(|band| band.intersection(marked))
+                    // Off this surface, or sharing no row with the group's marks: nothing
+                    // a consumer reads here differs from the constant.
+                    .unwrap_or(one_row)
+            }
         }
     }
 
@@ -4146,6 +4452,121 @@ mod tests {
     #[test]
     fn the_shipped_budget_is_thirty_two_mebibytes() {
         assert_eq!(MASK_BUDGET, 32 * 1024 * 1024);
+    }
+
+    /// A soft mask evaluated over the rows its consumers can read draws the page the
+    /// unrestricted evaluation draws — and the restriction must actually be in force, or the
+    /// equality is vacuous (ADR 0783).
+    ///
+    /// The geometry is whole integers under an integer transform so that the band's row
+    /// offset costs no rounding anywhere — the two arms are then byte-comparable rather than
+    /// near — and the mask's group paints *different* grey bars above, inside and below the
+    /// consumer's clip, so a restriction that read the wrong rows, or substituted
+    /// [`pdf_render::SoftMask::outside`] where a consumer reads, changes the picture.
+    /// Calibrated by planting `soft_mask_rows`'s `Rows` arm as `one_row`: the equality fails.
+    #[test]
+    fn a_mask_narrowed_to_its_consumers_rows_draws_the_unrestricted_page() {
+        use pdf_render::{BlendMode, Color, Paint, SoftMask, SoftMaskKind};
+
+        let rectangle = |ltrb: (f32, f32, f32, f32)| {
+            let mut path = Path::new();
+            path.push(PathCommand::MoveTo(Point::new(ltrb.0, ltrb.1)));
+            path.push(PathCommand::LineTo(Point::new(ltrb.2, ltrb.1)));
+            path.push(PathCommand::LineTo(Point::new(ltrb.2, ltrb.3)));
+            path.push(PathCommand::LineTo(Point::new(ltrb.0, ltrb.3)));
+            path.push(PathCommand::Close);
+            path
+        };
+        let fill = |ltrb, paint, clip, mask| pdf_render::Command::Fill {
+            path: std::sync::Arc::new(rectangle(ltrb)),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint,
+            clip,
+            mask,
+            blend: BlendMode::Normal,
+        };
+
+        let mut list = DisplayList::new(Size::new(100.0, 100.0));
+        // Three grey bars, so the luminosity varies with the row: rows a wrong restriction
+        // would misread carry a different value from the rows the consumer reads.
+        let grey = |level| Paint::Solid(Color::rgb(level, level, level));
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: vec![
+                    fill((0.0, 0.0, 100.0, 34.0), grey(0.2), None, None),
+                    fill((0.0, 34.0, 100.0, 66.0), grey(0.6), None, None),
+                    fill((0.0, 66.0, 100.0, 100.0), grey(0.9), None, None),
+                ],
+                kind: SoftMaskKind::Luminosity {
+                    backdrop: Color::rgb(0.0, 0.0, 0.0),
+                },
+                transfer: None,
+            })
+            .expect("under the mask limit");
+        let clip = list
+            .add_clip(Clip {
+                path: rectangle((10.0, 40.0, 90.0, 60.0)),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                parent: None,
+            })
+            .expect("under the clip limit");
+        list.push(fill(
+            (0.0, 0.0, 100.0, 100.0),
+            Paint::Solid(Color::rgb(0.8, 0.1, 0.1)),
+            Some(clip),
+            Some(mask),
+        ));
+
+        let target = TargetSpec::for_page(&list, 1.0, 1 << 30).expect("valid target");
+        let surface = Surface::whole(target);
+        let reach = super::mask_consumer_reach(&list, target.transform);
+
+        // The restriction must narrow, or this test would stay green with the feature gone.
+        let marked = super::marked_rows(
+            &list.soft_mask(mask).expect("registered above").commands,
+            surface,
+        );
+        let narrowing = MaskCache::new(surface, true, MASK_BUDGET)
+            .with_reach(std::sync::Arc::new(reach.clone()));
+        assert_ne!(
+            narrowing.soft_mask_rows(mask, marked),
+            marked,
+            "the consumer's clip must narrow the evaluation for this page to discriminate"
+        );
+
+        let rasterizer = super::CpuRasterizer::new();
+        let draw = |masks: &mut MaskCache| {
+            let mut pixmap =
+                tiny_skia::Pixmap::new(target.width, target.height).expect("a small target");
+            rasterizer
+                .encode(
+                    &mut pixmap.as_mut(),
+                    &list,
+                    list.commands(),
+                    surface,
+                    masks,
+                    0,
+                    super::Compose::Over,
+                )
+                .expect("every command is supported");
+            pixmap
+        };
+        let mut restricted =
+            MaskCache::new(surface, true, MASK_BUDGET).with_reach(std::sync::Arc::new(reach));
+        let mut unrestricted = MaskCache::new(surface, true, MASK_BUDGET);
+        let narrowed = draw(&mut restricted);
+        let whole = draw(&mut unrestricted);
+        assert!(
+            whole.data().iter().any(|&byte| byte != 0),
+            "the page must draw something for the comparison to mean anything"
+        );
+        assert_eq!(
+            narrowed.data(),
+            whole.data(),
+            "a narrowed evaluation changed a pixel its consumers can read"
+        );
     }
 
     /// A soft mask stored over its band combines with a clip exactly as one stored whole.

@@ -17,6 +17,14 @@
 //! It also reports what the shading fills cover, because a gradient is evaluated over the
 //! spans of the *path* and masked afterwards: the pixels a clip rejects are paid for at full
 //! price, and the ratio between a fill's own bounds and its clip's says how many there are.
+//!
+//! And it walks the **soft-mask command lists**, which the main walk cannot see: a mask's
+//! group is a display list of its own (`DisplayList::soft_mask`), rendered once per mask by
+//! `CpuRasterizer::build_soft_mask` into a surface-sized buffer and then read back over the
+//! rows `marked_rows` says its marks could reach. That reach is taken from each command's
+//! *path* bounds, never its clip's — so a mask whose fill states a page-sized rectangle under
+//! a small clip reads the whole surface back per mask. `MOZILLA-831621-14.pdf` is the page
+//! this was blind on: 3059 masks whose main-list census said almost nothing was drawn.
 
 #![expect(
     clippy::print_stdout,
@@ -406,6 +414,117 @@ fn main() {
         })
         .count();
 
+    // The soft-mask lists, which the walk above cannot reach: each is rendered once per mask
+    // by `build_soft_mask`, and the buffer is read back over the rows the mask's *path*
+    // bounds reach (`marked_rows`), never the rows its clips admit.
+    let mut mask_commands = 0_usize;
+    let mut mask_shadings = 0_usize;
+    let mut mask_shadings_clipped = 0_usize;
+    let mut mask_path_pixels = 0_u64;
+    let mut mask_clipped_pixels = 0_u64;
+    let mut mask_reach_rows = 0_u64;
+    let mut mask_clip_reach_rows = 0_u64;
+    let mut mask_leaves: HashSet<ClipId> = HashSet::new();
+    for number in 0..list.soft_mask_count() {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "DisplayList::add_soft_mask refuses an index past u32"
+        )]
+        let mask = list
+            .soft_mask(pdf_render::SoftMaskId::new(number as u32))
+            .expect("the list holds every mask it counts");
+        // Both reaches at once: the rows the mask's path bounds cover — what `marked_rows`
+        // answers and the value pass reads today — and the rows left after each command's
+        // bounds are intersected with its clip chain's, which is what a clip-aware reach
+        // would read instead. A command neither can measure widens both to the surface.
+        let mut plain: Option<(f32, f32)> = None;
+        let mut clipped: Option<(f32, f32)> = None;
+        let mut measured = true;
+        walk(&mask.commands, &mut |command| {
+            mask_commands += 1;
+            if let Some(id) = command.clip() {
+                mask_leaves.insert(id);
+            }
+            let shading = matches!(
+                command,
+                Command::Fill {
+                    paint: Paint::Shading(_),
+                    ..
+                }
+            );
+            if shading {
+                mask_shadings += 1;
+                if command.clip().is_some() {
+                    mask_shadings_clipped += 1;
+                }
+            }
+            if matches!(command, Command::Group { .. }) {
+                return;
+            }
+            let Some(bounds) = command.device_bounds(target.transform) else {
+                measured = false;
+                return;
+            };
+            if shading {
+                mask_path_pixels += u64::from(rows(bounds, target.height))
+                    * u64::from(rows(
+                        Rect::from_corners(
+                            pdf_render::Point::new(bounds.min.y, bounds.min.x),
+                            pdf_render::Point::new(bounds.max.y, bounds.max.x),
+                        ),
+                        target.width,
+                    ));
+            }
+            let widen = |extent: &mut Option<(f32, f32)>, rect: Rect| {
+                *extent = Some(match *extent {
+                    None => (rect.min.y, rect.max.y),
+                    Some((low, high)) => (low.min(rect.min.y), high.max(rect.max.y)),
+                });
+            };
+            widen(&mut plain, bounds);
+            let narrowed = command
+                .clip()
+                .and_then(|id| chain(&list, id, target.transform, &mut known))
+                .and_then(|(outer, _)| intersect(outer, bounds));
+            if shading {
+                let within = narrowed.unwrap_or(bounds);
+                mask_clipped_pixels += u64::from(rows(within, target.height))
+                    * u64::from(rows(
+                        Rect::from_corners(
+                            pdf_render::Point::new(within.min.y, within.min.x),
+                            pdf_render::Point::new(within.max.y, within.max.x),
+                        ),
+                        target.width,
+                    ));
+            }
+            match narrowed {
+                Some(within) => widen(&mut clipped, within),
+                // A clip that empties the bounds still leaves the command in the list; it
+                // widens the clipped reach by nothing.
+                None if command.clip().is_some() => {}
+                None => widen(&mut clipped, bounds),
+            }
+        });
+        let reach = |extent: Option<(f32, f32)>| -> u64 {
+            if !measured {
+                return u64::from(target.height);
+            }
+            match extent {
+                Some((low, high)) => u64::from(rows(
+                    Rect::from_corners(
+                        pdf_render::Point::new(0.0, low),
+                        pdf_render::Point::new(1.0, high),
+                    ),
+                    target.height,
+                )),
+                // `marked_rows` answers one row for a list that marks nothing.
+                None => 1,
+            }
+        };
+        mask_reach_rows += reach(plain);
+        mask_clip_reach_rows += reach(clipped);
+    }
+
     println!(
         "{path} page {index}, target {}x{}",
         target.width, target.height
@@ -465,5 +584,21 @@ fn main() {
         "  shading fills {shadings}: path pixels {path_pixels}, within their clips \
          {clipped_pixels} ({:.1}%)",
         100.0 * clipped_pixels as f64 / path_pixels.max(1) as f64
+    );
+    println!(
+        "  soft-mask lists: {mask_commands} commands, {mask_shadings} shading fills \
+         ({mask_shadings_clipped} clipped), {} clip leaves of their own",
+        mask_leaves.len()
+    );
+    println!(
+        "  soft-mask shading fills: path pixels {mask_path_pixels}, within their clips \
+         {mask_clipped_pixels} ({:.1}%)",
+        100.0 * mask_clipped_pixels as f64 / mask_path_pixels.max(1) as f64
+    );
+    println!(
+        "  soft-mask value-pass rows: by path bounds {mask_reach_rows} (what marked_rows \
+         answers), clip-intersected {mask_clip_reach_rows} ({:+.1}%)",
+        100.0 * (mask_clip_reach_rows as f64 - mask_reach_rows as f64)
+            / (mask_reach_rows as f64).max(1.0)
     );
 }
