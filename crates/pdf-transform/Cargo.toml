@@ -1,0 +1,32 @@
+[package]
+name = "pdf-transform"
+description = "Derives files from documents this tree can read — pages as images, embedded images, embedded files — over one plan-and-sinks seam, and the command-line program that is its first consumer."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The readers, the display list, the correctness-oracle rasteriser, and the one PNG encoder the
+# tree already ships. `viewer-core` is here for exactly one type, `Secret` — §7.6.4.1's password
+# held so that it cannot be printed — because a second password type would be a second buffer to
+# clear and a second `Debug` to audit (RFC 0002 section 5, ADR 0800). Nothing else of the viewer's
+# vocabulary crosses: a transform is a batch job over documents no window has open.
+#
+# No argument-parsing dependency, following `tools/pdf-retrieve`: the argument grammar is small,
+# stated in one place, and a dependency taken for it would be a dependency on the *shape* of argv
+# rather than on anything hard (doc/third-party-data.md's rule). No serialisation dependency
+# either, for the same reason `pdf-retrieve` gives: the report is a fixed shape this crate writes
+# and never parses.
+[dependencies]
+pdf-model.workspace = true
+pdf-render.workspace = true
+pdf-syntax.workspace = true
+render-cpu.workspace = true
+viewer-core.workspace = true
+png.workspace = true
+rayon.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

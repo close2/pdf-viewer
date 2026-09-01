@@ -488,9 +488,9 @@ moved a document.
 built=$(cargo metadata --no-deps --format-version 1 | jq -r .target_directory)/release
 cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker --bin pdf-view-worker \
                      --bin pdf-viewer-gtk --bin pdf-viewer-qt --bin pdf-viewer-confined \
-                     --bin pdf-retrieve
+                     --bin pdf-retrieve --bin pdf-transform
 for binary in pdf-viewer pdf-sandbox-worker pdf-view-worker pdf-viewer-gtk pdf-viewer-qt \
-              pdf-viewer-confined pdf-retrieve
+              pdf-viewer-confined pdf-retrieve pdf-transform
 do install -Dm755 "$built/$binary" "target/$binary"; done
 cargo build --release -p viewer-ffi          # a library, so not in the invocation above
 install -Dm755 "$built/libviewer_ffi.so" target/libviewer_ffi.so

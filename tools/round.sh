@@ -233,7 +233,8 @@ fi
 #    is a measurement of the past, which is the whole reason that section exists.
 head_time=$(git log -1 --format=%ct 2>/dev/null)
 oldest=$(ls -t target/pdf-viewer target/pdf-viewer-gtk target/pdf-viewer-qt target/pdf-retrieve \
-             target/pdf-sandbox-worker target/pdf-view-worker target/libviewer_ffi.so 2>/dev/null | tail -1)
+             target/pdf-transform target/pdf-sandbox-worker target/pdf-view-worker \
+             target/libviewer_ffi.so 2>/dev/null | tail -1)
 if [ -z "$oldest" ]; then
     fail "target/ holds none of §5's binaries — nothing a person can run"
 elif [ -n "$head_time" ] && [ "$(stat -c %Y "$oldest" 2>/dev/null || echo 0)" -lt "$head_time" ]; then
