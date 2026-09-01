@@ -886,10 +886,9 @@ rather than within a noise floor: a renderer that drew anything antialiases its 
 **Three things it refuses to do, and each is a page rather than a caveat.** Where every reference
 is flat, none abstains and a render of ours that puts marks on the page stays contradicted — the
 defect class the rule must not suppress. Where two flat rasters disagree with each other and
-nothing drew, none abstains either: `bitmap-symbol-context-reuse.pdf` is `poppler` white,
-`ghostscript` white and `mupdf` entirely black, and it stays contradicted on two failures agreeing,
-because the only evidence that the page has marks is our own. And where a flat sheet **is** the
-page the rule gets it wrong and is named for it: `recursiveCompositGlyf.pdf` is solid red under
+nothing drew, none abstains **on the pixels** either, because the only evidence that the page has
+marks is then our own; §3f-i is the second route, which asks something that is not in the pixels at
+all. And where a flat sheet **is** the page the rule gets it wrong and is named for it: `recursiveCompositGlyf.pdf` is solid red under
 §9.3.6, which this tree, `poppler` and `hayro` draw and `ghostscript` — recovering a malformed
 composite glyph — does not, so the only renderer with marks is the one the clause does not support.
 `NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE` holds it. Every refinement that would rescue that page
@@ -932,6 +931,58 @@ nothing had no operand. The document is on `corpus.rs`'s incomplete list now.
 `contradicted` except by ceasing to be comparable at all, and on the further pages where a reference
 abstained while two readings survived not one verdict changed. The gate prints that census every
 run, because a rule that refuses a vote owes the count of votes it refused.
+
+### 3f-i. And what the renderer said, which is not in the pixels at all
+
+**Taken in the eight-hundred-and-forty-second session** (ADR 0769), on the one route ADR 0768 left
+open after writing the raster rule that would have closed it, testing it, and reverting it.
+
+The middle of §3f's three refusals is the hard one. Where *every* reference is flat and the flat
+sheets disagree with each other, two of them are failures agreeing at a spread of zero — and a
+**genuinely blank page with one broken renderer produces exactly the same three rasters**.
+`pdfref`'s own suite says so: `a_two_of_three_majority_forms_the_consensus` and
+`references_disagreeing_among_themselves_is_not_our_failure` are two uniform white rasters against
+a uniform black one, and both must keep the verdicts they assert. **No predicate over rasters can
+separate those two pictures**, and one that fired on both would forgive a render of ours that
+painted marks on an empty sheet.
+
+What separates them is that a renderer which failed *says so*, and the harness was throwing those
+words away. `Reference::render_within` has sent both of a renderer's output streams to `<name>.log`
+beside its image since ADR 0574 — but `cache::render` returned on a hit without running it, so on a
+run at a 99.8% hit rate every verdict was reached from rasters while every diagnosis came from log
+files an earlier run happened to leave behind. The cache stores the log with the picture now, empty
+included, and restores both; the entry's meaning changed, so `cache::FORMAT` was bumped and all
+6707 entries were re-rendered once, about 1300 seconds of processor time, with **every verdict in
+every class unchanged** across that run. The rule is:
+
+> A reference whose raster is one colour also takes no part in the consensus where **its own log
+> says it did not draw what the page asked for**.
+
+**Reading a program's *severity* would have been trap 11 and the corpus says so.** 28 901 of
+`poppler`'s `Syntax Error` lines in this population are `Type mismatch in PostScript function`, on
+pages it draws correctly, and `mupdf`'s `format error: … repairing` says in its own text that it
+recovered. What is read is what each program says it **produced** — `mupdf`'s `library error:`
+prefix, its `cannot draw '`, `ghostscript`'s `FATAL ERROR`, `Page drawing error occurred` and
+`Unrecoverable error`, and `jbig2dec`'s `failed to decode`, which reaches the log through both of
+them. `Reference::refusals` carries the table and where each entry was read.
+
+**`poppler` is deliberately not read**, and that is a measurement rather than an omission: its
+refusals are worded like every other `Syntax Error` it writes, so adding one of its sentences and
+not the others would be a list fitted to the pages the round wanted to move. **The gate prints the
+whole population instead** — every flat sheet's refusal that the condition matched, and the distinct
+sentences of every flat sheet it did not — so a later round widens the vocabulary on evidence. That
+audit is a report and not a ratchet, for §3f's reason: how often three other programs fail is not
+this tree's to hold.
+
+**What it cost.** Four pages, all of them in `NOT_COMPARABLE_THE_RENDERERS_SAID_THEY_DREW_NOTHING`.
+One is the gain: `bitmap-symbol-context-reuse.pdf` page 1, the head of `rank_the_contradicted` at
+28.91 bounds, where we draw the JBIG2 image and two programs that said they could not decode it
+outvoted us — and ADR 0499 had already shown all four of that verdict's numbers to be reproducible
+by comparing our render with a synthetic white sheet. Three were `agrees` and are the price:
+`jbig2_file_header.pdf` page 1 and `poppler-90-0-fuzzed.pdf` pages 12 and 16, where we drew nothing
+either, so the agreement was four programs failing at one file. **All three are pages this tree
+already reports as incomplete, and the count of agreements on pages we call complete did not
+move.** That is the number to check before widening the vocabulary.
 
 ### 3g. The pages judged on two readings, and what the missing third was doing
 

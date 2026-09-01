@@ -265,6 +265,17 @@ few dozen sentences, so the fix is to delete the `.err` entries and let them re-
 renderer invocation apiece. Same family as the paragraph above: a cache's key is a claim about what
 makes two answers the same answer, and prose was never in it (ADR 0574).
 
+**And a stored entry can be *incomplete* rather than stale, which is what a `FORMAT` bump is for.**
+The renderer's own log sat beside its image in the work directory and was not in the entry at all,
+so a hit restored a picture and no words — invisible while the log was only a diagnostic, and a
+defect the moment ADR 0769 made it part of a verdict, because a rule reading a file that only a
+*miss* writes reaches one verdict on the first run of a corpus and another on the second. The
+paragraph above rejects a bump to correct a few dozen sentences and that stands; this was a change
+to what an entry *means*, which is the case `FORMAT` exists for. It cost one re-render of all 6707
+entries, about 1300 seconds of processor time, with every verdict in every class unchanged — and
+that run is the control, not a formality: it is the only thing that says the bump moved nothing but
+the cache.
+
 ### 11. A report is only as good as the condition it fires on
 
 Trap 5's other edge. The reflex is to report whenever the unimplemented thing *could* be involved.

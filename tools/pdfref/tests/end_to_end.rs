@@ -304,6 +304,8 @@ fn a_hit_reproduces_what_the_renderer_produced() {
     let uncached = reference
         .render(&pdf, PAGE_ONE, DPI, &work_dir)
         .expect("the fixture renders");
+    let uncached_said = std::fs::read(work_dir.join(format!("{}.log", reference.name())))
+        .expect("an uncached render leaves the renderer's log beside its image");
 
     let cache = pdfref::Cache::at(work_dir.join("entries"));
     cache
@@ -355,6 +357,26 @@ fn a_hit_reproduces_what_the_renderer_produced() {
     assert!(
         work_dir.join(format!("{}.png", reference.name())).is_file(),
         "a hit must leave the renderer's own output where an uncached run left it"
+    );
+
+    // And the renderer's own words with it, byte for byte. That is a stronger requirement than
+    // "the directory looks the same", because since ADR 0769 the log can decide a verdict —
+    // `pdfref::consensus_abstentions`'s second route — so a hit that restored a picture without
+    // its testimony would reach a different verdict on the second run of an unchanged corpus,
+    // which is the one thing a cache may never do.
+    let said = |what: &str| {
+        std::fs::read(work_dir.join(format!("{}.log", reference.name())))
+            .unwrap_or_else(|e| panic!("{what} must leave a log: {e}"))
+    };
+    let hit_said = said("a hit");
+    assert_eq!(
+        hit_said, uncached_said,
+        "a hit must restore the renderer's own log, not only its picture"
+    );
+    assert_eq!(
+        Reference::MuPdf.testimony(&work_dir),
+        pdfref::Testimony::silent(Reference::MuPdf),
+        "and a renderer that wrote no log here gives no testimony rather than another's"
     );
 }
 

@@ -57,13 +57,36 @@
 //! - **A week is the bound, not forever.** [`Cache::clear`] and `PDFREF_CACHE=off` are the
 //!   immediate remedies; the expiry is what happens when nobody thinks to use them.
 //!
+//! # What a hit owes: the renderer's words as well as its picture
+//!
+//! [`Cache::render`] promises that "a cached page's evidence directory is indistinguishable
+//! from an uncached one's". It was not, and the one file missing is the one that says *why* a
+//! renderer produced what it produced: [`Reference::render_within`] sends both of the
+//! renderer's output streams to `<name>.log` beside its image, and only a **miss** ran it. So
+//! on a run with a 99.8% hit rate every verdict was reached from rasters while every
+//! diagnosis came from log files some earlier run happened to leave behind — and a page whose
+//! whole evidence is what three programs *said* had nothing to read.
+//!
+//! That is not only a diagnostic loss. [`crate::Testimony`] makes a renderer's own words part
+//! of the rule: a flat sheet from a program that said it could not decode the page is not that
+//! program's reading of it, which no predicate over pixels can establish (ADR 0769). A rule
+//! that reads a file only present on a miss would reach different verdicts on the first run
+//! and the second, which is the one thing a cache may never do.
+//!
+//! So the log is stored beside the picture and restored with it, empty included — an empty log
+//! is a renderer that said nothing, which is a fact about the page and not an absence of one.
+//! It is stored **only** beside a picture: a stored failure already carries the renderer's
+//! sentence in its own text, and a reference that produced no raster does not vote.
+//!
 //! # Proving it changes nothing
 //!
 //! The claim a cache has to earn is that the gate reaches the same verdict with it as
 //! without. Two things establish that here. `a_hit_reproduces_what_the_renderer_produced`
 //! renders a page uncached, then twice through a cache, and demands all three rasters be
-//! byte-identical; and the oracle takes `PDFREF_CACHE=off`, so the whole 1794-page run can be
-//! made to ask the renderers again and its numbers compared against a cached run's.
+//! byte-identical — and, since the log joined the entry, that the log a hit leaves in the work
+//! directory is byte-identical to the one the renderer itself wrote; and the oracle takes
+//! `PDFREF_CACHE=off`, so the whole 1794-page run can be made to ask the renderers again and
+//! its numbers compared against a cached run's.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -77,7 +100,15 @@ use crate::{HarnessError, Reference, digest, png_io};
 
 /// Changed whenever a stored entry's *meaning* changes, so old entries cannot be read as new
 /// ones. Part of every key, so a bump invalidates the whole cache without deleting anything.
-const FORMAT: &str = "pdfref-reference-cache-1";
+///
+/// **`-2` since the eight-hundred-and-forty-second session**, when an entry stopped being a
+/// picture and became a picture *and what the renderer said while producing it*. The bump is
+/// what a bump is for and the alternative was rejected deliberately: treating an entry with no
+/// stored log as a miss would leave old entries readable as new ones by a second, ad-hoc route,
+/// and would make "no log stored" and "the renderer said nothing" the same thing on disk — which
+/// is exactly the distinction [`crate::Testimony`] rests on. It costs one re-render of every
+/// entry, about a thousand seconds of `pdftoppm`, `mutool` and `gs` over this corpus, once.
+const FORMAT: &str = "pdfref-reference-cache-2";
 
 /// How long a remembered timeout is believed before the renderer is given another chance.
 ///
@@ -333,6 +364,12 @@ static NEXT_TEMPORARY: AtomicU64 = AtomicU64::new(0);
 
 /// Extension of a stored successful render.
 const IMAGE: &str = "png";
+/// Extension of the renderer's own diagnostics, stored beside [`IMAGE`] and never alone.
+///
+/// Beside a picture only. A stored [`FAILURE`] already holds the renderer's own sentence as its
+/// whole text, and a reference that produced no raster takes no part in a consensus, so there
+/// is nothing a second copy of its words would decide.
+const LOG: &str = "log";
 /// Extension of a stored deterministic failure, holding the message it produced.
 const FAILURE: &str = "err";
 /// Extension of a remembered timeout, holding the budget it outlived in milliseconds.
@@ -354,10 +391,16 @@ fn read_entry(
     let image = entry.with_extension(IMAGE);
     if image.is_file() {
         let raster = png_io::read(&image).ok()?;
-        // The renderer's own output file, where the artefact writer and anybody reading the
-        // evidence directory expects it.
+        // The renderer's own output files, where the artefact writer, anybody reading the
+        // evidence directory, and `Reference::testimony` all expect them.
         if std::fs::create_dir_all(work_dir).is_ok() {
             let _ = std::fs::copy(&image, work_dir.join(format!("{}.png", reference.name())));
+            // Removed first, then copied: a log left by another page's render of the same
+            // reference would otherwise be read as this page's testimony, which is the stale
+            // -artefact failure this whole entry exists to close.
+            let log = work_dir.join(format!("{}.log", reference.name()));
+            let _ = std::fs::remove_file(&log);
+            let _ = std::fs::copy(entry.with_extension(LOG), log);
         }
         return Some(Ok(raster));
     }
@@ -401,6 +444,10 @@ fn read_timeout(entry: &Path, reference: Reference) -> Option<Result<Raster, Har
 /// first says something about the machine's installation rather than the document, and the
 /// second is how a truncated file from a killed run presents itself.
 ///
+/// A picture is stored with the renderer's own log beside it, and the **log goes in first**:
+/// [`read_entry`] tests for the image, so an image renamed into place ahead of its log would be
+/// a hit whose testimony is missing — the very thing this entry was added to prevent.
+///
 /// Every write goes to a temporary name and is renamed into place, so that a run killed
 /// mid-write cannot leave a truncated PNG for the next run to trust. Errors are ignored
 /// throughout: a cache that cannot write is a cache that is slow, not a gate that is wrong.
@@ -415,6 +462,16 @@ fn write_entry(
     };
     if std::fs::create_dir_all(parent).is_err() {
         return;
+    }
+
+    if produced.is_ok() {
+        // An absent log is stored as an empty one rather than as nothing, so that a hit
+        // restores what a miss produced in every case: a renderer that said nothing said
+        // nothing, and that is a reading of the entry rather than a gap in it.
+        let said = work_dir.join(format!("{}.log", reference.name()));
+        store(entry, LOG, |to| {
+            std::fs::write(to, std::fs::read(&said).unwrap_or_default()).map(|()| 0)
+        });
     }
 
     let (extension, source) = match produced {
@@ -433,21 +490,31 @@ fn write_entry(
         Err(_) => return,
     };
 
-    let temporary = entry.with_extension(format!(
-        "{extension}.tmp{}-{}",
-        std::process::id(),
-        NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed)
-    ));
-    let written = if let Some(detail) = source {
-        std::fs::write(&temporary, detail).is_ok()
+    if let Some(detail) = source {
+        store(entry, extension, |to| {
+            std::fs::write(to, &detail).map(|()| 0)
+        });
     } else {
         // The renderer's own PNG rather than a re-encoding of the decoded raster: it is
         // already on disk, copying is cheaper than encoding, and a byte-for-byte copy cannot
         // introduce a difference of its own.
         let output = work_dir.join(format!("{}.png", reference.name()));
-        std::fs::copy(&output, &temporary).is_ok()
-    };
-    if written {
+        store(entry, extension, |to| std::fs::copy(&output, to));
+    }
+}
+
+/// Writes one part of an entry, atomically.
+///
+/// A temporary name and a rename, so that a run killed mid-write cannot leave a truncated file
+/// for the next run to trust, and so that several threads missing on the same entry at once
+/// cannot rename one another's half-written files into place.
+fn store(entry: &Path, extension: &str, produce: impl FnOnce(&Path) -> std::io::Result<u64>) {
+    let temporary = entry.with_extension(format!(
+        "{extension}.tmp{}-{}",
+        std::process::id(),
+        NEXT_TEMPORARY.fetch_add(1, Ordering::Relaxed)
+    ));
+    if produce(&temporary).is_ok() {
         let _ = std::fs::rename(&temporary, entry.with_extension(extension));
     } else {
         let _ = std::fs::remove_file(&temporary);

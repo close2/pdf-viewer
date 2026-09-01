@@ -411,6 +411,94 @@ impl Reference {
         })
     }
 
+    /// The sentences in which this renderer says it did not produce what the page asked for.
+    ///
+    /// # Why this is a vocabulary and not a severity
+    ///
+    /// Each of these programs states its own severity — `poppler` writes `Syntax Error` and
+    /// `Syntax Warning`, `mupdf` prefixes every line with `warning:`, `syntax error:`, `format
+    /// error:` or `library error:`, `ghostscript` writes `WARNING` and `FATAL ERROR` — and
+    /// reading the severity is the obvious rule and the wrong one. Over the oracle's own corpus
+    /// **28 901** of `poppler`'s `Syntax Error` lines are `Type mismatch in PostScript function`,
+    /// on pages it draws correctly, and `mupdf`'s `format error: incorrect number of xref entries
+    /// in trailer, repairing` says in its own text that it recovered. A predicate on severity is
+    /// trap 11's shape exactly: a condition that fires wherever the trouble *could* be involved.
+    ///
+    /// What is read instead is what the program says it **produced**: a sentence in which it says
+    /// it could not make a picture, of the page or of an image on it. That is a narrower claim
+    /// than "something went wrong", and it is the only one [`crate::consensus_abstentions`] needs,
+    /// because that rule asks one question — is this flat sheet a reading of the page, or a
+    /// failure at it? A complaint about *reading the file* is deliberately outside it: `mupdf`
+    /// repairs a broken cross-reference table and draws the page, and 14 flat sheets of the
+    /// oracle's corpus say `warning: repairing PDF document` beside output nobody disputes.
+    ///
+    /// # The vocabulary, per program, and where each entry was read
+    ///
+    /// Derived from every log the oracle's corpus produces — its `<name>.log` files, which
+    /// [`crate::cache`] has stored beside the rasters since the eight-hundred-and-forty-second
+    /// session — rather than from the three programs' source, which is a claim with no gate on it
+    /// (trap 9's last bullet).
+    ///
+    /// | program | sentence | what it is |
+    /// |---|---|---|
+    /// | `mupdf` | `library error:` | its own severity for a library that failed to produce data: `cannot decode jbig2 image`, `cannot complete jbig2 image`, three `zlib error:` variants — every one of the five in the corpus is a stream that yielded nothing |
+    /// | `mupdf` | `cannot draw '` | it abandoned the page it was given |
+    /// | `mupdf`, `ghostscript` | `failed to decode` | **`jbig2dec`'s** words, reaching the log through both programs |
+    /// | `ghostscript` | `FATAL ERROR` | its severity for a decoder that stopped |
+    /// | `ghostscript` | `Page drawing error occurred` | its own statement that drawing the page failed |
+    /// | `ghostscript` | `Unrecoverable error` | its own statement that it stopped |
+    ///
+    /// **`ghostscript` labels one of these a `WARNING` and it is still a refusal**, which is
+    /// worth stating because it looks like an inconsistency and is not. `jbig2dec WARNING failed
+    /// to decode; treating as end of file` is two statements: the severity is `ghostscript`'s
+    /// judgement about how to carry on, and *failed to decode* is `jbig2dec`'s statement about
+    /// what it produced. Testimony is the second of those. The same sentence reaches `mupdf` as
+    /// `warning: jbig2dec warning: failed to decode…`, under a `library error:` of `mupdf`'s own
+    /// — two programs labelling one library's words differently, which is the clearest evidence
+    /// there is that the severity is not the thing to read.
+    ///
+    /// **`poppler` has no entry, and that is a measurement rather than an omission.** Its
+    /// refusals are worded as ordinary syntax errors — `Syntax Error (681): Too many symbols in
+    /// JBIG2 symbol dictionary` on the page that occasioned this work, `Could not find start of
+    /// jpeg data` on four others — and nothing in the wording distinguishes them from the tens of
+    /// thousands of `Syntax Error` lines it writes about defects it recovers from. Adding one of
+    /// its sentences and not the others would be a list fitted to the pages this round wanted to
+    /// move. So `poppler` gives no testimony this rule can read, its flat sheets are judged by
+    /// pixels alone exactly as before, and the oracle prints every sentence this condition did
+    /// **not** match so that a later round can widen it on evidence rather than on taste.
+    ///
+    /// **`hayro` has none either, for a different reason**: it never votes
+    /// ([`Independence::Shared`]), so no abstention of its can change a verdict.
+    #[must_use]
+    pub fn refusals(self) -> &'static [&'static str] {
+        match self {
+            Self::Poppler | Self::Hayro => &[],
+            Self::MuPdf => &["library error:", "cannot draw '", "failed to decode"],
+            Self::Ghostscript => &[
+                "FATAL ERROR",
+                "Page drawing error occurred",
+                "Unrecoverable error",
+                "failed to decode",
+            ],
+        }
+    }
+
+    /// What this renderer said about the page whose evidence is in `work_dir`.
+    ///
+    /// Read back off disk rather than returned from [`Self::render`], because the same file has
+    /// to be there after a cache hit — [`crate::cache`] restores it — and a value returned only
+    /// by the uncached path would make a rule that reads it reach two different verdicts on two
+    /// runs of the same corpus.
+    #[must_use]
+    pub fn testimony(self, work_dir: &Path) -> Testimony {
+        match std::fs::read_to_string(work_dir.join(format!("{}.log", self.name()))) {
+            Ok(log) => Testimony::of(self, log),
+            // A log that is not there is a renderer that said nothing, for this rule's purpose:
+            // see [`Testimony`] for why the two are deliberately one case.
+            Err(_) => Testimony::silent(self),
+        }
+    }
+
     /// Runs a command, killing it if it outlives `budget`.
     fn wait_within(
         self,
@@ -625,6 +713,74 @@ impl Reference {
             .next()
             .map(str::trim)
             .map(ToOwned::to_owned)
+    }
+}
+
+/// What a reference renderer said while it was asked to draw one page: both of its output
+/// streams, verbatim and in the renderer's own interleaving.
+///
+/// [`Reference::render_within`] writes them to `<name>.log` beside the image, and
+/// [`crate::cache`] stores and restores that file with the picture, so this is available on a
+/// cache hit and a miss alike — which it was not until the eight-hundred-and-forty-second
+/// session, and which is why the rule below can be part of a verdict at all (ADR 0769).
+///
+/// **Silence is a reading, not an absence.** A renderer that printed nothing said nothing, and
+/// [`Self::is_silent`] is true for that as it is for a log that could not be read. The two are
+/// deliberately one case here: nothing this harness does with a log distinguishes "the program
+/// was quiet" from "the file is missing", and the safe direction for both is that no testimony
+/// was given, so nothing is concluded from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Testimony {
+    reference: Reference,
+    log: String,
+}
+
+impl Testimony {
+    /// What `reference` wrote while it was asked to draw a page.
+    #[must_use]
+    pub fn of(reference: Reference, log: impl Into<String>) -> Self {
+        Self {
+            reference,
+            log: log.into(),
+        }
+    }
+
+    /// A renderer that said nothing, or whose words were not kept.
+    #[must_use]
+    pub fn silent(reference: Reference) -> Self {
+        Self::of(reference, String::new())
+    }
+
+    /// Which renderer gave it.
+    #[must_use]
+    pub fn reference(&self) -> Reference {
+        self.reference
+    }
+
+    /// Whether the renderer said nothing at all.
+    #[must_use]
+    pub fn is_silent(&self) -> bool {
+        self.log.trim().is_empty()
+    }
+
+    /// What the renderer wrote, verbatim.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.log
+    }
+
+    /// The sentence in which the renderer says it did not draw what the page asked for.
+    ///
+    /// `None` where it said nothing of the kind — which includes saying nothing at all, and
+    /// includes the far commoner case of a renderer narrating a defect it recovered from. See
+    /// [`Reference::refusals`] for what separates the two and on what evidence.
+    #[must_use]
+    pub fn refusal(&self) -> Option<&str> {
+        let refusals = self.reference.refusals();
+        self.log
+            .lines()
+            .map(str::trim)
+            .find(|line| refusals.iter().any(|refusal| line.contains(refusal)))
     }
 }
 

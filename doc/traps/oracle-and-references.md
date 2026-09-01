@@ -49,6 +49,25 @@ the renderer had a sentence of its own. ADR 0574.
 so their logs end with `cannot draw '<path>'`, `Unrecoverable error, exit code 1` and the signal
 that killed them, under first lines that name the clause the file broke. Take both ends.
 
+**And a renderer's message is now part of a *verdict*, which puts a third demand on it.** Since
+ADR 0769 a flat sheet whose renderer's own log says it could not draw the page takes no part in the
+consensus — the one thing that separates a genuinely blank page from a page nobody decoded, since
+their rasters are identical. Two consequences for a round that touches this machinery:
+
+- **The words have to survive the cache.** They did not: `cache::render` returned on a hit without
+  running the code that captures them, so on a run at a 99.8% hit rate the verdict came from
+  rasters and the diagnosis from files an earlier run left behind. A rule reading a file that only
+  a *miss* writes reaches two different verdicts on two runs of the same corpus. The log is stored
+  and restored with the picture now, empty included.
+- **The condition is a vocabulary and not a severity, and the difference is measured.** 28 901 of
+  `poppler`'s `Syntax Error` lines over the oracle's own population are `Type mismatch in
+  PostScript function`, on pages it draws correctly. What is read is what a program says it
+  *produced* — `mupdf`'s `library error:`, `ghostscript`'s `FATAL ERROR`, `jbig2dec`'s `failed to
+  decode` — and `poppler` is read not at all, because nothing in its wording separates a refusal
+  from a defect it recovered from. `Reference::refusals` has the table; the oracle prints both what
+  the condition matched and what it did not, which is trap 11's audit for a condition whose
+  right-hand side three other projects own and can reword at any release.
+
 ### 9. Two references can agree because they share code — or because they share a *gap*
 
 The oracle rests on ADR 0005: two implementations sharing no code agreeing about a page is

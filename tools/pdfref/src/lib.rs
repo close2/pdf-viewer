@@ -49,6 +49,12 @@
 //! a flat sheet is not the same thing, and a rule that could not tell those apart would
 //! forgive a reader that painted marks on an empty page.
 //!
+//! **Two rasters cannot always tell those apart, and the renderer's own words can.** Where every
+//! reference is flat and they disagree with one another, the pixels of a blank page badly drawn
+//! and of a drawn page nobody decoded are identical — so the second thing this asks is what each
+//! program *said*. [`Testimony`] is that, [`Reference::refusals`] is what counts as a refusal in
+//! each program's own vocabulary, and [`consensus_abstentions`] has the argument. ADR 0769.
+//!
 //! # What "agree" means
 //!
 //! Tolerantly, via [`raster_compare`]. Exact equality is unachievable between correct
@@ -80,7 +86,7 @@ use raster_compare::Comparison;
 pub use cache::Cache;
 pub use extract::{ExtractionCache, ExtractionError, Extractor};
 pub use normalise::Normalisation;
-pub use reference::Reference;
+pub use reference::{Reference, Testimony};
 
 /// Bounds within which two renderings count as agreeing.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -358,10 +364,11 @@ pub enum Outcome {
     Ambiguous,
     /// Fewer than two references produced a picture, so nothing can be triangulated.
     ///
-    /// A renderer that was not installed, that refused the file, or that returned a raster of
-    /// one colour on a page another renderer drew all land here, and the last of the three is
-    /// [`consensus_abstentions`]'s: what a program emits when it decoded nothing is not a
-    /// reading of the page, and the harness has no second operand to compare against it.
+    /// A renderer that was not installed, that refused the file, that returned a raster of one
+    /// colour on a page another renderer drew, or that returned one while saying it could not
+    /// decode the page, all land here; the last two are [`consensus_abstentions`]'s two routes.
+    /// What a program emits when it decoded nothing is not a reading of the page, and the
+    /// harness has no second operand to compare against it.
     NotEnoughReferences {
         /// How many produced a picture of the page.
         available: usize,
@@ -455,12 +462,44 @@ pub fn is_uniform(raster: &Raster) -> bool {
 /// - where a reference draws marks a flat sheet is inside the bound of, none abstains either,
 ///   and the page keeps whatever verdict it had;
 /// - where two references disagree and both are uniform — one white, one black, which is what
-///   `jbig2dec` produces on one corpus page — neither abstains, because neither is a reference
-///   that drew. That page is outside what this rule can reach, and it is left visible rather
-///   than reached for by loosening the predicate.
+///   `jbig2dec` produces on one corpus page — **neither abstains on the pixels**, because neither
+///   is a reference that drew. That is what the second route below is for.
+///
+/// # The second route: what the renderer said
+///
+/// The rule above is a predicate over rasters, and a predicate over rasters cannot reach the last
+/// of those three populations. Two uniform rasters of different colours are two failures agreeing
+/// at a spread of zero — but a *genuinely blank* page with one broken renderer produces exactly
+/// the same three rasters, and this harness's own suite says so:
+/// `a_two_of_three_majority_forms_the_consensus` and
+/// `references_disagreeing_among_themselves_is_not_our_failure` are two uniform white rasters
+/// against a uniform black one, and both must keep the verdicts they assert. A predicate firing
+/// on that shape would forgive a render of ours that painted marks on an empty sheet, which is
+/// the defect the first route exists not to suppress (ADR 0768 wrote the rule, tested it and
+/// reverted it for exactly this reason).
+///
+/// What separates the two is not in the pixels at all. It is that a renderer which failed
+/// **says so**, and the harness threw those words away: [`Reference::render_within`] writes both
+/// of a renderer's output streams to a log beside its image, and [`crate::cache`] did not store
+/// it, so on a run answered from the cache no such sentence existed. It does now, and
+/// [`Testimony`] is that sentence.
+///
+/// So a reference also abstains where **its raster is one colour and its own log says it did not
+/// draw what the page asked for** — [`Reference::refusals`] for what counts as saying that, and
+/// on what evidence. Three things bound it:
+///
+/// - **our own render still never enters it**, in either route, which is what keeps the whole
+///   rule non-circular;
+/// - **uniformity is still required.** A renderer that complained and drew marks anyway has
+///   produced a picture, and there is no ground to discard one; the question this rule asks only
+///   arises for a flat sheet;
+/// - **silence concludes nothing.** A renderer that printed nothing has given no testimony, and a
+///   log that is missing is treated identically — so a caller that collected no logs gets exactly
+///   the pixel rule, unchanged. `testimony` being empty is that caller.
 #[must_use]
 pub fn consensus_abstentions(
     references: &[(Reference, Raster)],
+    testimony: &[Testimony],
     between: &[(Reference, Reference, Comparison)],
     tolerance: &Tolerance,
 ) -> Vec<Reference> {
@@ -471,20 +510,28 @@ pub fn consensus_abstentions(
             .is_some_and(|(_, raster)| is_uniform(raster))
     };
 
+    let refused = |name: Reference| {
+        testimony
+            .iter()
+            .filter(|given| given.reference() == name)
+            .any(|given| given.refusal().is_some())
+    };
+
     references
         .iter()
         .filter(|(reference, raster)| {
             is_uniform(raster)
-                && between.iter().any(|(left, right, comparison)| {
-                    let other = match (*left == *reference, *right == *reference) {
-                        (true, false) => *right,
-                        (false, true) => *left,
-                        // A pair that is not this reference's says nothing about it, and a
-                        // pair of a reference with itself does not exist.
-                        _ => return false,
-                    };
-                    !uniform(other) && !tolerance.accepts(comparison)
-                })
+                && (refused(*reference)
+                    || between.iter().any(|(left, right, comparison)| {
+                        let other = match (*left == *reference, *right == *reference) {
+                            (true, false) => *right,
+                            (false, true) => *left,
+                            // A pair that is not this reference's says nothing about it, and a
+                            // pair of a reference with itself does not exist.
+                            _ => return false,
+                        };
+                        !uniform(other) && !tolerance.accepts(comparison)
+                    }))
         })
         .map(|(reference, _)| *reference)
         .collect()
@@ -520,8 +567,9 @@ pub struct Consensus {
 pub struct Triangulation {
     /// The conclusion.
     pub outcome: Outcome,
-    /// References whose raster was one colour on a page another reference drew, and which
-    /// therefore took no part in the consensus — [`consensus_abstentions`].
+    /// References whose raster was one colour — on a page another reference drew, or beside a
+    /// log of their own saying they could not draw it — and which therefore took no part in the
+    /// consensus. [`consensus_abstentions`] has both routes.
     ///
     /// They are still measured and still reported: what they produced is a fact about the
     /// page worth reading, and it is the evidence for the abstention itself.
@@ -589,12 +637,14 @@ impl Consensus {
 /// # Errors
 ///
 /// As [`triangulate_with`].
+/// No testimony is collected, so [`consensus_abstentions`]'s second route cannot fire — see
+/// [`triangulate_with`] for what that costs and why the pixel rule is the whole of it here.
 pub fn triangulate(
     ours: &Raster,
     references: &[(Reference, Raster)],
     tolerance: &Tolerance,
 ) -> Result<Triangulation, HarnessError> {
-    triangulate_with(ours, references, tolerance, Judgement::Absolute)
+    triangulate_with(ours, references, &[], tolerance, Judgement::Absolute)
 }
 
 /// Applies the triangulation rule to one page, choosing how we ourselves are judged.
@@ -602,6 +652,11 @@ pub fn triangulate(
 /// Every raster must already share a size. Callers reconcile renderer rounding first
 /// with [`normalise::to_common_size`]; that is kept separate so the reconciliation is
 /// reported rather than buried inside the comparison.
+///
+/// `testimony` is what each reference said while it drew — [`Reference::testimony`] reads it out
+/// of the same work directory the rasters came from — and it can decide a verdict, through
+/// [`consensus_abstentions`]'s second route. An empty slice is a caller that collected none, and
+/// is treated exactly as three silent renderers would be: nothing is concluded from it.
 ///
 /// # Errors
 ///
@@ -617,6 +672,7 @@ pub fn triangulate(
 pub fn triangulate_with(
     ours: &Raster,
     references: &[(Reference, Raster)],
+    testimony: &[Testimony],
     tolerance: &Tolerance,
     judgement: Judgement,
 ) -> Result<Triangulation, HarnessError> {
@@ -640,7 +696,7 @@ pub fn triangulate_with(
         ours_vs.push((*reference, comparison));
     }
 
-    let abstained = consensus_abstentions(references, &between_references, tolerance);
+    let abstained = consensus_abstentions(references, testimony, &between_references, tolerance);
     let (outcome, judged_by, consensuses) = decide(
         references,
         &abstained,
@@ -899,7 +955,9 @@ pub enum HarnessError {
     reason = "test fixtures are built from small literals whose bounds are visible here"
 )]
 mod tests {
-    use super::{Judgement, Outcome, Reference, Tolerance, triangulate, triangulate_with};
+    use super::{
+        Judgement, Outcome, Reference, Testimony, Tolerance, triangulate, triangulate_with,
+    };
     use pdf_render::{Raster, RasterFormat};
     use raster_compare::Comparison;
 
@@ -1098,7 +1156,7 @@ mod tests {
         );
 
         let relative =
-            triangulate_with(&ours, &refs, &tolerance, Judgement::CORPUS).expect("comparable");
+            triangulate_with(&ours, &refs, &[], &tolerance, Judgement::CORPUS).expect("comparable");
         assert!(
             matches!(relative.outcome, Outcome::Agrees { .. }),
             "twice the references' own spread must forgive it: {relative:?}"
@@ -1117,8 +1175,14 @@ mod tests {
             (Reference::Poppler, solid(WHITE)),
             (Reference::MuPdf, solid(WHITE)),
         ];
-        let result = triangulate_with(&solid(BLACK), &refs, &Tolerance::VECTOR, Judgement::CORPUS)
-            .expect("comparable");
+        let result = triangulate_with(
+            &solid(BLACK),
+            &refs,
+            &[],
+            &Tolerance::VECTOR,
+            Judgement::CORPUS,
+        )
+        .expect("comparable");
         assert!(matches!(result.outcome, Outcome::Regression { .. }));
         assert_eq!(
             result.judged_by,
@@ -1136,8 +1200,14 @@ mod tests {
             (Reference::MuPdf, solid(WHITE)),
             (Reference::Ghostscript, solid(BLACK)),
         ];
-        let result = triangulate_with(&solid(GREY), &refs, &Tolerance::VECTOR, Judgement::CORPUS)
-            .expect("comparable");
+        let result = triangulate_with(
+            &solid(GREY),
+            &refs,
+            &[],
+            &Tolerance::VECTOR,
+            Judgement::CORPUS,
+        )
+        .expect("comparable");
         assert_eq!(
             result.judged_by,
             Tolerance::VECTOR,
@@ -1386,9 +1456,9 @@ mod tests {
     }
 
     /// Two uniform rasters of different colours are two failures, and neither is a reference
-    /// that drew — so neither abstains and the page keeps its verdict. `jbig2dec` produces
-    /// exactly this on `bitmap-symbol-context-reuse.pdf`, and it is the honest limit of the
-    /// rule rather than a case to reach by loosening the predicate.
+    /// that drew — so on the **pixels** neither abstains and the page keeps its verdict. That is
+    /// the honest limit of the first route, and it must stay: a genuinely blank page with one
+    /// broken renderer has these same three rasters.
     #[test]
     fn two_uniform_rasters_disagreeing_with_each_other_reach_no_abstention() {
         let refs = vec![
@@ -1402,6 +1472,178 @@ mod tests {
             Outcome::Regression { ref agreeing } => assert_eq!(agreeing.len(), 2),
             other => panic!("expected a regression, got {other:?}"),
         }
+    }
+
+    /// The same three rasters, with the two renderers' own logs beside them: `mupdf` and
+    /// `ghostscript` both say they could not decode the image, so neither flat sheet is a
+    /// reading of the page and one reference is left.
+    ///
+    /// **The logs are verbatim** — `bitmap-symbol-context-reuse.pdf` page 1, asked with §2's own
+    /// reference command lines — because a condition on another project's prose is a claim about
+    /// a vocabulary this tree does not own, and a paraphrased fixture would pass while the rule
+    /// stopped working (trap 13: run the sweep against the defect). `poppler`'s line is here too
+    /// and is deliberately **not** a refusal: nothing in its wording separates it from the tens
+    /// of thousands of `Syntax Error` lines it writes about defects it recovers from.
+    #[test]
+    fn a_flat_sheet_whose_renderer_says_it_could_not_decode_is_not_a_reading() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(BLACK)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let testimony = vec![
+            Testimony::of(
+                Reference::Poppler,
+                "Syntax Error (681): Too many symbols in JBIG2 symbol dictionary\n",
+            ),
+            Testimony::of(
+                Reference::MuPdf,
+                "page bitmap-symbol-context-reuse.pdf 1warning: jbig2dec warning: segment marks \
+                 bitmap coding context as retained (NYI) (segment 1)\n\
+                 warning: jbig2dec warning: segment marks bitmap coding context as used (NYI) \
+                 (segment 2)\n\
+                 warning: jbig2dec warning: failed to decode; treating as end of file (segment \
+                 2)\n\
+                 library error: cannot decode jbig2 image\n\
+                 warning: read error; treating as end of file\n\
+                 warning: padding truncated image\n",
+            ),
+            Testimony::of(
+                Reference::Ghostscript,
+                "jbig2dec WARNING segment marks bitmap coding context as retained (NYI) (segment \
+                 0x01)\n\
+                 jbig2dec WARNING segment marks bitmap coding context as used (NYI) (segment \
+                 0x02)\n\
+                 jbig2dec WARNING failed to decode; treating as end of file (segment 0x02)\n",
+            ),
+        ];
+
+        let result = triangulate_with(
+            &banded(8, GREY),
+            &refs,
+            &testimony,
+            &Tolerance::DEFAULT,
+            Judgement::Absolute,
+        )
+        .expect("comparable");
+        assert_eq!(
+            result.abstained,
+            vec![Reference::MuPdf, Reference::Ghostscript],
+            "each said it could not decode, and each returned one colour"
+        );
+        assert_eq!(
+            result.outcome,
+            Outcome::NotEnoughReferences { available: 1 },
+            "one reading is left, and one cannot triangulate"
+        );
+    }
+
+    /// And the population the rule must not reach: the same rasters, with logs that narrate a
+    /// defect each program recovered from. Nobody abstains and the verdict is the pixels'.
+    ///
+    /// Both sentences are the commonest of their kind in the oracle's corpus — `mupdf` repairs a
+    /// broken cross-reference table on 14 flat sheets and draws them, `poppler` writes 28 901
+    /// `Type mismatch in PostScript function` lines on pages nobody disputes — which is why
+    /// reading a program's *severity* rather than what it says it produced would be trap 11.
+    #[test]
+    fn a_flat_sheet_whose_renderer_recovered_keeps_its_vote() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(BLACK)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let testimony = vec![
+            Testimony::of(
+                Reference::Poppler,
+                "Syntax Error: Type mismatch in PostScript function\n",
+            ),
+            Testimony::of(
+                Reference::MuPdf,
+                "warning: trying to repair broken xref\nwarning: repairing PDF document\n",
+            ),
+            Testimony::silent(Reference::Ghostscript),
+        ];
+
+        let result = triangulate_with(
+            &banded(8, GREY),
+            &refs,
+            &testimony,
+            &Tolerance::DEFAULT,
+            Judgement::Absolute,
+        )
+        .expect("comparable");
+        assert!(
+            result.abstained.is_empty(),
+            "a recovered defect is not a refusal: {:?}",
+            result.abstained
+        );
+        match result.outcome {
+            Outcome::Regression { ref agreeing } => assert_eq!(agreeing.len(), 2),
+            other => panic!("expected a regression, got {other:?}"),
+        }
+    }
+
+    /// Testimony reaches a raster of one colour and nothing else.
+    ///
+    /// A renderer that complained and drew marks anyway has produced a picture, and there is no
+    /// ground to discard one. Here every panel carries the same mark and `mupdf`'s log is the
+    /// refusal from the test above.
+    #[test]
+    fn a_renderer_that_refused_and_drew_anyway_keeps_its_vote() {
+        let refs = vec![
+            (Reference::Poppler, banded(8, GREY)),
+            (Reference::MuPdf, banded(8, GREY)),
+            (Reference::Ghostscript, banded(8, GREY)),
+        ];
+        let testimony = vec![Testimony::of(
+            Reference::MuPdf,
+            "library error: cannot decode jbig2 image\n",
+        )];
+
+        let result = triangulate_with(
+            &banded(8, GREY),
+            &refs,
+            &testimony,
+            &Tolerance::DEFAULT,
+            Judgement::Absolute,
+        )
+        .expect("comparable");
+        assert!(result.abstained.is_empty());
+        match result.outcome {
+            Outcome::Agrees { ref with } => assert_eq!(with.len(), 3),
+            other => panic!("expected agreement, got {other:?}"),
+        }
+    }
+
+    /// A silent renderer gives no testimony, so the pixel rule is the whole of the decision.
+    ///
+    /// This is what a caller that collected no logs gets, and it is why passing an empty slice to
+    /// [`triangulate_with`] is safe rather than merely convenient.
+    #[test]
+    fn silence_concludes_nothing_either_way() {
+        let refs = vec![
+            (Reference::Poppler, solid(WHITE)),
+            (Reference::MuPdf, solid(BLACK)),
+            (Reference::Ghostscript, solid(WHITE)),
+        ];
+        let silent: Vec<Testimony> = Reference::ALL
+            .iter()
+            .map(|r| Testimony::silent(*r))
+            .collect();
+
+        let with_silence = triangulate_with(
+            &banded(8, GREY),
+            &refs,
+            &silent,
+            &Tolerance::DEFAULT,
+            Judgement::Absolute,
+        )
+        .expect("comparable");
+        let without =
+            triangulate(&banded(8, GREY), &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert_eq!(with_silence.abstained, without.abstained);
+        assert_eq!(with_silence.outcome, without.outcome);
+        assert!(with_silence.abstained.is_empty());
     }
 
     /// One abstention out of three still leaves a consensus, and it is the two that drew.

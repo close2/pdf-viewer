@@ -1605,22 +1605,28 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// 17.589, the pair that used to contradict us abstains and one reading is left. All three are
 /// `NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR` now.
 ///
-/// **`bitmap-symbol-context-reuse.pdf` stayed, and it is the rule's own limit rather than an
-/// oversight.** On that page *all three* references are one colour — `poppler` white after
-/// *Too many symbols in JBIG2 symbol dictionary*, `ghostscript` white, `mupdf` entirely black —
-/// so not one of them drew marks, nothing establishes that there was a picture to draw except
-/// our own render, and reading it would be the circularity the rule exists to avoid. Two
-/// failures agree here and the verdict still rests on them; what is available to say so is this
-/// paragraph, `tests/jbig2.rs`'s invariant and the three logs above, and not a raster.
+/// **`bitmap-symbol-context-reuse.pdf` stayed for two more rounds, and it left in the
+/// eight-hundred-and-forty-second.** It was the rule's own limit rather than an oversight: on that
+/// page *all three* references are one colour — `poppler` white after *Too many symbols in JBIG2
+/// symbol dictionary*, `ghostscript` white, `mupdf` entirely black — so not one of them drew marks
+/// and nothing in the **pixels** establishes that there was a picture to draw except our own
+/// render, which reading would be the circularity ADR 0513 exists to avoid. ADR 0768 wrote the
+/// narrow raster rule that would have moved it, tested it, and reverted it: `pdfref`'s own
+/// `a_two_of_three_majority_forms_the_consensus` and
+/// `references_disagreeing_among_themselves_is_not_our_failure` are two uniform white rasters
+/// against a uniform black one, which is this page's shape exactly, because a genuinely blank page
+/// with one broken renderer and a page nobody decoded with one broken renderer have the same three
+/// rasters.
 ///
-/// # Re-derived in the eight-hundred-and-forty-first session, where the rule was tried and the
-/// harness's own tests refused it
-///
-/// This page is the head of `rank_the_contradicted` — 28.91 bounds from its nearest reference,
-/// failing on the **worst tile** at 28.91× — so it is where a round told to take the worst standing
-/// contradicted page arrives. Everything above it holds on this run's artefacts: `poppler` white
-/// after *Too many symbols in JBIG2 symbol dictionary*, `ghostscript` white and `mupdf` black after
-/// the same three `jbig2dec` warnings, ours two colours and 10 950 black pixels of 159 600.
+/// What separated them is not in the rasters at all: `mupdf` says *library error: cannot decode
+/// jbig2 image* and `ghostscript` says *jbig2dec WARNING failed to decode; treating as end of
+/// file*, and each returned a flat sheet after saying it. Since ADR 0769 `pdfref::cache` stores a
+/// renderer's log beside its raster, so those sentences survive a cache hit and
+/// `pdfref::consensus_abstentions` can read them; both references abstain, `poppler`'s white sheet
+/// is the one reading left, and the page is
+/// [`NOT_COMPARABLE_THE_RENDERERS_SAID_THEY_DREW_NOTHING`]. **`poppler` is not read here** — its
+/// refusals are worded like the tens of thousands of `Syntax Error` lines it writes about defects
+/// it recovers from — so the move rests on the two programs whose wording says what they produced.
 ///
 /// **`hayro`'s raster is byte-identical to ours, and that is not a fourth reading**: `pdf-sandbox`
 /// decodes §7.4.7 through `hayro-jbig2`, so the two rasters are one decoder run twice. Trap 9's
@@ -1628,28 +1634,6 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// it does on a font page, and what *does* establish our decode is ADR 0381's: the `bitmap-*` family
 /// is one drawing encoded through nearly every path ISO/IEC 14492 defines, so each program is
 /// compared with itself and this tree returns one image where `jbig2dec` returns six.
-///
-/// **The rule that would move this page was written, tested and reverted.** It is the narrowest
-/// reading of the abstention above: where *no* reference drew marks and the flat sheets disagree
-/// with each other, none of them is a reading of the page, so all abstain and the page is
-/// `not comparable`. The argument is sound and it is not circular — the disagreement is the
-/// evidence, and our own render never enters it. What refutes it is `pdfref`'s own test suite:
-/// `a_two_of_three_majority_forms_the_consensus` and
-/// `references_disagreeing_among_themselves_is_not_our_failure` are two uniform white rasters
-/// against a uniform black one, which is this page's shape **exactly**, and they are there because a
-/// genuinely blank page with one broken renderer looks the same from the rasters as a page nobody
-/// decoded with one broken renderer. A predicate over rasters cannot separate them, and the one
-/// that fires on both would forgive a render of ours that painted marks on an empty sheet — the
-/// defect ADR 0513's rule exists not to suppress.
-///
-/// **What would separate them is evidence the harness throws away**: the renderer's own words. All
-/// three logs above say *failed to decode*, and `Reference::render` captures both streams into
-/// `work_dir` — but only a cache **miss** writes one, so on a run with a 100% hit rate the verdict
-/// is taken from rasters and the diagnosis from files some earlier run left behind. Remembering the
-/// log beside the raster is what would let an abstention rest on a renderer's testimony rather than
-/// on its pixels; it costs a `cache::FORMAT` bump, which re-renders every cached entry once
-/// (6707 on this corpus, about a thousand seconds of `pdftoppm`, `mutool` and `gs`). That is the
-/// next round's, and it is the one route this page has left. ADR 0768.
 ///
 /// On the remaining three of the original seven `jbig2dec` returns ink rather than silence, so
 /// no reference abstains and the comparison is a real one; there the ink table stops being an
@@ -1659,10 +1643,9 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// an absolute difference counts a moved mark twice. **An ink table cannot account for a page
 /// where the disagreement is about placement**, and naming which of them those are is the honest
 /// limit of this entry. ADR 0499.
-const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 4] = [
+const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 3] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
-    "bitmap-symbol-context-reuse.pdf page 1",
     "bitmap-symbol-symhuffrefineone.pdf page 1",
 ];
 
@@ -4169,6 +4152,68 @@ const NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR: [&str; 21] = [
     "issue20439.pdf page 1",
 ];
 
+/// Every reference returned a flat sheet, and two of the three said they could not draw it.
+///
+/// The second route of `pdfref::consensus_abstentions`, and the only pages this gate's own
+/// population — the pdf.js corpus, `doc/corpora/` and the specification PDFs in `doc/` — has for it.
+/// ADR 0769 has the argument; what belongs here is what each page turned out to be and what the
+/// move cost.
+///
+/// A raster of one colour is a picture of nothing, and the first route — ADR 0513's — separates a
+/// page that *is* a flat sheet from a program that failed at one by asking whether any reference
+/// that drew marks disagrees. Where **every** reference is flat there is no such reference, and
+/// the rasters of a genuinely blank page with one broken renderer are identical to those of a page
+/// nobody decoded. What is not identical is what the programs said, and on all four of these
+/// `mupdf` and `ghostscript` say in their own words that they produced nothing:
+///
+/// ```text
+///   bitmap-symbol-context-reuse.pdf 1   mupdf  library error: cannot decode jbig2 image
+///                                       gs     jbig2dec WARNING failed to decode; treating as
+///                                              end of file (segment 0x02)
+///   jbig2_file_header.pdf 1             mupdf  library error: cannot complete jbig2 image
+///                                       gs     jbig2dec FATAL ERROR decoding image: page has no
+///                                              image, cannot be completed
+///   poppler-90-0-fuzzed.pdf 12          mupdf  library error: zlib error: invalid bit length
+///                                              repeat
+///                                       gs     **** Error: Page drawing error occurred.
+///   poppler-90-0-fuzzed.pdf 16          mupdf  library error: zlib error: invalid code --
+///                                              missing end-of-block
+///                                       gs     **** Error: Page drawing error occurred.
+/// ```
+///
+/// `poppler` complains on all four as well — *Unknown segment type in JBIG2 stream*, *Bad dynamic
+/// code table in flate stream* — and is deliberately **not** read: nothing in its wording separates
+/// a refusal from the tens of thousands of `Syntax Error` lines it writes about defects it recovers
+/// from, and a list that took one of its sentences and not the others would be fitted to the pages
+/// this round wanted to move (trap 11). So on each of these its flat sheet is the one reading left,
+/// and one reading cannot triangulate.
+///
+/// # The move takes away a manufactured contradiction and three manufactured agreements
+///
+/// The four divide by what *we* drew, and the rule is right about both halves for one reason.
+///
+/// `bitmap-symbol-context-reuse.pdf` is the page this rule was built for: we draw the image — 10 950
+/// black pixels of 159 600, byte-identical to our render of every other encoding of the same drawing
+/// (`tests/jbig2.rs`) — and two flat sheets outvoted us at a worst tile of 144.56 against a bound of
+/// 5.00. It was the head of `rank_the_contradicted` and it was [`CONTRADICTED_SHARED_JBIG2_DECODER`]
+/// for eight hundred sessions. **No renderer that drew this image could have met that bound**: ADR
+/// 0499 reproduced all four of its numbers by comparing our render with a synthetic white sheet of
+/// the same size, so the verdict was a statistic of our own raster.
+///
+/// On the other three **we drew nothing either**, and the gate says so — all three are pages this
+/// tree reports as incomplete — so `agrees` there was four programs failing at one file and matching
+/// each other exactly, which is the empty picture ADR 0005's inference does not reach. Losing it
+/// costs nothing the gate was measuring: over that same population this rule moved **three**
+/// agreeing pages, **all three incomplete**, and the count of agreements on pages we call complete is
+/// unchanged. That number is the one to check before widening `Reference::refusals`, and the oracle
+/// prints the population it would be widened over.
+const NOT_COMPARABLE_THE_RENDERERS_SAID_THEY_DREW_NOTHING: [&str; 4] = [
+    "bitmap-symbol-context-reuse.pdf page 1",
+    "jbig2_file_header.pdf page 1",
+    "poppler-90-0-fuzzed.pdf page 12",
+    "poppler-90-0-fuzzed.pdf page 16",
+];
+
 /// The object two references threw away, and said so in their own logs.
 ///
 /// `issue11549_reduced.pdf` page 1 is 200 × 50. `mupdf` prints *ignoring broken object
@@ -4443,6 +4488,7 @@ fn not_comparable_expected() -> Vec<&'static str> {
         .chain(&NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE)
         .chain(&NOT_COMPARABLE_TWO_REFERENCES_RAN_OUT_OF_TIME)
         .chain(&NOT_COMPARABLE_A_SHARED_JBIG2_DECODER_RETURNED_ONE_COLOUR)
+        .chain(&NOT_COMPARABLE_THE_RENDERERS_SAID_THEY_DREW_NOTHING)
         .chain(&NOT_COMPARABLE_THE_OBJECT_TWO_REFERENCES_THREW_AWAY)
         .chain(&NOT_COMPARABLE_A_MARK_ONE_REFERENCE_DRAWS)
         .chain(&NOT_COMPARABLE_A_FLAT_SHEET_IS_THE_PAGE)
@@ -11425,6 +11471,16 @@ struct Examined {
     /// identically — which is how a page can change verdict with every input unchanged and
     /// nothing in the output to say why.
     absent: Vec<String>,
+    /// Every reference whose raster was one colour here, and what its own log said.
+    ///
+    /// The population `pdfref::consensus_abstentions` decides over, printed rather than
+    /// ratcheted, and printed in **both** directions: the refusals the rule matched, and the
+    /// distinct sentences of every flat sheet it did **not** match. That second list is what
+    /// trap 11 asks for and what nothing here had — "list everything in this population that
+    /// satisfies the condition and does not satisfy the question", and its converse. A round
+    /// widening or narrowing `Reference::refusals` reads it off this gate's own output rather
+    /// than off a grep over log files some earlier run left behind.
+    flat_sheets: Vec<FlatSheet>,
     /// How many maximal agreeing sets of references the page carried — `pdfref::Consensus`.
     ///
     /// One on almost every page, and 0 where no two references agreed at all. More than one
@@ -11467,11 +11523,29 @@ impl Examined {
             outside_the_bound: None,
             abstentions: 0,
             absent: Vec::new(),
+            flat_sheets: Vec::new(),
             consensuses: 0,
             divided_by: None,
             spent,
         }
     }
+}
+
+/// One reference whose raster on one page carried a single colour, and what it said about it.
+///
+/// A raster of one colour is a picture of nothing, and the question that decides whether it is
+/// a *reading* of the page is which of two things it is: a page whose correct rendering is a
+/// flat sheet, or a page this program did not draw. `pdfref::Testimony` is the evidence that
+/// separates them where there is any, and this is how much of it the corpus supplies.
+#[derive(Debug, Clone)]
+struct FlatSheet {
+    reference: Reference,
+    /// The sentence in which the renderer says it did not draw what the page asked for, if it
+    /// says one — `pdfref::Reference::refusals`.
+    refusal: Option<String>,
+    /// Otherwise, the distinct non-empty lines it did write, which is what a round auditing the
+    /// condition has to read. Empty where the renderer said nothing at all.
+    said: Vec<String>,
 }
 
 /// Wall-clock spent on one page, split by who spent it.
@@ -11536,6 +11610,15 @@ impl Work {
             Some(corpus) => PathBuf::from(corpus.label).join(stem.as_ref()),
             None => PathBuf::from(stem.as_ref()),
         }
+    }
+
+    /// What this page's own artefacts are named inside that directory.
+    ///
+    /// One name per page, so a document's pages cannot overwrite one another's evidence — every
+    /// renderer writes to a fixed file name inside the per-page directory.
+    fn case(&self) -> String {
+        let stem = self.path.file_stem().unwrap_or_default().to_string_lossy();
+        format!("{stem}-p{}", self.page)
     }
 }
 
@@ -11875,10 +11958,7 @@ fn render_ours(work: &Work) -> Result<OurRender, String> {
 /// Compares one page against the references.
 fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache) -> Examined {
     let name = work.name();
-    let stem = work.path.file_stem().unwrap_or_default().to_string_lossy();
-    // One directory per page, so a document's pages cannot overwrite one another's
-    // evidence — every renderer writes to a fixed file name inside it.
-    let case = format!("{stem}-p{}", work.page);
+    let case = work.case();
     let work_dir = work_root
         .join(work.artefact_directory())
         .join(format!("p{}", work.page));
@@ -11929,24 +12009,23 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         }
     };
 
-    // Text sets the noise floor between independent rasterisers — glyph hinting differs
-    // between implementations in a way flat fills do not — so a page carrying glyphs is
-    // judged by the bounds measured on text pages.
-    let tolerance = if has_text {
-        Tolerance::TEXT_HEAVY
-    } else {
-        Tolerance::VECTOR
+    let tolerance = bounds_for(has_text);
+    let testimony = what_they_said(&references, &work_dir);
+    let triangulation = match pdfref::triangulate_with(
+        &ours,
+        &references,
+        &testimony,
+        &tolerance,
+        Judgement::CORPUS,
+    ) {
+        Ok(triangulation) => triangulation,
+        Err(e) => {
+            let verdict = Verdict::NotComparable(format!("{e}"));
+            return Examined::unjudged(name, verdict, complete, spent);
+        }
     };
 
-    let triangulation =
-        match pdfref::triangulate_with(&ours, &references, &tolerance, Judgement::CORPUS) {
-            Ok(triangulation) => triangulation,
-            Err(e) => {
-                let verdict = Verdict::NotComparable(format!("{e}"));
-                return Examined::unjudged(name, verdict, complete, spent);
-            }
-        };
-
+    let flat_sheets = flat_sheets(&references, &testimony);
     let verdict = verdict_of(&triangulation, outvoted.as_deref());
     let distance = Distance::of(&triangulation);
     let nearest_on_every_measure = nearest_on_every_measure(&triangulation);
@@ -11960,23 +12039,14 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         // Nothing to look at, and three thousand agreeing pages of PNGs is a gigabyte.
         let _ = std::fs::remove_dir_all(&work_dir);
     } else {
-        // A fourth render, for the eye rather than for the vote. `hayro` shares its font
-        // rasteriser, its deflate, its JPEG decoder and both new image codecs with us, so
-        // its agreement is not evidence — `Reference::independence` says so and
-        // `Reference::voting` keeps it out of the consensus. But a page the three
-        // references cannot settle is exactly where a fourth reading helps, and this is the
-        // only one of the four written in the same language, so a difference between it and
-        // us cannot be blamed on C.
-        //
-        // Rendered only for pages worth looking at, which is what keeps it off the gate's
-        // critical path: an agreeing page has its whole directory deleted a few lines up.
-        if let Ok(raster) = cache.render(Reference::Hayro, &work.path, work.page, DPI, &work_dir)
-            && raster.width == ours.width
-            && raster.height == ours.height
-        {
-            references.push((Reference::Hayro, raster));
-        }
-        let _ = report::write_artefacts(&work_dir, &case, &ours, &references, &triangulation);
+        leave_the_evidence(
+            work,
+            &work_dir,
+            &ours,
+            &mut references,
+            &triangulation,
+            cache,
+        );
     }
 
     Examined {
@@ -11992,10 +12062,106 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         outside_the_bound,
         abstentions: triangulation.abstained.len(),
         absent,
+        flat_sheets,
         consensuses: triangulation.consensuses.len(),
         divided_by: divided_by(&triangulation),
         spent,
     }
+}
+
+/// Which class of bounds a page is judged by.
+///
+/// Text sets the noise floor between independent rasterisers — glyph hinting differs between
+/// implementations in a way flat fills do not — so a page carrying glyphs is judged by the
+/// bounds measured on text pages.
+fn bounds_for(has_text: bool) -> Tolerance {
+    if has_text {
+        Tolerance::TEXT_HEAVY
+    } else {
+        Tolerance::VECTOR
+    }
+}
+
+/// Writes one page's evidence directory, with a fourth render in it for the eye.
+///
+/// `hayro` shares its font rasteriser, its deflate, its JPEG decoder and both new image codecs
+/// with us, so its agreement is not evidence — `Reference::independence` says so and
+/// `Reference::voting` keeps it out of the consensus. But a page the three references cannot
+/// settle is exactly where a fourth reading helps, and this is the only one of the four written
+/// in the same language, so a difference between it and us cannot be blamed on C.
+///
+/// Called only for a page worth looking at, which is what keeps it off the gate's critical path:
+/// an agreeing page has its whole directory deleted instead.
+fn leave_the_evidence(
+    work: &Work,
+    work_dir: &Path,
+    ours: &Raster,
+    references: &mut Vec<(Reference, Raster)>,
+    triangulation: &pdfref::Triangulation,
+    cache: &Cache,
+) {
+    if let Ok(raster) = cache.render(Reference::Hayro, &work.path, work.page, DPI, work_dir)
+        && raster.width == ours.width
+        && raster.height == ours.height
+    {
+        references.push((Reference::Hayro, raster));
+    }
+    let _ = report::write_artefacts(work_dir, &work.case(), ours, references, triangulation);
+}
+
+/// What each reference said while it drew, read out of the same directory its raster came from.
+///
+/// It can decide a verdict — `pdfref::consensus_abstentions`'s second route — so it is collected
+/// for every reference that produced a raster rather than only for the flat ones: the rule asks
+/// the question, and a caller that pre-filtered would be stating that rule a second time, in a
+/// place no test of `pdfref`'s can see.
+fn what_they_said(references: &[(Reference, Raster)], work_dir: &Path) -> Vec<pdfref::Testimony> {
+    references
+        .iter()
+        .map(|(reference, _)| reference.testimony(work_dir))
+        .collect()
+}
+
+/// Every reference whose raster is one colour, with whatever its own log said about that.
+///
+/// Read after the comparison rather than during it, because the population this describes is
+/// the one `pdfref::consensus_abstentions` decides over, and it has to be the rasters that were
+/// actually compared — reconciled to a common size, as they are by the time this is called. It
+/// takes the *same* testimony the rule was given rather than re-reading the logs, so that the
+/// audit cannot describe a different population from the one that was judged.
+fn flat_sheets(
+    references: &[(Reference, Raster)],
+    testimony: &[pdfref::Testimony],
+) -> Vec<FlatSheet> {
+    references
+        .iter()
+        .filter(|(_, raster)| pdfref::is_uniform(raster))
+        .filter_map(|(reference, _)| {
+            let testimony = testimony
+                .iter()
+                .find(|given| given.reference() == *reference)?;
+            let refusal = testimony.refusal().map(ToOwned::to_owned);
+            let said = if refusal.is_some() {
+                Vec::new()
+            } else {
+                let mut lines: Vec<String> = testimony
+                    .text()
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect();
+                lines.sort();
+                lines.dedup();
+                lines
+            };
+            Some(FlatSheet {
+                reference: *reference,
+                refusal,
+                said,
+            })
+        })
+        .collect()
 }
 
 /// The two maximal consensuses that reach different conclusions about our render.
@@ -13127,9 +13293,85 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     );
     name_the_pages_judged_without_a_third_reading(results);
     name_the_pages_with_a_divided_consensus(results);
+    what_the_flat_sheets_said(results);
 
     rank_the_pools(results);
 }
+
+/// The whole population `pdfref::Reference::refusals` decides over, and what it matched in it.
+///
+/// Trap 11's audit, printed rather than remembered: **both** the sentences the condition fired
+/// on and the distinct sentences of every flat sheet it did not fire on. A condition on a
+/// renderer's words is a claim about a vocabulary three other projects own, so it decays the way
+/// a ledger row does — a release that rewords `cannot decode jbig2 image` takes the rule with
+/// it, silently, and this is the line that says so. It is not a ratchet, for the same reason the
+/// abstention count above it is not: how often three other programs fail is not this tree's to
+/// hold.
+fn what_the_flat_sheets_said(results: &[Examined]) {
+    let sheets: Vec<&FlatSheet> = results
+        .iter()
+        .flat_map(|examined| examined.flat_sheets.iter())
+        .collect();
+    if sheets.is_empty() {
+        return;
+    }
+
+    // Keyed by the renderer as well as the sentence: the same words reach the log through two
+    // different programs — `jbig2dec`'s do — and which program carried them is half of what a
+    // round auditing this condition needs.
+    let mut refused: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut quiet: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut silent = 0usize;
+    for sheet in &sheets {
+        match &sheet.refusal {
+            Some(sentence) => {
+                let seen = refused
+                    .entry(format!("{:<12} {sentence}", sheet.reference.name()))
+                    .or_default();
+                *seen = seen.saturating_add(1);
+            }
+            None if sheet.said.is_empty() => silent = silent.saturating_add(1),
+            None => {
+                for line in &sheet.said {
+                    let seen = quiet
+                        .entry(format!("{:<12} {line}", sheet.reference.name()))
+                        .or_default();
+                    *seen = seen.saturating_add(1);
+                }
+            }
+        }
+    }
+
+    let matched: usize = refused.values().sum();
+    println!(
+        "  flat sheets: {} reference rasters of one colour, {matched} of them naming a refusal \
+         in the renderer's own words, {silent} saying nothing at all",
+        sheets.len()
+    );
+    let commonest = |what: &str, lines: &std::collections::BTreeMap<String, usize>| {
+        let mut ordered: Vec<(&String, &usize)> = lines.iter().collect();
+        ordered.sort_by_key(|(line, count)| (std::cmp::Reverse(**count), (*line).clone()));
+        println!("    {what}: {} distinct sentences", ordered.len());
+        for (line, count) in ordered.iter().take(FLAT_SHEET_SENTENCES) {
+            println!("      {count:>4}  {line}");
+        }
+        if ordered.len() > FLAT_SHEET_SENTENCES {
+            println!(
+                "      … and {} more",
+                ordered.len().saturating_sub(FLAT_SHEET_SENTENCES)
+            );
+        }
+    };
+    commonest("refusals matched", &refused);
+    commonest("said by a flat sheet the condition did not match", &quiet);
+}
+
+/// How many distinct sentences of each side of that audit are printed.
+///
+/// A bound rather than the whole set, because `mupdf` narrates the path of every document it
+/// opens and that alone would be one line per page. The commonest are what a round auditing the
+/// condition reads; the rest are in the run's own `<name>.log` files beside the rasters.
+const FLAT_SHEET_SENTENCES: usize = 25;
 
 /// The four orderings, in one call because they are one section of the report.
 ///
