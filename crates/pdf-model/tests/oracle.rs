@@ -1661,6 +1661,16 @@ const CONTRADICTED_SUBPIXEL_IMAGE: [&str; 1] = ["issue4436r.pdf page 1"];
 /// an absolute difference counts a moved mark twice. **An ink table cannot account for a page
 /// where the disagreement is about placement**, and naming which of them those are is the honest
 /// limit of this entry. ADR 0499.
+///
+/// # And these three are three quarters of the convictions in the tree that rest on one raster
+///
+/// `what_the_consensus_was_made_of` counts, every run, how many verdicts are decided by a set
+/// whose members drew the *same bytes* — `raster_compare`'s `max_error` at zero, which is trap 9's
+/// own tell — and names the contradicted ones. Of the whole pool, four are, and three of them are
+/// these; the fourth is [`CONTRADICTED_ON_A_PAGE_WE_REPORT`]. So the population where a conviction
+/// rests on `jbig2dec` twice is exactly the group already named for `jbig2dec` twice, which is why
+/// the census moved no page: it found no conviction this file was not already holding by name for
+/// the same mechanism. ADR 0774.
 const CONTRADICTED_SHARED_JBIG2_DECODER: [&str; 3] = [
     "bitmap-halftone-composite.pdf page 1",
     "bitmap-refine-page-subrect.pdf page 1",
@@ -11636,6 +11646,12 @@ struct Examined {
     /// into something the gate prints — a count on one side and, since the
     /// eight-hundred-and-forty-fifth session, a **named population** on the other.
     excluded_reference: Option<ExcludedReading>,
+    /// How far apart the rasters of the consensus that decided this page sit, and whether the
+    /// bound it applied ever left the class floor.
+    ///
+    /// `None` on exactly the pages that carry no consensus at all. See [`ConsensusIdentity`] for
+    /// what the question is and ADR 0774 for what the answer turned out to be.
+    consensus_identity: Option<ConsensusIdentity>,
     /// How many references produced a raster of one colour on a page another one drew, and
     /// therefore took no part in the consensus — `pdfref::consensus_abstentions`.
     ///
@@ -11703,6 +11719,7 @@ impl Examined {
             alone_on: None,
             outside_the_bound: None,
             excluded_reference: None,
+            consensus_identity: None,
             abstentions: 0,
             absent: Vec::new(),
             flat_sheets: Vec::new(),
@@ -12243,6 +12260,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         alone_on,
         outside_the_bound,
         excluded_reference: the_excluded_reference_under_the_same_bound(&triangulation),
+        consensus_identity: the_consensus_that_decided_it(&triangulation, &tolerance),
         abstentions: triangulation.abstained.len(),
         absent,
         flat_sheets,
@@ -12758,6 +12776,105 @@ fn the_excluded_reference_under_the_same_bound(
         reference,
         outside_of: against_members.iter().filter(|outside| **outside).count(),
         members: against_members.len(),
+    })
+}
+
+/// How far apart the rasters of the consensus that decided a page's verdict sit.
+///
+/// # The question it answers
+///
+/// ADR 0773 measured one row of one table — the 119 vector pages the `mupdf` + `ghostscript`
+/// consensus contradicts `poppler` on — and found that on **97 of the 117 it could compare the
+/// two reference rasters are byte-identical**, so `Tolerance::widened_to` widens nothing (twice
+/// zero is zero) and the excluded reference is held to the bare class floor with the whole
+/// relative-bound mechanism inert. Trap 9 carries it as a mechanism: *a consensus of two
+/// identical rasters is one reading counted twice*.
+///
+/// What that measurement could not say is anything about itself, which is ADR 0771's general
+/// shape — **a control measured on the population it was invented for is a hypothesis until it
+/// is run on the population it excludes**. So this is the same reading taken over every page the
+/// gate judges, in both directions: how often a consensus is one raster twice, and what each
+/// verdict pool looks like with those pages set aside.
+///
+/// # What it costs
+///
+/// Nothing. `Triangulation::between_references` already holds every pair's
+/// [`raster_compare::Comparison`], and `max_error` is the field on it that separates identity
+/// from closeness — trap 9's own tell, *because every other number on that line rounds to zero
+/// long before the rasters are equal*. No render and no comparison is added.
+#[derive(Debug)]
+struct ConsensusIdentity {
+    /// The set the verdict rests on: the head of `Triangulation::consensuses`.
+    references: Vec<Reference>,
+    /// The largest single-channel difference between any two of its members, of 255.
+    ///
+    /// Zero means every pair in the set is the same bytes. One means they are not, however
+    /// close the other three measures put them.
+    widest_max_error: u8,
+    /// Whether the bound this set held us to is the bare class floor.
+    ///
+    /// The other half of `doc/todo/12`'s question, and not the same population as
+    /// [`Self::widest_max_error`] being zero: a spread of zero implies a floor, and a spread
+    /// small enough that twice it is still under every class bound does too. This is the
+    /// population on which the *relative* bound — the whole reason this gate judges the way it
+    /// does — decided nothing.
+    at_the_class_floor: bool,
+    /// Which class of bounds the page was judged by, for the breakdown.
+    ///
+    /// It is the discriminator the argument turns on rather than decoration: identical rasters
+    /// on a flat vector page are two programs agreeing about something with one answer, and
+    /// identical rasters on a page of hinted glyphs would be something else entirely.
+    class: &'static str,
+}
+
+impl ConsensusIdentity {
+    /// Whether every pair in the consensus is byte-identical.
+    fn identical(&self) -> bool {
+        self.widest_max_error == 0
+    }
+
+    /// The set named as `verdict_of` names it, so the two lines can be read side by side.
+    fn set(&self) -> String {
+        self.references
+            .iter()
+            .map(|reference| reference.name())
+            .collect::<Vec<&str>>()
+            .join(" and ")
+    }
+}
+
+/// Reads [`ConsensusIdentity`] off the numbers the gate has already computed.
+///
+/// The set asked is the head of `consensuses`, which is the set `verdict_of` names on the page's
+/// own line and the one `Examined::excluded_reference` is taken against — so the three lines are
+/// about one set rather than three.
+///
+/// `class` is the page's own [`bounds_for`] result. It is passed rather than re-derived because
+/// `Consensus::judged_by` is the *widened* bound and the question is whether it moved.
+///
+/// `None` where no two references agreed at all, which is the population no consensus judged.
+fn the_consensus_that_decided_it(
+    triangulation: &pdfref::Triangulation,
+    class: &Tolerance,
+) -> Option<ConsensusIdentity> {
+    let consensus = triangulation.consensuses.first()?;
+    let widest_max_error = triangulation
+        .between_references
+        .iter()
+        .filter(|(left, right, _)| {
+            consensus.references.contains(left) && consensus.references.contains(right)
+        })
+        .map(|(_, _, comparison)| comparison.max_error)
+        .max()?;
+    Some(ConsensusIdentity {
+        references: consensus.references.clone(),
+        widest_max_error,
+        at_the_class_floor: consensus.judged_by == *class,
+        class: if *class == Tolerance::TEXT_HEAVY {
+            "text"
+        } else {
+            "vector"
+        },
     })
 }
 
@@ -13579,8 +13696,134 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
     name_the_pages_judged_without_a_third_reading(results);
     name_the_pages_with_a_divided_consensus(results);
     what_the_flat_sheets_said(results);
+    what_the_consensus_was_made_of(results);
 
     rank_the_pools(results);
+}
+
+/// How many verdicts rest on a consensus that is one raster counted twice, and which ones.
+///
+/// # Why this is a census and not a ratchet
+///
+/// It counts how often three *other* programs produce the same bytes, which is not this tree's
+/// to hold — the same reason the abstention and absent-reference lines above it are printed
+/// rather than gated. What it is for is that `Tolerance::widened_to`'s relative bound is the
+/// whole reason this gate judges the way it does, and on a consensus at a spread of zero it
+/// decides nothing at all: twice zero is zero, so the excluded reference and our own render are
+/// both held to the bare class floor. Until this line nothing said how large that population is.
+///
+/// # What it is measured against
+///
+/// ADR 0773 measured identity over one row of one table and found 97 of 117. Its own last
+/// sentence asked the mirror question and could not answer it: *should a consensus whose two
+/// rasters are identical be a consensus at all?* — which needs the base rate over the population
+/// that row was drawn out of, exactly as ADR 0771's control needed the pool it was invented on to
+/// be widened before it could be read. This is that base rate, and ADR 0774 is what it decided.
+///
+/// The breakdown by class is the discriminator rather than decoration. Two independent programs
+/// producing the same bytes over a page of hinted glyphs would be remarkable; over a flat
+/// axis-aligned fill it is what a page with one correct answer looks like, and
+/// `Tolerance::widened_to`'s own doc comment has said so since it was written — *a spread of
+/// zero — two references producing identical pixels, which happens on simple pages*.
+fn what_the_consensus_was_made_of(results: &[Examined]) {
+    let judged: Vec<&ConsensusIdentity> = results
+        .iter()
+        .filter_map(|examined| examined.consensus_identity.as_ref())
+        .collect();
+    if judged.is_empty() {
+        return;
+    }
+    let identical = judged.iter().filter(|c| c.identical()).count();
+    let at_the_floor = judged.iter().filter(|c| c.at_the_class_floor).count();
+    println!(
+        "  a consensus decided {} pages; on {identical} of them ({:.1}%) every pair in that set \
+         is byte-identical, so `widened_to` widened nothing (ADR 0774)",
+        judged.len(),
+        share(identical, judged.len()) * 100.0,
+    );
+    println!(
+        "    and on {at_the_floor} ({:.1}%) the bound never left the class floor, which is the \
+         population the relative bound decided nothing on — identity is a subset of it",
+        share(at_the_floor, judged.len()) * 100.0,
+    );
+
+    // Each pool with those pages set aside, which is the half of the question a total cannot
+    // answer: a verdict resting on one reading counted twice is a different kind of verdict from
+    // one resting on two, and the pools do not carry them in the same proportion.
+    let pool = |label: &str, predicate: &dyn Fn(&Examined) -> bool| {
+        let carrying: Vec<&ConsensusIdentity> = results
+            .iter()
+            .filter(|examined| predicate(examined))
+            .filter_map(|examined| examined.consensus_identity.as_ref())
+            .collect();
+        if carrying.is_empty() {
+            return;
+        }
+        let one_raster = carrying.iter().filter(|c| c.identical()).count();
+        println!(
+            "    {label:<14} {:>4} judged by a consensus, {one_raster:>4} of them by identical \
+             rasters ({:.1}%), leaving {:>4} judged by two readings",
+            carrying.len(),
+            share(one_raster, carrying.len()) * 100.0,
+            carrying.len().saturating_sub(one_raster),
+        );
+    };
+    pool("agrees", &|e| matches!(e.verdict, Verdict::Agrees));
+    pool("contradicted", &|e| {
+        matches!(e.verdict, Verdict::Contradicted(_))
+    });
+    pool("ambiguous", &|e| matches!(e.verdict, Verdict::Ambiguous(_)));
+
+    // The one sub-population small enough to read page by page and sharp enough to be worth it:
+    // a conviction whose whole evidence is one raster counted twice. Named rather than counted,
+    // which is ADR 0772's rule — a population handed on in prose is a population the next round
+    // cannot check — and it is what a round taking this question further starts from.
+    let convicted_by_one_raster: Vec<(&str, String)> = results
+        .iter()
+        .filter(|examined| matches!(examined.verdict, Verdict::Contradicted(_)))
+        .filter_map(|examined| {
+            examined
+                .consensus_identity
+                .as_ref()
+                .filter(|consensus| consensus.identical())
+                .map(|consensus| (examined.name.as_str(), consensus.set()))
+        })
+        .collect();
+    println!(
+        "    and these {} contradicted pages are convicted by a set whose members drew the same \
+         bytes:",
+        convicted_by_one_raster.len()
+    );
+    for (name, set) in convicted_by_one_raster {
+        println!("      {name} — {set}");
+    }
+
+    // Which set, and which class of page. A count that is all one pair is a fact about two
+    // programs; one spread across every pair is a fact about the pages.
+    let mut by_set: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut by_class: std::collections::BTreeMap<&'static str, (usize, usize)> =
+        std::collections::BTreeMap::new();
+    for consensus in &judged {
+        let seen = by_class.entry(consensus.class).or_default();
+        seen.1 = seen.1.saturating_add(1);
+        if consensus.identical() {
+            seen.0 = seen.0.saturating_add(1);
+            let set = by_set.entry(consensus.set()).or_default();
+            *set = set.saturating_add(1);
+        }
+    }
+    for (class, (one_raster, all)) in &by_class {
+        println!(
+            "    {class:<14} {all:>4} judged by a consensus, {one_raster:>4} of them by identical \
+             rasters ({:.1}%)",
+            share(*one_raster, *all) * 100.0,
+        );
+    }
+    let mut sets: Vec<(&String, &usize)> = by_set.iter().collect();
+    sets.sort_by_key(|(set, count)| (std::cmp::Reverse(**count), (*set).clone()));
+    for (set, count) in sets {
+        println!("      {count:>4}  {set}");
+    }
 }
 
 /// The whole population `pdfref::Reference::refusals` decides over, and what it matched in it.

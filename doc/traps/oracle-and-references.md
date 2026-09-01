@@ -170,6 +170,25 @@ numerator. And the ninth is not a mechanism either: it is a reading that was nev
   not a threshold**: `compare_rasters` on the two reference panels, reading `max`, because every
   other number on that line rounds to zero long before the rasters are equal. ADR 0773.
 
+  **And the base rate is what stops this bullet accusing a verdict, which took one more round**
+  (ADR 0774). The gate counts identity over the whole population now —
+  `what_the_consensus_was_made_of`, every run, off comparisons it already had — and it is **176 of
+  the 1044 pages a consensus decides**, with the bound at the bare class floor on **629** of them.
+  Three readings follow and each denies this bullet a rule. It runs at **0.4% on text pages and
+  68.9% on vector ones**, so what varies is the *page* and not the pair — two Artifex programs
+  share their code on every page they draw. It is **depleted** in the pool where a manufactured
+  consensus would cost something: 6.7% of the contradicted pages against 17.6% of the agreeing
+  ones, so 172 of the 176 are agreements. And **68 of the 176 are a three-way identity including
+  `poppler`**, the reference this bullet's own row excludes — three source trees agreeing to the
+  byte is not a claim about source trees, and a rule refusing it would turn the strongest agreement
+  this instrument can record into no evidence at all, which inverts ADR 0005. **So byte identity is
+  what a page with one answer produces in any renderer that gets it right**, which
+  `Tolerance::widened_to`'s doc comment has said since it was written — *a spread of zero … happens
+  on simple pages*. The mechanism above stands as a description of those 95 pages and is not a test
+  for anything. What survives as a population is four contradicted pages and the gate names them:
+  three are `CONTRADICTED_SHARED_JBIG2_DECODER`, the group already named for `jbig2dec` twice, and
+  the fourth is a page this tree reports on.
+
 - **And where the corpus states an invariant about itself, ask the *references* that invariant.**
   Shared code is a reason their agreement is not evidence; it is not a reason to believe ours. The
   `bitmap-*` family is one drawing encoded through nearly every path ISO/IEC 14492 defines, so every

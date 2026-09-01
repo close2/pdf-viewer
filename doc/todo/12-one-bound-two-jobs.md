@@ -1,18 +1,21 @@
 # One bound doing two jobs: the differing fraction on text pages
 
 Status: **the question this item was opened for is answered** — the two jobs stay one number, and
-the reason is measured rather than cautious. What is left is named at the bottom and is smaller
-than the item was.
+the reason is measured rather than cautious. What is left is item 1 alone, and it is the
+`ambiguous` bucket's programme rather than this bound's.
 Opened in the four-hundred-and-seventh session, answered in the eight-hundred-and-forty-fourth.
 Priority: 12 — demand-driven, and it is about the instrument rather than about a page
 Code: `tools/pdfref/src/lib.rs` (`Tolerance`, `Judgement`, `widened_to`),
 `tools/pdfref/src/reference.rs` (`substituted_cmyk_profile`),
 `crates/pdf-model/tests/oracle.rs` (`the_fixed_bounds_against_the_references_own_spread`,
 `substitutions_of`, `print_the_substitutions`, `the_excluded_reference_under_the_same_bound`,
-`name_the_pages_the_excluded_reference_survives`)
-Derivation and numbers: **ADRs 0243, 0717, 0771, 0772 and 0773**. Read 0771 first; it supersedes
-the reason the other two give for leaving the bound alone without changing what they measured,
-0772 corrects two populations it stated in prose, and 0773 reads the vector row it handed on.
+`name_the_pages_the_excluded_reference_survives`, `ConsensusIdentity`,
+`the_consensus_that_decided_it`, `what_the_consensus_was_made_of`)
+Derivation and numbers: **ADRs 0243, 0717, 0771, 0772, 0773 and 0774**. Read 0771 first; it
+supersedes the reason the other two give for leaving the bound alone without changing what they
+measured, 0772 corrects two populations it stated in prose, 0773 reads the vector row it handed on,
+and 0774 answers the question 0773 handed on by widening its denominator — which is 0771's own
+general shape arriving one round later.
 
 ## What was asked
 
@@ -128,12 +131,30 @@ named for.
    The convictions are 116 on the worst tile and 109 on the similarity against 45 on the mean,
    which is why a colour profile could never have owned them.
 
-   **What is left of this item is one question, and it needs a population rather than a page.**
-   Should a consensus whose two rasters are identical be a consensus at all? Acting on it needs a
-   rule, a rule needs the base-rate control item 2's answer was built out of, and it would move
-   `ambiguous` in the direction ADR 0243's 278 arrivals already point. Nothing here argues for it;
-   what is measured is that on those pages the relative bound — the whole reason this gate judges
-   the way it does — is not acting.
+   ~~**What is left of this item is one question, and it needs a population rather than a page.**~~
+   **Asked and answered in the eight-hundred-and-forty-seventh session, and the answer is no rule**
+   (ADR 0774). *Should a consensus whose two rasters are identical be a consensus at all?* The gate
+   counts identity over the whole population now — `what_the_consensus_was_made_of`, every run, off
+   comparisons it already had — and it is **176 of the 1044 pages a consensus decides**, with the
+   bound at the bare class floor on **629** of them, which is the wider fact nobody had: on three
+   pages in five that a consensus decides, `widened_to` widened nothing at all.
+
+   **Identity is a property of the page rather than of the pair, and three readings say so.** It
+   runs at **0.4% on text pages against 68.9% on vector ones**, where a mechanism of dependence
+   would show at one rate on both — two Artifex programs share their code on every page they draw.
+   It is **depleted** in the pool where a manufactured consensus would cost something, 6.7% of the
+   contradicted pages against 17.6% of the agreeing ones, so 172 of the 176 are agreements and a
+   rule would move `ambiguous` by that many in exchange for four convictions. And **68 of the 176
+   are a three-way identity including `poppler`** — the reference item 3's own row excludes — where
+   a rule refusing them would turn the strongest agreement the instrument can record into no
+   evidence, inverting ADR 0005. `Tolerance::widened_to`'s doc comment said it first: *a spread of
+   zero — two references producing identical pixels, which happens on simple pages*. The floor
+   exists for this population.
+
+   **And the four convictions are the group already named for the mechanism**, which is why nothing
+   moved: three are `CONTRADICTED_SHARED_JBIG2_DECODER` — `jbig2dec` twice, whose *right* answer is
+   ADR 0381's out of the documents themselves — and the fourth is
+   `CONTRADICTED_ON_A_PAGE_WE_REPORT`. The gate names them rather than this file.
 
 ## Two neighbouring questions, both asked and answered elsewhere
 
