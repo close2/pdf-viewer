@@ -1,21 +1,29 @@
 # One bound doing two jobs: the differing fraction on text pages
 
-Status: **the question this item was opened for is answered** — the two jobs stay one number, and
-the reason is measured rather than cautious. What is left is item 1 alone, and it is the
-`ambiguous` bucket's programme rather than this bound's.
-Opened in the four-hundred-and-seventh session, answered in the eight-hundred-and-forty-fourth.
+Status: **answered, and nothing here is owed.** The two jobs stay one number, and the reason is
+measured rather than cautious — from both ends since the eight-hundred-and-forty-ninth session,
+which found that they are not two jobs a threshold can separate in *either* direction. The file
+is kept rather than deleted because twenty-one comments in `crates/` and `tools/` point a reader
+at it, and every decision in it is in the ADRs below.
+Opened in the four-hundred-and-seventh session, answered in the eight-hundred-and-forty-fourth
+and closed in the eight-hundred-and-forty-ninth.
 Priority: 12 — demand-driven, and it is about the instrument rather than about a page
 Code: `tools/pdfref/src/lib.rs` (`Tolerance`, `Judgement`, `widened_to`),
 `tools/pdfref/src/reference.rs` (`substituted_cmyk_profile`),
 `crates/pdf-model/tests/oracle.rs` (`the_fixed_bounds_against_the_references_own_spread`,
 `substitutions_of`, `print_the_substitutions`, `the_excluded_reference_under_the_same_bound`,
 `name_the_pages_the_excluded_reference_survives`, `ConsensusIdentity`,
-`the_consensus_that_decided_it`, `what_the_consensus_was_made_of`)
-Derivation and numbers: **ADRs 0243, 0717, 0771, 0772, 0773 and 0774**. Read 0771 first; it
+`the_consensus_that_decided_it`, `what_the_consensus_was_made_of`, `RaisedFormation`,
+`a_raised_formation_bound`, `what_the_new_convictions_are_made_of`,
+`the_pages_a_raised_formation_bound_would_move`), `tools/pdfref/src/lib.rs`
+(`Triangulation::rejudged`, and `decide`'s two tolerances)
+Derivation and numbers: **ADRs 0243, 0717, 0771, 0772, 0773, 0774 and 0776**. Read 0771 first; it
 supersedes the reason the other two give for leaving the bound alone without changing what they
 measured, 0772 corrects two populations it stated in prose, 0773 reads the vector row it handed on,
-and 0774 answers the question 0773 handed on by widening its denominator — which is 0771's own
-general shape arriving one round later.
+0774 answers the question 0773 handed on by widening its denominator — which is 0771's own
+general shape arriving one round later — and **0776 does the same for the consensus half**: the
+278 are composed rather than counted, and the formation bound turns out to move our own floor
+through `widened_to`.
 
 ## What was asked
 
@@ -83,17 +91,39 @@ PDFREF_GS_CMYK_PROFILE=<a CGATS copy>                                        # t
 PDFREF_GS_CMYK_PROFILE=/usr/share/ghostscript/iccprofiles/default_cmyk.icc   # the control
 ```
 
-## What is left
+## What was left, and is not any more
 
-Three things were listed here; two are closed and none of the three is the number this item was
+Three things were listed here, and all three are closed; none of them was the number this item was
 named for.
 
-1. **The consensus half was never moved and its 278 pages are still a programme.** Raising
-   `max_differing_fraction` for consensus formation makes 457 `ambiguous` pages judgeable and 278
-   of them contradicted — ADR 0243 measured it. Several hundred are `doc/todo/00`'s dense-text
-   population, which is the only mechanism anybody has named for why that bucket is the size it
-   is. Nothing here argues for or against it; what ADR 0771 removes is the *floor* as a reason to
-   go near it.
+1. ~~**The consensus half was never moved and its 278 pages are still a programme.**~~ **Read in
+   the eight-hundred-and-forty-ninth session, and the threshold does not move** (ADR 0776). The
+   gate runs the raise as a counterfactual every run — `pdfref::Triangulation::rejudged` over the
+   comparisons it already holds, calibrated by an assertion that re-judging at a page's own bounds
+   reproduces its own verdict — so the composition is printed rather than described.
+
+   **The population is one book.** Of the 276 pages the raise newly convicts, **272 are
+   `freeculture.pdf`** and the other four are one page each; 275 of 276 are text pages, and the
+   same derivation applied to the vector class moves one page in the corpus. This item's guess
+   that "several hundred are `doc/todo/00`'s dense-text population" was right and is now counted:
+   it is that population and almost nothing else, which is `doc/todo/00`'s work rather than this
+   bound's.
+
+   **The convictions are on a measure the raise does not touch.** 274 of the 276 are convicted on
+   structural similarity — the bound `Tolerance::TEXT_HEAVY` set at 0.90 precisely to put font
+   substitution in `ambiguous` — 2 on the worst tile, and **none on the differing fraction**. On
+   **263 of the 276** a reference agrees with *us* more closely, on that same deciding measure,
+   than the convicting set agrees with itself; on `freeculture.pdf` page 100 ours against `mupdf`
+   is ssim 0.9558 where the convicting pair is 0.9315 and 11.19% of channels apart. And 205 of the
+   276 form only past 10% differing, so a smaller raise buys a seventh of them at the same price.
+
+   **And the price is ADR 0771's, which is the finding that closes this item.** Raising formation
+   *alone*, with our own floor left at the class bound, still acquits **27 of the 60** contradicted
+   pages — including all five `CONTRADICTED_CALRGB_TO_SCREEN` pages and `CONTRADICTED_SUBPIXEL_IMAGE`,
+   every one of the six ADR 0771 refused the floor raise for. `widened_to` derives our bound from
+   the spread of whatever set formed, so admitting a wider set widens what we are held to. **The
+   two knobs this file is named after are one knob**, and ADR 0243's narrow move and its mirror are
+   the same change reached from two directions.
 2. ~~**The three pages the control does not excuse.**~~ **Read in the
    eight-hundred-and-forty-fifth session, and closed** (ADR 0772). Two things came out of it. The
    population is not what this item said — the gate names it now rather than a document naming it,

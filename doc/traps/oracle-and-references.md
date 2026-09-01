@@ -598,6 +598,20 @@ and `oracle.rs`'s `substitutions_of` runs it over the corpus. Read the rate befo
 verdict: on text pages a `poppler` + `mupdf` consensus contradicts the reference it excludes on
 9.1% of what it judges, a `poppler` + `ghostscript` one on 0.6%. ADR 0771.
 
+**And the bound that decides who *votes* is the same number as the bound that decides what we are
+*held to*, so moving either one moves both.** `decide` takes the pairs agreeing within the fixed
+bounds and `widened_to` then derives our bound from the spread of the set that formed — so a
+formation bound raised to admit a wider pair hands that wider spread straight to the widening.
+Measured as a counterfactual over the whole corpus (ADR 0776): raising
+`max_differing_fraction` for **formation alone**, with our own floor left exactly where it is,
+acquits **27 of the 60 contradicted pages**, and among them are all five of
+`CONTRADICTED_CALRGB_TO_SCREEN` and `CONTRADICTED_SUBPIXEL_IMAGE` — every one of the six pages ADR
+0771 refused the *floor* raise for. **The two knobs `doc/todo/12` is named after are one knob**, and
+a round proposing to separate them owes the measurement in both directions rather than in the one
+it is arguing about. What the same raise buys is in that ADR: 276 new convictions, 272 of them one
+book, none on the measure being raised, and 263 on pages where a reference agrees with *us* more
+closely than the convicting set agrees with itself.
+
 **And a bound derived from an aggregate is not a bound on the pixels the aggregate is made of.**
 `calrgb.pdf` page 1's consensus pair differs by 4.41%, so the gate holds us to 8.82%. Over the
 eighty swatch centres that pair is a mean 2.35 of 255 apart — but restricted to the 41 swatches

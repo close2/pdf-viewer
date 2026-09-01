@@ -178,6 +178,26 @@ impl Tolerance {
     /// adopted without arguing 278 pages, and adopting it for our own side alone would loosen
     /// the gate in the one direction that flatters us. `doc/todo/12` is the work.
     ///
+    /// # And the 278 have been read, which is what closed that half (ADR 0776)
+    ///
+    /// `oracle.rs`'s `a_raised_formation_bound` runs the raise as a counterfactual through
+    /// [`crate::Triangulation::rejudged`] on every gate run, and the composition is the
+    /// argument the count could not be:
+    ///
+    /// - **272 of the 276 are one document**, `freeculture.pdf`, and the other four are one
+    ///   page each — so what the raise buys is one dense-text book turned from `ambiguous`
+    ///   into contradicted rather than a corpus-wide judgement.
+    /// - **Not one conviction is on the differing fraction.** 274 are on structural
+    ///   similarity, whose 0.90 is the bound this comment says was chosen to put font
+    ///   substitution in `ambiguous`, and 2 on the worst tile.
+    /// - **On 263 of the 276 a reference agrees with *us* more closely, on the deciding
+    ///   measure, than the convicting set agrees with itself** — a wider formation bound is an
+    ///   instruction to accept a less close pair, which is trap 12's subject exactly.
+    /// - **And the formation half is the floor half by another route**: with our own floor left
+    ///   at the class bound the same raise acquits 27 of the 60 contradicted pages, including
+    ///   all six ADR 0771 refused the floor raise for, because [`Self::widened_to`] derives the
+    ///   bound from the spread of whatever set formed.
+    ///
     /// # The two jobs were separated and priced, and the price is why they stay one number
     ///
     /// The eight-hundred-and-forty-fourth session took the narrower move ADR 0243 left open —
@@ -663,6 +683,51 @@ pub struct Triangulation {
 }
 
 impl Triangulation {
+    /// What this page's verdict would be if the two jobs [`Tolerance`] does were two numbers.
+    ///
+    /// # The question
+    ///
+    /// `Tolerance::TEXT_HEAVY::max_differing_fraction` decides whether two references **form** a
+    /// consensus, and the same number **floors** the bound [`Tolerance::widened_to`] then derives
+    /// for us. ADR 0243 measured what raising it does — 457 pages leave `ambiguous` and 278
+    /// arrive contradicted — and left it alone, because a change of that size is a programme of
+    /// work rather than a number. ADR 0771 took the *floor* half as far as it goes. This is what
+    /// the **formation** half needs: the counterfactual verdict, page by page, so that the 278
+    /// can be counted and broken down rather than described.
+    ///
+    /// # Why it is here rather than in the gate
+    ///
+    /// It runs [`decide`] — the same function that reached the live verdict — over the
+    /// comparisons this triangulation already holds. A counterfactual computed by a second
+    /// implementation of the consensus rule would answer a question about that implementation;
+    /// `oracle.rs` asserts on every page that `rejudged` with the page's own bounds reproduces
+    /// [`Self::outcome`] exactly, which is the calibration trap 13 asks for.
+    ///
+    /// It renders nothing and compares nothing: every number it reads is already in
+    /// [`Self::between_references`] and [`Self::ours`].
+    ///
+    /// `formation` is the bound two references must agree within to form a consensus; `floor` is
+    /// the bound our own render is held to before widening. Passing the same value for both is
+    /// what the live gate does.
+    #[must_use]
+    pub fn rejudged(
+        &self,
+        formation: &Tolerance,
+        floor: &Tolerance,
+        judgement: Judgement,
+    ) -> (Outcome, Tolerance, Vec<Consensus>) {
+        let drew: Vec<Reference> = self.ours.iter().map(|(reference, _)| *reference).collect();
+        decide(
+            &drew,
+            &self.abstained,
+            &self.between_references,
+            &self.ours,
+            formation,
+            floor,
+            judgement,
+        )
+    }
+
     /// The two maximal consensuses that reach different conclusions about our render, if any.
     ///
     /// `None` on every page whose agreeing sets concur — which is every page carrying one, and
@@ -761,11 +826,15 @@ pub fn triangulate_with(
     }
 
     let abstained = consensus_abstentions(references, testimony, &between_references, tolerance);
+    let drew: Vec<Reference> = references.iter().map(|(reference, _)| *reference).collect();
+    // The same number in both places, which is the whole of what `doc/todo/12` is about: one
+    // bound decides whether the references agree *and* floors what we are held to.
     let (outcome, judged_by, consensuses) = decide(
-        references,
+        &drew,
         &abstained,
         &between_references,
         &ours_vs,
+        tolerance,
         tolerance,
         judgement,
     );
@@ -802,17 +871,26 @@ pub fn triangulate_with(
 /// [`Outcome::Ambiguous`] — the module documentation has the argument and ADR 0617 the
 /// measurement. Where they concur, which is every page carrying one set and most of those
 /// carrying two, the outcome and the bounds are the first set's exactly as before.
+///
+/// # Two tolerances, which the live gate passes one number for
+///
+/// `formation` is what two references must agree within to form a consensus at all; `floor` is
+/// what our own render is held to before [`Tolerance::widened_to`] widens it. They are one
+/// number on every path this harness renders through — `doc/todo/12`'s "one bound doing two
+/// jobs" — and they are two parameters so that [`Triangulation::rejudged`] can ask what a
+/// different formation bound would decide **without a second copy of this function**.
 fn decide(
-    references: &[(Reference, Raster)],
+    drew: &[Reference],
     abstained: &[Reference],
     between: &[(Reference, Reference, Comparison)],
     ours: &[(Reference, Comparison)],
-    tolerance: &Tolerance,
+    formation: &Tolerance,
+    floor: &Tolerance,
     judgement: Judgement,
 ) -> (Outcome, Tolerance, Vec<Consensus>) {
-    let names: Vec<Reference> = references
+    let names: Vec<Reference> = drew
         .iter()
-        .map(|(r, _)| *r)
+        .copied()
         .filter(|r| !abstained.contains(r))
         .collect();
 
@@ -821,18 +899,18 @@ fn decide(
             Outcome::NotEnoughReferences {
                 available: names.len(),
             },
-            *tolerance,
+            *floor,
             Vec::new(),
         );
     }
 
-    let consensuses: Vec<Consensus> = maximal_agreements(&names, between, tolerance)
+    let consensuses: Vec<Consensus> = maximal_agreements(&names, between, formation)
         .into_iter()
-        .map(|group| conclude(&group, between, ours, tolerance, judgement))
+        .map(|group| conclude(&group, between, ours, floor, judgement))
         .collect();
 
     match consensuses.first() {
-        None => (Outcome::Ambiguous, *tolerance, consensuses),
+        None => (Outcome::Ambiguous, *floor, consensuses),
         Some(first)
             if consensuses
                 .iter()
@@ -841,7 +919,7 @@ fn decide(
             // The class bounds rather than any set's widened ones, which is what the arm above
             // returns and for the same reason: no set judged this page, so quoting one set's
             // bound beside the verdict would name a judgement that was not made.
-            (Outcome::Ambiguous, *tolerance, consensuses)
+            (Outcome::Ambiguous, *floor, consensuses)
         }
         Some(first) => (first.outcome.clone(), first.judged_by, consensuses),
     }
@@ -1734,6 +1812,92 @@ mod tests {
         assert!(super::is_uniform(&solid(WHITE)));
         assert!(super::is_uniform(&solid(BLACK)));
         assert!(!super::is_uniform(&banded(1, [254, 255, 255, 255])));
+    }
+
+    /// The calibration `Triangulation::rejudged` is only useful with: handed the bounds the page
+    /// was actually judged by, it must reproduce the verdict the page actually got.
+    ///
+    /// A counterfactual that cannot reproduce the fact is measuring its own arithmetic, which is
+    /// trap 13's rule applied to a re-judgement rather than to a grep. `oracle.rs` asserts the
+    /// same identity over every corpus page on every run; this pins it on the three shapes a
+    /// verdict has, where a fixture can state each of them outright.
+    #[test]
+    fn rejudging_with_the_same_bounds_reproduces_the_verdict() {
+        /// One fixture: what the verdict should be called, our render, and the references.
+        struct Case(&'static str, Raster, Vec<(Reference, Raster)>);
+
+        let cases = vec![
+            Case(
+                "agrees",
+                solid(WHITE),
+                vec![
+                    (Reference::Poppler, solid(WHITE)),
+                    (Reference::MuPdf, solid(WHITE)),
+                ],
+            ),
+            Case(
+                "contradicted",
+                solid(BLACK),
+                vec![
+                    (Reference::Poppler, solid(WHITE)),
+                    (Reference::MuPdf, solid(WHITE)),
+                ],
+            ),
+            Case(
+                "ambiguous",
+                solid(WHITE),
+                vec![
+                    (Reference::Poppler, solid(WHITE)),
+                    (Reference::MuPdf, solid(BLACK)),
+                    (Reference::Ghostscript, solid(GREY)),
+                ],
+            ),
+        ];
+        for Case(label, ours, refs) in cases {
+            let live = triangulate(&ours, &refs, &Tolerance::DEFAULT).expect("comparable");
+            let (outcome, judged_by, consensuses) = live.rejudged(
+                &Tolerance::DEFAULT,
+                &Tolerance::DEFAULT,
+                Judgement::Absolute,
+            );
+            assert_eq!(outcome, live.outcome, "{label}: outcome");
+            assert_eq!(judged_by, live.judged_by, "{label}: bounds");
+            assert_eq!(consensuses, live.consensuses, "{label}: sets");
+        }
+    }
+
+    /// And the counterfactual has to be able to *move*, or the assertion above is vacuous.
+    ///
+    /// Two references 8 columns apart form no consensus under the class bound and do form one
+    /// under a bound wide enough to admit them — which is the whole mechanism `doc/todo/12`
+    /// item 1 is about: raising the formation bound manufactures consensuses, and each one then
+    /// reaches a verdict about us that nobody has looked at.
+    #[test]
+    fn a_wider_formation_bound_forms_a_consensus_that_then_convicts() {
+        let refs = vec![
+            (Reference::Poppler, banded(8, GREY)),
+            (Reference::MuPdf, banded(4, GREY)),
+        ];
+        let live = triangulate(&solid(WHITE), &refs, &Tolerance::DEFAULT).expect("comparable");
+        assert_eq!(
+            live.outcome,
+            Outcome::Ambiguous,
+            "the fixture must start with no consensus, or this proves nothing"
+        );
+
+        let wide = Tolerance {
+            max_mean: 255.0,
+            max_worst_tile: 255.0,
+            max_differing_fraction: 1.0,
+            min_structural_similarity: -1.0,
+        };
+        let (outcome, _, consensuses) =
+            live.rejudged(&wide, &Tolerance::DEFAULT, Judgement::Absolute);
+        assert_eq!(consensuses.len(), 1, "the two references now agree");
+        match outcome {
+            Outcome::Regression { ref agreeing } => assert_eq!(agreeing.len(), 2),
+            other => panic!("expected the new consensus to contradict us, got {other:?}"),
+        }
     }
 
     #[test]

@@ -983,6 +983,17 @@ than that about small glyphs. The bound is loose for a reason that was measured,
 about the file. **Take the tail first**: each of those is a file somebody added to a corpus for a
 reason, and the reason is written down.
 
+**And the book is what a looser gate would convict, which is the answer to the standing question
+about it** (ADR 0776). `doc/todo/12` item 1 asked what raising the bound that *forms* a consensus
+would do; the gate counts it every run now, and of the 276 pages it would newly contradict,
+**272 are `freeculture.pdf`**. So the population this section already holds by name is almost the
+whole of what that change was worth — and the reason those pages would be convicted is not the
+bound being raised: 274 of the 276 convict on **structural similarity**, and on
+`freeculture.pdf` page 100 our own render sits nearer to `mupdf` (ssim 0.9558) than the convicting
+pair sits to itself (0.9315, 11.19% of channels apart). Three renderers scatter over 8-point body
+text at 72 dpi by more than any of them sits from us, which is this section's own diagnosis
+arriving from the other side.
+
 ## The next names on the ranking
 
 **There are none, as of the three-hundred-and-seventy-ninth session**, and the shape of that last

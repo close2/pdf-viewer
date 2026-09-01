@@ -11652,6 +11652,12 @@ struct Examined {
     /// `None` on exactly the pages that carry no consensus at all. See [`ConsensusIdentity`] for
     /// what the question is and ADR 0774 for what the answer turned out to be.
     consensus_identity: Option<ConsensusIdentity>,
+    /// What this page's verdict would be if the bound that forms a consensus were raised.
+    ///
+    /// `None` on every page the gate reached no comparison on. See [`RaisedFormation`] for the
+    /// question — `doc/todo/12` item 1, the half ADR 0243 measured once and left — and
+    /// [`a_raised_formation_bound`] for the census it feeds.
+    raised_formation: Option<RaisedFormation>,
     /// How many references produced a raster of one colour on a page another one drew, and
     /// therefore took no part in the consensus — `pdfref::consensus_abstentions`.
     ///
@@ -11720,6 +11726,7 @@ impl Examined {
             outside_the_bound: None,
             excluded_reference: None,
             consensus_identity: None,
+            raised_formation: None,
             abstentions: 0,
             absent: Vec::new(),
             flat_sheets: Vec::new(),
@@ -12261,6 +12268,7 @@ fn examine(work: &Work, work_root: &Path, available: &[Reference], cache: &Cache
         outside_the_bound,
         excluded_reference: the_excluded_reference_under_the_same_bound(&triangulation),
         consensus_identity: the_consensus_that_decided_it(&triangulation, &tolerance),
+        raised_formation: Some(RaisedFormation::of(&triangulation, &tolerance)),
         abstentions: triangulation.abstained.len(),
         absent,
         flat_sheets,
@@ -12876,6 +12884,257 @@ fn the_consensus_that_decided_it(
             "vector"
         },
     })
+}
+
+/// What one page's verdict would be if the bound that forms a consensus were raised to the
+/// spread the references themselves show.
+///
+/// # The question, which is `doc/todo/12` item 1
+///
+/// `Tolerance::max_differing_fraction` does two jobs: it decides whether two references **form**
+/// a consensus, and it **floors** the bound `Tolerance::widened_to` then derives for us. ADR
+/// 0243 measured the formation half once — raising it to the references' own 99th percentile
+/// forms 457 new consensuses of which 278 contradict us — and left the number alone, because
+/// "278 pages nobody has looked at" is a programme of work rather than an argument. ADR 0771
+/// closed the *floor* half. Nothing since has said what those 278 are **made of**, and a
+/// population described in an ADR is a population no round can check (ADR 0772).
+///
+/// So this is the counterfactual, per page, on every run: `pdfref::Triangulation::rejudged` over
+/// the comparisons the gate already holds, with the formation bound raised and the floor taken
+/// two ways.
+///
+/// # The two arms, and why both
+///
+/// [`Self::formation_only`] raises the formation bound and leaves our own floor at the class
+/// value — which is the change `doc/todo/12` item 1 actually describes, and the strict one: a
+/// consensus that would not have formed now judges us at the bound we are judged at today.
+/// [`Self::with_the_floor`] raises both, which is what ADR 0243 ran and what its 457/278 counts.
+/// The difference between the two is the price of the floor half on this population, and until
+/// this census nothing separated them.
+///
+/// # What it costs
+///
+/// Nothing but arithmetic. No render, no comparison, and no verdict changes: the live gate is
+/// judged by `Triangulation::outcome` exactly as before, and [`a_raised_formation_bound`]
+/// asserts on every page that re-judging at the page's own bounds reproduces it.
+#[derive(Debug)]
+struct RaisedFormation {
+    /// Which class of bounds the page was judged by.
+    class: &'static str,
+    /// What the gate concludes today.
+    now: Standing,
+    /// What this counterfactual concludes when handed the page's own bounds.
+    ///
+    /// It must equal [`Self::now`] on every page, and [`a_raised_formation_bound`] asserts that
+    /// it does: an instrument that cannot reproduce the fact says nothing about the alternative.
+    control: Standing,
+    /// What it would conclude with the formation bound raised and our floor unchanged.
+    formation_only: Standing,
+    /// What it would conclude with both raised, which is ADR 0243's own arm.
+    with_the_floor: Standing,
+    /// The set that decides the page under the raised formation bound, where one forms.
+    ///
+    /// Named as `verdict_of` names it, so the two can be read side by side.
+    set: Option<String>,
+    /// The widest differing fraction inside that set, of 1.0.
+    ///
+    /// How far past the class bound the formation had to reach to admit it, which is the
+    /// quantity the raise buys and the one a smaller raise would leave behind.
+    formed_at: Option<f64>,
+    /// Whether every pair in that set is byte-identical — trap 9's tell, ADR 0774's census.
+    identical: bool,
+    /// The measure a conviction under [`Self::formation_only`] rests on, and by how much.
+    ///
+    /// `None` unless that arm contradicts us. Same units as [`Examined::outside_the_bound`]:
+    /// multiples of the bound the page was held to, so a mechanism can be read off it.
+    convicted_on: Option<(f64, &'static str)>,
+    /// Whether a reference agrees with **us** more closely than the convicting set agrees with
+    /// itself, on the very measure the conviction rests on.
+    ///
+    /// Trap 12's subject asked of a counterfactual. `decide` holds a third implementation to
+    /// twice the distance between the two programs that happened to agree most closely, so a
+    /// wider formation bound admits *less* close pairs and the question becomes sharp: on a page
+    /// where our own render is nearer to some reference than the convicting pair is to each
+    /// other, the manufactured consensus is not the closest reading of the page and the
+    /// conviction is a statement about which pair was selected.
+    ///
+    /// Like for like, which ADR 0688 is the reason for: both halves are read on the one measure
+    /// [`Self::convicted_on`] names, never a maximum against a maximum.
+    ///
+    /// `false` wherever that arm does not convict, and `false` on a page where the pair agrees
+    /// more closely than anybody agrees with us — `bug766086.pdf` page 1 is that shape, where the
+    /// two that agree are two that draw no link border at all (trap 9's shared gap, ADR 0663).
+    nearer_than_the_pair: bool,
+}
+
+/// The three standings a page can have in this census, which is [`Verdict`] with its detail off.
+///
+/// A counterfactual has to be comparable with a fact, and `Verdict` carries a sentence built out
+/// of the live numbers — so the transition matrix is taken over this instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Standing {
+    /// A consensus formed and accepts our render.
+    Agrees,
+    /// A consensus formed and does not.
+    Contradicted,
+    /// No consensus formed, or two formed and parted about us.
+    Ambiguous,
+    /// Fewer than two references drew, so nothing is triangulated either way.
+    Unjudged,
+}
+
+impl Standing {
+    /// How the census prints it.
+    fn word(self) -> &'static str {
+        match self {
+            Self::Agrees => "agrees",
+            Self::Contradicted => "contradicted",
+            Self::Ambiguous => "ambiguous",
+            Self::Unjudged => "unjudged",
+        }
+    }
+
+    /// The standing an `Outcome` carries, whether it came from the gate or from a counterfactual.
+    fn of(outcome: &Outcome) -> Self {
+        match outcome {
+            Outcome::Agrees { .. } => Self::Agrees,
+            Outcome::Regression { .. } => Self::Contradicted,
+            Outcome::Ambiguous => Self::Ambiguous,
+            _ => Self::Unjudged,
+        }
+    }
+}
+
+/// The formation bound raised to the 99th percentile of what the references do to each other.
+///
+/// ADR 0243's own rule and ADR 0243's own number for the text class, re-derived by
+/// [`the_fixed_bounds_against_the_references_own_spread`] in the eight-hundred-and-forty-ninth
+/// session: on text pages the differing fraction between two voting references runs a 99th
+/// percentile of **11.21%** within the pair sharing one `libfreetype.so.6` and **12.04%** across
+/// the boundary, against a bound of 5.00%; on vector pages **1.36%** and **1.11%** against a
+/// bound of 1.00%.
+///
+/// Both classes are raised rather than the one ADR 0243 argued about, because "is this a fact
+/// about text pages or about the measure?" is a question the census should answer rather than
+/// assume — and the class breakdown it prints is the answer.
+///
+/// The other three bounds are untouched: they already sit at or above their own 99th percentile,
+/// which is the finding ADR 0243 recorded and this run reproduces.
+fn raised_formation(class: &Tolerance) -> Tolerance {
+    Tolerance {
+        max_differing_fraction: if *class == Tolerance::TEXT_HEAVY {
+            0.12
+        } else {
+            0.0136
+        },
+        ..*class
+    }
+}
+
+impl RaisedFormation {
+    /// Runs the counterfactual for one page, and the control beside it.
+    ///
+    /// The control is the instrument's calibration: handed the page's own bounds, `rejudged`
+    /// must reproduce the verdict the page actually got. A counterfactual that cannot reproduce
+    /// the fact is measuring its own arithmetic — trap 13, one directory over. It is carried as
+    /// a field and asserted by [`a_raised_formation_bound`], which has a name to fail with.
+    fn of(triangulation: &pdfref::Triangulation, class: &Tolerance) -> Self {
+        let control = triangulation.rejudged(class, class, Judgement::CORPUS);
+        let raised = raised_formation(class);
+        let formation_only = triangulation.rejudged(&raised, class, Judgement::CORPUS);
+        let with_the_floor = triangulation.rejudged(&raised, &raised, Judgement::CORPUS);
+
+        let set = formation_only.2.first();
+        let widest = set.and_then(|consensus| {
+            triangulation
+                .between_references
+                .iter()
+                .filter(|(left, right, _)| {
+                    consensus.references.contains(left) && consensus.references.contains(right)
+                })
+                .map(|(_, _, comparison)| comparison)
+                .fold(None::<(f64, u8)>, |widest, comparison| {
+                    let seen = (comparison.differing_fraction, comparison.max_error);
+                    Some(widest.map_or(seen, |(fraction, error)| {
+                        (fraction.max(seen.0), error.max(seen.1))
+                    }))
+                })
+        });
+        let convicted_on = match &formation_only.0 {
+            Outcome::Regression { agreeing } => triangulation
+                .ours
+                .iter()
+                .filter(|(reference, _)| agreeing.contains(reference))
+                .map(|(_, comparison)| worst_ratio(comparison, &formation_only.1))
+                .fold(None::<(f64, &'static str)>, |worst, seen| {
+                    Some(worst.map_or(seen, |held| if seen.0 > held.0 { seen } else { held }))
+                }),
+            _ => None,
+        };
+
+        RaisedFormation {
+            control: Standing::of(&control.0),
+            class: if *class == Tolerance::TEXT_HEAVY {
+                "text"
+            } else {
+                "vector"
+            },
+            now: Standing::of(&triangulation.outcome),
+            formation_only: Standing::of(&formation_only.0),
+            with_the_floor: Standing::of(&with_the_floor.0),
+            set: set.map(|consensus| {
+                consensus
+                    .references
+                    .iter()
+                    .map(|reference| reference.name())
+                    .collect::<Vec<&str>>()
+                    .join(" and ")
+            }),
+            formed_at: widest.map(|(fraction, _)| fraction),
+            identical: widest.is_some_and(|(_, error)| error == 0),
+            convicted_on,
+            nearer_than_the_pair: convicted_on.is_some_and(|(_, measure)| {
+                let widest_in_the_set = set.and_then(|consensus| {
+                    triangulation
+                        .between_references
+                        .iter()
+                        .filter(|(left, right, _)| {
+                            consensus.references.contains(left)
+                                && consensus.references.contains(right)
+                        })
+                        .map(|(_, _, comparison)| distance_on(comparison, measure))
+                        .fold(None::<f64>, |widest, seen| {
+                            Some(widest.map_or(seen, |held: f64| held.max(seen)))
+                        })
+                });
+                let our_nearest = triangulation
+                    .ours
+                    .iter()
+                    .map(|(_, comparison)| distance_on(comparison, measure))
+                    .fold(None::<f64>, |nearest, seen| {
+                        Some(nearest.map_or(seen, |held: f64| held.min(seen)))
+                    });
+                match (our_nearest, widest_in_the_set) {
+                    (Some(ours), Some(theirs)) => ours < theirs,
+                    _ => false,
+                }
+            }),
+        }
+    }
+}
+
+/// One comparison's distance on one of [`worst_ratio`]'s four measures, by that measure's name.
+///
+/// Three of the four are distances already; structural similarity runs the other way, so what is
+/// returned for it is the distance from identity. The names are `worst_ratio`'s own, which is
+/// what keeps a like-for-like reading like for like (ADR 0688).
+fn distance_on(comparison: &raster_compare::Comparison, measure: &str) -> f64 {
+    match measure {
+        "mean" => comparison.mean_error,
+        "worst tile" => comparison.worst_tile_error,
+        "differing fraction" => comparison.differing_fraction,
+        _ => 1.0 - comparison.structural_similarity,
+    }
 }
 
 /// The largest of [`outside_by`]'s four ratios, and the name of the measure it belongs to.
@@ -13693,12 +13952,25 @@ fn report(results: &[Examined], elapsed: std::time::Duration, cache: &Cache) {
          pages",
         count(&|e| !e.absent.is_empty())
     );
+    the_censuses_beside_the_verdicts(results);
+
+    rank_the_pools(results);
+}
+
+/// The five things this gate counts that no ratchet holds, in the order they are read.
+///
+/// Each of them is a fact about the *references* rather than about this tree — how often one of
+/// them drew nothing, how often a third could not read the file, how often the two that agreed
+/// are one raster twice — so none is a ratchet and all of them are printed. They are gathered
+/// here rather than listed in [`report`] because that is a function whose length is a lint, and
+/// because the order matters to a reader: what was missing, then what was flat, then what the
+/// consensus was made of, then what a different consensus would have decided.
+fn the_censuses_beside_the_verdicts(results: &[Examined]) {
     name_the_pages_judged_without_a_third_reading(results);
     name_the_pages_with_a_divided_consensus(results);
     what_the_flat_sheets_said(results);
     what_the_consensus_was_made_of(results);
-
-    rank_the_pools(results);
+    a_raised_formation_bound(results);
 }
 
 /// How many verdicts rest on a consensus that is one raster counted twice, and which ones.
@@ -13824,6 +14096,261 @@ fn what_the_consensus_was_made_of(results: &[Examined]) {
     for (set, count) in sets {
         println!("      {count:>4}  {set}");
     }
+}
+
+/// What raising the bound that *forms* a consensus would decide, and what that population is
+/// made of.
+///
+/// # Why this is a census and not a proposal
+///
+/// `doc/todo/12` item 1 is the one half of that item nobody had measured: raising
+/// `Tolerance::max_differing_fraction` for consensus **formation** makes several hundred
+/// `ambiguous` pages judgeable, and ADR 0243 recorded that 278 of them arrive contradicted. That
+/// count is the whole of what was known about them — not their class, not which pair of
+/// references would convict, not which measure the conviction would rest on, and not whether the
+/// pair is one trap 9 names. A number with no composition behind it cannot be argued with, and it
+/// is exactly the shape ADR 0771 and ADR 0774 each had to widen a denominator to answer.
+///
+/// So the gate counts it, every run, off comparisons it already has. Nothing here moves a verdict:
+/// the live gate is judged by `Triangulation::outcome` and this reads a counterfactual beside it.
+///
+/// # What to read off it
+///
+/// The transition matrix says how large the population is and which way it moves. The breakdown
+/// says what the newly convicting consensuses **are**: which pair forms them, at what spread they
+/// form, how many are one raster counted twice, and which of the four measures then convicts us.
+/// A conviction resting on the differing fraction of a pair that had to be admitted *by raising
+/// the differing fraction* is a different object from one resting on structural similarity.
+fn a_raised_formation_bound(results: &[Examined]) {
+    let judged: Vec<&RaisedFormation> = results
+        .iter()
+        .filter_map(|examined| examined.raised_formation.as_ref())
+        .filter(|raised| raised.now != Standing::Unjudged)
+        .collect();
+    if judged.is_empty() {
+        return;
+    }
+
+    let uncalibrated: Vec<&str> = results
+        .iter()
+        .filter(|examined| {
+            examined
+                .raised_formation
+                .as_ref()
+                .is_some_and(|page| page.control != page.now)
+        })
+        .map(|examined| examined.name.as_str())
+        .collect();
+    assert!(
+        uncalibrated.is_empty(),
+        "re-judging at a page's own bounds must reproduce its own verdict: {uncalibrated:?}"
+    );
+
+    println!(
+        "  raising the bound that forms a consensus to the references' own 99th percentile \
+         (0.12 text, 0.0136 vector) over {} judged pages — `doc/todo/12` item 1, counterfactual \
+         only:",
+        judged.len()
+    );
+
+    // The transition matrix, both arms. `formation_only` is the change the item describes;
+    // `with_the_floor` is ADR 0243's arm, and the difference between them is what the floor half
+    // is worth on this population.
+    let arm = |label: &str, standing: &dyn Fn(&RaisedFormation) -> Standing| {
+        let mut moved: std::collections::BTreeMap<(Standing, Standing), usize> =
+            std::collections::BTreeMap::new();
+        for page in &judged {
+            let seen = moved.entry((page.now, standing(page))).or_default();
+            *seen = seen.saturating_add(1);
+        }
+        println!("    {label}:");
+        for ((from, to), count) in &moved {
+            if from == to {
+                continue;
+            }
+            println!("      {:>4}  {} -> {}", count, from.word(), to.word());
+        }
+        let unmoved = moved
+            .iter()
+            .filter(|((from, to), _)| from == to)
+            .map(|(_, count)| *count)
+            .sum::<usize>();
+        println!("      {unmoved:>4}  unchanged");
+    };
+    arm("our floor left at the class bound", &|page| {
+        page.formation_only
+    });
+    arm("the floor raised with it (ADR 0243's arm)", &|page| {
+        page.with_the_floor
+    });
+
+    what_the_new_convictions_are_made_of(results);
+    the_pages_a_raised_formation_bound_would_move(results);
+}
+
+/// The breakdown of the pages a raised formation bound would newly convict.
+///
+/// Split out of [`a_raised_formation_bound`] because the matrix above answers *how many* and this
+/// answers *of what*, and only the second is an argument. Every row here is over one population:
+/// a page the gate cannot judge today, convicted by a consensus the raise manufactured, with our
+/// own floor left where it is.
+fn what_the_new_convictions_are_made_of(results: &[Examined]) {
+    let newly_convicted: Vec<(&str, &RaisedFormation)> = results
+        .iter()
+        .filter_map(|examined| {
+            examined
+                .raised_formation
+                .as_ref()
+                .map(|page| (examined.name.as_str(), page))
+        })
+        .filter(|(_, page)| {
+            page.now == Standing::Ambiguous && page.formation_only == Standing::Contradicted
+        })
+        .collect();
+    if newly_convicted.is_empty() {
+        return;
+    }
+    println!(
+        "    what those {} newly contradicted pages are made of:",
+        newly_convicted.len()
+    );
+
+    let breakdown = |label: &str, key: &dyn Fn(&str, &RaisedFormation) -> String| {
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
+        for (name, page) in &newly_convicted {
+            let seen = counts.entry(key(name, page)).or_default();
+            *seen = seen.saturating_add(1);
+        }
+        let mut rows: Vec<(&String, &usize)> = counts.iter().collect();
+        rows.sort_by_key(|(name, count)| (std::cmp::Reverse(**count), (*name).clone()));
+        println!("      by {label}:");
+        for (name, count) in rows {
+            println!("        {count:>4}  {name}");
+        }
+    };
+    breakdown("tolerance class", &|_, page| page.class.to_owned());
+    // The document, which is the row that decides how large this population really is: a
+    // programme of 278 diagnoses and a programme of five are different objects, and the corpus
+    // is a handful of long books beside a thousand one-page reductions.
+    breakdown("the document", &|name, _| {
+        name.rsplit_once(" page ")
+            .map_or_else(|| name.to_owned(), |(document, _)| document.to_owned())
+    });
+    breakdown("the set that would convict", &|_, page| {
+        page.set.clone().unwrap_or_else(|| "no set".to_owned())
+    });
+    breakdown("the measure the conviction rests on", &|_, page| {
+        page.convicted_on
+            .map_or_else(|| "none".to_owned(), |(_, measure)| measure.to_owned())
+    });
+    breakdown(
+        "how far past the class bound the pair had to be admitted",
+        &|_, page| {
+            // Bands rather than a distribution, because what the decision turns on is whether a
+            // smaller raise would leave most of this population behind: a pair admitted at 5.3% is
+            // one the class bound nearly admitted, and one admitted at 11% is not.
+            match page.formed_at {
+                None => "no set".to_owned(),
+                Some(fraction) if fraction <= 0.06 => "within a fifth of the raise".to_owned(),
+                Some(fraction) if fraction <= 0.08 => "within two fifths".to_owned(),
+                Some(fraction) if fraction <= 0.10 => "within three fifths".to_owned(),
+                Some(_) => "the last two fifths".to_owned(),
+            }
+        },
+    );
+    println!(
+        "        {:>4}  of them are a set whose members drew the same bytes",
+        newly_convicted
+            .iter()
+            .filter(|(_, page)| page.identical)
+            .count()
+    );
+    println!(
+        "        {:>4}  of them have a reference nearer to *us*, on the deciding measure, than the convicting set is to itself",
+        newly_convicted
+            .iter()
+            .filter(|(_, page)| page.nearer_than_the_pair)
+            .count()
+    );
+
+    // Named rather than counted, which is ADR 0772's rule, and capped because this list is two
+    // orders of magnitude larger than the populations that rule was written for. The cap is what
+    // `PDFVIEWER_ORACLE_FORMATION=1` lifts; the counts above it are always complete.
+    let all = std::env::var_os("PDFVIEWER_ORACLE_FORMATION").is_some();
+    let shown = if all {
+        newly_convicted.len()
+    } else {
+        25.min(newly_convicted.len())
+    };
+    println!(
+        "      the pages themselves ({shown} of {}{}):",
+        newly_convicted.len(),
+        if all {
+            ""
+        } else {
+            ", PDFVIEWER_ORACLE_FORMATION=1 for all of them"
+        }
+    );
+    for (name, page) in newly_convicted.iter().take(shown) {
+        println!("        {name} — {}", describe_a_counterfactual(page));
+    }
+}
+
+/// One page's counterfactual, as the two lists that print it both want it — without the page's
+/// own name, which each of the two prefixes differently.
+fn describe_a_counterfactual(page: &RaisedFormation) -> String {
+    format!(
+        "{} would convict, formed at {:.2}% differing, {}",
+        page.set.as_deref().unwrap_or("no set"),
+        page.formed_at.unwrap_or(0.0) * 100.0,
+        page.convicted_on.map_or_else(
+            || "on nothing".to_owned(),
+            |(ratio, measure)| format!("on {measure} at {ratio:.2}\u{d7} its bound")
+        ),
+    )
+}
+
+/// The pages a raised formation bound would move *out* of a pool the gate holds by name.
+///
+/// The census above is about pages nobody can judge today. This is the other direction and it is
+/// the one a ratchet would meet first: a page that agrees today and would not, and a page that is
+/// contradicted today and would not be. Both populations are small enough to name outright, which
+/// is what ADR 0772's rule asks for and what the 276 above are too many for.
+fn the_pages_a_raised_formation_bound_would_move(results: &[Examined]) {
+    let moved = |from: Standing| {
+        let pages: Vec<String> = results
+            .iter()
+            .filter_map(|examined| {
+                examined
+                    .raised_formation
+                    .as_ref()
+                    .map(|page| (examined.name.as_str(), page))
+            })
+            .filter(|(_, page)| page.now == from && page.formation_only != from)
+            .map(|(name, page)| {
+                format!(
+                    "{name} — {} -> {}, {}",
+                    page.now.word(),
+                    page.formation_only.word(),
+                    describe_a_counterfactual(page)
+                )
+            })
+            .collect();
+        if pages.is_empty() {
+            return;
+        }
+        println!(
+            "    {} pages leave `{}` under the same raise, with our floor unchanged:",
+            pages.len(),
+            from.word()
+        );
+        for page in pages {
+            println!("      {page}");
+        }
+    };
+    moved(Standing::Agrees);
+    moved(Standing::Contradicted);
 }
 
 /// The whole population `pdfref::Reference::refusals` decides over, and what it matched in it.

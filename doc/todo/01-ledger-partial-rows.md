@@ -5675,3 +5675,32 @@ fifth use running. ADR 0757; `doc/errata-read.md` has all six annotations with t
   instrument and the first one this rule has gained that improves the tie-break rather than
   replacing it. The pattern to expect from here is filters on the selector rather than a fourth
   count.
+
+## The twenty-second sweep run against clause 8.5.3.3, and the correction that is not a number
+
+`--bin parts` over the ledger prints, among its 546 disagreeing cardinals, three rows of one
+family: §8.5.3.3.1 counting backends twice ("both rasterisers' fill", "neither backend paints
+anything there") and §8.5.3.3.2 and §8.5.3.3.3 saying "both rasterisers implement natively" over a
+workspace that states three. All three were read against the code and corrected.
+
+**Two of them are the sweep's own advertised shape and cost one grep each.** `render_quorra::scene`'s
+`fill_rule` maps `FillRule::NonZero` and `FillRule::EvenOdd` onto `quorra_scene::FillRule`'s two
+variants, so the third rasteriser implements both rules as natively as `tiny-skia` and `peniko` do,
+and the rows now say three and name it. **The answer did not change with the count**, which is what
+these hits usually look like: a sentence that stopped being true about the tree while staying true
+about the clause.
+
+**The third is worth more than its correction.** §8.5.3.3.1 is `partial` for one debt — a degenerate
+subpath "shall be considered to enclose the single device pixel lying under that point" — and the
+note evidenced that debt by saying what two backends do. Read against the code, the departure is not
+two libraries agreeing: `pdf_render::collapsed`'s `Extents::collapse` returns `None` for a subpath
+collapsed along **both** axes, its own comment saying a point "is §8.5.3.3.1's case rather than this
+one" and that this renderer "records [it] as a departure rather than drawing", and
+`a_single_point_subpath_is_not_this_rule` pins it. So the row now cites the shared crate and that
+test, and the sentence cannot decay when a fourth rasteriser arrives.
+
+**The general form, which is the reason this is written down**: a cardinal counting this tree's parts
+under a *departure* is usually a claim in the wrong place. The fix is not a larger number but the
+sentence naming where the decision is made — and in this tree that place is `pdf-render`, by trap
+2's rule, exactly as §8.5.3.2's dot is. A row whose evidence is "both backends do X" is a row that
+will be wrong twice: once when a backend arrives, and once if two of them ever disagree.
