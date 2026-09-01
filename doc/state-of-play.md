@@ -283,15 +283,23 @@ stream already is, with a mask that is an image (§8.9.6.3, §11.6.5.2) composit
 alpha or written beside the image on its own grid — and lists or saves §7.11.4's embedded files
 from all three of their homes, the name tree, the catalog's `/AF` and §12.5.6.15's annotations,
 over one plan-and-sinks seam a KIO worker, a FUSE filesystem or a menu item can call the same way
-(RFC 0002 §5). **And it writes one thing**: `attachments --attach` files a new embedded file in
-§7.7.4's tree by §7.5.6's incremental update — the source's bytes intact, Table 45's size and
-checksum from the bytes, no date unless one is given, the same plan the same bytes — through the
-writer the viewer's own saves use. One page-range grammar for every verb, with §12.4.2's labels
-addressable as `@iv`; a document's Table 22 bits are honoured at `off` (the default: the program
-is the reader's), `on` or `warn`, asked once where a host can supply the answer — bit 3 for a
-render, bit 5 for an extraction, bit 4 for an attachment. The suite has its own gate, with RFC
-0002 §12's perf floor and its inventories held to the document's own structure. ADRs 0800, 0801,
-0802.
+(RFC 0002 §5). **And it writes three things, all by §7.5.6's incremental update** — the
+source's bytes intact under it, the same plan the same bytes, through the writer the viewer's own
+saves use: `attachments --attach` files a new embedded file in §7.7.4's tree, with Table 45's size
+and checksum from the bytes and no date unless one is given; `--attach --to-page N` files it by a
+§12.5.6.15 annotation on the page instead, drawn with this tree's own icon; and `--remove NAME`
+takes an entry out of the tree and marks the objects it alone reached free, by the one of
+§7.5.4's two mechanisms an update can use. One page-range grammar for every verb, with §12.4.2's
+labels addressable as `@iv`. **What a document asserts over its reader is read once, in
+`pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
+(two as consumed by nothing, each saying why), the five operations — a field filled, an
+annotation added, a page rendered, a file extracted, a file written in — each read their bit at
+the document's revision and §12.8.2.2's certification besides, and the four levels are one type
+whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
+takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
+answer) and the viewer supplies the two a window answers today. The suite has its own gate, with
+RFC 0002 §12's perf floor and its inventories held to the document's own structure. ADRs 0800,
+0801, 0802, 0803.
 
 **It can tell a person that a signed document changed after it was signed, and whether its
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the

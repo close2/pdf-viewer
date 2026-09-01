@@ -271,7 +271,10 @@ fn reason(restriction: Restriction) -> String {
             format!("certified by its author (§12.8.2.2, {level:?})")
         }
         Restriction::AccessDenied { bit } => {
-            format!("encryption withholds it (§7.6.4.2 Table 22, bit {bit})")
+            format!(
+                "encryption withholds it (§7.6.4.2 Table 22, bit {})",
+                bit.position()
+            )
         }
         Restriction::FieldLocked => "a signature locks the field (§12.7.5.5)".to_owned(),
         Restriction::FieldCovered => {

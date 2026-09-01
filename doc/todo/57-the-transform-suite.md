@@ -9,7 +9,7 @@ quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach 
 suite's own gate runs over ISO 32000-2's PDF.
 Clauses: §7.5.4, §7.5.5, §7.5.7, §7.5.8 and §14.4 on the way out (the serializer, item 2);
 §7.6.4.2 Table 22 (item 3).
-Code: `crates/pdf-transform/`, ADRs 0800, 0801, 0802.
+Code: `crates/pdf-transform/`, ADRs 0800, 0801, 0802, 0803.
 
 ## What is done
 
@@ -21,8 +21,13 @@ fixed; the transform gate with RFC §12's perf floor; §8.9.7's inline images an
 --no-mask` and the mask beside every native JPEG; `render --page-box` over Table 31's five boxes
 and `--no-annotations`; and **`attachments --attach`**, the suite's first writer consumer, on
 §7.5.6's incremental update alone — the source's bytes intact, three objects and a rewritten
-holder after them, deterministic unless `--date` is given. Everything below is what the RFC
-proposed and no round has taken, in the order the next round should.
+holder after them, deterministic unless `--date` is given. Session 872 (ADR 0803): the
+restriction policy done once in `pdf_model::restriction` — every Table 22 bit named, the
+transform's three operations beside the viewer's two, the four levels and an exhaustive verdict
+asked once by `decide`, §12.8.2.2's certification read against all five; **`--attach
+--to-page`**, §12.5.6.15's annotation on a page with this tree's own icon; and **`--remove`**,
+the tree without the entry and the objects marked free by §7.5.4's second mechanism. Everything
+below is what the RFC proposed and no round has taken, in the order the next round should.
 
 ## 1. Small things that need no writer — unblocked
 
@@ -30,10 +35,6 @@ proposed and no round has taken, in the order the next round should.
 - `attachments --attach` has no fixture for the holder case where the catalog's `/Names`
   dictionary is indirect and the tree inside it is direct; the other two cases are tested. A
   corpus census for that shape, or a fixture, closes it.
-- `--attach --to-page N` (RFC §6.6's example): a §12.5.6.15 file attachment annotation on a page
-  rather than a name-tree entry. The same three objects plus an annotation dictionary and the
-  page's `/Annots` rewritten; the icon's artwork is the same documented choice the viewer
-  already makes.
 
 ## 2. The serializer and the writing verbs — blocked on RFC §13 question 1
 
@@ -41,12 +42,10 @@ proposed and no round has taken, in the order the next round should.
 `pdf-syntax`, and that needs the owner to ratify RFC §11.1's redrawn authoring exclusion in
 `CLAUDE.md`. Nothing here starts before that sentence.
 
-## 3. Two things in the wrong crate, deferred for the same reason
+## 3. One thing still without its dependency
 
-- `pdf_transform::Operation` — `Print`, `Extract` and now `Modify` over Table 22's bits 3, 5
-  and 4 — belongs in `pdf_model::restriction::Operation` beside `FillInForm` and `Annotate`, so
-  that one module reads all six restriction sources for every operation this tree performs.
-  First-row change: the natural content of a round that runs the whole gate sequence anyway.
+- `pdf_transform::Operation` moved into `pdf_model::restriction` in session 872 (ADR 0803);
+  nothing of the policy is in this crate any more but the words on stderr.
 - `--password-prompt`: an interactive prompt that suppresses echo needs a terminal-mode
   dependency (`doc/stack.md` decides), or a host that owns a terminal. `--password-fd` is the
   scripted route and is what exists.
@@ -65,6 +64,6 @@ The transform gate's floor is a wall-clock number over 24 threads, and ADR 0801 
 a cost that shows only where a CPU-second is worth what it was, at two or four threads — would
 pass it. The instrument for that class is the thread curve in ADR 0801, taken by hand with
 `RAYON_NUM_THREADS`; a round that touches `render`'s parallel shape re-takes it. The gate also
-holds no output of `--attach`: `tests/writer.rs` does, on two committed and corpus documents,
+holds no output of `--attach`, `--to-page` or `--remove`: `tests/writer.rs` does, on committed and corpus documents,
 and a corpus-wide attach-and-read-back walk is the writer's equivalent of the render corpus gate
 (RFC §9), owed when the serializer lands and worth taking before it.

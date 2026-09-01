@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pdf_model::restriction::{Operation, Restriction, asserted};
+use pdf_model::restriction::{Bit, Operation, Restriction, asserted};
 use pdf_syntax::{Document, Limits};
 
 /// A corpus document's bytes, or `None` when the submodule is not checked out.
@@ -68,7 +68,7 @@ fn an_encrypted_document_can_grant_one_operation_and_withhold_the_other() {
     );
     assert_eq!(
         asserted(&document, Operation::Annotate, None, None),
-        vec![Restriction::AccessDenied { bit: 6 }],
+        vec![Restriction::AccessDenied { bit: Bit::Annotate }],
         "and bit 6, which is what annotating needs, is clear"
     );
 }
@@ -97,6 +97,46 @@ fn the_corpus_certification_permits_filling_in_and_not_annotating() {
             level: pdf_model::signature::Modification::FormFilling
         }]
     );
+}
+
+/// The same certification against the three batch operations, through `decide`, at every level.
+///
+/// Table 257's three levels are all about "changes to the document": rendering a page and
+/// copying a file out change nothing, so no level of certification withholds `Print` or
+/// `Extract`; writing a file in is a change none of the three permits, so `Modify` is withheld
+/// at `/P 2` — and what a caller then does is the level's, [`Level::verdict`], not this crate's.
+#[test]
+fn a_certification_withholds_a_change_and_not_a_reading_at_every_level() {
+    use pdf_model::restriction::{Level, Verdict, decide};
+    let Some(bytes) = corpus_bytes("xfa_filled_imm1344e.pdf") else {
+        eprintln!("skipped: doc/pdf.js is not checked out");
+        return;
+    };
+    let document = Document::open(bytes).expect("a valid PDF");
+    let certified = vec![Restriction::Certified {
+        level: pdf_model::signature::Modification::FormFilling,
+    }];
+    for level in [Level::Off, Level::On, Level::Ask, Level::Warn] {
+        assert_eq!(
+            decide(level, &document, Operation::Print, None, None),
+            Verdict::Proceed
+        );
+        assert_eq!(
+            decide(level, &document, Operation::Extract, None, None),
+            Verdict::Proceed
+        );
+        let expected = match level {
+            Level::Off => Verdict::Proceed,
+            Level::On => Verdict::Refuse(certified.clone()),
+            Level::Ask => Verdict::Ask(certified.clone()),
+            Level::Warn => Verdict::Warn(certified.clone()),
+        };
+        assert_eq!(
+            decide(level, &document, Operation::Modify, None, None),
+            expected,
+            "{level:?}"
+        );
+    }
 }
 
 /// The same signature's *second* transform, which this tree read nothing of until ADR 0403.

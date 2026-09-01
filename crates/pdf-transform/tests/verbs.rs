@@ -305,6 +305,11 @@ fn restrictions_have_levels() {
     let (code, stdout, stderr) = run(&dir, &["images", path, "--restrictions=on", "--list"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stdout.is_empty(), "the document places images");
+    // The fourth level is a usage error on a command line, before the file is opened: a pipe
+    // has nobody to ask, and the sentence says so rather than letting `ask` look like a level.
+    let (code, _stdout, stderr) = run(&dir, &["images", path, "--restrictions=ask", "--list"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("cannot ask"), "{stderr}");
 }
 
 /// `images`: the inventory names every image `XObject` the pages reach, each object once, and

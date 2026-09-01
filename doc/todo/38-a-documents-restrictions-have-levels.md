@@ -1,13 +1,15 @@
 # A document's restrictions are the reader's to set, and they have levels
 
-Status: **the shape is built (ADR 0212, session 373); two of the four levels and any interface for
-them are what is left.** No user interface is to be built until the project owner asks for one.
+Status: **the reading, the four levels and the verdict are one module (ADR 0212, session 373;
+ADR 0803, session 872); what is left is the event a window sends for *ask* and *warn* and the
+command that answers it.** No user interface is to be built until the project owner asks for one.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
 rather than to the document, ADR 0284), §12.7.6.2
 Code: `crates/pdf-model/src/restriction.rs`, `crates/viewer-core/src/viewer.rs`,
-`crates/viewer-core/src/notes.rs`, `crates/pdf-syntax/src/crypt.rs`
+`crates/viewer-core/src/notes.rs`, `crates/pdf-syntax/src/crypt.rs`,
+`crates/pdf-transform/src/lib.rs`
 
 ## The policy, in the owner's words
 
@@ -46,11 +48,26 @@ that names it, in one module so that they cannot drift apart again; three tests 
 each parser and the whole chain, because the defect lived exactly between two links that each had
 one.
 
+## What the eight-hundred-and-seventy-second session built
+
+`pdf_model::restriction::Level` is the four levels; `Level::verdict` is the policy applied, a
+pure function to an exhaustive `Verdict` (`Proceed`, `Warn`, `Ask`, `Refuse`, each carrying
+every reason); `decide` is the whole question in one call. Every Table 22 position is named in
+`Bit`, two of them as consumed by nothing, and `Operation` has the transform's three arms beside
+the viewer's two, so §12.8.2.2's certification is read against a page render, an extraction and
+a file written in, not only against the viewer's edits. `pdf-transform` consumes all four levels
+— a pipe answers *ask* with `Refusal::Unanswered`, and its command line refuses the word before
+opening the file — and `viewer-core` supplies `Off` and `On` through `RestrictionLevel::level`
+and matches every verdict, the two it cannot produce in one arm that refuses visibly. ADR 0803.
+
 ## What is left
 
-- **The two levels themselves.** *Ask* and *warn* are `Event::Refused` plus a host that answers
-  with a `Command` — the `Event::PasswordRequired` shape — and they are not shipped because a
-  variant nothing produces and nothing answers is a level that silently behaves like another one.
+- **The event and the command, in `viewer-core` and its windows.** *Ask* is `Verdict::Ask`
+  reaching a host as an event carrying the operation and the reasons, the edit held, and a
+  `Command` that answers it — the `Event::PasswordRequired` shape; *warn* is the edit applied and
+  an event saying what the document asserted. `RestrictionLevel` grows its two variants the same
+  day, and `Viewer::refusal`'s one arm becomes three. They are not shipped because a variant
+  nothing produces and nothing answers is a level that silently behaves like another one.
   Nothing here is `#[non_exhaustive]`, so adding them fails every consumer's compile until it says
   what it does, which is what makes waiting safe rather than lazy.
 - **A user interface**, when the owner asks for one. A menu with four entries and, probably, the
@@ -72,9 +89,11 @@ one.
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
   operation (`Command::Extract`) that no document restricts today. It is the second consumer the
   levels are waiting for.
-- **Printing and assembling** (Table 22 bits 3, 11 and 12) will need rows here the day this program
-  can print or rearrange pages. Until then they are a capability rather than a permission, and
-  `restriction::Operation` deliberately has no arm for them.
+- **Assembling and faithful printing** (Table 22 bits 11 and 12) are named in `restriction::Bit`
+  and consumed by nothing, each saying why; bit 3 is consumed since session 872, by
+  `pdf-transform`'s page render. `Operation` gets an arm for 11 the day `split`, `merge` or
+  `pages` exist (`doc/todo/57`), and for 12 only if this tree chooses the "implementation-
+  dependent algorithm" the row leaves to the processor.
 
 ## What not to do
 

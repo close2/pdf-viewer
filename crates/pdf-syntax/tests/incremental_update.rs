@@ -30,7 +30,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
-use pdf_syntax::write::{UpdateError, incremental_update};
+use pdf_syntax::write::{UpdateError, incremental_update, incremental_update_freeing};
 use pdf_syntax::{Document, Limits};
 
 /// A small document with a classic §7.5.4 cross-reference table.
@@ -195,6 +195,62 @@ fn the_cross_reference_section_is_the_kind_the_file_already_uses() {
         "a stream after a stream"
     );
     assert_eq!(read_back(&updated), "yes");
+}
+
+/// §7.5.6: "[d]eleted objects shall be left unchanged in the PDF file, but shall be marked as
+/// deleted by means of their cross-reference entries." The reader finds the object gone and the
+/// bytes still there, in both forms of section; the table form's line is §7.5.4's second
+/// mechanism — linking back to 0 with generation 65,535 — because an update's subsections "can
+/// never have an object number of zero" and so cannot re-head the linked list.
+#[test]
+fn a_freed_object_is_gone_to_the_reader_and_still_in_the_file() {
+    for (name, source) in [
+        ("table", classic()),
+        ("stream", with_cross_reference_stream()),
+    ] {
+        let document = Document::open(source.clone()).unwrap();
+        let contents = ObjectId {
+            number: 4,
+            generation: 0,
+        };
+        assert!(
+            document.xref().location(contents.number).is_some(),
+            "{name}"
+        );
+        // The page lets go of its contents, and the contents object is freed with it.
+        let page_id = ObjectId {
+            number: 3,
+            generation: 0,
+        };
+        let mut page = document.get(page_id).as_dict().cloned().unwrap();
+        page.remove("Contents");
+        let mut replacements = BTreeMap::new();
+        replacements.insert(page_id, Object::Dictionary(page));
+        let updated = incremental_update_freeing(&document, &replacements, &[contents]).unwrap();
+        assert_eq!(&updated[..source.len()], &source[..], "{name}");
+
+        let reopened = Document::open(updated.clone()).unwrap();
+        assert!(
+            reopened.xref().location(contents.number).is_none(),
+            "{name}: the newest section says object 4 names nothing"
+        );
+        assert!(
+            reopened.get(contents).is_null(),
+            "{name}: and the reader answers null for it"
+        );
+        assert!(
+            !reopened.was_recovered(),
+            "{name}: a free entry is not a defect the reader repairs"
+        );
+        assert!(
+            updated.windows(7).any(|w| w == b"4 0 obj"),
+            "{name}: the object's bytes are still in the file"
+        );
+        if name == "table" {
+            let appended = String::from_utf8_lossy(&updated[source.len()..]);
+            assert!(appended.contains("0000000000 65535 f \n"), "{appended}");
+        }
+    }
 }
 
 #[test]

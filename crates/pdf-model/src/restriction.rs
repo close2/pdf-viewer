@@ -34,6 +34,16 @@
 //! would need. So [`asserted`] hands back every restriction that applies, each naming its clause,
 //! and `viewer_core` decides what its reader does with them.
 //!
+//! # The policy is here too, and it is a value a host supplies
+//!
+//! Since the eight-hundred-and-seventy-second session the four levels are one type, [`Level`],
+//! and the one place they are applied is [`Level::verdict`] — a pure function from what the
+//! document asserts to what the caller does, answered as a [`Verdict`] the caller matches
+//! exhaustively. Nothing here refuses: `Refuse` is a value, and the caller that receives it is
+//! the one that declines. `viewer_core` supplies its level through `Command::Restrict` and
+//! `pdf_transform` through `--restrictions`, and neither decides anything at the point of the
+//! operation. ADR 0803.
+//!
 //! # Every restriction that applies, not the first
 //!
 //! §12.8.6 states the composition rule outright, and it is why this returns a list:
@@ -49,29 +59,144 @@ use pdf_syntax::{Document, Permissions};
 
 use crate::signature::Modification;
 
+/// One position of §7.6.4.2's Table 22, named whether or not anything here consumes it.
+///
+/// > PDF readers shall ignore all flags other than those at bit positions 3, 4, 5, 6, 9, 10, 11,
+/// > and 12.
+///
+/// Seven of those eight are the variants, and the other positions are stated here so that the
+/// table is read whole rather than as far as the first consumer: **1–2** are "Reserved. Must be
+/// zero (0)"; **7–8** and **13–32** are "Reserved. Must be 1"; and **10**, which the sentence
+/// above lists and the table's own row retires, is "Not used" — it once carved accessibility
+/// out of bit 5, "that restriction has been deprecated in PDF 2.0", and the row ends "PDF
+/// readers shall ignore this bit". The row is the later and the more specific statement (the
+/// table "was re-titled and corrected in this document (2020)"), so 10 has no variant.
+/// `pdf_syntax::Permissions` reads the word and this enumeration names what it read.
+///
+/// A position's meaning depends on the security handler's revision, and Table 22 says so on the
+/// rows it applies to: 9, 11 and 12 are "( Security handlers of revision 3 or greater )", and at
+/// revision 2 those positions are inside the range the table reserves and requires to be 1.
+/// [`Operation::bit`] is where that reading is applied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Bit {
+    /// 3 — "Print the document", and at revision 3 or greater "(possibly not at the highest
+    /// quality level, depending on whether bit 12 is also set)". Consumed by
+    /// [`Operation::Print`].
+    Print,
+    /// 4 — "Modify the contents of the document by operations other than those controlled by
+    /// bits 6, 9, and 11": the residual every modification not named elsewhere falls under.
+    /// Consumed by [`Operation::Modify`].
+    Modify,
+    /// 5 — "Copy or otherwise extract text and graphics from the document", with the carve-out
+    /// "for the limited purpose of providing this content to assistive technology, a PDF reader
+    /// should behave as if this bit was set to 1". Consumed by [`Operation::Extract`], and
+    /// deliberately not by anything that feeds §14.9's tree.
+    Extract,
+    /// 6 — "Add or modify text annotations, fill in interactive form fields, and, if bit 4 is
+    /// also set, create or modify interactive form fields (including signature fields)".
+    /// Consumed by [`Operation::Annotate`], and by [`Operation::FillInForm`] where bit 9 does
+    /// not apply.
+    Annotate,
+    /// 9 — "( Security handlers of revision 3 or greater ) Fill in existing interactive form
+    /// fields (including signature fields), even if bit 6 is clear". Consumed by
+    /// [`Operation::FillInForm`] from revision 3.
+    FillInForm,
+    /// 11 — "( Security handlers of revision 3 or greater ) Assemble the document (insert,
+    /// rotate, or delete pages and create document outline items or thumbnail images), even if
+    /// bit 4 is clear". **Nothing consumes it**: this program inserts, rotates and deletes no
+    /// page, and `doc/todo/57`'s `split`, `merge` and `pages` are the verbs that will. Named so
+    /// that the day they land the bit is a lookup rather than a reading.
+    Assemble,
+    /// 12 — "( Security handlers of revision 3 or greater ) Print the document to a
+    /// representation from which a faithful digital copy of the PDF content could be generated,
+    /// based on an implementation-dependent algorithm. When this bit is clear (and bit 3 is
+    /// set), printing shall be limited to a low-level representation of the appearance,
+    /// possibly of degraded quality." **Nothing consumes it**: the algorithm that decides what
+    /// "faithful" means is the implementation's, and this tree has not chosen one — a page
+    /// raster at any resolution is a "representation of the appearance", and whether a given
+    /// resolution is degraded enough is a question the clause hands to the processor. Stated
+    /// rather than guessed (trap 11).
+    PrintFaithfully,
+}
+
+impl Bit {
+    /// The position, as Table 22 numbers it from 1.
+    #[must_use]
+    pub const fn position(self) -> u8 {
+        match self {
+            Self::Print => 3,
+            Self::Modify => 4,
+            Self::Extract => 5,
+            Self::Annotate => 6,
+            Self::FillInForm => 9,
+            Self::Assemble => 11,
+            Self::PrintFaithfully => 12,
+        }
+    }
+
+    /// The operation this tree performs that the bit governs, or `None` for a bit nothing here
+    /// consumes — which is a statement rather than a gap; see [`Bit::Assemble`] and
+    /// [`Bit::PrintFaithfully`].
+    #[must_use]
+    pub const fn consumed_by(self) -> Option<Operation> {
+        match self {
+            Self::Print => Some(Operation::Print),
+            Self::Modify => Some(Operation::Modify),
+            Self::Extract => Some(Operation::Extract),
+            Self::Annotate => Some(Operation::Annotate),
+            Self::FillInForm => Some(Operation::FillInForm),
+            Self::Assemble | Self::PrintFaithfully => None,
+        }
+    }
+
+    /// Whether the flag word grants this bit, as `pdf_syntax::Permissions` read it.
+    ///
+    /// Revision is not applied here: a position the table reserves at revision 2 reads as set,
+    /// because the word is required to set it, and [`Operation::bit`] is what keeps such a
+    /// position from being consulted.
+    #[must_use]
+    pub const fn granted(self, permissions: Permissions) -> bool {
+        match self {
+            Self::Print => permissions.print,
+            Self::Modify => permissions.modify,
+            Self::Extract => permissions.copy,
+            Self::Annotate => permissions.annotate,
+            Self::FillInForm => permissions.fill_forms,
+            Self::Assemble => permissions.assemble,
+            Self::PrintFaithfully => permissions.print_faithfully,
+        }
+    }
+}
+
 /// One thing a reader does to a document that a clause can restrict.
 ///
 /// One variant per verb this program has and that a clause names, which is deliberately not the
 /// whole of Table 22: an operation nothing here performs is an operation no restriction can bite
 /// on, and an enum arm for it would claim otherwise. The same discipline
-/// [`crate::signature::Right`] follows.
+/// [`crate::signature::Right`] follows. The bits themselves are all named, in [`Bit`], so that
+/// the absence of an arm is legible as a decision about this program rather than a reading of
+/// the table that stopped early.
+///
+/// Two of the five are the viewer's, three are `pdf_transform`'s — they were two enums in two
+/// crates until the eight-hundred-and-seventy-second session, and one module now reads every
+/// restriction source for every operation this tree performs (ADR 0803).
 ///
 /// **What is missing and why**, because the absences are decisions rather than gaps:
 ///
-/// - **Printing** (Table 22 bits 3 and 12) and **assembling** (bit 11) name operations this
-///   program does not have at all. That is a capability rather than a permission, and no level
-///   would turn it on.
-/// - **Copying** (bit 5) is the host's rather than this crate's: what crosses is the readback,
-///   and the same query answers a drag that merely *shows* a selection. Table 22 also carves the
-///   bit itself — "for the limited purpose of providing this content to assistive technology, a
-///   PDF reader should behave as if this bit was set to 1" — so an operation named `Copy` would
-///   have to be distinguishable from §14.9's tree at the point it is asked, which is a
-///   distinction only a host can make. `doc/todo/38` holds it.
+/// - **Assembling** (bit 11) and **faithful printing** (bit 12) name operations this program
+///   does not have; [`Bit::Assemble`] and [`Bit::PrintFaithfully`] say so.
+/// - **Copying from a window** is the host's rather than this crate's: what crosses is the
+///   readback, and the same query answers a drag that merely *shows* a selection. Table 22 also
+///   carves the bit itself — "for the limited purpose of providing this content to assistive
+///   technology, a PDF reader should behave as if this bit was set to 1" — so a window's copy
+///   would have to be distinguishable from §14.9's tree at the point it is asked, which is a
+///   distinction only a host can make. `doc/todo/38` holds it. [`Operation::Extract`] is the
+///   batch tool's, where a file written out is unambiguously a copy.
 /// - **Saving** is not in §7.6.4.1's list of operations user access can be controlled over, and
 ///   §12.8.2.3's usage rights are a *grant* rather than a restriction — what a save owes them is
 ///   the withdrawal in `crate::view::ViewState::save`, which is correctness rather than policy
 ///   and is not asked here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operation {
     /// Putting a value into a field the document already holds — `crate::view::ViewState::set_field`.
     ///
@@ -86,6 +211,26 @@ pub enum Operation {
     /// both halves**, because both of those sentences name both: adding and modifying are one
     /// permission everywhere the standard states one.
     Annotate,
+    /// Rasterising a page to a file — `pdf_transform`'s `render`.
+    ///
+    /// Table 22 bit 3, "Print the document". A choice: a page raster is what a print driver
+    /// produces, and it is the nearest of the bits; it is written down as a choice because the
+    /// clause does not mention rasterisation. Bit 12's quality distinction is not read, for the
+    /// reason [`Bit::PrintFaithfully`] gives.
+    Print,
+    /// Taking images or embedded files out of the document as files — `pdf_transform`'s
+    /// `images` and `attachments --save`.
+    ///
+    /// Table 22 bit 5, "[c]opy or otherwise extract text and graphics from the document".
+    Extract,
+    /// Writing something into the document that is neither an annotation, a field value nor a
+    /// page — `pdf_transform`'s `attachments --attach` and `--remove`.
+    ///
+    /// Table 22 bit 4, "[m]odify the contents of the document by operations other than those
+    /// controlled by bits 6, 9, and 11". No bit *names* an embedded file; bits 6, 9 and 11 carve
+    /// annotations, form filling and page assembly out of bit 4, and an embedded file is none of
+    /// those three, so bit 4 is the bit that binds it (ADR 0802).
+    Modify,
 }
 
 impl Operation {
@@ -95,6 +240,29 @@ impl Operation {
         match self {
             Self::FillInForm => "filling in a form field",
             Self::Annotate => "adding an annotation",
+            Self::Print => "rendering a page",
+            Self::Extract => "extracting from the document",
+            Self::Modify => "modifying the document",
+        }
+    }
+
+    /// The bit that decides this operation at this security handler revision.
+    ///
+    /// One position rather than a set, and the revision is what chooses it: Table 22 marks bit
+    /// 9 "( Security handlers of revision 3 or greater )", and at revision 2 that position is
+    /// inside the range the table reserves and requires to be 1, so reading it there would turn
+    /// every conforming revision-2 document into one that permits form filling — including the
+    /// clause's own example, whose `/P` of -44 "disallows modifying the contents and
+    /// annotations". Bit 9 is also the only one of the five whose row grants "even if bit 6 is
+    /// clear", which is why filling in is the one operation two bits can grant.
+    #[must_use]
+    pub const fn bit(self, revision: u8) -> Bit {
+        match self {
+            Self::FillInForm if revision >= 3 => Bit::FillInForm,
+            Self::FillInForm | Self::Annotate => Bit::Annotate,
+            Self::Print => Bit::Print,
+            Self::Extract => Bit::Extract,
+            Self::Modify => Bit::Modify,
         }
     }
 }
@@ -130,12 +298,9 @@ pub enum Restriction {
     /// obeying it the reader's own decision, with obeying as the default and a host able to say
     /// otherwise.
     AccessDenied {
-        /// The bit position Table 22 numbers from 1, and which would have granted this.
-        ///
-        /// One position rather than a set: the bit named is the one that decides the operation
-        /// at this document's revision, which for filling in a field is 9 where the revision is
-        /// 3 or greater and 6 where it is 2.
-        bit: u8,
+        /// The bit that would have granted this — the one that decides the operation at this
+        /// document's revision, [`Operation::bit`].
+        bit: Bit,
     },
     /// §12.7.5.5's signature field lock, asserted by a signature field that has been signed.
     ///
@@ -265,11 +430,21 @@ const LOCKED_CONTENTS: i64 = 1 << 9;
 ///
 /// A `/P` outside 1..=3 permits, because refusing on a value Table 257 does not define would let
 /// a malformed number lock a document a person is entitled to fill in.
+///
+/// **Reading and extracting are not changes.** Every level of Table 257 is about "changes to
+/// the document", and rendering a page or copying a file out of it changes nothing, so a
+/// certification withholds neither at any level; and **attaching a file is a change no level
+/// permits** — it is not form filling, a page template, a signature or an annotation — so
+/// [`Operation::Modify`] is withheld at all three.
 fn certification_permits(level: Modification, operation: Operation) -> bool {
-    match level {
-        Modification::None => false,
-        Modification::FormFilling => operation == Operation::FillInForm,
-        Modification::FormFillingAndAnnotation | Modification::Unknown(_) => true,
+    match operation {
+        Operation::Print | Operation::Extract => true,
+        Operation::Modify => matches!(level, Modification::Unknown(_)),
+        Operation::FillInForm | Operation::Annotate => match level {
+            Modification::None => false,
+            Modification::FormFilling => operation == Operation::FillInForm,
+            Modification::FormFillingAndAnnotation | Modification::Unknown(_) => true,
+        },
     }
 }
 
@@ -283,38 +458,141 @@ fn certification_permits(level: Modification, operation: Operation) -> bool {
 ///
 /// - **The owner may do anything.** §7.6.4.1: "[o]pening the document with the correct owner
 ///   password should allow full (owner) access to the document."
-/// - **Bit 6 grants both operations.** Table 22: "[a]dd or modify text annotations, fill in
-///   interactive form fields, and, if bit 4 is also set, create or modify interactive form
-///   fields (including signature fields)."
+/// - **Bit 6 grants both of the viewer's operations.** Table 22: "[a]dd or modify text
+///   annotations, fill in interactive form fields, and, if bit 4 is also set, create or modify
+///   interactive form fields (including signature fields)."
 /// - **Bit 9 grants the narrower one, and only from revision 3.** Table 22: "( Security handlers
 ///   of revision 3 or greater ) Fill in existing interactive form fields (including signature
 ///   fields), even if bit 6 is clear." At revision 2 that position is inside the range Table 22
 ///   reserves and requires to be 1, so reading it there would turn every conforming revision-2
 ///   document into one that permits form filling — including the clause's own example, whose
 ///   `/P` of -44 "disallows modifying the contents and annotations".
+///
+/// The other three operations each have one bit at every revision, [`Operation::bit`].
 #[must_use]
 pub fn withheld(permissions: Permissions, operation: Operation) -> Option<Restriction> {
     if permissions.owner {
         return None;
     }
-    match operation {
-        Operation::FillInForm => {
-            if permissions.revision >= 3 {
-                (!permissions.fill_forms && !permissions.annotate)
-                    .then_some(Restriction::AccessDenied { bit: 9 })
-            } else {
-                (!permissions.annotate).then_some(Restriction::AccessDenied { bit: 6 })
-            }
+    let bit = operation.bit(permissions.revision);
+    let granted = match operation {
+        // Bit 9's row says "even if bit 6 is clear", so either grants it.
+        Operation::FillInForm if bit == Bit::FillInForm => {
+            permissions.fill_forms || permissions.annotate
         }
-        Operation::Annotate => {
-            (!permissions.annotate).then_some(Restriction::AccessDenied { bit: 6 })
+        _ => bit.granted(permissions),
+    };
+    (!granted).then_some(Restriction::AccessDenied { bit })
+}
+
+/// How much of what a document asserts over its reader this program obeys — `CLAUDE.md`
+/// principle 3's four levels, in the project owner's words: "off, on, ask before operations,
+/// warn before operation".
+///
+/// A value a host supplies, never a default this crate chooses for it: `viewer_core` has one
+/// per viewer and `pdf_transform` one per run. **Two of the four need somebody to tell**, and a
+/// caller that has nobody — a pipe, a batch job — says so where it degrades them rather than
+/// here; [`Level::verdict`] answers every level and a [`Verdict`] is exhaustive, so the caller
+/// that cannot ask is the one that writes the arm saying what it does instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Level {
+    /// The document's assertions are not consulted: the operation proceeds. The program is the
+    /// reader's, and `CLAUDE.md` makes this level the one that "shall always be possible".
+    Off,
+    /// The operation is refused with the document's reasons.
+    ///
+    /// §7.6.4.1's `shall` — "PDF readers shall respect the intent of the document creator by
+    /// restricting user access to an encrypted PDF file according to the permissions contained
+    /// in the file" — is kept by a reader at this level.
+    On,
+    /// The person is asked, with the reasons, and the operation waits on the answer.
+    Ask,
+    /// The operation proceeds and the reasons are said afterwards.
+    Warn,
+}
+
+impl Level {
+    /// The word a command line takes for each, and each takes.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+            Self::Ask => "ask",
+            Self::Warn => "warn",
+        }
+    }
+
+    /// The level a word names, if any.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "off" => Some(Self::Off),
+            "on" => Some(Self::On),
+            "ask" => Some(Self::Ask),
+            "warn" => Some(Self::Warn),
+            _ => None,
+        }
+    }
+
+    /// The policy applied, once, to what the document asserts.
+    ///
+    /// A pure function: an empty list is [`Verdict::Proceed`] at every level, because a
+    /// document that asserts nothing gives nobody anything to obey, ask about or warn of; and
+    /// [`Level::Off`] is `Proceed` whatever the list holds, and drops it — the reasons were read
+    /// so that the reading is one code path, and a caller at `Off` was told nothing because it
+    /// asked to be told nothing.
+    #[must_use]
+    pub fn verdict(self, restrictions: Vec<Restriction>) -> Verdict {
+        if restrictions.is_empty() {
+            return Verdict::Proceed;
+        }
+        match self {
+            Self::Off => Verdict::Proceed,
+            Self::On => Verdict::Refuse(restrictions),
+            Self::Ask => Verdict::Ask(restrictions),
+            Self::Warn => Verdict::Warn(restrictions),
         }
     }
 }
 
+/// What a caller does about an operation, as [`Level::verdict`] answers it.
+///
+/// Exhaustive, and deliberately not `#[non_exhaustive]`: a consumer that cannot ask has to say
+/// what it does with [`Verdict::Ask`], in an arm of its own, and the compiler is what holds it
+/// to that. Each carrying variant holds every restriction that applied, not the first —
+/// §12.8.6's composition rule, [`asserted`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Verdict {
+    /// Go ahead; nothing to say.
+    Proceed,
+    /// Go ahead, and then say these.
+    Warn(Vec<Restriction>),
+    /// Put these to the person and wait; go ahead only on a yes.
+    Ask(Vec<Restriction>),
+    /// Do not, and say why.
+    Refuse(Vec<Restriction>),
+}
+
+/// The whole question in one call: what the document asserts against the operation, under the
+/// level the host supplied.
+///
+/// [`asserted`] and then [`Level::verdict`], which is the shape every consumer follows so that
+/// the policy is asked exactly once per operation, at the point the caller can still not do it.
+#[must_use]
+pub fn decide(
+    level: Level,
+    document: &Document,
+    operation: Operation,
+    field: Option<&str>,
+    annotation: Option<pdf_syntax::ObjectId>,
+) -> Verdict {
+    level.verdict(asserted(document, operation, field, annotation))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Operation, Restriction, withheld};
+    use super::{Bit, Level, Operation, Restriction, Verdict, withheld};
     use pdf_syntax::Permissions;
 
     /// A flag word with everything granted, which each case then takes one thing away from.
@@ -349,14 +627,14 @@ mod tests {
         assert_eq!(withheld(permissions, Operation::FillInForm), None);
         assert_eq!(
             withheld(permissions, Operation::Annotate),
-            Some(Restriction::AccessDenied { bit: 6 }),
+            Some(Restriction::AccessDenied { bit: Bit::Annotate }),
             "bit 9 says nothing about annotating"
         );
 
         permissions.revision = 2;
         assert_eq!(
             withheld(permissions, Operation::FillInForm),
-            Some(Restriction::AccessDenied { bit: 6 }),
+            Some(Restriction::AccessDenied { bit: Bit::Annotate }),
             "at revision 2 the only bit that grants form filling is 6"
         );
     }
@@ -375,15 +653,105 @@ mod tests {
         permissions.fill_forms = false;
         assert_eq!(
             withheld(permissions, Operation::FillInForm),
-            Some(Restriction::AccessDenied { bit: 9 })
+            Some(Restriction::AccessDenied {
+                bit: Bit::FillInForm
+            })
         );
         assert_eq!(
             withheld(permissions, Operation::Annotate),
-            Some(Restriction::AccessDenied { bit: 6 })
+            Some(Restriction::AccessDenied { bit: Bit::Annotate })
         );
 
         permissions.owner = true;
         assert_eq!(withheld(permissions, Operation::FillInForm), None);
         assert_eq!(withheld(permissions, Operation::Annotate), None);
+    }
+
+    /// The three batch operations each read one bit, at every revision — Table 22's rows 3, 4
+    /// and 5 carry no revision condition — and clearing one bit withholds one operation.
+    #[test]
+    fn print_extract_and_modify_each_read_their_own_bit() {
+        for revision in [2, 3, 4, 6] {
+            let mut permissions = granted(revision);
+            permissions.print = false;
+            assert_eq!(
+                withheld(permissions, Operation::Print),
+                Some(Restriction::AccessDenied { bit: Bit::Print })
+            );
+            assert_eq!(withheld(permissions, Operation::Extract), None);
+            assert_eq!(withheld(permissions, Operation::Modify), None);
+
+            let mut permissions = granted(revision);
+            permissions.copy = false;
+            assert_eq!(
+                withheld(permissions, Operation::Extract),
+                Some(Restriction::AccessDenied { bit: Bit::Extract })
+            );
+            let mut permissions = granted(revision);
+            permissions.modify = false;
+            assert_eq!(
+                withheld(permissions, Operation::Modify),
+                Some(Restriction::AccessDenied { bit: Bit::Modify })
+            );
+            assert_eq!(
+                withheld(permissions, Operation::Annotate),
+                None,
+                "bit 6 is its own grant, carved out of bit 4 by bit 4's own row"
+            );
+        }
+    }
+
+    /// Every bit names its position as Table 22 numbers it, and the two nothing consumes say so.
+    #[test]
+    fn every_bit_has_its_position_and_two_have_no_consumer() {
+        let all = [
+            Bit::Print,
+            Bit::Modify,
+            Bit::Extract,
+            Bit::Annotate,
+            Bit::FillInForm,
+            Bit::Assemble,
+            Bit::PrintFaithfully,
+        ];
+        assert_eq!(
+            all.map(Bit::position),
+            [3, 4, 5, 6, 9, 11, 12],
+            "§7.6.4.2: the seven positions a reader shall not ignore"
+        );
+        for bit in all {
+            match bit.consumed_by() {
+                Some(operation) => assert_eq!(
+                    operation.bit(4),
+                    bit,
+                    "{bit:?} says {operation:?} consumes it, and the operation agrees"
+                ),
+                None => assert!(matches!(bit, Bit::Assemble | Bit::PrintFaithfully)),
+            }
+        }
+    }
+
+    /// The four levels over one list of reasons: `Off` drops it, the other three carry it, and
+    /// an empty list proceeds at every level.
+    #[test]
+    fn a_level_is_a_pure_function_of_the_reasons() {
+        let reasons = vec![Restriction::AccessDenied { bit: Bit::Modify }];
+        assert_eq!(Level::Off.verdict(reasons.clone()), Verdict::Proceed);
+        assert_eq!(
+            Level::On.verdict(reasons.clone()),
+            Verdict::Refuse(reasons.clone())
+        );
+        assert_eq!(
+            Level::Ask.verdict(reasons.clone()),
+            Verdict::Ask(reasons.clone())
+        );
+        assert_eq!(
+            Level::Warn.verdict(reasons),
+            Verdict::Warn(vec![Restriction::AccessDenied { bit: Bit::Modify }])
+        );
+        for level in [Level::Off, Level::On, Level::Ask, Level::Warn] {
+            assert_eq!(level.verdict(Vec::new()), Verdict::Proceed);
+            assert_eq!(Level::parse(level.as_str()), Some(level));
+        }
+        assert_eq!(Level::parse("maybe"), None);
     }
 }
