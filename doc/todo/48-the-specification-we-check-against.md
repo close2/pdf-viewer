@@ -88,11 +88,19 @@ defect in the standard. ADR 0252 has the argument.
    `/OC`, and c) and d) open at "Otherwise", so they belong to one that states none. `doc/md/` was
    checked against the PDF here and is faithful — the conversion is not the problem in this clause,
    the tree's reading of the carets was. ADR 0375.
-2. ~~**§14.8.6.3's enclosure requirement**~~ — **read and declined by argument.** The amended
-   sentence opens "[w]hen including mathematics structured as MathML", so the enclosure under
-   `Formula` and the namespace on every MathML type and attribute are `shall`s on a producer, which
-   `CLAUDE.md`'s closed exclusion covers; the reader's half is done and what stays owed is a
-   validator's report. `structure::Namespace::is_standard` got its caller anyway and not the one
+2. ~~**§14.8.6.3's enclosure requirement**~~ — **reported since the eight-hundred-and-sixty-second,
+   and the reason it had been declined was the ledger's fifth decay shape.** The reading of *whose*
+   `shall` it is stands: the amended sentence opens "[w]hen including mathematics structured as
+   MathML", so both halves are a producer's. What did not stand is the inference from there —
+   `CLAUDE.md`'s exclusion says this tree does not *write* such a tagging and says nothing about
+   reading one, and §14.8.6.2's own file-addressed `shall` had been answered by a report one round
+   earlier (ADR 0785). So the enclosure is a report now (ADR 0786): `Tree::mathml_outside_a_formula`
+   counts the elements ending at the lowercase `math` type in the MathML namespace with no `Formula`
+   above them, `viewer_core::notes` says it once when the document opens, and no document in
+   `doc/pdf.js`, `doc/corpora/`, this project's fixtures or the `CC-MAIN-2021-31` crawl is a witness.
+   **The erratum's second half stays unimplemented as a *reading***: all MathML types and their
+   attributes having the namespace explicitly defined quantifies over MathML's own vocabulary, which
+   ISO 32000-2 states nowhere. `structure::Namespace::is_standard` got its caller anyway and not the one
    this entry predicted: §14.8.6.2's rule decides whether a type *name* is §14.8.4's word or a
    foreign vocabulary's homonym, so `Tree::standard_role` refuses a name that ends outside a
    standard structure namespace. **And the clause carried the round's real finding**, which is the

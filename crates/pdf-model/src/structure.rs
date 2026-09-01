@@ -557,6 +557,143 @@ impl Tree {
             .collect()
     }
 
+    /// §14.8.6.3's requirement on the *document*: how many `MathML` formulae it left unenclosed.
+    ///
+    /// The subclause's 2020 sentence — which `doc/md/` still carries, and which the conformance
+    /// gate therefore still verifies — is
+    ///
+    /// > When including mathematics structured as `MathML` 3.0, the math structure element type as
+    /// > defined in `MathML` 3.0 shall be used, and shall have its namespace explicitly defined
+    /// > (see 14.7.4.2, "Namespace dictionary").
+    ///
+    /// **Errata Collection 3 replaces it with two sentences** (Issues #72 and #719, `/State`
+    /// `Review` `Completed`), and this reads the first: it requires the `math` structure element
+    /// type, as defined in `MathML`, to be used to enclose the formula under the `Formula`
+    /// structure element type. The version goes, because §2's normative reference to `MathML` 3.0
+    /// is itself replaced by `MathML` Core; the enclosure is new; and the namespace requirement
+    /// widens to all `MathML` types *and their attributes*, which is the second sentence and is
+    /// read below rather than implemented.
+    ///
+    /// The `shall` is on whoever *includes* the mathematics — the sentence opens on the act of
+    /// including — so `CLAUDE.md`'s closed authoring exclusion says this tree does not have to
+    /// produce such a tagging. It says nothing at all about *reading* one, and a requirement a
+    /// file breaks is answered by a report rather than left to a validator, which is where
+    /// §7.3.7's row and §14.8.6.2's arrived (ADRs 0784 and 0785). The reason this clause was
+    /// declined in the five-hundred-and-fortieth was the exclusion, and the exclusion turns out
+    /// not to reach it; ADR 0786 is where that is argued.
+    ///
+    /// # What the condition is, and what it deliberately is not
+    ///
+    /// The element counted is one whose type ends at `math` — all lowercase, which the subclause's
+    /// NOTE 2 says is "to match the `MathML` 3.0 specification" — **in the `MathML` namespace**, with
+    /// no `Formula` anywhere above it. Three readings are folded into that and each is the
+    /// narrow one:
+    ///
+    /// - **The namespace is part of the type.** §14.8.6.2 is the clause that says a name means
+    ///   what its namespace makes it mean, so a `math` that ends in some other vocabulary is not
+    ///   the type the amended sentence names — which says *as defined in `MathML`* — and is not
+    ///   this clause's subject.
+    /// - **`under` is read as *anywhere under*.** The sentence does not say *immediately*, so an
+    ///   element with a `Formula` ancestor satisfies it on either reading and only one with none
+    ///   at all breaks it on both. Reporting the intersection is what keeps this off the condition
+    ///   the clause does not state (`doc/traps/instruments-and-reports.md` trap 11).
+    /// - **The second `shall` is not answered here**, and that is a reading rather than an
+    ///   omission: it requires all `MathML` structure element types and their attributes to have
+    ///   the `MathML` namespace explicitly defined, which quantifies over `MathML`'s own vocabulary —
+    ///   and ISO 32000-2 states that vocabulary nowhere, because §2's normative reference to
+    ///   `MathML` Core holds it. A condition over a list this standard does not print would be this
+    ///   reader's invention wearing the clause's number.
+    ///
+    /// # The cheap gate is [`Self::namespaces_outside_the_standard`]'s, one namespace over
+    ///
+    /// The walk is 151 ms on the largest tagged document in reach and `viewer_core::notes` runs on
+    /// the launch path, so the elements are read only where the root's `/Namespaces` array names
+    /// the `MathML` namespace — §14.8.6.2: "[i]f the structure element is in an explicit namespace,
+    /// then that namespace shall be identified in the structure tree root dictionary's Namespaces
+    /// array entry", and §14.8.6.3's second `shall` puts every `MathML` element in an explicit one.
+    /// So a root that does not list `MathML` has no `math` element for this to find. **The same
+    /// limit follows and is stated rather than hidden**: a file that also breaks the `/Namespaces`
+    /// sentence is not seen here, and closing that costs the walk on every tagged document.
+    #[must_use]
+    pub fn mathml_outside_a_formula(&self, document: &Document) -> usize {
+        if !self.declares_the_mathml_namespace(document) {
+            return 0;
+        }
+        let mut walk = UnenclosedMathml {
+            found: 0,
+            seen: BTreeSet::new(),
+            budget: MAX_ELEMENTS,
+        };
+        self.count_unenclosed_mathml(document, None, false, 0, &mut walk);
+        walk.found
+    }
+
+    /// Whether Table 354's `/Namespaces` array names §14.8.6.3's `MathML` namespace.
+    fn declares_the_mathml_namespace(&self, document: &Document) -> bool {
+        let declared = document.get_key(&self.root, "Namespaces");
+        let Some(items) = declared.as_array() else {
+            return false;
+        };
+        items.iter().any(|item| {
+            document.resolve(item).as_dict().is_some_and(|dict| {
+                Namespace::read(document, dict).is_some_and(|space| space.name == MATHML_NAMESPACE)
+            })
+        })
+    }
+
+    /// Counts the `MathML` `math` elements below `element` with no `Formula` above them.
+    ///
+    /// `enclosed` is the only state the descent carries, and it is monotone: once a `Formula` is
+    /// entered every element beneath it satisfies the clause, so the subtree below one is walked
+    /// for its own sake and never counted. Bounded exactly as [`Self::count_foreign`] is.
+    fn count_unenclosed_mathml(
+        &self,
+        document: &Document,
+        element: Option<&Dictionary>,
+        enclosed: bool,
+        depth: usize,
+        walk: &mut UnenclosedMathml,
+    ) {
+        if depth >= MAX_DEPTH {
+            return;
+        }
+        for (child, id) in self.identified_children(document, element) {
+            if walk.budget == 0 {
+                return;
+            }
+            walk.budget = walk.budget.saturating_sub(1);
+            let Child::Element(dict) = child else {
+                continue;
+            };
+            if !id.is_none_or(|id| walk.seen.insert(id)) {
+                continue;
+            }
+            let Some((name, namespace)) = self.resolved(document, &dict) else {
+                continue;
+            };
+            let is_math = name == MATHML_MATH_TYPE
+                && namespace.as_ref().is_some_and(|space| {
+                    Namespace::read(document, space)
+                        .is_some_and(|space| space.name == MATHML_NAMESPACE)
+                });
+            if is_math && !enclosed {
+                walk.found = walk.found.saturating_add(1);
+            }
+            // `Formula` is §14.8.4's, so it is read through `standard_role` — a foreign
+            // vocabulary's homonym is not the type the clause names, which is §14.8.6.2's whole
+            // subject and the reason that method exists.
+            let below_a_formula =
+                enclosed || self.standard_role(document, &dict) == Some(StandardType::Formula);
+            self.count_unenclosed_mathml(
+                document,
+                Some(&dict),
+                below_a_formula,
+                depth.saturating_add(1),
+                walk,
+            );
+        }
+    }
+
     /// Whether Table 354's `/Namespaces` array names a namespace §14.8.6.2 does not permit.
     ///
     /// Only a dictionary counts: an array entry that resolves to something else names no
@@ -3050,6 +3187,15 @@ pub const STANDARD_NAMESPACE_2_0: &str = "http://iso.org/pdf2/ssn";
 /// constant is; what changed is that naming an edition here would now be naming the wrong one.
 pub const MATHML_NAMESPACE: &str = "http://www.w3.org/1998/Math/MathML";
 
+/// §14.8.6.3's `math` structure element type, spelled the way the subclause spells it.
+///
+/// > NOTE 2 The math structure element type is all lowercase to match the MathML 3.0
+/// > specification.
+///
+/// A note rather than a `shall`, and it is still load-bearing: §7.3.5 makes a name's identity its
+/// bytes, so `Math` and `math` are two different types and only one of them is this one.
+pub const MATHML_MATH_TYPE: &str = "math";
+
 /// §14.7.4.2's namespace dictionary. Table 356.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Namespace {
@@ -3120,6 +3266,20 @@ impl Namespace {
 fn permitted_namespace(document: &Document, dict: &Dictionary) -> bool {
     Namespace::read(document, dict)
         .is_some_and(|space| space.is_standard() || space.name == MATHML_NAMESPACE)
+}
+
+/// What [`Tree::count_unenclosed_mathml`] carries down its descent.
+///
+/// A struct rather than three `&mut` parameters because the walk already takes the two the clause
+/// needs — where it is and whether a `Formula` is above it — and a bound, an identity set and a
+/// counter are the walk's own bookkeeping rather than its subject.
+struct UnenclosedMathml {
+    /// How many `math` elements in the `MathML` namespace have had no `Formula` above them.
+    found: usize,
+    /// Elements already counted, so that a tree which is its own descendant is counted once.
+    seen: BTreeSet<ObjectId>,
+    /// What is left of [`MAX_ELEMENTS`].
+    budget: usize,
 }
 
 /// A namespace a tagged document's elements end in that §14.8.6.2 does not permit.
@@ -4341,6 +4501,135 @@ mod tests {
                 elements: 1,
             }]
         );
+    }
+
+    /// A `math` element with no `Formula` above it, which is §14.8.6.3's first `shall` broken.
+    ///
+    /// The `shall` is Errata Collection 3's rather than the 2020 text's — Issues #72 and #719
+    /// replace the subclause's `MathML` sentence with one requiring the `math` type to be used to
+    /// enclose the formula under the `Formula` structure element type — so it is stated here in
+    /// prose and quoted in [`Tree::mathml_outside_a_formula`] beside the sentence it replaced.
+    ///
+    /// The planted violation, and trap 13's positive half: every test below it says *nothing*, so
+    /// without this one the report could be a constant zero and all of them would pass.
+    #[test]
+    fn a_mathml_formula_outside_a_formula_element_is_counted() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [6 0 R] >>",
+            "<< /Type /StructElem /S /math /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(tree.mathml_outside_a_formula(&doc), 1);
+    }
+
+    /// The same file with a `Formula` around it says nothing, which is the clause satisfied.
+    ///
+    /// It is also the floor under the cheap gate for this report: the root declares the `MathML`
+    /// namespace here too, so the walk runs and the answer is nought because of what it found
+    /// rather than because it never looked.
+    #[test]
+    fn a_mathml_formula_under_a_formula_element_is_not_counted() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [7 0 R] >>",
+            "<< /Type /StructElem /S /Formula /K [6 0 R] >>",
+            "<< /Type /StructElem /S /math /NS 7 0 R >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert!(
+            tree.declares_the_mathml_namespace(&doc),
+            "the gate opens, so the nought below is what the walk found"
+        );
+        assert_eq!(tree.mathml_outside_a_formula(&doc), 0);
+    }
+
+    /// And a `Formula` further up satisfies it, because the sentence does not say *immediately*.
+    ///
+    /// The narrow reading is the one that reports, so an element with a `Formula` anywhere above
+    /// it is outside this condition — it satisfies the clause on either reading of *under*, and
+    /// firing here would be firing on a word the standard did not write (trap 11).
+    #[test]
+    fn a_mathml_formula_below_a_formulas_descendant_is_not_counted() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [8 0 R] >>",
+            "<< /Type /StructElem /S /Formula /K [6 0 R] >>",
+            "<< /Type /StructElem /S /Div /K [7 0 R] >>",
+            "<< /Type /StructElem /S /math /NS 8 0 R >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(tree.mathml_outside_a_formula(&doc), 0);
+    }
+
+    /// A `math` in some other vocabulary is not the type this subclause names.
+    ///
+    /// §14.8.6.2 is the clause that makes a name mean what its namespace makes it mean, and this
+    /// is that rule applied to §14.8.6.3's own type: "the math structure element type, **as
+    /// defined in `MathML`**". The root declares `MathML` as well, so the gate is open and the walk
+    /// looked at this element and declined it.
+    #[test]
+    fn a_math_element_in_another_namespace_is_not_mathml() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [6 0 R 7 0 R] >>",
+            "<< /Type /StructElem /S /math /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://example.invalid/algebra) >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(tree.mathml_outside_a_formula(&doc), 0);
+    }
+
+    /// And a `Formula` in some other vocabulary is not §14.8.4's, so it encloses nothing.
+    ///
+    /// The mirror of the test above, on the other half of the sentence, and the reason the
+    /// enclosure test goes through `standard_role` rather than through the name: a homonym
+    /// standing where the clause names a standard type would silently acquit the file.
+    #[test]
+    fn a_formula_in_another_namespace_does_not_enclose_the_mathml() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [7 0 R 8 0 R] >>",
+            "<< /Type /StructElem /S /Formula /NS 7 0 R /K [6 0 R] >>",
+            "<< /Type /StructElem /S /math /NS 8 0 R >>",
+            "<< /Type /Namespace /NS (http://example.invalid/paper) >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(tree.mathml_outside_a_formula(&doc), 1);
+    }
+
+    /// `Math` is not `math`, because §7.3.5 makes a name's identity its bytes.
+    ///
+    /// NOTE 2 of the subclause says the type "is all lowercase to match the `MathML` 3.0
+    /// specification", so a document writing it otherwise has written a different type — one no
+    /// vocabulary in reach defines — and this report says nothing about it rather than guessing.
+    #[test]
+    fn a_capitalised_math_is_a_different_type() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [6 0 R] >>",
+            "<< /Type /StructElem /S /Math /NS 6 0 R >>",
+            "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(tree.mathml_outside_a_formula(&doc), 0);
     }
 
     /// The floor under [`Tree::namespaces_outside_the_standard`]'s cheap gate, and it is a real

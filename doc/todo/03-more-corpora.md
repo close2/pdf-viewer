@@ -2061,9 +2061,43 @@ Two doors, and each is worth arguing rather than assuming:
    files rather than about the clause, which is where it should stop until somebody reads §7.3
    properly for it.
 
-Neither is taken here. What is taken is the account: **the eleven are five defects, two of them
-with a route the standard supplies and three with none**, and the census prints which is which
-rather than this file asserting it.
+Neither was taken in the eight-hundred-and-sixty-first. What it took was the account: **the eleven
+are five defects, two of them with a route the standard supplies and three with none**, and the
+census prints which is which rather than this file asserting it.
+
+### 35. What the eight-hundred-and-sixty-second took: the first of those two doors
+
+**Door 1 is built and all five of §34's witnesses draw.** `Pages::new`'s recovery now runs the
+tree's `/Kids` beside the scan: `tree_named` descends from the catalogue's `/Pages` collecting the
+object numbers the arrays state, and a damaged prefix that does not declare its own `/Type /Page` is
+taken where the tree names it **and** it holds one of Table 31's page-only entries. ADR 0786 has the
+argument; the sentence that closes it is the one after Table 30, which §34 cited by its subclause and
+which is worth having verbatim: a page tree node "may contain further entries defining inherited
+attributes for the page objects that are its descendants", so a node's legitimate keys are Table 30's
+four and §7.7.3.4's four and no others.
+
+Three things that reading changed from §34's sketch, each worth carrying:
+
+- **The discriminator is a positive list of Table 31's keys, not the complement of Table 30's.**
+  `poppler-355-0.pdf`'s prefix holds `/WinAnsiEncope`, a key in neither table — under the complement
+  it is evidence and the file is taken, under the list it is evidence of nothing and the file stays
+  refused, which is what §34 argued for and what the complement would have quietly undone.
+- **The tree is walked from the catalogue's `/Pages`, not from every `/Kids` in the file.** The census
+  reads every array called `/Kids` and can, because it is a census; a *reader* that did would collect
+  §12.7.4.2's field kids and §7.9.6's name-tree kids, which §7.7.3.2 says nothing about. Table 29
+  makes the catalogue's entry the root "page tree node" by declaration, which matters: three of the
+  five witnesses have a root that states no `/Type` at all, so a rule keyed on `/Type /Pages` would
+  have lost them.
+- **The report says which door the page came through**, because they are two different claims about
+  the file — Table 31's `/Type` off the producer's bytes, against this reader's inference from
+  §7.7.3.2 — and `Unsupported::PageDictionary` now names the evidence and the entry.
+
+Door 2, resynchronising past an unreadable value, is **not** taken and the argument against it is
+unchanged: §7.3.7 states no extent for an entry's value, so skipping to the next `/Name` guesses
+where the bad value ended. `GHOSTSCRIPT-698887-0.pdf` and `GHOSTSCRIPT-699695-1.pdf` are still its
+only witnesses, and `poppler-355-0.pdf`, `PDFBOX-3870-0`, `PDFBOX-3894-0` and `PDFBOX-4452-0` are
+beyond any additive recovery for the reasons §34 states. `standing_count_census` prints where the
+population now stands.
 
 ## What not to do
 

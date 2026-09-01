@@ -12,8 +12,18 @@
 //! member of it the producer's own, selected by an order the clause tells a reader to ignore —
 //! which is why `pdf_syntax::Document::get` still refuses the object outright and why exactly
 //! one caller may ask for the subset: `Pages`' recovery scan, which runs only where the page
-//! tree yields no page at all and takes a prefix only on the strength of Table 31's `/Type
-//! /Page` inside it. ADR 0784.
+//! tree yields no page at all. ADR 0784.
+//!
+//! # Two doors, and the second one is the tree's
+//!
+//! A prefix is taken on the strength of Table 31's `/Type /Page` inside it — or, where the page
+//! tree's own `/Kids` names the object, on the strength of an entry only a page object may
+//! carry. §7.7.3.2 makes a child "a page object or [an]other page tree node" and then closes
+//! what the second may hold: "a page tree node may contain further entries defining inherited
+//! attributes for the page objects that are its descendants", which §7.7.3.4 enumerates as four.
+//! So a named object stating `/Contents` is a page, and the evidence is a Table 31 entry being
+//! *present* rather than a node's entry being absent — a distinction §7.3.7 forces, because a
+//! subset can only say what the producer did write. ADR 0786.
 //!
 //! # Each test is a pair differing in one thing
 //!
@@ -21,18 +31,28 @@
 //! the recovery is needed and its comment states when it is right, so the round that writes one
 //! owes the file where those two disagree.** The pairs below are exactly those files — a tree
 //! that reaches a page beside one that does not, a prefix that declares itself a page beside one
-//! whose damage falls before the declaration, and the object asked through the ordinary door
-//! beside the same object asked through this one.
+//! whose damage falls before the declaration, the object asked through the ordinary door beside
+//! the same object asked through this one, and, for the second door, one `/Kids` array that names
+//! the object beside one that does not, plus a tree that still reaches a page with a tree-named
+//! damaged object sitting in it.
 //!
 //! # Where the witnesses came from
 //!
 //! `examples/standing_count_census` over the Tika issue-tracker corpus: of the 16 818 documents
-//! that open, 18 state a page count this reader produces no page for, and 6 of those hold a page
-//! object whose dictionary opens, states `/Type /Page`, and then stops. The sharpest is
+//! that open, 18 stated a page count this reader produced no page for **before either door
+//! existed**, and 6 of those held a page object whose dictionary opens, states `/Type /Page`, and
+//! then stops — the census prints what is left. The sharpest of the 6 is
 //! `corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-701034-0.pdf`, whose
 //! object 2 is `<< /Type /Page /Parent 3 0 R /Resources 6 0 R /Contents 4 0 R /MediaBox
 //! [0 0 292 3 >] /Rotate 0 >>` — one byte of one array, costing a nine-page document every page
 //! it has.
+//!
+//! The second door's witnesses are the five the same census names under *no object declares
+//! `/Type /Page`*, which is the cause it could not tell apart until it followed `/Kids`:
+//! `GHOSTSCRIPT-698991-0`, `GHOSTSCRIPT-699018-0`, `GHOSTSCRIPT-699521-0`, `GHOSTSCRIPT-701846-0`
+//! and `poppler-192-0`. The third of those is 795 × 842 with a `/Contents` that reads
+//! `BT /F1 30 Tf 350 750 Td 20 TL 5 Tr (Hello world) Tj ET`, and its damage is a *second*
+//! `/MediaBox` whose value is the bare keyword `e`.
 
 #![expect(
     clippy::expect_used,
@@ -137,14 +157,14 @@ fn a_damaged_page_object_is_not_taken_where_the_tree_reaches_a_page() {
     assert_eq!(damage, None);
 }
 
-/// The declaration's pair: damage that falls **before** `/Type` leaves nothing to take.
+/// The declaration's pair: damage before `/Type`, in an object **the tree does not name**.
 ///
-/// The prefix is taken on the strength of Table 31's own required entry, which is the same
-/// declaration ADR 0782's recovery rests on. A prefix that has not reached it says nothing about
-/// what the object is, and inventing a page from `/Resources` and `/Contents` alone would be a
-/// guess rather than a recovery.
+/// Out of a scan of the whole file, a prefix that has not reached its own `/Type` says nothing
+/// about what the object is, and inventing a page from `/Resources` and `/Contents` alone would
+/// be a guess rather than a recovery. Object 9 does not exist, so nothing is named and nothing is
+/// examined. Its partner is the test below, which changes the `/Kids` array and nothing else.
 #[test]
-fn a_prefix_that_has_not_reached_its_own_type_is_not_a_page() {
+fn a_prefix_with_no_type_that_no_kids_array_names_is_not_a_page() {
     let (count, media_box, damage) = pages_of(document(
         "9 0 R",
         "/Parent 1 0 R /Contents 3 0 R /CropBox [0 0 200 >] /Type /Page",
@@ -155,6 +175,130 @@ fn a_prefix_that_has_not_reached_its_own_type_is_not_a_page() {
     );
     assert_eq!(media_box, None, "and there is no page to give back");
     assert_eq!(damage, None);
+}
+
+/// The second door, and the finding: the same prefix, in an object the tree **does** name.
+///
+/// One character of the `/Kids` array separates this from the test above, which is what makes it
+/// the pair. §7.7.3.2 says the child "shall only be [a] page object[] or [an]other page tree
+/// node[]", and §7.7.3.4's four inheritable attributes plus Table 30's four are the whole of what
+/// the second may carry — so `/Contents` in the subset settles which it is. The page then draws
+/// object 3's blue rectangle on the rectangle its own `/Parent` states. ADR 0786.
+#[test]
+fn a_prefix_the_tree_names_is_a_page_where_it_states_an_entry_only_a_page_carries() {
+    let (count, media_box, damage) = pages_of(document(
+        "2 0 R",
+        "/Parent 1 0 R /Contents 3 0 R /CropBox [0 0 200 >] /Type /Page",
+    ));
+    assert_eq!(count, 1);
+    assert_eq!(
+        media_box,
+        Some([0.0, 0.0, 200.0, 100.0]),
+        "the prefix carries /Parent, so §7.7.3.4's inheritance reaches object 1's rectangle"
+    );
+    assert_eq!(
+        damage,
+        Some(2),
+        "/Parent and /Contents were whole; /CropBox and the /Type after it are not here"
+    );
+}
+
+/// And the entry has to be one **Table 31 names**, which is where `poppler-355-0.pdf` sits.
+///
+/// Its prefix is `/Parent`, `/CropBox` and a key in neither table — the file spells one
+/// `/WinAnsiEncope` — and both of the first two are things §7.7.3.2 lets a page tree node carry.
+/// Reading the third as evidence would mean deciding the object is a page because it does not
+/// look like a node, which is the substitutive direction trap 5 forbids: §7.3.7's subset can say
+/// what the producer wrote and never what it did not.
+#[test]
+fn a_prefix_the_tree_names_whose_entries_a_node_may_also_carry_is_not_a_page() {
+    let (count, media_box, damage) = pages_of(document(
+        "2 0 R",
+        "/Parent 1 0 R /WinAnsiEncope 4 /CropBox [0 0 200 >] /Contents 3 0 R",
+    ));
+    assert_eq!(count, 1, "so §7.7.3.2's /Count stands");
+    assert_eq!(media_box, None, "and there is no page to give back");
+    assert_eq!(damage, None);
+}
+
+/// And a prefix that reached its own `/Type` and wrote `Pages` there is believed.
+///
+/// Table 30 makes `/Type` required of a node and says it "shall be Pages", so the file has stated
+/// what the object is in the one place that settles it; a `/Contents` after that is the file
+/// contradicting itself, and this reads the entry the producer wrote rather than overriding it.
+#[test]
+fn a_prefix_the_tree_names_that_calls_itself_a_node_is_not_a_page() {
+    let (count, media_box, damage) = pages_of(document(
+        "2 0 R",
+        "/Type /Pages /Parent 1 0 R /Contents 3 0 R /CropBox [0 0 200 >]",
+    ));
+    assert_eq!(count, 1, "so §7.7.3.2's /Count stands");
+    assert_eq!(media_box, None, "and there is no page to give back");
+    assert_eq!(damage, None);
+}
+
+/// The second door's guard pair, which is what trap 28 asks of it: a tree that **does** reach a
+/// page, with a tree-named damaged object beside it.
+///
+/// The rightness condition holds here — object 5 is named by the root's `/Kids` and its prefix
+/// states `/Contents` — and the guard does not, because object 2 is a page the tree reaches. The
+/// recovery must therefore not run at all: `/Count 2` stands over the one page the tree yields,
+/// and the scan's ascending-object-number order never replaces the order the tree stated.
+#[test]
+fn a_tree_named_prefix_is_not_taken_where_the_tree_still_reaches_a_page() {
+    let bytes = format!(
+        "%PDF-1.7\n\
+         1 0 obj\n<< /Type /Pages /Count 2 /Kids [2 0 R 5 0 R] /MediaBox [0 0 200 100] >>\nendobj\n\
+         2 0 obj\n<< {WHOLE} >>\nendobj\n\
+         3 0 obj\n<< /Length 30 >>\nstream\n0 0 1 rg 10 10 100 50 re f\nendstream\nendobj\n\
+         4 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n\
+         5 0 obj\n<< /Parent 1 0 R /Contents 3 0 R /MediaBox [0 0 999 >] >>\nendobj\n\
+         trailer\n<< /Root 4 0 R /Size 6 >>\n%%EOF\n"
+    )
+    .into_bytes();
+    let (count, media_box, damage) = pages_of(bytes);
+    assert_eq!(
+        count, 2,
+        "the tree yielded a page, so /Count is the only statement in evidence (ADR 0782)"
+    );
+    assert_eq!(
+        media_box,
+        Some([0.0, 0.0, 200.0, 100.0]),
+        "999 here would mean the scan ran beside a working tree and displaced its page"
+    );
+    assert_eq!(damage, None);
+}
+
+/// The report names which door the page came through, because they are two different claims.
+///
+/// One is Table 31's `/Type` read off the producer's own bytes; the other is this reader's
+/// inference from §7.7.3.2 about an object that never declared itself. Trap 5's rule is that a
+/// substitution is said out loud, and presenting the second as though it were the first would be
+/// exactly the silence it forbids.
+#[test]
+fn the_page_says_which_evidence_made_it_a_page() {
+    let bytes = document(
+        "2 0 R",
+        "/Parent 1 0 R /Contents 3 0 R /CropBox [0 0 200 >]",
+    );
+    let document = Document::open(bytes).expect("the fixture opens");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(0).expect("the recovered page");
+    assert_eq!(
+        page.damaged_dictionary
+            .as_ref()
+            .map(|damage| damage.identification),
+        Some(pdf_model::page::PageIdentification::TheTreeAndAPageOnlyEntry("Contents"))
+    );
+    let reports = pdf_model::content::interpret(&document, &page).unsupported;
+    let said = reports.iter().any(|report| {
+        matches!(
+            report,
+            pdf_model::content::Unsupported::PageDictionary { detail }
+                if detail.contains("the page tree's /Kids names it") && detail.contains("/Contents")
+        )
+    });
+    assert!(said, "no report named the evidence: {reports:?}");
 }
 
 /// And the ordinary door is unchanged: the damaged object is still nothing to every other reader.

@@ -121,11 +121,27 @@ nothing in the document graph reads less of the file than it did; `Parser::parse
 is a second door a caller opens **by name** and which hands back the offset the reading stopped at,
 so no consumer can hold a prefix while believing it has a dictionary; and both readings are one
 function, so the null rule, the duplicate key and the length bound cannot disagree between them.
-The one consumer is `pdf_model::Pages`' recovery, which takes a prefix only where the entries that
-were whole *themselves* state Table 31's `/Type /Page`. **The general form is worth more than the
-clause**: where the standard says a thing's parts are unordered, the ordering that produced a prefix
-is not evidence about the thing, so the prefix is answerable as a *subset* and never as the thing.
-ADR 0784.
+The one consumer is `pdf_model::Pages`' recovery, and it takes a prefix by **two doors**: where the
+entries that were whole *themselves* state Table 31's `/Type /Page`, and — since ADR 0786 — where
+§7.7.3.2's `/Kids` names the object and the entries hold one only a page object may carry. **The
+general form is worth more than the clause**: where the standard says a thing's parts are unordered,
+the ordering that produced a prefix is not evidence about the thing, so the prefix is answerable as a
+*subset* and never as the thing. ADR 0784.
+
+**And which evidence a prefix can carry depends on where the candidate came from, which is the
+second door's whole argument.** ADR 0784's consumer finds its candidates by scanning the file, where
+an object that says nothing about itself could be anything, so it needs the object's own
+declaration; the second is *handed* its candidate by the page tree, and §7.7.3.2 has then already
+said the object is a page object or a page tree node — "[t]he children shall only be page objects or
+other page tree nodes" — while the sentence after Table 30 closes what the second of those may hold:
+a node "may contain further entries defining inherited attributes for the page objects that are its
+descendants", which §7.7.3.4 enumerates as four. So a prefix holding `/Contents` or `/Annots` was
+written by a producer describing a page. **The evidence has to be a Table 31 entry being *present*,
+never a node's entry being absent**, and §7.3.7 is why: a subset says what the producer wrote and
+nothing about what it did not, so "this dictionary states no `/Kids`" is not knowable from one. The
+file that makes the difference concrete is `poppler-355-0.pdf`, whose prefix is `/Parent`, `/CropBox`
+and a key in neither table — under a rule of *not a node's entry* it would be taken, and under the
+positive list it is refused, which is the substitutive direction this trap forbids. ADR 0786.
 
 **And the answer can differ between two *routes* over one clause, which is not the drift it looks
 like.** ISO 32000-2 §7.4.3 makes a character outside base-85's alphabet one that "shall cause an

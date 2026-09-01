@@ -126,6 +126,12 @@ struct Answers {
     /// twice over, since a declared namespace may be a standard one and may have no element in
     /// it.
     foreign_namespace: Option<String>,
+    /// §14.8.6.3's file-addressed `shall`: `MathML` the document did not enclose under a `Formula`.
+    ///
+    /// A separate claim from [`Answers::foreign_namespace`] because it is a separate sentence
+    /// about a namespace §14.8.6.2 explicitly *permits*, so a document can break either without
+    /// breaking the other. Asked with the reader that decides the report.
+    unenclosed_mathml: Option<String>,
     /// §12.7.5.5's `/Lock` on a signature field.
     field_lock: Option<String>,
     /// §12.7.5.5's Table 236 `/P`, which that row says is deliberately not read.
@@ -253,6 +259,12 @@ fn report_every_claim(results: &[(String, Answers)]) {
          standard structure namespaces, which viewer-core's notes now say out loud",
         results,
         |a| a.foreign_namespace.as_deref(),
+    );
+    report(
+        "§14.8.6.3's shall on the file — a tagged document with MathML that no Formula \
+         element encloses, which viewer-core's notes say out loud",
+        results,
+        |a| a.unenclosed_mathml.as_deref(),
     );
     report(
         "§12.7.5.5's /Lock on a signed field — the claim was \"none\" (curated) and is FALSE wider",
@@ -1064,11 +1076,15 @@ fn measure(path: &Path) -> Answers {
         }
     }
 
-    // §14.8.6.2's requirement on the file, asked exactly as `viewer_core::notes` asks it: the
-    // document has to say it is tagged (§14.8.1) before the sentence applies to it at all.
+    // §14.8.6's two requirements on the file, asked exactly as `viewer_core::notes` asks them:
+    // the document has to say it is tagged (§14.8.1) before either sentence applies to it at all.
     if pdf_model::structure::MarkInfo::read(&document).marked
         && let Some(tree) = pdf_model::structure::Tree::of(&document)
     {
+        let unenclosed = tree.mathml_outside_a_formula(&document);
+        if unenclosed > 0 {
+            answers.unenclosed_mathml = Some(format!("{unenclosed} math element(s)"));
+        }
         let foreign = tree.namespaces_outside_the_standard(&document);
         if !foreign.is_empty() {
             answers.foreign_namespace = Some(

@@ -15,7 +15,7 @@
 //! depth and total nodes visited: `/Kids` may contain a cycle, and a tree claiming a
 //! million nodes should cost a bounded amount of work rather than all available memory.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdf_syntax::{Damage, Dictionary, Document, Object, ObjectId};
 
@@ -327,6 +327,28 @@ impl Boundary {
     }
 }
 
+/// How a reader knows that an object whose dictionary is damaged is a page at all.
+///
+/// The two are different claims about the file and a reader owes the difference out loud, which
+/// is why they are a type rather than a `bool`: the first is Table 31's own required entry read
+/// off the producer's bytes, and the second is an inference from what §7.7.3.2 lets a page tree
+/// node be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageIdentification {
+    /// The entries whole before the damage state Table 31's `/Type /Page` themselves.
+    ///
+    /// The declaration the whole recovery scan rests on, read off the prefix rather than off a
+    /// dictionary. ADR 0784.
+    ItsOwnDeclaration,
+    /// §7.7.3.2's `/Kids` names the object, and one entry whole before the damage is one only a
+    /// page object may carry.
+    ///
+    /// The name is the entry that discriminated — where the prefix holds several, the first in
+    /// the order [`pdf_syntax::Dictionary`] keeps them, which §7.3.7 makes as good as any other.
+    /// ADR 0786.
+    TheTreeAndAPageOnlyEntry(&'static str),
+}
+
 /// What is known about a page whose dictionary the file states only in part.
 ///
 /// ISO 32000-2 §7.3.7 makes a dictionary "a sequence of key-value pairs enclosed in double
@@ -334,7 +356,8 @@ impl Boundary {
 /// never reaches it does not know how many entries the producer wrote. What it does know is
 /// what is here: how many were whole, where the bytes stopped being readable, and what stopped
 /// them. `pdf_syntax::Parser::parse_damaged_dictionary` carries the reading; ADR 0784 carries
-/// the argument for taking such a prefix at all, and for taking it in exactly one place.
+/// the argument for taking such a prefix at all, and ADR 0786 the second door by which one
+/// arrives.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DictionaryDamage {
     /// How many key–value pairs were read whole before the damage.
@@ -343,6 +366,8 @@ pub struct DictionaryDamage {
     pub stopped_at: usize,
     /// What stopped it, in the parser's own words.
     pub reason: String,
+    /// How this reader knows the object is a page, which is not the same claim for every one.
+    pub identification: PageIdentification,
 }
 
 /// One page of a document.
@@ -668,7 +693,7 @@ impl<'a> Pages<'a> {
                     reaches_a_page(document, Node::Direct(node, root_id), &mut visited, 0)
                 }));
         let scanned = if recovering {
-            scan_for_pages(document)
+            scan_for_pages(document, &tree_named(document, root.as_ref(), root_id))
         } else {
             Vec::new()
         };
@@ -885,15 +910,42 @@ struct Recovered {
 /// scan that only asks `get` cannot tell *this file declares no page* from *this file declares a
 /// page in bytes that stop part-way*. Those are different statements about the document and the
 /// second is the commoner one: across the 16 818 documents of the Tika issue-tracker corpus that
-/// open at all, 18 state a page count this reader produces no page for, and 6 of the 18 hold an
-/// object whose dictionary opens, states `/Type /Page`, and then stops
-/// (`examples/standing_count_census`).
+/// open at all, 18 stated a page count this reader produced no page for **before either door
+/// below existed**, and 6 of the 18 held an object whose dictionary opens, states `/Type /Page`,
+/// and then stops. `examples/standing_count_census` prints what is left rather than this comment
+/// stating it, which is the rule; what the sentence is here for is the *shape* the doors were
+/// argued from.
 ///
 /// So such an object is asked through [`Document::damaged_dictionary`], and taken **on the
 /// strength of the entries that were whole**: the prefix has to say `/Type /Page` itself, which
 /// is the same declaration the whole objects above are taken on and the same one ADR 0782's
-/// recovery rests on. A prefix whose damage falls before its own `/Type` says nothing about what
-/// it is and is not collected.
+/// recovery rests on.
+///
+/// # And the tree is asked about the object the prefix says nothing about
+///
+/// A prefix whose damage falls before its own `/Type` says nothing about what the object *is* —
+/// out of a scan of the whole file, which is where the sentence above was written and where it
+/// is right. But `named` is a different question and a stronger one: it holds the object numbers
+/// the page tree's own `/Kids` arrays state, which is the file's statement about an object made
+/// somewhere the object's damage cannot reach. §7.7.3.2 Table 30 closes what that statement
+/// leaves open:
+///
+/// > An array of indirect references to the immediate children of this node. The children shall
+/// > only be page objects or other page tree nodes.
+///
+/// So a named object is one of exactly two things, and the clause then says which entries the
+/// second of them may carry, which is what makes the two separable:
+///
+/// > In addition to the entries shown in "Table 30 -Required entries in a page tree node" , a
+/// > page tree node may contain further entries defining inherited attributes for the page
+/// > objects that are its descendants
+///
+/// §7.7.3.4's inherited attributes are `/Resources`, `/MediaBox`, `/CropBox` and `/Rotate`, so a
+/// node's legitimate keys are Table 30's four and those four and no others. A prefix carrying one
+/// of [`PAGE_ONLY_ENTRIES`] was therefore written by a producer describing a **page object**, and
+/// the evidence is an entry Table 31 defines being *present* rather than a node's entry being
+/// absent — which §7.3.7 could not support, since a subset can only say what the producer did
+/// write. ADR 0786.
 ///
 /// **It is additive in both directions, which is what makes it a recovery rather than a guess.**
 /// This runs only where the tree yielded no page at all ([`Pages::new`]), so no page that draws
@@ -901,17 +953,17 @@ struct Recovered {
 /// ones after the damage are simply absent — read as Table 31's defaults, which is a
 /// substitution, which is why the page carries [`DictionaryDamage`] and
 /// `crate::content::interpret` says so out loud (`doc/traps/parsers-and-streams.md` trap 5).
-/// ADR 0784.
+/// ADRs 0784 and 0786.
 ///
 /// Bounded by the cross-reference table's own size, which the parser already bounds.
-fn scan_for_pages(document: &Document) -> Vec<Recovered> {
+fn scan_for_pages(document: &Document, named: &BTreeSet<u32>) -> Vec<Recovered> {
     let mut found = Vec::new();
     // The cross-reference information names the objects that parse; the second set is the ones
     // whose dictionary stops part-way, which `xref::scan_for_objects` keeps no offset for and
     // which are therefore not merely unparsed but *unnamed* in a rebuilt file. Merged into one
     // ascending order because the recovered list's order is a documented choice and has to stay
     // one rule rather than two.
-    let numbers: std::collections::BTreeSet<u32> = document
+    let numbers: BTreeSet<u32> = document
         .xref()
         .object_numbers()
         .chain(document.damaged_dictionaries().keys().copied())
@@ -929,17 +981,25 @@ fn scan_for_pages(document: &Document) -> Vec<Recovered> {
             continue;
         }
         // `get` answered nothing. Ask what the file states readably, and believe it only where
-        // what it states includes the declaration this whole scan is built on.
+        // what it states includes the declaration this whole scan is built on — or, where the
+        // tree named the object, where it includes an entry only a page object may carry.
         let Some(damaged) = document.damaged_dictionary(id) else {
             continue;
         };
-        if !declares_a_page(document, &damaged.entries) {
+        let identification = if declares_a_page(document, &damaged.entries) {
+            PageIdentification::ItsOwnDeclaration
+        } else if named.contains(&number)
+            && let Some(entry) = a_page_only_entry(document, &damaged.entries)
+        {
+            PageIdentification::TheTreeAndAPageOnlyEntry(entry)
+        } else {
             continue;
-        }
+        };
         let damage = DictionaryDamage {
             entries: damaged.entries.len(),
             stopped_at: damaged.stopped_at,
             reason: damaged.error.to_string(),
+            identification,
         };
         found.push(Recovered {
             id,
@@ -955,6 +1015,130 @@ fn declares_a_page(document: &Document, dict: &Dictionary) -> bool {
         .get_key(dict, "Type")
         .as_name()
         .is_some_and(|kind| kind.as_bytes() == b"Page")
+}
+
+/// The entries §7.7.3.3 Table 31 defines for a page object and §7.7.3.2 does not let a page tree
+/// node carry.
+///
+/// Table 30's four required entries — `/Type`, `/Parent`, `/Kids`, `/Count` — are a node's, and
+/// §7.7.3.2's sentence after the table closes the rest: a node "may contain further entries
+/// defining inherited attributes for the page objects that are its descendants", which §7.7.3.4
+/// enumerates as `/Resources`, `/MediaBox`, `/CropBox` and `/Rotate`. Everything else in Table 31
+/// is here.
+///
+/// **It is a list of Table 31's own keys and not the complement of Table 30's**, and the
+/// difference decides a real document. A key that is in neither table — `poppler-355-0.pdf`'s
+/// `/WinAnsiEncope` — is evidence of nothing at all, and reading it as "not a node's, therefore a
+/// page's" would take an object on the strength of it not looking like a node, which is the
+/// substitutive direction `doc/traps/parsers-and-streams.md` trap 5 forbids.
+///
+/// In the byte order §7.3.5 gives names, which is the order [`Dictionary`] keeps its keys in and
+/// therefore the order the discriminating entry is chosen in.
+const PAGE_ONLY_ENTRIES: [&str; 27] = [
+    "AA",
+    "AF",
+    "Annots",
+    "ArtBox",
+    "B",
+    "BleedBox",
+    "BoxColorInfo",
+    "Contents",
+    "DPart",
+    "Dur",
+    "Group",
+    "ID",
+    "LastModified",
+    "Metadata",
+    "OutputIntents",
+    "PZ",
+    "PieceInfo",
+    "PresSteps",
+    "SeparationInfo",
+    "StructParents",
+    "Tabs",
+    "TemplateInstantiated",
+    "Thumb",
+    "Trans",
+    "TrimBox",
+    "UserUnit",
+    "VP",
+];
+
+/// The first of [`PAGE_ONLY_ENTRIES`] a dictionary states, where it has not called itself a node.
+///
+/// The `/Type` test is what keeps this from contradicting the file: Table 30 makes the entry
+/// required of a node and says it "shall be Pages", so a prefix that reached its own `/Type` and
+/// wrote something other than `Page` there has stated what it is and is believed. Where the
+/// damage fell before `/Type` there is no such statement, and the entries are the only evidence.
+fn a_page_only_entry(document: &Document, dict: &Dictionary) -> Option<&'static str> {
+    let declared = document.get_key(dict, "Type");
+    if let Some(kind) = declared.as_name()
+        && kind.as_bytes() != b"Page"
+    {
+        return None;
+    }
+    PAGE_ONLY_ENTRIES
+        .into_iter()
+        .find(|entry| dict.get(entry).is_some())
+}
+
+/// Every object number the page tree's own `/Kids` arrays name, root included.
+///
+/// **This is the *tree* asking, which is why it descends from the catalogue's `/Pages` rather
+/// than reading every `/Kids` in the file.** Table 29 makes that entry "[t]he page tree node that
+/// shall be the root of the document's page tree", so the root is a node by the catalogue's
+/// declaration whatever its own `/Type` says — which matters, because three of the five corpus
+/// witnesses have a root that states no `/Type` at all. A scan of every array called `/Kids`
+/// would also collect §12.7.4.2's field kids and §7.9.6's name-tree kids, and those name objects
+/// §7.7.3.2 says nothing whatever about.
+///
+/// The walk is [`reaches_a_page`]'s under the same two bounds, and it collects a child *before*
+/// asking whether it resolves — the whole point is the children that do not.
+fn tree_named(
+    document: &Document,
+    root: Option<&Dictionary>,
+    root_id: Option<ObjectId>,
+) -> BTreeSet<u32> {
+    let mut named = BTreeSet::new();
+    let Some(root) = root else {
+        return named;
+    };
+    let mut visited = 0usize;
+    collect_named(
+        document,
+        Node::Direct(root, root_id),
+        &mut named,
+        &mut visited,
+        0,
+    );
+    named
+}
+
+/// Records every object number beneath `node`'s `/Kids`; see [`tree_named`].
+fn collect_named(
+    document: &Document,
+    node: Node<'_>,
+    named: &mut BTreeSet<u32>,
+    visited: &mut usize,
+    depth: usize,
+) {
+    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+        return;
+    }
+    let Some(kids) = node.key(document, "Kids") else {
+        return;
+    };
+    *visited = visited.saturating_add(1);
+    let Some(kids) = kids.as_array() else {
+        return;
+    };
+    for entry in kids {
+        if let Object::Reference(id) = entry {
+            named.insert(id.number);
+        }
+        let Some(kid) = Node::of(entry) else { continue };
+        collect_named(document, kid, named, visited, depth.saturating_add(1));
+    }
 }
 
 /// Walks the tree in page order looking for `id`; see [`Pages::index_of`].

@@ -1,8 +1,8 @@
 //! What a document says about itself, said out loud once when it opens.
 //!
-//! Six clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
-//! §7.11.4's embedded files, §7.5's recovered cross-reference table, Annex I's version and
-//! §14.8.6.2's namespaces are all
+//! Seven clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
+//! §7.11.4's embedded files, §7.5's recovered cross-reference table, Annex I's version,
+//! §14.8.6.2's namespaces and §14.8.6.3's unenclosed `MathML` are all
 //! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
 //! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
 //! part of the page's own report.
@@ -147,22 +147,33 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
         ));
     }
 
-    namespaces(document, &mut notes);
+    tagged_structure(document, &mut notes);
     signatures(document, &mut notes);
     notes
 }
 
-/// §14.8.6.2's one requirement on the file, said where the file is what is being described.
+/// §14.8.6's two requirements on the file, said where the file is what is being described.
 ///
 /// > In a tagged PDF, all structure elements shall be in at least one of the standard structure
 /// > namespaces or in a namespace identified in 14.8.6.3 , ' Other namespaces '.
 ///
+/// and, in the subclause that sentence points at, Errata Collection 3's replacement for
+/// §14.8.6.3's `MathML` sentence (Issues #72 and #719), which requires the `math` structure element
+/// type to be used to enclose the formula under the `Formula` structure element type —
+/// `pdf_model::structure::Tree::mathml_outside_a_formula` quotes the 2020 sentence it replaced
+/// and says what the erratum changed.
+///
 /// Every other sentence of §14.8.6 is addressed to a reader and is carried out — which map
 /// applies to which element, the default namespace for an element that states none, and what a
-/// name in a foreign namespace *means* — and this one is addressed to whoever wrote the file. So
-/// it belongs here rather than in a page's report, for the reason this module exists: it is a
-/// claim about the document, and it costs no mark on any page, so a page report would take a
-/// page out of the oracle's diagnosed set to say something that is not about it.
+/// name in a foreign namespace *means* — and these two are addressed to whoever wrote the file.
+/// So they belong here rather than in a page's report, for the reason this module exists: each is
+/// a claim about the document, and neither costs a mark on any page, so a page report would take
+/// a page out of the oracle's diagnosed set to say something that is not about it.
+///
+/// **The second one used to be filed as a producer's and therefore nobody's**, on `CLAUDE.md`'s
+/// closed authoring exclusion. The exclusion says this tree does not *write* such a tagging; it
+/// says nothing about reading one, and a `shall` a file breaks is answered by a report here — the
+/// sentence above is the precedent, one subclause away. ADR 0786.
 ///
 /// **Two conditions, both the clause's.** §14.8.1 is what makes a document tagged — "[a] tagged
 /// PDF document shall contain a mark information dictionary … with a value of true for the Marked
@@ -171,13 +182,26 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
 /// structure tree root declares a namespace outside the permitted set, which
 /// [`pdf_model::structure::Tree::namespaces_outside_the_standard`] argues from the clause and
 /// prices in milliseconds.
-fn namespaces(document: &Document, notes: &mut Vec<String>) {
+fn tagged_structure(document: &Document, notes: &mut Vec<String>) {
     if !pdf_model::structure::MarkInfo::read(document).marked {
         return;
     }
     let Some(tree) = pdf_model::structure::Tree::of(document) else {
         return;
     };
+    // §14.8.6.3's first `shall`, asked of the same tree and gated the same way. It is a separate
+    // sentence about a separate namespace, so it is a separate note rather than a clause of the
+    // one below: a document can break either without breaking the other.
+    let unenclosed = tree.mathml_outside_a_formula(document);
+    if unenclosed > 0 {
+        notes.push(format!(
+            "this document says it is tagged (§14.8.1), and {unenclosed} of its structure \
+             elements are §14.8.6.3's MathML `math` type with no Formula element above them — \
+             the subclause requires the math type to be used to enclose the formula under the \
+             Formula structure element type, so a reader is told this is mathematics without \
+             being told which formula it is"
+        ));
+    }
     for foreign in tree.namespaces_outside_the_standard(document) {
         let which = foreign.name.as_deref().map_or_else(
             || {
@@ -1101,6 +1125,48 @@ mod tests {
                 .join("\n")
                 .contains("§14.8.6.2"),
             "an element with no /NS is in the default standard structure namespace"
+        );
+    }
+
+    /// §14.8.6.3's file-addressed `shall`, calibrated the same way one subclause over.
+    ///
+    /// The planted violation is a tagged document whose `math` element in §14.8.6.3's namespace
+    /// has no `Formula` above it; the pair is the same file with one inserted. The second is what
+    /// says the note is about the *enclosure* rather than about `MathML` being present at all —
+    /// which matters, because §14.8.6.2 names that namespace as one an element may be in, so a
+    /// note that fired on its presence would contradict the subclause beside it.
+    #[test]
+    fn mathml_that_no_formula_encloses_is_said_out_loud() {
+        let tagged = "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> \
+                      /StructTreeRoot 4 0 R >>";
+        let pages = "<< /Type /Pages /Kids [] /Count 0 >>";
+        let mathml = "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>";
+        let root = "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>";
+        let math = "<< /Type /StructElem /S /math /NS 3 0 R >>";
+
+        let said = about(&document(&[tagged, pages, mathml, root, math])).join("\n");
+        assert!(
+            said.contains("1 of its structure elements are §14.8.6.3's MathML"),
+            "the planted violation is named, with the count: {said}"
+        );
+
+        let formula = "<< /Type /StructElem /S /Formula /K [6 0 R] >>";
+        assert!(
+            !about(&document(&[tagged, pages, mathml, root, formula, math]))
+                .join("\n")
+                .contains("§14.8.6.3"),
+            "a Formula around it is the clause satisfied"
+        );
+
+        // And §14.8.1's condition is this note's as well: the subclause is inside §14.8, whose
+        // requirements are on a tagged PDF, and a file that does not claim to be one has not
+        // taken them on.
+        let untagged = "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>";
+        assert!(
+            !about(&document(&[untagged, pages, mathml, root, math]))
+                .join("\n")
+                .contains("§14.8.6.3"),
+            "a document that does not say it is tagged is outside the clause"
         );
     }
 

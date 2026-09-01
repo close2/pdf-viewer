@@ -1072,11 +1072,25 @@ fn interpret_into(
     // readably. Reported before the media box because it is the reason the media box may be
     // missing: the entry could be one of the ones after the damage.
     if let Some(damage) = page.damaged_dictionary.as_ref() {
+        // How the object came to be read as a page is part of the same statement about the file,
+        // because the two answers are two different claims: one is Table 31's `/Type` off the
+        // producer's own bytes, the other is this reader's inference from §7.7.3.2. A reader owes
+        // the difference out loud rather than presenting the second as though it were the first.
+        let identification = match damage.identification {
+            crate::page::PageIdentification::ItsOwnDeclaration => {
+                "it is a page because those entries state Table 31's /Type /Page".to_owned()
+            }
+            crate::page::PageIdentification::TheTreeAndAPageOnlyEntry(entry) => format!(
+                "it is a page because the page tree's /Kids names it — §7.7.3.2 makes a child a \
+                 page object or a page tree node — and it states /{entry}, which only a page \
+                 object may carry"
+            ),
+        };
         interpreter.note(Unsupported::PageDictionary {
             detail: format!(
                 "this page's object states {} entr(ies) and then stops being readable at byte {} \
                  ({}), so the page is drawn from those entries alone and whatever its producer \
-                 wrote after them is not here",
+                 wrote after them is not here; {identification}",
                 damage.entries, damage.stopped_at, damage.reason
             ),
         });

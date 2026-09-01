@@ -34,6 +34,12 @@
 # the number here and says why in its own history file — the same discipline as any ratchet in
 # this tree, and the reason the row carries `why`.
 #
+# **One row's band is narrower and says so in its `why`.** `GHOSTSCRIPT-699521-0.pdf` is one
+# 30-point line of stroked text on a 795 x 842 sheet, so the marks it exists to pin are worth
+# 0.307 of a level; at plus and minus 1.0 the band would admit a blank page and pin nothing but
+# the report beside it. A band is only a band when the defect it stands against is wider than it,
+# and where it is not, the row is narrowed rather than left to look like a pin.
+#
 # `corpus-cache/` is a machine-local crawl (`tools/safedocs`). Rows whose document is absent are
 # skipped and counted; a run that finds none of them says so and fails.
 
@@ -441,3 +447,43 @@ session = 860
 reports = ["no /MediaBox anywhere in the page's ancestry", "this page's object states 1 entr(ies) and then stops being readable at byte 4544"]
 ink = 0.0 .. 1.0
 why = "the least flattering of the three and pinned for that reason: an unterminated /ProcSets leaves a prefix of /Type alone, so the page is this reader's default sheet with nothing on it — and both sentences are said, which is the whole of what makes it honest (ADR 0784, 7.3.7)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-699521-0.pdf"
+page = 1
+session = 862
+reports = ["this page's object states 4 entr(ies) and then stops being readable at byte 359"]
+ink = 0.207 .. 0.407
+why = "the second door's flagship: 795 x 842 with `BT /F1 30 Tf 350 750 Td 20 TL 5 Tr (Hello world) Tj ET`, unreachable because the page object's own /Type is four bytes past a second /MediaBox whose value is the bare keyword `e`. The page tree names the object and its prefix states /Contents, which only a page object may carry (ADR 0786, 7.7.3.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-698991-0.pdf"
+page = 1
+session = 862
+reports = ["Unreachable { index: 0", "no /MediaBox anywhere in the page's ancestry", "this page's object states 2 entr(ies) and then stops being readable at byte 156"]
+ink = 0.0 .. 1.0
+why = "the same door on a file whose whole body is 282 bytes: the prefix is /Resources and /Contents, and the /Contents object is not in the file at all — so all three sentences are said and the page is honestly blank (ADR 0786, 7.7.3.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-699018-0.pdf"
+page = 1
+session = 862
+reports = ["no /MediaBox anywhere in the page's ancestry", "this page's object states 1 entr(ies) and then stops being readable at byte 131"]
+ink = 0.0 .. 1.0
+why = "a prefix of one entry, /Annots — Table 31's and one no page tree node may carry, which is the whole of the evidence that this object is a page (ADR 0786, 7.7.3.4)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-701846-0.pdf"
+page = 1
+session = 862
+reports = ["this page's object states 4 entr(ies) and then stops being readable at byte 847"]
+ink = 0.0 .. 1.0
+why = "a signed form whose page object stops inside its /Annots array; the prefix carries /Annots, /CropBox, /MediaBox and /Parent, so the page is drawn on the producer's own 500 x 500 rather than on this reader's sheet (ADR 0786, 7.7.3.4)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch6/poppler-gitlab/poppler-192-0.pdf"
+page = 1
+session = 862
+reports = ["/SH0 is not in /Shading", "no /MediaBox anywhere in the page's ancestry", "this page's object states 2 entr(ies) and then stops being readable at byte 1304"]
+ink = 0.0 .. 1.0
+why = "the prefix is /Contents and a key whose name the damage runs into; the /Resources naming its shading is among the entries the damage took, so the shading is refused by name rather than the page by silence (ADR 0786, 7.7.3.2)"

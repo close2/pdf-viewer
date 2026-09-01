@@ -242,7 +242,7 @@ are here**, same discipline, one line apiece. ADR 0254 is the round.
 | §14.8.4.4 Grouping | 772 | #141 | untouched | "Part is the semantic equivalent of Div." is replaced by a NOTE saying the opposite — a `Part`'s grouping *has* semantic value where a `Div`'s does not. `structure.rs` carries both types by name and interprets neither. |
 | §14.8.4.7.2 | 778 | #84 | untouched | `Strong`'s EXAMPLE 3 gloss: "the content that the user is intended to read first" becomes "is more important". |
 | §14.8.4.7.2 | 779 | #133 | cites | §14.8.4.7.3's link element is relaxed — one content item rather than two, "one or more link annotations", and the condition that their `/A`, `/Dest` and `/PA` match is struck. Recorded in the §14.8.4.7.2 row beside #437's enclosure reframing, which this round also settled. Nothing here validates an element's children. |
-| §14.8.6.3 Other namespaces | 810 | #72, #719 | quotes | The MathML sentence loses its version, gains a requirement that the `math` element enclose the formula under `Formula`, and requires the namespace on every MathML type *and attribute*. The row and `structure.rs` said "MathML 3.0" — corrected. **The enclosure requirement was read in the five-hundred-and-fortieth and is a `shall` on whoever *includes* the mathematics** — the sentence opens "[w]hen including mathematics structured as MathML" — so it falls under `CLAUDE.md`'s producer exclusion; what stays owed is a validator's report. ADR 0375. |
+| §14.8.6.3 Other namespaces | 810 | #72, #719 | quotes | The MathML sentence loses its version, gains a requirement that the `math` element enclose the formula under `Formula`, and requires the namespace on every MathML type *and attribute*. The row and `structure.rs` said "MathML 3.0" — corrected. **The enclosure requirement is a `shall` on whoever *includes* the mathematics** — the sentence opens "[w]hen including mathematics structured as MathML" — which was read in the five-hundred-and-fortieth as putting it under `CLAUDE.md`'s producer exclusion. **It is reported since the eight-hundred-and-sixty-second**: the exclusion is about writing such a tagging rather than reading one, and a file-addressed `shall` is answered by a report here (ADRs 0375, 0785, 0786). |
 | §14.12.4.2 DPart metadata | 852 | #290 | cites | Table 409's `/Metadata` is **withdrawn**: "XMP metadata streams shall not be used in DPart dictionaries", with a NOTE that it was allowed in earlier editions of PDF 2.0. `document_part` reads `/Start` and `/DParts` and no metadata at all. |
 | §14.13.2 Embedded associated files | 853 | #568 | cites | The designation is rewritten: an object's `/AF` is an array of file specifications carrying `/AFRelationship`, and a marked-content sequence "shall use an AF marked content tag (see 14.13.5)". That is the same division session 417's `/MCAF` finding rests on, from the other side. |
 | Annex E.2 | 893 | #340 | cites | Third-class names: the `XX` prefix survives, "[i]t is not necessary to register" becomes "cannot be registered". The row's own sentence is unaffected. |
@@ -386,12 +386,15 @@ on the four words "the same as the". `overlaps` now asks for one segment quoting
   b) dispose of every base image stating an `/OC` and c) and d) open at "Otherwise". Read that way
   the five steps are total, disjoint and reachable, which the 2020 four were not. ADR 0375. Nothing
   in the corpus moves: the corpus gate prints the same figures either way.
-- ~~**§14.8.6.3's enclosure requirement**~~ — **read in the five-hundred-and-fortieth and declined
-  by argument.** The amended sentence opens "[w]hen including mathematics structured as MathML",
-  which addresses whoever writes the tagging: the enclosure under `Formula` and the namespace on
-  every MathML type and attribute are `shall`s on a producer, and `CLAUDE.md`'s closed exclusion
-  covers those. What a reader owes is done. The half that is a *validator's* — reporting the
-  document that breaks either — is what keeps the row `partial`. And the clause turned out to carry
+- ~~**§14.8.6.3's enclosure requirement**~~ — **read in the five-hundred-and-fortieth, declined by
+  argument, and reported in the eight-hundred-and-sixty-second.** The amended sentence opens
+  "[w]hen including mathematics structured as MathML", which addresses whoever writes the tagging,
+  and that half of the reading was right. The half that decayed is what follows from it:
+  `CLAUDE.md`'s exclusion covers *writing* such a tagging and says nothing about reading one, and by
+  the time somebody looked again, §14.8.6.2's own file-addressed `shall` was already a report one
+  subclause away. The enclosure is now one too, and the erratum's other half — the namespace on
+  every MathML type and attribute — is declined for a different and firmer reason: it quantifies
+  over a vocabulary ISO 32000-2 does not state. ADRs 0375 and 0786. And the clause turned out to carry
   the round's real finding: `doc/md/` writes its namespace name as `' … '` where the PDF sets
   `“ … ”`, which is why `conformance::quote::normalise` drops every shape of quotation mark now.
 - **The 51 landings in the "struck out of another clause" bucket.** All of them were looked at this
