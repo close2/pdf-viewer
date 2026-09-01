@@ -1795,7 +1795,9 @@ arithmetic on one row rather than on a family, cheaper than any sweep here, and 
 
 **And the status move cost §9.4 its evidence, which is the gate working.** The row named two whole
 *test files*, tolerated on a `partial` row and refused at zero by `FILE_ONLY_EVIDENCE_CEILING` on an
-`implemented` one, so `cargo test -p conformance` failed the moment the status changed. One named
+`implemented` one, so `cargo test -p conformance` failed the moment the status changed. (**That
+toleration ended in the eight-hundred-and-fifty-second session** — the last section of this file has
+the ratchet that replaced it and what its first ten rows cost.) One named
 test per subclause now. **A ratchet that only bites on a status change is a ratchet that bites when
 a claim gets stronger**, which is when evidence matters most.
 
@@ -1973,7 +1975,8 @@ sweep was worth building:
   carries them.
 
 **And the status move cost §9.3 its evidence, which is the gate working** — it named two whole test
-*files*, refused at zero by `FILE_ONLY_EVIDENCE_CEILING` on an `implemented` row. The same ratchet
+*files*, refused at zero by `FILE_ONLY_EVIDENCE_CEILING` on an `implemented` row and, since the
+eight-hundred-and-fifty-second session, ratcheted on a `partial` one too. The same ratchet
 caught §9.4 in the four-hundred-and-twenty-ninth. Four named tests now, one per requirement group.
 
 ### The tenth sweep's finding, and the clause number the errata had given away
@@ -5704,3 +5707,53 @@ under a *departure* is usually a claim in the wrong place. The fix is not a larg
 sentence naming where the decision is made — and in this tree that place is `pdf-render`, by trap
 2's rule, exactly as §8.5.3.2's dot is. A row whose evidence is "both backends do X" is a row that
 will be wrong twice: once when a backend arrives, and once if two of them ever disagree.
+
+## The gate's own file-only ratchet, pointed at the status it had never been pointed at
+
+**`FILE_ONLY_EVIDENCE_CEILING` counted `implemented` rows and nothing else**, and two sections above
+say so approvingly in the same breath as the words *tolerated on a `partial` row* — twice, in the
+four-hundred-and-twenty-ninth's and four-hundred-and-thirty-seventh's records. That toleration was
+never argued. The argument the constant carries — *a row naming `file.rs` names something that
+passes whatever it contains*, so the claim is held by nothing — is about **evidence**, and a
+`partial` row's `test` is evidence for the half of the clause that *is* executed. `check_evidence`
+already demands one for exactly that reason. So a third of the ledger, 222 rows, sat outside the
+only instrument that reads the shape.
+
+**Twenty-three of them named a file**, and they cluster where the aggregate rows are: §8.11's
+optional content ×4, §8.10.4's reference XObjects ×3, §11.3.7 and §11.6's transparency ×4. The shape
+is the one the eight-hundred-and-fifty-first session was bitten by — §8.6.6's backwards fold-over
+rule under a row whose evidence was `tests/colour_paths.rs`.
+
+`PARTIAL_FILE_ONLY_EVIDENCE_CEILING` is that count, ratcheted downward, printed with its row list so
+that it is a reading list as well as a gate. **It is calibrated rather than believed** (trap 13): at
+23 it reproduces the hand-derived population to the row, and with §11.4.4's four named tests
+truncated to their two files it reports 24 and fails. It is `<=` rather than `==` because the
+population is not zero yet; when it reaches zero it becomes the second `==` in this gate, for the
+reason the first one is.
+
+**What the first ten rows off it cost, and what they bought.** Ten moved in one session — §8.9.6,
+§8.11, §8.11.1, §8.11.4, §8.11.4.1, §11.3.7, §11.3.7.2, §11.4, §11.6, §11.6.5.2 — every named test
+calibrated by planting the defect it is supposed to guard and watching it fail. **The plants are the
+whole value, and one of them found a hole**: §8.11's row claims a panel "throws the switch through
+`Command::SetGroup` — with Table 99's `/Locked` refusing the change", and with
+`OptionalContent::is_locked` planted to answer `false`, every test in `viewer-core`, `viewer-ui` and
+`viewer-ffi` passed. `pdf-model`'s own test pins `ViewState::set_group`; `viewer-ui`'s panel test
+hand-builds the `locked` flag of the rows it draws; nothing at all held the path from the document's
+array to the flag a host is told. `headless.rs::a_locked_group_reaches_a_host_and_its_switch_is_refused`
+holds it now, and it was calibrated in both directions — the flag lost, and the refusal lost.
+
+**A plant is not always the plant you wrote.** Three results are worth carrying because each says
+something the reading would not have:
+
+- **A defect can be refused twice, and then one plant fails nothing.**
+  `a_document_with_no_properties_dictionary_draws_everything` survives a `read` that tolerates a
+  missing `/OCProperties` *and* survives a `state_of` that hides an undeclared group; it takes both
+  at once to fail it, because §8.11.4.2's "shall ignore" is enforced at two independent points. A
+  test that needs a conjunction is still a test — but a round naming it has to know that, or it will
+  read one clean plant as the test being empty.
+- **The plant has to be at the site the row's sentence names.** A form `/Group` unrecognised at
+  `transparency.rs:240` fails three tests; the same thing unrecognised at the `Do` fails
+  twenty-three. Only the second is what §11.4's row means by a group.
+- **A named test can be riding another entry's plant.** `/Matte` was calibrated a second time on its
+  own entry after the `/SMask` plant had already failed it, because a test that only fails when a
+  *different* entry is broken is evidence about that entry and not about this one.

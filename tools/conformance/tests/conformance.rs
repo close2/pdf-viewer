@@ -71,6 +71,26 @@ const UNREVIEWED_CEILING: usize = 0;
 /// arriving with a file for evidence now fails the build rather than raising a number.
 const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 
+/// How many `partial` rows name a whole test *file* rather than a test.
+///
+/// **This number may only fall**, and it exists because the ratchet above was never pointed at
+/// the other status that owes a test. `check_evidence` requires a `partial` row to name a `test`
+/// for the same reason it requires one of an `implemented` row — the status says *some* of the
+/// clause's requirements are executed, and the named test is the evidence for that half — but the
+/// count above filters on [`Status::Implemented`], so 222 rows, a third of the ledger, were
+/// outside it. Twenty-three of them named a file.
+///
+/// **The shape is the one round 851 was bitten by**, which is why this is a ratchet rather than a
+/// reading list: §8.6.6's backwards fold-over rule sat under a row whose evidence was
+/// `tests/colour_paths.rs`, a file that passes whatever it contains. A row naming
+/// `file.rs::a_test` is a claim something would fail if it stopped being true; a row naming
+/// `file.rs` is a claim nothing checks, and neither status is exempt from that.
+///
+/// The gate cannot tell whether a named test *covers* the clause, so this is a count rather than
+/// a rule: what it does is keep the population where a false claim can hide from growing, and say
+/// which rows are in it.
+const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 13;
+
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///
 /// **The rule is that a clause the code cites may not be `unreviewed`** — code that names a
@@ -415,6 +435,29 @@ fn the_ledger_agrees_with_the_standard_and_with_the_tree() {
          name the test that would fail if the row stopped being true, and write it if there is \
          none.",
         file_only.len()
+    );
+
+    // The same instrument, pointed at the other status that owes a test; see
+    // `PARTIAL_FILE_ONLY_EVIDENCE_CEILING` for why it was outside the count above.
+    let partial_file_only: Vec<String> = ledger
+        .rows
+        .iter()
+        .filter(|row| row.status == Status::Partial)
+        .filter(|row| !row.test.iter().any(|test| test.contains("::")))
+        .map(|row| row.clause.to_string())
+        .collect();
+    println!(
+        "  {} of the partial rows name a test file rather than a test: {partial_file_only:?}",
+        partial_file_only.len()
+    );
+    assert!(
+        partial_file_only.len() <= PARTIAL_FILE_ONLY_EVIDENCE_CEILING,
+        "{} partial rows name a whole file as their evidence, against the ratchet of \
+         {PARTIAL_FILE_ONLY_EVIDENCE_CEILING}: {partial_file_only:?}. A row that names a file \
+         names something that passes whatever it contains. This number may only fall: name the \
+         test that would fail if the implemented half of the row stopped being true, and write \
+         it if there is none.",
+        partial_file_only.len()
     );
 
     assert_eq!(

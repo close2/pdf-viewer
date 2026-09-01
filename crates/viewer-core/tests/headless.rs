@@ -2270,6 +2270,115 @@ fn a_visible_pages_list_mode_keeps_the_groups_the_page_reaches() {
     assert_eq!(names, vec!["A", "B", "C"]);
 }
 
+/// Table 99's `/Locked` reaches a host, and the switch it forbids does nothing.
+///
+/// ISO 32000-2 §8.11.4.3, of a locked group:
+///
+/// > The state of a locked group cannot be changed through the user interface of an interactive
+/// > PDF processor.
+///
+/// §8.11's ledger row claims a panel "throws the switch through `Command::SetGroup` — with Table
+/// 99's `/Locked` refusing the change", and **that claim was held by nothing on this side of the
+/// boundary**. `pdf_model::view`'s `a_locked_group_refuses_a_panel_and_not_an_action` pins
+/// `ViewState::set_group`; `viewer-ui`'s `a_layer_switch_throws_unless_the_document_locked_it`
+/// hand-builds the `locked` flag of the rows it draws. So a `Layer` that dropped `/Locked` on the
+/// way out of the document would have failed neither, and the calibration says so rather than the
+/// reading: with `OptionalContent::is_locked` planted to answer `false`, every test in
+/// `viewer-core`, `viewer-ui` and `viewer-ffi` passed.
+///
+/// The two halves are the two directions the claim can go wrong in — the flag a host is told, and
+/// the command the core refuses — and the fixture is hand-built because the entry is rare rather
+/// than absent. `examples/oc_usage_census` counts it, over every corpus this tree holds and naming
+/// each: **none** of the 964 documents that open in `doc/pdf.js`, **none** of `doc/corpora`'s 273
+/// and **none** of `corpus-cache/openpreserve`'s 264, against **9** of the 65 703 that open in the
+/// `SafeDocs` `CC-MAIN-2021-31` crawl. In each of the five of those nine that also present an
+/// `/Order`, this reader refuses the switch on exactly the groups the array names and accepts it on
+/// their neighbours.
+#[test]
+fn a_locked_group_reaches_a_host_and_its_switch_is_refused() {
+    let mut viewer = Viewer::new(200, 100, 1.0);
+    viewer
+        .handle(Command::Open {
+            id: DOCUMENT,
+            bytes: two_groups_one_locked(),
+            password: None,
+            fragment: None,
+        })
+        .for_each(drop);
+
+    let Answer::Layers(layers) = viewer.query(Query::Layers) else {
+        panic!("the document states an /Order over both its groups");
+    };
+    let read = |layers: &[viewer_core::Layer]| -> Vec<(String, bool, bool)> {
+        layers
+            .iter()
+            .map(|layer| match layer {
+                viewer_core::Layer::Group {
+                    name, on, locked, ..
+                } => (name.clone().unwrap_or_default(), *on, *locked),
+                viewer_core::Layer::Collection { .. } => panic!("neither entry is a collection"),
+            })
+            .collect()
+    };
+    assert_eq!(
+        read(&layers),
+        vec![
+            ("bolted".to_owned(), true, true),
+            ("free".to_owned(), true, false),
+        ],
+        "the /Locked array names the first group and only the first"
+    );
+    let group = |layers: &[viewer_core::Layer], index: usize| match &layers[index] {
+        viewer_core::Layer::Group { group, .. } => *group,
+        viewer_core::Layer::Collection { .. } => panic!("neither entry is a collection"),
+    };
+
+    viewer
+        .handle(Command::SetGroup {
+            group: group(&layers, 0),
+            on: false,
+        })
+        .for_each(drop);
+    viewer
+        .handle(Command::SetGroup {
+            group: group(&layers, 1),
+            on: false,
+        })
+        .for_each(drop);
+
+    let Answer::Layers(after) = viewer.query(Query::Layers) else {
+        panic!("the layers are still there");
+    };
+    assert_eq!(
+        read(&after),
+        vec![
+            ("bolted".to_owned(), true, true),
+            ("free".to_owned(), false, false),
+        ],
+        "the locked group keeps the state the configuration gave it; the other one turns off"
+    );
+}
+
+/// One page and two optional content groups, of which `/Locked` names the first.
+///
+/// Both start on — Table 99 makes `/BaseState` default to `ON` — so the only thing that can move
+/// either is the switch the test throws.
+fn two_groups_one_locked() -> Vec<u8> {
+    let content = "/oc1 BDC 1 0 0 rg 0 0 100 100 re f EMC /oc2 BDC 0 0 1 rg 100 0 100 100 re f EMC";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OCProperties << /OCGs [5 0 R 6 0 R] \
+         /D << /Order [5 0 R 6 0 R] /Locked [5 0 R] >> >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R \
+         /Resources << /Properties << /oc1 5 0 R /oc2 6 0 R >> >> >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /OCG /Name (bolted) >>\nendobj\n\
+         6 0 obj\n<< /Type /OCG /Name (free) >>\nendobj\n",
+        content.len()
+    );
+    assemble(&body)
+}
+
 /// §12.5.5's appearances belong to every annotation, not only to a link.
 ///
 /// > An annotation may define as many as three separate appearances:

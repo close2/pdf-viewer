@@ -37,13 +37,22 @@
 //!
 //! # What is deliberately not here
 //!
-//! The states of groups are read from the document and never changed. §8.11.4.5's automatic
-//! adjustment from usage application dictionaries (`/AS`), the radio-button relationships of
-//! `/RBGroups`, `/Locked`, the presentation `/Order` and the alternate `/Configs` all
-//! describe an interactive processor offering the user a layer panel. None of them affects
-//! the initial state, which is the state §8.11.4.5 says every processor starts from and the
-//! only one a renderer with no user interface can be in. When a layer panel exists, this is
-//! the module it attaches to.
+//! **This section listed five entries and four of them arrived**, and it went on saying they had
+//! not for as long as the panel has existed. It read: "[t]he states of groups are read from the
+//! document and never changed. §8.11.4.5's automatic adjustment from usage application
+//! dictionaries (`/AS`), the radio-button relationships of `/RBGroups`, `/Locked`, the
+//! presentation `/Order` and the alternate `/Configs` all describe an interactive processor
+//! offering the user a layer panel … When a layer panel exists, this is the module it attaches
+//! to." The panel exists, this is the module it attached to, and the sentence stayed — which is
+//! the "capability that arrived and announced nothing" shape `doc/todo/02` §1 names. `/AS` is
+//! [`apply_auto_states`], `/RBGroups` is [`OptionalContent::apply`]'s exclusion, `/Locked` is
+//! [`OptionalContent::is_locked`] and `/Order` is [`presentation`].
+//!
+//! What is genuinely not here is Table 98's `/Configs` and the `/Name` and `/Creator` of a
+//! configuration, all three of which exist so that a person may choose *between* configurations
+//! (§8.11.4.3); nothing in this tree offers that choice, so the default configuration is the only
+//! one read. None of the three affects the initial state, which is the state §8.11.4.5 says every
+//! processor starts from.
 
 use std::collections::{BTreeMap, BTreeSet};
 
