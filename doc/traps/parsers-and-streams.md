@@ -231,6 +231,22 @@ true of the code; it was written as the *intent* and read ever after as the beha
 worse than a comment that went stale, because nothing about the tree moving underneath it would
 ever have made it wrong.
 
+**And the guard can be a *silence*, which is the same trap where the recovery is not run at all.**
+`Document::load_by_header` takes §7.3.10's own header where the table's entry is disproved, and its
+comment excluded two conditions by name: "[a]n object number the table does not mention, or
+mentions as **free**, names nothing". Both are right, and its guard — `XrefTable::location`
+answering `None` — covers a **third** the comment does not: a number §7.5.4's subsection header or
+§7.5.8.2's `/Index` *declared* and whose entry this reader never read, because a field would not
+lex or the stream's data stopped short. That number has been mentioned by the file and described
+by nothing, so it is the reader's silence rather than the file's, and answering `Object::Null` for
+it turns a failure of ours into a statement about the document. One damaged generation field cost
+`cairo-85141-3.pdf` twenty-five objects including its only page, and the document opened, counted
+one page and had none. **The general form is the one to carry: an absent answer has two authors,
+and a guard that cannot name which one produced it is a guard that will attribute the reader's
+failure to the file.** `XrefTable::declared_and_unread` is the separation and ADR 0789 is the
+argument; the fixture that pins it is the same shape as this trap's — two files differing only in
+whether object 4's entry is unlexable or `f`.
+
 **The test that would have found it is the fixture where the two conditions differ**, and it is
 cheap: `crates/pdf-model/tests/page_tree_nodes.rs` is nine pairs of hand-built files, every one of
 them built to separate a different pair of conditions, and not one of them separated *these* two —

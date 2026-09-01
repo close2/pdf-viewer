@@ -916,9 +916,12 @@ fn an_object_a_damaged_object_stream_does_not_wholly_carry_is_not_read() {
 ///
 /// What the pair pins is the *statement* that comes with the shortfall. Everywhere else in this
 /// reader an object number with no entry has been deleted — §7.5.6's most recent copy, ADR 0100 —
-/// and here it has not: the file meant to say something about it and the bytes are gone. Nothing
-/// on this disk exercises it: the crawl's damaged cross-reference streams lose no *stated* row,
-/// because a truncated `FlateDecode` usually loses only RFC 1951's final block.
+/// and here it has not: the file meant to say something about it and the bytes are gone. **Since
+/// ADR 0789 that difference reaches the answer as well as the count**: a number `/Index` declared
+/// and the data did not describe is not a deletion, so §7.3.10's own header — the object's number
+/// written beside its bytes — is the file's one surviving statement about it, and it is taken.
+/// Nothing on this disk exercises the shortfall: the crawl's damaged cross-reference streams lose
+/// no *stated* row, because a truncated `FlateDecode` usually loses only RFC 1951's final block.
 #[test]
 fn a_cross_reference_stream_shorter_than_its_own_index_says_what_it_lost() {
     let build = |carried: usize| {
@@ -978,10 +981,16 @@ fn a_cross_reference_stream_shorter_than_its_own_index_says_what_it_lost() {
         object(&short, 3).as_dict().is_some(),
         "the records the data carries are whole and are read"
     );
-    assert!(
-        object(&short, 4).is_null(),
-        "and the object whose record went missing is unreachable — the same answer a deletion \
-         gives, which is why the count above is what tells them apart"
+    assert_eq!(
+        object(&short, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "and the object whose record went missing is read from its own header, because a record \
+         the data does not carry is not the deletion a type 0 record would have been"
+    );
+    assert_eq!(
+        short.misfiled_objects(),
+        vec![4],
+        "which the reader says out loud, so the recovery is answerable"
     );
 }
 
@@ -1254,4 +1263,67 @@ fn zlib_stored(payload: &[u8], complete: bool) -> Vec<u8> {
         out.extend_from_slice(&((high << 16) | low).to_be_bytes());
     }
     out
+}
+
+/// ISO 32000-2 §7.5.4: an entry this reader could not read is not §7.5.6's deletion.
+///
+/// A file states where an object is twice — §7.5.4's entry and §7.3.10's own header — and it
+/// §7.5.4 states a third thing above both of them, in the subsection's header:
+///
+/// > The two integers denote (respectively) the object number of the first object in this
+/// > subsection and the number of entries in the subsection.
+///
+/// So a subsection whose reading stops half way has still *mentioned* every number its header
+/// covers. §7.5.4 gives exactly one way of saying an object number names nothing —
+///
+/// > There are two kinds of cross-reference entries: one for objects that are in use and another
+/// > for objects that have been deleted and therefore are free.
+///
+/// — and that is an entry which was read. The pair below differs only in object 4's entry: in one
+/// file its generation field is `000/0`, which does not lex as a number and takes the rest of the
+/// subsection with it; in the other the entry is the `f` the clause defines. A reader that treats
+/// both as *this number names nothing* loses the first file's object 4, and one that treats both
+/// as *look for the header* undoes ADR 0100 and resurrects the second file's deleted object.
+#[test]
+fn an_entry_the_reader_cannot_read_is_not_a_deletion() {
+    let build = |fourth: &dyn Fn(usize) -> String| -> Vec<u8> {
+        let (mut out, offsets) = body(&[SKELETON[0], SKELETON[1], SKELETON[2], SPARE]);
+        let at = out.len();
+        out.push_str("xref\n0 5\n0000000000 65535 f \n");
+        for offset in offsets.iter().take(3) {
+            let _ = writeln!(out, "{offset:010} 00000 n ");
+        }
+        out.push_str(&fourth(offsets[3]));
+        let _ = write!(
+            out,
+            "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{at}\n%%EOF\n"
+        );
+        out.into_bytes()
+    };
+
+    let unreadable = open(build(&|offset| format!("{offset:010} 000/0 n \n")));
+    assert_eq!(
+        object(&unreadable, 4).as_string().map(<[u8]>::to_vec),
+        Some(b"the original".to_vec()),
+        "an entry the reader could not read leaves the object's own header standing"
+    );
+    assert_eq!(
+        unreadable.misfiled_objects(),
+        vec![4],
+        "and the repair is answerable rather than silent"
+    );
+    assert!(
+        unreadable.catalog().is_ok(),
+        "while the entries read before the damage are still the table's"
+    );
+
+    let deleted = open(build(&|_| String::from("0000000000 00000 f \n")));
+    assert!(
+        object(&deleted, 4).is_null(),
+        "a free entry says the number names nothing, and no header may undo that"
+    );
+    assert!(
+        deleted.misfiled_objects().is_empty(),
+        "and nothing was repaired, because nothing was wrong"
+    );
 }

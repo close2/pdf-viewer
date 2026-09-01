@@ -487,3 +487,19 @@ session = 862
 reports = ["/SH0 is not in /Shading", "no /MediaBox anywhere in the page's ancestry", "this page's object states 2 entr(ies) and then stops being readable at byte 1304"]
 ink = 0.0 .. 1.0
 why = "the prefix is /Contents and a key whose name the damage runs into; the /Resources naming its shading is among the entries the damage took, so the shading is refused by name rather than the page by silence (ADR 0786, 7.7.3.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/cairo/cairo-85141-3.pdf"
+page = 1
+session = 864
+reports = ["Text { operations: 9 }", "BT without ET", "font /F1 is a Type 3 font with no /FontMatrix", "font /F2 is a Type 3 font with no /CharProcs dictionary", "kept: 1114"]
+ink = 0.0 .. 1.0
+why = "a matplotlib figure with no first page at all: three of its cross-reference entries carry a `/` or a 0x1f where a digit belongs, and one unlexable field abandoned the rest of the subsection — including the page's own entry — into a state the reader read as §7.5.6's deletion. The five reports are the file's own remaining damage; the ink band pins the page existing at the producer's 378 x 54 rather than the marks, which its corrupt content stream loses (ADR 0789, 7.5.4)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-692248-0.pdf"
+page = 1
+session = 864
+reports = []
+ink = 2.333 .. 4.333
+why = "the same defect drawing a page rather than recovering one: the file's subsection stops at an unlexable entry, its /Contents object 4 was among the numbers after it, and §7.3.10's null was reported for a content stream that is in the file (ADR 0789, 7.5.4)"
