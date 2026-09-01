@@ -46,7 +46,37 @@
 //! cost, and ADR 0710 measured it — so sharing it is one field moved. The rasteriser stays per
 //! job: it is two words and an empty memo.
 //!
+//! # Which box, and whether the annotations
+//!
+//! ISO 32000-2 §7.7.3.3 gives a page five rectangles and the defaults that chain them: the
+//! crop box's "[d]efault value: the value of `MediaBox`", and for the bleed, trim and art boxes
+//! "[d]efault value: the value of `CropBox`". §14.11.2.1 adds the one rule that binds a processor
+//! on all four — "[i]f the bounds of the crop, trim, bleed or art box extends outside of the
+//! bounds of the media box, a processor shall treat the box as its intersection with the media
+//! box" — and `pdf_model::Page` has applied both by the time a page is handed over, so
+//! [`RenderPlan::page_box`] chooses among rectangles already defaulted and intersected.
+//!
+//! **The box asked for is both the raster's extent and the clip, and that is a choice.** The
+//! clause defines each box as a clipping region for a purpose — the crop box "the region to
+//! which the contents of the page shall be clipped (cropped) when displayed or printed", the
+//! bleed box the same "when output in a production environment" — so asking for a box is
+//! asking for that purpose's view of the page, and the marks outside it are not shown. The
+//! other construction, a larger extent with a smaller clip inside it and a blank margin
+//! between, is §12.2's `/ViewArea` against `/ViewClip`, which is the document's to state and
+//! not a flag's to invent; a document that states it is honoured under the default, which is
+//! the viewer's own `display_box` and `clip_box`. Under a named box the two are that box.
+//!
+//! **Annotations draw by default because §6.3.2.2 requires it** of a rendering processor — it
+//! "shall also render the appropriate appearance stream for all annotations" whose flags
+//! designate one (§12.5.3, §12.5.5) — and [`RenderPlan::annotations`] `false` opts out: the page
+
+//! is interpreted as a page that states no `/Annots`, so §12.5.3's pass has nothing to draw and
+//! the raster is the content stream alone. Neither knob touches `interpret`: a `Page` is a
+//! value whose fields are the interpreter's inputs, and `render` states the page it wants drawn
+//! — the same move `Pages::detached` makes for §12.7.7's templates. ADR 0802.
+//!
 //! # What is a warning and what is a refusal
+
 //!
 //! A page whose interpretation reports something it could not draw is **written and warned
 //! about** (exit 3): the output is usable and every missing mark is named, per page, which is
@@ -56,9 +86,11 @@
 use std::io::Write as _;
 
 use pdf_model::content::FontCache;
+pub use pdf_model::page::Boundary;
 use pdf_model::page_label::PageLabels;
 use pdf_model::view::ViewState;
 use pdf_model::{Page, Pages};
+
 use pdf_render::{Raster, Rasterizer, Size, TargetSpec};
 use pdf_syntax::Document;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
@@ -79,8 +111,68 @@ pub struct RenderPlan {
     pub size: Sizing,
     /// Which file format.
     pub format: ImageFormat,
+    /// Which of §7.7.3.3's boxes is the raster, or `None` for the viewer's own display
+    /// boundary — the crop box unless §12.2's `/ViewArea` names another.
+    pub page_box: Option<Boundary>,
+    /// Whether §12.5.3's annotation pass draws. `true` is §6.3.2.2's obligation.
+    pub annotations: bool,
     /// How the outputs are named.
     pub names: Pattern,
+}
+
+impl RenderPlan {
+    /// The three choices about how a page is drawn, together.
+    #[must_use]
+    pub fn drawing(&self) -> Drawing {
+        Drawing {
+            size: self.size,
+            page_box: self.page_box,
+            annotations: self.annotations,
+        }
+    }
+}
+
+/// How one page is drawn: how big, which box, whether the annotations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Drawing {
+    /// How big.
+    pub size: Sizing,
+    /// Which of §7.7.3.3's boxes, or the viewer's own display boundary.
+    pub page_box: Option<Boundary>,
+    /// Whether §12.5.3's annotation pass draws.
+    pub annotations: bool,
+}
+
+/// Parses a `--page-box` word into a boundary.
+#[must_use]
+pub fn parse_boundary(word: &str) -> Option<Boundary> {
+    match word {
+        "media" => Some(Boundary::Media),
+        "crop" => Some(Boundary::Crop),
+        "bleed" => Some(Boundary::Bleed),
+        "trim" => Some(Boundary::Trim),
+        "art" => Some(Boundary::Art),
+        _ => None,
+    }
+}
+
+/// The page as the plan wants it drawn: the named box as both the displayed region and the
+/// clip, and no `/Annots` where the annotations are opted out of.
+///
+/// A copy, because `pdf_syntax::Document` and what is read from it stay as the file said —
+/// the document is the oracle's input and is not edited to be rendered differently.
+#[must_use]
+pub fn page_to_draw(page: &Page, page_box: Option<Boundary>, annotations: bool) -> Page {
+    let mut page = page.clone();
+    if let Some(boundary) = page_box {
+        let rectangle = page.boundary(boundary);
+        page.display_box = rectangle;
+        page.clip_box = rectangle;
+    }
+    if !annotations {
+        page.dict.remove("Annots");
+    }
+    page
 }
 
 /// How a page's size in user space becomes a size in pixels.
@@ -213,12 +305,13 @@ pub fn render_page(
     view: &ViewState,
     fonts: &FontCache,
     rasterizer: &mut CpuRasterizer,
-    size: Sizing,
+    drawing: Drawing,
     budget: &Budget,
 ) -> Result<Rendered, PageRefusal> {
-    let interpretation = pdf_model::content::interpret_with_fonts(document, page, view, fonts);
+    let page = page_to_draw(page, drawing.page_box, drawing.annotations);
+    let interpretation = pdf_model::content::interpret_with_fonts(document, &page, view, fonts);
     let list = interpretation.display_list;
-    let scale = size.scale(list.page_size);
+    let scale = drawing.size.scale(list.page_size);
     let target =
         TargetSpec::for_page(&list, scale, budget.max_pixels).map_err(PageRefusal::Target)?;
     let raster = rasterizer
@@ -407,7 +500,7 @@ impl Job<'_> {
             &self.view,
             &self.fonts,
             rasterizer,
-            self.plan.size,
+            self.plan.drawing(),
             self.budget,
         ) {
             Ok(rendered) => rendered,

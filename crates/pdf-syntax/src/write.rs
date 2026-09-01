@@ -218,6 +218,36 @@ pub fn incremental_update(
     document: &crate::Document,
     replacements: &BTreeMap<ObjectId, Object>,
 ) -> Result<Vec<u8>, UpdateError> {
+    incremental_update_freeing(document, replacements, &[])
+}
+
+/// [`incremental_update`], with objects the update deletes marked free.
+///
+/// §7.5.6 is a `shall` about what happens to a deleted object — "[d]eleted objects shall be left
+/// unchanged in the PDF file, but shall be marked as deleted by means of their cross-reference
+/// entries" — and §7.5.4 gives a cross-reference section two ways to hold a free entry. The
+/// first is the linked list headed by object 0, which a deletion "shall be added to" with its
+/// generation "incremented by 1". **An update cannot use it**: §7.5.4's own NOTE 3 says that
+/// "cross reference subsections of incremental updates can never have an object number of
+/// zero", so the head of the list is not an entry this section may rewrite, and an entry chained
+/// to a head that does not name it is not in the list. The second way is the one written here:
+///
+/// > Using the second mechanism, the table may contain other free entries that link back to
+/// > object number 0 and have a generation number of 65,535, even though these entries are not in
+/// > the linked list itself.
+///
+/// A generation of 65,535 is the one the clause says "shall never be reused", which is also the
+/// right statement about a number whose object's bytes are still in the file under it. Each
+/// freed id must not also be in `replacements`; the caller decides which an object is.
+///
+/// # Errors
+///
+/// [`incremental_update`]'s.
+pub fn incremental_update_freeing(
+    document: &crate::Document,
+    replacements: &BTreeMap<ObjectId, Object>,
+    freed: &[ObjectId],
+) -> Result<Vec<u8>, UpdateError> {
     if document.was_recovered() {
         return Err(UpdateError::Recovered);
     }
@@ -257,6 +287,7 @@ pub fn incremental_update(
     let highest = offsets
         .iter()
         .map(|(id, _)| id.number)
+        .chain(freed.iter().map(|id| id.number))
         .max()
         .unwrap_or_default();
     let size = u64::from(highest)
@@ -268,12 +299,55 @@ pub fn incremental_update(
         .get("Type")
         .and_then(Object::as_name)
         .is_some_and(|name| name.as_bytes() == b"XRef");
+    // One list of entries, in object-number order, free ones marked: what both forms of
+    // section are written from.
+    let mut entries: Vec<Entry> = offsets
+        .iter()
+        .map(|(id, offset)| Entry {
+            number: id.number,
+            generation: id.generation,
+            state: State::InUse { offset: *offset },
+        })
+        .chain(freed.iter().map(|id| Entry {
+            number: id.number,
+            generation: FREE_FOREVER,
+            state: State::Free,
+        }))
+        .collect();
+    entries.sort_unstable_by_key(|entry| entry.number);
+
     if stream_form {
-        cross_reference_stream(&mut out, &offsets, size, previous, &root, document);
+        cross_reference_stream(&mut out, &entries, size, previous, &root, document);
     } else {
-        cross_reference_table(&mut out, &offsets, size, previous, &root, document);
+        cross_reference_table(&mut out, &entries, size, previous, &root, document);
     }
     Ok(out)
+}
+
+/// §7.5.4's generation for a free entry outside the linked list: "shall never be reused".
+const FREE_FOREVER: u16 = 65_535;
+
+/// One cross-reference entry the update writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Entry {
+    /// The object number.
+    number: u32,
+    /// The generation: the object's own for one in use, [`FREE_FOREVER`] for one freed.
+    generation: u16,
+    /// In use at an offset, or free.
+    state: State,
+}
+
+/// Whether an entry names bytes or the absence of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum State {
+    /// `n`, at this offset into the file.
+    InUse {
+        /// Where the object was written.
+        offset: usize,
+    },
+    /// `f`, linking back to object 0.
+    Free,
 }
 
 /// The `/Size` the document's own trailer states, which the update may only raise.
@@ -289,7 +363,7 @@ fn size_of_document(document: &crate::Document) -> u64 {
 /// §7.5.4's cross-reference table, in subsections of consecutive object numbers.
 fn cross_reference_table(
     out: &mut Vec<u8>,
-    offsets: &[(ObjectId, usize)],
+    entries: &[Entry],
     size: u64,
     previous: usize,
     root: &Object,
@@ -297,13 +371,21 @@ fn cross_reference_table(
 ) {
     let at = out.len();
     let mut text = String::from("xref\n");
-    for run in subsections(offsets) {
-        let _ = writeln!(text, "{} {}", run[0].0.number, run.len());
-        for (id, offset) in run {
+    for run in runs(entries) {
+        let _ = writeln!(text, "{} {}", run[0].number, run.len());
+        for entry in run {
             // §7.5.4's entry is exactly twenty bytes, and the clause spells out both halves:
             // ten digits of offset, five of generation, `n` for an in-use object, and a
-            // two-character end-of-line marker.
-            let _ = writeln!(text, "{offset:010} {:05} n ", id.generation);
+            // two-character end-of-line marker. A free entry's first field is "the 10-digit
+            // object number of the next free object", which for one outside the list is 0.
+            match entry.state {
+                State::InUse { offset } => {
+                    let _ = writeln!(text, "{offset:010} {:05} n ", entry.generation);
+                }
+                State::Free => {
+                    let _ = writeln!(text, "{:010} {:05} f ", 0, entry.generation);
+                }
+            }
         }
     }
     out.extend_from_slice(text.as_bytes());
@@ -328,7 +410,7 @@ fn cross_reference_table(
 /// §7.5.8's cross-reference stream, uncompressed, with the three-field entries of Table 18.
 fn cross_reference_stream(
     out: &mut Vec<u8>,
-    offsets: &[(ObjectId, usize)],
+    entries: &[Entry],
     size: u64,
     previous: usize,
     root: &Object,
@@ -339,24 +421,38 @@ fn cross_reference_stream(
     let stream_number = u32::try_from(size).unwrap_or(u32::MAX);
     let at = out.len();
 
-    let mut entries: Vec<(u32, u64, u16)> = offsets
-        .iter()
-        .map(|(id, offset)| (id.number, *offset as u64, id.generation))
-        .collect();
-    entries.push((stream_number, at as u64, 0));
-    entries.sort_unstable();
+    let mut entries = entries.to_vec();
+    entries.push(Entry {
+        number: stream_number,
+        generation: 0,
+        state: State::InUse { offset: at },
+    });
+    entries.sort_unstable_by_key(|entry| entry.number);
 
     let mut index = Vec::new();
     let mut data = Vec::new();
     for run in runs(&entries) {
-        index.push(Object::Integer(as_integer(u64::from(run[0].0))));
+        index.push(Object::Integer(as_integer(u64::from(run[0].number))));
         index.push(Object::Integer(as_integer(run.len() as u64)));
-        for (_, offset, generation) in run {
-            // Table 18's type 1: an uncompressed object. `/W [1 4 2]` is the width of the three
-            // fields, which is what says how to read these bytes.
-            data.push(1);
-            data.extend_from_slice(&u32::try_from(*offset).unwrap_or(u32::MAX).to_be_bytes());
-            data.extend_from_slice(&generation.to_be_bytes());
+        for entry in run {
+            // `/W [1 4 2]` is the width of the three fields, which is what says how to read
+            // these bytes. Table 18's type 1 is an uncompressed object at an offset; type 0 is
+            // a free object, whose second field is "the object number of the next free object"
+            // and whose third is "the generation number to use if this object number is used
+            // again" — 0 and 65,535, for the reason `incremental_update_freeing` gives.
+            match entry.state {
+                State::InUse { offset } => {
+                    data.push(1);
+                    data.extend_from_slice(
+                        &u32::try_from(offset).unwrap_or(u32::MAX).to_be_bytes(),
+                    );
+                }
+                State::Free => {
+                    data.push(0);
+                    data.extend_from_slice(&0_u32.to_be_bytes());
+                }
+            }
+            data.extend_from_slice(&entry.generation.to_be_bytes());
         }
     }
 
@@ -462,29 +558,13 @@ fn carry_forward(document: &crate::Document, trailer: &mut Dictionary) {
     }
 }
 
-/// Consecutive object numbers, which is what a cross-reference subsection is.
-fn subsections(offsets: &[(ObjectId, usize)]) -> Vec<&[(ObjectId, usize)]> {
-    let mut out: Vec<&[(ObjectId, usize)]> = Vec::new();
-    let mut start = 0;
-    for index in 1..offsets.len() {
-        let (previous, current) = (offsets[index.saturating_sub(1)].0, offsets[index].0);
-        if current.number != previous.number.saturating_add(1) {
-            out.push(&offsets[start..index]);
-            start = index;
-        }
-    }
-    if start < offsets.len() {
-        out.push(&offsets[start..]);
-    }
-    out
-}
-
-/// The same runs, over the cross-reference stream's own triples.
-fn runs(entries: &[(u32, u64, u16)]) -> Vec<&[(u32, u64, u16)]> {
-    let mut out: Vec<&[(u32, u64, u16)]> = Vec::new();
+/// Consecutive object numbers, which is what a cross-reference subsection is — and what
+/// §7.5.8's `/Index` pairs describe.
+fn runs(entries: &[Entry]) -> Vec<&[Entry]> {
+    let mut out: Vec<&[Entry]> = Vec::new();
     let mut start = 0;
     for index in 1..entries.len() {
-        if entries[index].0 != entries[index.saturating_sub(1)].0.saturating_add(1) {
+        if entries[index].number != entries[index.saturating_sub(1)].number.saturating_add(1) {
             out.push(&entries[start..index]);
             start = index;
         }

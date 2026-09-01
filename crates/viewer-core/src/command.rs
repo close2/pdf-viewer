@@ -538,6 +538,13 @@ pub enum Edit {
 /// what it does about them — which is the whole reason `doc/ui-boundary.md` keeps
 /// these enums exhaustive, and it is why the shape is what this round owed rather than the
 /// levels. ADR 0212.
+///
+/// **The four levels themselves live in `pdf_model::restriction::Level` since the
+/// eight-hundred-and-seventy-second session**, and this type is the two of them a window can
+/// answer today, mapped by [`RestrictionLevel::level`]. `Viewer::refusal` asks
+/// `pdf_model::restriction::decide` and matches its verdict exhaustively, so when the two
+/// arrive here the arms that receive them are already written and the compiler names the one
+/// place that changes. ADR 0803.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RestrictionLevel {
     /// Obey what the document asserts: the operation is refused and the reason is said.
@@ -554,6 +561,17 @@ pub enum RestrictionLevel {
     /// — it is a statement the *file* would be making about bytes nobody signed. Turning a
     /// restriction off is the reader's; making the file lie is not.
     Off,
+}
+
+impl RestrictionLevel {
+    /// The same level as `pdf_model::restriction` names it.
+    #[must_use]
+    pub const fn level(self) -> pdf_model::restriction::Level {
+        match self {
+            Self::On => pdf_model::restriction::Level::On,
+            Self::Off => pdf_model::restriction::Level::Off,
+        }
+    }
 }
 
 /// Whether §12.4.4's presentation is running, as the host has said.

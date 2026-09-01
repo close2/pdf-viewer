@@ -37,11 +37,13 @@
 //! # The policy a document asserts, and the four levels
 //!
 //! `CLAUDE.md` principle 3: a document's restrictions are the reader's to set, and they have
-//! four levels — off, on, ask before the operation, warn before the operation. A pipe cannot
-//! ask, so [`Restrictions`] carries the three a batch tool can honour, defaults to `Off` because
-//! the program is the reader's, and is *asked once* in [`apply`] rather than decided at the point
-//! of any operation — the shape that lets the fourth level be added by a host that can ask,
-//! without revisiting this decision. ADR 0800.
+//! four levels — off, on, ask before the operation, warn before the operation. All four are
+//! `pdf_model::restriction::Level`, and [`Policy`] carries one; it is *asked once* in [`apply`],
+//! through `pdf_model::restriction::decide`, rather than decided at the point of any operation.
+//! **A pipe cannot ask**, so `Level::Ask` is answered here by a refusal that says a question
+//! went unanswered — the one degradation a batch tool can make without pretending to be a
+//! window, and [`Refusal::Unanswered`] is its own variant so that a caller can tell it from a
+//! refusal by policy. The default is `Off` because the program is the reader's. ADRs 0800, 0803.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -56,6 +58,8 @@ pub mod render;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
+pub use pdf_model::restriction::{Level, Operation};
+use pdf_model::restriction::{Restriction, Verdict};
 use pdf_syntax::{Document, Limits, SyntaxError};
 
 pub use viewer_core::Secret;
@@ -201,24 +205,23 @@ impl Sinks for MemorySinks {
     }
 }
 
-/// How much of a document's own restrictions this run honours — three of `CLAUDE.md`'s four
-/// levels, the fourth (*ask*) needing a host that can ask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Restrictions {
-    /// The document's `/P` bits are not consulted. The default: the program is the reader's.
-    #[default]
-    Off,
-    /// A restricted operation is refused by name, exit 4.
-    On,
-    /// A restricted operation is performed and the restriction is reported as a warning.
-    Warn,
+/// What the host decides about a document's assertions over its reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Policy {
+    /// How much of what the document asserts — Table 22's bits, §12.8.2.2's certification —
+    /// this run obeys. `Level::Ask` is honoured by [`Refusal::Unanswered`], because nothing
+    /// here can put a question to anybody.
+    pub restrictions: Level,
 }
 
-/// What the host decides about a document's assertions over its reader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Policy {
-    /// Table 22's bits, at one of the levels a batch tool can honour.
-    pub restrictions: Restrictions,
+impl Default for Policy {
+    /// `Level::Off`: the program is the reader's, and `pdf_model` deliberately supplies no
+    /// default of its own, so the choice is stated here where a batch tool makes it.
+    fn default() -> Self {
+        Self {
+            restrictions: Level::Off,
+        }
+    }
 }
 
 /// Explicit ceilings, the same family as the interpreter's.
@@ -240,59 +243,6 @@ impl Default for Budget {
             limits: Limits::DEFAULT,
             max_pixels: 1 << 28,
         }
-    }
-}
-
-/// One thing a reader does to a document that Table 22 can restrict, as this crate's verbs
-/// do it.
-///
-/// `pdf_model::restriction::Operation` names the two operations the viewer performs — filling a
-/// field, adding an annotation — and this names the two a transform performs. They belong in one
-/// enum, in `pdf-model`, and moving them there is a first-row change (`doc/todo/02` §2) deferred
-/// to a round that runs the whole sequence; ADR 0800 records the debt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation {
-    /// Rasterising a page to a file — Table 22 bit 3, "Print the document".
-    ///
-    /// A choice: a page raster is what a print driver produces, and it is the nearest of the
-    /// bits. It is written down as a choice because the clause does not mention rasterisation.
-    Print,
-    /// Taking images or embedded files out — Table 22 bit 5, "[c]opy or otherwise extract text
-    /// and graphics from the document".
-    Extract,
-}
-
-impl Operation {
-    /// Table 22's bit number.
-    #[must_use]
-    pub fn bit(self) -> u8 {
-        match self {
-            Self::Print => 3,
-            Self::Extract => 5,
-        }
-    }
-
-    /// The operation as a sentence names it.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Print => "rendering a page",
-            Self::Extract => "extracting from the document",
-        }
-    }
-
-    /// Whether the document, opened as it was, withholds this operation.
-    ///
-    /// §7.6.4.2 Table 22's bits bind the *user*; a document opened with its owner password
-    /// withholds nothing, which is `Permissions::owner`.
-    fn withheld_by(self, document: &Document) -> bool {
-        document.permissions().is_some_and(|permissions| {
-            !permissions.owner
-                && match self {
-                    Self::Print => !permissions.print,
-                    Self::Extract => !permissions.copy,
-                }
-        })
     }
 }
 
@@ -329,6 +279,9 @@ impl Plan {
                 attachments::Action::List => None,
                 attachments::Action::SaveAll { .. } | attachments::Action::Save { .. } => {
                     Some(Operation::Extract)
+                }
+                attachments::Action::Attach { .. } | attachments::Action::Remove { .. } => {
+                    Some(Operation::Modify)
                 }
             },
         }
@@ -379,16 +332,39 @@ pub enum Refusal {
     /// The output-name pattern cannot name what the plan produces — a usage error.
     #[error("{0}")]
     Pattern(String),
-    /// Under [`Restrictions::On`], the document withholds the operation.
-    #[error(
-        "this document restricts {operation}: Table 22 bit {bit} is clear, and --restrictions is \
-         on"
-    )]
+    /// Under `Level::On`, the document withholds the operation.
+    #[error("this document restricts {operation}: {reasons}, and --restrictions is on")]
     Restricted {
         /// What was declined.
         operation: &'static str,
-        /// Which bit.
-        bit: u8,
+        /// Every reason the document gave, worded, joined by `; `.
+        reasons: String,
+    },
+    /// Under `Level::Ask`, the document withholds the operation and nothing here can ask.
+    ///
+    /// A pipe has nobody to put the question to, and going ahead on an unanswered question would
+    /// be `Level::Off` under another name; not going ahead is what a closed dialogue means
+    /// everywhere else. Its own variant rather than [`Refusal::Restricted`] so that a caller can
+    /// tell "refused by policy" from "a question went unanswered" without parsing the sentence.
+    #[error(
+        "this document restricts {operation}: {reasons}; --restrictions=ask was given and this \
+         program cannot ask, so it was not done"
+    )]
+    Unanswered {
+        /// What was declined.
+        operation: &'static str,
+        /// Every reason the document gave, worded, joined by `; `.
+        reasons: String,
+    },
+    /// `--to-page` names a page the document does not have.
+    #[error("source {at}: no page {page}; the document has {count}")]
+    NoSuchPage {
+        /// Which source.
+        at: usize,
+        /// The page asked for, counted from 1.
+        page: usize,
+        /// How many the document has.
+        count: usize,
     },
     /// No embedded file has the name asked for.
     #[error("source {at}: no embedded file is named {name:?}")]
@@ -398,6 +374,27 @@ pub enum Refusal {
         /// The name asked for.
         name: String,
     },
+    /// The document already files an embedded file under the name to be attached.
+    ///
+    /// §7.9.6's keys "shall not overlap", so a second entry under one key would be a tree the
+    /// clause forbids; and quietly replacing the file the document had would be a deletion
+    /// nobody asked for.
+    #[error("source {at}: an embedded file is already named {name:?}")]
+    AttachmentExists {
+        /// Which source.
+        at: usize,
+        /// The name.
+        name: String,
+    },
+    /// §7.5.6's update cannot be appended to this document, for a reason the writer names.
+    #[error("source {at}: {error}")]
+    Update {
+        /// Which source.
+        at: usize,
+        /// The writer's own sentence.
+        error: pdf_syntax::write::UpdateError,
+    },
+
     /// A sink could not be opened or written.
     #[error("{name}: {error}")]
     Sink {
@@ -414,12 +411,18 @@ impl Refusal {
     pub fn exit(&self) -> Exit {
         match self {
             Self::Pattern(_) => Exit::Usage,
-            Self::Restricted { .. } => Exit::Refused,
+            // Both are this program declining a well-formed request by name: a policy, or a
+            // document whose cross-reference table it will not chain an update to.
+            Self::Restricted { .. } | Self::Unanswered { .. } | Self::Update { .. } => {
+                Exit::Refused
+            }
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }
             | Self::Selection { .. }
+            | Self::NoSuchPage { .. }
             | Self::NoSuchAttachment { .. }
+            | Self::AttachmentExists { .. }
             | Self::Sink { .. } => Exit::Error,
         }
     }
@@ -525,6 +528,14 @@ pub enum Origin {
         source: usize,
         /// The name the document files it under.
         name: String,
+    },
+    /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
+    /// byte, and then what was added.
+    Updated {
+        /// Which source.
+        source: usize,
+        /// The name the new embedded file is filed under.
+        attached: String,
     },
 }
 
@@ -665,6 +676,11 @@ impl Output {
                 ("source".to_owned(), Value::count(*source)),
                 ("name".to_owned(), Value::text(name.clone())),
             ],
+            Origin::Updated { source, attached } => vec![
+                ("kind".to_owned(), Value::text("updated")),
+                ("source".to_owned(), Value::count(*source)),
+                ("attached".to_owned(), Value::text(attached.clone())),
+            ],
         };
         Value::Object(vec![
             ("name".to_owned(), Value::text(self.name.clone())),
@@ -696,7 +712,7 @@ impl Listed {
 ///
 /// A [`Refusal`] where nothing usable could be produced: an unopenable source, a password
 /// missing, a selection or pattern the document cannot satisfy, a restriction under
-/// [`Restrictions::On`], a sink that failed. Anything less — a page refused, an image the codec
+/// `Level::On` or `Level::Ask`, a sink that failed. Anything less — a page refused, an image the codec
 /// worker declined, a mark the interpreter could not draw — is in the report beside what was
 /// written.
 pub fn apply(
@@ -715,25 +731,37 @@ pub fn apply(
     let mut report = Report::default();
 
     // The policy is asked here, once, and nowhere else: this is the place a host supplies its
-    // answer, and it is the shape that lets *ask* be added later without touching a verb.
-    if let Some(operation) = plan.operation()
-        && operation.withheld_by(&document)
-    {
-        match policy.restrictions {
-            Restrictions::Off => {}
-            Restrictions::On => {
+    // answer, and every verdict has an arm — a pipe's answer to *ask* included.
+    if let Some(operation) = plan.operation() {
+        let reasons = |restrictions: &[Restriction]| {
+            restrictions
+                .iter()
+                .map(|restriction| describe_restriction(operation, *restriction))
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        match pdf_model::restriction::decide(policy.restrictions, &document, operation, None, None)
+        {
+            Verdict::Proceed => {}
+            Verdict::Refuse(restrictions) => {
                 return Err(Refusal::Restricted {
                     operation: operation.as_str(),
-                    bit: operation.bit(),
+                    reasons: reasons(&restrictions),
                 });
             }
-            Restrictions::Warn => report.warnings.push(Warning {
+            Verdict::Ask(restrictions) => {
+                return Err(Refusal::Unanswered {
+                    operation: operation.as_str(),
+                    reasons: reasons(&restrictions),
+                });
+            }
+            Verdict::Warn(restrictions) => report.warnings.push(Warning {
                 source: at,
                 page: None,
                 detail: format!(
-                    "this document restricts {}: Table 22 bit {} is clear",
+                    "this document restricts {}: {}",
                     operation.as_str(),
-                    operation.bit()
+                    reasons(&restrictions)
                 ),
             }),
         }
@@ -745,6 +773,52 @@ pub fn apply(
         Plan::Attachments(plan) => attachments::run(plan, &document, sinks, &mut report)?,
     }
     Ok(report)
+}
+
+/// One restriction, worded for a batch tool's stderr.
+///
+/// `pdf_model::restriction` answers with clauses and levels and words nothing, for the reason
+/// its module comment gives; `viewer_core::notes` words the same list for a window, and this is
+/// the same list worded for a pipe — shorter, because a line on stderr is read beside a command
+/// rather than in a dialogue.
+fn describe_restriction(operation: Operation, restriction: Restriction) -> String {
+    use pdf_model::signature::Modification;
+    match restriction {
+        // §7.6.4.2's Table 22, the bit `Operation::bit` chose for this document's revision.
+        Restriction::AccessDenied { bit } => {
+            format!("Table 22 bit {} is clear", bit.position())
+        }
+        // §12.8.2.2's Table 257, and §12.8.6's sentence that makes it binding: "PDF processors
+        // shall enforce the permissions specified by the P entry".
+        Restriction::Certified { level } => match level {
+            Modification::None => "its author certified it as final (§12.8.2.2's /P 1)".to_owned(),
+            Modification::FormFilling => format!(
+                "its author's certification permits only form filling and signing (§12.8.2.2's \
+                 /P 2), not {}",
+                operation.as_str()
+            ),
+            Modification::FormFillingAndAnnotation => format!(
+                "its author's certification permits form filling, signing and annotation \
+                 (§12.8.2.2's /P 3), not {}",
+                operation.as_str()
+            ),
+            Modification::Unknown(value) => {
+                format!(
+                    "its author's certification states /P {value}, which Table 257 does not define"
+                )
+            }
+        },
+        // Neither names a field or an annotation this crate's verbs touch; `decide` is asked
+        // with no field and no annotation, so neither can arrive. Worded all the same, because
+        // a variant a match cannot word is a sentence waiting to be missing.
+        Restriction::FieldLocked => "a signature locks the field (§12.7.5.5)".to_owned(),
+        Restriction::FieldCovered => {
+            "a signature's FieldMDP transform covers the field (§12.8.2.4)".to_owned()
+        }
+        Restriction::AnnotationLocked => {
+            "the annotation's LockedContents flag is set (Table 167 bit 10)".to_owned()
+        }
+    }
 }
 
 /// The words for an interpreter report, which `pdf-model` deliberately does not word for a

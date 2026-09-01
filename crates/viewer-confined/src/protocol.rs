@@ -1749,6 +1749,9 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
                 .u8(match operation {
                     Operation::FillInForm => 0,
                     Operation::Annotate => 1,
+                    Operation::Print => 2,
+                    Operation::Extract => 3,
+                    Operation::Modify => 4,
                 })
                 .strings(notes);
         }
@@ -1889,6 +1892,9 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
             operation: match reader.u8("an operation")? {
                 0 => Operation::FillInForm,
                 1 => Operation::Annotate,
+                2 => Operation::Print,
+                3 => Operation::Extract,
+                4 => Operation::Modify,
                 value => {
                     return Err(ProtocolError::Unrecognised {
                         what: "an operation",

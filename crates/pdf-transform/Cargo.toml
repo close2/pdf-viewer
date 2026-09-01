@@ -27,6 +27,10 @@ viewer-core.workspace = true
 png.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
+# Table 45's `/CheckSum` for an attached file, "the standard MD5 message-digest algorithm" — the
+# same crate `pdf-syntax` already digests §14.4's identifier with.
+md-5.workspace = true
+
 
 [lints]
 workspace = true

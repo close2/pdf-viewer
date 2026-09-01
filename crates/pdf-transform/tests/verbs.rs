@@ -86,6 +86,8 @@ fn a_rendered_page_is_the_oracle_backends_raster_byte_for_byte() {
         pages: "1".parse().expect("a selection"),
         size: Sizing::Dpi(150.0),
         format: ImageFormat::Png,
+        page_box: None,
+        annotations: true,
         names: "page-%d.png".parse().expect("a pattern"),
     });
     let report = apply(
@@ -303,6 +305,11 @@ fn restrictions_have_levels() {
     let (code, stdout, stderr) = run(&dir, &["images", path, "--restrictions=on", "--list"]);
     assert_eq!(code, 0, "{stderr}");
     assert!(!stdout.is_empty(), "the document places images");
+    // The fourth level is a usage error on a command line, before the file is opened: a pipe
+    // has nobody to ask, and the sentence says so rather than letting `ask` look like a level.
+    let (code, _stdout, stderr) = run(&dir, &["images", path, "--restrictions=ask", "--list"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("cannot ask"), "{stderr}");
 }
 
 /// `images`: the inventory names every image `XObject` the pages reach, each object once, and
@@ -318,6 +325,7 @@ fn images_are_listed_and_extracted() {
             min_pixels: 0,
             list_only: true,
             native: false,
+            no_mask: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -351,6 +359,7 @@ fn images_are_listed_and_extracted() {
             min_pixels: floor,
             list_only: true,
             native: false,
+            no_mask: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -369,6 +378,7 @@ fn images_are_listed_and_extracted() {
             min_pixels: 0,
             list_only: false,
             native: false,
+            no_mask: false,
             names: "img-%d.png".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -556,6 +566,7 @@ fn an_inline_image_is_listed_at_its_placement_and_extracted() {
             min_pixels: 0,
             list_only: true,
             native: false,
+            no_mask: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -585,6 +596,7 @@ fn an_inline_image_is_listed_at_its_placement_and_extracted() {
             min_pixels: 0,
             list_only: false,
             native: false,
+            no_mask: false,
             names: "img-%d.png".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -617,9 +629,13 @@ fn an_inline_image_is_listed_at_its_placement_and_extracted() {
 /// under `.png`, the report naming the file form; and where the codec has no standalone file
 /// form the image is decoded and the report says so, per image.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one document, through the seam and then the program, each output checked by name"
+)]
 fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not() {
-    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
-    let bytes = std::fs::read(&path).expect("a committed document");
+    let bytes =
+        std::fs::read(committed("ISO_32000-2_sponsored_EC3.pdf")).expect("a committed document");
     let listing = apply(
         &Plan::Images(ImagesPlan {
             source: 0,
@@ -627,6 +643,7 @@ fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not
             min_pixels: 0,
             list_only: true,
             native: true,
+            no_mask: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -656,7 +673,9 @@ fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not
         &dir,
         &[
             "images",
-            path.to_str().expect("utf-8"),
+            committed("ISO_32000-2_sponsored_EC3.pdf")
+                .to_str()
+                .expect("utf-8"),
             "--pages",
             "100-130",
             "--native",
@@ -691,6 +710,7 @@ fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not
             min_pixels: 0,
             list_only: false,
             native: true,
+            no_mask: false,
             names: "img-%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -794,4 +814,294 @@ fn file_attachment_annotations_are_listed_with_their_page_and_saved() {
         );
         assert_eq!(i64::try_from(written.len()).ok(), entry.size, "{name}");
     }
+}
+
+/// The corpus fixture with one `DCTDecode` image under an `/SMask`: what §8.9.6.1 calls soft
+/// masking through the `SMask` entry, on a JPEG, which is the one case the native route could
+/// only drop before this flag existed.
+fn masked_jpeg_document() -> Option<Vec<u8>> {
+    let path = corpus("issue21570.pdf")?;
+    Some(std::fs::read(path).expect("a corpus document"))
+}
+
+/// Runs `images` over the fixture with these two switches, answering the outputs by name.
+fn images_of(bytes: &[u8], native: bool, no_mask: bool) -> Vec<(String, Vec<u8>)> {
+    let sinks = MemorySinks::new();
+    let report = apply(
+        &Plan::Images(ImagesPlan {
+            source: 0,
+            pages: Selection::all(),
+            min_pixels: 0,
+            list_only: false,
+            native,
+            no_mask,
+            names: if native { "img-%d" } else { "img-%d.png" }
+                .parse()
+                .expect("a pattern"),
+        }),
+        &[Source::new(bytes.to_vec())],
+        &sinks,
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect("the plan applies");
+    assert_eq!(report.exit(false, false), Exit::Success, "{report:?}");
+    sinks.into_outputs()
+}
+
+/// The three outputs of the module comment, on one image, and what the standard makes them
+/// to each other: the composite's alpha *is* the soft mask's sample on a shared grid
+/// (§11.6.5.2 — the mask's values are the opacity), its colour is the base's, and the base
+/// written without its mask is opaque everywhere, since an image with no mask "mark[s] all
+/// areas [it] occup[ies] on the page as if with opaque paint" (§8.9.6.1).
+#[test]
+fn a_soft_mask_is_composited_by_default_and_kept_beside_the_image_under_no_mask() {
+    let Some(bytes) = masked_jpeg_document() else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let composite = images_of(&bytes, false, false);
+    assert_eq!(composite.len(), 1, "one image, its mask inside it");
+    assert_eq!(composite[0].0, "img-1.png");
+    let (width, height, composite) = decode_png(&composite[0].1);
+
+    let separate = images_of(&bytes, false, true);
+    assert_eq!(
+        separate
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["img-1.png", "img-1.mask.png"],
+        "the base, and the mask beside it"
+    );
+    let (base_width, base_height, base) = decode_png(&separate[0].1);
+    assert_eq!((base_width, base_height), (width, height));
+    let (mask_width, mask_height, mask) = decode_grey_png(&separate[1].1);
+    assert_eq!(
+        (mask_width, mask_height),
+        (width, height),
+        "this fixture's mask shares the base's grid"
+    );
+
+    assert!(
+        base.chunks_exact(4).all(|px| px[3] == 255),
+        "the base without its mask is opaque everywhere"
+    );
+    assert!(
+        mask.contains(&0) && mask.contains(&255),
+        "the mask masks something and keeps something"
+    );
+    for ((c, b), &m) in composite
+        .chunks_exact(4)
+        .zip(base.chunks_exact(4))
+        .zip(mask.iter())
+    {
+        assert_eq!(c[3], m, "the composite's alpha is the mask's sample");
+        if m > 0 {
+            assert_eq!(&c[..3], &b[..3], "and its colour is the base's");
+        }
+    }
+
+    // The native route: the JPEG as it is, and the same mask beside it — a JPEG has nowhere
+    // to put one.
+    let native = images_of(&bytes, true, false);
+    assert_eq!(
+        native
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["img-1.jpg", "img-1.mask.png"]
+    );
+    assert_eq!(
+        &native[0].1[..2],
+        &[0xFF, 0xD8],
+        "ISO/IEC 10918-1's SOI marker"
+    );
+    assert_eq!(native[1].1, separate[1].1, "one mask, whichever route");
+}
+
+/// Where the mask goes, by name: the image's extension replaced, or appended where it has none.
+#[test]
+fn a_mask_is_named_beside_its_image() {
+    use pdf_transform::images::mask_name;
+    assert_eq!(mask_name("img-3.png"), "img-3.mask.png");
+    assert_eq!(mask_name("img-3.jpg"), "img-3.mask.png");
+    assert_eq!(mask_name("img-3"), "img-3.mask.png");
+    assert_eq!(mask_name("out.v2/img-3"), "out.v2/img-3.mask.png");
+    assert_eq!(mask_name("out.v2/img-3.jp2"), "out.v2/img-3.mask.png");
+}
+
+/// Decodes an 8-bit greyscale PNG.
+fn decode_grey_png(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut reader = decoder.read_info().expect("a PNG");
+    let mut data = vec![0; reader.output_buffer_size().expect("a bounded size")];
+    let info = reader.next_frame(&mut data).expect("a frame");
+    assert_eq!(info.color_type, png::ColorType::Grayscale);
+    assert_eq!(info.bit_depth, png::BitDepth::Eight);
+    data.truncate(info.buffer_size());
+    (info.width, info.height, data)
+}
+
+/// One page's rectangle under a key, read off the page dictionary independently of the crate
+/// — and off its ancestors for the two boxes §7.7.3.4 makes inheritable, `MediaBox` and
+/// `CropBox`; the other three "shall not be inherited".
+fn stated_box(
+    document: &pdf_syntax::Document,
+    page: &pdf_syntax::Dictionary,
+    key: &str,
+) -> Option<[f32; 4]> {
+    let inheritable = matches!(key, "MediaBox" | "CropBox");
+    let mut node = page.clone();
+    let mut array = document.get_key(&node, key);
+    let mut depth: u32 = 0;
+    while array.as_array().is_none() && inheritable && depth < 64 {
+        let parent = document.get_key(&node, "Parent");
+        node = parent.as_dict()?.clone();
+        array = document.get_key(&node, key);
+        depth = depth.saturating_add(1);
+    }
+    let array = array.as_array()?;
+    let mut out = [0.0; 4];
+    for (slot, item) in out.iter_mut().zip(array) {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "a page box's coordinates are small numbers a file states"
+        )]
+        {
+            *slot = document.resolve(item).as_number()? as f32;
+        }
+    }
+    Some(out)
+}
+
+/// §8.3.2.3's 72 units to the inch at 150 dpi, rounded up to whole pixels the way
+/// `pdf_render::TargetSpec::for_page` rounds — the raster contains the page.
+fn pixels_at_150_dpi(extent: f32) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a page extent in pixels is a small positive number"
+    )]
+    let pixels = (f64::from(extent) * 150.0 / 72.0).ceil() as u32;
+    pixels
+}
+
+/// `--page-box`: the raster's extent is the box asked for, each box defaulted as §7.7.3.3's
+/// Table 31 states — the crop box "[d]efault value: the value of `MediaBox`", and the bleed,
+/// trim and art boxes "[d]efault value: the value of `CropBox`" — on a corpus page whose crop
+/// box is a quarter of its media box and which states none of the other three.
+#[test]
+fn the_page_box_asked_for_is_the_rasters_extent_and_the_unstated_boxes_default_to_the_crop_box() {
+    use pdf_transform::render::Boundary;
+    let Some(path) = corpus("issue2177.pdf") else {
+        eprintln!("skipped: the pdf.js corpus is not checked out");
+        return;
+    };
+    let bytes = std::fs::read(path).expect("a corpus document");
+    let document = pdf_syntax::Document::open(bytes.clone()).expect("a PDF");
+    let page = support::page_dictionaries(&document)
+        .into_iter()
+        .next()
+        .expect("a page");
+    let media = stated_box(&document, &page, "MediaBox").expect("the page states a media box");
+    let crop = stated_box(&document, &page, "CropBox").expect("the fixture states a crop box");
+    for absent in ["BleedBox", "TrimBox", "ArtBox"] {
+        assert!(
+            stated_box(&document, &page, absent).is_none(),
+            "the fixture states no {absent}, so Table 31's default decides it"
+        );
+    }
+    let expected = |rectangle: [f32; 4]| {
+        (
+            pixels_at_150_dpi(rectangle[2] - rectangle[0]),
+            pixels_at_150_dpi(rectangle[3] - rectangle[1]),
+        )
+    };
+
+    let extent_under = |page_box: Option<Boundary>| {
+        let sinks = MemorySinks::new();
+        let report = apply(
+            &Plan::Render(RenderPlan {
+                source: 0,
+                pages: "1".parse().expect("a selection"),
+                size: Sizing::Dpi(150.0),
+                format: ImageFormat::Png,
+                page_box,
+                annotations: true,
+                names: "p.png".parse().expect("a pattern"),
+            }),
+            &[Source::new(bytes.clone())],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        )
+        .expect("the plan applies");
+        match &report.outputs[..] {
+            [
+                Output {
+                    origin: Origin::Page { width, height, .. },
+                    ..
+                },
+            ] => (*width, *height),
+            other => panic!("one page: {other:?}"),
+        }
+    };
+    assert_eq!(extent_under(Some(Boundary::Media)), expected(media));
+    assert_eq!(extent_under(Some(Boundary::Crop)), expected(crop));
+    for defaulted in [Boundary::Bleed, Boundary::Trim, Boundary::Art] {
+        assert_eq!(
+            extent_under(Some(defaulted)),
+            expected(crop),
+            "{defaulted:?} defaults to the crop box"
+        );
+    }
+    // No `/ViewArea` in this document, so the viewer's own display boundary is the crop box.
+    assert_eq!(extent_under(None), expected(crop));
+    assert_ne!(expected(media), expected(crop));
+}
+
+/// `--no-annotations`: the page is drawn as a page stating no `/Annots`, so §12.5.3's pass
+/// draws nothing and the raster differs from the one §6.3.2.2 obliges — on a page of the
+/// standard's own PDF that carries file attachment annotations with appearance streams.
+#[test]
+fn without_annotations_the_page_contents_alone_are_drawn() {
+    let bytes =
+        std::fs::read(committed("ISO_32000-2_sponsored_EC3.pdf")).expect("a committed document");
+    let document = pdf_syntax::Document::open(bytes.clone()).expect("a PDF");
+    let pages = pdf_model::Pages::new(&document);
+    let page = pages.get(961).expect("page 962");
+    assert!(page.dict.get("Annots").is_some(), "page 962 states /Annots");
+    let drawn = pdf_transform::render::page_to_draw(&page, None, false);
+    assert!(drawn.dict.get("Annots").is_none());
+    assert_eq!(
+        drawn.display_box.map(f32::to_bits),
+        page.display_box.map(f32::to_bits),
+        "the box is untouched"
+    );
+
+    let raster_with = |annotations: bool| {
+        let sinks = MemorySinks::new();
+        apply(
+            &Plan::Render(RenderPlan {
+                source: 0,
+                pages: "962".parse().expect("a selection"),
+                size: Sizing::Dpi(72.0),
+                format: ImageFormat::Png,
+                page_box: None,
+                annotations,
+                names: "p.png".parse().expect("a pattern"),
+            }),
+            &[Source::new(bytes.clone())],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        )
+        .expect("the plan applies");
+        decode_png(&sinks.into_outputs()[0].1)
+    };
+    let (w1, h1, with) = raster_with(true);
+    let (w2, h2, without) = raster_with(false);
+    assert_eq!((w1, h1), (w2, h2), "the same box either way");
+    assert_ne!(with, without, "the annotations' appearances are marks");
 }

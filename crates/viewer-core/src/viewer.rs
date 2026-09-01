@@ -1196,6 +1196,12 @@ impl Viewer {
     /// reader has turned its restrictions off, which `CLAUDE.md` says shall always be possible.
     /// The two are one answer here and two answers to a person, which is what
     /// [`crate::Event::Refused`] carries the operation for.
+    ///
+    /// **The policy is `pdf_model::restriction::decide`'s, asked here once and matched
+    /// exhaustively.** [`crate::RestrictionLevel`] supplies two of the four levels, so two of
+    /// the four verdicts cannot arrive from this crate today; their arms are written all the
+    /// same, in the direction that obeys, so that the day a host can answer them the change is
+    /// here and nowhere quieter (ADR 0803, `doc/todo/38`).
     fn refusal(
         &self,
         id: DocumentId,
@@ -1203,15 +1209,28 @@ impl Viewer {
         field: Option<&str>,
         annotation: Option<ObjectId>,
     ) -> Option<Event> {
-        if self.restrictions == crate::RestrictionLevel::Off {
-            return None;
-        }
+        use pdf_model::restriction::Verdict;
         let open = self.focused()?;
-        let notes = crate::notes::refusal(&open.document, operation, field, annotation);
-        (!notes.is_empty()).then_some(Event::Refused {
+        let restrictions = match pdf_model::restriction::decide(
+            self.restrictions.level(),
+            &open.document,
+            operation,
+            field,
+            annotation,
+        ) {
+            Verdict::Proceed => return None,
+            // `Warn` and `Ask` are not levels `RestrictionLevel` has; a *warn* that proceeded
+            // silently or an *ask* nobody could answer would be the level behaving as another,
+            // so each is answered as a refusal — visibly, with the reasons — until
+            // `doc/todo/38`'s event and command exist and split this arm in three.
+            Verdict::Refuse(restrictions)
+            | Verdict::Warn(restrictions)
+            | Verdict::Ask(restrictions) => restrictions,
+        };
+        Some(Event::Refused {
             document: id,
             operation,
-            notes,
+            notes: crate::notes::refusal(operation, &restrictions),
         })
     }
 

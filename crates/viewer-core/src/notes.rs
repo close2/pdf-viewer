@@ -259,23 +259,22 @@ pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
 /// The other half of [`about`], and the same vocabulary: what a document asserts is read by
 /// `pdf_model::restriction`, which answers with clauses and levels, and the words are here
 /// because words about a document belong where the rest of this program's words about one are.
-/// Empty means the document asserts nothing against it.
+/// One sentence per restriction, in the order `pdf_model::restriction::asserted` found them.
 ///
-/// **Worded even where the reader is ignoring them.** [`crate::RestrictionLevel::Off`] means the
-/// operation happens, not that the file said nothing — and *ask* and *warn*, when they arrive,
-/// need exactly these sentences at exactly this moment.
+/// **A function of the restrictions rather than of the document**, since the
+/// eight-hundred-and-seventy-second session: the reading and the policy are both
+/// `pdf_model::restriction::decide`'s, and what reaches here is what the verdict carried — the
+/// same list *ask* and *warn* will need worded at exactly this moment, when they arrive.
 pub(crate) fn refusal(
-    document: &Document,
     operation: pdf_model::restriction::Operation,
-    field: Option<&str>,
-    annotation: Option<pdf_syntax::ObjectId>,
+    restrictions: &[pdf_model::restriction::Restriction],
 ) -> Vec<String> {
     use pdf_model::restriction::Restriction;
     use pdf_model::signature::Modification;
 
-    pdf_model::restriction::asserted(document, operation, field, annotation)
-        .into_iter()
-        .map(|restriction| match restriction {
+    restrictions
+        .iter()
+        .map(|restriction| match *restriction {
             // §12.8.2.2.1's parenthesis is a `shall` addressed to a processor that modifies:
             // "(These changes to the document shall also be prevented if the signature
             // dictionary is referred from the DocMDP entry in the permissions dictionary.)"
@@ -301,9 +300,10 @@ pub(crate) fn refusal(
             // the intent of the document creator by restricting user access to an encrypted PDF
             // file according to the permissions contained in the file."
             Restriction::AccessDenied { bit } => format!(
-                "this document's encryption does not grant {} (§7.6.4.2's Table 22, bit {bit}) — \
+                "this document's encryption does not grant {} (§7.6.4.2's Table 22, bit {}) — \
                  it was not done",
-                operation.as_str()
+                operation.as_str(),
+                bit.position()
             ),
             // §12.7.5.5: "The signature field lock dictionary … contains the names of form
             // fields whose values shall no longer be changed after this signature has been

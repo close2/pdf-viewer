@@ -46,10 +46,38 @@
 //! The bytes are those after every filter *in front of* the codec has run —
 //! `pdf_syntax::Document::image_stream`, the same call the interpreter makes — so a
 //! `[/FlateDecode /DCTDecode]` chain yields the JPEG. What the native form loses is stated
-//! rather than hidden: the dictionary's `/Decode` array and `/SMask` are not in the codestream,
-//! so a JPEG written natively is the JPEG, not the image as the page draws it. The listing's
-//! `masked` field says which images that touches. Under `--native` the format's extension is
-//! appended to the expanded name, because the caller cannot know which of three it will be.
+//! rather than hidden: the dictionary's `/Decode` array is not in the codestream, so a JPEG
+//! written natively is the JPEG, not the image as the page draws it. Under `--native` the
+//! format's extension is appended to the expanded name, because the caller cannot know which
+//! of three it will be.
+//!
+//! # The mask, beside the image or inside it
+//!
+//! ISO 32000-2 §8.9.6.1 names the ways an image is masked, and two of them are a second image:
+//! §8.9.6.3's explicit mask, "a separate image `XObject` which shall be used as an explicit mask
+//! specifying which areas of the image to paint and which to mask out", and §11.6.5.2's soft
+//! mask through `/SMask`. §8.9.6.3 says what the two images are to each other — "[t]he base
+//! image and the image mask need not have the same resolution (Width and Height values), but
+//! since all images shall be defined on the unit square in user space, their boundaries on the
+//! page will coincide" — so a mask is an image on its own grid, and the page's picture is the
+//! base seen through it. Three outputs follow, and the plan decides between them:
+//!
+//! - **The composite**, a PNG whose alpha is the mask resampled onto the base's grid: the
+//!   default on the decoded route, because it is the image as the page draws it, and the one
+//!   file form that can carry it.
+//! - **The base as it is, with the mask beside it** as `<name>.mask.png`, an 8-bit grey image
+//!   on the mask's own grid whose value is the opacity it gives the base — a soft mask's
+//!   samples, or an explicit mask's painted places as 255. This is what [`ImagesPlan::no_mask`]
+//!   asks for on the decoded route, and it is what the native route **always** does, because a
+//!   JPEG or a JP2 without opacity in its codestream has nowhere to put a mask and dropping it
+//!   was the one silent loss this verb had (trap 5).
+//! - **Nothing beside it** where the mask is not an image: §8.9.6.4's colour key is a range of
+//!   sample values, and §11.6.5.2's `/SMaskInData` is opacity that travelled in the codestream.
+//!   Both are said in the report rather than written as a file that would have to be invented.
+//!
+//! The base written without its mask is the same stream decoded as if it stated no `/SMask`
+//! and no `/Mask`: `pdf_model::image::decode` over a copy of the dictionary with the two
+//! entries removed, which is one decoder rather than a second route through it. ADR 0802.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -81,6 +109,10 @@ pub struct ImagesPlan {
     /// `.jpg`, JPX as `.jp2` — and decoded PNG otherwise, saying so. The module comment has
     /// what the native form does and does not carry.
     pub native: bool,
+    /// Keep a mask out of the image's alpha and write it beside the image as its own file
+    /// instead. The module comment has the three outputs this chooses between.
+    pub no_mask: bool,
+
     /// How the outputs are named.
     pub names: Pattern,
 }
@@ -154,6 +186,9 @@ pub enum ImageFile {
     Jpeg,
     /// §7.4.9's stream as it is.
     Jp2,
+    /// An image's mask on its own grid, as an 8-bit grey PNG: the opacity each sample gives
+    /// the base image it is written beside.
+    Mask,
 }
 
 impl ImageFile {
@@ -164,8 +199,22 @@ impl ImageFile {
             Self::Png => "png",
             Self::Jpeg => "jpg",
             Self::Jp2 => "jp2",
+            Self::Mask => "mask.png",
         }
     }
+}
+
+/// The name a mask is written under beside an image called `name`: the name with its file
+/// extension, if it has one, replaced by `.mask.png` — so `img-3.png` and `img-3.jpg` both put
+/// their mask at `img-3.mask.png`, and `img-3` does too.
+#[must_use]
+pub fn mask_name(name: &str) -> String {
+    let file_starts = name.rfind('/').map_or(0, |slash| slash.saturating_add(1));
+    let stem = match name[file_starts..].rfind('.') {
+        Some(dot) if dot > 0 => &name[..file_starts.saturating_add(dot)],
+        _ => name,
+    };
+    format!("{stem}.mask.png")
 }
 
 /// One image found on a page: what decoding it needs.
@@ -231,23 +280,25 @@ pub(crate) fn run(
         .enumerate()
         .map(|(at, found)| write_one(plan, document, sinks, at, count, found))
         .collect();
-    for Written { outcome, warning } in outcomes {
-        report.warnings.extend(warning);
-        match outcome {
-            Ok(output) => report.outputs.push(output),
-            Err(Problem::Declined(declined)) => report.refused.push(declined),
-            Err(Problem::Sink(name, error)) => return Err(Refusal::Sink { name, error }),
+    for Written { outcomes, warnings } in outcomes {
+        report.warnings.extend(warnings);
+        for outcome in outcomes {
+            match outcome {
+                Ok(output) => report.outputs.push(output),
+                Err(Problem::Declined(declined)) => report.refused.push(declined),
+                Err(Problem::Sink(name, error)) => return Err(Refusal::Sink { name, error }),
+            }
         }
     }
     Ok(())
 }
 
-/// What writing one image produced.
+/// What writing one image produced: the image, and its mask where one is written beside it.
 struct Written {
-    /// The output, or why not.
-    outcome: Result<Output, Problem>,
-    /// What `--native` could not do for it, where it could not.
-    warning: Option<Warning>,
+    /// Each output, or why not — the image first, then its mask.
+    outcomes: Vec<Result<Output, Problem>>,
+    /// What could not be done for it, where something could not.
+    warnings: Vec<Warning>,
 }
 
 /// Why an image was not written: this program declined it (exit 4, the others still written),
@@ -279,7 +330,8 @@ fn file_for(plan: &ImagesPlan, document: &Document, found: &Found) -> (ImageFile
     }
 }
 
-/// Writes the `at`-th of `count` found images, as the plan says.
+/// Writes the `at`-th of `count` found images, as the plan says, and its mask beside it
+/// where the plan or the file form keeps the two apart.
 fn write_one(
     plan: &ImagesPlan,
     document: &Document,
@@ -301,24 +353,68 @@ fn write_one(
     } else {
         expanded.name
     };
-    let warning = reason.map(|reason| Warning {
-        source: plan.source,
-        page: Some(found.entry.page),
-        detail: format!("{name}: {reason}"),
-    });
-    let outcome = write_as(
+    let page = Some(found.entry.page);
+    let mut warnings: Vec<Warning> = reason
+        .map(|reason| Warning {
+            source: plan.source,
+            page,
+            detail: format!("{name}: {reason}"),
+        })
+        .into_iter()
+        .collect();
+    // The mask stays out of the image where the plan says so, and where the file form could
+    // not hold it anyway: a JPEG has no alpha, and a JP2 without §11.6.5.2's `/SMaskInData`
+    // has none either. The module comment has the three outputs.
+    let separate = plan.no_mask || file != ImageFile::Png;
+    let mut outcomes = vec![write_as(
         plan,
         document,
         sinks,
         found,
         &name,
         file,
+        separate,
         expanded.sanitised,
-    );
-    Written { outcome, warning }
+    )];
+    if separate {
+        match mask_of(document, found) {
+            Ok(Some(mask)) => outcomes.push(write_mask(
+                plan,
+                sinks,
+                found,
+                &mask_name(&name),
+                &mask,
+                expanded.sanitised,
+            )),
+            Ok(None) => {}
+            Err(reason) => warnings.push(Warning {
+                source: plan.source,
+                page,
+                detail: format!("{name}: {reason}"),
+            }),
+        }
+    }
+    if separate && !plan.native && smask_in_data(document, &found.stream) {
+        warnings.push(Warning {
+            source: plan.source,
+            page,
+            detail: format!(
+                "{name}: the opacity travelled in the codestream (§11.6.5.2's /SMaskInData) and \
+                 stays in the PNG's alpha, since it has no existence apart from the samples"
+            ),
+        });
+    }
+    Written { outcomes, warnings }
 }
 
 /// Produces the bytes of one image in one file form and writes them.
+///
+/// `unmasked` decodes the PNG route's image as if its dictionary stated no `/SMask` and no
+/// `/Mask`, which is what "the base as it is" means; the native route never applies one.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one call site, and a struct for eight things used once would name the same eight"
+)]
 fn write_as(
     plan: &ImagesPlan,
     document: &Document,
@@ -326,6 +422,7 @@ fn write_as(
     found: &Found,
     name: &str,
     file: ImageFile,
+    unmasked: bool,
     sanitised: bool,
 ) -> Result<Output, Problem> {
     let declined = |detail: String| {
@@ -338,15 +435,16 @@ fn write_as(
     };
     let sink_failed = |error: std::io::Error| Problem::Sink(name.to_owned(), error);
     let (bytes, width, height): (Arc<[u8]>, u32, u32) = match file {
-        ImageFile::Png => {
-            let image = pdf_model::image::decode(
-                document,
-                &found.stream,
-                &found.resources,
-                pdf_render::Color::BLACK,
-                &pdf_model::colour::Conversion::device(),
-            )
-            .map_err(|error| declined(error.to_string()))?;
+        ImageFile::Png | ImageFile::Mask => {
+            let unmasked_stream;
+            let stream: &Stream = if unmasked {
+                unmasked_stream = without_masks(&found.stream);
+                &unmasked_stream
+            } else {
+                &found.stream
+            };
+            let image = decode_image(document, stream, &found.resources)
+                .map_err(|error| declined(error.to_string()))?;
             let raster = pdf_render::Raster {
                 width: image.width,
                 height: image.height,
@@ -385,6 +483,147 @@ fn write_as(
             height,
         },
     })
+}
+
+/// One decode, the interpreter's own: straight-alpha RGBA8 on the grid the samples are on,
+/// a stencil painted black through its set bits, colour converted as a device would.
+fn decode_image(
+    document: &Document,
+    stream: &Stream,
+    resources: &Dictionary,
+) -> Result<pdf_render::Image, pdf_model::image::ImageError> {
+    pdf_model::image::decode(
+        document,
+        stream,
+        resources,
+        pdf_render::Color::BLACK,
+        &pdf_model::colour::Conversion::device(),
+    )
+}
+
+/// The same stream stating no `/SMask` and no `/Mask`: the base image alone.
+fn without_masks(stream: &Stream) -> Stream {
+    let mut dict = stream.dict.clone();
+    dict.remove("SMask");
+    dict.remove("Mask");
+    Stream {
+        dict,
+        data: Arc::clone(&stream.data),
+        decryption_failed: stream.decryption_failed,
+    }
+}
+
+/// Whether Table 87's `/SMaskInData` says the opacity came with the samples.
+fn smask_in_data(document: &Document, stream: &Stream) -> bool {
+    document
+        .get_key(&stream.dict, "SMaskInData")
+        .as_integer()
+        .is_some_and(|code| code != 0)
+}
+
+/// An image's mask as the grey it gives the base: one byte per sample on the mask's own grid.
+struct MaskImage {
+    /// The opacity per sample, row by row.
+    opacity: Vec<u8>,
+    /// The mask's own `/Width`.
+    width: u32,
+    /// Its `/Height`.
+    height: u32,
+}
+
+/// Reads the mask an image states as an image of its own, or says why there is no such image.
+///
+/// `Ok(None)` is an image that states no mask. `Err` is a mask that exists and is not an
+/// image — §8.9.6.4's colour key — or one that this tree could not decode, worded for the
+/// report.
+fn mask_of(document: &Document, found: &Found) -> Result<Option<MaskImage>, String> {
+    let dict = &found.stream.dict;
+    // §11.6.5.2's soft mask first, because §11.6.4.3 makes it override an explicit or colour
+    // key mask where both are stated — the same order `pdf_model::image::decode` applies them.
+    let soft = document.get_key(dict, "SMask");
+    if let Some(mask) = soft.as_stream() {
+        // A soft-mask image is a `DeviceGray` image XObject, and its decoded samples *are* the
+        // opacity: the grey is read off the red channel because the three are one value.
+        let image = decode_image(document, mask, &found.resources)
+            .map_err(|error| format!("the /SMask could not be decoded ({error})"))?;
+        return Ok(Some(MaskImage {
+            opacity: image.data.chunks_exact(4).map(|px| px[0]).collect(),
+            width: image.width,
+            height: image.height,
+        }));
+    }
+    let explicit = document.get_key(dict, "Mask");
+    if let Some(stencil) = explicit.as_stream() {
+        // §8.9.6.3: "[u]nmasked areas shall be painted with the corresponding portions of the
+        // base image; masked areas shall not be", and §8.9.6.2 gives the stencil's sample that
+        // paints. Decoded as the stencil it is, the painted places are the opaque ones, so the
+        // alpha channel is the opacity the base receives.
+        let image = decode_image(document, stencil, &found.resources)
+            .map_err(|error| format!("the /Mask could not be decoded ({error})"))?;
+        return Ok(Some(MaskImage {
+            opacity: image.data.chunks_exact(4).map(|px| px[3]).collect(),
+            width: image.width,
+            height: image.height,
+        }));
+    }
+    if explicit.as_array().is_some() {
+        return Err(
+            "§8.9.6.4's colour key mask is a range of sample values rather than an image, so \
+             there is no mask file; the image is written with no mask applied"
+                .to_owned(),
+        );
+    }
+    Ok(None)
+}
+
+/// Writes one mask as an 8-bit grey PNG.
+fn write_mask(
+    plan: &ImagesPlan,
+    sinks: &dyn Sinks,
+    found: &Found,
+    name: &str,
+    mask: &MaskImage,
+    sanitised: bool,
+) -> Result<Output, Problem> {
+    let sink_failed = |error: std::io::Error| Problem::Sink(name.to_owned(), error);
+    let bytes = encode_grey(mask.width, mask.height, &mask.opacity)
+        .map_err(|error| sink_failed(std::io::Error::other(error)))?;
+    let mut sink = sinks.open(name).map_err(sink_failed)?;
+    sink.write_all(&bytes)
+        .and_then(|()| sink.flush())
+        .map_err(sink_failed)?;
+    Ok(Output {
+        name: name.to_owned(),
+        bytes: u64::try_from(bytes.len()).unwrap_or(u64::MAX),
+        sanitised,
+        origin: Origin::Image {
+            source: plan.source,
+            page: found.entry.page,
+            object: found.entry.object.clone(),
+            inline: found.entry.inline,
+            file: ImageFile::Mask,
+            width: mask.width,
+            height: mask.height,
+        },
+    })
+}
+
+/// Encodes one byte per sample as an 8-bit greyscale PNG, deterministically, as
+/// [`crate::render::encode`] does for RGBA.
+///
+/// # Errors
+///
+/// The encoder's, which for a buffer whose length is width × height does not happen.
+pub fn encode_grey(width: u32, height: u32, samples: &[u8]) -> Result<Vec<u8>, png::EncodingError> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, width, height);
+        encoder.set_color(png::ColorType::Grayscale);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(samples)?;
+    }
+    Ok(bytes)
 }
 
 /// Every image the selected pages reach, first reach first, each object once.

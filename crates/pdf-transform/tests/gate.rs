@@ -155,6 +155,7 @@ fn inventories(bytes: &[u8]) {
             min_pixels: 0,
             list_only: true,
             native: false,
+            no_mask: false,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.to_vec())],
