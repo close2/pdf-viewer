@@ -507,6 +507,129 @@ impl Tree {
         Namespace::read(document, space).map(|space| space.name)
     }
 
+    /// §14.8.6.2's requirement on the *document*: which namespaces its elements end in that the
+    /// clause does not permit.
+    ///
+    /// > In a tagged PDF, all structure elements shall be in at least one of the standard
+    /// > structure namespaces or in a namespace identified in 14.8.6.3 , ' Other namespaces '.
+    ///
+    /// This is the one sentence of §14.8.6 addressed to whoever *wrote* the file rather than to
+    /// whoever reads it, and it is the reason both its subclauses stood `partial`: every other
+    /// requirement is executed by [`Self::role`], [`Self::standard_role`] and [`Self::namespace`],
+    /// and nothing said a word about a document that breaks this one. Each entry here is one
+    /// namespace and how many elements ended in it, so a caller can say which vocabulary the
+    /// document used rather than only that it used one.
+    ///
+    /// `None` for a name where the element's `/NS` resolves to a dictionary stating no `/NS` of
+    /// its own — Table 356 makes that entry required, so the namespace identifies nothing and
+    /// the element is in no namespace this reader can name. That is a violation of the same
+    /// sentence and is counted apart from a namespace that *is* named, because the two are
+    /// different things to tell a person.
+    ///
+    /// # Why the root's `/Namespaces` array decides whether the elements are read at all
+    ///
+    /// The elements have to be walked to answer the clause, and the walk is **151 ms** on the
+    /// largest tagged document this tree holds ([`MAX_ELEMENTS`]'s own note has the measurement),
+    /// which is more than the whole launch path is allowed. The clause is what makes it
+    /// unnecessary: "[i]f the structure element is in an explicit namespace, then that namespace
+    /// shall be identified in the structure tree root dictionary's Namespaces array entry", so
+    /// the array is the set of namespaces a conforming file's elements can name, and a root
+    /// declaring none outside §14.8.6.1's two and §14.8.6.3's one has no element to find. That
+    /// test is a handful of dictionary lookups and it is what every tagged document pays.
+    ///
+    /// **The limit that leaves, stated rather than hidden**: an element whose `/NS` names a
+    /// namespace the root does not list is not seen here. Such a file breaks the sentence above
+    /// as well as the one this answers, and finding it would cost the walk on every tagged
+    /// document — so the cheap gate is a reading of the clause rather than an optimisation of it,
+    /// and the cost of closing it is a measured number rather than a guess.
+    #[must_use]
+    pub fn namespaces_outside_the_standard(&self, document: &Document) -> Vec<ForeignNamespace> {
+        if !self.declares_a_namespace_outside_the_standard(document) {
+            return Vec::new();
+        }
+        let mut counts: BTreeMap<Option<String>, usize> = BTreeMap::new();
+        let mut seen: BTreeSet<ObjectId> = BTreeSet::new();
+        let mut budget = MAX_ELEMENTS;
+        self.count_foreign(document, None, 0, &mut counts, &mut seen, &mut budget);
+        counts
+            .into_iter()
+            .map(|(name, elements)| ForeignNamespace { name, elements })
+            .collect()
+    }
+
+    /// Whether Table 354's `/Namespaces` array names a namespace §14.8.6.2 does not permit.
+    ///
+    /// Only a dictionary counts: an array entry that resolves to something else names no
+    /// namespace an element's `/NS` could resolve to either, so it is a defect in the array
+    /// rather than evidence about an element.
+    fn declares_a_namespace_outside_the_standard(&self, document: &Document) -> bool {
+        let declared = document.get_key(&self.root, "Namespaces");
+        let Some(items) = declared.as_array() else {
+            return false;
+        };
+        items.iter().any(|item| {
+            document
+                .resolve(item)
+                .as_dict()
+                .is_some_and(|dict| !permitted_namespace(document, dict))
+        })
+    }
+
+    /// Counts, per namespace, the elements below `element` that end outside §14.8.6.2's set.
+    ///
+    /// The same descent [`Self::descend`] performs, and bounded the same way — [`MAX_DEPTH`] on
+    /// the recursion, the object identity on a cycle, [`MAX_ELEMENTS`] on the whole — but it
+    /// keeps a count rather than the tree, because a document reaching this has already been
+    /// judged worth walking and nothing here needs the items.
+    fn count_foreign(
+        &self,
+        document: &Document,
+        element: Option<&Dictionary>,
+        depth: usize,
+        counts: &mut BTreeMap<Option<String>, usize>,
+        seen: &mut BTreeSet<ObjectId>,
+        budget: &mut usize,
+    ) {
+        if depth >= MAX_DEPTH {
+            return;
+        }
+        for (child, id) in self.identified_children(document, element) {
+            if *budget == 0 {
+                return;
+            }
+            *budget = budget.saturating_sub(1);
+            let Child::Element(dict) = child else {
+                continue;
+            };
+            // The identity decides the count as well as the descent, which is where this parts
+            // company with [`Self::descend`]: that one lists what the walk *reaches*, and this
+            // counts *elements*, so an element that is its own descendant is one element and not
+            // two. An element written inline in its parent's `/K` has no identity and cannot be
+            // reached twice, which is the same reasoning the descent uses.
+            if !id.is_none_or(|id| seen.insert(id)) {
+                continue;
+            }
+            // The namespace the element *ends* in, which is §14.8.6.2's third bullet — "they are
+            // role mapped into the namespace, either directly or transitively" — and is why this
+            // asks `resolved` rather than reading `/NS` off the element.
+            if let Some((_, Some(space))) = self.resolved(document, &dict)
+                && !permitted_namespace(document, &space)
+            {
+                let name = Namespace::read(document, &space).map(|space| space.name);
+                let seen_here = counts.entry(name).or_insert(0);
+                *seen_here = seen_here.saturating_add(1);
+            }
+            self.count_foreign(
+                document,
+                Some(&dict),
+                depth.saturating_add(1),
+                counts,
+                seen,
+                budget,
+            );
+        }
+    }
+
     /// Every attribute object attached to an element, in **increasing precedence order**.
     ///
     /// §14.7.6 attaches attributes by two routes and states which wins in each. Within an
@@ -2983,6 +3106,33 @@ impl Namespace {
     }
 }
 
+/// Whether §14.8.6.2 permits a tagged document's element to be in this namespace.
+///
+/// The clause's own disjunction: "all structure elements shall be in at least one of the
+/// standard structure namespaces **or in a namespace identified in 14.8.6.3**". So the two of
+/// §14.8.6.1 and the one of §14.8.6.3, and nothing else — "[a]ny other namespaces can be
+/// specified within a PDF document, but shall meet the requirements of role mapping described in
+/// 14.8.6.2", which is what [`Tree::resolved`] has already followed by the time this is asked.
+///
+/// A dictionary stating no `/NS` is not permitted, for [`Tree::namespace`]'s reason: Table 356
+/// makes the entry required, so the alternative is to treat a document's broken namespace as one
+/// the clause names.
+fn permitted_namespace(document: &Document, dict: &Dictionary) -> bool {
+    Namespace::read(document, dict)
+        .is_some_and(|space| space.is_standard() || space.name == MATHML_NAMESPACE)
+}
+
+/// A namespace a tagged document's elements end in that §14.8.6.2 does not permit.
+///
+/// [`Tree::namespaces_outside_the_standard`]'s answer, one entry per namespace.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignNamespace {
+    /// The namespace name, or `None` where the namespace dictionary states no `/NS`.
+    pub name: Option<String>,
+    /// How many of the document's structure elements ended in it.
+    pub elements: usize,
+}
+
 /// §14.7.6.1's attribute object. Table 360.
 ///
 /// > An attribute object shall be a dictionary or stream that includes an O entry … identifying
@@ -4163,6 +4313,65 @@ mod tests {
             tree.standard_role(&doc, &element),
             None,
             "and it is not §14.8.4's table, because it is not in a standard structure namespace"
+        );
+    }
+
+    /// A structure tree that is its own descendant is counted once and terminates.
+    ///
+    /// The walk this report added is a second descent through §14.7.2's tree, so it owes the same
+    /// two bounds the first one has and for the same reason (principle 3: a cycle in untrusted
+    /// input is a resource question rather than a memory-safety one). The element below is its own
+    /// child through `/K`, and it is in a foreign namespace, so a walk that did not remember what
+    /// it had seen would count for ever rather than counting one.
+    #[test]
+    fn an_element_that_is_its_own_child_is_counted_once() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [6 0 R] >>",
+            "<< /Type /StructElem /S /Widget /NS 6 0 R /K [5 0 R] >>",
+            "<< /Type /Namespace /NS (http://example.invalid/tagset) >>",
+        ]);
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert_eq!(
+            tree.namespaces_outside_the_standard(&doc),
+            vec![super::ForeignNamespace {
+                name: Some("http://example.invalid/tagset".to_owned()),
+                elements: 1,
+            }]
+        );
+    }
+
+    /// The floor under [`Tree::namespaces_outside_the_standard`]'s cheap gate, and it is a real
+    /// document rather than a fixture.
+    ///
+    /// `doc/traps/instruments-and-reports.md` trap 11's ninth instance: an exemption that costs
+    /// nothing to widen has no floor under it, and this report's exemption is the one that stops
+    /// the elements being read at all. `bug1937438_af_from_latex.pdf` declares four namespaces of
+    /// its own — two LaTeX tagsets and a `data:` URI — beside §14.8.6.1's two, so it is a
+    /// document on which the gate **opens** and the whole tree is walked; and the answer is empty,
+    /// because each of those namespaces carries the `/RoleMapNS` §14.8.6.2's third bullet asks
+    /// for. Without a case like this the gate could be inverted and every test above would still
+    /// pass.
+    #[test]
+    fn a_document_whose_own_namespaces_all_role_map_is_read_and_says_nothing() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/pdf.js/test/pdfs/bug1937438_af_from_latex.pdf");
+        let Ok(bytes) = std::fs::read(&path) else {
+            println!("skipped: the doc/pdf.js submodule is not checked out");
+            return;
+        };
+        let doc = Document::open(bytes).expect("a valid file");
+        let tree = Tree::of(&doc).expect("a structure tree root");
+        assert!(
+            tree.declares_a_namespace_outside_the_standard(&doc),
+            "the root declares the LaTeX tagsets, so the elements are read"
+        );
+        assert_eq!(
+            tree.namespaces_outside_the_standard(&doc),
+            Vec::new(),
+            "and every element ends in a standard structure namespace after its role map"
         );
     }
 

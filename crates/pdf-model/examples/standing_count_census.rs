@@ -63,7 +63,46 @@ enum Reading {
     DamagedBody(usize),
     /// The dictionary opened and the input ended before `>>`.
     Truncated(usize),
+    /// The file carries no `N G obj` header for this object number at all.
+    ///
+    /// Only ever answered about an object some `/Kids` array *names*: §7.7.3.2 makes those
+    /// references the tree, so a number named there and absent from the file is a page whose
+    /// bytes are not in the document. Nothing can be recovered from it, and that is a
+    /// different sentence from every other variant here, all of which are about bytes that
+    /// are present and unreadable.
+    Absent,
 }
+
+/// An object some `/Kids` array names and which does not resolve to a dictionary.
+///
+/// §7.7.3.2's `/Kids` is the page tree: "[t]he children shall only be page objects or other
+/// page tree nodes". So an entry here is the file's own statement that this object is one of
+/// those two, made in a place the object's own damage cannot reach — which is the question
+/// [`Page`] cannot ask, because the recovery scan finds an object by its *own* `/Type /Page`
+/// declaration and this population is exactly the objects that no longer make one.
+struct Child {
+    /// The object number the `/Kids` array names.
+    number: u32,
+    /// How far that object reads.
+    reading: Reading,
+    /// The keys of the entries read whole before the damage, in the order the file writes them.
+    ///
+    /// Printed rather than counted because what decides whether a prefix could honestly be
+    /// taken for a page is *which* entries it holds: §7.7.3.4 makes `/Resources`, `/MediaBox`,
+    /// `/CropBox` and `/Rotate` inheritable, so a page tree node states them legitimately and
+    /// they discriminate nothing. Table 30's four entries and those four are the whole of what
+    /// a node may say; anything else is Table 31's.
+    keys: Vec<String>,
+}
+
+/// Table 31 entries that §7.7.3.4 does not make inheritable and Table 30 does not define.
+///
+/// A prefix holding one of these was written by a producer describing a *page*: a page tree
+/// node has Table 30's four entries, and §7.7.3.4 adds the four inheritable ones to what it
+/// may legitimately carry. These two are the ones the eleven documents of this population
+/// actually witness; the list is short on purpose, because a name is only evidence here if the
+/// standard puts it in one table and not the other.
+const ONLY_A_PAGE_STATES: [&str; 2] = ["Contents", "Annots"];
 
 /// What one object stated to be a page carries, and how far it reads.
 struct Page {
@@ -91,6 +130,8 @@ struct Finding {
     has_first_page: bool,
     /// Objects whose bytes declare Table 31's `/Type /Page`, whether or not they parse.
     pages: Vec<Page>,
+    /// Objects a `/Kids` array names and which do not resolve to a dictionary.
+    children: Vec<Child>,
 }
 
 impl Finding {
@@ -111,7 +152,26 @@ impl Finding {
     fn damaged(&self) -> impl Iterator<Item = (&Page, usize)> {
         self.pages.iter().filter_map(|page| match page.reading {
             Reading::DamagedBody(entries) | Reading::Truncated(entries) => Some((page, entries)),
-            Reading::Whole | Reading::NoDictionary | Reading::GluedKeyword => None,
+            Reading::Whole | Reading::NoDictionary | Reading::GluedKeyword | Reading::Absent => {
+                None
+            }
+        })
+    }
+
+    /// Whether some `/Kids` array names an object whose bytes are in the file and unreadable.
+    fn names_a_damaged_child(&self) -> bool {
+        self.children
+            .iter()
+            .any(|child| child.reading != Reading::Absent)
+    }
+
+    /// Whether such a child's prefix holds an entry only a page object states.
+    fn a_childs_prefix_states_a_page_entry(&self) -> bool {
+        self.children.iter().any(|child| {
+            child
+                .keys
+                .iter()
+                .any(|key| ONLY_A_PAGE_STATES.contains(&key.as_str()))
         })
     }
 }
@@ -145,6 +205,12 @@ struct Totals {
     prefix_with_media_box: usize,
     /// Damaged page dictionaries whose prefix carries no entry at all.
     empty_prefix: usize,
+    /// Of the standing documents: those whose page tree names a child that does not resolve.
+    names_an_unresolved_child: usize,
+    /// Of those: the ones where every such child's bytes are absent from the file.
+    every_child_absent: usize,
+    /// Of those: the ones where such a child's prefix holds an entry only a page object states.
+    childs_prefix_states_a_page_entry: usize,
 }
 
 impl Totals {
@@ -189,6 +255,16 @@ impl Totals {
         if damaged > 0 {
             self.damaged_body = self.damaged_body.saturating_add(1);
         }
+        if !finding.children.is_empty() {
+            self.names_an_unresolved_child = self.names_an_unresolved_child.saturating_add(1);
+            if !finding.names_a_damaged_child() {
+                self.every_child_absent = self.every_child_absent.saturating_add(1);
+            }
+            if finding.a_childs_prefix_states_a_page_entry() {
+                self.childs_prefix_states_a_page_entry =
+                    self.childs_prefix_states_a_page_entry.saturating_add(1);
+            }
+        }
     }
 
     /// Prints the summary, one claim per line.
@@ -219,6 +295,16 @@ impl Totals {
             self.prefix_with_contents,
             self.prefix_with_media_box
         );
+        println!(
+            "  {} of the {} have a /Kids array naming an object that does not resolve: {} where \
+             every such object's bytes are absent from the file, {} where such an object's \
+             readable prefix holds an entry only a page object states ({})",
+            self.names_an_unresolved_child,
+            self.standing,
+            self.every_child_absent,
+            self.childs_prefix_states_a_page_entry,
+            ONLY_A_PAGE_STATES.join(", ")
+        );
     }
 }
 
@@ -238,20 +324,24 @@ fn main() {
         }
         let mut causes: Vec<String> = Vec::new();
         for page in &finding.pages {
-            causes.push(match page.reading {
-                Reading::Whole => format!("{} parses whole", page.number),
-                Reading::GluedKeyword => format!("{}'s `obj` keyword is glued", page.number),
-                Reading::NoDictionary => format!("{} opens no dictionary", page.number),
-                Reading::DamagedBody(entries) => {
-                    format!("{} damaged after {entries} entr(ies)", page.number)
-                }
-                Reading::Truncated(entries) => {
-                    format!("{} truncated after {entries} entr(ies)", page.number)
-                }
-            });
+            causes.push(format!("{} {}", page.number, describe(page.reading)));
         }
         if causes.is_empty() {
             causes.push("no object declares a page".to_owned());
+        }
+        // The other half of the account, and the one a byte scan for `/Type /Page` cannot give:
+        // what the page tree's own `/Kids` names, and how far each of those objects reads.
+        for child in &finding.children {
+            causes.push(format!(
+                "/Kids names {} which {}{}",
+                child.number,
+                describe(child.reading),
+                if child.keys.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", child.keys.join(" "))
+                }
+            ));
         }
         lines.push(format!(
             "  {}: /Count {} and no first page — {}",
@@ -268,6 +358,18 @@ fn main() {
     totals.print();
 }
 
+/// How far one object reads, in the words the per-document line uses.
+fn describe(reading: Reading) -> String {
+    match reading {
+        Reading::Whole => "parses whole".to_owned(),
+        Reading::GluedKeyword => "has a regular byte glued to its `obj` keyword".to_owned(),
+        Reading::NoDictionary => "opens no dictionary".to_owned(),
+        Reading::DamagedBody(entries) => format!("is damaged after {entries} entr(ies)"),
+        Reading::Truncated(entries) => format!("is truncated after {entries} entr(ies)"),
+        Reading::Absent => "is not in the file".to_owned(),
+    }
+}
+
 /// Reads one document and answers the census's questions about it.
 fn examine(path: &Path) -> Finding {
     let Ok(bytes) = std::fs::read(path) else {
@@ -282,6 +384,7 @@ fn examine(path: &Path) -> Finding {
         declared: pages.len(),
         has_first_page: pages.get(0).is_some(),
         pages: Vec::new(),
+        children: Vec::new(),
     };
     if !finding.standing() {
         return finding;
@@ -289,12 +392,70 @@ fn examine(path: &Path) -> Finding {
     // Only now, and off the bytes: §7.5.4's table is the thing that may be broken, so the
     // objects are found the way `xref::rebuild` finds them — by their own headers, which §7.3.10
     // puts next to the bytes they describe.
-    for (number, body, glued) in object_bodies(&bytes) {
+    let bodies = object_bodies(&bytes);
+    for &(number, body, glued) in &bodies {
         if let Some(page) = read_page(&bytes, number, body, glued) {
             finding.pages.push(page);
         }
     }
+    for number in kids_named(&document) {
+        // Only the ones that do not resolve: a child the reader can already read is not part of
+        // the question, and where the tree yields no page there is at least one that cannot.
+        if document
+            .get(pdf_syntax::ObjectId {
+                number,
+                generation: 0,
+            })
+            .as_dict()
+            .is_some()
+        {
+            continue;
+        }
+        let (reading, keys) = match bodies
+            .iter()
+            .find(|&&(candidate, _, _)| candidate == number)
+        {
+            Some(&(_, body, glued)) => read_entries(&bytes, body, glued),
+            None => (Reading::Absent, Vec::new()),
+        };
+        finding.children.push(Child {
+            number,
+            reading,
+            keys,
+        });
+    }
     finding
+}
+
+/// Every object number some `/Kids` array names, in the order the arrays state them.
+///
+/// Read through `Document` rather than off the bytes, and deliberately: this is the *tree*
+/// asking, and a node that will not parse has stated nothing. Every document in this population
+/// has a page tree node that reads whole and a child that does not, which is what makes the
+/// question answerable at all.
+fn kids_named(document: &Document) -> Vec<u32> {
+    let mut named = Vec::new();
+    for number in document.xref().object_numbers() {
+        let object = document.get(pdf_syntax::ObjectId {
+            number,
+            generation: 0,
+        });
+        let Some(dict) = object.as_dict() else {
+            continue;
+        };
+        let kids = document.get_key(dict, "Kids");
+        let Some(kids) = kids.as_array() else {
+            continue;
+        };
+        for kid in kids {
+            if let pdf_syntax::Object::Reference(child) = kid
+                && !named.contains(&child.number)
+            {
+                named.push(child.number);
+            }
+        }
+    }
+    named
 }
 
 /// Every `N G obj` header in the file: its number, the offset just past `obj`, and whether a
@@ -368,8 +529,7 @@ fn header_start(bytes: &[u8], keyword: usize) -> usize {
 /// a census of what a prefix recovery could reach must not count an object whose prefix does
 /// not say it is a page.
 fn read_page(bytes: &[u8], number: u32, body: usize, glued: bool) -> Option<Page> {
-    let mut lexer = Lexer::at(bytes, body);
-    if glued || lexer.next_token() != Some(Token::DictOpen) {
+    if glued || Lexer::at(bytes, body).next_token() != Some(Token::DictOpen) {
         // Before deciding there is no dictionary, ask whether this object claims to be a page
         // at all — otherwise every stream and every array in the file would answer here.
         let rest = bytes.get(body..)?;
@@ -386,42 +546,59 @@ fn read_page(bytes: &[u8], number: u32, body: usize, glued: bool) -> Option<Page
         });
     }
 
-    let mut entries = 0usize;
-    let mut is_page = false;
-    let mut has_contents = false;
-    let mut has_media_box = false;
+    let (reading, keys, declares) = read_body(bytes, body);
+    declares.then_some(Page {
+        number,
+        reading,
+        prefix_has_contents: keys.iter().any(|key| key == "Contents"),
+        prefix_has_media_box: keys.iter().any(|key| key == "MediaBox"),
+    })
+}
+
+/// How far the object body at `body` reads, and the keys of the entries read whole before that.
+///
+/// The two callers ask different questions of one reading, which is why it is one function:
+/// [`read_page`] wants to know whether the prefix declares Table 31's `/Type /Page`, and the
+/// `/Kids` walk wants to know what the prefix says about an object that declares nothing.
+fn read_entries(bytes: &[u8], body: usize, glued: bool) -> (Reading, Vec<String>) {
+    if glued {
+        return (Reading::GluedKeyword, Vec::new());
+    }
+    if Lexer::at(bytes, body).next_token() != Some(Token::DictOpen) {
+        return (Reading::NoDictionary, Vec::new());
+    }
+    let (reading, keys, _) = read_body(bytes, body);
+    (reading, keys)
+}
+
+/// The shared reading of a dictionary body that has already opened.
+fn read_body(bytes: &[u8], body: usize) -> (Reading, Vec<String>, bool) {
+    let mut lexer = Lexer::at(bytes, body);
+    lexer.next_token();
+    let mut keys: Vec<String> = Vec::new();
+    let mut declares = false;
     let reading = loop {
         match lexer.next_token() {
-            None => break Reading::Truncated(entries),
+            None => break Reading::Truncated(keys.len()),
             Some(Token::DictClose) => break Reading::Whole,
             Some(Token::Name(key)) => {
                 let mut parser = Parser::at(bytes, lexer.position(), Limits::DEFAULT);
                 let Ok(value) = parser.parse_object() else {
-                    break Reading::DamagedBody(entries);
+                    break Reading::DamagedBody(keys.len());
                 };
                 lexer.seek(parser.position());
-                entries = entries.saturating_add(1);
-                match key.as_slice() {
-                    b"Type" => {
-                        is_page = value
-                            .as_name()
-                            .is_some_and(|name| name.as_bytes() == b"Page");
-                    }
-                    b"Contents" => has_contents = true,
-                    b"MediaBox" => has_media_box = true,
-                    _ => {}
+                if key.as_slice() == b"Type" {
+                    declares = value
+                        .as_name()
+                        .is_some_and(|name| name.as_bytes() == b"Page");
                 }
+                keys.push(String::from_utf8_lossy(&key).into_owned());
             }
             // A non-name where a key belongs, which `Parser::parse_dictionary_body` skips too.
             Some(_) => {}
         }
     };
-    is_page.then_some(Page {
-        number,
-        reading,
-        prefix_has_contents: has_contents,
-        prefix_has_media_box: has_media_box,
-    })
+    (reading, keys, declares)
 }
 
 /// Whether a run of bytes states `/Type` and `/Page` close together.

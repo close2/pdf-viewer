@@ -118,6 +118,14 @@ struct Answers {
     rectilinear: Option<String>,
     /// §14.10.2's `/SpiderInfo`, and on what.
     spider: Option<String>,
+    /// §14.8.6.2's file-addressed `shall`: a tagged document with an element outside the
+    /// standard structure namespaces and outside §14.8.6.3's.
+    ///
+    /// The population of the report `viewer_core::notes` says out loud, asked with the reader
+    /// that decides it rather than by looking for the `/Namespaces` token — which over-reports
+    /// twice over, since a declared namespace may be a standard one and may have no element in
+    /// it.
+    foreign_namespace: Option<String>,
     /// §12.7.5.5's `/Lock` on a signature field.
     field_lock: Option<String>,
     /// §12.7.5.5's Table 236 `/P`, which that row says is deliberately not read.
@@ -239,6 +247,12 @@ fn report_every_claim(results: &[(String, Answers)]) {
         "§14.10.2's /SpiderInfo — the claim was \"none\" and is FALSE (ADR 0405)",
         results,
         |a| a.spider.as_deref(),
+    );
+    report(
+        "§14.8.6.2's shall on the file — a tagged document whose elements end outside the \
+         standard structure namespaces, which viewer-core's notes now say out loud",
+        results,
+        |a| a.foreign_namespace.as_deref(),
     );
     report(
         "§12.7.5.5's /Lock on a signed field — the claim was \"none\" (curated) and is FALSE wider",
@@ -1047,6 +1061,29 @@ fn measure(path: &Path) -> Answers {
                 let pairs = pdf_syntax::tree::name_pairs(dict, &|object| document.resolve(object));
                 answers.id_tree = Some(format!("{} identifier(s)", pairs.len()));
             }
+        }
+    }
+
+    // §14.8.6.2's requirement on the file, asked exactly as `viewer_core::notes` asks it: the
+    // document has to say it is tagged (§14.8.1) before the sentence applies to it at all.
+    if pdf_model::structure::MarkInfo::read(&document).marked
+        && let Some(tree) = pdf_model::structure::Tree::of(&document)
+    {
+        let foreign = tree.namespaces_outside_the_standard(&document);
+        if !foreign.is_empty() {
+            answers.foreign_namespace = Some(
+                foreign
+                    .iter()
+                    .map(|space| {
+                        format!(
+                            "{} element(s) in {}",
+                            space.elements,
+                            space.name.as_deref().unwrap_or("a namespace with no /NS")
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
         }
     }
 

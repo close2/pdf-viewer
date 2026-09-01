@@ -831,15 +831,26 @@ fn walk(
                 let phrase =
                     text_entry(document, &dict, "Alt").or_else(|| text_entry(document, &dict, "E"));
                 let index = out.len();
-                let header_scope = header_scope(document, tree, &dict, &role, depth, index, tables);
-                let bounds = tree.bounds(document, &dict);
                 // Table 384's two spoken entries, each behind the standard type its own sentence
                 // conditions it on — "[t]his entry shall only be used within Table structure
                 // elements" for `/Summary`, "shall only have an effect for structure elements of
                 // type of TH" for `/Short` — and the type those sentences are about is §14.7.3's
                 // mapped one, which is why the condition is applied here where the role is in
                 // hand rather than inside the reader.
-                let kind = StandardType::read(&role);
+                //
+                // **`Tree::standard_role` rather than `StandardType::read` of the name**, and
+                // that is §14.8.6.2 rather than a tidy-up: §14.8.4's vocabulary is defined *by*
+                // the standard structure namespaces, so a foreign namespace's `Table` is a
+                // homonym and reading Table 384's `/Summary` off it would be answering one
+                // vocabulary's question with another's. `Tree::role` still supplies the name the
+                // document wrote, which is what crosses to a screen reader. No corpus document
+                // is a witness — `examples/absence_audit` finds none in 65 944 crawled files —
+                // which is exactly why this stood for the whole life of `standard_role` (ADR
+                // 0785).
+                let kind = tree.standard_role(document, &dict);
+                let header_scope =
+                    header_scope(document, tree, &dict, kind.as_ref(), depth, index, tables);
+                let bounds = tree.bounds(document, &dict);
                 let summary = (kind == Some(StandardType::Table))
                     .then(|| tree.table_summary(document, &dict))
                     .flatten();
@@ -995,16 +1006,13 @@ fn header_scope(
     document: &Document,
     tree: &Tree,
     dict: &Dictionary,
-    role: &str,
+    kind: Option<&StandardType>,
     depth: usize,
     index: usize,
     tables: &mut TableStack,
 ) -> Option<HeaderScope> {
-    let kind = StandardType::read(role);
-    let placement = tables.enter(depth, kind.as_ref(), index, || {
-        tree.cell_facts(document, dict)
-    });
-    if kind != Some(StandardType::TableHeader) {
+    let placement = tables.enter(depth, kind, index, || tree.cell_facts(document, dict));
+    if kind != Some(&StandardType::TableHeader) {
         return None;
     }
     // Table 384's own value where the document states one, and §14.8.5.7's assumption where it

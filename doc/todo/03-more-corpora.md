@@ -1976,6 +1976,95 @@ where the whole object parsed, so in a rebuilt file a damaged object is not mere
 wants to ask a question about an object that will not parse has the same problem, and
 `Document::damaged_dictionaries` is the only answer to it in the tree.
 
+### 34. What the eight-hundred-and-sixty-first read: the eleven that declare `/Type /Page` nowhere
+
+**§33 left a majority and nobody had asked what was in it.** `examples/standing_count_census` split
+the standing-count population by cause and the largest cause was *no object whose bytes declare
+`/Type /Page`* — which ADR 0782's standing count and a refusal out loud already answers correctly,
+so nothing had opened the files. Eleven documents, and reading each against §7.5 and §7.7.3 turns
+one cause into five.
+
+**The census prints the account now rather than this file stating it.** A byte scan for
+`/Type /Page` can only ask about an object's *own* declaration, and every one of these eleven has
+stopped making one; the question that separates them is what the page tree's own `/Kids` names,
+which is the file's statement about an object made in a place the object's damage cannot reach —
+§7.7.3.2, "[t]he children shall only be page objects or other page tree nodes". So the census
+follows every `/Kids` array of every object that parses, and prints, for each named object that
+does not resolve, how far it reads and the keys of the entries read whole before the damage.
+
+```sh
+cargo run --profile gates -p pdf-model --example standing_count_census -- corpus-cache/tika-issue-tracker/batch{1,2,3,6}
+```
+
+The five causes, and what a conforming reader can honestly do with each:
+
+- **The page objects are not in the file at all** — `PDFBOX/PDFBOX-3870-0.pdf`, whose `/Kids` names
+  objects 6 to 10 and whose whole body between them is missing, and `PDFBOX/PDFBOX-3894-0.pdf`,
+  whose `/Kids` names 8 and 14. Both are reductions rather than corruptions: the cross-reference
+  table's own offsets run past the end of the file (42 461 into 37 934 bytes; 10 109 into 2316).
+  **Beyond any additive recovery**, and the word *additive* is the whole of it — there are no bytes
+  to read, so every entry of every page would be this reader's invention. ADR 0782's standing
+  `/Count` with a refusal out loud is already the right answer, and it is the right answer for the
+  same reason the recovery exists: the number of pages is unknown rather than nought.
+- **No object header lexes where the page should be** — `PDFBOX/PDFBOX-4452-0.pdf`, whose object 3
+  opens `3 0 obj5<`. §7.2.3 makes `5` a regular character, so the keyword run is `obj5` and
+  §7.3.10's header does not lex; the single `<` after it opens a hexadecimal string. **Beyond
+  additive recovery**, and for exactly the reason ADR 0784 refused `PDFBOX-4339-0.pdf`: reading an
+  object there means deciding that `5<` was meant to be `<<`.
+- **The dictionary opens and the first entry's value is already unreadable** —
+  `GHOSTSCRIPT/GHOSTSCRIPT-698887-0.pdf` (`/Pare R`, where `R` is a keyword and no valid object
+  begins with one) and `GHOSTSCRIPT/GHOSTSCRIPT-699695-1.pdf` (the `/Type` key *and* its value
+  overwritten with `0xFF` bytes). The prefix is **zero entries**, so §7.3.7's subset is empty and
+  says nothing about the object at all. **Beyond additive recovery as the prefix rule stands** —
+  and 698887 is the file that names the next question, because its `/Type /Page` is in the file,
+  in plain sight, four bytes past the damage. Taking it would mean resynchronising to the next
+  `/Name` after an unreadable value, which is a *guess about the value's extent* rather than a
+  prefix; the argument for and against is [below](#the-question-these-eleven-hand-on).
+- **The tree names the object, its dictionary is damaged, and the prefix holds an entry only a
+  page object states** — five documents, and this is the finding.
+  `GHOSTSCRIPT-698991-0.pdf` reads `[Resources Contents]`, `GHOSTSCRIPT-699018-0.pdf` `[Annots]`,
+  `GHOSTSCRIPT-699521-0.pdf` `[MediaBox Parent Contents Resources]`,
+  `GHOSTSCRIPT-701846-0.pdf` `[Annots CropBox MediaBox Parent]` and
+  `poppler-gitlab/poppler-192-0.pdf` `[Contents CropBo\x8c]`. **A conforming reader can produce
+  something honest here, and the argument is the standard's own, twice**: §7.7.3.2's `/Kids` says
+  the object is a page object or a page tree node, and §7.7.3.4 says which entries a node may
+  legitimately carry beyond Table 30's four — `Resources`, `MediaBox`, `CropBox` and `Rotate`,
+  because those are inheritable — so a prefix stating `/Contents` or `/Annots` was written by a
+  producer describing a **page**. That is a different door from ADR 0784's, which takes a prefix
+  only where the prefix *itself* declares `/Type /Page`, and it is a different door on purpose:
+  0784's consumer finds its candidates by scanning the whole file, where an object that says
+  nothing about itself could be anything, and this one is handed its candidate by the tree.
+  `GHOSTSCRIPT-699521-0.pdf` is the best of them — 795 × 842, `/Resources` with Helvetica, and a
+  `/Contents` that is `ASCIIHexDecode` of `BT /F1 30 Tf 350 750 Td 20 TL 5 Tr (Hello world) Tj ET`
+  — and its damage is a *second* `/MediaBox` whose value is the bare keyword `e`.
+- **The tree names the object, its dictionary is damaged, and the prefix discriminates nothing** —
+  `poppler-gitlab/poppler-355-0.pdf`, whose prefix is a garbled key, `WinAnsiEncope`, `Parent` and
+  `CropBox`. `Parent` is Table 30's and `CropBox` is inheritable, so nothing in the subset says
+  page rather than node, and the object's own `/Type` reads `/PagP`. **Beyond additive recovery**:
+  taking it would mean deciding it is a page on the strength of it not looking like a node, which
+  is the substitutive direction trap 5's test forbids.
+
+#### The question these eleven hand on
+
+Two doors, and each is worth arguing rather than assuming:
+
+1. **A prefix the tree names.** Five documents, the argument above, and one honest risk: §7.3.7's
+   subset can only say what the producer *did* write, so "this dictionary states no `/Kids`" is not
+   knowable from it — the evidence runs the other way, from an entry Table 30 does not define and
+   §7.7.3.4 does not make inheritable being present. It needs the recovery to run from the *tree*
+   rather than from the scan, which `Pages::new` does not do today: `Document::get` answers `Null`
+   for the damaged child and the walk stops there.
+2. **Resynchronising past an unreadable value.** Two documents, and it is a bigger claim than the
+   prefix rule: §7.3.7 states no extent for an entry's value, so a reader that skips to the next
+   `/Name` has guessed where the bad value ended. The one thing in its favour is that no valid
+   object begins with the keyword the guess steps over — but that is an argument about *these*
+   files rather than about the clause, which is where it should stop until somebody reads §7.3
+   properly for it.
+
+Neither is taken here. What is taken is the account: **the eleven are five defects, two of them
+with a route the standard supplies and three with none**, and the census prints which is which
+rather than this file asserting it.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not

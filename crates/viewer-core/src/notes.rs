@@ -1,7 +1,8 @@
 //! What a document says about itself, said out loud once when it opens.
 //!
-//! Five clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
-//! §7.11.4's embedded files, §7.5's recovered cross-reference table and Annex I's version are all
+//! Six clauses, and none of them is about a page. §12.11's requirements, §12.8's signatures,
+//! §7.11.4's embedded files, §7.5's recovered cross-reference table, Annex I's version and
+//! §14.8.6.2's namespaces are all
 //! claims about the *file*, and a person deciding whether to trust what they are looking at needs them before any
 //! page is drawn. That is why they are a [`crate::Event::Reported`] with no page rather than
 //! part of the page's own report.
@@ -146,8 +147,54 @@ pub(crate) fn about(document: &Document) -> Vec<String> {
         ));
     }
 
+    namespaces(document, &mut notes);
     signatures(document, &mut notes);
     notes
+}
+
+/// §14.8.6.2's one requirement on the file, said where the file is what is being described.
+///
+/// > In a tagged PDF, all structure elements shall be in at least one of the standard structure
+/// > namespaces or in a namespace identified in 14.8.6.3 , ' Other namespaces '.
+///
+/// Every other sentence of §14.8.6 is addressed to a reader and is carried out — which map
+/// applies to which element, the default namespace for an element that states none, and what a
+/// name in a foreign namespace *means* — and this one is addressed to whoever wrote the file. So
+/// it belongs here rather than in a page's report, for the reason this module exists: it is a
+/// claim about the document, and it costs no mark on any page, so a page report would take a
+/// page out of the oracle's diagnosed set to say something that is not about it.
+///
+/// **Two conditions, both the clause's.** §14.8.1 is what makes a document tagged — "[a] tagged
+/// PDF document shall contain a mark information dictionary … with a value of true for the Marked
+/// entry" — and a document with a structure tree that does not claim to be tagged is outside the
+/// sentence above, which says *in a tagged PDF*. And the elements are read only where the
+/// structure tree root declares a namespace outside the permitted set, which
+/// [`pdf_model::structure::Tree::namespaces_outside_the_standard`] argues from the clause and
+/// prices in milliseconds.
+fn namespaces(document: &Document, notes: &mut Vec<String>) {
+    if !pdf_model::structure::MarkInfo::read(document).marked {
+        return;
+    }
+    let Some(tree) = pdf_model::structure::Tree::of(document) else {
+        return;
+    };
+    for foreign in tree.namespaces_outside_the_standard(document) {
+        let which = foreign.name.as_deref().map_or_else(
+            || {
+                "a namespace whose dictionary states no name of its own (§14.7.4.2's Table 356 \
+                requires one)"
+                    .to_owned()
+            },
+            |name| format!("the namespace {name}"),
+        );
+        notes.push(format!(
+            "this document says it is tagged (§14.8.1), and {} of its structure elements end in \
+             {which} — §14.8.6.2 requires every one of them to be in a standard structure \
+             namespace, in §14.8.6.3's MathML, or role mapped into one, so this reader cannot \
+             tell what those elements are and reads them by the names the document wrote",
+            foreign.elements
+        ));
+    }
 }
 
 /// What a damaged object stream has cost this document so far, said once per loss.
@@ -978,6 +1025,104 @@ mod tests {
         assert!(
             required.contains("requires the signed range to cover the whole file (Table 255)"),
             "Table 255 turns the same tail into a broken requirement: {required}"
+        );
+    }
+
+    /// §14.8.6.2's file-addressed `shall`, calibrated against the defect and against each of the
+    /// clause's own three ways out.
+    ///
+    /// `doc/traps/instruments-and-reports.md` trap 13: a report is a measurement, and one that
+    /// has not been run against the thing it looks for is a sentence about a condition rather
+    /// than about a document. So the first fixture *is* the violation — a tagged document whose
+    /// element names a namespace that is neither of §14.8.6.1's two nor §14.8.6.3's one — and the
+    /// four beside it are the conditions the clause states as satisfying it, each of which must
+    /// leave the note unsaid.
+    #[test]
+    fn a_tagged_document_whose_elements_leave_the_standard_namespaces_is_said_out_loud() {
+        let tagged = "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> \
+                      /StructTreeRoot 4 0 R >>";
+        let pages = "<< /Type /Pages /Kids [] /Count 0 >>";
+        let foreign = "<< /Type /Namespace /NS (http://example.invalid/tagset) >>";
+        let root = "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>";
+        let element = "<< /Type /StructElem /S /Widget /NS 3 0 R >>";
+
+        let said = about(&document(&[tagged, pages, foreign, root, element])).join("\n");
+        assert!(
+            said.contains(
+                "1 of its structure elements end in the namespace \
+                           http://example.invalid/tagset"
+            ),
+            "the planted violation is named, with the namespace and the count: {said}"
+        );
+        assert!(said.contains("§14.8.6.2"), "{said}");
+
+        // Way out 1, and it is §14.8.1's rather than §14.8.6's: the sentence says *in a tagged
+        // PDF*, and a document with a structure tree that does not claim to be tagged has not
+        // taken on the requirement at all.
+        let untagged = "<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 4 0 R >>";
+        assert!(
+            !about(&document(&[untagged, pages, foreign, root, element]))
+                .join("\n")
+                .contains("§14.8.6.2"),
+            "a document that does not say it is tagged is outside the clause's sentence"
+        );
+
+        // Way out 2: "they are role mapped into the namespace, either directly or transitively",
+        // through the namespace's own `/RoleMapNS` — §14.8.6.2's rule about which map applies. A
+        // bare name leaves whatever namespace it was in, so `Div` lands in the default standard
+        // one and the element is conforming.
+        let mapped = "<< /Type /Namespace /NS (http://example.invalid/tagset) \
+                      /RoleMapNS << /Widget /Div >> >>";
+        assert!(
+            !about(&document(&[tagged, pages, mapped, root, element]))
+                .join("\n")
+                .contains("§14.8.6.2"),
+            "a role map into the default standard namespace satisfies the third bullet"
+        );
+
+        // Way out 3: §14.8.6.3's one domain-specific namespace, which the clause names as an
+        // alternative to the standard ones and exempts from role mapping outright.
+        let mathml = "<< /Type /Namespace /NS (http://www.w3.org/1998/Math/MathML) >>";
+        let math = "<< /Type /StructElem /S /math /NS 3 0 R >>";
+        assert!(
+            !about(&document(&[tagged, pages, mathml, root, math]))
+                .join("\n")
+                .contains("§14.8.6.2"),
+            "MathML is a namespace §14.8.6.3 identifies"
+        );
+
+        // Way out 4: "they are in the default standard structure namespace", which is every
+        // element that states no `/NS` at all — and the case the cheap gate is for, since such a
+        // document's root declares no namespace and its elements are never read.
+        let plain_root = "<< /Type /StructTreeRoot /K [5 0 R] >>";
+        let plain = "<< /Type /StructElem /S /P >>";
+        assert!(
+            !about(&document(&[tagged, pages, foreign, plain_root, plain]))
+                .join("\n")
+                .contains("§14.8.6.2"),
+            "an element with no /NS is in the default standard structure namespace"
+        );
+    }
+
+    /// A namespace dictionary with no `/NS` of its own is named as what it is, not as a name.
+    ///
+    /// Table 356 makes the entry required, so such a dictionary identifies nothing — and the two
+    /// sentences a person can be given here are different: *your elements are in somebody's
+    /// tagset* and *your elements are in a namespace your file does not name*. `Tree::namespace`
+    /// already refuses to answer the default for one; this is the same refusal one layer up.
+    #[test]
+    fn a_namespace_that_states_no_name_is_reported_as_naming_nothing() {
+        let said = about(&document(&[
+            "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 4 0 R >>",
+            "<< /Type /Pages /Kids [] /Count 0 >>",
+            "<< /Type /Namespace /Schema 9 0 R >>",
+            "<< /Type /StructTreeRoot /K [5 0 R] /Namespaces [3 0 R] >>",
+            "<< /Type /StructElem /S /Widget /NS 3 0 R >>",
+        ]))
+        .join("\n");
+        assert!(
+            said.contains("a namespace whose dictionary states no name of its own"),
+            "{said}"
         );
     }
 }
