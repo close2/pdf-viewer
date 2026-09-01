@@ -34,6 +34,7 @@ viewer-host = { path = "crates/viewer-host", version = "0.1.0" }
 viewer-gtk = { path = "crates/viewer-gtk", version = "0.1.0" }
 viewer-qt = { path = "crates/viewer-qt", version = "0.1.0" }
 viewer-ffi = { path = "crates/viewer-ffi", version = "0.1.0" }
+pdf-transform = { path = "crates/pdf-transform", version = "0.1.0" }
 
 # External on purpose: the document renderer doc/RENDER_LIBRARY.md commissioned,
 # developed against that brief in its own repository and wired in here at its final
