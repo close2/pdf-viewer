@@ -132,6 +132,13 @@ section_fixed() {
         cargo test --profile gates -p pdf-model --test fixed_documents -- --ignored --nocapture
 }
 
+section_transform() {
+    gate_binaries
+    run "the transform suite (RFC 0002 section 12's floor, and inventories held to the document)" \
+        '^transform:' \
+        cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
+}
+
 section_dates() {
     run "dates (§7.9.4)" '^[0-9]+ date strings' \
         cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
@@ -435,7 +442,7 @@ section_disk() {
     fi
 }
 
-all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed dates xmp jpeg2000"
+all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform dates xmp jpeg2000"
 quick="ledger conformance annex-o counts hosts windows binaries disk"
 
 case ${1-} in
@@ -460,6 +467,7 @@ for section in $sections; do
     accessibility) section_accessibility ;;
     quorra) section_quorra ;;
     fixed) section_fixed ;;
+    transform) section_transform ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     jpeg2000) section_jpeg2000 ;;

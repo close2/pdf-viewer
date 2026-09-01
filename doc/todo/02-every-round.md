@@ -60,6 +60,7 @@ cargo test  --profile gates -p pdf-model      --test xmp             -- --ignore
 cargo test  --profile gates -p pdf-model      --test jpeg2000        -- --nocapture
 cargo test  --profile gates -p render-quorra  --test corpus          -- --ignored --nocapture
 cargo test  --profile gates -p pdf-model      --test fixed_documents -- --ignored --nocapture
+cargo test  --profile gates -p pdf-transform  --test gate            -- --ignored --nocapture   # RFC 0002 section 12's floor
 cargo test -p conformance -- --nocapture
 ```
 
@@ -99,6 +100,7 @@ what the change can reach, and *reach* is the crate graph rather than the file's
 | `viewer-core`, `viewer-accessibility` | the two censuses | `selection_census`, `accessibility_census` |
 | `viewer-ui`, `viewer-gtk`, `viewer-qt`, `viewer-ffi`, `viewer-host`, `viewer-confined` | no corpus gate | the core, which builds and tests them; §5 rebuilds what a person runs |
 | `tools/conformance`, `doc/conformance/ledger.toml`, a doc comment citing a clause | the conformance gate | `cargo test -p conformance` |
+| `pdf-transform` | the transform gate | `cargo test --profile gates -p pdf-transform --test gate`, which carries RFC 0002 section 12's perf floor and holds the verbs' inventories to the document; it needs the sandbox worker beside it like the rest |
 | `raster-compare`, `test-scenes`, `pdfref` | whichever gate names them | the core, plus the gate whose harness they are — `raster-compare` and `pdfref` are the oracle's and quorra's |
 | **documents only** (`doc/`, `CLAUDE.md`, a `tools/*.sh`) | nothing the gates rasterise | the core, **and `cargo test -p conformance`**, which reads citations and quotations out of the tree; plus `--bin quotations` and `--bin pointers` where the change moved a document or a pointer |
 
