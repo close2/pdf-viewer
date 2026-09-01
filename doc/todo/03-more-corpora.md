@@ -2059,7 +2059,9 @@ Two doors, and each is worth arguing rather than assuming:
    `/Name` has guessed where the bad value ended. The one thing in its favour is that no valid
    object begins with the keyword the guess steps over — but that is an argument about *these*
    files rather than about the clause, which is where it should stop until somebody reads §7.3
-   properly for it.
+   properly for it. **[§36](#36-what-the-eight-hundred-and-sixty-third-read-73-for-door-2-which-is-now-closed)
+   is that reading and the door is closed**; the objection in this bullet turns out to be
+   answerable and a different clause refuses it. Do not re-open this from here.
 
 Neither was taken in the eight-hundred-and-sixty-first. What it took was the account: **the eleven
 are five defects, two of them with a route the standard supplies and three with none**, and the
@@ -2094,10 +2096,76 @@ Three things that reading changed from §34's sketch, each worth carrying:
 
 Door 2, resynchronising past an unreadable value, is **not** taken and the argument against it is
 unchanged: §7.3.7 states no extent for an entry's value, so skipping to the next `/Name` guesses
-where the bad value ended. `GHOSTSCRIPT-698887-0.pdf` and `GHOSTSCRIPT-699695-1.pdf` are still its
+where the bad value ended. (**§36 closed the door and this paragraph's reason is not the one that
+closed it** — §7.2.3 does state the extent; what refuses the door is the continuity that sentence
+is bounded by. ADR 0787.) `GHOSTSCRIPT-698887-0.pdf` and `GHOSTSCRIPT-699695-1.pdf` are still its
 only witnesses, and `poppler-355-0.pdf`, `PDFBOX-3870-0`, `PDFBOX-3894-0` and `PDFBOX-4452-0` are
 beyond any additive recovery for the reasons §34 states. `standing_count_census` prints where the
 population now stands.
+
+### 36. What the eight-hundred-and-sixty-third read: §7.3 for door 2, which is now closed
+
+**§34 said the argument "should stop until somebody reads §7.3 properly for it".** This is that
+reading, and its verdict is **no**: door 2 is refused for good, and ADR 0787 has it in full.
+
+**The surprise is that §34's own objection is answerable.** It said a reader skipping to the next
+name "has guessed where the bad value ended", and three clauses say otherwise:
+
+- **§7.2.1 puts tokens below objects.** Bytes "can be grouped into tokens according to the syntax
+  rules described in subclauses 7.2.2 … through 7.2.4", and "[o]ne or more tokens are assembled to
+  form higher-level syntactic entities, principally objects". So a token's extent is decided
+  without reference to any object.
+- **§7.2.3 states that extent.** "A sequence of consecutive regular characters comprises a single
+  token", and "[a]ny of these delimiters terminates the entity preceding it and is not included in
+  the entity."
+- **§7.3.1's list of nine types is closed, and each subclause names its introducer** — `true`,
+  `false`, `null`, §7.3.3's digit forms, `(`, `<`, `/`, `[`, `<<`, and §7.3.10's two integers then
+  `R`. A run of regular characters outside that set begins no object of any type.
+
+So at a failing value the file states **no value at all**, and the run's extent is the standard's
+rather than a reader's. Both witnesses fail exactly there — `R` in `GHOSTSCRIPT-698887-0.pdf`,
+`\xff` in `GHOSTSCRIPT-699695-1.pdf`.
+
+**What closes the door is the sentence that bounds §7.2.3**: its rules "apply to all characters in
+the file except within strings, streams, and comments". A reader knows it is outside those three
+only by having tokenised continuously from the object's `<<` — and **continuity is what ADR 0784's
+subset argument rests on**, which is easy to miss because 0784's sentence is about *order*. The
+entries are a subset not because they came first but because every one of them is the producer's
+own, which byte continuity from a known position is the whole of the proof for. Resynchronisation
+is the deliberate surrender of that continuity.
+
+**The counterexample is one byte wide**, and it is pinned as three files in
+`crates/pdf-model/tests/damaged_page_dictionaries.rs::the_third_door`:
+
+```
+A   2 0 obj << /Note (junk /Contents 9 0 R more) /Rotate [0 >] >> endobj   refused, rightly
+B   2 0 obj << /Note Zjunk /Contents 9 0 R more) /Rotate [0 >] >> endobj   refused today
+```
+
+`B` is `A` with the string's `(` replaced by a regular character. Under door 2 the prefix becomes
+`{/Contents 9 0 R}`, ADR 0786's door fires on it, and object 2 becomes a page drawing object 9 —
+bytes the producer wrote inside a string. The manufactured entry is not noise a recovery tolerates;
+it is **the discriminator the recovery acts on**, so one byte decides both that the object is a page
+and what it draws.
+
+Three ways of saving it were weighed and each fails. Requiring the resumed reading to reach `>>`
+makes it worse — an object assembled across a gap that closes cleanly stops being a
+`DamagedDictionary` and reaches every reader through `Document::get` rather than the one consumer
+that asks for a prefix by name. Refusing on an unmatched `)` fails because the same damage eats the
+`)`: `699695-1`'s corruption is *runs of `0xFF` over arbitrary bytes*, which is precisely the
+mechanism that would destroy a `(`, so **the witness cannot distinguish its own case from the
+counterexample**. And taking the witnesses' corroboration — that their object 4 really is a content
+stream — is the argument about *these files* §34 already refused.
+
+**So the eleven of §34 are settled**: five draw through door 1 (§35), and the other six are beyond
+any additive recovery, with `GHOSTSCRIPT-698887-0.pdf` and `GHOSTSCRIPT-699695-1.pdf` moving from
+*not yet argued* to *refused with the argument written down*. ADR 0782's standing `/Count` and a
+refusal out loud is the answer for all six.
+
+**The general form outlives the clause**, and it is the third sentence in this family after ADRs
+0343 and 0784: ask what a prefix of the thing *is*, ask whether the thing's parts are *ordered*, and
+now **ask what made the prefix the producer's**. Where the answer is byte continuity from a known
+position, no recovery may skip bytes and keep the guarantee.
 
 ## What not to do
 

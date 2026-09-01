@@ -333,6 +333,14 @@ impl Boundary {
 /// is why they are a type rather than a `bool`: the first is Table 31's own required entry read
 /// off the producer's bytes, and the second is an inference from what §7.7.3.2 lets a page tree
 /// node be.
+///
+/// **There is no third, and the reason is worth having before a round adds one.** `doc/todo/03`
+/// section 34 named one — resynchronising past a value that will not parse, so that a `/Type /Page` four
+/// bytes past the damage could be read — and ADR 0787 closed it. Both variants below name evidence
+/// that reached this reader through an unbroken tokenisation from the object's own `<<`, which is
+/// what makes the entries carrying it the producer's; a variant naming evidence read across a gap
+/// would be naming an entry one byte of damage can manufacture, and it is the *discriminating*
+/// entry that gets manufactured. `pdf-model/tests/damaged_page_dictionaries.rs::the_third_door`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageIdentification {
     /// The entries whole before the damage state Table 31's `/Type /Page` themselves.

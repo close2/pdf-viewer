@@ -341,3 +341,119 @@ fn the_page_says_out_loud_that_its_dictionary_was_read_in_part() {
     });
     assert!(said, "no report named the damaged dictionary: {reports:?}");
 }
+
+/// The door that stays shut, and what would happen if it did not.
+///
+/// `doc/todo/03` section 34 named a third door — resynchronising past a value that will not parse, so
+/// that a `/Type /Page` sitting four bytes past the damage could be read. ADR 0787 read §7.3 for
+/// it and closed it. The reading's surprise is that section 34's own objection is answerable: §7.2.1
+/// puts tokens below objects, §7.2.3 gives a run of regular characters exactly one end — "[a]
+/// sequence of consecutive regular characters comprises a single token" — and §7.3.1's nine
+/// types with their stated introducers make the set of tokens that may *begin* a value closed. So
+/// stepping over a regular run that begins no object is not a guess about a value's extent.
+///
+/// What refuses it is the sentence bounding §7.2.3: its rules "apply to all characters in the
+/// file except within strings, streams, and comments". A reader knows it is outside those three
+/// only by having tokenised continuously from the `<<`, and **continuity is exactly what ADR
+/// 0784's subset argument rests on** — the entries are a subset because every one of them is the
+/// producer's own. A gap ends that, and the `(` that would have said a `/` is string content
+/// rather than a key is precisely the kind of byte the damage destroys.
+///
+/// The three tests below are that argument as files. They are a triple rather than a pair because
+/// the manufacture needs a third arm to be visible at all: the tree names object 2 in each.
+mod the_third_door {
+    use super::{Document, document};
+
+    /// A: the producer wrote one entry, whose value is a string that happens to contain a name.
+    ///
+    /// Nothing in the prefix is an entry only a page object carries, so ADR 0786's door declines
+    /// and the object is refused — which is right, because the producer wrote no `/Contents`.
+    const INTACT_STRING: &str = "/Note (junk /Contents 9 0 R more) /Rotate [0 >]";
+
+    /// B: the same bytes with the string's opening `(` replaced by one regular character.
+    ///
+    /// One byte. `Zjunk` is now a token §7.2.3 makes whole and §7.3 gives no object to begin, so
+    /// it is where a resynchronising reader would step over.
+    const DAMAGED_STRING: &str = "/Note Zjunk /Contents 9 0 R more) /Rotate [0 >]";
+
+    /// C: B as door 2 would read it — the entry whose value will not parse dropped, and the
+    /// reading resumed where a key belongs.
+    ///
+    /// That is `doc/todo/03` section 34's own sketch of the door: skip to the next name after an
+    /// unreadable value. `/Note` loses its value and therefore itself; `Zjunk` is the token
+    /// §7.2.3 makes whole and §7.3 gives nothing to begin. Not a file anybody would write — it is
+    /// the *reading*, expressed in the only way this tree can express it without building the
+    /// door.
+    const RESYNCHRONISED: &str = "/Contents 9 0 R more) /Rotate [0 >]";
+
+    /// The keys of object 2's prefix, and whether a page came back.
+    fn prefix_of(body: &str) -> (Vec<String>, bool) {
+        let bytes = document("2 0 R", body);
+        let opened = Document::open(bytes).expect("the fixture opens");
+        let keys = opened
+            .damaged_dictionary(pdf_syntax::ObjectId::new(2, 0))
+            .map(|damaged| {
+                damaged
+                    .entries
+                    .iter()
+                    .map(|(key, _)| String::from_utf8_lossy(key.as_bytes()).into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        (keys, pdf_model::Pages::new(&opened).get(0).is_some())
+    }
+
+    /// The control: the string is intact, so its contents are a value and not entries.
+    #[test]
+    fn a_name_inside_a_string_is_not_an_entry() {
+        let (keys, page) = prefix_of(INTACT_STRING);
+        assert_eq!(
+            keys,
+            ["Note"],
+            "§7.3.4.2's string is one value, whatever is inside it"
+        );
+        assert!(
+            !page,
+            "no entry only a page object carries, so ADR 0786's door declines"
+        );
+    }
+
+    /// The finding's first half: one byte destroys the `(`, and this reader stops where it should.
+    #[test]
+    fn a_value_that_begins_no_object_stops_the_reading() {
+        let (keys, page) = prefix_of(DAMAGED_STRING);
+        assert!(
+            keys.is_empty(),
+            "the reading stops at /Note's value, so the prefix is empty: {keys:?}"
+        );
+        assert!(
+            !page,
+            "and the object is refused, with §7.7.3.2's /Count standing (ADR 0782)"
+        );
+    }
+
+    /// The finding's second half, and the reason door 2 is closed.
+    ///
+    /// This is B as a resynchronising reader would read it, and the prefix it yields holds
+    /// `/Contents` — one of `PAGE_ONLY_ENTRIES`. ADR 0786's door then fires and object 2 becomes a
+    /// page whose content stream is object 9, on the strength of bytes the producer wrote inside a
+    /// string. That is the substitutive direction trap 5 forbids, reached through the
+    /// *discriminator* rather than through noise the recovery tolerates. **If this test ever fails
+    /// because the arm above started behaving like this one, door 2 was built without its
+    /// argument.** ADR 0787.
+    #[test]
+    fn a_reading_across_a_gap_manufactures_the_entry_the_recovery_acts_on() {
+        let (keys, page) = prefix_of(RESYNCHRONISED);
+        assert!(
+            keys.contains(&"Contents".to_owned()),
+            "the gap turns string content into a Table 31 page-only entry: {keys:?}"
+        );
+        assert!(page, "and that entry is what makes the object a page");
+
+        let (refused, _) = prefix_of(DAMAGED_STRING);
+        assert_ne!(
+            refused, keys,
+            "the two differ by one skipped token, and that is the whole of door 2"
+        );
+    }
+}

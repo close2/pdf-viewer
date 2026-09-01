@@ -356,6 +356,24 @@ impl<'a> Parser<'a> {
                                 dict.insert(key, value);
                             }
                         }
+                        // Where the reading stops, and it does **not** resynchronise.
+                        //
+                        // §7.2.3 would let it: the failing token is a run of regular characters,
+                        // "[a] sequence of consecutive regular characters comprises a single
+                        // token", and §7.3.1's nine types with the introducers §7.3.2 to §7.3.10
+                        // state make the set of tokens that may begin a value closed — so a run
+                        // that begins none of them has a *stated* extent and is not a value at
+                        // all. That much of the case for skipping it is sound.
+                        //
+                        // What refuses it is the sentence bounding §7.2.3, which says its rules
+                        // "apply to all characters in the file except within strings, streams,
+                        // and comments". A reader knows it is outside those three only by having
+                        // tokenised continuously from the `<<`, and that continuity is what makes
+                        // this prefix a *subset* of the producer's entries rather than a guess
+                        // (ADR 0784). One byte of damage on a literal string's `(` turns its
+                        // contents into entries, and the manufactured one is the very entry
+                        // `pdf_model::Pages`' recovery discriminates on. ADR 0787, pinned in
+                        // `pdf-model/tests/damaged_page_dictionaries.rs::the_third_door`.
                         Err(error) => break Some(error),
                     }
                 }
@@ -559,6 +577,16 @@ impl<'a> Parser<'a> {
     /// Returns `None` where there is no damaged dictionary at the cursor: no object header, an
     /// object whose value does not open with `<<`, or a dictionary that is whole — for which
     /// [`Self::parse_indirect_object`] is the call.
+    ///
+    /// # It does not resynchronise, and that is a decision rather than an omission
+    ///
+    /// The prefix stops at the first value that will not parse, even where the bytes past it are
+    /// plainly more entries. §7.2.3 states the failing token's extent and §7.3's closed list of
+    /// nine types says no object begins there, so skipping it would not be a guess about a
+    /// *value's* extent — but the guarantee this whole door rests on is that every entry is the
+    /// producer's own, and that comes from tokenising continuously from the `<<` under the same
+    /// clause's "except within strings, streams, and comments". A gap ends it: one byte of damage
+    /// on a literal string's `(` turns its contents into entries. ADR 0787, and `doc/todo/03` section 36.
     pub fn parse_damaged_dictionary(&mut self) -> Option<DamagedDictionary> {
         let id = self.parse_object_header().ok()?;
         if self.lexer.next_token() != Some(Token::DictOpen) {

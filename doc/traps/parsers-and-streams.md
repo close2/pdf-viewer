@@ -128,6 +128,22 @@ general form is worth more than the clause**: where the standard says a thing's 
 the ordering that produced a prefix is not evidence about the thing, so the prefix is answerable as a
 *subset* and never as the thing. ADR 0784.
 
+**And the third question in that family is what makes the prefix the *producer's*, which is not the
+same as what makes it a prefix.** ADR 0784's sentence is about order, so the guarantee reads like
+"these entries came first"; it is not. The entries are the producer's because the reading tokenised
+**continuously from the object's own `<<`**, and §7.2.3 is what makes that the whole of the proof:
+its classification "appl[ies] to all characters in the file except within strings, streams, and
+comments", so a reader knows it is outside those three only by having consumed every token from a
+position that was. A recovery that *skips* bytes surrenders exactly that. The temptation is real and
+it looked answerable — §7.2.1 puts tokens below objects, §7.2.3 gives a run of regular characters
+one stated end, and §7.3.1's nine types have closed introducers, so a run beginning no object is not
+a value whose extent anybody has to guess. It is refused anyway, because one byte of damage on a
+literal string's `(` turns its contents into entries and the manufactured one is the very entry
+`Pages`' recovery discriminates on — a page invented, drawing another object's stream. **Ask what
+made the prefix the producer's before extending it**, and where the answer is byte continuity, no
+skip preserves it. ADR 0787, `doc/todo/03` §36, pinned in
+`pdf-model/tests/damaged_page_dictionaries.rs::the_third_door`.
+
 **And which evidence a prefix can carry depends on where the candidate came from, which is the
 second door's whole argument.** ADR 0784's consumer finds its candidates by scanning the file, where
 an object that says nothing about itself could be anything, so it needs the object's own
