@@ -26,6 +26,13 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
 
+    // §7.3.7's damaged dictionaries: a second scan of the file's `obj` candidates, reading each
+    // one's entries as far as they are readable. It is here rather than in `object` because it
+    // needs a whole file rather than one object, and it is here at all because the code has to be
+    // *in* the binary for the target to test it (ADR 0264). Every input this target is given is
+    // exactly the population it is about — bytes that are not a conforming file.
+    let _ = document.damaged_dictionaries();
+
     // Opening is not enough: the object graph must also be safe to walk.
     let Ok(catalog) = document.catalog() else {
         return;

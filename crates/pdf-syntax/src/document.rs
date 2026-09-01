@@ -113,6 +113,15 @@ pub struct Document {
     /// which is all but two of the 974 corpus documents — the scan is linear in the file and
     /// nothing pays for it until something needs it. See [`Document::load_by_header`].
     headers: RwLock<Option<Arc<XrefTable>>>,
+    /// Where the file's own header for each object whose *dictionary* stops part-way is, built
+    /// the first time something asks for one.
+    ///
+    /// Separate from [`Self::headers`] because that scan records only objects it can parse
+    /// whole — `xref::scan_for_objects` keeps an offset only where `parse_indirect_object`
+    /// succeeded — so the very objects this is about are invisible to it and to every table
+    /// derived from it. Empty until [`Document::damaged_dictionary`] is called, which is only
+    /// ever from a recovery that has already found the document pageless.
+    damaged: RwLock<Option<Arc<BTreeMap<u32, crate::parser::DamagedDictionary>>>>,
     /// How many object numbers were found by their own header after the table misfiled them.
     ///
     /// Counted rather than merely handled, because a document that needed this is a document
@@ -422,6 +431,7 @@ impl Document {
             expanded_streams: RwLock::new(BTreeMap::new()),
             loading: RwLock::new(HashMap::new()),
             headers: RwLock::new(None),
+            damaged: RwLock::new(None),
             misfiled: RwLock::new(BTreeSet::new()),
             lost_to_damage: RwLock::new(LostToDamage::default()),
             decoded: RwLock::new(DecodedStreams::with_budget(DECODED_BUDGET)),
@@ -587,6 +597,66 @@ impl Document {
             .ok_or(SyntaxError::TrailerMissing {
                 key: "/Root (not a dictionary)",
             })
+    }
+
+    /// The entries of `id`'s dictionary that this file states readably, where [`Self::get`]
+    /// answers nothing because the object as a whole will not parse.
+    ///
+    /// **This does not change what [`Self::get`] answers, now or ever.** It is a second question
+    /// a caller asks *instead*, having already been refused, and it is the only route in this
+    /// crate to [`Parser::parse_damaged_dictionary`] — which carries the reading of §7.3.7 that
+    /// says what such a prefix is and what it is not. A caller takes one on the strength of the
+    /// entries' own content, never on the strength of the object number it asked about; ADR 0784
+    /// is the argument, and `pdf_model::Pages`'s recovery is the one consumer.
+    ///
+    /// `None` for an object that parses, for one this file does not place at a byte offset, and
+    /// for one stored inside §7.5.7's object stream — the last because a compressed object has no
+    /// header of its own in the file, so there is no `obj` to read the entries after, and a
+    /// stream that decoded only in part is ADR 0366's refusal rather than this one.
+    #[must_use]
+    pub fn damaged_dictionary(&self, id: ObjectId) -> Option<crate::parser::DamagedDictionary> {
+        let damaged = self.damaged_dictionaries().get(&id.number)?.clone();
+        let Object::Dictionary(entries) =
+            self.decrypt_object(damaged.id, Object::Dictionary(damaged.entries))
+        else {
+            return None;
+        };
+        Some(crate::parser::DamagedDictionary { entries, ..damaged })
+    }
+
+    /// Every object number this file states a damaged dictionary for, scanned once and
+    /// remembered.
+    ///
+    /// **Why this is a scan of its own and not [`Self::object_headers`].** That scan keeps an
+    /// offset only where `Parser::parse_indirect_object` succeeded, so an object whose
+    /// dictionary stops part-way is in neither the table it builds nor the table
+    /// `xref::rebuild` builds from it — a rebuilt file's damaged page object is not merely
+    /// unparsed but *unnamed*, which is why `Pages`' recovery could not even ask about it.
+    ///
+    /// **This displaces nothing, because it decides nothing.** It is a statement about the
+    /// file's bytes — *here is a header whose dictionary stops part-way* — and it is answered
+    /// for a number whether or not something readable also bears it. Which of the two a caller
+    /// takes is the caller's: [`Self::get`] is asked first everywhere, and only an object it
+    /// answers nothing for is looked up here. Among two damaged headers bearing one number the
+    /// later in the file wins, which is `scan_for_objects`' own rule for two readable ones.
+    ///
+    /// Nothing here parses stream data: a damaged dictionary never reaches its `stream`
+    /// keyword, and a whole one is abandoned at the `>>` this call is not interested in.
+    #[must_use]
+    pub fn damaged_dictionaries(&self) -> Arc<BTreeMap<u32, crate::parser::DamagedDictionary>> {
+        if let Some(found) = read(&self.damaged).as_ref() {
+            return Arc::clone(found);
+        }
+        let mut found: BTreeMap<u32, crate::parser::DamagedDictionary> = BTreeMap::new();
+        for offset in crate::xref::object_header_offsets(&self.bytes) {
+            let mut parser = Parser::at(&self.bytes, offset, self.limits);
+            if let Some(damaged) = parser.parse_damaged_dictionary() {
+                found.insert(damaged.id.number, damaged);
+            }
+        }
+        let found = Arc::new(found);
+        *write(&self.damaged) = Some(Arc::clone(&found));
+        found
     }
 
     /// Fetches an indirect object, returning [`Object::Null`] if it cannot be read.

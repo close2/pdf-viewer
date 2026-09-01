@@ -1068,6 +1068,19 @@ fn interpret_into(
     for issue in reader.take_issues() {
         interpreter.note(Unsupported::Content { issue });
     }
+    // §7.3.7's dictionary, where this page was assembled from the part of it the file states
+    // readably. Reported before the media box because it is the reason the media box may be
+    // missing: the entry could be one of the ones after the damage.
+    if let Some(damage) = page.damaged_dictionary.as_ref() {
+        interpreter.note(Unsupported::PageDictionary {
+            detail: format!(
+                "this page's object states {} entr(ies) and then stops being readable at byte {} \
+                 ({}), so the page is drawn from those entries alone and whatever its producer \
+                 wrote after them is not here",
+                damage.entries, damage.stopped_at, damage.reason
+            ),
+        });
+    }
     // §7.7.3.3's `/MediaBox`, which §7.7.3.4 requires of the page or of an ancestor. Reported
     // before anything is drawn because it is the frame the drawing happens in rather than one of
     // its marks: the page below is the producer's, and the rectangle it is placed on is ours.
@@ -2081,6 +2094,7 @@ mod tests {
             resources: pdf_syntax::Dictionary::default(),
             media_box: [0.0, 0.0, 400.0, 200.0],
             substituted_media_box: None,
+            damaged_dictionary: None,
             crop_box: [0.0, 0.0, 400.0, 200.0],
             bleed_box: [0.0, 0.0, 400.0, 200.0],
             trim_box: [0.0, 0.0, 400.0, 200.0],

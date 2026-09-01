@@ -1908,9 +1908,9 @@ object *nothing can parse*:
 | document | what it is | after |
 |---|---|---|
 | `batch1/PDFBOX/PDFBOX-4623-1.pdf` | object 2 is its own `/Kids` entry; object 3 is a whole page | **draws** — *Hello World* at 48 pt, ink 1.315, pinned in `doc/checks/fixed-documents.toml` |
-| `batch1/PDFBOX/PDFBOX-4339-0.pdf` | object 3's body opens `\xbc` where `<<` belongs | unchanged: no reader gets a dictionary |
-| `batch6/poppler-gitlab/poppler-742-0.pdf` | object 8's `/TrimBox` array never closes and runs into the stream after it | unchanged, same reason |
-| `batch6/poppler-gitlab/poppler-750-0.tgz-0.pdf` | object 14's `/ProcSets` array is unterminated, and it writes `/Con\x91ents` and `e@dobj` | unchanged, same reason |
+| `batch1/PDFBOX/PDFBOX-4339-0.pdf` | object 3's body opens `\xbc` where `<<` belongs | **still refused**, and now for a stated reason: `\xbc` is a regular character, so §7.2.3's keyword run is `obj\xbc` and §7.3.10's header does not lex — there is no object to take a prefix of (ADR 0784) |
+| `batch6/poppler-gitlab/poppler-742-0.pdf` | object 8's `/TrimBox` array never closes and runs into the stream after it | **draws**: seven entries whole, the producer's own sheet, blank because `/Contents` is past the damage, reported (ADR 0784) |
+| `batch6/poppler-gitlab/poppler-750-0.tgz-0.pdf` | object 14's `/ProcSets` array is unterminated, and it writes `/Con\x91ents` and `e@dobj` | **draws**: one entry whole, so this reader's default sheet with nothing on it and both sentences said (ADR 0784) |
 
 **The rule that separates them is `doc/habits.md`'s and it is cheap**: run the reader and the grep,
 and know that the reader is the instrument under test. Running it turned a claim about four
@@ -1946,6 +1946,35 @@ the capture; a `Range` on the redirect works but pays the redirect on every piec
 here** — the round's own history file records what this one got. What is worth carrying is that the
 route is proven and the remaining cost is patience: about 512 MiB of the Archive's throttling per
 successful piece, and `batch2`, `batch4` and `batch5` are 9, 11 and 8 pieces.
+
+### 33. What the eight-hundred-and-sixtieth took: `batch2`, and the page object that will not parse
+
+**`batch2` was fetched by the round before and extracted by this one**, verified against Apache's
+published SHA-512. `ls corpus-cache/tika-issue-tracker/` is what says which batches are on this
+disk; `batch4` was still being fetched while this round ran and was left alone.
+
+**§31's remaining three witnesses are two defects, and one of them is closed.** The question §31
+handed on — whether §7.3.7's dictionary has a prefix worth drawing — is answered in ADR 0784, and
+the answer is neither *draw it* nor *refuse it*: the clause states no extent for a dictionary
+beyond its closing `>>` and states that the written order is not information, so the entries whole
+before the damage are a **subset** of the producer's rather than the dictionary. `Document::get`
+still refuses the object outright; a second door hands the subset to one consumer, which takes it
+only where those entries themselves state Table 31's `/Type /Page`.
+
+**The population was measured first and it is several defects rather than one.**
+`crates/pdf-model/examples/standing_count_census` over `batch1`, `batch2`, `batch3` and `batch6`
+prints it; what is worth carrying here is the *shape* rather than the counts, which that command
+prints: a small fraction of a per cent of documents state a page count this reader produces no page
+for, most of them because **no object in the file declares `/Type /Page` at all** — for which the
+standing `/Count` and a refusal out loud is the right answer and there is nothing to recover from —
+and a minority because a page object's dictionary opens and then stops. All of the second kind now
+draw. Three are pinned in `doc/checks/fixed-documents.toml`.
+
+**One thing this found that was not the subject**: `xref::scan_for_objects` keeps an offset only
+where the whole object parsed, so in a rebuilt file a damaged object is not merely unparsed but
+*unnamed* — invisible to `object_numbers()` and to `object_headers()` alike. Anything else that
+wants to ask a question about an object that will not parse has the same problem, and
+`Document::damaged_dictionaries` is the only answer to it in the tree.
 
 ## What not to do
 

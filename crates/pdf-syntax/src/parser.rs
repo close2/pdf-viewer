@@ -86,6 +86,27 @@ impl Default for Limits {
     }
 }
 
+/// An indirect object whose dictionary stops being readable part-way through.
+///
+/// What [`Parser::parse_damaged_dictionary`] answers, and the reason it is a type of its own
+/// rather than a bare [`Dictionary`]: a caller holding one cannot forget that the entries are
+/// only the ones that were whole. Everything a report needs is here — which object, where the
+/// reading stopped, and what stopped it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DamagedDictionary {
+    /// The object the header named.
+    pub id: ObjectId,
+    /// The key–value pairs read whole before the damage, each one the producer's own.
+    ///
+    /// Read by exactly the rules a whole dictionary's entries are read by — §7.3.7's null,
+    /// its duplicate key, and [`Limits::max_dict_len`] — because both readings are one function.
+    pub entries: Dictionary,
+    /// The byte offset in the input at which reading stopped.
+    pub stopped_at: usize,
+    /// What stopped it, for a report that has to say more than *something was wrong*.
+    pub error: SyntaxError,
+}
+
 /// Parses objects from PDF bytes.
 #[derive(Debug)]
 pub struct Parser<'a> {
@@ -275,37 +296,30 @@ impl<'a> Parser<'a> {
         Ok(Object::Array(items))
     }
 
-    fn parse_dictionary_or_stream(&mut self) -> SyntaxResult<Object> {
-        let dict = self.parse_dictionary_body()?;
-
-        // `stream` may follow a dictionary, making it a stream object.
-        let rewind = self.lexer.position();
-        let mut probe = self.lexer.clone();
-        if probe.next_token() == Some(Token::Keyword(b"stream")) {
-            self.lexer = probe;
-            return self.parse_stream_data(dict);
-        }
-        self.lexer.seek(rewind);
-
-        Ok(Object::Dictionary(dict))
-    }
-
-    fn parse_dictionary_body(&mut self) -> SyntaxResult<Dictionary> {
-        self.enter()?;
+    /// Reads the entries of a dictionary whose `<<` has been consumed, keeping what it read.
+    ///
+    /// The one reading of §7.3.7's body, so that [`Self::parse_dictionary_body`] and
+    /// [`Self::parse_damaged_dictionary`] cannot disagree about what an entry is: the null rule,
+    /// the duplicate-key choice and [`Limits::max_dict_len`] are all here, once. Which of the
+    /// two callers is speaking is what the `Option<SyntaxError>` decides, and nothing else.
+    fn read_dictionary_body(&mut self) -> (Dictionary, Option<SyntaxError>) {
         let mut dict = Dictionary::new();
+        if let Err(error) = self.enter() {
+            return (dict, Some(error));
+        }
 
         let result = loop {
             let Some(token) = self.lexer.next_token() else {
-                break Err(SyntaxError::UnexpectedEnd {
+                break Some(SyntaxError::UnexpectedEnd {
                     at: self.lexer.position(),
                     expected: "'>>'",
                 });
             };
             match token {
-                Token::DictClose => break Ok(()),
+                Token::DictClose => break None,
                 Token::Name(bytes) => {
                     if dict.len() >= self.limits.max_dict_len {
-                        break Err(SyntaxError::LimitExceeded {
+                        break Some(SyntaxError::LimitExceeded {
                             at: self.lexer.position(),
                             limit: "max_dict_len",
                         });
@@ -342,7 +356,7 @@ impl<'a> Parser<'a> {
                                 dict.insert(key, value);
                             }
                         }
-                        Err(error) => break Err(error),
+                        Err(error) => break Some(error),
                     }
                 }
                 // A non-name where a key belongs. Skipped rather than fatal: files with a
@@ -353,7 +367,35 @@ impl<'a> Parser<'a> {
         };
 
         self.depth = self.depth.saturating_sub(1);
-        result.map(|()| dict)
+        (dict, result)
+    }
+
+    fn parse_dictionary_or_stream(&mut self) -> SyntaxResult<Object> {
+        let dict = self.parse_dictionary_body()?;
+
+        // `stream` may follow a dictionary, making it a stream object.
+        let rewind = self.lexer.position();
+        let mut probe = self.lexer.clone();
+        if probe.next_token() == Some(Token::Keyword(b"stream")) {
+            self.lexer = probe;
+            return self.parse_stream_data(dict);
+        }
+        self.lexer.seek(rewind);
+
+        Ok(Object::Dictionary(dict))
+    }
+
+    /// A whole dictionary, or the error that stopped it — nothing in between.
+    ///
+    /// The module's own rule: an error is never a truncated object, because a shortened
+    /// dictionary handed back where a whole one was asked for would render a wrong page and
+    /// report success. [`Self::parse_damaged_dictionary`] is the door for a caller that wants
+    /// the shortened one *and says so*.
+    fn parse_dictionary_body(&mut self) -> SyntaxResult<Dictionary> {
+        match self.read_dictionary_body() {
+            (dict, None) => Ok(dict),
+            (_, Some(error)) => Err(error),
+        }
     }
 
     /// Reads stream data, having consumed the `stream` keyword.
@@ -431,6 +473,27 @@ impl<'a> Parser<'a> {
     /// [`SyntaxError::Unexpected`] if the header is not an indirect object header, plus
     /// anything [`Self::parse_object`] reports.
     pub fn parse_indirect_object(&mut self) -> SyntaxResult<(ObjectId, Object)> {
+        let id = self.parse_object_header()?;
+        let object = self.parse_object()?;
+
+        // `endobj` is frequently missing or misplaced. The object is already complete, so
+        // its absence is tolerated.
+        let rewind = self.lexer.position();
+        if self.lexer.next_token() != Some(Token::Keyword(b"endobj")) {
+            self.lexer.seek(rewind);
+        }
+
+        Ok((id, object))
+    }
+
+    /// Reads `<number> <generation> obj` at the cursor, leaving it on the object's value.
+    ///
+    /// ISO 32000-2 §7.3.10 is where the three tokens come from:
+    ///
+    /// > The definition of an indirect object in a PDF file shall consist of its object number
+    /// > and generation number (separated by white-space), followed by the value of the object
+    /// > bracketed between the keywords obj and endobj
+    fn parse_object_header(&mut self) -> SyntaxResult<ObjectId> {
         let at = self.lexer.position();
 
         let Some(Token::Integer(number)) = self.lexer.next_token() else {
@@ -455,25 +518,59 @@ impl<'a> Parser<'a> {
             });
         }
 
-        let id = ObjectId::new(
+        Ok(ObjectId::new(
             u32::try_from(number).map_err(|_| SyntaxError::Unexpected {
                 at,
                 found: format!("object number {number}"),
                 expected: "a number within range",
             })?,
             u16::try_from(generation).unwrap_or(0),
-        );
+        ))
+    }
 
-        let object = self.parse_object()?;
-
-        // `endobj` is frequently missing or misplaced. The object is already complete, so
-        // its absence is tolerated.
-        let rewind = self.lexer.position();
-        if self.lexer.next_token() != Some(Token::Keyword(b"endobj")) {
-            self.lexer.seek(rewind);
+    /// The entries of a damaged indirect object's dictionary that the file states readably.
+    ///
+    /// # Why this door exists beside [`Self::parse_indirect_object`], which refuses
+    ///
+    /// This module's rule is that an error is never a truncated object, and that rule is not
+    /// relaxed: `parse_indirect_object` still refuses the whole object, every caller of it still
+    /// sees a refusal, and nothing that reads a document through [`crate::Document::get`] reads
+    /// a byte more than it did before. What this adds is a *second* answer, which a caller has
+    /// to ask for by name and which comes with the offset the reading stopped at, so that no
+    /// consumer can mistake it for a whole dictionary.
+    ///
+    /// # What a prefix of §7.3.7's dictionary is, and what it is not
+    ///
+    /// The clause makes a dictionary "a sequence of key-value pairs enclosed in double angle
+    /// brackets", and says of the pairs:
+    ///
+    /// > The entries in a dictionary represent an associative table and as such shall be
+    /// > unordered even though an arbitrary order may be imposed upon them when written in a
+    /// > file. That ordering shall be ignored.
+    ///
+    /// So the entries this reads whole are **a subset of the dictionary's, every member of it
+    /// the producer's own** — and they are *not* "the dictionary", because the clause states no
+    /// extent for one beyond its closing `>>` and the order that picked this subset is the very
+    /// order it tells a reader to ignore. Which of those two sentences a caller needs is the
+    /// caller's business: `Document::get` needs the second and refuses; a recovery reading the
+    /// file's own `/Type` declaration needs the first, and takes what is there while saying so.
+    /// `doc/traps/parsers-and-streams.md` trap 5, and ADR 0784 for the whole argument.
+    ///
+    /// Returns `None` where there is no damaged dictionary at the cursor: no object header, an
+    /// object whose value does not open with `<<`, or a dictionary that is whole — for which
+    /// [`Self::parse_indirect_object`] is the call.
+    pub fn parse_damaged_dictionary(&mut self) -> Option<DamagedDictionary> {
+        let id = self.parse_object_header().ok()?;
+        if self.lexer.next_token() != Some(Token::DictOpen) {
+            return None;
         }
-
-        Ok((id, object))
+        let (entries, failure) = self.read_dictionary_body();
+        failure.map(|error| DamagedDictionary {
+            id,
+            entries,
+            stopped_at: self.lexer.position(),
+            error,
+        })
     }
 
     /// Increments depth, failing if the limit is reached.

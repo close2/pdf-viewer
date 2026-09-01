@@ -146,11 +146,16 @@ const MAX_UNREADABLE_ENCRYPTION: usize = 2;
 ///   missing or not a dictionary, and two of them **without the cross-reference table having
 ///   been rebuilt at all** — `was_recovered()` is false, so the scan that exists was never
 ///   reached. That is the cheapest of these to take on.
-/// - **Four are refused by every reference too** — `poppler-395-0-fuzzed.pdf`,
-///   `poppler-742-0-fuzzed.pdf`, `poppler-85140-0.pdf` and `REDHAT-1531897-0.pdf` are fuzzer
-///   and bug-tracker crashers from other projects, kept as regression fixtures rather than as
-///   renderable documents. `bug1020226.pdf` is not even a PDF defect: the Mozilla bug is a
-///   null-dereference in Firefox's *worker* shutdown that a pdf.js promise exposed.
+/// - **Three are refused by every reference too** — `poppler-395-0-fuzzed.pdf`,
+///   `poppler-85140-0.pdf` and `REDHAT-1531897-0.pdf` are fuzzer and bug-tracker crashers from
+///   other projects, kept as regression fixtures rather than as renderable documents.
+///   `bug1020226.pdf` is not even a PDF defect: the Mozilla bug is a null-dereference in
+///   Firefox's *worker* shutdown that a pdf.js promise exposed. **`poppler-742-0-fuzzed.pdf`
+///   was a fourth until the eight-hundred-and-sixtieth session** and is now drawn and reported:
+///   its page object's `/TrimBox` runs into the stream after it, and §7.3.7's entries whole
+///   before that damage are a subset of the producer's own, taken on the `/Type /Page` inside
+///   them (ADR 0784). No reference draws it, which is agreement about the *object* and not
+///   about the page — the seven entries are in the file and all four readers can see them.
 ///
 /// **11 to 5 in the hundred-and-seventh session**, from two recovery rules and no new feature.
 /// §7.5.5 makes the trailer's `/Root` "[t]he catalog dictionary for the PDF file", so a
@@ -798,6 +803,12 @@ fn whose_defect(report: &Unsupported) -> Option<(Whose, &'static str)> {
         Unsupported::MediaBox { .. } => (
             Whose::TheFile,
             "no usable /MediaBox anywhere in the page's ancestry (§7.7.3.4)",
+        ),
+        // The file's, and unambiguously: the page object's own bytes stop before its dictionary
+        // closes, so what is drawn is the entries §7.3.7 states readably and no more (ADR 0784).
+        Unsupported::PageDictionary { .. } => (
+            Whose::TheFile,
+            "a page dictionary that stops part-way, read as far as it states (§7.3.7)",
         ),
         Unsupported::NoninvertibleMatrix { .. } => (
             Whose::TheFile,

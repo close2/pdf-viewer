@@ -79,11 +79,18 @@ pub(crate) fn describe(item: &Unsupported) -> String {
         Unsupported::TransferFunction { detail } => {
             format!("a transfer function reached the wrong colours on this page: {detail}")
         }
-        // The second report whose subject is the file, and the only one about the page as a
-        // whole: everything above says a mark is missing or wrong, and this says the *sheet* the
-        // marks were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389).
+        // The second report whose subject is the file, and the first about the page as a whole:
+        // everything above says a mark is missing or wrong, and this says the *sheet* the marks
+        // were placed on is not the producer's (§7.7.3.3, §7.7.3.4; ADR 0389). The
+        // `PageDictionary` sentence below is the other one, and can be the *reason* for this one.
         Unsupported::MediaBox { detail } => {
             format!("the document states no page size, so one was chosen for it: {detail}")
+        }
+        // The fifth about the file, and the widest: every other one names a mark or the sheet,
+        // and this says the *page dictionary* is only as much of itself as the file states
+        // readably, so any of Table 31's entries may be a default this reader chose (§7.3.7).
+        Unsupported::PageDictionary { detail } => {
+            format!("this page's dictionary is damaged and was read only in part: {detail}")
         }
         // The third report whose subject is the file. §8.3.4 NOTE 3 says a noninvertible matrix
         // "can result in unpredictable behaviour" and nothing else; what it means on a screen is

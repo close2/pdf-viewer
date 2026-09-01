@@ -50,7 +50,7 @@ pub use filter::{
 };
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
-pub use parser::{Limits, Parser};
+pub use parser::{DamagedDictionary, Limits, Parser};
 pub use text_string::text_string;
 pub use version::Version;
 pub use xref::{Location, XrefTable};

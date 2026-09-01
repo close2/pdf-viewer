@@ -1130,24 +1130,14 @@ pub fn scan_for_objects(input: &[u8], limits: Limits) -> XrefTable {
     // rather than a set that only grows.
     let mut streams: BTreeMap<u32, usize> = BTreeMap::new();
 
-    let mut at = 0usize;
-    while let Some(found) = input
-        .get(at..)
-        .and_then(|rest| rest.windows(3).position(|window| window == b"obj"))
-    {
-        let keyword_at = at.saturating_add(found);
-        at = keyword_at.saturating_add(3);
-
-        // Walk back over `G` and `N` to find where the header starts.
-        if let Some(start) = header_start(input, keyword_at) {
-            let mut parser = Parser::at(input, start, limits);
-            if let Ok((id, object)) = parser.parse_indirect_object() {
-                latest.insert(id.number, start);
-                if is_object_stream(&object) {
-                    streams.insert(id.number, start);
-                } else {
-                    streams.remove(&id.number);
-                }
+    for start in object_header_offsets(input) {
+        let mut parser = Parser::at(input, start, limits);
+        if let Ok((id, object)) = parser.parse_indirect_object() {
+            latest.insert(id.number, start);
+            if is_object_stream(&object) {
+                streams.insert(id.number, start);
+            } else {
+                streams.remove(&id.number);
             }
         }
     }
@@ -1185,6 +1175,35 @@ fn is_object_stream(object: &Object) -> bool {
 }
 
 /// Walks backwards from an `obj` keyword to the start of `N G obj`.
+/// Where every `N G obj` header in the file begins, earliest first.
+///
+/// The one place this crate decides what a header *is*, so that the scan which builds a table
+/// out of the readable objects ([`scan_for_objects`]) and the scan which asks about the
+/// unreadable ones (`Document::damaged_dictionaries`) cannot disagree about which offsets they
+/// are looking at. Advertised by §C.4, which is the licence for scanning at all:
+///
+/// > When a PDF processor reads a PDF file with a damaged or missing cross-reference table, it
+/// > may attempt to rebuild the table by scanning all the objects in the file.
+///
+/// An offset here is a candidate rather than a promise: `obj` inside a stream's data preceded by
+/// digits looks exactly like a header, and only parsing what follows tells the two apart.
+pub(crate) fn object_header_offsets(input: &[u8]) -> Vec<usize> {
+    let mut found = Vec::new();
+    let mut at = 0usize;
+    while let Some(hit) = input
+        .get(at..)
+        .and_then(|rest| rest.windows(3).position(|window| window == b"obj"))
+    {
+        let keyword_at = at.saturating_add(hit);
+        at = keyword_at.saturating_add(3);
+        // Walk back over `G` and `N` to find where the header starts.
+        if let Some(start) = header_start(input, keyword_at) {
+            found.push(start);
+        }
+    }
+    found
+}
+
 fn header_start(input: &[u8], keyword_at: usize) -> Option<usize> {
     let mut at = keyword_at;
 

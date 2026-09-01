@@ -4082,12 +4082,21 @@ const NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE: [&str; 2] =
 
 /// Pages the page tree does not yield, which `tests/corpus.rs` documents one file at a time.
 ///
-/// Six documents and one second page, and the references say the same thing about all but one
+/// Five documents and one second page, and the references say the same thing about all but one
 /// of them: `REDHAT-1531897-0.pdf`, `bug1020226.pdf` and `poppler-85140-0.pdf` are drawn by
 /// nobody; `Pages-tree-refs.pdf` page 2 is a `/Kids` cycle that `poppler` answers with a 1x1
 /// sheet — *Syntax Error: Loop in Pages tree* — while `mutool` says *cycle in page tree* and
-/// refuses, as we do; `poppler-742-0-fuzzed.pdf` and `poppler-937-0-fuzzed.pdf` are the same
-/// 1x1 from the same reader and nothing from the other two.
+/// refuses, as we do; `poppler-937-0-fuzzed.pdf` is the same 1x1 from the same reader and
+/// nothing from the other two.
+///
+/// **`poppler-742-0-fuzzed.pdf` left this list in the eight-hundred-and-sixtieth session**, and
+/// it is this corpus's one witness of ADR 0784: its page object's `/TrimBox` array is mutated
+/// mid-value and runs into the stream after it, so the whole object refused to parse and the
+/// page tree yielded nothing. §7.3.7 states no extent for a dictionary beyond its closing `>>`
+/// and states that the written order is not information, so the seven entries whole before the
+/// damage are a *subset* of what the producer wrote rather than the dictionary — taken by the
+/// recovery on the `/Type /Page` inside them, drawn on the producer's own `/MediaBox`, and
+/// reported, because `/Contents` is among the entries the damage took.
 ///
 /// **`Brotli-Prototype-FileA.pdf` is the one where two references draw a page and we draw
 /// none**, and it is the one page of this whole bucket where that is true and the reason is not
@@ -4097,12 +4106,11 @@ const NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE: [&str; 2] =
 /// reader cannot inflate. Two renderers implementing an unpublished extension is not evidence
 /// about a clause. `tests/corpus.rs` carries the same reading and nothing is owed until the
 /// filter is published.
-const NO_RENDER_NO_PAGE_IN_THE_TREE: [&str; 7] = [
+const NO_RENDER_NO_PAGE_IN_THE_TREE: [&str; 6] = [
     "Brotli-Prototype-FileA.pdf page 1",
     "Pages-tree-refs.pdf page 2",
     "REDHAT-1531897-0.pdf page 1",
     "bug1020226.pdf page 1",
-    "poppler-742-0-fuzzed.pdf page 1",
     "poppler-85140-0.pdf page 1",
     "poppler-937-0-fuzzed.pdf page 1",
 ];
@@ -4246,24 +4254,39 @@ const NOT_COMPARABLE_ONE_REFERENCE_REBUILT_THE_FILE: [&str; 3] = [
 
 /// Pages no reference reaches at all, so there is nothing to compare in either direction.
 ///
-/// All three refuse each of these seven, and where `pdftoppm` leaves a raster behind it is the
-/// 1x1 of [`REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER`]. Five of the seven are documents
+/// All three refuse each of these eight, and where `pdftoppm` leaves a raster behind it is the
+/// 1x1 of [`REFERENCE_GEOMETRY_A_REFUSAL_WEARING_A_RASTER`]. Six of the eight are documents
 /// this tree reports; `poppler-91414-0-53.pdf` and `poppler-91414-0-54.pdf` are not, and they
 /// are two names for one page — 795x842 at ink 0.185644 in both, the word *foobar*.
 ///
 /// The reason to look rather than to shrug is that a page nobody else draws is a page nobody
 /// else can check, so what this tree draws on one is worth a glance on its own: they are one
 /// signature appearance (`poppler-395-0-fuzzed.pdf`, ink 1.077), one word
-/// (`poppler-91414-0-53.pdf`), and five blank sheets, four of which are pages this tree reports
+/// (`poppler-91414-0-53.pdf`), and six blank sheets, five of which are pages this tree reports
 /// and one of which — `issue19484_1.pdf` — reports a corrupt object stream that its twin
 /// `issue19484_2.pdf` reports too. None is a plausible-looking page built out of nothing, which
 /// is the failure trap 5 exists for.
-const NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE: [&str; 7] = [
+///
+/// **`poppler-742-0-fuzzed.pdf` joined this group in the eight-hundred-and-sixtieth session**,
+/// out of [`NO_RENDER_NO_PAGE_IN_THE_TREE`], and it is ADR 0784's witness in this corpus: its
+/// page object's `/TrimBox` is mutated mid-value and runs into the stream after it, so §7.3.7's
+/// dictionary never closes and the whole object used to refuse. The seven entries whole before
+/// the damage are the producer's own and one of them is `/MediaBox`, so the sheet is 596x842
+/// and the page is blank because `/Contents` is among the entries the damage took — said out
+/// loud, which is the whole of what keeps it out of the failure the paragraph above names. The
+/// three references were asked again this session rather than quoted: `pdftoppm` prints
+/// *Dictionary key must be a name object* twice and *Illegal character '&gt;'* and writes no
+/// file, `mutool` repairs the cross-reference table and writes **zero bytes**, and `gs` says
+/// *Catalog dictionary not located in file* and reports the document as having no pages. That
+/// is agreement about the *object* rather than about the page — the seven entries are in the
+/// file and every one of the four readers can see them.
+const NOT_COMPARABLE_NO_REFERENCE_REACHES_A_PAGE: [&str; 8] = [
     "issue15590.pdf page 1",
     "issue19484_1.pdf page 1",
     "issue19484_2.pdf page 1",
     "issue9105_other.pdf page 1",
     "poppler-395-0-fuzzed.pdf page 1",
+    "poppler-742-0-fuzzed.pdf page 1",
     "poppler-91414-0-53.pdf page 1",
     "poppler-91414-0-54.pdf page 1",
 ];

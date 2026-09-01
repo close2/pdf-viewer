@@ -4924,3 +4924,49 @@ well as in our `doc/todo/50`: if you have an upstream channel, the reproduction 
 multi-second GL submission beside a second thread's device call; and bounded submissions
 (§41.2) would keep every context hold under the timeout as a side effect. Our practical answer
 stays "DX12 is the default and the answer", and we have not filed upstream from this side.
+
+## 42. `MOZILLA-831621-14.pdf` prices at **3 138 560 000** scene-derived bytes on `5fb011a` — one page-sized allocation per soft mask, where the mask's consumers can read 0.1% of the page
+
+Written in this viewer's eight-hundred-and-sixtieth session, as a five-minute check on the round
+before it. That round (our ADR 0783) stopped our own CPU backend paying a page-sized cost per soft
+mask; this section is the same page put through your encoder, and it says the cost is there too —
+priced, refused before anything is drawn, and reproducible in one command.
+
+```
+cargo run --release -p render-quorra --example zoom_frame -- \
+    corpus-cache/tika-issue-tracker/batch3/MOZILLA/MOZILLA-831621-14.pdf 0 1.0 2.0
+
+refused: frame refused: frame needs 3138560000 scene-derived bytes,
+         over the stated budget of 268435456
+```
+
+The arithmetic is the finding rather than the number. The target is 1280 × 800 = 1 024 000 pixels
+and 3 138 560 000 / 1 024 000 is **3065.0 exactly** — one page-sized surface apiece, and the page
+states **3059 soft masks** plus its own list. So the pricing scales with *mask count × whole
+target*, not with what any mask covers.
+
+What our census found on the same page, and why we think the ceiling is loose rather than the
+budget small:
+
+- each of the 3059 masks is **one page-sized shading fill under one shared clip leaf** that covers
+  the whole surface, so a bound taken from the mask's own path is honestly the whole target;
+- but the masks' **consumers** — the main list's fills that read them through `SMask` — are clipped
+  to **0.1%** of the page between them (3 220 480 000 path pixels, 4 112 990 inside their clips);
+- so the rows any mask can ever be *read* at are a thin band, and evaluating or allocating the
+  other 99.9% is work whose result nothing can observe. Our `render_cpu::mask_consumer_reach`
+  unions, per mask id, the y-extent of each consumer's clip-chain bounds and builds the mask over
+  `marked_rows ∩ reach`; the same page went from **41.99 s to 1.51 s** with pixels unchanged,
+  because every row it stopped drawing was a row §11.6.5.1's `SoftMask::outside` already answers.
+
+**This is a report and an ask about the pricing, not an ask for a bigger budget** — same position
+as §40. 3.1 GB is 11.7× the 256 MiB default, so this is not a page that squeaks over a line; it is
+a page whose scene cost is dominated by mask surfaces that no consumer can read. If the estimate
+is a deliberate upper bound then the honest fix is on the estimate's side, and the question we
+would ask first is whether a mask's plan can be sized to the union of its consumers' clips the way
+`a7babab` sized every other plan to what it marks (§22). The witness is in the Tika issue-tracker
+corpus (`batch3/MOZILLA`), and `MOZILLA-892314-0.pdf` in the same shard is the same structure at
+8646 × 3544 with 36 masks, if a second one is useful.
+
+We have not pinned this in our quorra gate: the page is not in `doc/pdf.js`, so the gate never
+sees it, and the CPU backend draws it — now in a second and a half — which is our standing answer
+for a budget refusal.

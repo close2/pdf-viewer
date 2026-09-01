@@ -417,3 +417,27 @@ session = 858
 reports = []
 ink = 0.315 .. 2.315
 why = "a page tree node that is its own child: the recovery scan was guarded on /Count's claim rather than on the tree having produced nothing, so a Hello World the file states as /Type /Page was unreachable while len() said one (ADR 0782, 7.7.3.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch2/batch2/GHOSTSCRIPT/GHOSTSCRIPT-701034-0.pdf"
+page = 1
+session = 860
+reports = ["Damaged { index: 0", "kept: 310", "this page's object states 4 entr(ies) and then stops being readable at byte 709"]
+ink = 0.0 .. 1.0
+why = "one byte of one array — `[0 0 292 3 >]` — cost a nine-page document every page it had: the page object would not parse, so the tree reached nothing, the recovery scan found nothing declaring itself a page, and /Count 9 stood over a blank window (ADR 0784, 7.3.7)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch6/poppler-gitlab/poppler-742-0.pdf"
+page = 1
+session = 860
+reports = ["this page's object states 7 entr(ies) and then stops being readable at byte 684"]
+ink = 0.0 .. 1.0
+why = "a /TrimBox array mutated mid-value and running into the stream after it; the seven entries before it are whole, so the page is the producer's size with its /Contents among the entries the damage took (ADR 0784, 7.3.7)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch6/poppler-gitlab/poppler-750-0.tgz-0.pdf"
+page = 1
+session = 860
+reports = ["no /MediaBox anywhere in the page's ancestry", "this page's object states 1 entr(ies) and then stops being readable at byte 4544"]
+ink = 0.0 .. 1.0
+why = "the least flattering of the three and pinned for that reason: an unterminated /ProcSets leaves a prefix of /Type alone, so the page is this reader's default sheet with nothing on it — and both sentences are said, which is the whole of what makes it honest (ADR 0784, 7.3.7)"

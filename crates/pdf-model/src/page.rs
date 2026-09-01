@@ -327,6 +327,24 @@ impl Boundary {
     }
 }
 
+/// What is known about a page whose dictionary the file states only in part.
+///
+/// ISO 32000-2 §7.3.7 makes a dictionary "a sequence of key-value pairs enclosed in double
+/// angle brackets" and states no extent for one beyond that closing `>>`, so a reader that
+/// never reaches it does not know how many entries the producer wrote. What it does know is
+/// what is here: how many were whole, where the bytes stopped being readable, and what stopped
+/// them. `pdf_syntax::Parser::parse_damaged_dictionary` carries the reading; ADR 0784 carries
+/// the argument for taking such a prefix at all, and for taking it in exactly one place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DictionaryDamage {
+    /// How many key–value pairs were read whole before the damage.
+    pub entries: usize,
+    /// The byte offset in the file at which reading stopped.
+    pub stopped_at: usize,
+    /// What stopped it, in the parser's own words.
+    pub reason: String,
+}
+
 /// One page of a document.
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -357,6 +375,15 @@ pub struct Page {
     /// `crate::content::interpret` says so out loud rather than letting a guessed page look like
     /// a stated one.
     pub substituted_media_box: Option<MediaBoxSubstitution>,
+    /// Set where [`Self::dict`] is only the part of the page's dictionary the file states
+    /// readably, rather than the whole of what its producer wrote.
+    ///
+    /// `None` for every page whose object parses, which is every page of every conforming file
+    /// and of nearly every damaged one. Where it is set, each entry in `dict` is the producer's
+    /// own and every entry the producer wrote *after* the damage is missing — so each of Table
+    /// 31's absent entries is being read as a default this reader chose rather than as a value
+    /// the file did not state, and `crate::content::interpret` says so out loud. ADR 0784.
+    pub damaged_dictionary: Option<DictionaryDamage>,
     /// The crop box, after inheritance, defaulting to the media box.
     pub crop_box: [f32; 4],
     /// §14.11.2.1's bleed box, defaulting to the crop box. Not inheritable (§7.7.3.4).
@@ -512,7 +539,7 @@ pub struct Pages<'a> {
     ///
     /// Empty for every document whose tree yields a page, which is every well-formed file —
     /// see [`Pages::new`] for why this exists, what it costs and where it declines to run.
-    scanned: Vec<ObjectId>,
+    scanned: Vec<Recovered>,
 }
 
 impl<'a> Pages<'a> {
@@ -682,9 +709,18 @@ impl<'a> Pages<'a> {
         // documented choice rather than a claim about what the producer meant. §7.7.3.2's tree is
         // where page order lives, and a file whose tree is gone has not stated one.
         if !self.scanned.is_empty() {
-            let id = *self.scanned.get(index)?;
-            let object = self.document.get(id);
-            let dict = object.as_dict()?;
+            let recovered = self.scanned.get(index)?;
+            let id = recovered.id;
+            // The prefix where the object does not parse, and the document's own answer where it
+            // does — never the other way round, because a `Document::get` that succeeds is the
+            // whole dictionary and a prefix of it would be strictly less of the file.
+            let object;
+            let (dict, damage) = if let Some((entries, damage)) = recovered.prefix.as_ref() {
+                (entries, Some(damage.clone()))
+            } else {
+                object = self.document.get(id);
+                (object.as_dict()?, None)
+            };
             // §7.7.3.4's inheritance runs up `/Parent`, and a page found by scanning may still
             // have a usable chain — the *tree* is what failed, which is a walk downwards from the
             // catalog. So the ancestry is collected upwards here and applied from the top, which
@@ -706,13 +742,9 @@ impl<'a> Pages<'a> {
                 .fold(Inherited::default(), |so_far, node| {
                     so_far.overlay(self.document, Node::Direct(node, None))
                 });
-            return Some(build_page(
-                self.document,
-                dict,
-                &inherited,
-                self.view,
-                Some(id),
-            ));
+            let mut page = build_page(self.document, dict, &inherited, self.view, Some(id));
+            page.damaged_dictionary = damage;
+            return Some(page);
         }
         let root = self.root.as_ref()?;
         let mut remaining = index;
@@ -805,8 +837,8 @@ impl<'a> Pages<'a> {
     pub fn indices(&self) -> BTreeMap<ObjectId, usize> {
         let mut out = BTreeMap::new();
         if !self.scanned.is_empty() {
-            for (index, id) in self.scanned.iter().enumerate() {
-                out.insert(*id, index);
+            for (index, recovered) in self.scanned.iter().enumerate() {
+                out.insert(recovered.id, index);
             }
             return out;
         }
@@ -828,6 +860,18 @@ impl<'a> Pages<'a> {
     }
 }
 
+/// A page the recovery scan found, and what it had to read to find it.
+#[derive(Debug, Clone)]
+struct Recovered {
+    /// Which object it is.
+    id: ObjectId,
+    /// The entries the file states readably, where the object itself does not parse.
+    ///
+    /// `None` — the ordinary case — where [`Document::get`] answered a whole dictionary, which
+    /// [`Pages::get`] then reads out of the document as it always did.
+    prefix: Option<(Dictionary, DictionaryDamage)>,
+}
+
 /// Every object declaring itself a page, in ascending object number.
 ///
 /// Table 31: `/Type` is "(Required) The type of PDF object that this dictionary describes; shall
@@ -835,27 +879,82 @@ impl<'a> Pages<'a> {
 /// *tree* says `Pages` and is not collected; an object stream's contents are reached because
 /// `Document::get` resolves them like any other.
 ///
+/// # The object that will not parse is asked the same question
+///
+/// An object whose own dictionary is damaged answers [`Document::get`] with nothing at all, so a
+/// scan that only asks `get` cannot tell *this file declares no page* from *this file declares a
+/// page in bytes that stop part-way*. Those are different statements about the document and the
+/// second is the commoner one: across the 16 818 documents of the Tika issue-tracker corpus that
+/// open at all, 18 state a page count this reader produces no page for, and 6 of the 18 hold an
+/// object whose dictionary opens, states `/Type /Page`, and then stops
+/// (`examples/standing_count_census`).
+///
+/// So such an object is asked through [`Document::damaged_dictionary`], and taken **on the
+/// strength of the entries that were whole**: the prefix has to say `/Type /Page` itself, which
+/// is the same declaration the whole objects above are taken on and the same one ADR 0782's
+/// recovery rests on. A prefix whose damage falls before its own `/Type` says nothing about what
+/// it is and is not collected.
+///
+/// **It is additive in both directions, which is what makes it a recovery rather than a guess.**
+/// This runs only where the tree yielded no page at all ([`Pages::new`]), so no page that draws
+/// today is displaced; and within the object, the entries taken are the producer's own while the
+/// ones after the damage are simply absent — read as Table 31's defaults, which is a
+/// substitution, which is why the page carries [`DictionaryDamage`] and
+/// `crate::content::interpret` says so out loud (`doc/traps/parsers-and-streams.md` trap 5).
+/// ADR 0784.
+///
 /// Bounded by the cross-reference table's own size, which the parser already bounds.
-fn scan_for_pages(document: &Document) -> Vec<ObjectId> {
+fn scan_for_pages(document: &Document) -> Vec<Recovered> {
     let mut found = Vec::new();
-    for number in document.xref().object_numbers() {
+    // The cross-reference information names the objects that parse; the second set is the ones
+    // whose dictionary stops part-way, which `xref::scan_for_objects` keeps no offset for and
+    // which are therefore not merely unparsed but *unnamed* in a rebuilt file. Merged into one
+    // ascending order because the recovered list's order is a documented choice and has to stay
+    // one rule rather than two.
+    let numbers: std::collections::BTreeSet<u32> = document
+        .xref()
+        .object_numbers()
+        .chain(document.damaged_dictionaries().keys().copied())
+        .collect();
+    for number in numbers {
         if found.len() >= MAX_NODES_VISITED {
             break;
         }
         let id = ObjectId::new(number, 0);
         let object = document.get(id);
-        let Some(dict) = object.as_dict() else {
+        if let Some(dict) = object.as_dict() {
+            if declares_a_page(document, dict) {
+                found.push(Recovered { id, prefix: None });
+            }
+            continue;
+        }
+        // `get` answered nothing. Ask what the file states readably, and believe it only where
+        // what it states includes the declaration this whole scan is built on.
+        let Some(damaged) = document.damaged_dictionary(id) else {
             continue;
         };
-        if document
-            .get_key(dict, "Type")
-            .as_name()
-            .is_some_and(|kind| kind.as_bytes() == b"Page")
-        {
-            found.push(id);
+        if !declares_a_page(document, &damaged.entries) {
+            continue;
         }
+        let damage = DictionaryDamage {
+            entries: damaged.entries.len(),
+            stopped_at: damaged.stopped_at,
+            reason: damaged.error.to_string(),
+        };
+        found.push(Recovered {
+            id,
+            prefix: Some((damaged.entries, damage)),
+        });
     }
     found
+}
+
+/// Whether a dictionary states Table 31's required `/Type /Page`.
+fn declares_a_page(document: &Document, dict: &Dictionary) -> bool {
+    document
+        .get_key(dict, "Type")
+        .as_name()
+        .is_some_and(|kind| kind.as_bytes() == b"Page")
 }
 
 /// Walks the tree in page order looking for `id`; see [`Pages::index_of`].
@@ -1202,6 +1301,11 @@ fn build_page(
         resources: inherited.resources.clone().unwrap_or_default(),
         media_box,
         substituted_media_box,
+        // Set by the one caller that has a prefix rather than a dictionary — `Pages::get`'s
+        // recovered page — because that is the only place in this crate where the difference
+        // is known, and a parameter here would ask every other caller to say *no damage* about
+        // a dictionary it read whole.
+        damaged_dictionary: None,
         crop_box,
         bleed_box,
         trim_box,

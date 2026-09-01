@@ -271,6 +271,31 @@ pub enum Unsupported {
         /// Which of [`crate::page::MediaBoxSubstitution`]'s three it was, and what stood in.
         detail: String,
     },
+    /// The page's own dictionary is only the part of it the file states readably (§7.3.7).
+    ///
+    /// The fifth report whose subject is the file, and the second about the page as a whole.
+    /// §7.3.7 makes a dictionary "a sequence of key-value pairs enclosed in double angle
+    /// brackets" and adds:
+    ///
+    /// > The entries in a dictionary represent an associative table and as such shall be
+    /// > unordered even though an arbitrary order may be imposed upon them when written in a
+    /// > file. That ordering shall be ignored.
+    ///
+    /// So the entries this page was built from are a *subset* of the ones its producer wrote —
+    /// every member of it the producer's own, selected by the order the clause says to ignore,
+    /// and with no way to know what the rest were. Table 31 then hands each absent entry a
+    /// default: no `/Contents` is a page with no marks, no `/Rotate` is upright, no `/Group` is
+    /// a page composited without one. Every one of those is this reader's value standing where
+    /// the producer's is missing, which is exactly what a report is owed for
+    /// (`doc/traps/parsers-and-streams.md` trap 5).
+    ///
+    /// Raised only for a page `crate::Pages`' recovery scan built from such a prefix, which
+    /// runs only where the page tree yields no page at all — so this never appears beside a
+    /// page that would have been drawn anyway. ADR 0784.
+    PageDictionary {
+        /// How much was read, where it stopped and what stopped it.
+        detail: String,
+    },
     /// Marks stated under a matrix with no inverse (§8.3.4), which paint nothing.
     ///
     /// §8.3.4's third NOTE is the whole of what the standard says about one:

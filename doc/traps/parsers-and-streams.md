@@ -54,7 +54,7 @@ the entry *before* it is resolved, which is the only moment the two conditions s
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 
-**Thirteen places report *while* drawing, each deliberate**, and the test for adding a fourteenth
+**Fourteen places report *while* drawing, each deliberate**, and the test for adding a fifteenth
 is that suppressing either statement loses information: `/NeedAppearances` (stale appearances drawn
 because they are all the file offers); §11.6.5.2's `/Matte` where pre-blending cannot be undone
 (refusing would draw a rectangle of pure matte colour); a constructed appearance drawing what its
@@ -88,7 +88,11 @@ additive-or-substitutive test settles the same way a font program's prefix is se
 gives the segment no first endpoint, so drawing one means substituting a place the file never wrote
 — `tiny-skia` substitutes the origin of user space and `kurbo` fires a `debug_assert!` — and the
 report is what keeps a page short of a segment distinguishable from a page whose producer drew less
-(ADR 0563). **Its `h` twin is deliberately *not* the fourteenth**, on trap 11's side of the same
+(ADR 0563); and a page built out of the entries §7.3.7's dictionary states *readably*, where the
+page object's own bytes stop before its closing `>>`, because every entry the producer wrote after
+the damage is then read as one of Table 31's defaults — no `/Contents` is a page with no marks, no
+`/Group` is a page composited without one — and only the report separates that from a producer who
+wrote exactly those entries (ADR 0784). **Its `h` twin is deliberately *not* the fifteenth**, on trap 11's side of the same
 test: `h` with nothing to close adds no segment either way, so the page is complete and a report
 would only cost it the oracle's judgement.
 
@@ -103,6 +107,25 @@ half of that answer to the four objects §7.8.2 names in the paragraph after the
 quoted, and found the argument stronger for a Type 3 glyph description than for a page — Table 110
 makes `d0`/`d1` the first operator, so a prefix cannot lose the glyph's own declaration, and
 `/Widths` rather than the description carries the advance.
+
+**And §7.3.7's dictionary — the clause every one of those objects is described by — answers it a
+third way, which is neither *draw the prefix* nor *refuse it*.** The clause states no extent for a
+dictionary beyond its closing `>>`, and it states outright that the written order is not
+information: "[t]he entries in a dictionary represent an associative table and as such shall be
+unordered even though an arbitrary order may be imposed upon them when written in a file. That
+ordering shall be ignored." So the entries read whole before the damage are **not the dictionary** —
+two files stating one dictionary in two orders, damaged at the same byte, yield different sets —
+but they *are* a subset of it, every member the producer's own. Those are two different sentences,
+and the whole design is keeping them apart: `Document::get` still refuses the object outright, so
+nothing in the document graph reads less of the file than it did; `Parser::parse_damaged_dictionary`
+is a second door a caller opens **by name** and which hands back the offset the reading stopped at,
+so no consumer can hold a prefix while believing it has a dictionary; and both readings are one
+function, so the null rule, the duplicate key and the length bound cannot disagree between them.
+The one consumer is `pdf_model::Pages`' recovery, which takes a prefix only where the entries that
+were whole *themselves* state Table 31's `/Type /Page`. **The general form is worth more than the
+clause**: where the standard says a thing's parts are unordered, the ordering that produced a prefix
+is not evidence about the thing, so the prefix is answerable as a *subset* and never as the thing.
+ADR 0784.
 
 **And the answer can differ between two *routes* over one clause, which is not the drift it looks
 like.** ISO 32000-2 §7.4.3 makes a character outside base-85's alphabet one that "shall cause an
