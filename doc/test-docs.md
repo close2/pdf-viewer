@@ -4,6 +4,13 @@
 > committed only where the artefact itself is the evidence, and everything else stays a fixture
 > built in code by `crates/test-scenes`.
 
+> **Third editor's note, eight-hundred-and-fifty-fifth session.** The paragraph below about the
+> Issue Tracker corpus is right about its size and its six `.tgz` archives and wrong about where it
+> is: it was never on AWS Open Data or Digital Corpora but on the Apache Tika regression server,
+> which Apache shut to the public on takedown requests (`LEGAL-696`, resolved 2025-04-10) and whose
+> name no longer resolves. `doc/todo/03` §29 has the route that still works, the digests that make
+> it trustworthy, and what the first chunk of it found.
+
 > **Editor's note, four-hundred-and-twenty-second session.** This file is the project owner's source
 > material and is left as written. Three of its claims were checked against the repositories and the
 > bucket while acting on it, and two did not hold: `openpreserve/format-corpus` has **no `/pdf/`

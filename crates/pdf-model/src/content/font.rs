@@ -524,6 +524,50 @@ fn standard_font_named(name: &str) -> Option<Object> {
     Some(Object::Dictionary(dict))
 }
 
+/// Why a lookup that owed a font dictionary produced none.
+///
+/// **Two conditions wore one sentence until ADR 0779**, and `Font` was the last resource
+/// category folding them together: `XObject` has told "is not in `/XObject`" from "is not a
+/// stream" since ADR 0255, and `Shading` says "`/Sh0` is not in `/Shading`". §7.8.3 makes a
+/// resource dictionary "enumerate the named resources needed by the operators in the content
+/// stream", so a name it does not carry is a resource **the file never defines** — while a name
+/// it *does* carry is defined, and what it names being no dictionary is §7.3.10 instead:
+///
+/// > An indirect reference to an undefined object shall not be considered an error by a PDF
+/// > processor; it shall be treated as a reference to the null object.
+///
+/// The two send a reader to different clauses and to different producers, and the first
+/// sentence said of the second is false about the file. `evince-1360-1.pdf` is the witness the
+/// eight-hundred-and-fifty-fifth session's chunk produced: a cairo page whose `/Resources
+/// /Font` names six fonts by reference, none of whose objects survived the reduction the bug
+/// report shipped, reported six times as fonts the file does not name.
+#[derive(Debug, Clone, Copy)]
+enum Absent {
+    /// The resource dictionary states no entry under this name (§7.8.3).
+    NoSuchResource,
+    /// The entry is stated and what it names is not a font dictionary (§7.3.10, §7.3.9).
+    NotAFontDictionary,
+}
+
+impl Absent {
+    /// What to report, for a font the content stream called `name`.
+    ///
+    /// Table 57's route names an object rather than a resource, and takes the second arm with
+    /// `name` reading `object 6 0`; the sentence is written so that both read.
+    fn detail(self, name: &str) -> String {
+        match self {
+            // Unchanged wording, deliberately: ADR 0255's population is counted by it, and only
+            // the documents that were never in it move.
+            Self::NoSuchResource => format!("no /Font resource named /{name}"),
+            Self::NotAFontDictionary => format!(
+                "the /Font entry {name} is stated and is not a font dictionary — §7.3.10 makes \
+                 a reference to an object the file does not define the null object, which is \
+                 not one"
+            ),
+        }
+    }
+}
+
 impl Interpreter<'_> {
     /// Table 57's `/Font`, which is §8.4.5's other route to the two parameters `Tf` sets.
     ///
@@ -551,8 +595,12 @@ impl Interpreter<'_> {
         if let (Some(Object::Reference(id)), Some(size)) = (reference, size) {
             let font_dict = self.document.get(id).as_dict().cloned();
             let name = format!("object {} {}", id.number, id.generation);
-            state.text.font =
-                self.load_font(Some(FontKey::Referenced(id)), font_dict.as_ref(), &name);
+            state.text.font = self.load_font(
+                Some(FontKey::Referenced(id)),
+                font_dict.as_ref(),
+                &name,
+                Absent::NotAFontDictionary,
+            );
             state.text.size = narrow(size);
         } else {
             // A `/Font` this crate cannot read as the clause states it is reported rather
@@ -598,8 +646,22 @@ impl Interpreter<'_> {
         }
 
         let label = String::from_utf8_lossy(name.as_bytes());
+        // Which of §7.8.3's two failures this is has to be decided *here*, because it is the
+        // only place that still holds the unresolved entry: a lookup that found nothing and one
+        // that found a reference to an object the file never wrote both arrive at `load_font`
+        // as `None`.
+        let absent = if entry.is_some() {
+            Absent::NotAFontDictionary
+        } else {
+            Absent::NoSuchResource
+        };
         let resolved = entry.map(|object| self.document.resolve(&object));
-        self.load_font(key, resolved.as_ref().and_then(Object::as_dict), &label)
+        self.load_font(
+            key,
+            resolved.as_ref().and_then(Object::as_dict),
+            &label,
+            absent,
+        )
     }
 
     /// What a previous load left under `key`, where there was one.
@@ -643,6 +705,7 @@ impl Interpreter<'_> {
         key: Option<FontKey>,
         dict: Option<&Dictionary>,
         name: &str,
+        absent: Absent,
     ) -> Option<Font> {
         if let Some(cached) = self.cached_font(key.as_ref()) {
             return cached;
@@ -675,7 +738,7 @@ impl Interpreter<'_> {
             }
             None => {
                 self.note(Unsupported::Font {
-                    detail: format!("no /Font resource named /{name}"),
+                    detail: absent.detail(name),
                 });
                 None
             }

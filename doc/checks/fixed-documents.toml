@@ -373,3 +373,11 @@ session = 792
 reports = []
 ink = 17.469 .. 19.469
 why = "a class list whose embedded DFKai-SB glyphs are computed by the font's instruction programs; drawn from the uninstructed skeleton, thin and misassembled, until the hint-reliant family ran through skrifa's interpreter (ADR 0727, 9.6.3)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch6/evince/evince-1360-1.pdf"
+page = 1
+session = 855
+reports = ["Text { operations: 1975 }", "the /Font entry f-0-0 is stated and is not a font dictionary", "the /Font entry f-1-0 is stated and is not a font dictionary", "the /Font entry f-2-0 is stated and is not a font dictionary", "the /Font entry f-3-0 is stated and is not a font dictionary", "the /Font entry f-4-0 is stated and is not a font dictionary", "the /Font entry f-5-0 is stated and is not a font dictionary"]
+ink =
+why = "six fonts the page's /Font names by reference, whose objects the bug report's reduction removed, reported as fonts the file does not name — §7.8.3's sentence for §7.3.10's condition (ADR 0779, 7.3.10)"

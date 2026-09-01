@@ -40,7 +40,17 @@ a name up in report a name the current resource dictionary does not define: `Fon
 always did, `ColorSpace` reports through `ColourSpace::parse`, and `XObject`, `ExtGState` and
 `Pattern` were silent until then (ADR 0255). `Properties` is deliberately outside it and the reason
 is trap 11's — a missing property list costs no mark, so a report there would take a page off the
-oracle's judged set for nothing. **The condition on all three is `is_hidden()`**: §8.11.3.1 skips
+oracle's judged set for nothing.
+
+**And a report that is loud can still be *wrong about the file*, which is this trap's own failure
+one step along.** "The resource dictionary does not define this name" and "it defines it, and what
+it names is not there" are two clauses — §7.8.3 and §7.3.10's null — and `Font` said the first of
+the two for both conditions from the day the interpreter had fonts, while `XObject` has told them
+apart since ADR 0255 and `Shading` always did. It took a corpus outside the 974 to show it: a
+cairo page in an evince bug report names six fonts and the reduction that made the report small
+removed their objects, so the reader printed a false sentence about the document six times. **A
+refusal is owed the right clause as well as a voice** (ADR 0779), and the way to tell is to look at
+the entry *before* it is resolved, which is the only moment the two conditions still differ. **The condition on all three is `is_hidden()`**: §8.11.3.1 skips
 hidden content "as if there were no `Do` operator to invoke it", and a `Do` that was never invoked
 cannot have failed.
 

@@ -217,6 +217,17 @@ rather than the copyright in each document. Cache them, measure them, name them 
 do not commit one. ADR 0258's promotion budget exists for the one case where that rule and a
 regression test collide, and it has not yet been reached.
 
+**The same sentence binds SafeDocs' *Issue Tracker* corpus, and one more binds it harder.** That
+set — under `corpus-cache/tika-issue-tracker/`, fetched for the first time in the
+eight-hundred-and-fifty-fifth session, `doc/todo/03` §29 — is bug attachments gathered from 35
+issue trackers of 32 PDF technologies. Every file in it belongs to whoever filed the report and
+nobody granted anything; Apache hosted it for the tool developers and **stopped**, on takedown
+requests, closing the question as `LEGAL-696` in April 2025. So the rule here is the crawl's rule
+with its reason made sharper: cache them, measure them, name one in a commit message with its
+digest, **commit none of them** — and the one route left to the bytes is the Internet Archive's
+copy, each tarball checked against the SHA-512 Apache published beside it, which is what keeps a
+third party's copy evidence rather than a guess.
+
 **And one dependency decision that came out *no* twice in one session**, beside the
 three-hundred-and-ninety-second's. `tools/safedocs` reads HTTPS byte ranges and ZIP central
 directories and takes **no package at all**: the transport is `curl` as a subprocess, so there is

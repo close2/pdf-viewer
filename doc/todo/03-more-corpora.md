@@ -9,8 +9,13 @@ a chunk a round, the way `doc/todo/00` takes a page off the ambiguous ranking.
 > the six-hundred-and-forty-seventh; §27 took the last 3944 and says what the whole population
 > turns out to be. **No later round need re-derive that**, and a round looking for a chunk should
 > take a *different* corpus rather than more of this one — §1's note about which kind is worth a
-> round is the argument, and SafeDocs' issue-tracker set is still 31 GB in six archives nobody has
-> fetched.
+> round is the argument.
+>
+> **The issue-tracker set is no longer "nobody has fetched it", and it is no longer at the address
+> five sections of this file sent a round to.** §29 has where it went, the route that still works,
+> what it holds and what the first chunk found. Every sentence below that calls it "SafeDocs' 31 GB
+> issue-tracker corpus, six archives" is a standing offer that has been taken; the size and the
+> count are right and the *host* is gone.
 Priority: 03 — the standing band, deliberately.
 Corpus: 974 pdf.js documents **plus 275 in four submodules** — of which
 `pdfCabinetOfHorrors` and `govdocs1-error-pdfs` were taken as a chunk in the
@@ -1669,6 +1674,121 @@ things were learned in the writing and neither was in the sentence this paragrap
   `EI` actually is. So the two take *different routes* through `inline_image::data_extent` — one
   answered by §8.9.7's stated length, the other falling through to the first filter's own
   end-of-data — and the second gate is a second witness rather than a duplicate.
+
+### 29. The chunk the eight-hundred-and-fifty-fifth took: the issue-tracker corpus, at last
+
+**§28 said it in as many words — "[w]hat is left in this file for a *population* is the 31 GB
+issue-tracker corpus and nothing else" — and five sections before it held the same offer open.
+Taking it found first that the corpus is not where this file says it is.**
+
+**Where it went.** The set was published by the DARPA SafeDocs programme in November 2020 as bug
+attachments from 35 issue trackers of 32 PDF technologies, hosted on the Apache Tika regression
+server at `corpora.tika.apache.org/base/packaged/pdfs/pdfs_202011/`. Apache received takedown
+requests, disabled the server, and closed the question as `LEGAL-696` (resolved 2025-04-10); the
+name is **NXDOMAIN** today, which is a fact rather than an inference — Google's resolver returns
+`Status: 3` with `apache.org`'s SOA in the authority section. So the URL in `doc/test-docs.md` and
+every offer in this file names a host that does not exist.
+
+**The route that does work, and why it is trustworthy.** The Internet Archive holds the six
+tarballs whole and serves byte ranges of them, and **each one is checked against the SHA-512
+Apache published beside it**, which is what makes a copy from a third party evidence rather than a
+guess: `batch6.tgz` came back 1 303 317 582 bytes matching
+`bc90ca4ab204b8ea…d140a70c70d3306c` exactly, and `batch1.tgz` matched its own. The `if_` suffix is
+what asks the Archive for the original bytes rather than for a rewritten page.
+
+```sh
+base=https://corpora.tika.apache.org/base/packaged/pdfs/pdfs_202011
+curl -L "http://web.archive.org/web/2021id_/$base/batch1.tgz.sha512" -o batch1.tgz.sha512
+curl -L "http://web.archive.org/web/2021id_/$base/batch1.tgz"        -o batch1.tgz
+sha512sum -c <(printf '%s  batch1.tgz\n' "$(cut -c1-128 batch1.tgz.sha512)")
+```
+
+**Do not resume onto a failed attempt.** The Archive answers a share of requests with an nginx
+`504` page, and `curl -C -` appends the next attempt's bytes to that page's, so the digest can
+never converge; one attempt in this round spent eight retries on a 4.2 GB file that was wrong from
+its first 160 bytes. Each attempt starts from nothing.
+
+**What the six hold**, off the Archive's own listing of the directory: `batch1` 1.8G, `batch2`
+4.2G, `batch3` 3.4G, `batch4` 5.0G, `batch5` 3.9G, `batch6` 1.2G — **19.5 GB compressed**, which is
+where this file's "31 GB" figure comes from uncompressed. One directory per tracker inside each.
+
+**Fetched and verified in this round: `batch6` and `batch1`, 3.27 GB compressed and 4.2 GB on
+disk.** `batch2` was attempted eleven times and never matched its digest — one attempt returned
+4 201 315 360 bytes against the 4 201 352 112 the listing states, so the Archive's copy of that one
+may be short as well as rate-limited; `batch3`, `batch4` and `batch5` are untried. That is the
+remainder, and it is recorded rather than glossed.
+
+**The population, in one line each** — a baseline for these directories, never a ratchet, and one
+process per directory for the reason §1 gives:
+
+| directory | documents | line |
+|---|---|---|
+| `batch6/cairo-gitlab` | 29 | 0 unopenable, 0 locked, 2 pageless, 2 incomplete, 0 slow |
+| `batch6/evince` | 241 | 0 unopenable, 1 locked, 1 encrypted beyond us, 0 pageless, 14 incomplete, 0 slow |
+| `batch6/poppler-gitlab` | 463 | 5 unopenable, 8 locked, 9 pageless, 54 incomplete, 3 slow |
+| `batch1/PDFBOX`, eight shards | 3792 | 3 unopenable, 12 locked, 14 encrypted beyond us, 9 pageless, 275 incomplete, 2 slow |
+
+**The rate is the finding about the population.** 275 of 3792 is **7.25%** incomplete and the
+poppler tracker's 54 of 463 is **11.7%**, against **6.98%** for the pdf.js corpus and **1.735%**
+for the whole 65 944-document crawl. A corpus assembled from bug reports is four to seven times
+harder than the web, which is what §1 says such a corpus is for — and the two figures are the two
+denominators `CLAUDE.md` separates, not one number twice.
+
+- **One document does not finish, it is the head of both trackers, and it is the same file twice.**
+  `poppler-gitlab/poppler-978-0.pdf` and `PDFBOX/PDFBOX-3688-0.pdf` are byte-identical —
+  2 051 350 bytes, SHA-256 `3030bb601a45da4c426d9a77b166a77991ea230c9c0f478508bf516ffcda7618` —
+  filed against two readers by two people. It **opens in 1.6 ms** and **interprets in 2.5 s into
+  298 379 commands with nothing reported**; what does not finish is the rasterisation, and ten
+  sampled stacks put nine of ten inside one call: `draw_group` → `PixmapMut::draw_pixmap`. Its page
+  one states **73 047 transparency groups**, every one of them isolated, unclipped, carrying a soft
+  mask and holding nine images, on a 1701 × 2409 target — so each group blits 4.1 M pixels and the
+  page asks for some 300 **billion** of them. Measured: 115 groups a second, which is about
+  **640 s** for the page, and both surveys' "slow" line is that document at 616 s and 602 s.
+- **The two other "slow" documents in that survey are not slow**, and this is a note about the
+  instrument rather than about them: `poppler-267-0.pdf` and `poppler-459-0.zip-1.pdf` take
+  **260 ms and 68 ms** alone against 602 s and 601 s under the survey's 24-way load beside the
+  document above. §1's own warning about the `slow` count, met again.
+- **The obvious fix was built and disproved by measurement, which is why it is written down here
+  rather than shipped.** `render-cpu`'s `marked_rows` already answers "which rows of the surface
+  can this command list mark", and `build_soft_mask` already uses it; narrowing a *group's* band by
+  it is three lines and is exact — outside its own marks an isolated group's buffer is the
+  transparency it was allocated as, and all three operators a group is blitted under (a separable
+  blend under source-over, `DestinationOut`, `Plus`) leave a destination alone under a transparent
+  source. It buys **nothing here**, because every one of the 73 047 groups' nine images spans the
+  page's full height: `marked` comes back as the whole 2409 rows, 4497 times out of 4546 sampled.
+  And it buys nothing on the two documents `doc/todo/40` prices for exactly this shape either —
+  `0423548.pdf` 2.35 → 2.37 s and `3990833.pdf` 2.78 → 2.79 s, three samples each, which is noise
+  in the wrong direction. Reverted on `CLAUDE.md`'s own rule that an optimisation is justified by a
+  benchmark.
+- **So what this page needs is a bound, and this round did not invent one.** Nothing in the
+  interpreter's five budgets sees it — `MAX_OPERATIONS` counts tokens, and 298 379 commands is not
+  many — and `render-cpu`'s only group bound is `MAX_GROUP_DEPTH`, which a page 73 047 groups
+  *wide* never reaches. What is owed is the measure and the constant, in that order: the pathology
+  is cumulative **group blit pixels** rather than a group count, since a page of 73 047 groups a
+  few rows tall is cheap and this one is not, and the constant has to be sized against a population
+  the way `MASK_BUDGET` was — the maximum any first page of the 974, the 65 944 and this corpus
+  demands. A bound invented without that census is what `doc/todo/49` exists to prevent. The
+  refusal itself is already shaped: `BackendError::GroupsTooDeep` is its sibling.
+- **The report that misstated the file, which is the defect this chunk yielded and it is fixed.**
+  §7.8.3's *no `/Font` resource named `/f-0-0`* was printed for a page whose `/Font` names all six
+  of its fonts and whose objects the bug report's reduction removed — §7.3.10's null, a different
+  clause and a different producer's mistake. ADR 0779 has the split and its three populations; the
+  974 do not move and twenty-two reports in this corpus do.
+- **The claim that has held for six populations breaks here, and it breaks softly.** "Nothing
+  failed to open for a reason that is this tree's" is what every chunk since the
+  four-hundred-and-twenty-fifth has been able to say. Of the sixteen documents these four
+  directories could not open or found no page in, **eight get a page count out of `pdfinfo`** — so
+  the sentence cannot be repeated. Two were read by hand and neither is ours: `poppler-303-0.pdf`
+  states `/Kids 3 0 R` with `/Count 1` and **has no object 3**, so poppler is reporting the count
+  rather than a page; `poppler-732-0.pdf` has no `%PDF-` header anywhere in it and poppler answers
+  33 pages for a 3511-byte fragment of two objects. The other six are unread, and that is the
+  cheapest thing this chunk leaves for the next round.
+
+**What this corpus is for, now that a chunk of it has been taken.** It is the *diagnostic* kind by
+§1's ranking — every file is an attachment somebody filed because a reader got it wrong — and its
+directories are named for the reader that failed, which the crawl's hash buckets are not. A round
+wanting a defect should take another tracker; a round wanting a rate should not, because a bug
+tracker's rate is a fact about bug reports.
 
 ## What not to do
 
