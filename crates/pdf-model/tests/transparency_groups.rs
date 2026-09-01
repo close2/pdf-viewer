@@ -2804,17 +2804,24 @@ fn nested_group_fixture(outer: &str, inner: &str) -> Vec<u8> {
 /// `/DeviceRGB` group inside the pair is just as much a second space, and it is the one
 /// whose report has no name to print — on the device rerun its space *is* the device's, so
 /// only the outer group reports.
+///
+/// **The inner `/DeviceGray` group reported its own name until ADR 0790, and now it is
+/// drawn**: on the device rerun the parent composites on the device, which is where
+/// `Compositing::Grey` applies, so the group's one red element is painted as §10.4.2.2's
+/// grey of red — `0.3 × 1.0`, 76.5 of 255 — and the outer group is the only report left.
+/// The `/DeviceRGB` arm keeps its red, which is what says the grey is the group's and not
+/// the rerun's.
 #[test]
 fn a_second_space_inside_the_pair_falls_back_to_the_device_and_reports() {
     let outer = "/Group << /S /Transparency /I true /CS /DeviceCMYK >>";
-    for (inner, expect_inner) in [
+    for (inner, red_becomes) in [
         (
             "/Group << /S /Transparency /I true /CS /DeviceGray >>",
-            true,
+            [76, 76, 76],
         ),
         (
             "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
-            false,
+            [255, 0, 0],
         ),
     ] {
         let drawn = interpret(nested_group_fixture(outer, inner));
@@ -2823,11 +2830,18 @@ fn a_second_space_inside_the_pair_falls_back_to_the_device_and_reports() {
             reported.contains("blending colour space /DeviceCMYK"),
             "the outer group's departure is named on the device rerun: {reported}"
         );
-        assert_eq!(
-            reported.contains("blending colour space /DeviceGray"),
-            expect_inner,
-            "and the inner group's where it has a name: {reported}"
+        assert!(
+            !reported.contains("blending colour space /DeviceGray"),
+            "and the inner group's is not, because it is drawn in its grey: {reported}"
         );
+        let painted = pixel(&drawn, 50, 50);
+        for (axis, want) in red_becomes.into_iter().enumerate() {
+            assert!(
+                (i32::from(painted[axis]) - want).abs() <= 1,
+                "the inner group's red element under {inner}: channel {axis} of {painted:?} \
+                 against {want}"
+            );
+        }
         assert!(
             !drawn.display_list.commands().iter().any(|command| matches!(
                 command,
@@ -2900,5 +2914,268 @@ fn a_group_inside_an_isolated_knockout_group_takes_the_transparency_note_6_gives
         reported.contains("non-isolated, and an element blends with the backdrop it excludes"),
         "a knockout group whose own initial backdrop is the page passes that page inward, \
          and this renderer substitutes transparency for it: {reported}"
+    );
+}
+
+/// A one-page fixture for §11.3.4's one-component blending space.
+///
+/// `page_group` is the page's whole `/Group` entry or nothing; `resources` is spliced into the
+/// page's resource dictionary beside the two graphics states and the form; `form_group` is
+/// the form `XObject`'s whole `/Group` entry or nothing. The `/GS` state is half alpha and the
+/// `/GB` state is `Multiply`, which is what makes a mark composite and what makes it blend.
+fn one_component_fixture(
+    page_group: &str,
+    resources: &str,
+    page: &str,
+    form_group: &str,
+    form: &str,
+) -> Vec<u8> {
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> >> \
+         /XObject << /Fm 5 0 R >> {resources} >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] {form_group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> /GB << /BM /Multiply >> >> >> \
+         /Length {} >>\nstream\n{form}\nendstream\nendobj\n",
+        page.len() + 1,
+        form.len() + 1
+    );
+    assemble(&body)
+}
+
+/// One channel of a pixel against the clause's arithmetic, to the byte's own rounding.
+fn assert_grey(what: &str, painted: [u8; 4], want: f32) {
+    let want = (want * 255.0).round();
+    for channel in &painted[..3] {
+        assert!(
+            (f32::from(*channel) - want).abs() <= 1.0,
+            "{what}: {painted:?} against a grey of {want} in every channel"
+        );
+    }
+}
+
+/// An opaque red, a half-alpha blue over it, and an opaque cyan beside them.
+///
+/// The three marks §10.4.2.2 and §10.4.2.3 give different greys to, so that a page drawn in
+/// grey by *any* one conversion is told apart from one drawn by the clause's two.
+const THREE_MARKS: &str = "1 0 0 rg 0 0 100 100 re f\n\
+                           q /GS gs 0 0 1 rg 0 0 50 100 re f Q\n\
+                           1 0 0 0 k 50 0 50 50 re f";
+
+/// ISO 32000-2 §11.4.7 and §11.3.4: a page group of `/DeviceGray` composites every mark in grey.
+///
+/// §11.4.7 makes the page group's `/CS` the space "[a]ll page-level compositing shall be done
+/// in", and §11.6.6 has every painting operator convert into it before compositing — so the
+/// conversion is §10.4.2.2's for an RGB mark, `0.3 × red + 0.59 × green + 0.11 × blue`, and
+/// §10.4.2.3's for a CMYK one, `1.0 − min(1.0, 0.3 × cyan + 0.59 × magenta + 0.11 × yellow +
+/// black)`. §11.3.4 then applies §11.3.3's formula per component, which for `Normal` at
+/// half alpha is §11.3.6's weighted average of the two greys. The three expected values are
+/// those three sentences, and the control is the same content with no page group at all,
+/// where the red is red.
+#[test]
+fn a_page_group_of_one_component_paints_every_mark_in_its_grey() {
+    let grey = interpret(one_component_fixture(
+        "/Group << /S /Transparency /CS /DeviceGray >>",
+        "",
+        THREE_MARKS,
+        "",
+        "",
+    ));
+    assert!(
+        grey.is_complete(),
+        "a page composited in DeviceGray is drawn, not reported: {:?}",
+        grey.unsupported
+    );
+    // Device y is the page's flipped: page (75, 75) is device (75, 25).
+    assert_grey(
+        "an opaque red is §10.4.2.2's grey of red",
+        pixel(&grey, 75, 25),
+        0.3,
+    );
+    assert_grey(
+        "half of blue over red is §11.3.6's average of their two greys",
+        pixel(&grey, 25, 50),
+        0.5 * 0.11 + 0.5 * 0.3,
+    );
+    assert_grey(
+        "an opaque cyan is §10.4.2.3's grey of cyan",
+        pixel(&grey, 75, 75),
+        1.0 - 0.3,
+    );
+
+    let device = interpret(one_component_fixture("", "", THREE_MARKS, "", ""));
+    assert_eq!(
+        pixel(&device, 75, 25)[..3],
+        [255, 0, 0],
+        "without a page group the red is red, which is what says the grey above is the group's"
+    );
+}
+
+/// ISO 32000-2 §11.6.6: an isolated group whose `/CS` is `/DeviceGray` composites its elements in grey.
+///
+/// > For isolated groups, if a group colour space ( CS ) is specified in the group attributes
+/// > dictionary, all painting operators shall convert source colours in a colour space (that
+/// > are not equivalent to the group colour space) to the group colour space before
+/// > compositing objects into the group. The resulting colour at each point shall be
+/// > interpreted in the group colour space.
+///
+/// The same three marks as the page test, inside the group on a page that states no space,
+/// so what changes is only §11.6.6's scope. The group's result is grey in every channel, and
+/// composites onto the device page as any group does — §10.4.2.2's conversion out is the
+/// identity on it. The control is the same group non-isolated, whose `/CS` the next sentence
+/// of the clause gives no effect: "[f]or non-isolated groups, or if no group colour space is
+/// specified, the group colour space shall be inherited from the parent group or page".
+#[test]
+fn an_isolated_group_of_one_component_composites_its_elements_in_grey() {
+    let grey = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        "/Group << /S /Transparency /I true /CS /DeviceGray >>",
+        THREE_MARKS,
+    ));
+    assert!(
+        grey.is_complete(),
+        "an isolated DeviceGray group is drawn, not reported: {:?}",
+        grey.unsupported
+    );
+    assert_grey("an opaque red inside the group", pixel(&grey, 75, 25), 0.3);
+    assert_grey(
+        "half of blue over red inside the group",
+        pixel(&grey, 25, 50),
+        0.5 * 0.11 + 0.5 * 0.3,
+    );
+    assert_grey("an opaque cyan inside the group", pixel(&grey, 75, 75), 0.7);
+
+    let inherited = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        "/Group << /S /Transparency /I false /CS /DeviceGray >>",
+        THREE_MARKS,
+    ));
+    assert!(inherited.is_complete(), "{:?}", inherited.unsupported);
+    assert_eq!(
+        pixel(&inherited, 75, 25)[..3],
+        [255, 0, 0],
+        "a non-isolated group's /CS is not the space anything composites in"
+    );
+}
+
+/// A grey page whose inner group blends in another space falls back to the device and reports.
+///
+/// §11.6.6's conversion at the inner group's `Do` — its RGB result into the page's grey — is
+/// one per pixel between two spaces, which no display list here carries; the standing answer
+/// is the one the four-component pair gives the same shape (see
+/// `a_second_space_inside_the_pair_falls_back_to_the_device_and_reports`): the page is drawn
+/// on the device's components and the departure is named where it was introduced. The
+/// control is the same inner group with nothing compositing in it, where converting each
+/// mark first and compositing after is the same picture (§11.3.6, and §10.4.2.2 is affine),
+/// so the grey run stands.
+#[test]
+fn a_grey_page_whose_inner_group_blends_in_colour_falls_back_and_reports() {
+    let blending = interpret(one_component_fixture(
+        "/Group << /S /Transparency /CS /DeviceGray >>",
+        "",
+        "1 0 0 rg 0 0 100 100 re f\n/Fm Do",
+        "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
+        "/GB gs 0 0 1 rg 20 20 60 60 re f",
+    ));
+    let reported = format!("{:?}", blending.unsupported);
+    assert!(
+        reported.contains(
+            "the page group's blending colour space /DeviceGray (§11.4.7): a group inside it \
+             composites in a different space (§11.6.6)"
+        ),
+        "{reported}"
+    );
+    assert_eq!(
+        pixel(&blending, 10, 10)[..3],
+        [255, 0, 0],
+        "and the page is drawn on the device's components, red for red"
+    );
+
+    let opaque = interpret(one_component_fixture(
+        "/Group << /S /Transparency /CS /DeviceGray >>",
+        "",
+        "1 0 0 rg 0 0 100 100 re f\n/Fm Do",
+        "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
+        "0 0 1 rg 20 20 60 60 re f",
+    ));
+    assert!(opaque.is_complete(), "{:?}", opaque.unsupported);
+    assert_grey("the page's own red", pixel(&opaque, 10, 10), 0.3);
+    assert_grey(
+        "the inner group's opaque blue, converted once at its Do",
+        pixel(&opaque, 50, 50),
+        0.11,
+    );
+}
+
+/// A one-component space that is not device grey is reported whether or not anything composites.
+///
+/// §11.6.6 has every painting operator convert its colour into the group's space, and for a
+/// space of one component that conversion keeps a grey and nothing else — so an opaque red
+/// is a departure by itself, where in a space of three or four components it would come out
+/// red again. Two such spaces: a `CalGray` page group, whose component reaches the device
+/// through §8.6.5.2's gamma, and a `/DeviceGray` that §11.6.6's Table 145 remaps:
+///
+/// > Device colour spaces shall be subject to remapping according to the DefaultGray ,
+/// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the current
+/// > resource dictionary (see 8.6.5.6, "Default colour spaces").
+///
+/// which is then that `CalGray` under the device's name. Both stay red on the device and say
+/// so; neither is `Compositing::Grey`'s, which stands in for device grey alone.
+#[test]
+fn a_calibrated_one_component_page_group_is_reported_though_nothing_composites() {
+    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 2.2 >>]";
+    let red = "1 0 0 rg 0 0 100 100 re f";
+    let calibrated = interpret(one_component_fixture(
+        &format!("/Group << /S /Transparency /CS {cal_gray} >>"),
+        "",
+        red,
+        "",
+        "",
+    ));
+    let reported = format!("{:?}", calibrated.unsupported);
+    assert!(
+        reported.contains(
+            "the page group's blending colour space an array-formed space (§11.4.7): its one \
+             component reaches the device through a curve"
+        ),
+        "a CalGray page group is named though nothing on the page composites: {reported}"
+    );
+    assert_eq!(pixel(&calibrated, 50, 50)[..3], [255, 0, 0]);
+
+    let remapped = interpret(one_component_fixture(
+        "/Group << /S /Transparency /CS /DeviceGray >>",
+        &format!("/ColorSpace << /DefaultGray {cal_gray} >>"),
+        red,
+        "",
+        "",
+    ));
+    let reported = format!("{:?}", remapped.unsupported);
+    assert!(
+        reported.contains(
+            "the page group's blending colour space /DeviceGray (§11.4.7): its one component \
+             reaches the device through a curve"
+        ),
+        "a /DefaultGray takes the page group out of device grey: {reported}"
+    );
+    assert_eq!(pixel(&remapped, 50, 50)[..3], [255, 0, 0]);
+
+    let group = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        &format!("/Group << /S /Transparency /I true /CS {cal_gray} >>"),
+        red,
+    ));
+    let reported = format!("{:?}", group.unsupported);
+    assert!(
+        reported.contains("blending colour space an array-formed space"),
+        "and an isolated CalGray group is named on the same condition: {reported}"
     );
 }

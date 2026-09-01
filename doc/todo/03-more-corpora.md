@@ -148,6 +148,16 @@ archives produced no report at all on the first pass — two aborted and three s
 600 s timeout — and **both of this round's defects are those five**. Surveying 65 944 documents in
 one process would have produced one traceback and no numbers.
 
+**And every process goes through `tools/bounded.sh`, at most four side by side, since the
+eight-hundred-and-sixty-sixth.** Eight shards of one directory, each with a rayon pool of one thread
+per core, is what took the machine into a soft lockup on 2026-09-01 (ADR 0798): a shard's cost is
+not the documents it walks but the documents in flight, one fuzzed page can cost 11 GB on its own,
+and eight pools of 24 threads had 192 in flight. The wrapper divides the walk's 32 GiB and the
+machine's cores between the shards — `tools/bounded.sh --shards 4 -- <build>/safedocs survey --dir
+<shard>` — and its last line says what the shard cost or that the bound stopped it, which is a
+different report from the traceback above and must be read as one: a shard stopped by the bound
+has surveyed nothing, and is re-run with more shards rather than recorded.
+
 **The three-way rate comparison, which is what a population this size is for:**
 
 | sample | documents | incomplete | rate |

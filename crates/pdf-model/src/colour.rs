@@ -82,6 +82,34 @@ pub enum Compositing {
     /// A `/Luminosity` mask group whose blending space §10.4.2.3 sends to grey without
     /// passing through RGB, painted in the ink that clause weighs rather than in colour.
     Luminosity(InkScale),
+    /// A page or an isolated group whose blending colour space is `DeviceGray` (§11.3.4,
+    /// §11.4.7, §11.6.6), painted in that one component on all three channels.
+    ///
+    /// §11.3.4 applies the compositing formula per component:
+    ///
+    /// > The i th component of the result colour 𝐶𝑟 shall be obtained by applying the
+    /// > compositing formula to the i th components of the constituent colours
+    ///
+    /// so a space of one component composites one number per pixel, and a raster holding that
+    /// number in each of its three channels runs the same arithmetic three times over.
+    /// §11.3.5.3 says the same of the non-separable modes outright:
+    ///
+    /// > Blending in gray colour spaces ( DeviceGray , CalGray and ICCBased gray) shall be
+    /// > done by conversion to RGB, blending in RGB, and then converting back to gray.
+    ///
+    /// and each of its four functions returns a grey for two greys, so the conversion back
+    /// is the identity on what the channels hold. What §11.6.6 asks of a painting operator
+    /// inside such a space — convert source colours to the group colour space before
+    /// compositing — is then the whole construction: every colour becomes its §10.4.2.2 or
+    /// §10.4.2.3 grey on the way in, and §10.4.2.2's conversion out, a grey level "equivalent
+    /// to an RGB value with all three components the same", is what the raster already holds.
+    ///
+    /// **This is `DeviceGray` and not the clause's other two one-component spaces.** A
+    /// `CalGray` or `ICCBased` grey component reaches the device through a gamma or a tone
+    /// curve, which is not affine, so the space's own component is not the channel's and a
+    /// group composited in it is a different picture from one composited in device grey. Those
+    /// two keep their report; `doc/todo/23` prices them.
+    Grey,
     /// A page §11.4.7 composites in four components, painted in the half of them this raster
     /// carries. See [`Half`] for which half, [`Press`] for whose four, and
     /// `pdf_render::blending`.
@@ -102,6 +130,7 @@ impl Compositing {
             Self::Device => (0, None, None, None),
             Self::Luminosity(scale) => (1, Some(*scale), None, None),
             Self::Subtractive(half, press) => (2, None, Some(*half), Some(press.identity)),
+            Self::Grey => (3, None, None, None),
         }
     }
 }
@@ -184,6 +213,14 @@ impl Compositing {
             Self::Luminosity(scale) => Color {
                 a: colour.a,
                 ..Color::grey(scale.grey_of(space, values))
+            },
+            // The same conversion as a `DeviceGray` mask group's, because §11.6.6 gives both
+            // the same instruction — convert into the group's space on the way in — and
+            // §10.4.2.2 and §10.4.2.3 are the conversions, `min` included: a `k` operator's
+            // ink can weigh more than one unit and its grey cannot go below black.
+            Self::Grey => Color {
+                a: colour.a,
+                ..Color::grey(InkScale::Unit.grey_of(space, values))
             },
             Self::Subtractive(half, press) => {
                 let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point, press);
