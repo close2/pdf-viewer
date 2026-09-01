@@ -3786,11 +3786,25 @@ const RASTER_BUDGET: usize = 64 << 20;
 ///   argument, exactly: a freed buffer's address is handed to the next allocation, so an entry
 ///   naming an address it does not keep alive could answer a lookup for a different stream.
 ///   Holding it makes that impossible rather than unlikely.
-/// - **The resource dictionary in force**, because §8.6.5.1 resolves a colour space named
-///   `/CS0` through it and §8.6.5.6's `/DefaultGray`, `/DefaultRGB` and `/DefaultCMYK` reach even
-///   the device names. One stream under two resource dictionaries is two pictures. Compared by
-///   value: two equal dictionaries name the same objects of the same document, so equality is the
-///   claim that the lookups agree.
+/// - **What the decode reads of the resource dictionary in force**, because §8.6.5.1 resolves a
+///   colour space named `/CS0` through it and §8.6.5.6's `/DefaultGray`, `/DefaultRGB` and
+///   `/DefaultCMYK` reach even the device names. One stream under two resource dictionaries is two
+///   pictures. **Both lookups are inside one of §7.8.3 Table 34's eight entries**, `ColorSpace`:
+///
+///   > A dictionary that maps each resource name to either the name of a device-dependent colour
+///   > space or an array describing a colour space
+///
+///   — and §8.6.5.6 puts the defaults in the `ColorSpace` subdictionary of the current resource
+///   dictionary, so that entry is the whole of what a decode can read, and it is what an entry
+///   holds and compares, by value: two equal entries name the same objects of the same document,
+///   so equality is the claim that the lookups agree. [`RasterCache::parts`] makes the claim
+///   structural rather than a reading of `colour.rs`: the decode is *handed* a resource
+///   dictionary holding that one entry, so a lookup of anything else finds nothing on a miss and
+///   nothing on a hit alike. **Until the eight-hundred-and-sixty-ninth session the entry held the
+///   whole dictionary**, and [`RASTER_BUDGET`] could not see it: a fuzzed page naming 10 260
+///   one-row image `XObject`s through one dictionary cloned that dictionary — about a mebibyte,
+///   since it names all 10 260 — into every entry while charging the eight bytes of samples, and
+///   cost 10.60 GiB to interpret (ADR 0798 measured it, ADR 0791 took this).
 /// - **The fill colour**, because §8.9.6.2's stencil "does not specify colours; instead, it
 ///   designates places on the page that should either be marked with the current colour or masked
 ///   out", so the same stencil under two fill colours is two rasters. Compared as bit patterns,
@@ -3824,7 +3838,7 @@ pub struct RasterCache {
     /// A `Vec` rather than a map because the byte budget keeps this short — the entries are
     /// whole rasters — and because the cheap components of the key are compared first, so a
     /// probe that misses costs one pointer comparison per entry. A map would need the key
-    /// constructed, and constructing it means cloning a resource dictionary per `Do`.
+    /// constructed, and constructing it means cloning the `/ColorSpace` entry per `Do`.
     ///
     /// **"Keeps this short" is a claim about [`StreamIdentity`] rather than about the budget**,
     /// and it is why that type exists: a probe is linear in the entries, so an image draw that
@@ -3922,19 +3936,39 @@ struct Cached {
     /// address. See [`RasterCache`] for why identity is the address rather than an object
     /// number.
     stream: Arc<Stream>,
-    /// The resource dictionary the image was drawn from.
-    resources: Dictionary,
+    /// What the decode read of the resource dictionary the image was drawn from: §7.8.3
+    /// Table 34's `/ColorSpace` entry, unresolved, or [`Object::Null`] where there is none.
+    /// [`RasterCache`] says why that entry is the whole of it, and why it is not the dictionary.
+    colour_spaces: Object,
     /// The fill colour, as bit patterns.
     fill: [u32; 4],
     /// How the samples were converted: the target, and §8.6.5.9's black point.
     into: Conversion,
     /// The answer.
     parts: Parts,
-    /// What this entry charges against [`RASTER_BUDGET`].
+    /// What this entry charges against [`RASTER_BUDGET`]: the samples, and the `/ColorSpace`
+    /// entry it holds. The second term is what makes the budget a bound on the entry rather than
+    /// on the samples — `doc/todo/12`'s shape, met here in the eight-hundred-and-sixty-sixth
+    /// session as ten thousand eight-byte rasters holding ten thousand mebibyte dictionaries.
     bytes: usize,
 }
 
+/// The key of §7.8.3 Table 34's entry an image decode reads, and the one it is handed.
+const COLOUR_SPACES: &str = "ColorSpace";
+
+/// What a resource dictionary without a `/ColorSpace` entry is compared as.
+static NO_COLOUR_SPACES: Object = Object::Null;
+
 impl RasterCache {
+    /// What the cache currently charges against [`RASTER_BUDGET`], in bytes.
+    ///
+    /// For a test of the charge: an entry is charged what it holds, so this is bounded by the
+    /// budget and the entries' own cost is bounded by this.
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.held
+    }
+
     /// Decodes an image `XObject`, reusing an earlier decode of the same one under the same
     /// state.
     ///
@@ -3962,10 +3996,11 @@ impl RasterCache {
             fill.b.to_bits(),
             fill.a.to_bits(),
         ];
+        let colour_spaces = resources.get(COLOUR_SPACES).unwrap_or(&NO_COLOUR_SPACES);
         if let Some(at) = self
             .entries
             .iter()
-            .position(|entry| entry.answers(stream, identity, resources, fill, into))
+            .position(|entry| entry.answers(stream, identity, colour_spaces, fill, into))
         {
             // Moved to the end because recency is what the eviction below reads, and a `Vec`
             // says it by position: the entry taken out and pushed back is the most recent.
@@ -3975,12 +4010,24 @@ impl RasterCache {
             return Ok(parts);
         }
 
-        let parts = decode_parts(document, stream, resources, fill_of(fill), into, masks)?;
-        let bytes = parts.bytes();
+        // The decode is handed §7.8.3 Table 34's `/ColorSpace` entry and nothing else of the
+        // resource dictionary, so that the entry below holds, by construction, everything the
+        // decode could have read: a lookup of any other entry finds nothing here and nothing on
+        // a hit alike. Taken back out afterwards rather than cloned twice.
+        let mut read = Dictionary::new();
+        if let Some(entry) = resources.get(COLOUR_SPACES) {
+            read.insert(
+                pdf_syntax::Name::new(COLOUR_SPACES.as_bytes()),
+                entry.clone(),
+            );
+        }
+        let parts = decode_parts(document, stream, &read, fill_of(fill), into, masks)?;
+        let colour_spaces = read.remove(COLOUR_SPACES).unwrap_or(Object::Null);
+        let bytes = parts.bytes().saturating_add(footprint(&colour_spaces));
         self.entries.push(Cached {
             identity,
             stream: Arc::clone(stream),
-            resources: resources.clone(),
+            colour_spaces,
             fill,
             into: into.clone(),
             parts: parts.clone(),
@@ -4011,9 +4058,10 @@ fn fill_of(bits: [u32; 4]) -> pdf_render::Color {
 impl Cached {
     /// Whether this entry is an answer to the `Do` described.
     ///
-    /// The three cheap components are compared before the dictionary, which is what keeps a
-    /// probe that misses to one pointer comparison: no two entries share an address unless
-    /// they differ in something else, so at most one dictionary comparison happens per probe.
+    /// The three cheap components are compared before the `/ColorSpace` entry, which is what
+    /// keeps a probe that misses to one pointer comparison: no two entries share an address
+    /// unless they differ in something else, so at most one comparison of that entry — a
+    /// reference, usually, and a dictionary at worst — happens per probe.
     ///
     /// [`StreamIdentity`] goes first for the same reason. For an allocation it is one
     /// discriminant and the address decides; for §8.9.7's inline image it is the digest, and a
@@ -4022,7 +4070,7 @@ impl Cached {
         &self,
         stream: &Arc<Stream>,
         identity: StreamIdentity,
-        resources: &Dictionary,
+        colour_spaces: &Object,
         fill: [u32; 4],
         into: &Conversion,
     ) -> bool {
@@ -4036,8 +4084,45 @@ impl Cached {
             }
             && self.fill == fill
             && self.into == *into
-            && self.resources == *resources
+            && self.colour_spaces == *colour_spaces
     }
+}
+
+/// What holding an object costs, for [`RASTER_BUDGET`]'s arithmetic.
+///
+/// The value itself and what it owns on the heap, walked rather than asked of the allocator
+/// because nothing in this tree asks the allocator anything. Two of the terms are over-charges
+/// in the direction [`Parts::bytes`] already chooses: a name's bytes are behind an [`Arc`] the
+/// parser may share, and a stream's data is the document's, held once however many entries name
+/// it. Over-charging bounds; under-charging is the defect this function exists to end.
+fn footprint(object: &Object) -> usize {
+    let owned = match object {
+        Object::String(bytes) => bytes.len(),
+        Object::Name(name) => name.as_bytes().len(),
+        Object::Array(items) => items.iter().map(footprint).fold(0, usize::saturating_add),
+        Object::Dictionary(dict) => dictionary_footprint(dict),
+        Object::Stream(stream) => stream
+            .data
+            .len()
+            .saturating_add(dictionary_footprint(&stream.dict)),
+        Object::Null
+        | Object::Boolean(_)
+        | Object::Integer(_)
+        | Object::Real(_)
+        | Object::Reference(_) => 0,
+    };
+    size_of::<Object>().saturating_add(owned)
+}
+
+/// [`footprint`] over a dictionary's entries: each key's handle and bytes, and each value.
+fn dictionary_footprint(dict: &Dictionary) -> usize {
+    dict.iter()
+        .map(|(key, value)| {
+            size_of::<pdf_syntax::Name>()
+                .saturating_add(key.as_bytes().len())
+                .saturating_add(footprint(value))
+        })
+        .fold(0, usize::saturating_add)
 }
 
 impl Parts {
