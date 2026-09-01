@@ -8,6 +8,11 @@
 //! safedocs survey                                      # run this tree over the cache
 //! ```
 //!
+//! **A survey runs under `tools/bounded.sh`**, which caps its memory and its rayon pool and says
+//! afterwards what it cost: `survey` walks its documents through one `par_iter`, and what a walk
+//! costs is the documents in flight rather than the documents walked — eight shards of one thread
+//! per core, unbounded, is how the machine went into a soft lockup on 2026-09-01 (ADR 0798).
+//!
 //! **`fetch` without `--download` is `plan`**, and says so. The number is printed before the
 //! bytes move, and a plan larger than `--budget-mb` (32 by default) is refused whether or not
 //! `--download` is present — naming, in the refusal, the `--budget-mb` that would admit it.

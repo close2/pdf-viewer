@@ -70,6 +70,30 @@ can and cannot open a window on, and where the build lands.
   worktree's own `tmp/`. Same reasoning as the stash below: anything the harness gives every round
   by the same path is a thing two rounds will collide in.
 
+- **A corpus walk runs through `tools/bounded.sh`, one walk on the machine at a time, and never as
+  eight shards of one thread per core.** On 2026-09-01 the rounds' campaign — eight survey shards
+  over `batch2/GHOSTSCRIPT`, a census over five batches, gates and builds beside them — reached a
+  90 GB working set against 63 GB of RAM, 47 GB into swap, and a soft lockup the owner ended with the
+  power switch. Nothing was under a limit and nothing on the owner's side was acting. The
+  eight-hundred-and-sixty-sixth round measured it and it was **not a leak**: a shard's peak is the
+  same over 340 documents as over 680, and a single-threaded walk is flat from the first document to
+  the last. It is a *document*: one fuzzed file whose first page costs about 11 GB to draw, in one
+  process, on one thread — and eight shards each running a pool of 24 rayon threads met such
+  documents 192 at a time. ADR 0798 has the figures.
+
+  So a walk is put under a bound, and the bound is the walk's rather than the process's:
+  `tools/bounded.sh --shards N -- <command>` gives each of N side-by-side processes `nproc/N` rayon
+  threads and `32 GiB / N` of `RLIMIT_DATA`, at nice 19, and says afterwards what the run cost or
+  what stopped it — a program that runs out prints its own allocation failure and the wrapper's last
+  line names the bound rather than the document (trap 18 is why the standard error goes through a
+  pipe and is read back). **32 GiB is the whole walk's, and four shards is the cap**: 61 GiB on the
+  machine, 16 kept for the owner's desktop, about 12 for a parallel round's gates and build, and
+  the rest for one walk. Two rounds do not walk at once, for the reason `doc/todo/02` §2 already
+  gives about a loaded machine. `--tree GiB` is the same idea for a `cargo build`, whose memory is
+  spread over `rustc` processes no single limit sees. `systemd-run --user` is not available to
+  this account and the agent's processes live in the owner's own session scope, which is why the
+  bound is an rlimit and not a cgroup; the cgroup is the owner's to set and ADR 0798 says how.
+
 - **`git stash` is shared between worktrees, and a parallel round will take yours.** `refs/stash`
   lives in the *common* git directory rather than in the worktree, so every round running at the
   same time pushes onto one stack. A round that stashed its changes to measure a baseline, and
