@@ -260,6 +260,14 @@ pub enum Operation {
     /// Taking images or embedded files out — Table 22 bit 5, "[c]opy or otherwise extract text
     /// and graphics from the document".
     Extract,
+    /// Writing an embedded file into the document — Table 22 bit 4, "[m]odify the contents of
+    /// the document by operations other than those controlled by bits 6, 9, and 11".
+    ///
+    /// No bit *names* attaching a file, and this round was told the table had none for it. It
+    /// has one all the same: bits 6, 9 and 11 carve annotations, form filling and page assembly
+    /// out of bit 4, and an embedded file is none of those three, so bit 4 is the bit that binds
+    /// it — the residual that every modification not named elsewhere falls under. ADR 0802.
+    Modify,
 }
 
 impl Operation {
@@ -268,6 +276,7 @@ impl Operation {
     pub fn bit(self) -> u8 {
         match self {
             Self::Print => 3,
+            Self::Modify => 4,
             Self::Extract => 5,
         }
     }
@@ -278,6 +287,7 @@ impl Operation {
         match self {
             Self::Print => "rendering a page",
             Self::Extract => "extracting from the document",
+            Self::Modify => "modifying the document",
         }
     }
 
@@ -291,6 +301,7 @@ impl Operation {
                 && match self {
                     Self::Print => !permissions.print,
                     Self::Extract => !permissions.copy,
+                    Self::Modify => !permissions.modify,
                 }
         })
     }
@@ -330,6 +341,7 @@ impl Plan {
                 attachments::Action::SaveAll { .. } | attachments::Action::Save { .. } => {
                     Some(Operation::Extract)
                 }
+                attachments::Action::Attach { .. } => Some(Operation::Modify),
             },
         }
     }
@@ -398,6 +410,27 @@ pub enum Refusal {
         /// The name asked for.
         name: String,
     },
+    /// The document already files an embedded file under the name to be attached.
+    ///
+    /// §7.9.6's keys "shall not overlap", so a second entry under one key would be a tree the
+    /// clause forbids; and quietly replacing the file the document had would be a deletion
+    /// nobody asked for.
+    #[error("source {at}: an embedded file is already named {name:?}")]
+    AttachmentExists {
+        /// Which source.
+        at: usize,
+        /// The name.
+        name: String,
+    },
+    /// §7.5.6's update cannot be appended to this document, for a reason the writer names.
+    #[error("source {at}: {error}")]
+    Update {
+        /// Which source.
+        at: usize,
+        /// The writer's own sentence.
+        error: pdf_syntax::write::UpdateError,
+    },
+
     /// A sink could not be opened or written.
     #[error("{name}: {error}")]
     Sink {
@@ -414,12 +447,15 @@ impl Refusal {
     pub fn exit(&self) -> Exit {
         match self {
             Self::Pattern(_) => Exit::Usage,
-            Self::Restricted { .. } => Exit::Refused,
+            // Both are this program declining a well-formed request by name: a policy, or a
+            // document whose cross-reference table it will not chain an update to.
+            Self::Restricted { .. } | Self::Update { .. } => Exit::Refused,
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }
             | Self::Selection { .. }
             | Self::NoSuchAttachment { .. }
+            | Self::AttachmentExists { .. }
             | Self::Sink { .. } => Exit::Error,
         }
     }
@@ -525,6 +561,14 @@ pub enum Origin {
         source: usize,
         /// The name the document files it under.
         name: String,
+    },
+    /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
+    /// byte, and then what was added.
+    Updated {
+        /// Which source.
+        source: usize,
+        /// The name the new embedded file is filed under.
+        attached: String,
     },
 }
 
@@ -664,6 +708,11 @@ impl Output {
                 ("kind".to_owned(), Value::text("attachment")),
                 ("source".to_owned(), Value::count(*source)),
                 ("name".to_owned(), Value::text(name.clone())),
+            ],
+            Origin::Updated { source, attached } => vec![
+                ("kind".to_owned(), Value::text("updated")),
+                ("source".to_owned(), Value::count(*source)),
+                ("attached".to_owned(), Value::text(attached.clone())),
             ],
         };
         Value::Object(vec![

@@ -9,7 +9,11 @@
 //! pdf-transform attachments in.pdf --list
 //! pdf-transform attachments in.pdf --save-all -o dir/
 //! pdf-transform attachments in.pdf --save NAME -o file.bin
+//! pdf-transform attachments in.pdf --attach report.csv --description 'Q3' -o out.pdf
+//! pdf-transform render      in.pdf --page-box media --no-annotations -o 'page-%d.png'
+//! pdf-transform images      in.pdf --no-mask -o 'img-%d.png'
 //! ```
+
 //!
 //! **Diagnostics go to stderr, always.** stdout carries bytes (under `-o -`) or the report, never
 //! prose — the same discipline as `tools/pdf-retrieve`. The exit status is RFC 0002 section 4.4's:
@@ -35,11 +39,12 @@ use std::io::{BufRead as _, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use pdf_transform::attachments::{Action, AttachmentsPlan};
+use pdf_transform::attachments::{Action, AttachmentsPlan, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
-use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
+use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
+
 use pdf_transform::{
     Budget, Exit, Listed, Plan, Policy, Report, Restrictions, Secret, Sinks, Source, apply,
 };
@@ -96,6 +101,11 @@ const VALUED: &[&str] = &[
     "--restrictions",
     "--report",
     "--max-pixels",
+    "--page-box",
+    "--attach",
+    "--name",
+    "--description",
+    "--date",
 ];
 
 /// Every flag this program knows, so an unknown one is a usage error rather than ignored.
@@ -109,8 +119,15 @@ const KNOWN: &[&str] = &[
     "--min-pixels",
     "--list",
     "--native",
+    "--no-mask",
+    "--page-box",
+    "--no-annotations",
     "--save-all",
     "--save",
+    "--attach",
+    "--name",
+    "--description",
+    "--date",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -326,11 +343,21 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                     Failure::Usage(format!("--format takes png or ppm, not {word:?}"))
                 })?,
             };
+            let page_box = match arguments.value(&["--page-box"]) {
+                None => None,
+                Some(word) => Some(parse_boundary(word).ok_or_else(|| {
+                    Failure::Usage(format!(
+                        "--page-box takes media, crop, bleed, trim or art, not {word:?}"
+                    ))
+                })?),
+            };
             Ok(Plan::Render(RenderPlan {
                 source: 0,
                 pages,
                 size,
                 format,
+                page_box,
+                annotations: !arguments.switch("--no-annotations"),
                 names: names("render")?,
             }))
         }
@@ -342,6 +369,8 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 min_pixels: arguments.parsed::<u64>(&["--min-pixels"])?.unwrap_or(0),
                 list_only,
                 native: arguments.switch("--native"),
+                no_mask: arguments.switch("--no-mask"),
+
                 names: if list_only {
                     "%d".parse()
                         .map_err(|error| Failure::Usage(format!("{error}")))?
@@ -355,27 +384,81 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 arguments.switch("--list"),
                 arguments.switch("--save-all"),
                 arguments.value(&["--save"]),
+                arguments.value(&["--attach"]),
             ) {
-                (true, false, None) => Action::List,
-                (false, true, None) => Action::SaveAll {
+                (true, false, None, None) => Action::List,
+                (false, true, None, None) => Action::SaveAll {
                     names: directory_or_pattern(output, "--save-all")?,
                 },
-                (false, false, Some(name)) => Action::Save {
+                (false, false, Some(name), None) => Action::Save {
                     name: name.to_owned(),
                     names: directory_or_pattern(output, "--save")?,
                 },
+                (false, false, None, Some(file)) => attach_action(arguments, output, file)?,
                 _ => {
                     return Err(Failure::Usage(
-                        "attachments takes exactly one of --list, --save-all, --save <name>"
+                        "attachments takes exactly one of --list, --save-all, --save <name>, \
+                         --attach <file>"
                             .to_owned(),
                     ));
                 }
             };
+
             Ok(Plan::Attachments(AttachmentsPlan { source: 0, action }))
         }
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
     }
+}
+
+/// `--attach <file>`: the file read, its filing name decided, the date read where given.
+fn attach_action(
+    arguments: &Arguments,
+    output: Option<&str>,
+    file: &str,
+) -> Result<Action, Failure> {
+    let names = |what: &str| -> Result<Pattern, Failure> {
+        output
+            .ok_or_else(|| Failure::Usage(format!("{what} needs -o <name>")))?
+            .parse()
+            .map_err(|error| Failure::Usage(format!("-o: {error}")))
+    };
+    let path = PathBuf::from(file);
+    let bytes = std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    // The filing name is the file's own unless `--name` says otherwise, and
+    // it has to be a name: a path with no final component names nothing.
+    let name = match arguments.value(&["--name"]) {
+        Some(name) if !name.is_empty() => name.to_owned(),
+        Some(_) => return Err(Failure::Usage("--name is empty".to_owned())),
+        None => path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+            .ok_or_else(|| {
+                Failure::Usage(format!(
+                    "--attach {file:?} has no file name to file it under; \
+                     give one with --name"
+                ))
+            })?,
+    };
+    let date = arguments
+        .value(&["--date"])
+        .map(|text| {
+            parse_iso_8601(text).ok_or_else(|| {
+                Failure::Usage(format!(
+                    "--date takes YYYY-MM-DDTHH:MM:SS with an optional Z or \
+                     ±HH:MM, not {text:?}"
+                ))
+            })
+        })
+        .transpose()?;
+    Ok(Action::Attach {
+        payload: Payload::new(bytes),
+        name,
+        description: arguments.value(&["--description"]).map(str::to_owned),
+        date,
+        names: names("--attach")?,
+    })
 }
 
 /// `--scale-to WxH` or `--scale-to N`.
@@ -507,6 +590,10 @@ verbs:
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
+               --attach <file> -o out.pdf   the file added to the document's name tree by
+                                            §7.5.6's incremental update: the input's bytes,
+                                            byte for byte, and the new objects after them
+
 
 render:
   --pages <selection>   which pages (default: all)
@@ -515,16 +602,32 @@ render:
   --format png|ppm      PNG (default) or binary PPM; JPEG is absent until an encoder is
                         decided (RFC 0002 section 6.5); PGM is absent until the grey conversion is
   --max-pixels <n>      refuse a page larger than this (default 2^28)
+  --page-box <box>      media, crop, bleed, trim or art (§7.7.3.3): the box is the raster's
+                        extent and its clip; default is the viewer's own display boundary,
+                        the crop box unless §12.2's /ViewArea names another
+  --no-annotations      the page contents alone, without §12.5.3's annotation pass
 images:
+
   --pages <selection>   which pages to look on (default: all)
   --min-pixels <n>      leave out images with fewer samples
   --list                inventory only; nothing decoded, nothing written
   --native              the embedded stream as it is where it is a file on its own: DCT as
                         .jpg, JPX as .jp2, the rest decoded to PNG (JBIG2 and CCITT say so);
                         the extension is appended to the name, so -o 'img-%d'. A native
-                        JPEG is the JPEG: its /SMask and /Decode are not in it
-  every image is decoded to PNG with its soft mask in the alpha; an XObject once, an inline
+                        JPEG is the JPEG: its /Decode is not in it, and its mask is
+                        written beside it as <name>.mask.png
+  --no-mask             the image with no mask applied, and its mask beside it as
+                        <name>.mask.png — an 8-bit grey PNG on the mask's own grid whose
+                        value is the opacity it gives the image
+  every image is decoded to PNG with its mask in the alpha; an XObject once, an inline
   image (BI … ID … EI) at every placement
+attachments --attach:
+  --name <name>         the name the file is filed under (default: the file's own name)
+  --description <text>  Table 43's /Desc
+  --date <iso-8601>     YYYY-MM-DDTHH:MM:SS[Z|±HH:MM] written as the file's creation and
+                        modification date; none is written otherwise, so the same
+                        attachment is the same bytes on every run
+
 
 options for every verb:
   --report=json         the report on stdout (not with -o -)
