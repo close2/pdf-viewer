@@ -5757,3 +5757,15 @@ something the reading would not have:
 - **A named test can be riding another entry's plant.** `/Matte` was calibrated a second time on its
   own entry after the `/SMask` plant had already failed it, because a test that only fails when a
   *different* entry is broken is evidence about that entry and not about this one.
+- **The weakest shape on the list is a row whose file is a *gate*'s, and it cannot be fixed by
+  renaming.** The §8.10.4 reference-`XObject` family was three rows naming `tests/corpus.rs`, which
+  passes for every document in a corpus that holds not one reference `XObject` — so there was no
+  test in the tree to promote the row to. Where the population is empty the evidence is a fixture or
+  it is nothing (trap 4's converse, which §8.10.3's row already records), and the absence itself is
+  what has to be re-measured: `absence_audit` now asks §8.10.4.1's own condition and answers it over
+  the crawl as well as the curated corpus.
+- **A named test can pass for the wrong reason, and only its own plant says so.** §7.6's evidence
+  became `an_unspecified_revision_is_refused_by_name`; the refusal it is named for was deleted
+  outright and the test stayed green, because it asserted a substring that a *different* clause's
+  refusal of the same document also contains. That is trap 27, and it is the reason naming a test
+  is a reading rather than a rename: the plant is what reads it.

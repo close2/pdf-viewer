@@ -567,3 +567,169 @@ fn the_corpus_states_these_page_scoped_triggers() {
         "page /O and /C, then annotation /PO, /PC, /PV and /PI"
     );
 }
+
+/// Every one of Table 201's twenty action types is answered, and each answer is its own.
+///
+/// §12.6.2 makes `/S` "[t]he type of action that this dictionary describes; see 'Table 201 -
+/// Action types' for specific values", and §12.6's and §12.6.4's rows both summarise this
+/// tree's answer as a count. A count is what goes stale — both rows carried one that five
+/// rounds had left behind — so what holds it is the enumeration itself: the table's twenty
+/// names, each with the entries its own subclause makes required, and each classified into
+/// exactly one of three dispositions.
+///
+/// The three are different claims and the test keeps them apart:
+///
+/// - **performed** — the action reaches a variant of its own, which a viewer acts on;
+/// - **read, not acted on** — `/URI`, which §12.6.4.8 says "shall be resolved" and which this
+///   program hands to the host as text instead, because principle 3 gives it no network;
+/// - **refused by name** — an [`Action::Refused`] whose sentence begins with the type's own
+///   keyword, so a person is told which of the twenty was declined rather than that something
+///   was.
+///
+/// The fourth possibility is the one this test exists to catch, and it is trap 5's: a type
+/// that produces *nothing at all*, which is indistinguishable from a document that asked for
+/// nothing. `/Thread` is why the classification is per-fixture rather than per-name — §12.6.4.7
+/// is performed for a thread in this file and refused for one in another, which is the clause's
+/// distinction and not this function's.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the length is Table 201's twenty rows plus the three dispositions they fall \
+              into; splitting the table out would put the standard's list in one place and \
+              what this tree answers it with in another, which is the separation this test \
+              exists to close"
+)]
+fn every_action_type_table_201_names_is_performed_read_or_refused_by_name() {
+    /// What a fixture's `/S` is expected to produce.
+    ///
+    /// [`Performed`] carries the [`Action`] variant's own name, because "one action came back"
+    /// is not the claim: a `/GoTo` answered with a `Hide` would satisfy a test that only
+    /// counted, and this tree has been bitten by a count before.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Disposition {
+        Performed(&'static str),
+        Read,
+        Refused,
+    }
+    use Disposition::{Performed, Read, Refused};
+
+    /// The variant an action reached, as this enumeration names it.
+    fn variant(action: &pdf_model::action::Action) -> &'static str {
+        use pdf_model::action::Action as A;
+        match action {
+            A::GoTo(_) => "GoTo",
+            A::SetOcgState(_) => "SetOCGState",
+            A::Hide(_) => "Hide",
+            A::Named(_) => "Named",
+            A::Uri(_) => "URI",
+            A::Thread(_) => "Thread",
+            A::ResetForm(_) => "ResetForm",
+            A::ImportData(_) => "ImportData",
+            A::GoToE(_) => "GoToE",
+            A::GoToDp(_) => "GoToDp",
+            A::Trans(_) => "Trans",
+            A::Refused(_) => "Refused",
+        }
+    }
+
+    // Table 201's twenty, in the table's own order, each with the entries its subclause makes
+    // required — an action missing those would produce nothing for a reason that is the
+    // fixture's rather than this tree's.
+    let cases: &[(&str, &str, Disposition)] = &[
+        ("GoTo", "/S /GoTo /D [3 0 R /Fit]", Performed("GoTo")),
+        ("GoToR", "/S /GoToR /F (other.pdf) /D [0 /Fit]", Refused),
+        ("GoToE", "/S /GoToE /D [0 /Fit]", Performed("GoToE")),
+        ("GoToDp", "/S /GoToDp /Dp 4 0 R", Performed("GoToDp")),
+        ("Launch", "/S /Launch /F (other.pdf)", Refused),
+        ("Thread", "/S /Thread /D 0", Performed("Thread")),
+        ("Thread", "/S /Thread /F (other.pdf) /D 0", Refused),
+        ("URI", "/S /URI /URI (https://example.invalid)", Read),
+        ("Sound", "/S /Sound /Sound 5 0 R", Refused),
+        ("Movie", "/S /Movie", Refused),
+        ("Hide", "/S /Hide /T 6 0 R", Performed("Hide")),
+        ("Named", "/S /Named /N /NextPage", Performed("Named")),
+        (
+            "SubmitForm",
+            "/S /SubmitForm /F (https://example.invalid)",
+            Refused,
+        ),
+        ("ResetForm", "/S /ResetForm", Performed("ResetForm")),
+        (
+            "ImportData",
+            "/S /ImportData /F (data.fdf)",
+            Performed("ImportData"),
+        ),
+        (
+            "SetOCGState",
+            "/S /SetOCGState /State [/OFF 7 0 R]",
+            Performed("SetOCGState"),
+        ),
+        ("Rendition", "/S /Rendition /OP 0", Refused),
+        (
+            "Trans",
+            "/S /Trans /Trans << /S /Wipe >>",
+            Performed("Trans"),
+        ),
+        ("GoTo3DView", "/S /GoTo3DView /TA 8 0 R", Refused),
+        (
+            "JavaScript",
+            "/S /JavaScript /JS (app.alert\\(1\\))",
+            Refused,
+        ),
+        (
+            "RichMediaExecute",
+            "/S /RichMediaExecute /TA 8 0 R /CMD << /C (start) >>",
+            Refused,
+        ),
+    ];
+
+    let mut wrong = Vec::new();
+    for (name, body, expected) in cases {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>",
+            "<< /Type /DPart /DParts [] >>",
+            "<< /Type /Filespec /F (sound.wav) >>",
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>",
+            "<< /Type /OCG /Name (layer) >>",
+            "<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] >>",
+            &format!("<< {body} >>"),
+        ]);
+        let actions = pdf_model::action::read(&doc, &Object::Reference(id(9)));
+        let got = match actions.as_slice() {
+            [pdf_model::action::Action::Refused(sentence)] => {
+                if sentence.starts_with(&format!("{name}:")) {
+                    Some(Refused)
+                } else {
+                    wrong.push(format!(
+                        "/{name} was refused as {sentence:?}, not by its own name"
+                    ));
+                    continue;
+                }
+            }
+            [pdf_model::action::Action::Uri(_)] => Some(Read),
+            [only] => Some(Performed(variant(only))),
+            other => {
+                wrong.push(format!(
+                    "/{name} ({body}) produced {} actions, not one: {other:?}",
+                    other.len()
+                ));
+                continue;
+            }
+        };
+        if got.as_ref() != Some(expected) {
+            wrong.push(format!("/{name} was {got:?}, expected {expected:?}"));
+        }
+    }
+    assert!(wrong.is_empty(), "\n{}", wrong.join("\n"));
+
+    // §12.6.2 sends a reader to Table 201 "for specific values", so a name the table does not
+    // hold is not an action this standard defines: reporting it as one would claim knowledge of
+    // it. It produces no entry, which is the one place silence is the right answer here.
+    let doc = document(&["<< /Type /Catalog >>", "<< /S /Fictional /Whatever (x) >>"]);
+    assert!(
+        pdf_model::action::read(&doc, &Object::Reference(id(2))).is_empty(),
+        "a name outside Table 201 is not an action"
+    );
+}

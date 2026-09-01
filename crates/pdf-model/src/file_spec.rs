@@ -11,9 +11,23 @@
 //! `CLAUDE.md` principle 3 gives the renderer no filesystem and no network, so *following* one is
 //! refused by architecture. What is left is not nothing: a specification is a statement the
 //! document makes, and a viewer that lists attachments, names the target of a link, or says why
-//! it declined has to read the statement before it can decline it. Every refusal in this tree
-//! that names a file — §7.3.8's external stream data, §8.10.4's reference `XObject`, §12.6.4.6's
-//! launch action, §12.6.4.4's embedded go-to — names it out of one of these.
+//! it declined has to read the statement before it can decline it. Every place in this tree that
+//! puts a file's *name* in front of a person reads it out of one of these: §12.5.6.15's file
+//! attachment annotation, §7.11.4's embedded files and §14.13's associated ones, §12.6.4.4's
+//! embedded go-to, and §12.7.6.4's import-data action.
+//!
+//! **That list said something stronger and false until the eight-hundred-and-fifty-third
+//! session** — "[e]very refusal in this tree that names a file — §7.3.8's external stream data,
+//! §8.10.4's reference `XObject`, §12.6.4.6's launch action, §12.6.4.4's embedded go-to" — and
+//! three of its four members name no file at all. §7.3.8's external stream data is a bare
+//! [`pdf_syntax::StreamRefusal::External`], decided in a crate that cannot depend on this one;
+//! §12.6.4.6's launch is a fixed sentence, "Launch: running an application, which the sandbox
+//! withholds", as `GoToR`'s and `Thread`'s are; and §8.10.4's reference `XObject` reads nothing —
+//! nothing in `crates/`, `tools/` or `fuzz/` names `/Ref`, which is §8.10.4.1's own provision for
+//! a processor that draws the proxy instead ([`crate::content`], and
+//! `pdf-model/tests/reference_xobjects.rs` holds it). What would make the retired sentence true is
+//! a refusal carrying an owned string rather than a `&'static str`; that is a change to
+//! [`crate::action`]'s boundary and not to this module, and it is not owed by any clause.
 //!
 //! # What this module is not
 //!

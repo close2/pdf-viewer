@@ -89,7 +89,21 @@ const FILE_ONLY_EVIDENCE_CEILING: usize = 0;
 /// The gate cannot tell whether a named test *covers* the clause, so this is a count rather than
 /// a rule: what it does is keep the population where a false claim can hide from growing, and say
 /// which rows are in it.
-const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 13;
+///
+/// **The weakest shape on the list is a row whose file is a *gate*'s**, and the §8.10.4
+/// reference-`XObject` family was three such rows: `tests/corpus.rs` passes for every document in
+/// a corpus that holds not one reference `XObject`, so it could not have failed for anything the
+/// clause says. A fixture pair replaced it in the eight-hundred-and-fifty-third session, and the
+/// reading that produced it found two false sentences about `crate::file_spec`'s callers — which
+/// is what a reading list is for.
+///
+/// **And the list's second entry is a test that passes for the wrong reason**, which no count can
+/// see and only the plant that calibrates a named test can: §7.6's evidence became
+/// `an_unspecified_revision_is_refused_by_name`, and that test asserted the refusal's sentence
+/// contained `"/R 5"` — which §7.6.4.1's crypt-filter refusal contains too, so revision 5 could be
+/// accepted outright with the test green. Naming a test is where a row's claim gets read; the
+/// ratchet is what makes somebody read it.
+const PARTIAL_FILE_ONLY_EVIDENCE_CEILING: usize = 5;
 
 /// Clauses this tree cites while their rows still say nobody has read them.
 ///

@@ -471,18 +471,46 @@ fn blank(bytes: &[u8], entry: &[u8]) -> Vec<u8> {
 /// A document this reader cannot decrypt says so, rather than drawing noise.
 ///
 /// `issue21579.pdf` is `/R 5`, which Table 21 describes as "a deprecated proprietary Adobe
-/// extension" and states no algorithm for.
+/// extension" and states no algorithm for. Its sibling is the revision the table does not
+/// name at all: `/R` is a direct integer in the encryption dictionary, so one byte of the
+/// file makes a `/R 7` out of it with every offset and every other entry unchanged, and
+/// §7.6.4.2's other arm — a revision this clause does not define — is exercised by a real
+/// document rather than by a fragment.
+///
+/// **Both assertions name the clause rather than the revision, and that is the whole of what
+/// makes this a test** (eight-hundred-and-fifty-third session). It asserted `contains("/R 5")`
+/// and passed with the refusal removed: `crypt_filters` then declines the same file for
+/// §7.6.4.1's method pairing, whose sentence begins "/R 5 with a crypt filter method" and
+/// contains the substring too. A refusal is only *by name* if the name distinguishes it from
+/// the other refusals the same document can reach.
 #[test]
 fn an_unspecified_revision_is_refused_by_name() {
     let Some(bytes) = corpus_bytes("issue21579.pdf") else {
         return;
     };
-    let opened = Document::open_with_password(bytes, Limits::DEFAULT, "p\u{E4}ssw\u{F6}rt");
+    let opened = Document::open_with_password(bytes.clone(), Limits::DEFAULT, "p\u{E4}ssw\u{F6}rt");
     match opened {
         Err(SyntaxError::UnsupportedEncryption { detail }) => {
             assert!(
-                detail.contains("/R 5"),
-                "the reason should name the revision"
+                detail.contains("/R 5 is a deprecated proprietary extension")
+                    && detail.contains("§7.6.4.2 Table 21"),
+                "Table 21's own refusal, not another clause's: got {detail:?}"
+            );
+        }
+        other => panic!("expected an unsupported-encryption error, got {other:?}"),
+    }
+
+    // Table 21 lists 2, 3, 4, 5 and 6 and nothing else, so a `/R 7` is not a revision
+    // §7.6.4 defines — a different sentence from the one above, and a different arm.
+    let mut seven = bytes;
+    let at = find(&seven, b"/R 5");
+    seven[at + 3] = b'7';
+    let opened = Document::open_with_password(seven, Limits::DEFAULT, "");
+    match opened {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => {
+            assert!(
+                detail.contains("/R 7 is not a revision §7.6.4 defines"),
+                "an undefined revision should be named as one: got {detail:?}"
             );
         }
         other => panic!("expected an unsupported-encryption error, got {other:?}"),

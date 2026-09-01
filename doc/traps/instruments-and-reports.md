@@ -541,6 +541,31 @@ instead of its scope, and trap 24's with a list instead of a corpus. So:
   `sed -n '3,20p'`, four lines past the header block it meant, printing `set -euo pipefail` at a
   reader. Every edit above a hard-coded range invalidates it, and nothing says so.
 
+### 27. An assertion on a substring passes for every answer that shares it
+
+Trap 11 on the other side of the wire. A report is only as good as the condition it fires on; an
+**assertion** is only as good as what its expected value *excludes*.
+
+`pdf-syntax/tests/encryption.rs::an_unspecified_revision_is_refused_by_name` opened
+`issue21579.pdf` and asserted the refusal's sentence contained `"/R 5"`. Delete §7.6.4.2's refusal
+entirely — accept revision 5, which Table 21 says "[s]hall not be used" and states no algorithm for
+— and the same document is declined a few lines later by §7.6.4.1's crypt-filter pairing, whose
+sentence begins *"/R 5 with a crypt filter method"*. The substring is there, the test is green, and
+the clause the test is named after is not implemented at all. Two ledger rows rested on it.
+
+The tell is that the expected value was assembled from the *input* rather than from the answer: a
+document stating `/R 5` will have `/R 5` in almost any sentence about it. So:
+
+- **Assert on what distinguishes the answer from its neighbours**, which for a refusal means the
+  clause's own words — and check that the neighbours exist: the question to ask of any error
+  assertion is *what else can this input produce here, and would my assertion accept it?*
+- **A test named after a clause is a claim about that clause**, so the plant that calibrates it is
+  the removal of that clause's code and nothing else. A plant somewhere adjacent failing the test
+  is not evidence about it.
+- The same shape is why trap 11's sixth instance is a count over source text: *presence of a name*
+  is a weak predicate wherever something else in the population can carry that name without
+  meaning it.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic

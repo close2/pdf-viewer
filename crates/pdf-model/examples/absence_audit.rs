@@ -155,6 +155,8 @@ struct Answers {
     decode_array: Option<String>,
     /// §8.10.3's group `XObject` whose `/S` is not `/Transparency`.
     group_subtype: Option<String>,
+    /// §8.10.4's reference `XObject`: a form `XObject` whose form dictionary carries `/Ref`.
+    reference_xobject: Option<String>,
     /// §11.6.5.2's soft-mask image behind one of §7.4's image codecs.
     codec_mask: Option<String>,
     /// The half of that claim the residue is actually about: a codec-carrying mask on a pair
@@ -317,6 +319,12 @@ fn report_every_claim(results: &[(String, Answers)]) {
         |a| a.group_subtype.as_deref(),
     );
     report(
+        "§8.10.4's /Ref on a form XObject — the claim was \"no document in the population states \
+         a reference XObject\" (curated)",
+        results,
+        |a| a.reference_xobject.as_deref(),
+    );
+    report(
         "§11.6.5.2's codec-carrying /SMask — the claim was \"no corpus document states\" one",
         results,
         |a| a.codec_mask.as_deref(),
@@ -373,6 +381,8 @@ struct Sightings {
     escapes: (usize, usize),
     /// §8.9.5.2: how each `/Decode` array that is neither default nor reversal was shaped.
     decodes: Vec<String>,
+    /// §8.10.4: what each reference `XObject`'s Table 95 dictionary states.
+    references: Vec<String>,
     /// §8.10.3: what each group `XObject`'s `/S` says, where it does not say `/Transparency`.
     groups: Vec<String>,
     /// §11.6.5.2: which of §7.4's codecs each soft-mask image is behind.
@@ -576,6 +586,28 @@ fn visit(document: &Document, object: &Object, depth: usize, into: &mut Sighting
                 .push(format!("/S /{}", String::from_utf8_lossy(other.as_bytes()))),
             None => into.groups.push("a /Group with no /S".to_owned()),
         }
+    }
+
+    // §8.10.4's reference XObject. §8.10.4.1: "The reference XObject in the containing document
+    // shall be a form XObject containing the Ref entry in its form dictionary", and "[t]he
+    // presence of the Ref entry shall distinguish reference XObjects from other types of form
+    // XObjects" — so the subtype is part of the condition rather than a refinement of it.
+    // §14.7.2's Table 355 gives a `/TOCI` structure element a `/Ref` of its own, which is the
+    // over-report a name census cannot tell from this one and which the subtype excludes.
+    if document
+        .get_key(dict, "Subtype")
+        .as_name()
+        .is_some_and(|name| name.as_bytes() == b"Form")
+        && let Some(reference) = dict_of(&document.get_key(dict, "Ref"))
+    {
+        // Table 95 makes `/F` and `/Page` required; naming which of the two arrived is what
+        // tells a conforming reference from a dictionary that merely carries the key.
+        let stated = |key: &'static str| {
+            (!matches!(document.get_key(reference, key), Object::Null)).then_some(key)
+        };
+        let entries: Vec<&str> = ["F", "Page", "ID"].into_iter().filter_map(stated).collect();
+        into.references
+            .push(format!("/Ref stating {}", entries.join(" and ")));
     }
 
     // §12.3.2.2's integer first element, asked of the two keys that hold a destination in a
@@ -1110,6 +1142,11 @@ fn measure(path: &Path) -> Answers {
         sightings.decodes.sort();
         sightings.decodes.dedup();
         answers.decode_array = Some(sightings.decodes.join(", "));
+    }
+    if !sightings.references.is_empty() {
+        sightings.references.sort();
+        sightings.references.dedup();
+        answers.reference_xobject = Some(sightings.references.join(", "));
     }
     if !sightings.groups.is_empty() {
         sightings.groups.sort();
