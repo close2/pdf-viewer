@@ -90,25 +90,27 @@ fn scale() -> f32 {
         .unwrap_or(SCALE)
 }
 
-/// Which of quorra's two coverage lanes to draw with, which `PDFVIEWER_QUORRA_COVERAGE` may
-/// override with `cpu` or `gpu`.
+/// Which of quorra's three coverage lanes to draw with, which `PDFVIEWER_QUORRA_COVERAGE` may
+/// override with `cpu`, `gpu` or `compute`.
 ///
 /// **The default is quorra's own — [`quorra_gpu::Coverage::Cpu`], the scanline rasteriser with
-/// the glyph atlas in front of it — and that is the lane this tree draws every page with.** The
-/// other one exists for magnification: nothing in it depends on the scale, so a frame at 100×
-/// re-uses what a frame at 1× built, and `viewer-ui` switches to it past
-/// `GPU_COVERAGE_MAGNIFICATION`. Which means the lane a person sees when they zoom in has been
-/// judged by fixtures alone — trap 12b's exact shape, one lane over — while this gate, the only
-/// instrument in the tree that puts a backend beside the oracle at the corpus's scale, has never
-/// run it.
+/// the glyph atlas in front of it — and that is the lane this tree draws a *still* page with.**
+/// The other two exist for magnification and for motion: nothing in the sampled `gpu` lane
+/// depends on the scale, so a frame at 100× re-uses what a frame at 1× built, and `viewer-ui`
+/// switches to it past `GPU_COVERAGE_MAGNIFICATION`; and `surface::lane_for` takes `compute` —
+/// the device-side port of the CPU scanline — for **any moved view on a real adapter** (ADR
+/// 0700), so a drag or zoom step is drawn by a lane this gate could not name until session 843.
+/// Which means the lane a person sees the most motion through had been judged by fixtures alone
+/// — trap 12b's exact shape, one lane over — while this gate, the only instrument in the tree
+/// that puts a backend beside the oracle at the corpus's scale, could not run it.
 ///
-/// Overriding it **skips the ratchets**, for the scale knob's reason and one more: the two lanes
+/// Overriding it **skips the ratchets**, for the scale knob's reason and one more: the lanes
 /// deliberately do not draw identical pixels (quorra's ADR 0016 states the sampled lane's bound
-/// against the exact one), so a list of differing pages is a property of the lane that produced
-/// it.
-/// A value that is neither is a **panic** rather than a fallback: this variable's whole purpose
-/// is to say which lane the numbers below came from, and a typo that quietly measured the
-/// default would be a run reported as the lane it did not use.
+/// against the exact one, and their ADR 0096 the compute lane's band), so a list of differing
+/// pages is a property of the lane that produced it.
+/// A value that is none of the three is a **panic** rather than a fallback: this variable's
+/// whole purpose is to say which lane the numbers below came from, and a typo that quietly
+/// measured the default would be a run reported as the lane it did not use.
 #[expect(
     clippy::panic,
     reason = "a mistyped lane must stop the run: the alternative is a survey headed `gpu` \
@@ -123,7 +125,8 @@ fn coverage() -> quorra_gpu::Coverage {
     {
         "" | "cpu" => quorra_gpu::Coverage::Cpu,
         "gpu" => quorra_gpu::Coverage::Gpu,
-        other => panic!("PDFVIEWER_QUORRA_COVERAGE={other}: expected `cpu` or `gpu`"),
+        "compute" => quorra_gpu::Coverage::Compute,
+        other => panic!("PDFVIEWER_QUORRA_COVERAGE={other}: expected `cpu`, `gpu` or `compute`"),
     }
 }
 
