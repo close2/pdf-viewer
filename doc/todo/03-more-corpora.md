@@ -1876,43 +1876,76 @@ nearer the web than it is to its own corpus's other three directories.**
   target, 32 s. Neither is diagnosed further here; the first is handed to `40` and the second is
   a size rather than a structure.
 
-### 31. What the eight-hundred-and-fifty-seventh leaves: a recovery whose condition is not its comment
+### 31. ~~What the eight-hundred-and-fifty-seventh leaves: a recovery whose condition is not its comment~~ — **taken in the eight-hundred-and-fifty-eighth** (ADR 0782)
 
-**`Pages::new` runs the wrong test, and its own comment states the right one.** `scan_for_pages` —
-the recovery that finds a page by Table 31's `/Type /Page` declaration when the tree cannot be
-walked, "a recovery from the file's own declarations rather than from any other reader's behaviour"
-— is guarded by `count == 0`, under a comment that says "[i]t runs only where the tree produced
-nothing". Those are not the same test. `count` is `/Count`'s claim; a root stating `/Count 5` over
-five `/Kids` that do not exist produces no page at all and no scan either, because the claim is not
-zero.
+**The `len()`-versus-`/Count` question is settled in writing and the code matches the reading.**
+Table 30's own cell makes `/Count` "redundant" and the `Kids` arrays and their descendants what
+"definitively determines the number of descendant pages", and the `shall` keeping the two
+consistent is the **writer's** — so a node with no reachable descendants has no pages, whatever
+integer the entry holds. `Pages::new` now probes the tree for a page (`reaches_a_page`, which is
+`count_leaves`'s walk stopped at the first leaf) before believing a `/Count` it has not walked, with
+the two conditions ordered by cost so a well-formed document pays one leftmost-spine descent — the
+descent `get(0)` performs anyway. Measured either side under callgrind on `pdf-retrieve document`:
+**+5120 instructions on a 14-page document and −75 323 on ISO 32000-2's 1023 pages**, and three
+`--trace` launches either side inside one instrument's spread.
 
-**Four documents of the fetched chunk are witnesses**, each carrying exactly one self-declaring
-page object the tree cannot reach:
+**Two halves of the reading are worth carrying forward, because both were nearly got wrong.** The
+recovery runs where the tree yields *no* page and never where it yields fewer than `/Count` claims:
+a tree that produced one page of five has stated an order and a set, and a scan's ascending object
+numbers would substitute an invented order for a stated one (trap 5's additive-or-substitutive
+test). And `len()` moves only where the recovery *found* pages: where it finds none, nothing has
+been examined, the number of descendants is unknown rather than nought, `/Count` stands as the one
+statement in evidence, and the page is asked for and refused **out loud** — which is louder than a
+document reporting no pages, because such a document has nowhere to put a report at all. The round
+wrote the other rule first and `viewer-core`'s
+`objects_lost_inside_a_damaged_object_stream_are_said_out_loud` caught it.
 
-| document | what the tree says | what the file carries |
+**One of the four witnesses drew, and the other three are a different defect — which is a finding
+about the instrument that named them.** §31's table above was built from a byte search for
+`/Type /Page`, and a byte search cannot tell a page object *the tree cannot reach* from a page
+object *nothing can parse*:
+
+| document | what it is | after |
 |---|---|---|
-| `batch1/PDFBOX/PDFBOX-4623-1.pdf` | `/Pages 2 0 R`, and object 2's `/Kids` is `[2 0 R]` — its own kid | object 3, `/Type /Page`, `/Contents 5 0 R`, one `Tj` of *Hello World* at 48 pt under the `/MediaBox` object 2 states |
-| `batch1/PDFBOX/PDFBOX-4339-0.pdf` | `/Count 1`, kid unreachable | one `/Type /Page` |
-| `batch6/poppler-gitlab/poppler-742-0.pdf` | `/Count 1`, `/Kids [8 0 R]` | one `/Type /Page` |
-| `batch6/poppler-gitlab/poppler-750-0.tgz-0.pdf` | `/Count 2`, `/Kids [14 0 R 45 0 R]` | object 14, whose `/ProcSets` array a mutation left unterminated |
+| `batch1/PDFBOX/PDFBOX-4623-1.pdf` | object 2 is its own `/Kids` entry; object 3 is a whole page | **draws** — *Hello World* at 48 pt, ink 1.315, pinned in `doc/checks/fixed-documents.toml` |
+| `batch1/PDFBOX/PDFBOX-4339-0.pdf` | object 3's body opens `\xbc` where `<<` belongs | unchanged: no reader gets a dictionary |
+| `batch6/poppler-gitlab/poppler-742-0.pdf` | object 8's `/TrimBox` array never closes and runs into the stream after it | unchanged, same reason |
+| `batch6/poppler-gitlab/poppler-750-0.tgz-0.pdf` | object 14's `/ProcSets` array is unterminated, and it writes `/Con\x91ents` and `e@dobj` | unchanged, same reason |
 
-poppler refuses the first of those four out loud — *Syntax Error: Loop in Pages tree* — and draws a
-1×1 image, which is agreement about the tree and not about the page.
+**The rule that separates them is `doc/habits.md`'s and it is cheap**: run the reader and the grep,
+and know that the reader is the instrument under test. Running it turned a claim about four
+documents into a claim about one, and the other three are a *page object* defect rather than a page
+*tree* defect — a different item, unread, and the question it would ask is whether §7.3.7's
+dictionary has a prefix worth drawing, which is trap 5's test again on a third population.
 
-**What stopped this round taking it is a design question rather than the code.** The guard is one
-condition and the probe is one leftmost-spine descent, which `get(0)` performs anyway. But changing
-it forces an answer to *what `len()` means when the tree contradicts its own `/Count`*: today it is
-`/Count`, which is why this tree and `pdfinfo` print the same wrong number for ten documents above
-and neither of them is lying about anything except by omission. A scan that finds one page under a
-`/Count` of five leaves `len()` saying five and `get(1..4)` saying nothing, or moves `len()` and
-makes it disagree with every other reader on a file that states a number. Settle that first, in
-writing, and cite §7.7.3.2's own definition — `/Count` is "[t]he number of leaf nodes (page
-objects) that are descendants of this node", which a node with no reachable descendants has none of.
+### 32. What the eight-hundred-and-fifty-eighth leaves: three batches, and a route that works
 
-**And the probe belongs behind `count == 0` rather than in front of it**, so that a well-formed
-document pays nothing: `CLAUDE.md`'s startup rule is what decides the order of the two conditions,
-not their truth. A round taking this owes §5's rebuild and a launch measurement either way, because
-`Pages::new` is on the path to page one. ADR 0781 §*What this does not fix*.
+**§29's hypothesis is confirmed: HTTP `Range` requests get past whatever stops a whole-file
+transfer near 4.2 GB.** `batch2`'s pieces come back as clean `206`s at exactly the length asked
+for, 512 MiB at a time, against a `GET` of the whole file that stopped short eleven times across
+two rounds. The Archive's throttling is unchanged and is the whole cost: a piece takes between one
+and a dozen attempts, every failure being the 160-byte nginx `504` page or a 107-byte `502`, and a
+successful piece is discarded and re-fetched rather than resumed onto (§29's rule, unchanged).
+
+The recipe, which is the thing to keep:
+
+```sh
+base=https://corpora.tika.apache.org/base/packaged/pdfs/pdfs_202011
+capture=$(curl -sI "http://web.archive.org/web/2021id_/$base/batch2.tgz" \
+          | grep -i '^location:' | tr -d '\r' | awk '{print $2}')
+total=$(curl -sI -r 0-0 "$capture" | tr -d '\r' | grep -i '^content-range:' | sed 's|.*/||')
+# then 512 MiB pieces: curl -r "$start-$end" -o piece --max-time 1800 \
+#      --speed-limit 8192 --speed-time 120, retried from nothing until the length is exact,
+# then cat the pieces and check the published SHA-512.
+```
+
+**Resolve the capture URL once and range-request *that*.** `web/2021id_/` answers a `302` naming
+the capture; a `Range` on the redirect works but pays the redirect on every piece.
+
+**What landed, and what is left, is `ls corpus-cache/tika-issue-tracker/` rather than a sentence
+here** — the round's own history file records what this one got. What is worth carrying is that the
+route is proven and the remaining cost is patience: about 512 MiB of the Archive's throttling per
+successful piece, and `batch2`, `batch4` and `batch5` are 9, 11 and 8 pieces.
 
 ## What not to do
 

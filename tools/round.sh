@@ -51,7 +51,7 @@ kind_reading() {
         printf 'doc/habits.md                            "Judging against other implementations"\n'
         printf 'doc/todo/00-ambiguous-bucket.md          the bucket and step 7\n' ;;
     parsers)
-        printf 'doc/traps/parsers-and-streams.md         traps 4, 5, 8\n'
+        printf 'doc/traps/parsers-and-streams.md         traps 4, 5, 8, 28\n'
         printf 'doc/traps/instruments-and-reports.md     trap 11, before adding a report\n'
         printf 'doc/verify.md                            which fuzz target covers what you touched\n' ;;
     loop)

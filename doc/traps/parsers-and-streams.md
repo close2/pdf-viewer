@@ -161,6 +161,32 @@ resurrects a deleted object renders all three byte-identically.
 `pdf-syntax/tests/cross_references.rs` pins §7.5's rules by hand for that reason, each as a *pair*
 of files differing only in the rule.
 
+### 28. A recovery's guard is a claim, and the comment above it is a *different* claim
+
+`Pages::new`'s recovery scan — the one that finds a page by Table 31's `/Type /Page` declaration
+when the tree cannot be walked — carried this comment for seven hundred and fifty sessions:
+
+> It runs only where the tree produced nothing, so no document that opens normally pays for it.
+
+The guard beside it was `count == 0`, and `count` is §7.7.3.2's `/Count` — the file's *claim* about
+its descendants. Those are not the same condition. A root stating `/Count 5` over five `/Kids` that
+are not in the file produces no page at all, and no scan either, because the claim is not zero: the
+document opened, reported nothing, showed nothing, and answered `len() == 5`. The comment was never
+true of the code; it was written as the *intent* and read ever after as the behaviour, which is
+worse than a comment that went stale, because nothing about the tree moving underneath it would
+ever have made it wrong.
+
+**The test that would have found it is the fixture where the two conditions differ**, and it is
+cheap: `crates/pdf-model/tests/page_tree_nodes.rs` is nine pairs of hand-built files, every one of
+them built to separate a different pair of conditions, and not one of them separated *these* two —
+a `/Count` that is positive from a tree that reaches a page. That is the general form, and it
+transfers to every fallback in this tree: **a recovery's guard states when the recovery is needed,
+its comment states when the recovery is right, and the round that writes one owes the file where
+those two disagree.** ADR 0782, session 858. The habit's other half is trap 5's, and the same
+session paid for that too: the first fix made `len()` follow the recovery even where the recovery
+found nothing, which turned *this reader could not read the pages* into *the file says it has none*
+and left a §7.5.7 refusal with no page to be reported on.
+
 ## Things worth knowing
 
 - **A recovery searches for something, and *where that thing can be* is a claim the standard

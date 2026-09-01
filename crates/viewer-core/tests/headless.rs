@@ -568,10 +568,22 @@ fn the_page_geometry_maps_the_page_onto_the_screen() {
 /// survives to be asked for and nothing on page one reaches into either. The one below puts the
 /// page dictionary itself inside the stream, ahead of the object the damage takes.
 ///
-/// **What it pins as much as the sentence is *when* it is said.** Nothing expands an object stream
-/// until an object inside it is wanted, which is `CLAUDE.md`'s startup rule, so this cannot be part
-/// of what a document says at open and be true in general — it is said when the loss becomes known.
-/// `Query::Reports` is where a host that cleared its status bar finds it again.
+/// **What it pins as much as the sentence is *when* it is said, and the answer is "once, in
+/// whichever channel first reaches the stream".** Nothing expands an object stream until an object
+/// inside it is wanted, which is `CLAUDE.md`'s startup rule; *which* moment that is depends on
+/// where the file put the lost object. `viewer_core::notes::losses` says the sentence when the
+/// count grows and then never again, so a test that reads one channel and discards the other is
+/// asserting about the file's layout rather than about the program.
+///
+/// **This test did read one channel, and the eight-hundred-and-fifty-eighth session moved the
+/// moment under it** (ADR 0782). `Pages::new` now asks whether the page tree reaches a page at all
+/// before believing Table 30's `/Count`, and this fixture's page dictionary *is* the object inside
+/// the damaged stream — so the loss becomes known while the document is opening, the `Open`
+/// event carries the sentence, and the page that is interpreted a moment later carries nothing,
+/// because it has already been said. Nothing was made eager: the object the probe wants is page
+/// one's own, which `get(0)` was about to want anyway. So the assertion is over both channels'
+/// union, and the second half of it — said **exactly once** — is what `losses_said` exists for and
+/// what no single-channel reading could check.
 #[test]
 fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
     let bytes = a_page_stored_beside_an_object_the_damage_takes();
@@ -592,15 +604,16 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
     if let Answer::Reports(all) = viewer.query(Query::Reports) {
         // One entry per page on the screen, and this document has one page — so the flattening
         // is the identity here and would name the page it came from if it were not.
-        said = all
-            .iter()
-            .flat_map(|page| page.notes.iter().cloned())
-            .collect();
+        said.extend(all.iter().flat_map(|page| page.notes.iter().cloned()));
     }
-    assert!(
-        said.iter()
-            .any(|note| note.contains("object stream (§7.5.7) could not be read")),
-        "the objects the prefix does not carry are named rather than silently missing: {said:?}"
+    let times = said
+        .iter()
+        .filter(|note| note.contains("object stream (§7.5.7) could not be read"))
+        .count();
+    assert_eq!(
+        times, 1,
+        "the objects the prefix does not carry are named once, rather than silently missing or \
+         repeated at every page that reaches the stream: {said:?}"
     );
 }
 

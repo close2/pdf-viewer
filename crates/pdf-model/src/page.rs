@@ -492,6 +492,14 @@ pub struct Pages<'a> {
     root: Option<Dictionary>,
     /// Which object the root node is, so that a one-node tree's leaf knows its own identity.
     root_id: Option<ObjectId>,
+    /// How many pages this document has.
+    ///
+    /// Table 30's `/Count` wherever the tree yields a page, which is what makes opening a large
+    /// document cheap, and wherever the tree yields none and the recovery below found none
+    /// either — a `/Count` this reader could not check is still the only statement anybody has
+    /// made. [`Self::scanned`]'s length where the recovery *did* find pages, because there the
+    /// entry has been checked against the descendants Table 30 defines it by and contradicted.
+    /// [`Pages::new`] has the reading.
     count: usize,
     /// §12.2's `/ViewArea` and `/ViewClip`, read once with the catalog.
     ///
@@ -502,8 +510,8 @@ pub struct Pages<'a> {
     view: (Boundary, Boundary),
     /// Pages found by scanning, where the page *tree* yielded none.
     ///
-    /// Empty for every document whose tree works, which is 963 of the 974 corpus documents and
-    /// every well-formed file — see [`Pages::new`] for why this exists and what it costs.
+    /// Empty for every document whose tree yields a page, which is every well-formed file —
+    /// see [`Pages::new`] for why this exists, what it costs and where it declines to run.
     scanned: Vec<ObjectId>,
 }
 
@@ -557,9 +565,10 @@ impl<'a> Pages<'a> {
         // Issue #271, whose third insertion makes `/Count` *1 or greater*. The corpus's one
         // witness of an empty `/Kids` writes `/Count 0` beside it, so the two halves of that
         // erratum describe one file between them.
-        let count = match declared {
-            Some(count) if count > 0 && count <= MAX_NODES_VISITED => count,
-            _ => root.as_ref().map_or(0, |node| {
+        let believed = declared.filter(|&count| count > 0 && count <= MAX_NODES_VISITED);
+        let count = match believed {
+            Some(count) => count,
+            None => root.as_ref().map_or(0, |node| {
                 count_leaves(document, Node::Direct(node, root_id))
             }),
         };
@@ -576,10 +585,62 @@ impl<'a> Pages<'a> {
         // tree says. That is a recovery from the file's own declarations rather than from any
         // other reader's behaviour, and it is the same shape as `xref::rebuild`'s.
         //
-        // It runs only where the tree produced nothing, so no document that opens normally pays
-        // for it — `CLAUDE.md`'s "nothing eager" is intact, and 963 of the 974 corpus documents
-        // never reach this line.
-        let scanned = if count == 0 {
+        // **The condition is that the tree produced nothing, and for a long time the code tested
+        // `count == 0` instead** — which is `/Count`'s *claim*, so a root stating `/Count 5` over
+        // five children that are not in the file produced no page, no scan and no report, and
+        // `len()` went on saying five. Table 30 settles which of the two is authoritative in the
+        // entry's own cell:
+        //
+        // > ( Required ) The number of leaf nodes (page objects) that are descendants of this
+        // > node within the page tree. NOTE Since the number of pages descendent from a Pages
+        // > dictionary can be accurately determined by examining the tree itself using the Kids
+        // > arrays, the Count entry is redundant. A PDF writer shall ensure that the value of the
+        // > Count key is consistent with the number of entries in the Kids array and its
+        // > descendants which definitively determines the number of descendant pages.
+        //
+        // So `/Count` is defined *by* the descendants rather than beside them, the `shall` that
+        // keeps the two consistent is the **writer's**, and where a file has broken it the
+        // standard has already said which side wins — the `Kids` arrays "definitively
+        // determine[]" the number. A node whose children are not in the file has no descendants
+        // within the page tree and therefore, by that definition, no pages, whatever integer sits
+        // in the entry. ADR 0782.
+        //
+        // **But that sentence is about a tree this reader has *examined*, and a tree it merely
+        // failed on is a third case.** The NOTE's determination is made "by examining the tree
+        // itself using the Kids arrays"; where a `/Kids` names an object this reader refused —
+        // §7.5.7's object stream that decoded only in part is the standing example — nothing has
+        // been examined and the number of descendants is *unknown* rather than nought. So the
+        // recovery moves `len()` only where it has positive evidence of its own: pages it found.
+        // Where it finds none, `/Count` stands as the one statement in evidence and the page is
+        // asked for, refused, and said out loud — which is louder than a document that reports
+        // no pages and therefore has nowhere to put a report at all
+        // (`doc/traps/parsers-and-streams.md` trap 5, and `viewer-core`'s
+        // `objects_lost_inside_a_damaged_object_stream_are_said_out_loud`, which is the test that
+        // caught this half being got wrong).
+        //
+        // **Where the recovery declines is the other half of the reading.** It runs where the
+        // tree yields *no page at all*, never where it yields fewer than `/Count` claims: a tree
+        // that produced one page of five has stated an order and a set, and §7.7.3.2's tree is
+        // what "defines the ordering of pages in the document", so replacing them with a scan's
+        // ascending object numbers would substitute an invented order for a stated one. Reading
+        // Table 31's `/Type` off an object adds a page the file declared and displaces nothing;
+        // that is the line between a recovery and a guess (`doc/traps/parsers-and-streams.md`
+        // trap 5's additive-or-substitutive test).
+        //
+        // **Two conditions, in this order, because of what they cost rather than what they mean.**
+        // `count == 0` is an integer comparison and short-circuits the pageless file straight to
+        // the scan; the probe runs only where `/Count` was *believed without a walk*, since a
+        // count that came from `count_leaves` above has already answered the question by
+        // walking. So a well-formed document pays one leftmost-spine descent — the descent
+        // `get(0)` is about to perform anyway — and `CLAUDE.md`'s "a 500-page document must open
+        // no slower than a 5-page one" is what fixes the order.
+        let recovering = count == 0
+            || (believed.is_some()
+                && !root.as_ref().is_some_and(|node| {
+                    let mut visited = 0usize;
+                    reaches_a_page(document, Node::Direct(node, root_id), &mut visited, 0)
+                }));
+        let scanned = if recovering {
             scan_for_pages(document)
         } else {
             Vec::new()
@@ -589,7 +650,14 @@ impl<'a> Pages<'a> {
             document,
             root,
             root_id,
-            count: if count == 0 { scanned.len() } else { count },
+            // The recovery's own length where it found pages, and the tree's number where it
+            // found none — the asymmetry the comment above argues for, and the reason it is
+            // written as `!scanned.is_empty()` rather than as `recovering`.
+            count: if scanned.is_empty() {
+                count
+            } else {
+                scanned.len()
+            },
             view: (preferences.view_area, preferences.view_clip),
             scanned,
         }
@@ -912,6 +980,37 @@ fn count_leaves(document: &Document, node: Node<'_>) -> usize {
 
     let mut visited = 0usize;
     walk(document, node, 0, &mut visited)
+}
+
+/// Whether the tree beneath `node` reaches a page object at all.
+///
+/// [`count_leaves`]'s walk stopped at the first leaf it arrives at, and it exists because
+/// [`Pages::new`] needs the *question* that walk answers without the walk's price: `any` short
+/// circuits, so a tree whose leftmost spine ends in a page costs that spine and nothing else,
+/// while `count_leaves` costs every node of every subtree.
+///
+/// It reads a node exactly as `count_leaves` and [`find_leaf`] do, and the three agree by
+/// construction: a `/Kids` this reader cannot resolve is no children (Table 30 makes the entry
+/// required, so a node without it has stated none), a `/Kids` that is not an array is a leaf
+/// unless the node's own `/Type` says `Pages`, and both bounds are the same two constants. What
+/// it must not do is *build* the page — a probe that copied the leaf's dictionary and its
+/// `/Resources` would pay ADR 0330's cost twice on every launch, once here and once in `get(0)`.
+fn reaches_a_page(document: &Document, node: Node<'_>, visited: &mut usize, depth: usize) -> bool {
+    if depth > MAX_TREE_DEPTH || *visited > MAX_NODES_VISITED {
+        return false;
+    }
+    let Some(kids) = node.key(document, "Kids") else {
+        return false;
+    };
+    *visited = visited.saturating_add(1);
+
+    let Some(kids) = kids.as_array() else {
+        return !declares_a_node(document, node);
+    };
+
+    kids.iter()
+        .filter_map(Node::of)
+        .any(|kid| reaches_a_page(document, kid, visited, depth.saturating_add(1)))
 }
 
 /// Descends to the leaf at `remaining` pages from here, accumulating inherited attributes.

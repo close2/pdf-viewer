@@ -35,7 +35,14 @@
 //! There is a second sentence of the same kind: "[a]ny measurement that potentially involves
 //! multiple viewports, such as one specifying the distance between two points, shall use the
 //! information specified in the viewport of the *first* point" — which is why
-//! [`Viewports::at`] takes one point and callers with two are expected to ask about the first.
+//! [`Viewports::at`] takes one point.
+//!
+//! **This module used to leave that sentence to "callers with two points", and there were
+//! none**, so the rule was stated here and executed by nobody — a `shall` delegated to a layer
+//! that did not exist. [`Viewports::distance`] carries it out: it needs two points and a page
+//! and no user interface at all, and Table 267's `/D` cell is what makes it more than a
+//! hypotenuse — each axis is converted by its own array's first factor *before* the distance
+//! function is applied. What still wants a tool is where the two points come from.
 //!
 //! # §12.9.2's algorithm, and its own worked example
 //!
@@ -162,6 +169,61 @@ impl Viewports {
             .iter()
             .rev()
             .find(|viewport| viewport.contains(point))
+    }
+
+    /// The distance between two points on the page, in the units the document states.
+    ///
+    /// **§12.9.1's second selection sentence, carried out rather than delegated.** The clause
+    /// says which viewport a two-point measurement belongs to:
+    ///
+    /// > Any measurement that potentially involves multiple viewports, such as one specifying
+    /// > the distance between two points, shall use the information specified in the viewport of
+    /// > the first point.
+    ///
+    /// This module said that sentence and left it to "callers with two points", of which this
+    /// tree had none — so the rule was stated and executed by nobody. It needs no user interface:
+    /// two points and a page are all of its inputs.
+    ///
+    /// **The arithmetic is Table 267's `/D` cell and not a `hypot` of the page.** That cell says
+    /// the array's first element converts "from units represented by the first element in `X`",
+    /// and states the order outright: "[t]he scale factors from `X`, `Y` (if present) and `CYX`
+    /// (if `Y` is present) shall be used to convert from default user space to the appropriate
+    /// units **before** applying the distance function". So each axis is scaled by its own array's
+    /// first conversion, `/CYX` brings the y result into x's units where the two differ, the
+    /// distance is taken there, and [`format`] walks `/D` over the result. Taking the distance
+    /// first and scaling afterwards is a different number on every drawing whose axes differ, and
+    /// is what the word *before* forbids.
+    ///
+    /// Neither `/O` nor the `/BBox` corner order takes part, and that is the clause's arithmetic
+    /// rather than an omission: an origin is a translation and the corner order an orientation,
+    /// and a distance between two points is invariant under both.
+    ///
+    /// **`None` has four causes and each is the clause's own.** No viewport's `/BBox` contains
+    /// the first point, so the page states no units there; the viewport states no `/Measure`, so
+    /// Table 265's optional entry is absent; its `/Subtype` is `GEO` or a name later than this
+    /// standard, whose distance is §12.10's ellipsoid and not this arithmetic; or `/Y` is stated
+    /// with no `/CYX`, which Table 267 makes a refusal rather than a gap — "if not specified,
+    /// these calculations may not be performed (which would be the case in situations such as x
+    /// representing time and y representing temperature)". An empty `/D` answers with the empty
+    /// string, which is [`format`]'s documented answer to an array stating no units.
+    #[must_use]
+    pub fn distance(&self, from: (f32, f32), to: (f32, f32)) -> Option<String> {
+        let Some(Measure::Rectilinear(scale)) = self.at(from).and_then(|v| v.measure.as_ref())
+        else {
+            return None;
+        };
+        let along_x = scale.x.first()?.conversion;
+        // "(Required when the x and y scales have different units or conversion factors)": an
+        // absent `/Y` is the file saying `/X` measures both axes, which is what its own cell says
+        // — "for measurement of change along the x axis and, if Y is not present, along the y
+        // axis as well".
+        let (along_y, into_x) = match scale.y.first() {
+            None => (along_x, 1.0),
+            Some(first) => (first.conversion, scale.cyx?),
+        };
+        let (dx, dy) = (f64::from(to.0 - from.0), f64::from(to.1 - from.1));
+        let value = (dx * along_x).hypot(dy * along_y * into_x);
+        Some(format(value, &scale.distance))
     }
 }
 
@@ -1103,6 +1165,96 @@ mod tests {
             viewports.viewports[1].has_point_data,
             "a /PtData is recorded even though §12.10 is not read"
         );
+    }
+
+    /// §12.9.1's two-point rule: the *first* point's viewport, and its axes scaled before the
+    /// distance is taken.
+    ///
+    /// Two sentences meet in one measurement and the fixture separates them. §12.9.1 says which
+    /// viewport applies — "[a]ny measurement that potentially involves multiple viewports … shall
+    /// use the information specified in the viewport of the first point" — so the measurement
+    /// below starts inside an inset and ends on the plan outside it, and the inset's units are
+    /// what the answer is in; measured the other way round it is the plan's.
+    ///
+    /// Table 267's `/D` says in which *order* — "[t]he scale factors from `X`, `Y` (if present)
+    /// and `CYX` (if `Y` is present) shall be used to convert from default user space to the
+    /// appropriate units before applying the distance function". The inset's axes are deliberately
+    /// unequal: `/X` converts one user unit to 3, `/Y` to 2, and `/CYX` makes one y unit 2 x
+    /// units, so the leg (3, 4) becomes (9, 16) and the distance is `hypot(9, 16)` = 18.3576…
+    /// A reader taking `hypot(3, 4) = 5` first and scaling afterwards cannot produce that number
+    /// under any single factor, which is what makes the assertion about the order rather than
+    /// about the arithmetic.
+    ///
+    /// Trap 8: `doc/pdf.js` and `doc/corpora` hold one viewport between them and it is `GEO`, so
+    /// every number here is the clause's own and none of it is a corpus reading.
+    #[test]
+    fn a_distance_is_measured_in_the_first_points_viewport_with_its_axes_scaled_first() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R 5 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 600 700] /Name (Plan) /Measure << /Type /Measure \
+             /R (1 = 1) /X [<< /Type /NumberFormat /U (pl) /C 1 >>] \
+             /D [<< /Type /NumberFormat /U (pl) /C 1 >>] >> >>",
+            "<< /Type /Viewport /BBox [100 100 200 200] /Name (Inset) /Measure << /Type /Measure \
+             /R (1 = 3) /X [<< /Type /NumberFormat /U (xu) /C 3 >>] \
+             /Y [<< /Type /NumberFormat /U (yu) /C 2 >>] /CYX 2 \
+             /D [<< /Type /NumberFormat /U (u) /C 1 >>] >> >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+        assert_eq!(
+            viewports
+                .distance((150.0, 150.0), (153.0, 154.0))
+                .as_deref(),
+            Some("18.36 u"),
+            "the inset holds the first point, and its axes are scaled before the hypotenuse"
+        );
+        assert_eq!(
+            viewports
+                .distance((400.0, 400.0), (403.0, 404.0))
+                .as_deref(),
+            Some("5 pl"),
+            "the plan's own scale is 1:1 on both axes, so the same leg is a plain hypotenuse"
+        );
+        assert_eq!(
+            viewports
+                .distance((153.0, 154.0), (150.0, 150.0))
+                .as_deref(),
+            Some("18.36 u"),
+            "and the answer is the first point's viewport whichever end is further in"
+        );
+        assert_eq!(
+            viewports.distance((605.0, 750.0), (150.0, 150.0)),
+            None,
+            "no viewport contains the first point, so the page states no units there"
+        );
+    }
+
+    /// A `/Y` with no `/CYX` is Table 267 refusing the calculation, not a gap to fill.
+    ///
+    /// ISO 32000-2 §12.9.1, Table 267's `/CYX` cell:
+    ///
+    /// > if not specified, these calculations may not be performed (which would be the case in
+    /// > situations such as x representing time and y representing temperature)
+    ///
+    /// So a drawing whose two axes are not the same kind of quantity has no distance at all, and
+    /// answering with one would be this reader inventing a metric for a plot of temperature
+    /// against time. The pair is the fixture above, which states the `/CYX` this one omits.
+    #[test]
+    fn two_axes_with_no_conversion_between_them_have_no_distance() {
+        let doc = document(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+            "<< /Type /Page /Parent 2 0 R /VP [4 0 R] >>",
+            "<< /Type /Viewport /BBox [0 0 600 700] /Measure << /Type /Measure /R (t/T) \
+             /X [<< /Type /NumberFormat /U (s) /C 1 >>] \
+             /Y [<< /Type /NumberFormat /U (K) /C 1 >>] \
+             /D [<< /Type /NumberFormat /U (?) /C 1 >>] >> >>",
+        ]);
+        let page = crate::Pages::new(&doc).get(0).expect("a page");
+        let viewports = Viewports::read(&doc, &page.dict);
+        assert_eq!(viewports.distance((10.0, 10.0), (20.0, 20.0)), None);
     }
 
     /// A `GEO` subtype is recorded as itself rather than read as a rectilinear system.

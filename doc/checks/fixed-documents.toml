@@ -409,3 +409,11 @@ session = 857
 reports = []
 ink = 9.208 .. 11.208
 why = "the same defect on the same tracker's other attachment, 1 page against 25 and 22 384 inked pixels against 2474 at 36 dpi — the two ends of the same recovery (ADR 0781, 7.5.8.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4623-1.pdf"
+page = 1
+session = 858
+reports = []
+ink = 0.315 .. 2.315
+why = "a page tree node that is its own child: the recovery scan was guarded on /Count's claim rather than on the tree having produced nothing, so a Hello World the file states as /Type /Page was unreachable while len() said one (ADR 0782, 7.7.3.2)"

@@ -174,6 +174,73 @@ fn a_count_over_an_empty_kids_is_not_believed() {
     );
 }
 
+/// A `/Kids` whose children are **not in the file** is not children either.
+///
+/// The two tests above are about a `/Kids` the file did not write; this is about one it wrote
+/// over objects it did not. The guard on the recovery scan was `count == 0` — `/Count`'s own
+/// claim — so a root stating three pages over a child that is not there produced no page, no
+/// scan and no report, while `len()` went on saying three. Table 30's NOTE is what settles which
+/// of the two wins: the entry "is redundant" because the `Kids` array and its descendants
+/// "definitively determines the number of descendant pages", and a node with no reachable
+/// descendants has none of them. ADR 0782.
+///
+/// The pair is with `a_count_over_kids_that_are_not_there_keeps_it_where_nothing_declares_a_page`
+/// below: same broken tree, and what differs is whether an object in the file declares itself a
+/// page.
+#[test]
+fn a_count_over_kids_that_are_not_there_is_not_believed() {
+    let (count, media_box) = pages_of(tree("/Type /Pages /Count 3 /Kids [9 0 R]", "/Type /Page"));
+    assert_eq!(
+        count, 1,
+        "object 9 is not in the file, so the tree has no descendants and states no three pages"
+    );
+    assert_eq!(
+        media_box,
+        Some([0.0, 0.0, 200.0, 100.0]),
+        "object 2 declares itself a page and the recovery scan finds it"
+    );
+}
+
+/// The same tree, with nothing in the file declaring itself a page, keeps the number it states.
+///
+/// **The asymmetry is the decision, and it is a loudness one.** Table 30's NOTE determines the
+/// count "by examining the tree itself using the Kids arrays"; a reader that could not examine it
+/// has learnt that the number is *unknown*, not that it is nought. Where the recovery finds
+/// pages it has positive evidence and `len()` follows it; where it finds none, `/Count` is the
+/// only statement anybody has made, the page is asked for and refused, and the refusal is said —
+/// which is louder than a document reporting no pages, because a document with no page has
+/// nowhere to put a report at all. `doc/traps/parsers-and-streams.md` trap 5.
+#[test]
+fn a_count_over_kids_that_are_not_there_keeps_it_where_nothing_declares_a_page() {
+    let (count, media_box) = pages_of(tree("/Type /Pages /Count 3 /Kids [9 0 R]", ""));
+    assert_eq!(
+        count, 3,
+        "nothing was examined, so the file's own number stands and each page refuses out loud"
+    );
+    assert_eq!(media_box, None, "and there is no page to give back");
+}
+
+/// A node that is its own child is a tree that reaches no page, and the scan is what finds one.
+///
+/// The witness is `corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4623-1.pdf`, whose root
+/// writes `/Count 1 /Kids [2 0 R]` inside object 2 — so every descent revisits the node it came
+/// from and `MAX_TREE_DEPTH` ends the walk — while object 3 states `/Type /Page` and one `Tj` of
+/// *Hello World*. `poppler` refuses it out loud (*Syntax Error: Loop in Pages tree*) and draws a
+/// 1×1 image, which is agreement about the tree and not about the page.
+///
+/// It is a *pair* with the control at the top of this file rather than a lone fixture, and the
+/// one entry that differs is which object `/Kids` names.
+#[test]
+fn a_node_that_is_its_own_child_reaches_no_page_and_the_scan_finds_one() {
+    let (cycle, media_box) = pages_of(tree("/Type /Pages /Count 1 /Kids [1 0 R]", "/Type /Page"));
+    assert_eq!(cycle, 1, "the cycle yields nothing and object 2 is found");
+    assert_eq!(
+        media_box,
+        Some([0.0, 0.0, 200.0, 100.0]),
+        "and it is the page the producer wrote, at its own size"
+    );
+}
+
 /// And an empty-`/Kids` node *inside* a tree does not consume the pages it claims.
 ///
 /// The same erratum one level down, where the price is a page's index rather than a page count:
