@@ -2271,6 +2271,30 @@ marks on it, which is why it is worth having beside the first.
 interpretation-side clip cost, which is [`40`](40-mask-chain-crop.md)'s to price with a witness it
 did not have.
 
+### 38. What the eight-hundred-and-sixty-ninth re-walked: the second half of ADR 0798's GHOSTSCRIPT slice, after `doc/todo/17`
+
+The slice ADR 0798 measured is the first 680 of `batch2/GHOSTSCRIPT` in sorted order, and its
+second half is the 340 that held the ten-gibibyte document. Re-walked here after the raster
+cache stopped holding the resource dictionary (ADR 0791), through `tools/bounded.sh`, one walk
+on the machine at a time, in the two forms that ADR used:
+
+| run | documents | threads | peak resident | round |
+|---|---|---|---|---|
+| second half, one survey shard | 340 | 24 | 12.58 GiB | 866 |
+| second half, one survey shard | 340 | **24** | **1.55 GiB** | 869 |
+| second half, one document at a time under `--data 2` | 340 | 24 | none ran out; worst 0.03 GiB | 869 |
+
+The survey's own line for the shard, this round: **0 unopenable, 6 locked, 0 encrypted beyond us,
+1 pageless, 24 incomplete, 0 slow** — 340 documents in 2.2 s of a 3 s wrapper run, the witness
+`complete` as before. The per-document walk's seven non-zero exits are `render_at`'s own `expect`s
+on the six locked and the one pageless document, which the wrapper reports as a panic and not as
+the bound. The shard was a symlink farm in the round's scratchpad, deleted afterwards (§30's rule),
+and C-locale `sort` is the order — `ls` under a UTF-8 locale collates a few of these names
+differently, so a round that wants the same 340 sorts the same way.
+
+**What is left here is unchanged from §37**: `batch4` once its pieces land, `batch5`'s two dozen
+trackers, the `MAX_FORM_DEPTH` sixteen, and `40`'s clip cost.
+
 ## What not to do
 
 - **Do not start a multi-gigabyte download without asking**, and on a metered connection do not

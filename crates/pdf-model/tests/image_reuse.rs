@@ -14,7 +14,7 @@
 //! |---|---|---|
 //! | the stream | — | [`a_second_do_of_one_stream_reuses_its_raster`], [`a_stream_cannot_inherit_the_raster_of_one_whose_allocation_it_reuses`] |
 //! | …named by its content, for §8.9.7's inline image | §8.9.7 puts it in the content stream rather than in an object | [`a_second_bi_of_one_inline_image_reuses_its_raster`], [`two_inline_images_do_not_share_a_raster`], [`every_cell_of_a_hatching_shares_one_decode`] |
-//! | the resource dictionary | §8.6.5.1's named colour space, §8.6.5.6's `/Default*` | [`a_raster_is_not_shared_across_resource_dictionaries`] |
+//! | the resource dictionary's `/ColorSpace` entry | §8.6.5.1's named colour space, §8.6.5.6's `/Default*` — both under §7.8.3 Table 34's one entry | [`a_raster_is_not_shared_across_resource_dictionaries`], [`a_raster_is_shared_across_resource_dictionaries_that_agree_on_their_colour_spaces`], [`an_entry_is_charged_for_the_colour_spaces_it_holds`] |
 //! | the fill colour | §8.9.6.2's stencil paints the current colour | [`a_raster_is_not_shared_across_fill_colours`] |
 //! | what it composites into | §11.4.7's halves, §11.6.5.1's mask group | [`a_raster_is_not_shared_across_compositing`] |
 //! | …and whether the black point is compensated | §8.6.5.9 under §8.9.5.1 Table 87's `/Intent` | [`a_raster_is_not_shared_across_black_points`] |
@@ -464,6 +464,122 @@ fn a_raster_is_not_shared_across_resource_dictionaries() {
             &Conversion::device(),
         ),
         "the second resource dictionary was answered with the first's raster"
+    );
+}
+
+/// **§7.8.3 Table 34, and what a decode reads of it**: the resource dictionary reaches the decode
+/// as its `/ColorSpace` entry alone, so two dictionaries that agree there share a raster however
+/// much they differ elsewhere — here by ten thousand `/XObject` names, which is the shape of the
+/// page that cost 10.60 GiB while every entry held its whole dictionary (ADRs 0798, 0791).
+///
+/// Fails against a key holding the dictionary: the two are unequal and the second `Do` decodes.
+#[test]
+fn a_raster_is_shared_across_resource_dictionaries_that_agree_on_their_colour_spaces() {
+    let document = document();
+    let stream = named_space_image();
+    let mut cache = RasterCache::default();
+
+    let bare = resources_naming("DeviceRGB");
+    let names: Vec<String> = (0..10_000).map(|index| format!("Im{index}")).collect();
+    let mut crowded = resources_naming("DeviceRGB");
+    crowded.insert(
+        Name::new(b"XObject".as_slice()),
+        Object::Dictionary(dict(
+            names
+                .iter()
+                .map(|entry| (entry.as_str(), Object::Integer(1)))
+                .collect(),
+        )),
+    );
+
+    let under_bare = cached(
+        &mut cache,
+        &document,
+        &stream,
+        &bare,
+        Color::BLACK,
+        &Conversion::device(),
+    );
+    let under_crowded = cached(
+        &mut cache,
+        &document,
+        &stream,
+        &crowded,
+        Color::BLACK,
+        &Conversion::device(),
+    );
+
+    assert!(
+        Arc::ptr_eq(&under_bare, &under_crowded),
+        "a Do under a dictionary differing only outside /ColorSpace decoded again"
+    );
+    assert_eq!(
+        &*under_crowded,
+        &*decoded(
+            &document,
+            &stream,
+            &crowded,
+            Color::BLACK,
+            &Conversion::device()
+        ),
+        "the raster answered through the reduced dictionary is not the one the whole decodes"
+    );
+}
+
+/// **The budget charges what an entry holds**, which is the samples and the `/ColorSpace` entry
+/// the decode was handed: under a direct `/ColorSpace` dictionary of a thousand names an entry
+/// weighs at least the thousand names more than under a dictionary of one. This is what makes
+/// `RASTER_BUDGET` a bound on the cache rather than on the samples — `doc/todo/12`'s shape, and
+/// the half of ADR 0791 the test above cannot see.
+///
+/// Fails against a charge of the samples alone: both caches then hold sixteen bytes.
+#[test]
+fn an_entry_is_charged_for_the_colour_spaces_it_holds() {
+    let document = document();
+    let stream = named_space_image();
+
+    let mut one = RasterCache::default();
+    let _ = cached(
+        &mut one,
+        &document,
+        &stream,
+        &resources_naming("DeviceRGB"),
+        Color::BLACK,
+        &Conversion::device(),
+    );
+
+    let names: Vec<String> = (0..1000).map(|index| format!("CS{index}")).collect();
+    let thousand = dict(vec![(
+        "ColorSpace",
+        Object::Dictionary(dict(
+            names
+                .iter()
+                .map(|entry| (entry.as_str(), name("DeviceRGB")))
+                .collect(),
+        )),
+    )]);
+    let mut many = RasterCache::default();
+    let _ = cached(
+        &mut many,
+        &document,
+        &stream,
+        &thousand,
+        Color::BLACK,
+        &Conversion::device(),
+    );
+
+    let samples = 2 * 2 * 4;
+    assert!(
+        one.held() > samples,
+        "an entry under a one-name /ColorSpace is charged the samples alone: {}",
+        one.held()
+    );
+    let names_bytes: usize = names.iter().map(String::len).sum();
+    assert!(
+        many.held() >= one.held() + names_bytes,
+        "a thousand names cost {} against one name's {}, less than their {names_bytes} bytes",
+        many.held(),
+        one.held()
     );
 }
 
