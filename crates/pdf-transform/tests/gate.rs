@@ -38,6 +38,7 @@ use std::time::Instant;
 use pdf_transform::attachments::{Action, AttachmentsPlan};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::range::Selection;
+use pdf_transform::render::ImageFormat;
 use pdf_transform::{Budget, Listed, MemorySinks, Plan, Policy, Source, apply};
 
 /// The pages rendered for the floor: the first two hundred of ISO 32000-2, the same range
@@ -156,6 +157,7 @@ fn inventories(bytes: &[u8]) {
             list_only: true,
             native: false,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.to_vec())],

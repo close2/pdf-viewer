@@ -9,7 +9,7 @@ quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach 
 suite's own gate runs over ISO 32000-2's PDF.
 Clauses: §7.5.4, §7.5.5, §7.5.7, §7.5.8 and §14.4 on the way out (the serializer, item 2);
 §7.6.4.2 Table 22 (item 3).
-Code: `crates/pdf-transform/`, ADRs 0800, 0801, 0802, 0803.
+Code: `crates/pdf-transform/`, ADRs 0800, 0801, 0802, 0803, 0804.
 
 ## What is done
 
@@ -26,15 +26,19 @@ restriction policy done once in `pdf_model::restriction` — every Table 22 bit 
 transform's three operations beside the viewer's two, the four levels and an exhaustive verdict
 asked once by `decide`, §12.8.2.2's certification read against all five; **`--attach
 --to-page`**, §12.5.6.15's annotation on a page with this tree's own icon; and **`--remove`**,
-the tree without the entry and the objects marked free by §7.5.4's second mechanism. Everything
-below is what the RFC proposed and no round has taken, in the order the next round should.
+the tree without the entry and the objects marked free by §7.5.4's second mechanism. Session
+875 (ADR 0804): **`--format pgm`** for `render` and `images`, §10.4.2.2's grey through the one
+statement of the NTSC weights the tree has, over the RGB the interpreter's own conversion
+already produced, with the mask beside a netpbm image; the `/Names`-indirect holder fixture,
+and the walk's census of every holder shape the corpus has; and **the writer over the corpus**
+— `tests/writer_corpus.rs`, every corpus document the suite opens attached into, read back,
+the file removed and filed on page 1, on `doc/todo/02` §2's sequence with its refusals counted
+by reason. Everything below is what the RFC proposed and no round has taken, in the order the
+next round should.
 
 ## 1. Small things that need no writer — unblocked
 
-- `--format pgm` waits on a stated grey conversion; JPEG output on §13 question 2.
-- `attachments --attach` has no fixture for the holder case where the catalog's `/Names`
-  dictionary is indirect and the tree inside it is direct; the other two cases are tested. A
-  corpus census for that shape, or a fixture, closes it.
+- JPEG output from `render` waits on §13 question 2, the DCT encoder.
 
 ## 2. The serializer and the writing verbs — blocked on RFC §13 question 1
 
@@ -58,12 +62,14 @@ was written so that it is one; `viewer-confined` is the precedent. Taken when th
 or earlier if the owner requires it before the first release. `--attach` adds one thing to the
 plan that crosses: the payload's bytes, which are a descriptor like a source's.
 
-## 5. What the gate does not see
+## 5. What the gates do not see
 
 The transform gate's floor is a wall-clock number over 24 threads, and ADR 0801 §2's defect —
 a cost that shows only where a CPU-second is worth what it was, at two or four threads — would
 pass it. The instrument for that class is the thread curve in ADR 0801, taken by hand with
-`RAYON_NUM_THREADS`; a round that touches `render`'s parallel shape re-takes it. The gate also
-holds no output of `--attach`, `--to-page` or `--remove`: `tests/writer.rs` does, on committed and corpus documents,
-and a corpus-wide attach-and-read-back walk is the writer's equivalent of the render corpus gate
-(RFC §9), owed when the serializer lands and worth taking before it.
+`RAYON_NUM_THREADS`; a round that touches `render`'s parallel shape re-takes it, and ADR 0804
+has the one taken in session 875. The writer's walk judges every update with this tree's own
+reader and nothing else (trap 8, said in its file): `tests/writer.rs` holds `qpdf --check` over
+the committed fixtures, and a corpus-wide *foreign* readback of the transform's updates —
+poppler and mupdf listing the file back, the shape `save_round_trip.rs` has for the viewer's
+edits — is the instrument ADR 0334 priced and nobody has taken for this writer.

@@ -276,7 +276,8 @@ test asserts: a tool that tidied it would put itself between a caller and the on
 measurement this project has of its own extraction. ADR 0257.
 
 **And a program can ask it for a *file* derived from a document.** `pdf-transform` renders pages
-to PNG or PPM at a dpi (§8.3.2.3's 72 units to the inch, the oracle backend's own raster byte for
+to PNG, PPM or PGM — the last §10.4.2.2's grey of the RGB, through the one place this tree
+states the NTSC weights — at a dpi (§8.3.2.3's 72 units to the inch, the oracle backend's own raster byte for
 byte, in parallel across pages over one shared font cache) — any of Table 31's five boxes as the
 raster's extent and clip, with the table's chained defaults and §14.11.2.1's intersection, and
 with or without §12.5.3's annotation pass — extracts the image `XObject`s a page reaches and
