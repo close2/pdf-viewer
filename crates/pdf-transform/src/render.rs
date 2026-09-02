@@ -240,6 +240,22 @@ pub enum ImageFormat {
     /// §11.4.7 has already composited the page onto 𝑊 white before the raster leaves the
     /// backend (`pdf_render::Medium::PAGE_ONLY`), so every alpha is 255.
     Ppm,
+    /// Binary PGM (`P5`), one byte a pixel: the raster's RGB made grey by ISO 32000-2
+    /// §10.4.2.2's rule, which is the one conversion from an RGB colour to a grey that the
+    /// standard states (see [`grey_of`]), and its alpha dropped as PPM drops it.
+    ///
+    /// **What a colour in any other space becomes is decided before this format sees it**,
+    /// and is a choice stated here: the raster handed to the encoder is already RGB — a page
+    /// through `render-cpu`, an image through `pdf_model::image::decode` — with every
+    /// `DeviceCMYK`, `ICCBased`, `Indexed` or `Separation` colour taken to RGB by the
+    /// interpreter's own conversion, which §10.4.2.1 ranks above this clause's family for an
+    /// ICC-enabled processor. So a grey file is the grey of the picture as this tree draws it,
+    /// and a `DeviceGray` source comes through unchanged, because the clause's other direction
+    /// — "[a] gray level shall be equivalent to an RGB value with all three components the
+    /// same" — makes the round trip the identity (the three weights sum to 1.0). There is no
+    /// second route that reads a grey image's samples directly: one conversion (trap 6), and
+    /// a `/Decode` array, a soft mask or a colour key applied on the way to RGB stays applied.
+    Pgm,
 }
 
 impl ImageFormat {
@@ -249,6 +265,7 @@ impl ImageFormat {
         match self {
             Self::Png => "png",
             Self::Ppm => "ppm",
+            Self::Pgm => "pgm",
         }
     }
 
@@ -258,9 +275,60 @@ impl ImageFormat {
         match word {
             "png" => Some(Self::Png),
             "ppm" => Some(Self::Ppm),
+            "pgm" => Some(Self::Pgm),
             _ => None,
         }
     }
+
+    /// Whether the format carries an alpha channel. Only PNG does: a netpbm file is its
+    /// samples and nothing else, so a mask that would have been the alpha is written beside
+    /// the image instead (`crate::images`).
+    #[must_use]
+    pub fn holds_alpha(self) -> bool {
+        match self {
+            Self::Png => true,
+            Self::Ppm | Self::Pgm => false,
+        }
+    }
+}
+
+/// One RGBA8 pixel's grey, ISO 32000-2 §10.4.2.2.
+///
+/// > The gray value for a given RGB value shall be computed according to the NTSC video
+/// > standard, which determines how a colour television signal is rendered on a
+/// > black-and-white television set:
+///
+/// and the formula the clause then sets out is `gray = 0.3 × red + 0.59 × green + 0.11 × blue`.
+/// The arithmetic is [`pdf_render::Color::grey_level`]'s — the one place this tree states those
+/// three weights, which a `/Luminosity` soft mask and `pdf_model`'s ink also take from there —
+/// so that a grey file and a grey mask cannot disagree about what grey is (trap 6). The clause
+/// works on components in `0.0..=1.0`; a byte is taken there, converted, and rounded to the
+/// nearest byte on the way back. The alpha is ignored: what calls this has either composited
+/// the page onto white already (§11.4.7) or written the mask beside the image.
+#[must_use]
+pub fn grey_of(pixel: [u8; 4]) -> u8 {
+    let level = |byte: u8| f32::from(byte) / 255.0;
+    let grey =
+        pdf_render::Color::rgb(level(pixel[0]), level(pixel[1]), level(pixel[2])).grey_level();
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to 0..=255 on the line above the cast"
+    )]
+    {
+        (grey * 255.0).round().clamp(0.0, 255.0) as u8
+    }
+}
+
+/// A binary PGM (`P5`) of one byte a sample, deterministically: the header and the samples
+/// and nothing else.
+#[must_use]
+pub fn pgm(width: u32, height: u32, samples: &[u8]) -> Vec<u8> {
+    let header = format!("P5\n{width} {height}\n255\n");
+    let mut bytes = Vec::with_capacity(header.len().saturating_add(samples.len()));
+    bytes.extend_from_slice(header.as_bytes());
+    bytes.extend_from_slice(samples);
+    bytes
 }
 
 /// Why one page produced no raster.
@@ -359,6 +427,14 @@ pub fn encode(raster: &Raster, format: ImageFormat) -> Result<Vec<u8>, png::Enco
                 bytes.extend_from_slice(&pixel[..3]);
             }
             Ok(bytes)
+        }
+        ImageFormat::Pgm => {
+            let samples: Vec<u8> = raster
+                .data
+                .chunks_exact(4)
+                .map(|pixel| grey_of([pixel[0], pixel[1], pixel[2], pixel[3]]))
+                .collect();
+            Ok(pgm(raster.width, raster.height, &samples))
         }
     }
 }
@@ -550,4 +626,30 @@ fn write(
     sink.write_all(&bytes)?;
     sink.flush()?;
     Ok(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grey_of;
+
+    /// §10.4.2.2's two directions meet on a grey: "[a] gray level shall be equivalent to an RGB
+    /// value with all three components the same", and the NTSC weights sum to 1.0, so a grey
+    /// pixel's grey is its own value — every byte, exactly.
+    #[test]
+    fn a_grey_pixel_is_its_own_grey() {
+        for level in 0..=255_u8 {
+            assert_eq!(grey_of([level, level, level, 255]), level);
+        }
+    }
+
+    /// The weights, on the primaries where the clause's arithmetic does not land on a half:
+    /// `0.59 × 255 = 150.45` and `0.11 × 255 = 28.05`. Pure red is `76.5` exactly, a tie that
+    /// floating-point arithmetic settles one way or the other, so it is not pinned.
+    #[test]
+    fn the_primaries_weigh_what_the_clause_says() {
+        assert_eq!(grey_of([0, 255, 0, 255]), 150);
+        assert_eq!(grey_of([0, 0, 255, 255]), 28);
+        assert_eq!(grey_of([255, 0, 255, 255]), 105);
+        assert_eq!(grey_of([255, 255, 0, 0]), 227, "the alpha is ignored");
+    }
 }

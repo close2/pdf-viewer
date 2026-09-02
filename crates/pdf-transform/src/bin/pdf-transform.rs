@@ -353,12 +353,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 (None, Some(fit)) => sizing_from(fit)?,
                 (None, None) => Sizing::Dpi(150.0),
             };
-            let format = match arguments.value(&["--format"]) {
-                None => ImageFormat::Png,
-                Some(word) => ImageFormat::parse(word).ok_or_else(|| {
-                    Failure::Usage(format!("--format takes png or ppm, not {word:?}"))
-                })?,
-            };
+            let format = image_format(arguments)?;
             let page_box = match arguments.value(&["--page-box"]) {
                 None => None,
                 Some(word) => Some(parse_boundary(word).ok_or_else(|| {
@@ -386,7 +381,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 list_only,
                 native: arguments.switch("--native"),
                 no_mask: arguments.switch("--no-mask"),
-
+                format: image_format(arguments)?,
                 names: if list_only {
                     "%d".parse()
                         .map_err(|error| Failure::Usage(format!("{error}")))?
@@ -541,6 +536,15 @@ fn parse_rect(text: &str) -> Result<[f32; 4], Failure> {
     Ok([x, y, x + w, y + h])
 }
 
+/// `--format png|ppm|pgm`, PNG where nothing is said.
+fn image_format(arguments: &Arguments) -> Result<ImageFormat, Failure> {
+    match arguments.value(&["--format"]) {
+        None => Ok(ImageFormat::Png),
+        Some(word) => ImageFormat::parse(word)
+            .ok_or_else(|| Failure::Usage(format!("--format takes png, ppm or pgm, not {word:?}"))),
+    }
+}
+
 /// `--scale-to WxH` or `--scale-to N`.
 fn sizing_from(text: &str) -> Result<Sizing, Failure> {
     let bad = || Failure::Usage(format!("--scale-to takes N or WxH, not {text:?}"));
@@ -681,8 +685,10 @@ render:
   --pages <selection>   which pages (default: all)
   --dpi <n>             dots per inch, 72 units to the inch (default 150)
   --scale-to <N|WxH>    fit the longer side to N pixels, or the page inside WxH
-  --format png|ppm      PNG (default) or binary PPM; JPEG is absent until an encoder is
-                        decided (RFC 0002 section 6.5); PGM is absent until the grey conversion is
+  --format png|ppm|pgm  PNG (default), binary PPM (the RGB, no alpha), or binary PGM: the
+                        grey of the RGB by ISO 32000-2 §10.4.2.2's rule, 0.3 R + 0.59 G +
+                        0.11 B; JPEG is absent until an encoder is decided (RFC 0002
+                        section 6.5)
   --max-pixels <n>      refuse a page larger than this (default 2^28)
   --page-box <box>      media, crop, bleed, trim or art (§7.7.3.3): the box is the raster's
                         extent and its clip; default is the viewer's own display boundary,
@@ -701,6 +707,11 @@ images:
   --no-mask             the image with no mask applied, and its mask beside it as
                         <name>.mask.png — an 8-bit grey PNG on the mask's own grid whose
                         value is the opacity it gives the image
+  --format png|ppm|pgm  the file form of every image that is decoded: PNG (default), PPM,
+                        or PGM by §10.4.2.2's rule over the decoded RGB, whatever the
+                        image's own colour space; a native stream is never converted. A
+                        netpbm file has no alpha, so the mask goes beside it as
+                        <name>.mask.pgm
   every image is decoded to PNG with its mask in the alpha; an XObject once, an inline
   image (BI … ID … EI) at every placement
 attachments --attach:

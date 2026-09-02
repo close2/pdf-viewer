@@ -139,6 +139,15 @@ section_transform() {
         cargo test --profile gates -p pdf-transform --test gate -- --ignored --nocapture
 }
 
+# RFC 0002 section 9's walk for the writer: every corpus document the suite opens, a file
+# attached, read back and removed, the input's bytes under every update. The filter keeps the
+# counts and the census lists' headings; the per-document lines under each are for a reader.
+section_writer() {
+    run "the transform writer over the corpus (attach, read back, remove)" \
+        '^transform-writer:' \
+        cargo test --profile gates -p pdf-transform --test writer_corpus -- --ignored --nocapture
+}
+
 section_dates() {
     run "dates (§7.9.4)" '^[0-9]+ date strings' \
         cargo test --profile gates -p pdf-model --test dates -- --ignored --nocapture
@@ -442,7 +451,7 @@ section_disk() {
     fi
 }
 
-all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform dates xmp jpeg2000"
+all="ledger conformance annex-o counts hosts windows binaries disk tests corpus oracle text selection accessibility quorra fixed transform writer dates xmp jpeg2000"
 quick="ledger conformance annex-o counts hosts windows binaries disk"
 
 case ${1-} in
@@ -468,6 +477,7 @@ for section in $sections; do
     quorra) section_quorra ;;
     fixed) section_fixed ;;
     transform) section_transform ;;
+    writer) section_writer ;;
     dates) section_dates ;;
     xmp) section_xmp ;;
     jpeg2000) section_jpeg2000 ;;

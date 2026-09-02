@@ -13,6 +13,7 @@
 
 mod support;
 
+use std::fmt::Write as _;
 use std::process::Command;
 
 use pdf_model::attachment::attachments;
@@ -746,4 +747,177 @@ fn the_program_attaches_and_lists_it_back() {
         .expect("runs");
     assert_eq!(again.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&again.stderr).contains("already named \"q3.csv\""));
+}
+
+/// A document whose catalog's `/Names` is an indirect object and whose `/EmbeddedFiles` tree
+/// is a *direct* dictionary inside it: the third of the holder shapes `attach` rewrites — the
+/// name dictionary's own object — which neither committed document nor `attachment.pdf` has
+/// (ADR 0802 stated the gap). Built here in the form `crates/pdf-syntax/tests/incremental_update.rs`
+/// builds its fixtures, with one file already filed so that the rewrite has an entry to keep.
+fn names_dictionary_indirect() -> Vec<u8> {
+    let body = "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /Names 5 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n\
+         5 0 obj\n<< /EmbeddedFiles << /Names [(old.txt) 6 0 R] >> >>\nendobj\n\
+         6 0 obj\n<< /Type /Filespec /F (old.txt) /UF (old.txt) /EF << /F 7 0 R >> >>\nendobj\n\
+         7 0 obj\n<< /Type /EmbeddedFile /Length 9 /Params << /Size 9 >> >>\nstream\nold bytes\nendstream\nendobj\n";
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Where an object's body is in the file, or `None` for a number the newest section frees.
+/// Every object of this fixture and of the update is at an offset, so an object stream is
+/// answered as `None` too, and the assertions below would then fail loudly.
+fn offset_of(document: &Document, number: u32) -> Option<u64> {
+    match document.xref().location(number)? {
+        pdf_syntax::xref::Location::Offset(at) => u64::try_from(at).ok(),
+        pdf_syntax::xref::Location::InStream { .. } => None,
+    }
+}
+
+/// The holder case with no fixture until this round: the catalog's `/Names` indirect, the
+/// tree direct inside it. `attach` rewrites the name dictionary's object and nothing above it
+/// — the catalog's bytes stay where they were — and the rewritten dictionary points at the new
+/// tree, which holds the old entry as the leaf stated it and the new one after it in §7.9.6's
+/// order. `remove` then takes each out in turn, and the last removal leaves Table 36's form
+/// with no pairs.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one fixture through attach, two removals and the page route, each checked by object"
+)]
+fn a_names_dictionary_that_is_indirect_is_the_object_rewritten_and_the_catalog_is_not() {
+    let source = names_dictionary_indirect();
+    let before = Document::open(source.clone()).expect("the fixture opens");
+    assert_eq!(tree_names(&before), ["old.txt"], "the fixture files one");
+    let catalog = before.catalog().expect("a catalog");
+    assert!(
+        matches!(catalog.get("Names"), Some(Object::Reference(_))),
+        "the fixture's /Names is indirect"
+    );
+    let names = before.get_key(&catalog, "Names");
+    assert!(
+        matches!(
+            names.as_dict().and_then(|d| d.get("EmbeddedFiles")),
+            Some(Object::Dictionary(_))
+        ),
+        "and its tree is direct"
+    );
+
+    let payload = b"a second file\n";
+    let updated = attach(&source, payload, "new.txt", None, None).expect("attached");
+    assert_eq!(
+        &updated[..source.len()],
+        &source[..],
+        "§7.5.6: the source intact"
+    );
+
+    let after = Document::open(updated.clone()).expect("the update opens");
+    assert_eq!(tree_names(&after), ["new.txt", "old.txt"]);
+    let source_len = u64::try_from(source.len()).expect("a length");
+    assert!(
+        offset_of(&after, 1).is_some_and(|at| at < source_len),
+        "the catalog was not rewritten: its object is still the source's"
+    );
+    assert!(
+        offset_of(&after, 5).is_some_and(|at| at >= source_len),
+        "the name dictionary was: its object is in the update"
+    );
+    let catalog = after.catalog().expect("a catalog");
+    let names = after.get_key(&catalog, "Names");
+    let names = names.as_dict().expect("the name dictionary");
+    let Some(Object::Reference(tree_id)) = names.get("EmbeddedFiles") else {
+        panic!("the rewritten dictionary points at the new tree by reference: {names:?}");
+    };
+    assert!(
+        offset_of(&after, tree_id.number).is_some_and(|at| at >= source_len),
+        "and the tree is a new object"
+    );
+    let new = attachments(&after)
+        .into_iter()
+        .find(|file| file.name == "new.txt")
+        .expect("filed");
+    let read_back = after
+        .decoded_stream_data(&new.stream)
+        .expect("the stream decodes");
+    assert_eq!(&read_back[..], &payload[..]);
+    assert_eq!(new.checksum_matches(&read_back), Some(true));
+
+    let remove = |bytes: &[u8], name: &str| -> Vec<u8> {
+        let sinks = MemorySinks::new();
+        let report = apply(
+            &Plan::Attachments(AttachmentsPlan {
+                source: 0,
+                action: Action::Remove {
+                    name: name.to_owned(),
+                    names: "out.pdf".parse().expect("a pattern"),
+                },
+            }),
+            &[Source::new(bytes.to_vec())],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        )
+        .expect("removed");
+        assert_eq!(report.exit(false, false), Exit::Success, "{report:?}");
+        sinks.into_outputs().remove(0).1
+    };
+    let one_left = remove(&updated, "new.txt");
+    assert_eq!(&one_left[..updated.len()], &updated[..]);
+    let document = Document::open(one_left.clone()).expect("opens");
+    assert_eq!(tree_names(&document), ["old.txt"]);
+    let old = attachments(&document).into_iter().next().expect("old.txt");
+    assert_eq!(
+        document.decoded_stream_data(&old.stream).expect("decodes")[..],
+        b"old bytes"[..],
+        "the fixture's own file is untouched"
+    );
+    let none_left = remove(&one_left, "old.txt");
+    let document = Document::open(none_left.clone()).expect("opens");
+    assert!(tree_names(&document).is_empty());
+    assert!(
+        offset_of(&document, 6).is_none() && offset_of(&document, 7).is_none(),
+        "the fixture's specification and stream are free in the newest section"
+    );
+    assert!(
+        offset_of(&document, 1).is_some_and(|at| at < source_len),
+        "and the catalog is still the source's"
+    );
+
+    // The same fixture, filed on its page rather than in the tree: the tree is untouched.
+    let on_page = attach_to_page(&source, None, None);
+    let document = Document::open(on_page).expect("opens");
+    assert_eq!(tree_names(&document), ["old.txt"]);
+    assert_eq!(
+        support::annotation_file_names(&document),
+        [(1, "table.csv".to_owned())]
+    );
+
+    let dir =
+        std::env::temp_dir().join(format!("pdf-transform-writer-{}-names", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("writable");
+    for (file, bytes) in [("attached.pdf", &updated), ("removed.pdf", &none_left)] {
+        let path = dir.join(file);
+        std::fs::write(&path, bytes).expect("written");
+        if let Some(accepted) = qpdf_accepts(&path) {
+            assert!(accepted, "qpdf --check does not accept {file}");
+        }
+    }
 }

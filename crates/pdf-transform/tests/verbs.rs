@@ -15,6 +15,7 @@
 
 mod support;
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -193,6 +194,157 @@ fn scale_to_and_ppm() {
     assert_eq!(ppm.len() - header_end, width * height * 3);
 }
 
+/// `--format pgm`: a `P5` header over one byte a pixel, and every byte the grey ISO 32000-2
+/// §10.4.2.2 states for the oracle raster's pixel — "computed according to the NTSC video
+/// standard", `0.3 × red + 0.59 × green + 0.11 × blue` — written out here in `f64` from the
+/// clause rather than through the crate. A correctly rounded byte is within half a level of
+/// the exact value, so the bound is that, plus a thousandth for the arithmetic's own error;
+/// a conversion that truncated, or weighed the channels otherwise, is a whole level out on
+/// most of a page.
+#[test]
+fn pgm_is_the_clauses_grey_of_the_oracles_raster() {
+    let path = committed("PDF20_AN001-BPC.pdf");
+    let bytes = std::fs::read(&path).expect("a committed document");
+    let expected = oracle(&bytes, 0);
+    let dir = scratch();
+    let (code, _stdout, stderr) = run(
+        &dir,
+        &[
+            "render",
+            path.to_str().expect("utf-8"),
+            "--pages",
+            "1",
+            "--format",
+            "pgm",
+            "-o",
+            "page.pgm",
+        ],
+    );
+    assert_eq!(code, 0, "{stderr}");
+    let pgm = std::fs::read(dir.join("page.pgm")).expect("written");
+    let header = format!("P5\n{} {}\n255\n", expected.width, expected.height);
+    assert!(pgm.starts_with(header.as_bytes()), "{:?}", &pgm[..20]);
+    let samples = &pgm[header.len()..];
+    assert_eq!(samples.len(), expected.data.len() / 4);
+    let mut greys = BTreeSet::new();
+    for (pixel, &grey) in expected.data.chunks_exact(4).zip(samples) {
+        let exact =
+            0.3 * f64::from(pixel[0]) + 0.59 * f64::from(pixel[1]) + 0.11 * f64::from(pixel[2]);
+        assert!(
+            (f64::from(grey) - exact).abs() <= 0.501,
+            "pixel {pixel:?}: the clause says {exact:.3}, the file says {grey}"
+        );
+        greys.insert(grey);
+    }
+    assert!(
+        greys.len() > 2,
+        "page 1 has text and a figure, so more than two greys"
+    );
+}
+
+/// `images --format pgm` and `--format ppm`: the decoded image in the netpbm form asked for,
+/// the PGM being §10.4.2.2's grey of the PNG route's RGB pixel for pixel; and, where the image
+/// has a mask, the mask beside it as a `P5` PGM — a netpbm file has no alpha — whether the
+/// image beside it is grey or RGB.
+#[test]
+fn images_in_a_netpbm_form_are_the_decoded_pixels_with_the_mask_beside() {
+    let path = committed("ISO_32000-2_sponsored_EC3.pdf");
+    let bytes = std::fs::read(&path).expect("a committed document");
+    let extract = |format: ImageFormat, bytes: &[u8], pages: &str| -> Vec<(String, Vec<u8>)> {
+        let sinks = MemorySinks::new();
+        let report = apply(
+            &Plan::Images(ImagesPlan {
+                source: 0,
+                pages: pages.parse().expect("a selection"),
+                min_pixels: 0,
+                list_only: false,
+                native: false,
+                no_mask: false,
+                format,
+                names: format!("img-%d.{}", format.extension())
+                    .parse()
+                    .expect("a pattern"),
+            }),
+            &[Source::new(bytes.to_vec())],
+            &sinks,
+            &Policy::default(),
+            &Budget::default(),
+        )
+        .expect("extracts");
+        assert!(report.refused.is_empty(), "{report:?}");
+        sinks.into_outputs()
+    };
+    let pngs = extract(ImageFormat::Png, &bytes, "100-110");
+    let greys = extract(ImageFormat::Pgm, &bytes, "100-110");
+    let rgbs = extract(ImageFormat::Ppm, &bytes, "100-110");
+    assert!(
+        !pngs.is_empty(),
+        "pages 100 to 110 of the standard embed images"
+    );
+    assert_eq!(pngs.len(), greys.len());
+    assert_eq!(pngs.len(), rgbs.len());
+    for ((png_name, png), ((grey_name, grey), (rgb_name, rgb))) in
+        pngs.iter().zip(greys.iter().zip(&rgbs))
+    {
+        let (width, height, pixels) = decode_png(png);
+        assert_eq!(grey_name, &png_name.replace(".png", ".pgm"));
+        assert_eq!(rgb_name, &png_name.replace(".png", ".ppm"));
+        let header = format!("P5\n{width} {height}\n255\n");
+        assert!(grey.starts_with(header.as_bytes()), "{grey_name}");
+        for (pixel, &level) in pixels.chunks_exact(4).zip(&grey[header.len()..]) {
+            let exact =
+                0.3 * f64::from(pixel[0]) + 0.59 * f64::from(pixel[1]) + 0.11 * f64::from(pixel[2]);
+            assert!(
+                (f64::from(level) - exact).abs() <= 0.501,
+                "{grey_name}: {pixel:?} -> {level}"
+            );
+        }
+        let header = format!("P6\n{width} {height}\n255\n");
+        assert!(rgb.starts_with(header.as_bytes()), "{rgb_name}");
+        for (pixel, triple) in pixels
+            .chunks_exact(4)
+            .zip(rgb[header.len()..].chunks_exact(3))
+        {
+            assert_eq!(&pixel[..3], triple, "{rgb_name}");
+        }
+    }
+
+    // The masked JPEG: under PGM the base is grey and the mask is a PGM beside it, sample for
+    // sample the PNG route's mask; under PPM the mask is the same PGM.
+    let Some(masked) = masked_jpeg_document() else {
+        eprintln!("skipped the masked half: the pdf.js corpus is not checked out");
+        return;
+    };
+    let separate = images_of(&masked, false, true);
+    let (_, _, mask_png) = decode_grey_png(&separate[1].1);
+    for format in [ImageFormat::Pgm, ImageFormat::Ppm] {
+        let outputs = extract(format, &masked, "1");
+        assert_eq!(
+            outputs
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                format!("img-1.{}", format.extension()),
+                "img-1.mask.pgm".to_owned()
+            ],
+            "{format:?}: the image, and its mask beside it"
+        );
+        let mask = &outputs[1].1;
+        let header_end = mask
+            .windows(4)
+            .position(|w| w == b"255\n")
+            .expect("a P5 header")
+            + 4;
+        assert!(mask.starts_with(b"P5\n"));
+        assert_eq!(
+            &mask[header_end..],
+            &mask_png[..],
+            "one mask, whichever form"
+        );
+    }
+}
+
 /// RFC 0002 section 4.4's statuses, each from the condition it names.
 #[test]
 fn exit_statuses() {
@@ -326,6 +478,7 @@ fn images_are_listed_and_extracted() {
             list_only: true,
             native: false,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -344,7 +497,7 @@ fn images_are_listed_and_extracted() {
         })
         .collect();
     assert!(!entries.is_empty(), "the guide embeds images");
-    let objects: std::collections::BTreeSet<_> = entries.iter().map(|e| &e.object).collect();
+    let objects: BTreeSet<_> = entries.iter().map(|e| &e.object).collect();
     assert_eq!(objects.len(), entries.len(), "an object was listed twice");
     // `--min-pixels` leaves the small ones out.
     let floor = entries
@@ -360,6 +513,7 @@ fn images_are_listed_and_extracted() {
             list_only: true,
             native: false,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -379,6 +533,7 @@ fn images_are_listed_and_extracted() {
             list_only: false,
             native: false,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "img-%d.png".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -567,6 +722,7 @@ fn an_inline_image_is_listed_at_its_placement_and_extracted() {
             list_only: true,
             native: false,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -597,6 +753,7 @@ fn an_inline_image_is_listed_at_its_placement_and_extracted() {
             list_only: false,
             native: false,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "img-%d.png".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -644,6 +801,7 @@ fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not
             list_only: true,
             native: true,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes.clone())],
@@ -711,6 +869,7 @@ fn native_writes_the_codec_stream_where_it_is_a_file_and_says_so_where_it_is_not
             list_only: false,
             native: true,
             no_mask: false,
+            format: ImageFormat::Png,
             names: "img-%d".parse().expect("a pattern"),
         }),
         &[Source::new(bytes)],
@@ -835,6 +994,7 @@ fn images_of(bytes: &[u8], native: bool, no_mask: bool) -> Vec<(String, Vec<u8>)
             list_only: false,
             native,
             no_mask,
+            format: ImageFormat::Png,
             names: if native { "img-%d" } else { "img-%d.png" }
                 .parse()
                 .expect("a pattern"),
@@ -924,11 +1084,17 @@ fn a_soft_mask_is_composited_by_default_and_kept_beside_the_image_under_no_mask(
 #[test]
 fn a_mask_is_named_beside_its_image() {
     use pdf_transform::images::mask_name;
-    assert_eq!(mask_name("img-3.png"), "img-3.mask.png");
-    assert_eq!(mask_name("img-3.jpg"), "img-3.mask.png");
-    assert_eq!(mask_name("img-3"), "img-3.mask.png");
-    assert_eq!(mask_name("out.v2/img-3"), "out.v2/img-3.mask.png");
-    assert_eq!(mask_name("out.v2/img-3.jp2"), "out.v2/img-3.mask.png");
+    let png = ImageFormat::Png;
+    assert_eq!(mask_name("img-3.png", png), "img-3.mask.png");
+    assert_eq!(mask_name("img-3.jpg", png), "img-3.mask.png");
+    assert_eq!(mask_name("img-3", png), "img-3.mask.png");
+    assert_eq!(mask_name("out.v2/img-3", png), "out.v2/img-3.mask.png");
+    assert_eq!(mask_name("out.v2/img-3.jp2", png), "out.v2/img-3.mask.png");
+    // Beside a netpbm image the mask is the one-channel netpbm form, whichever of the two
+    // the image took.
+    assert_eq!(mask_name("img-3.pgm", ImageFormat::Pgm), "img-3.mask.pgm");
+    assert_eq!(mask_name("img-3.ppm", ImageFormat::Ppm), "img-3.mask.pgm");
+    assert_eq!(mask_name("img-3.jpg", ImageFormat::Pgm), "img-3.mask.pgm");
 }
 
 /// Decodes an 8-bit greyscale PNG.

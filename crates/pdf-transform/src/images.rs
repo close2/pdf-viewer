@@ -30,6 +30,16 @@
 //! soft mask composited into the alpha. A build without the worker beside it refuses those images
 //! **by name** rather than falling back in-process (RFC 0002 section 8).
 //!
+//! [`ImagesPlan::format`] chooses the file form of every image that is *decoded*: PNG, or the
+//! two netpbm forms `render` also writes — PPM, the RGB with no alpha, and PGM, the grey of
+//! §10.4.2.2's conversion over the decoded RGB, which is [`crate::render::ImageFormat::Pgm`]'s
+//! stated choice and is one conversion for a page and an image alike. A format is a statement
+//! about decoded samples and never about a native stream: under `--native` a JPEG is the JPEG
+//! whatever its own colour model — a grey one is grey already, a CMYK one stays CMYK — and a
+//! person who wants the grey of a CMYK JPEG asks for it decoded, where the interpreter's own
+//! conversion takes it to RGB first. Neither netpbm form holds an alpha, so under either the
+//! mask is written beside the image, as the native route already does.
+//!
 //! **`--native`** ([`ImagesPlan::native`]) writes the embedded codec stream as it is where the
 //! codec has a standalone file form, and decoded PNG otherwise, per image:
 //!
@@ -91,6 +101,7 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelI
 use crate::json::Value;
 use crate::pattern::{Fill, Pattern};
 use crate::range::Selection;
+use crate::render::ImageFormat;
 use crate::{Declined, Listed, Origin, Output, Refusal, Report, Sinks, Warning};
 
 /// The images a document embeds.
@@ -112,7 +123,9 @@ pub struct ImagesPlan {
     /// Keep a mask out of the image's alpha and write it beside the image as its own file
     /// instead. The module comment has the three outputs this chooses between.
     pub no_mask: bool,
-
+    /// The file form of every image that is decoded. Says nothing about a native stream, which
+    /// is written as it is; the module comment says why.
+    pub format: ImageFormat,
     /// How the outputs are named.
     pub names: Pattern,
 }
@@ -182,6 +195,10 @@ impl ImageEntry {
 pub enum ImageFile {
     /// Decoded, RGBA8 with the soft mask in the alpha.
     Png,
+    /// Decoded, the RGB with no alpha — `P6`.
+    Ppm,
+    /// Decoded, §10.4.2.2's grey of the RGB — `P5`.
+    Pgm,
     /// §7.4.8's stream as it is.
     Jpeg,
     /// §7.4.9's stream as it is.
@@ -189,6 +206,9 @@ pub enum ImageFile {
     /// An image's mask on its own grid, as an 8-bit grey PNG: the opacity each sample gives
     /// the base image it is written beside.
     Mask,
+    /// The same mask as a `P5` PGM, beside an image written in a netpbm form: a mask is one
+    /// channel, so its netpbm form is the grey one whether the image beside it is grey or RGB.
+    MaskPgm,
 }
 
 impl ImageFile {
@@ -197,24 +217,77 @@ impl ImageFile {
     pub fn extension(self) -> &'static str {
         match self {
             Self::Png => "png",
+            Self::Ppm => "ppm",
+            Self::Pgm => "pgm",
             Self::Jpeg => "jpg",
             Self::Jp2 => "jp2",
             Self::Mask => "mask.png",
+            Self::MaskPgm => "mask.pgm",
+        }
+    }
+
+    /// The file a decoded image is written as, in this format.
+    #[must_use]
+    pub fn decoded(format: ImageFormat) -> Self {
+        match format {
+            ImageFormat::Png => Self::Png,
+            ImageFormat::Ppm => Self::Ppm,
+            ImageFormat::Pgm => Self::Pgm,
+        }
+    }
+
+    /// The file a mask is written as, beside an image written in this format.
+    #[must_use]
+    pub fn mask(format: ImageFormat) -> Self {
+        match format {
+            ImageFormat::Png => Self::Mask,
+            ImageFormat::Ppm | ImageFormat::Pgm => Self::MaskPgm,
+        }
+    }
+}
+
+/// Which route one image's bytes take to its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// Through `pdf_model::image::decode`, then the encoder for the format.
+    Decoded(ImageFormat),
+    /// §7.4.8's stream as it is.
+    Jpeg,
+    /// §7.4.9's stream as it is.
+    Jp2,
+}
+
+impl Route {
+    /// The file the route ends in.
+    fn file(self) -> ImageFile {
+        match self {
+            Self::Decoded(format) => ImageFile::decoded(format),
+            Self::Jpeg => ImageFile::Jpeg,
+            Self::Jp2 => ImageFile::Jp2,
+        }
+    }
+
+    /// Whether the file can carry the mask in its alpha; only a decoded PNG can.
+    fn holds_alpha(self) -> bool {
+        match self {
+            Self::Decoded(format) => format.holds_alpha(),
+            Self::Jpeg | Self::Jp2 => false,
         }
     }
 }
 
 /// The name a mask is written under beside an image called `name`: the name with its file
-/// extension, if it has one, replaced by `.mask.png` — so `img-3.png` and `img-3.jpg` both put
-/// their mask at `img-3.mask.png`, and `img-3` does too.
+/// extension, if it has one, replaced by the mask's — so `img-3.png` and `img-3.jpg` both put
+/// their mask at `img-3.mask.png`, and `img-3` does too; beside a netpbm image it is
+/// `img-3.mask.pgm`.
 #[must_use]
-pub fn mask_name(name: &str) -> String {
+pub fn mask_name(name: &str, format: ImageFormat) -> String {
     let file_starts = name.rfind('/').map_or(0, |slash| slash.saturating_add(1));
     let stem = match name[file_starts..].rfind('.') {
         Some(dot) if dot > 0 => &name[..file_starts.saturating_add(dot)],
         _ => name,
     };
-    format!("{stem}.mask.png")
+    format!("{stem}.{}", ImageFile::mask(format).extension())
 }
 
 /// One image found on a page: what decoding it needs.
@@ -310,23 +383,25 @@ enum Problem {
     Sink(String, std::io::Error),
 }
 
-/// Decides the file form for one image under the plan, with the reason where native was asked
+/// Decides the route for one image under the plan, with the reason where native was asked
 /// for and cannot be given.
-fn file_for(plan: &ImagesPlan, document: &Document, found: &Found) -> (ImageFile, Option<String>) {
+fn route_for(plan: &ImagesPlan, document: &Document, found: &Found) -> (Route, Option<String>) {
+    let decoded = Route::Decoded(plan.format);
     if !plan.native {
-        return (ImageFile::Png, None);
+        return (decoded, None);
     }
     match document.image_codec(&found.stream).as_deref() {
-        Some(b"DCTDecode" | b"DCT") => (ImageFile::Jpeg, None),
-        Some(b"JPXDecode") => (ImageFile::Jp2, None),
+        Some(b"DCTDecode" | b"DCT") => (Route::Jpeg, None),
+        Some(b"JPXDecode") => (Route::Jp2, None),
         Some(codec) => (
-            ImageFile::Png,
+            decoded,
             Some(format!(
-                "{} has no standalone file form, so the image was decoded to PNG",
-                String::from_utf8_lossy(codec)
+                "{} has no standalone file form, so the image was decoded to {}",
+                String::from_utf8_lossy(codec),
+                plan.format.extension().to_ascii_uppercase()
             )),
         ),
-        None => (ImageFile::Png, None),
+        None => (decoded, None),
     }
 }
 
@@ -340,7 +415,7 @@ fn write_one(
     count: usize,
     found: &Found,
 ) -> Written {
-    let (file, reason) = file_for(plan, document, found);
+    let (route, reason) = route_for(plan, document, found);
     let expanded = plan.names.expand(&Fill {
         ordinal: at.saturating_add(1),
         count,
@@ -349,7 +424,7 @@ fn write_one(
         title: None,
     });
     let name = if plan.native {
-        format!("{}.{}", expanded.name, file.extension())
+        format!("{}.{}", expanded.name, route.file().extension())
     } else {
         expanded.name
     };
@@ -363,16 +438,16 @@ fn write_one(
         .into_iter()
         .collect();
     // The mask stays out of the image where the plan says so, and where the file form could
-    // not hold it anyway: a JPEG has no alpha, and a JP2 without §11.6.5.2's `/SMaskInData`
-    // has none either. The module comment has the three outputs.
-    let separate = plan.no_mask || file != ImageFile::Png;
+    // not hold it anyway: a JPEG has no alpha, a JP2 without §11.6.5.2's `/SMaskInData` has
+    // none either, and a netpbm file is its samples. The module comment has the three outputs.
+    let separate = plan.no_mask || !route.holds_alpha();
     let mut outcomes = vec![write_as(
         plan,
         document,
         sinks,
         found,
         &name,
-        file,
+        route,
         separate,
         expanded.sanitised,
     )];
@@ -382,7 +457,7 @@ fn write_one(
                 plan,
                 sinks,
                 found,
-                &mask_name(&name),
+                &mask_name(&name, plan.format),
                 &mask,
                 expanded.sanitised,
             )),
@@ -421,7 +496,7 @@ fn write_as(
     sinks: &dyn Sinks,
     found: &Found,
     name: &str,
-    file: ImageFile,
+    route: Route,
     unmasked: bool,
     sanitised: bool,
 ) -> Result<Output, Problem> {
@@ -434,8 +509,8 @@ fn write_as(
         })
     };
     let sink_failed = |error: std::io::Error| Problem::Sink(name.to_owned(), error);
-    let (bytes, width, height): (Arc<[u8]>, u32, u32) = match file {
-        ImageFile::Png | ImageFile::Mask => {
+    let (bytes, width, height): (Arc<[u8]>, u32, u32) = match route {
+        Route::Decoded(format) => {
             let unmasked_stream;
             let stream: &Stream = if unmasked {
                 unmasked_stream = without_masks(&found.stream);
@@ -451,11 +526,11 @@ fn write_as(
                 format: pdf_render::RasterFormat::Rgba8,
                 data: image.data.to_vec(),
             };
-            let encoded = crate::render::encode(&raster, crate::render::ImageFormat::Png)
+            let encoded = crate::render::encode(&raster, format)
                 .map_err(|error| sink_failed(std::io::Error::other(error)))?;
             (Arc::from(encoded), image.width, image.height)
         }
-        ImageFile::Jpeg | ImageFile::Jp2 => {
+        Route::Jpeg | Route::Jp2 => {
             // The chain in front of the codec is run and the codec is not: `image_stream`
             // answers `None` only where a filter before it is one this tree does not decode,
             // which is the same refusal the page would draw.
@@ -478,7 +553,7 @@ fn write_as(
             page: found.entry.page,
             object: found.entry.object.clone(),
             inline: found.entry.inline,
-            file,
+            file: route.file(),
             width,
             height,
         },
@@ -576,7 +651,7 @@ fn mask_of(document: &Document, found: &Found) -> Result<Option<MaskImage>, Stri
     Ok(None)
 }
 
-/// Writes one mask as an 8-bit grey PNG.
+/// Writes one mask as an 8-bit grey image: a PNG beside a PNG, a PGM beside a netpbm image.
 fn write_mask(
     plan: &ImagesPlan,
     sinks: &dyn Sinks,
@@ -586,8 +661,12 @@ fn write_mask(
     sanitised: bool,
 ) -> Result<Output, Problem> {
     let sink_failed = |error: std::io::Error| Problem::Sink(name.to_owned(), error);
-    let bytes = encode_grey(mask.width, mask.height, &mask.opacity)
-        .map_err(|error| sink_failed(std::io::Error::other(error)))?;
+    let file = ImageFile::mask(plan.format);
+    let bytes = match file {
+        ImageFile::MaskPgm => crate::render::pgm(mask.width, mask.height, &mask.opacity),
+        _ => encode_grey(mask.width, mask.height, &mask.opacity)
+            .map_err(|error| sink_failed(std::io::Error::other(error)))?,
+    };
     let mut sink = sinks.open(name).map_err(sink_failed)?;
     sink.write_all(&bytes)
         .and_then(|()| sink.flush())
@@ -601,7 +680,7 @@ fn write_mask(
             page: found.entry.page,
             object: found.entry.object.clone(),
             inline: found.entry.inline,
-            file: ImageFile::Mask,
+            file,
             width: mask.width,
             height: mask.height,
         },
