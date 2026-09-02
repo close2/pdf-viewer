@@ -8,7 +8,7 @@ use pdf_syntax::{Dictionary, Object};
 
 use super::report::{ContentStream, Unsupported};
 use super::run::{name_at, narrow};
-use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
+use super::{GraphicsState, Interpreter};
 
 impl Interpreter<'_> {
     /// Draws an `XObject`: a form is interpreted inline, an image is reported.
@@ -35,7 +35,6 @@ impl Interpreter<'_> {
         operands: &[Object],
         resources: &Dictionary,
         state: &GraphicsState,
-        form_depth: usize,
     ) {
         let Some(name) = name_at(operands, 0) else {
             // Table 86's operand column is `name`, so a `Do` with anything else — or with
@@ -115,13 +114,6 @@ impl Interpreter<'_> {
         if subtype != b"Form" {
             self.note(Unsupported::Operator {
                 operator: format!("Do on /{label}"),
-            });
-            return;
-        }
-
-        if form_depth >= MAX_FORM_DEPTH {
-            self.note(Unsupported::LimitReached {
-                limit: "MAX_FORM_DEPTH",
             });
             return;
         }
@@ -216,13 +208,13 @@ impl Interpreter<'_> {
         // own.
         let outer_structure = self.enter_stream_structure(named, &stream.dict);
         let Some(group) = self.transparency_group(&stream.dict) else {
-            self.run(&data, &form_resources, &inner, form_depth.saturating_add(1));
+            self.run(&data, &form_resources, &inner);
             self.leave_stream_structure(outer_structure);
             self.stream = outer_stream;
             self.base = outer_base;
             return;
         };
-        self.run_transparency_group(&group, &data, &form_resources, &inner, state, form_depth);
+        self.run_transparency_group(&group, &data, &form_resources, &inner, state);
         self.leave_stream_structure(outer_structure);
         self.stream = outer_stream;
         self.base = outer_base;

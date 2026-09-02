@@ -151,7 +151,7 @@ lookup walk, and can a document grow that population without limit?*
 
 | bound | if removed, a *small malicious* input can… | verdict |
 |---|---|---|
-| `MAX_FORM_DEPTH` 16 | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, do not touch** |
+| `MAX_FORM_DEPTH` 64 (16 until ADR 0793, which found a tiling cell outside it) | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, and a stack figure rather than a habit since ADR 0793** |
 | `max_stream_len` 1 GiB + the Flate/LZW guards | turned 1.85 MB into 3.7 GB (measured); 1095 MB since ADR 0306 lowered the bound to fit the ceiling and made reaching it a refusal, and **exactly the bound** since ADR 0354 stopped the buffer doubling past it | **load-bearing, and still the weakest link** |
 | `MAX_TILES` 4096 | state `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else sees it (ADR 0271) | **load-bearing**, but bounds a *count* where it means to bound *work* |
 | `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** |

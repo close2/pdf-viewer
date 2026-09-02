@@ -135,7 +135,9 @@ see. `valgrind --tool=massif` names the site: 82 % of the peak is `BTreeMap<Name
 under `RasterCache::parts` — the cache's miss path clones the resource dictionary the image was
 drawn from into every entry and charges `RASTER_BUDGET` the samples alone, so ten thousand
 eight-byte rasters hold ten thousand mebibyte dictionaries. `doc/todo/17` carries it, priced three
-ways; it is not fixed here because
+ways (that file was taken by ADR 0791 in the eight-hundred-and-sixty-ninth session and deleted, and
+the number stays reserved by `doc/todo/README.md`'s rule; the pricing and the fix are in that ADR);
+it is not fixed here because
 a change to the interpreter can move a pixel and owes the whole `doc/todo/02` §2 sequence, which a
 measuring round beside a gating one may not run.
 

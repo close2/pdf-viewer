@@ -18,8 +18,8 @@ use super::reader::{ContentReader, NestedContent, Word};
 use super::report::{ArtifactSpan, DamagedStream, MarkedSpan, Unsupported};
 use super::text::TextObject;
 use super::{
-    GraphicsState, Interpreter, MAX_OPERANDS, MAX_OPERATIONS, MAX_STATE_DEPTH, line_cap, line_join,
-    miter_limit, set_dash,
+    GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERANDS, MAX_OPERATIONS, MAX_STATE_DEPTH,
+    line_cap, line_join, miter_limit, set_dash,
 };
 
 impl Interpreter<'_> {
@@ -125,8 +125,16 @@ impl Interpreter<'_> {
         content: &NestedContent,
         resources: &Dictionary,
         initial: &GraphicsState,
-        form_depth: usize,
     ) {
+        // The one place the bound is asked, so that no kind of nested stream can be run without
+        // it — see [`MAX_FORM_DEPTH`] for the kind that was.
+        if self.nesting >= MAX_FORM_DEPTH {
+            self.note(Unsupported::LimitReached {
+                limit: "MAX_FORM_DEPTH",
+            });
+            return;
+        }
+        self.nesting = self.nesting.saturating_add(1);
         let mut reader = content.reader();
         // What the run has to have produced *nothing* against, for the one fact below to travel.
         let operations = self.operations;
@@ -142,8 +150,9 @@ impl Interpreter<'_> {
             &mut self.pattern_initial,
             super::pattern::PatternInitial::of(initial),
         );
-        self.run_reader(&mut reader, resources, initial, form_depth);
+        self.run_reader(&mut reader, resources, initial);
         self.pattern_initial = outer;
+        self.nesting = self.nesting.saturating_sub(1);
         let mut reached = None;
         for issue in reader.take_issues() {
             if let crate::page::ContentIssue::TooLarge { limit, .. } = issue {
@@ -228,7 +237,6 @@ impl Interpreter<'_> {
         reader: &mut ContentReader<'_>,
         resources: &Dictionary,
         initial: &GraphicsState,
-        form_depth: usize,
     ) {
         // What the stream has stated since the last operator. §7.8.2 makes an operator's own
         // operands the ones that *immediately precede* it, which is a distinction only a
@@ -754,7 +762,7 @@ impl Interpreter<'_> {
                 }
                 b"Tj" => {
                     if let Some(bytes) = string_at(operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
+                        self.show_text(&bytes, &state, &mut text_object, resources);
                     }
                 }
                 b"TJ" => {
@@ -764,13 +772,7 @@ impl Interpreter<'_> {
                     for operand in operands {
                         match operand {
                             Object::String(bytes) => {
-                                self.show_text(
-                                    bytes,
-                                    &state,
-                                    &mut text_object,
-                                    resources,
-                                    form_depth,
-                                );
+                                self.show_text(bytes, &state, &mut text_object, resources);
                             }
                             other => {
                                 if let Some(adjust) = other.as_number() {
@@ -801,7 +803,7 @@ impl Interpreter<'_> {
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
                     if let Some(bytes) = string_at(operands, 0) {
-                        self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
+                        self.show_text(&bytes, &state, &mut text_object, resources);
                     }
                 }
                 b"\"" => {
@@ -816,12 +818,12 @@ impl Interpreter<'_> {
                         Transform::translate(0.0, -state.text.leading).then(text_object.line);
                     text_object.matrix = text_object.line;
                     if let Some(bytes) = string_at(operands, 2) {
-                        self.show_text(&bytes, &state, &mut text_object, resources, form_depth);
+                        self.show_text(&bytes, &state, &mut text_object, resources);
                     }
                 }
 
                 // --- XObjects ---
-                b"Do" => self.draw_xobject(operands, resources, &state, form_depth),
+                b"Do" => self.draw_xobject(operands, resources, &state),
 
                 // --- shadings and inline images ---
                 b"sh" => {

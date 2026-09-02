@@ -566,6 +566,24 @@ document stating `/R 5` will have `/R 5` in almost any sentence about it. So:
   is a weak predicate wherever something else in the population can carry that name without
   meaning it.
 
+### 29. A bound lifted in a scratch build is lifted only where the code reads the constant
+
+"Lift the bound sixteenfold and see which documents still reach it" is this project's standard
+experiment on a budget, and ADR 0271 ran it on `MAX_FORM_DEPTH` over 65 944 documents: all four
+witnesses reached 256, so all four were cycles, so the bound was the attack it exists for. Two more
+rounds repeated it over two more corpora and the eleven-document claim went into the constant's own
+comment. Twenty-five of the twenty-seven were finite — a tiling cell was run at `MAX_FORM_DEPTH - 1`,
+so lifting the constant lifted the cell's starting point with it, and a cell holding two levels of
+forms reported the bound at sixteen, at 256, and at any value a scratch build could name (ADR
+0793).
+
+The experiment had no control. Trap 13's rule for a sweep — run it against the defect before
+believing it — has a mirror for a lifting: **run it against a document known to be finite and
+deep, which must stop**, before believing that whatever still reaches the lifted bound is a cycle.
+And read every site that *derives* a number from the constant, because those move with it: a
+`grep` for the name finds them in a second and the eight-hundred-and-seventy-first session, which
+found the two nestings, did not look.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic

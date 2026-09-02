@@ -33,10 +33,30 @@
 #   --nice n     the niceness (default 19: everything here runs behind the owner's desktop and
 #                behind any round's gates).
 #
-# The walk budget is 32 GiB, and the figure is argued rather than measured: the machine has
-# 61 GiB, the owner's desktop keeps 16, a parallel round's gates and a build keep about 12, and
-# what is left is what a corpus walk may use — **one walk on the machine at a time**, which is the
-# same agreement as `doc/todo/02` §2's "run nothing beside the sequence".
+# The walk budget is 12 GiB a round, and the figure was 32 until 2026-09-02, when 32 turned out to
+# be sized for a machine running one walk and this machine was running three rounds. The timeline,
+# from the user slice's own accounting: at 09:03:14 the eight-hundred-and-seventy-fourth round
+# launched `bounded.sh --data 32 -- safedocs survey --dir …/MOZILLA` in the background — the whole
+# walk budget for one 24-thread process, no `--tree` — beside the owner's desktop, the Claude
+# process, sccache and two other rounds' gates and builds; the slice's memory.peak reached
+# 61.09 GB of 61.9; from 09:05 every shell call of that round and its neighbour's stalled; the
+# survey was killed at 09:07:23; and at 09:08:04 the Claude process aborted (its own abort(), not
+# oomd and not the kernel's OOM killer, whose oom_kill count is 0 in every cgroup). RLIMIT_DATA is
+# **per process**, so `--data 32` bounded nothing the machine cared about: what mattered was the
+# sum over every round, and no single limit sees that. So four rules, the owner's and binding on
+# every round (`doc/environment.md`'s parallel-round agreements carry them too):
+#
+#   1. one corpus walk at a time across ALL rounds, not one per round;
+#   2. `--data` never above 12 GiB for a round;
+#   3. every bounded run also carries `--tree` — 12 GiB for a walk, 8 for a build — and this
+#      script defaults it to 12 where the caller gave none, so that a run without a tree ceiling
+#      cannot be started by omission;
+#   4. the sum of what a round has in flight stays under 16 GiB.
+#
+# This script enforces the half of that it can see: `--data` above 12 GiB is refused unless `--tree`
+# is given as well, because a data limit above the round's share is exactly the invocation that
+# needs the ceiling most. **One walk on the machine at a time** is the same agreement as
+# `doc/todo/02` §2's "run nothing beside the sequence".
 #
 # What a limit does to the channel that reports it is `doc/traps/instruments-and-reports.md`'s
 # trap 18, and this script is written against it. RLIMIT_DATA touches no descriptor, so a program
@@ -53,7 +73,8 @@ usage() {
     exit 64
 }
 
-walk_budget_gib=32
+walk_budget_gib=12
+round_share_gib=12
 shards=1
 data_gib=
 tree_gib=
@@ -80,9 +101,16 @@ if [ -z "$data_gib" ]; then
     data_gib=$(( walk_budget_gib / shards ))
     [ "$data_gib" -ge 1 ] || data_gib=1
 fi
+case "$data_gib" in ''|*[!0-9]*|0) echo "bounded: --data wants a positive integer of GiB" >&2; exit 64 ;; esac
+if [ "$data_gib" -gt "$round_share_gib" ] && [ -z "$tree_gib" ]; then
+    echo "bounded: --data $data_gib GiB is above a round's share of $round_share_gib, and no --tree ceiling was given — see the header for 2026-09-02, when exactly this invocation took the machine down; pass --tree as well, or a smaller --data" >&2
+    exit 64
+fi
+# Rule 3 of the header: a run without a tree ceiling is not started by omission.
+[ -n "$tree_gib" ] || tree_gib=$round_share_gib
+case "$tree_gib" in ''|*[!0-9]*|0) echo "bounded: --tree wants a positive integer of GiB" >&2; exit 64 ;; esac
 data_bytes=$(( data_gib * 1024 * 1024 * 1024 ))
-tree_kib=
-[ -n "$tree_gib" ] && tree_kib=$(( tree_gib * 1024 * 1024 ))
+tree_kib=$(( tree_gib * 1024 * 1024 ))
 
 # rayon reads this once, at pool creation, and every walk in this tree uses the global pool. A
 # caller that has set it already knows better than the share.

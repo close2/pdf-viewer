@@ -96,7 +96,7 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 
   | bound | the population, lifted | why it stays |
   |---|---|---|
-  | `MAX_FORM_DEPTH` 16 | ~~**all four documents are cycles** — lifted to 256, all four reach 256~~ **True of the crawl's four and `MOZILLA`'s seven, and false of `batch2/GHOSTSCRIPT`'s sixteen**: fourteen are cycles and **two are finite nestings a real producer wrote** — pdftk's stamps at 17–32 deep, Aspose.Pdf's at 33–64 — and both draw a *blank page* at 16 where `mupdf` draws the document (`doc/todo/03` section 39, the eight-hundred-and-seventy-first). **The constant is now a decision owed, not a fact**: 64 draws both witnesses, the sixteen interpret in under a tenth of a second apiece at 256, and what a raise costs is stack per nested form, which is the figure to measure — then re-run all twenty-seven witnesses at the candidate | the attack it exists for. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
+  | `MAX_FORM_DEPTH` **64** | ~~**all four documents are cycles** — lifted to 256, all four reach 256~~ ~~True of the crawl's four and `MOZILLA`'s seven, and false of `batch2/GHOSTSCRIPT`'s sixteen: fourteen are cycles and two are finite nestings~~ **Decided in the eight-hundred-and-seventy-fourth (ADR 0793), and the population was the instrument's**: a tiling cell was run at `MAX_FORM_DEPTH - 1`, so lifting the constant lifted the cell's start with it and a cell holding two levels of forms reached *any* bound. At 64, with one counter in `Interpreter::run` for every kind of nested stream, **twenty-five of the twenty-seven witnesses draw whole reporting nothing** — the two real nestings among them — and `GHOSTSCRIPT-698226-0` and `700301-0` report the bound at 64 and at 256 alike, which is what a cycle is. The value is a stack figure: about 4 KiB a level for a form, 5 for a group, 9 for a Type 3 glyph under `[profile.release]` (`examples/form_depth_cost`), against the 2 MiB every thread `interpret` runs on has by default | the attack it exists for — and the cell was outside it: a pattern whose cell fills with itself overflowed the stack until that session. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
   | `MAX_TILES` 4096 | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop |
   | `MAX_OPERATIONS` 4 M | all 31 terminate, wanting 4.1–53.6 M **lexer tokens** — the word was *operators* here and in ADR 0271 and the counter was counting tokens (ADR 0306) — 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | **a count is not a cost** — one `sh` paints the page — so no larger number bounds the time either. The cancel does, at 0.83–1.97 ms |
   | `MAX_STATE_DEPTH` 256 | one document, wanting **337** | ISO 32000-2 §C.2's Table C.1 prints **28** as the depth a writer could rely on. 256 is nine times the standard's own figure and the document wants twelve times it |
@@ -170,7 +170,18 @@ change to *what* is bounded, and both need the argument before the code.
 - **`MAX_TILES` bounds a count where it means to bound work.** `7680183.pdf` wants 42 282 tiles
   and takes 14.2 s; `2760154.pdf` wants 765 440 and takes 8.7. So the number that decides admits
   the expensive document and refuses the cheap one, and raising it would move an arbitrary line
-  rather than a wrong one. What the bound is really for is the *loop* — an empty cell at 0.89 µs
+  rather than a wrong one. **And a chain of nested patterns is the same shape one level up**
+  (ADR 0793): a cell filling with another pattern tiles nine cells of the inner tiling — the span
+  takes a neighbour each side even for a fill inside one cell — so the chain is 9ⁿ commands, and
+  `examples/form_depth_cost --pattern --write 8` is 8 503 056 commands and **2 GiB** before
+  `MAX_OPERATIONS` stops it at four million operators; twelve deep fails its allocation past
+  4 GiB. The count that stops it is right and the cost of the count is two gibibytes, which is
+  this item's sentence with a witness a few kilobytes long. **The corpus has one**:
+  `ContentStreamCycleType3insideType3.pdf` spends the whole four million on a cycle through a
+  tiling cell — 3 995 603 commands, 1.46 GiB, 3.8 s — where sixteen's fixed cell depth refused it
+  for nothing, and where `repeat_cell` charging the copy *after* making it let the enclosing
+  tilings multiply the budget ninefold apiece (25 GB, fixed in the same ADR by asking before the
+  copy). A budget on commands that priced them would refuse it in milliseconds. What the bound is really for is the *loop* — an empty cell at 0.89 µs
   a tile is four days at the trip count a file may state — so the shape wanted is a budget over
   cells replayed *and* operators executed, checked as the loop runs, with the same refusal by
   name at the end. The empty-cell measurement is the one that says the count cannot simply be

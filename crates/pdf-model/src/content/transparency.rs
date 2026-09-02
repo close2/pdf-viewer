@@ -1666,7 +1666,7 @@ impl Interpreter<'_> {
         // `draw_xobject` has made this replacement since the clause was first read; this is
         // the second door into the same room.
         let saved_base = std::mem::replace(&mut self.base, inner.transform);
-        self.run(&content, &resources, &inner, 0);
+        self.run(&content, &resources, &inner);
         self.base = saved_base;
         self.nested_space_departed = saved_departed;
         let mask_alpha_sources = std::mem::replace(&mut self.alpha_sources, saved_ais);
@@ -1735,7 +1735,6 @@ impl Interpreter<'_> {
         resources: &Dictionary,
         inner: &GraphicsState,
         outer: &GraphicsState,
-        form_depth: usize,
     ) {
         let mut inner = inner.clone();
         // §11.6.6, of what `Do` adds for a transparency group XObject:
@@ -1783,7 +1782,7 @@ impl Interpreter<'_> {
             pair,
             alpha_sources,
             in_own_space,
-        } = self.group_commands(group, content, resources, (&inner, outer), form_depth);
+        } = self.group_commands(group, content, resources, (&inner, outer));
         self.blending = outside;
         self.inside_knockout = enclosing_knockout;
         self.transparent_initial_backdrop = enclosing_transparent;
@@ -2029,7 +2028,6 @@ impl Interpreter<'_> {
         content: &NestedContent,
         resources: &Dictionary,
         states: (&GraphicsState, &GraphicsState),
-        form_depth: usize,
     ) -> GroupRun {
         let (inner, outer) = states;
         let mark = self.list.command_count();
@@ -2070,7 +2068,7 @@ impl Interpreter<'_> {
         } else if let Some(one_component) = grey.clone() {
             self.compositing = one_component;
         }
-        self.run(content, resources, inner, form_depth.saturating_add(1));
+        self.run(content, resources, inner);
         self.compositing = saved.clone();
         let mut commands = self.list.split_off_commands(mark);
         let mut pair = None;
@@ -2082,7 +2080,7 @@ impl Interpreter<'_> {
                 // A group inside changed the space with something compositing in it, so its
                 // `Do` owes a conversion between two spaces per pixel that no list here
                 // carries; the device's components and the standing report are the answer.
-                commands = self.rerun_on_device(content, resources, inner, form_depth, mark);
+                commands = self.rerun_on_device(content, resources, inner, mark);
             } else {
                 in_own_space = true;
                 // A calibrated component leaves by its curve, which the backend applies
@@ -2104,7 +2102,7 @@ impl Interpreter<'_> {
                 let rewind = self.readback_mark();
                 self.compositing =
                     Compositing::Subtractive(crate::colour::Half::Black, Arc::clone(&press));
-                self.run(content, resources, inner, form_depth.saturating_add(1));
+                self.run(content, resources, inner);
                 self.compositing = saved.clone();
                 self.rewind_readback(rewind);
                 let black = self.list.split_off_commands(mark);
@@ -2118,14 +2116,14 @@ impl Interpreter<'_> {
                     // The halves diverged structurally, which no valid content stream
                     // does; the device's components and the standing report are the
                     // answer that was right before this construction and is still right.
-                    commands = self.rerun_on_device(content, resources, inner, form_depth, mark);
+                    commands = self.rerun_on_device(content, resources, inner, mark);
                 }
             } else {
                 // Nothing composites, §11.7.5.3's black generation is in force, or a group
                 // inside introduced a space of its own — the last recorded rather than
                 // reported, because a report about a space can only be made where the
                 // device's components are what is being composited on, which the rerun is.
-                commands = self.rerun_on_device(content, resources, inner, form_depth, mark);
+                commands = self.rerun_on_device(content, resources, inner, mark);
             }
         }
         if own_space {
@@ -2157,11 +2155,10 @@ impl Interpreter<'_> {
         content: &NestedContent,
         resources: &Dictionary,
         inner: &GraphicsState,
-        form_depth: usize,
         mark: usize,
     ) -> Vec<Command> {
         let rewind = self.readback_mark();
-        self.run(content, resources, inner, form_depth.saturating_add(1));
+        self.run(content, resources, inner);
         self.rewind_readback(rewind);
         self.list.split_off_commands(mark)
     }

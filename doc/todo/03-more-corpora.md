@@ -2354,6 +2354,14 @@ documents are its witnesses, 64 draws both, and the crawl's four and `MOZILLA`'s
 run at the candidate bound in the same sitting so that the claim about cycles is re-made over all
 twenty-seven rather than inherited.
 
+**And the fourteen were not cycles either, bar two** — the eight-hundred-and-seventy-fourth
+found the experiment above measured the instrument: a tiling cell was run at `MAX_FORM_DEPTH - 1`,
+so a cell holding two levels of forms reached the bound at 256 as surely as at 16. With the bound
+asked once in `Interpreter::run` and set to 64 from a stack measurement, twenty-five of the
+twenty-seven witnesses across the three corpora draw whole reporting nothing, and only
+`GHOSTSCRIPT-698226-0.pdf` and `GHOSTSCRIPT-700301-0.pdf` report it at 64 and at 256 alike. ADR
+0793, and `doc/traps/instruments-and-reports.md`'s trap 29.
+
 **Two things this section does not claim.** The survey line's 471 against 472 is one document
 this tree now draws that it did not in section 37, and it was not chased — the round's own
 change (ADR 0792, calibrated one-component blending spaces) is the likely cause and the survey

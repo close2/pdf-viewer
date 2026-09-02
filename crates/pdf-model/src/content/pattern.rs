@@ -21,7 +21,7 @@ use super::colour::{BlackPoint, Intent, convert};
 use super::report::Unsupported;
 use super::run::narrow;
 use super::transparency::{Painted, any_command, command_blends, group_alpha_is_shape};
-use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH, MAX_OPERATIONS};
+use super::{GraphicsState, Interpreter, MAX_OPERATIONS};
 
 /// The graphics state a shading pattern's *definition* is evaluated under (ISO 32000-2 §11.6.7).
 ///
@@ -595,12 +595,7 @@ impl Interpreter<'_> {
         // that showed it: one radial gradient, page-anchored, under a cell the size of the
         // page.
         let outer_base = std::mem::replace(&mut self.base, to_page);
-        self.run(
-            &tiling.content,
-            &tiling.resources,
-            &cell,
-            MAX_FORM_DEPTH - 1,
-        );
+        self.run(&tiling.content, &tiling.resources, &cell);
         self.base = outer_base;
         self.uncoloured = saved_uncoloured;
         box_clip
@@ -828,6 +823,21 @@ impl Interpreter<'_> {
                     column.saturating_sub(first_column),
                     row.saturating_sub(first_row),
                 );
+                // Asked **before** the copy, not after it, and that is the whole of what keeps a
+                // nested tiling bounded. A cell that holds a tiling holds every one of its
+                // copies, so a chain of patterns each filling with the next is 9ⁿ commands —
+                // the span takes a neighbour on each side even for a fill inside one cell — and
+                // a check after the copy stopped only *this* loop: the parent tiling then
+                // copied a list already past the budget eight more times, and its parent that,
+                // so `ContentStreamCycleType3insideType3.pdf` cost 25 GB and a minute the day
+                // the nesting bound was raised past its cycle (ADR 0793). Refusing the copy
+                // that would cross the budget bounds the whole list at the budget plus one cell.
+                if self.operations.saturating_add(cell.len()) > MAX_OPERATIONS {
+                    self.note(Unsupported::LimitReached {
+                        limit: "MAX_OPERATIONS",
+                    });
+                    return;
+                }
                 match cell.repeat(&mut self.list, by) {
                     Ok(copied) => {
                         self.operations = self.operations.saturating_add(copied);

@@ -23,7 +23,8 @@
     reason = "two consumers include this file by path and neither of them uses all of it"
 )]
 
-/// How deep the forms nest by default. `MAX_FORM_DEPTH` is 16, so this is well inside it.
+/// How deep the forms nest by default. `MAX_FORM_DEPTH` is 64 (ADR 0793), so this is well
+/// inside it.
 ///
 /// **Five rather than four since ADR 0640, and the extra level is not decoration.** A confined
 /// worker draws a page only where its *pixels* are the payload that crosses; a page whose marks

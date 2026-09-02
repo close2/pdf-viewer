@@ -369,7 +369,19 @@ const REFUSED_BEFORE_THE_SCENE: [&str; 2] = ["bug1721218_reduced.pdf", "issue180
 /// reports it upstream with the message the run prints rather than adding a construction here.
 /// A name leaving is an allocation, a tiling or a ceiling that changed upstream, which is
 /// exactly what [`REFUSED_BY_THE_DEVICE_AT_FOUR`]'s own note records happening twice.
-const REFUSED_BY_THE_DEVICE: [&str; 1] = ["issue1905.pdf"];
+///
+/// **`ContentStreamCycleType3insideType3.pdf` is the exception to "quorra's to move", and it is
+/// this tree's by design.** It is a cycle — a `d1` glyph whose pattern's cell shows the glyph —
+/// and until ADR 0793 it was refused at a nesting depth of sixteen the moment its cell ran,
+/// drawing nothing. The bound is sixty-four now and counts the cell, so the cycle is entered
+/// sixty-four deep, every level is nine copies of the one below it, and the page spends the whole
+/// of `MAX_OPERATIONS` on it: 3 995 603 commands, which quorra prices at *383577888
+/// scene-derived bytes, over the stated budget of 268435456*. The CPU backend draws the page and
+/// says so. Nothing here is an upstream ask — a budget that refuses four million commands of a
+/// cycle is doing what a budget is for — and what would take the name off is `doc/todo/49`'s
+/// standing item, a bound on the interpreter's *work* rather than on its count.
+const REFUSED_BY_THE_DEVICE: [&str; 2] =
+    ["ContentStreamCycleType3insideType3.pdf", "issue1905.pdf"];
 
 /// The same at [`MAGNIFIED`], which is the population the zoom path actually draws.
 ///
@@ -436,7 +448,12 @@ const REFUSED_BY_THE_DEVICE: [&str; 1] = ["issue1905.pdf"];
 /// is checked on the default lane only, because the two lanes put *different tiles* in the
 /// coverage sheet this refusal is against — the encoder chooses per command (quorra's ADR 0029)
 /// — so the sheet a frame commits is a property of the lane, and a lane's refusals are its own.
-const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 1] = ["issue1905.pdf"];
+///
+/// `ContentStreamCycleType3insideType3.pdf` is here for [`REFUSED_BY_THE_DEVICE`]'s reason and
+/// with the same message, measured on this lane in the eight-hundred-and-seventy-fourth session:
+/// the scene-byte budget is scale-free, and four million commands are over it at any scale.
+const REFUSED_BY_THE_DEVICE_AT_FOUR: [&str; 2] =
+    ["ContentStreamCycleType3insideType3.pdf", "issue1905.pdf"];
 
 /// The stage-free refusals and the device's, as one list sorted the way the run produces them.
 ///

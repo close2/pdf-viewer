@@ -89,7 +89,19 @@ can and cannot open a window on, and where the build lands.
   pipe and is read back). **32 GiB is the whole walk's, and four shards is the cap**: 61 GiB on the
   machine, 16 kept for the owner's desktop, about 12 for a parallel round's gates and build, and
   the rest for one walk. Two rounds do not walk at once, for the reason `doc/todo/02` §2 already
-  gives about a loaded machine. `--tree GiB` is the same idea for a `cargo build`, whose memory is
+  gives about a loaded machine.
+
+  **That paragraph's 32 GiB took the machine down on 2026-09-02, and four rules replace it.** The
+  eight-hundred-and-seventy-fourth round launched `tools/bounded.sh --data 32 -- safedocs survey`
+  in the background — the whole walk budget for one 24-thread process, no `--tree` — beside the
+  desktop, the Claude process, sccache and two other rounds; the user slice's memory peaked at
+  61.09 GB of 61.9, every shell call of two rounds stalled from 09:05, and at 09:08 the Claude
+  process aborted. `RLIMIT_DATA` is per process, and 32 GiB was sized for a machine running one
+  walk, not three rounds. The owner's rules, binding on every round: **(1) one corpus walk at a
+  time across all rounds; (2) `--data` never above 12 GiB for a round; (3) every bounded run also
+  carries `--tree` — 12 GiB for a walk, 8 for a build — and `tools/bounded.sh` defaults it to 12
+  where none is given, and refuses `--data` above 12 without it; (4) the sum of what a round has in
+  flight stays under 16 GiB.** The script's header carries the timeline. `--tree GiB` is the same idea for a `cargo build`, whose memory is
   spread over `rustc` processes no single limit sees. `systemd-run --user` is not available to
   this account and the agent's processes live in the owner's own session scope, which is why the
   bound is an rlimit and not a cgroup; the cgroup is the owner's to set and ADR 0798 says how.

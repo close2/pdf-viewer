@@ -190,6 +190,13 @@ fn nesting_the_graphics_state_inside_the_bound_still_draws() {
 /// and `6327929.pdf`. Nothing else stops this. The confined worker's address-space ceiling
 /// cannot, because unbounded recursion exhausts the *stack* and Rust's guard page turns that
 /// into an abort rather than into a report.
+///
+/// **The crawl's four are cycles; the bound is no longer argued from that.** The
+/// eight-hundred-and-seventy-first session found two finite nestings deeper than sixteen among
+/// the GHOSTSCRIPT tracker's sixteen witnesses, and ADR 0793 made the bound what it always was
+/// in fact — a bound on the stack, at 64, counting every one of §7.8.2's kinds. The tests
+/// below this one are that decision's: a cycle through a tiling cell, which the old bound
+/// never saw, and a chain the witnesses' depth, which it refused.
 #[test]
 fn a_form_that_draws_itself_is_refused_by_name() {
     let form = "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
@@ -429,5 +436,189 @@ fn a_soft_mask_carrying_an_explicit_mask_is_refused_by_name() {
     assert!(
         commands(&document) > 0,
         "and the base image is still drawn, opaque — Table 143's rule is about the mask"
+    );
+}
+
+/// A tiling pattern whose cell fills with the pattern itself is refused by name.
+///
+/// **Until ADR 0793 this was a stack overflow.** A cell was run at a fixed depth of one below
+/// `MAX_FORM_DEPTH` — a number chosen when patterns were first drawn so that a cell could hold
+/// one form — which meant a pattern reached from a pattern started counting again from there:
+/// nothing bounded the nesting of cells at all, and this seven-object file recursed until the
+/// guard page aborted the process (`fatal runtime error: stack overflow`, under
+/// `tools/bounded.sh`, on the eight-hundred-and-seventy-fourth session's first probe). The
+/// counter lives in `Interpreter::run` now, where every kind of nested stream passes.
+#[test]
+fn a_tiling_pattern_whose_cell_fills_with_itself_is_refused_by_name() {
+    let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
+                   /XStep 612 /YStep 792 /Resources << /Pattern << /P 5 0 R >> >> \
+                   /Length 35 >>\nstream\n/Pattern cs /P scn 0 0 612 792 re f\nendstream\nendobj\n";
+    let document = page(
+        "/Pattern cs /P scn 0 0 612 792 re f",
+        "<< /Pattern << /P 5 0 R >> >>",
+        pattern,
+    );
+    let reported = reported(&document);
+    assert!(
+        reported.contains("MAX_FORM_DEPTH"),
+        "a cell filling with its own pattern is a cycle and must be refused by name: {reported}"
+    );
+}
+
+/// A form filling with a pattern whose cell draws the form is refused by name.
+///
+/// The same hole from the form's side: the form counted one level, the cell reset the count,
+/// and the two alternated until the stack was gone. §7.8.2 names both as content streams and
+/// one counter now sees both.
+#[test]
+fn a_form_and_a_tiling_cell_that_reach_each_other_are_refused_by_name() {
+    let objects = "5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] \
+                   /Resources << /Pattern << /P 6 0 R >> >> /Length 35 >>\nstream\n\
+                   /Pattern cs /P scn 0 0 612 792 re f\nendstream\nendobj\n\
+                   6 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
+                   /XStep 612 /YStep 792 /Resources << /XObject << /F 5 0 R >> >> \
+                   /Length 5 >>\nstream\n/F Do\nendstream\nendobj\n";
+    let document = page("/F Do", "<< /XObject << /F 5 0 R >> >>", objects);
+    let reported = reported(&document);
+    assert!(
+        reported.contains("MAX_FORM_DEPTH"),
+        "a form and a cell reaching each other are a cycle and must be refused by name: \
+         {reported}"
+    );
+}
+
+/// A `d0` glyph description filling with a pattern whose cell shows the glyph is refused by
+/// name.
+///
+/// The corpus's `ContentStreamCycleType3insideType3.pdf` is this shape with a `d1` glyph, and
+/// it terminated only because §8.6.8 makes a `d1` description ignore the `scn` that selects
+/// the pattern — so the cycle was never entered and the hole never showed. A `d0` glyph keeps
+/// its colour operators, enters the cycle, and until ADR 0793 overflowed the stack.
+#[test]
+fn a_coloured_glyph_and_a_tiling_cell_that_reach_each_other_are_refused_by_name() {
+    let objects = "5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
+                   /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /sq 6 0 R >> \
+                   /Encoding << /Type /Encoding /Differences [97 /sq] >> \
+                   /FirstChar 97 /LastChar 97 /Widths [1000] \
+                   /Resources << /Pattern << /P 7 0 R >> >> >>\nendobj\n\
+                   6 0 obj\n<< /Length 45 >>\nstream\n\
+                   1000 0 d0\n/Pattern cs /P scn 0 0 750 750 re f\nendstream\nendobj\n\
+                   7 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
+                   /XStep 612 /YStep 792 /Resources << /Font << /T 5 0 R >> >> \
+                   /Length 30 >>\nstream\nBT /T 1000 Tf 0 0 Td (a) Tj ET\nendstream\nendobj\n";
+    let document = page(
+        "BT /T 100 Tf 10 10 Td (a) Tj ET",
+        "<< /Font << /T 5 0 R >> >>",
+        objects,
+    );
+    let reported = reported(&document);
+    assert!(
+        reported.contains("MAX_FORM_DEPTH"),
+        "a glyph and a cell reaching each other are a cycle and must be refused by name: \
+         {reported}"
+    );
+}
+
+/// A chain of `depth` form `XObject`s, each drawing the next and the last filling a square.
+///
+/// The shape of the two witnesses that reopened the bound: pdftk wraps a page's content in a
+/// form each time a stamp is applied, and Aspose.Pdf nests a boxed paragraph thirty-three to
+/// sixty-four deep (`doc/todo/03` section 39).
+fn chain_of_forms(depth: usize) -> Document {
+    let mut objects = String::new();
+    for level in 0..depth {
+        let number = level + 5;
+        let (resources, content) = if level + 1 == depth {
+            (String::new(), "0 0 0 rg 10 10 100 100 re f".to_owned())
+        } else {
+            (
+                format!(" /Resources << /XObject << /F {} 0 R >> >>", number + 1),
+                "/F Do".to_owned(),
+            )
+        };
+        let _ = write!(
+            objects,
+            "{number} 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 612 792]{resources} \
+             /Length {} >>\nstream\n{content}\nendstream\nendobj\n",
+            content.len()
+        );
+    }
+    page("/F Do", "<< /XObject << /F 5 0 R >> >>", &objects)
+}
+
+/// A chain of forms deeper than the old bound draws whole and reports nothing.
+///
+/// Forty is between the two witnesses' depths. Sixteen drew this as a blank page with a
+/// report, which is what `GHOSTSCRIPT-697655-0.pdf` and `GHOSTSCRIPT-695948-0.zip-0.pdf`
+/// looked like until ADR 0793.
+#[test]
+fn a_chain_of_forms_the_witnesses_deep_draws_whole() {
+    let document = chain_of_forms(40);
+    let reported = reported(&document);
+    assert_eq!(reported, "[]", "forty nested forms are inside the bound");
+    assert!(
+        commands(&document) > 0,
+        "the square at the bottom of forty nested forms is drawn"
+    );
+}
+
+/// The bound is sixty-four nested streams, and the sixty-fifth is refused by name.
+///
+/// The value is ADR 0793's: about 9 KiB of stack per level for the costliest kind under
+/// `[profile.release]`, so sixty-four levels stay well under half of the 2 MiB a default
+/// thread has. Both halves are asserted so that a change which moved the value in either
+/// direction is seen here rather than in a corpus.
+#[test]
+fn the_sixty_fourth_nested_form_draws_and_the_sixty_fifth_is_refused_by_name() {
+    let at_the_bound = chain_of_forms(64);
+    assert_eq!(
+        reported(&at_the_bound),
+        "[]",
+        "sixty-four nested forms draw"
+    );
+    assert!(
+        commands(&at_the_bound) > 0,
+        "and the square at the bottom is drawn"
+    );
+
+    let past_it = chain_of_forms(65);
+    let reported = reported(&past_it);
+    assert!(
+        reported.contains("MAX_FORM_DEPTH"),
+        "the sixty-fifth nested form is refused by name: {reported}"
+    );
+}
+
+/// A cycle through a tiling cell that marks the page at every level stays inside the operator
+/// budget in *commands*, not only in operators.
+///
+/// The corpus's `ContentStreamCycleType3insideType3.pdf` shape with the marks kept: each level
+/// paints a square and then fills the whole cell with the same pattern, so the span takes the
+/// neighbouring cells and every level is nine copies of the one below it. With the copy charged
+/// after it was made, the innermost tiling stopped at four million and every enclosing one
+/// copied that list nine times over — 25 GB and a minute for a document of a few kilobytes on the
+/// day the nesting bound was raised past sixteen (ADR 0793). The budget is asked before the copy
+/// now, so the list is at most the budget plus one cell, and this asserts the count rather than
+/// the time because a count is what the bound states.
+#[test]
+fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
+    let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
+                   /XStep 612 /YStep 792 /Resources << /Pattern << /P 5 0 R >> >> \
+                   /Length 59 >>\nstream\n\
+                   0 0 0 rg 0 0 10 10 re f /Pattern cs /P scn 0 0 612 792 re f\nendstream\nendobj\n";
+    let document = page(
+        "/Pattern cs /P scn 0 0 612 792 re f",
+        "<< /Pattern << /P 5 0 R >> >>",
+        pattern,
+    );
+    let reported = reported(&document);
+    assert!(
+        reported.contains("MAX_FORM_DEPTH") && reported.contains("MAX_OPERATIONS"),
+        "the cycle reaches the nesting bound and the copies reach the operator budget: {reported}"
+    );
+    let commands = commands(&document);
+    assert!(
+        commands <= 4_000_000 + 1_000,
+        "the list is bounded by the operator budget plus one cell, not by nine times it: {commands}"
     );
 }

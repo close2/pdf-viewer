@@ -124,25 +124,61 @@ const MAX_OPERATIONS: usize = 4_000_000;
 /// above any legitimate line while still bounding what one operator can allocate.
 const MAX_OPERANDS: usize = 8192;
 
-/// Deepest nesting of form `XObject`s.
+/// Deepest nesting of content streams — of every kind §7.8.2 names, not only forms.
 ///
-/// A form may draw another form, and a form that draws itself is a cycle. The
-/// specification forbids it; files do it anyway.
+/// A form may draw another form, a Type 3 glyph description may show another Type 3 glyph, a
+/// tiling cell may fill with another pattern, a soft mask's group may set another mask, and
+/// any of them may reach any other. Each is one more frame of [`Interpreter::run`] on the
+/// thread drawing the page, and a thread has a fixed stack — so this is a bound on **stack**,
+/// asked in `run` itself since the eight-hundred-and-seventy-fourth session, and a nested
+/// stream of any kind counts one against it. The name keeps the word the reports and the
+/// surveys have counted by since the bound existed; what it bounds is §7.8.2's whole list.
 ///
-/// **Every document that reaches this bound is such a cycle**, which the
-/// four-hundred-and-thirty-fifth session established by lifting it sixteenfold to 256 in a
-/// scratch build and running the four of the 65 944-document `SafeDocs` crawl that reported
-/// it: all four reached 256 as well. **The eight-hundred-and-fifty-seventh ran the same
-/// experiment over a population that did not exist then** — the Tika issue-tracker corpus's
-/// 6835-document Mozilla directory, where **seven** documents report it — and all seven
-/// reach 256 too. Two corpora, eleven documents, no legitimate one among them. So this is
-/// the one of the four bounds whose population is entirely the attack it
-/// exists for, and it is also the one nothing else could catch — unbounded recursion exhausts
-/// the *stack*, which the confined worker's address-space ceiling does not see and which Rust
-/// turns into an abort rather than into a report. ISO 32000-2 §C.2's Table C.1 lists
-/// `XObject`s beside `q`/`Q` in its *Nested objects* row and leaves the depth to the
-/// processor. ADR 0271.
-const MAX_FORM_DEPTH: usize = 16;
+/// **What one level costs is measured, not assumed** — `examples/form_depth_cost`, which
+/// bisects the smallest thread stack a chain of a given depth draws on and takes the difference
+/// of two depths, in a child process per probe because an overflow is an abort. Under
+/// `[profile.release]` a level is about **4 KiB** for a plain form, **5 KiB** for a
+/// transparency group, **9 KiB** for a Type 3 glyph description and **4 KiB** for a tiling
+/// cell, with about 30 KiB under the chain for the page and `interpret` itself; under the
+/// `[profile.dev]` the tests run in they are 3.4, 4.8 and 4.8 KiB — smaller, because
+/// `opt-level = 1` inlines less into `run_reader`'s frame — and ADR 0793 has both tables.
+/// Sixty-four levels of the costliest kind are therefore well under a mebibyte, which is
+/// under half of the 2 MiB a thread this tree never sizes gets by default — the viewer's
+/// render thread, the confined worker's rayon pool and a test harness thread alike — and the
+/// rest of that stack is what the rasteriser needs after `interpret` returns. That is the
+/// whole argument for the value: it is what the smallest stack that runs this code affords,
+/// with a margin.
+///
+/// **Sixteen was not that.** It was written as a cycle guard and argued from a population:
+/// every document of the `SafeDocs` crawl's 65 944 and the Tika Mozilla tracker's 6835 that
+/// reached it was a form drawing itself, because each still reached the bound lifted to 256
+/// (ADR 0271, the eight-hundred-and-fifty-seventh session). The eight-hundred-and-seventy-first
+/// found two finite nestings among sixteen GHOSTSCRIPT-tracker witnesses — pdftk's stamps at
+/// 17–32 forms deep and Aspose.Pdf's at 33–64, both drawn blank at sixteen — and the
+/// eight-hundred-and-seventy-fourth found that the experiment behind the rest had measured the
+/// instrument: a tiling cell was run at a fixed depth of *one below the bound*, so a cell
+/// holding two levels of forms reported the bound at sixteen, at 256 and at any value, and
+/// **twenty-five of the twenty-seven witnesses draw whole at 64 reporting nothing**. ISO
+/// 32000-2 forbids neither a deep nesting nor a cycle: §C.2's Table C.1 lists
+/// `XObject`s in its *Nested objects* row and says only that "PDF processors may implement
+/// recursive algorithms which may cause issues for excessively nested constructs", and
+/// §9.6.4 (Errata Collection 3, Issue #111) makes a glyph description that "refers to itself
+/// directly or indirectly" implementation-dependent. So a cycle and a deep nesting are the
+/// same thing to this bound — a chain of frames — and what tells them apart is only that a
+/// cycle reaches any bound at all. A cycle guard by *identity* was considered and declined,
+/// because a stream inside itself is not always infinite: what a form invokes depends on
+/// the state it inherits — the font in force, a fill that is a pattern whose cell draws the
+/// same form in a flat colour — so a re-entry refused by name would refuse finite files, and
+/// a report firing on it would fire on a condition no clause states. ADR 0793.
+///
+/// **And before that session the bound did not hold at all**, which the measuring example
+/// found on its first run: a tiling cell was run at a fixed depth of one below the bound, so
+/// a pattern whose cell fills with itself, a form filling with a pattern whose cell draws the
+/// form, or a `d0` glyph doing the same through a pattern, recursed until the stack aborted
+/// the process — three seven-object files, each a `fatal runtime error: stack overflow`.
+/// `tests/hostile_budgets.rs` holds all three. One counter in one place is the fix, and the
+/// reason the check is in `run` rather than at each call site.
+const MAX_FORM_DEPTH: usize = 64;
 
 /// Deepest nesting of soft-mask groups.
 ///
@@ -733,6 +769,7 @@ impl<'a> Interpreter<'a> {
             hidden: 0,
             glyph_depth: 0,
             soft_mask_depth: 0,
+            nesting: 0,
             uncoloured: false,
             inside_knockout: false,
             transparent_initial_backdrop: false,
@@ -826,6 +863,7 @@ impl<'a> Interpreter<'a> {
             hidden,
             glyph_depth,
             soft_mask_depth,
+            nesting,
             uncoloured,
             inside_knockout,
             transparent_initial_backdrop,
@@ -866,6 +904,7 @@ impl<'a> Interpreter<'a> {
             hidden: *hidden,
             glyph_depth: *glyph_depth,
             soft_mask_depth: *soft_mask_depth,
+            nesting: *nesting,
             uncoloured: *uncoloured,
             inside_knockout: *inside_knockout,
             transparent_initial_backdrop: *transparent_initial_backdrop,
@@ -913,6 +952,7 @@ impl<'a> Interpreter<'a> {
             hidden,
             glyph_depth,
             soft_mask_depth,
+            nesting,
             uncoloured,
             inside_knockout,
             transparent_initial_backdrop,
@@ -952,6 +992,7 @@ impl<'a> Interpreter<'a> {
         self.hidden = hidden;
         self.glyph_depth = glyph_depth;
         self.soft_mask_depth = soft_mask_depth;
+        self.nesting = nesting;
         self.uncoloured = uncoloured;
         self.inside_knockout = inside_knockout;
         self.transparent_initial_backdrop = transparent_initial_backdrop;
@@ -1045,6 +1086,8 @@ struct Checkpoint {
     glyph_depth: usize,
     /// See [`Interpreter::soft_mask_depth`].
     soft_mask_depth: usize,
+    /// See [`Interpreter::nesting`].
+    nesting: usize,
     /// See [`Interpreter::uncoloured`].
     uncoloured: bool,
     /// See [`Interpreter::inside_knockout`].
@@ -1178,7 +1221,7 @@ fn interpret_into(
     // is applied, once per target, by all three rasterisers.
     interpreter.list.set_content_clip(content_clip(page, base));
     let initial = GraphicsState::initial(base);
-    interpreter.run_reader(&mut reader, &page.resources, &initial, 0);
+    interpreter.run_reader(&mut reader, &page.resources, &initial);
     // §7.4.1's second half, for a part whose damage the pump met while the page was being
     // drawn: the bytes are on the page and the shortfall is in the report (ADR 0343). The
     // order the two loops find issues in does not matter — `note` collects them into a map
@@ -1737,6 +1780,14 @@ struct Interpreter<'a> {
     /// See [`MAX_SOFT_MASK_DEPTH`]: a mask's group may set a mask of its own, and a
     /// document decides how deep that goes.
     soft_mask_depth: usize,
+    /// How many nested content streams are being run, of any of §7.8.2's kinds.
+    ///
+    /// Zero while the page's own content runs; one inside a form, a glyph description, a
+    /// tiling cell, a soft mask's group or an annotation's appearance invoked from it; and so
+    /// on. [`Interpreter::run`] raises it on the way in, lowers it on the way out, and refuses
+    /// the run at [`MAX_FORM_DEPTH`] — one counter for every kind, because the thing it
+    /// bounds is one stack.
+    nesting: usize,
     /// Whether the content being run is a figure whose colour is supplied from outside it.
     ///
     /// ISO 32000-2 §8.6.8 names two such circumstances and gives them one rule: "in any glyph

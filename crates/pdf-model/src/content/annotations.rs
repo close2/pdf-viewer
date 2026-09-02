@@ -440,10 +440,10 @@ impl Interpreter<'_> {
             }
             crate::annotation::Content::Constructed { .. } => None,
         };
-        // Depth 1 rather than 0: an appearance is itself a form, so a chain of forms
+        // An appearance is itself a form, so it is one level of nesting and a chain of forms
         // inside it is bounded the same way one inside the page content is.
         let mark = self.list.command_count();
-        self.run(&data, &resources, &state, 1);
+        self.run(&data, &resources, &state);
         self.leave_stream_structure(outer_structure);
         self.stream = outer_stream;
         // §8.10.2's box clips the appearance, and where it cuts nothing it is taken back off.

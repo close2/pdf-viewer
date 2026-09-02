@@ -17,7 +17,7 @@ use super::font::Font;
 use super::pattern::{PatternPaint, Tiled};
 use super::report::{Placed, Unsupported};
 use super::transparency::{Painted, knockout_group_elements, outline_bounds};
-use super::{GraphicsState, Interpreter, MAX_FORM_DEPTH};
+use super::{GraphicsState, Interpreter};
 
 /// What a text object owns, as against what the graphics state does.
 ///
@@ -304,7 +304,6 @@ impl Interpreter<'_> {
         state: &GraphicsState,
         text: &mut TextObject,
         resources: &Dictionary,
-        form_depth: usize,
     ) {
         let Some(font) = state.text.font.clone() else {
             // Text we cannot draw is counted so the page says it is incomplete — unless the
@@ -583,14 +582,7 @@ impl Interpreter<'_> {
                         // added to the clipping path."
                         if fills || strokes {
                             self.glyphs = self.glyphs.saturating_add(1);
-                            self.draw_type3_glyph(
-                                type3,
-                                code.value(),
-                                state,
-                                transform,
-                                resources,
-                                form_depth,
-                            );
+                            self.draw_type3_glyph(type3, code.value(), state, transform, resources);
                             if painting.knockout_can_show {
                                 // A Type 3 glyph's ink is whatever its description painted,
                                 // which is not knowable without running it again.
@@ -1137,7 +1129,6 @@ impl Interpreter<'_> {
         state: &GraphicsState,
         text_rendering: Transform,
         resources: &Dictionary,
-        form_depth: usize,
     ) {
         // §9.6.4 b): "If the name is not present as a key in CharProcs, no glyph shall be
         // painted." Neither that nor a code the encoding does not name is a failure — both
@@ -1150,7 +1141,8 @@ impl Interpreter<'_> {
         // A glyph description may show text in another Type 3 font, which is a recursion a
         // file can build a cycle out of — `ContentStreamCycleType3insideType3.pdf` in the
         // corpus is exactly that. It shares the bound with form XObjects because it is the
-        // same danger and the same cost: a nested content stream.
+        // same danger and the same cost: a nested content stream, and `Interpreter::run` is
+        // where the bound is asked (`MAX_FORM_DEPTH`).
         //
         // §9.6.4 says so itself since Errata Collection 3 (Issue #111), which inserts a
         // paragraph below NOTE 1: "Implementations also need to avoid potential infinite
@@ -1159,12 +1151,6 @@ impl Interpreter<'_> {
         // principle 3's budgets rather than from the clause, and the clause now states it —
         // which leaves only *which* implementation-dependent result to produce, and this one
         // is reported rather than silent.
-        if form_depth >= MAX_FORM_DEPTH {
-            self.note(Unsupported::LimitReached {
-                limit: "MAX_FORM_DEPTH",
-            });
-            return;
-        }
 
         // Table 110's `/CharProcs`: each value "shall be a content stream that constructs and
         // paints the glyph for that character. The stream shall include as its first operator
@@ -1216,12 +1202,7 @@ impl Interpreter<'_> {
 
         let saved_uncoloured = self.uncoloured;
         self.glyph_depth = self.glyph_depth.saturating_add(1);
-        self.run(
-            &data,
-            font.resources(stated.as_ref(), resources),
-            &inner,
-            form_depth.saturating_add(1),
-        );
+        self.run(&data, font.resources(stated.as_ref(), resources), &inner);
         self.glyph_depth = self.glyph_depth.saturating_sub(1);
         // `d1` inside the description raised this; the description is over. Restoring rather
         // than clearing is what lets an uncoloured glyph invoke another one without the
