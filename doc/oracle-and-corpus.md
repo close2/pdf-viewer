@@ -624,6 +624,18 @@ outside on that measure and how many have a `Distance` at or under 1.0 — that 
 here is wrong* about a page the gate has just contradicted. The figures are the run's and are not
 written here.
 
+**And since the eight-hundred-and-seventy-third each row of that ranking says which group holds the
+page, and a line under it says how many of the pool no group holds** (ADR 0805). The round that
+added it was handed the pool's head with the instruction *take the worst-ranked page whose cause is
+not already diagnosed and held by name*, and the answer to that question was in twenty-three
+declarations spread over eleven thousand lines of `oracle.rs`; reconstructing it by hand — sixty
+pages against twelve non-empty groups — was the round's first hour, and the answer was that there
+is no such page. `CONTRADICTED_GROUPS` is the table both the ratchet and the ranking read, so a
+group added to one is added to the other, and `every_contradicted_group_is_in_the_table` reads
+the file's own declarations against it. The line under the list is the population ADR 0349 found
+outside every diagnosis, counted every run: an *incomplete* contradicted page is outside the
+ratchet by construction, and until this line nothing said whether one had arrived unheld.
+
 **And since the seven-hundred-and-eightieth it says *whose agreement* that population rests on**
 (ADR 0717): under the differing-fraction count, how many of those pages are convicted by `poppler`
 and `mupdf` alone — the one voting pair that hints its glyphs through a single `libfreetype.so.6`,

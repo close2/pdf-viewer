@@ -1401,3 +1401,43 @@ it had been for four sessions: 5.44, and the picture was a stamp anybody would h
 distinction the section above draws.
 `jp2k-resetprob.pdf`, `S2.pdf` and `issue5475.pdf` left it in the two-hundredth, all three
 through `tests/jpeg2000.rs`. ADR 0161.
+
+## The contradicted list has no next name either — read whole in the eight-hundred-and-seventy-third
+
+**The question was *take the worst-ranked contradicted page whose cause is not already diagnosed
+and held by name*, and the answer is that there is none** (ADR 0805). The oracle in a fresh
+worktree, every reference re-rendered by today's binaries — the cache hit rate the gate printed was
+0.1%, which is the control that none of these verdicts is a stale panel's — reports the pool at
+sixty, all sixty held by a `CONTRADICTED_*` group and the ratchet green. The instrument outside the
+gate whose question this is says the same thing: `unpriced` finds every failing bound on every one
+of the sixty named by the note that holds its page, and no contradicted page outside every page-list
+note. `quoted` and `overtaken`, run over the same log, name ten and twelve `CONTRADICTED_*` notes
+respectively — and both say on their last line that a hit is a reading list and not a verdict, so
+neither answers whether a page is held. The gate itself now prints, beside each row of the
+by-the-bound ranking, which group holds the page, and under the ten rows how many of the pool no
+group holds — the hour this round spent reconstructing that by hand is why.
+
+**The head, opened rather than trusted, and the notes held.** The by-the-bound ranking's first seven
+are three groups: `xobject-image.pdf` (a file that contradicts itself, our choice documented and
+reported), the three `bitmap-*` pages of `CONTRADICTED_SHARED_JBIG2_DECODER`, and three of
+`CONTRADICTED_DEVICE_CMYK_CONVERSION`'s five. The side-by-sides say what the notes say: on the
+halftone composite ours and `hayro` draw the family's one drawing while both Artifex programs draw
+`jbig2dec`'s garbled halftone region and `poppler` a stray bar of its own; on the CMYK shadings ours
+and `poppler` are §10.4.2.5's arithmetic and the three that share a SWOP characterisation are
+desaturated together, which ADR 0773 priced by taking the profile away. Below them are the three
+link borders (a reference gap and a printer's Print flag), one substituted symbolic face with a
+closed form, one page where the references space glyphs by a width the file does not state, and
+then the differing-fraction population `doc/todo/12` is about.
+
+**So the next page is not on this list, and the rule for choosing one from a fully held pool is
+the line the gate prints: the highest row whose note names a departure of *ours* rather than a
+reference's.** That row is `issue4436r.pdf` at 1.16× on the differing fraction, and its departure
+is §10.7.4's own departure (1) — an image's edge drawn at its coverage where the clause's image
+paragraph paints only the pixels whose centres are inside. It was read against the clause and
+against `doc/todo/11` §5 and *declined* in this round, with the reasoning on §10.7.4's ledger row:
+an aliased image edge beside anti-aliased everything else is a change to a priced decision, not a
+fix, and it moves the page's verdict nowhere. Below it the pool is `CONTRADICTED_GLYPH_EDGES`'s
+twenty-seven and the bound they fail is a bound a voting reference cannot meet either. **A round
+sent to the contradicted list for a defect should now be sent somewhere else** — the crawl's fixed-
+document ranking in `doc/todo/03`, or this file's own three rankings, whose heads are held too.
+
