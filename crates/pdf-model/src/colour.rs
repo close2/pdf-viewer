@@ -1282,10 +1282,18 @@ impl ColourSpace {
     ///
     /// [`crate::icc::Profile::identity`] is what recognises it.
     ///
-    /// Everything else goes to RGB by this crate's one route and then through [`rgb_to_ink`],
-    /// so a `Lab` or a *different* `ICCBased` colour reaches ink through sRGB — colorimetric
-    /// where sRGB holds it, and clipped where it does not, which is the same gamut question
-    /// one space earlier.
+    /// Everything else depends on which press it is. **A press sampled from a bi-directional
+    /// profile converts in through the profile's own `B2A`** (ADR 0796) — §8.6.5.5's "from
+    /// CIE" information, which that clause requires of a blending-space profile precisely
+    /// because "the group colour space shall be used as both the destination for objects being
+    /// painted within the group and the source for the group's results" — and a colour reaches
+    /// it as an XYZ: a CIE-based colour's own ([`Self::cie_xyz_at`], §10.3.1's conversion
+    /// between two CIE-based spaces with no screen in the way) and a device colour's through
+    /// the sRGB this processor takes device colours to be (§10.3.2, [`srgb_to_xyz_d50`]).
+    /// **Every other press** — the assumed inks, and a profile without the table — takes this
+    /// crate's one route to RGB and then [`rgb_to_ink`], so a `Lab` or a *different*
+    /// `ICCBased` colour reaches ink through sRGB: colorimetric where sRGB holds it, and
+    /// clipped where it does not, which is the same gamut question one space earlier.
     #[must_use]
     pub fn to_cmyk(&self, values: &[f32], black_point: bool, press: &Press) -> [f32; 4] {
         self.to_cmyk_at(values, 0, black_point, press)
@@ -1330,7 +1338,81 @@ impl ColourSpace {
             Self::Pattern { base } => base.as_ref().map_or([0.0, 0.0, 0.0, 1.0], |base| {
                 base.to_cmyk_at(values, depth.saturating_add(1), black_point, press)
             }),
-            _ => rgb_to_ink(press, self.to_rgb_at(values, depth, black_point)),
+            // A CIE-based colour goes into a profile's press from its own XYZ (§10.3.1), and
+            // every other colour, and every press without a `B2A`, through this crate's one
+            // RGB route — `xyz_to_ink` and `rgb_to_ink` say which is which.
+            _ => match self.cie_xyz_at(values, depth, black_point) {
+                Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz),
+                _ => rgb_to_ink(press, self.to_rgb_at(values, depth, black_point)),
+            },
+        }
+    }
+
+    /// §11.5.3's luminosity of a colour in a CIE-based space, or `None` for any other.
+    ///
+    /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as
+    /// > the luminosity. This produces a colorimetrically correct luminosity.
+    ///
+    /// The `Y` of [`Self::cie_xyz_at`], clamped to the unit a mask value can hold — a
+    /// `CalGray` component decoded by its gamma times a white point whose `Y` §8.6.5.2 makes
+    /// 1.0, a profile's `Y` at D50, which is also 1.0 at white.
+    #[must_use]
+    pub fn cie_luminance(&self, values: &[f32]) -> Option<f32> {
+        self.cie_xyz_at(values, 0, true).map(|xyz| channel(xyz[1]))
+    }
+
+    /// The D50 XYZ a colour in a CIE-based space states, or `None` for a device or special
+    /// space, which states no XYZ of its own.
+    ///
+    /// The same arithmetic [`Self::to_rgb_at`] runs for the four CIE-based families up to the
+    /// one matrix that turns an XYZ into a pixel — `CalGray` and `CalRGB` adapted from their own
+    /// white point onto D50 as [`cie_to_srgb`] does, `Lab` on the D50 white §8.6.5.4 gives it,
+    /// a profile through its `A2B` with §8.6.5.9's compensation as asked — so that a colour
+    /// converted *between* two CIE-based spaces (§10.3.1) takes exactly the route it would have
+    /// taken to the screen, minus the screen.
+    fn cie_xyz_at(&self, values: &[f32], depth: usize, black_point: bool) -> Option<[f32; 3]> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
+        match self {
+            Self::Icc { profile } => Some(profile.to_xyz_with(values, black_point)),
+            Self::Lab { range } => Some(lab_xyz(at(0), at(1), at(2), *range)),
+            Self::CalGray {
+                white,
+                black: _,
+                gamma,
+            } => {
+                let decoded = channel(at(0)).powf(*gamma);
+                let xyz = [white[0] * decoded, white[1] * decoded, white[2] * decoded];
+                Some(adapt(xyz, *white, D50))
+            }
+            Self::CalRgb {
+                white,
+                black: _,
+                gamma,
+                matrix,
+            } => {
+                let decoded = [
+                    channel(at(0)).powf(gamma[0]),
+                    channel(at(1)).powf(gamma[1]),
+                    channel(at(2)).powf(gamma[2]),
+                ];
+                Some(adapt(cal_rgb_xyz(decoded, matrix), *white, D50))
+            }
+            Self::Indexed { base, .. } => {
+                base.cie_xyz_at(&self.entry_of(values), depth.saturating_add(1), black_point)
+            }
+            Self::Separation {
+                alternate,
+                transform,
+                ..
+            } => alternate.cie_xyz_at(
+                &transform.eval(values),
+                depth.saturating_add(1),
+                black_point,
+            ),
+            _ => None,
         }
     }
 
@@ -1377,17 +1459,7 @@ impl ColourSpace {
                     channel(at(1)).powf(gamma[1]),
                     channel(at(2)).powf(gamma[2]),
                 ];
-                let mut xyz = [0.0f32; 3];
-                for (column, input) in decoded.iter().enumerate() {
-                    for (axis, output) in xyz.iter_mut().enumerate() {
-                        let entry = matrix
-                            .get(column.saturating_mul(3).saturating_add(axis))
-                            .copied()
-                            .unwrap_or(0.0);
-                        *output += entry * input;
-                    }
-                }
-                cie_to_srgb(xyz, *white)
+                cie_to_srgb(cal_rgb_xyz(decoded, matrix), *white)
             }
             Self::Indexed { base, .. } => {
                 base.to_rgb_at(&self.entry_of(values), depth.saturating_add(1), black_point)
@@ -1652,13 +1724,24 @@ pub fn assumed_press() -> Arc<Press> {
 /// *into* it, so a press is two conversions that have to be inverses of each other — ADR 0263
 /// is where that became the rule, and this is that rule with the press no longer assumed.
 /// [`Press::space`] is the conversion out, sampled on a grid because that is what a backend
-/// can be handed; [`Press::table`] is the conversion in, searched against the same grid.
+/// can be handed; the conversion in is [`Press::profile`]'s own `B2A` where the profile
+/// carries one (ADR 0796), and otherwise [`Press::table`], searched against the same grid.
 #[derive(Debug)]
 pub struct Press {
     /// §11.4.7's conversion out of the space, as the grid a backend interpolates.
     space: pdf_render::BlendingSpace,
     /// Which press this is: the profile it was sampled from, or the assumed inks.
     identity: PressIdentity,
+    /// The profile, where it states the conversion *in* itself.
+    ///
+    /// §8.6.5.5 requires a profile used as a blending colour space to carry "from CIE"
+    /// information "because the group colour space shall be used as both the destination for
+    /// objects being painted within the group and the source for the group's results", and
+    /// this is that destination route: [`crate::icc::Profile::to_device`]. Held only for a
+    /// profile [`crate::icc::Profile::is_bidirectional`] answers for, so that a press without
+    /// one — the assumed inks, or a profile a file states in breach of that clause — is the
+    /// right inverse it always was.
+    profile: Option<Box<crate::icc::Profile>>,
     /// [`search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
     table: OnceLock<Vec<[f32; 4]>>,
 }
@@ -1682,8 +1765,18 @@ impl Press {
             space: pdf_render::BlendingSpace::new(2, corners.into())
                 .unwrap_or_else(|| unreachable!("sixteen samples is a grid of side two")),
             identity: PressIdentity::Assumed,
+            profile: None,
             table: OnceLock::new(),
         }
+    }
+
+    /// Whether the conversion into this press is the profile's own `B2A` table.
+    ///
+    /// `false` for the assumed inks and for a profile without one, whose conversion in is a
+    /// right inverse of the conversion out ([`rgb_to_ink`]).
+    #[must_use]
+    pub fn converts_in_by_profile(&self) -> bool {
+        self.profile.is_some()
     }
 
     /// The conversion out of this press's four components, as the table a backend is handed.
@@ -1709,7 +1802,7 @@ impl Press {
 /// intent, is naming a press whose four components are not this tree's assumed inks. §11.3.4
 /// composites per component, so compositing in ours is a different picture.
 ///
-/// # Why sampling the profile is the whole of it, and no `B2A` is needed
+/// # Why sampling the profile is the conversion out, and `B2A` is the conversion in
 ///
 /// The conversion **out** is the profile's own `A2B`, which this crate has evaluated since ADR
 /// 0009, sampled here onto a grid because a backend interpolates a table rather than running a
@@ -1723,11 +1816,21 @@ impl Press {
 ///
 /// A screen is what this processor has, so the optional clause is the one in force.
 ///
-/// The conversion **in** is then the right inverse of that grid — the same construction ADR
-/// 0263 built for the assumed inks, with the press no longer assumed — which is why a `B2A`
-/// table is not read even where §8.6.5.5 requires the file to carry one. Reading both would
-/// put two separately-built maps on one page, and a page drawn by two colour models is the
-/// defect ADR 0262 photographed.
+/// The conversion **in** is the profile's `B2A` where it carries one, since ADR 0796, and
+/// §8.6.5.5 is the clause that says so — a blending-space profile "shall have both 'to CIE'
+/// ( AToB ) and 'from CIE' ( BToA ) information. This is because the group colour space shall
+/// be used as both the destination for objects being painted within the group and the source
+/// for the group's results." §10.3.1 hands a CIE-to-CIE conversion to the ICC specification
+/// and §10.4.2.1 ranks that route above §10.4.2.4's classic one for an ICC-enabled processor,
+/// so the profile's own table is the standard's answer and not a choice. **This paragraph used
+/// to argue the opposite** — that a `B2A` was not read "even where §8.6.5.5 requires the file
+/// to carry one", because two separately-built maps on one page would be two colour models.
+/// They are two maps, and the clause makes them the file's two: what an opaque mark loses on
+/// the round trip through them is the profile's own residue, which is the picture the producer
+/// specified rather than one this tree tuned to come back exactly. A profile *without* one
+/// keeps the right inverse of its grid — the construction ADR 0263 built for the assumed inks,
+/// with the press no longer assumed — which is the file's own breach of the clause drawn as
+/// well as it can be.
 ///
 /// A profile this crate cannot parse never reaches here, and §8.6.5.5 answers that case
 /// itself:
@@ -1761,6 +1864,11 @@ pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<Arc<Press>> {
     let sampled = Arc::new(Press {
         space,
         identity,
+        // Cloned rather than borrowed because a press outlives the colour space that named it
+        // — it is cached across interpretations — and held only where it will be asked.
+        profile: profile
+            .is_bidirectional()
+            .then(|| Box::new(profile.clone())),
         table: OnceLock::new(),
     });
     let mut held = SAMPLED.lock().ok()?;
@@ -2093,7 +2201,46 @@ fn build_ink_table(space: &pdf_render::BlendingSpace) -> Vec<[f32; 4]> {
 /// is that question answered from nothing; this is it answered from [`ink_table`] and landed
 /// by [`polish_four_inks`], which is the same answer 998 times in 1000 and **16 times faster**
 /// on the colours a document is made of.
+///
+/// # Where the press has a profile with a `B2A`, the profile answers instead
+///
+/// A press sampled from a bi-directional profile converts in through [`xyz_to_ink`]: the
+/// colour's D50 XYZ — for a device colour, the sRGB this processor takes device colours to be
+/// (§10.3.2, ADR 0009), inverted by [`srgb_to_xyz_d50`] — through the profile's own "from
+/// CIE" table. That is §10.3's branch as the standard states it rather than as this tree
+/// stood in for it, and [`press_for_profile`] says why the search is the fallback and not the
+/// rule.
 fn rgb_to_ink(press: &Press, colour: Color) -> [f32; 4] {
+    if press.profile.is_some() {
+        return xyz_to_ink(press, srgb_to_xyz_d50(colour));
+    }
+    let target = [channel(colour.r), channel(colour.g), channel(colour.b)];
+    polish_four_inks(&press.space, target, ink_lookup(press, target))
+}
+
+/// The separation of a D50 XYZ, through the press's profile where it has a `B2A` and through
+/// [`rgb_to_ink`]'s search on the sRGB it becomes where it has not.
+///
+/// The direct route is what a colour already stated in CIE terms wants — a `Lab`, a `CalRGB`,
+/// another profile's colour — because §10.3.1 makes the conversion between two CIE-based
+/// spaces the ICC specification's, from connection space to connection space, and sRGB's
+/// gamut has no business standing between them. Black point compensation is undone by the
+/// profile's own reading of it: [`sample_press`] takes the conversion out with it on, so the
+/// conversion in is asked with it on too, and the two stay inverses whichever way it is set.
+fn xyz_to_ink(press: &Press, xyz: [f32; 3]) -> [f32; 4] {
+    if let Some(inks) = press
+        .profile
+        .as_deref()
+        .and_then(|profile| profile.to_device(xyz, true))
+    {
+        return [
+            channel(inks[0]),
+            channel(inks[1]),
+            channel(inks[2]),
+            channel(inks[3]),
+        ];
+    }
+    let colour = xyz_d50_to_srgb(xyz);
     let target = [channel(colour.r), channel(colour.g), channel(colour.b)];
     polish_four_inks(&press.space, target, ink_lookup(press, target))
 }
@@ -2779,12 +2926,19 @@ pub(crate) fn xyz_d50_to_srgb(xyz: [f32; 3]) -> Color {
 }
 
 /// Converts CIE L*a*b* to sRGB through XYZ, using the D50 white point PDF specifies.
+fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
+    // PDF's default white point for Lab is D50, which is already the connection space's,
+    // so no adaptation stands between this and the matrix.
+    xyz_d50_to_srgb(lab_xyz(lightness, a, b, range))
+}
+
+/// The D50 XYZ of a `Lab` colour, with §8.6.5.4's ranges applied.
 #[expect(
     clippy::many_single_char_names,
     reason = "L*, a*, b*, X, Y and Z are the colour space's own names for its axes; \
               renaming them would make this harder to check against the formulae"
 )]
-fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
+fn lab_xyz(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> [f32; 3] {
     let bound = |value: f32, low: f32, high: f32| {
         if value.is_nan() {
             low
@@ -2800,9 +2954,64 @@ fn lab(lightness: f32, a: f32, b: f32, range: [f32; 4]) -> Color {
     let l = m + a / 500.0;
     let n = m - b / 200.0;
 
-    // PDF's default white point for Lab is D50, which is already the connection space's,
-    // so no adaptation stands between this and the matrix.
-    xyz_d50_to_srgb([D50[0] * expand(l), D50[1] * expand(m), D50[2] * expand(n)])
+    [D50[0] * expand(l), D50[1] * expand(m), D50[2] * expand(n)]
+}
+
+/// The L*a*b* companding function, the inverse of [`expand`].
+fn compand(value: f32) -> f32 {
+    if value >= 216.0 / 24389.0 {
+        value.cbrt()
+    } else {
+        841.0 / 108.0 * value + 4.0 / 29.0
+    }
+}
+
+/// Converts a D50 XYZ to CIE L*a*b*: [`lab_to_xyz`] run backwards, for a profile whose
+/// connection space is `Lab` and whose "from CIE" table therefore reads one.
+///
+/// `a_lab_round_trips_through_xyz` holds the two together.
+pub(crate) fn xyz_to_lab(xyz: [f32; 3]) -> [f32; 3] {
+    let fx = compand(xyz[0] / D50[0]);
+    let fy = compand(xyz[1] / D50[1]);
+    let fz = compand(xyz[2] / D50[2]);
+    [
+        116.0f32.mul_add(fy, -16.0),
+        500.0 * (fx - fy),
+        200.0 * (fy - fz),
+    ]
+}
+
+/// The XYZ a `CalRGB` colour's decoded components state: §8.6.5.3's `Matrix`, one column per
+/// component, applied to the three gamma-decoded values.
+fn cal_rgb_xyz(decoded: [f32; 3], matrix: &[f32; 9]) -> [f32; 3] {
+    let mut xyz = [0.0f32; 3];
+    for (column, input) in decoded.iter().enumerate() {
+        for (axis, output) in xyz.iter_mut().enumerate() {
+            let entry = matrix
+                .get(column.saturating_mul(3).saturating_add(axis))
+                .copied()
+                .unwrap_or(0.0);
+            *output += entry * input;
+        }
+    }
+    xyz
+}
+
+/// Converts an sRGB colour to D50 XYZ: [`xyz_d50_to_srgb`] run backwards.
+///
+/// The inverse of the folded matrix, to the precision it was printed at, and the inverse of
+/// the transfer function; `srgb_to_xyz_is_the_inverse_of_xyz_to_srgb` holds the pair to a
+/// tenth of a level. This is what a device colour states when it is taken *into* a CIE-based
+/// space — §10.3.2 has the processor establish a CIE-based definition for its device spaces,
+/// and this processor's is sRGB (ADR 0009) — and it is the one route by which such a colour
+/// reaches a profile's `B2A`.
+pub(crate) fn srgb_to_xyz_d50(colour: Color) -> [f32; 3] {
+    let (r, g, b) = (degamma(colour.r), degamma(colour.g), degamma(colour.b));
+    [
+        0.436_035_2 * r + 0.385_068_1 * g + 0.143_066_6 * b,
+        0.222_481_3 * r + 0.716_877_6 * g + 0.060_610_2 * b,
+        0.013_927 * r + 0.097_091_3 * g + 0.714_099_4 * b,
+    ]
 }
 
 /// Reads the colourant names of a `Separation` or `DeviceN` space.
@@ -2871,6 +3080,16 @@ fn gamma(value: f32) -> f32 {
     }
 }
 
+/// The inverse of the sRGB transfer function: IEC 61966-2-1's decoding of an encoded channel.
+fn degamma(value: f32) -> f32 {
+    let value = channel(value);
+    if value <= 0.040_45 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 fn narrow(value: f64) -> f32 {
     #[expect(
         clippy::cast_possible_truncation,
@@ -2897,6 +3116,105 @@ mod tests {
     /// The assumed press's grid, for the tests that search against it directly.
     fn assumed() -> pdf_render::BlendingSpace {
         super::assumed_press().blending_space()
+    }
+
+    /// [`super::xyz_to_lab`] is [`super::lab_to_xyz`] run backwards.
+    #[test]
+    fn a_lab_round_trips_through_xyz() {
+        for lightness in [0.0f32, 5.0, 50.0, 100.0] {
+            for a in [-100.0f32, 0.0, 60.0] {
+                for b in [-80.0f32, 0.0, 90.0] {
+                    let back = super::xyz_to_lab(super::lab_to_xyz(lightness, a, b));
+                    for (got, want) in back.iter().zip([lightness, a, b]) {
+                        assert!(
+                            (got - want).abs() < 0.05,
+                            "L*a*b* ({lightness}, {a}, {b}) came back as {back:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// [`super::srgb_to_xyz_d50`] is [`super::xyz_d50_to_srgb`] run backwards, to a tenth of
+    /// a level over the cube, and D50 white is the display's white.
+    #[test]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a grid index below 125, exact in f32"
+    )]
+    fn srgb_to_xyz_is_the_inverse_of_xyz_to_srgb() {
+        let white = super::xyz_d50_to_srgb(super::D50);
+        for channel in [white.r, white.g, white.b] {
+            assert!((channel - 1.0).abs() < 1e-3, "D50 is white: {white:?}");
+        }
+        for step in 0..125usize {
+            let colour = Color::rgb(
+                (step % 5) as f32 / 4.0,
+                (step / 5 % 5) as f32 / 4.0,
+                (step / 25) as f32 / 4.0,
+            );
+            let back = super::xyz_d50_to_srgb(super::srgb_to_xyz_d50(colour));
+            for (got, want) in [back.r, back.g, back.b]
+                .iter()
+                .zip([colour.r, colour.g, colour.b])
+            {
+                assert!(
+                    (got - want).abs() * 255.0 < 0.1,
+                    "{colour:?} came back as {back:?}"
+                );
+            }
+        }
+    }
+
+    /// A press sampled from a bi-directional profile converts *in* through the profile's own
+    /// "from CIE" table (§8.6.5.5, §10.3.1; ADR 0796), and one without keeps the search.
+    ///
+    /// The expected inks are the profile's own answer to the XYZ a colour states — for a
+    /// device grey, sRGB's decoding of it (IEC 61966-2-1) through this module's one matrix;
+    /// for a `Lab` colour, §8.6.5.4's XYZ directly, with no screen in between.
+    #[test]
+    fn a_bidirectional_profiles_press_converts_in_through_its_own_table() {
+        let profile = crate::icc::Profile::parse(&crate::icc::fixtures::two_way_cmyk_profile())
+            .expect("the fixture parses");
+        let press = super::press_for_profile(&profile).expect("a press");
+        assert!(press.converts_in_by_profile());
+
+        let grey = ColourSpace::Rgb.to_cmyk(&[0.5, 0.5, 0.5], true, &press);
+        let want = profile
+            .to_device(super::srgb_to_xyz_d50(Color::grey(0.5)), true)
+            .expect("a from-CIE table");
+        assert_eq!(grey, want, "a device colour goes in through sRGB's XYZ");
+        // And that answer is the table's rule on the stretched XYZ — the fixture's black is
+        // a tenth of white, so the compensation undone puts sRGB's 0.2140 at
+        // `0.9 × 0.2140 + 0.1` of D50 — rather than anything the search would find.
+        let level = 0.9f32.mul_add(0.214_04, 0.1);
+        let stated = 1.0 - 0.964_2 * level * 32768.0 / 65535.0;
+        assert!(
+            (grey[0] - stated).abs() < 1e-3,
+            "cyan is the table's own arithmetic: {} against {stated}",
+            grey[0]
+        );
+
+        let lab = ColourSpace::Lab {
+            range: [-100.0, 100.0, -100.0, 100.0],
+        };
+        let from_lab = lab.to_cmyk(&[50.0, 20.0, -30.0], true, &press);
+        let want = profile
+            .to_device(super::lab_to_xyz(50.0, 20.0, -30.0), true)
+            .expect("a from-CIE table");
+        assert_eq!(
+            from_lab, want,
+            "a CIE-based colour goes in from its own XYZ"
+        );
+
+        let one_way = crate::icc::Profile::parse(&crate::icc::fixtures::one_way_cmyk_profile())
+            .expect("the fixture parses");
+        let press = super::press_for_profile(&one_way).expect("a press");
+        assert!(
+            !press.converts_in_by_profile(),
+            "a profile without the table keeps the right inverse of its grid"
+        );
     }
 
     /// A space's initial colour is the one ISO 32000-2 §8.6.8 gives it, which is often not

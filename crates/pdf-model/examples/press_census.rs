@@ -195,6 +195,10 @@ fn main() {
     let mut rows: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut evaluable: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut with_b2a: BTreeMap<&'static str, usize> = BTreeMap::new();
+    // Carrying a `B2A` tag is a fact about the bytes; *evaluating* one is what ADR 0796 made
+    // `pdf_model::icc` do, and the two counts are printed side by side so that a profile whose
+    // table is in an encoding this tree does not read is a number rather than a silence.
+    let mut evaluable_b2a: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut spaces: BTreeMap<String, usize> = BTreeMap::new();
     let mut classes: BTreeMap<String, usize> = BTreeMap::new();
     let mut lines: Vec<String> = Vec::new();
@@ -232,6 +236,10 @@ fn main() {
             && parsed.channels() == 4
         {
             presses.insert(parsed.identity());
+            if parsed.is_bidirectional() {
+                let counter = evaluable_b2a.entry(press.row()).or_default();
+                *counter = counter.saturating_add(1);
+            }
         }
         if let Some(facts) = &profile {
             if facts.evaluable {
@@ -282,7 +290,10 @@ fn main() {
     for (row, count) in &rows {
         let good = evaluable.get(row).copied().unwrap_or(0);
         let b2a = with_b2a.get(row).copied().unwrap_or(0);
-        println!("  {count:>6}  {row}  (evaluable A2B {good}, carrying B2A {b2a})");
+        let both = evaluable_b2a.get(row).copied().unwrap_or(0);
+        println!(
+            "  {count:>6}  {row}  (evaluable A2B {good}, carrying B2A {b2a}, evaluable B2A {both})"
+        );
     }
     if sampling {
         let worst = |which: fn(&(String, f32, f32, f32)) -> f32| {

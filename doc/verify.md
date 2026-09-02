@@ -259,8 +259,10 @@ cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
   # colour, which is what turned a report's condition into the departure itself (ADR 0217)
 cargo run --release -p pdf-model --example press_census -- <dir>/*.pdf    # one process per archive
-  # which press §11.4.7 gives a page and whether `crate::icc` can evaluate the profile behind it.
-  # It shares nothing between documents, so its answer is a function of the files and two runs are
+  # which press §11.4.7 gives a page and whether `crate::icc` can evaluate the profile behind it —
+  # its `A2B` out, and since ADR 0796 the `B2A` §8.6.5.5 requires of a blending-space profile,
+  # counted as carried and as evaluated, side by side, so that an encoding this tree does not
+  # read is a number rather than a silence. It shares nothing between documents, so its answer is a function of the files and two runs are
   # byte-identical — which is what `tools/safedocs survey` could not say while the press table was
   # a process-wide budget (ADR 0416). `--sample` measures what a grid of a given side departs from
   # evaluating the profile, which is what `PRESS_SIDE` is answerable to (ADR 0272)
