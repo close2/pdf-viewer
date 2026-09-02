@@ -151,10 +151,21 @@ pub fn read(document: &Document, page: &Dictionary) -> Option<Result<Thumbnail, 
             // A thumbnail is a picture on its own, never inside a transparency group.
             &crate::colour::Conversion::device(),
         )
-        .map(|image| Thumbnail {
-            image,
-            permitted_colour_space,
-            permitted_subtype,
+        .and_then(|crate::image::Flattened { image, shortfall }| {
+            // A thumbnail whose filter stopped on damaged data is refused with the filter's
+            // sentence, where the page's own image would be drawn as far as it reached and
+            // reported beside (ADR 0794): a miniature is not the page, this type crosses two
+            // wire protocols that carry no such sentence, and a report with no channel to a
+            // host is a report nobody reads. The cost is a preview a host could have shown in
+            // part; the residue is recorded in that ADR.
+            match shortfall {
+                Some(detail) => Err(ImageError::Malformed { detail }),
+                None => Ok(Thumbnail {
+                    image,
+                    permitted_colour_space,
+                    permitted_subtype,
+                }),
+            }
         }),
     )
 }

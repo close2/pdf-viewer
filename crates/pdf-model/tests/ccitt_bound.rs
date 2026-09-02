@@ -57,12 +57,28 @@ fn page_with_ccitt_image(parms: &str, data: &[u8]) -> Vec<u8> {
     page_with_ccitt_image_of_width(8, parms, data)
 }
 
+/// The same page over a mid-grey fill, so that a scan line the image left *unpainted* reads
+/// as the grey beneath it and a scan line the image painted white reads as white — the one
+/// difference the damaged-data test below is about.
+fn page_with_ccitt_image_over_grey(parms: &str, data: &[u8]) -> Vec<u8> {
+    page_with_ccitt_image_drawn_by(
+        8,
+        "0.5 g 0 0 40 40 re f 40 0 0 40 0 0 cm /Im Do",
+        parms,
+        data,
+    )
+}
+
 /// The same page, with the image's own `/Width` chosen by the caller.
 ///
 /// `/Width` is separate from Table 11's `/Columns` and the last test below is about exactly that
 /// difference, so the fixture has to be able to state the two apart.
 fn page_with_ccitt_image_of_width(width: u32, parms: &str, data: &[u8]) -> Vec<u8> {
-    let content = "40 0 0 40 0 0 cm /Im Do";
+    page_with_ccitt_image_drawn_by(width, "40 0 0 40 0 0 cm /Im Do", parms, data)
+}
+
+/// The page, with its content stream chosen by the caller.
+fn page_with_ccitt_image_drawn_by(width: u32, content: &str, parms: &str, data: &[u8]) -> Vec<u8> {
     let dict = format!(
         "/Type /XObject /Subtype /Image /Width {width} /Height 4 /ColorSpace /DeviceGray \
          /BitsPerComponent 1 /Filter /CCITTFaxDecode /DecodeParms << {parms} >>"
@@ -189,6 +205,88 @@ fn end_of_block_false_stops_at_rows_and_blanks_the_rest_out_loud() {
             && report.contains("/Rows 2")
             && report.contains("4 scan lines")),
         "the shortfall should name the clause and both numbers, and said {said:?}"
+    );
+}
+
+/// Two of the four lines, then bytes that are no T.4 code at all.
+///
+/// The first twenty-eight bits are [`FOUR_BLACK_LINES`]'s first two scan lines exactly; the
+/// four bits that finish the fourth byte and the three bytes after it are zero, and no run of
+/// eight zero bits begins a T.4 run-length code — the longest white code opens with seven, and
+/// twelve zeros are an EOL, which `/EndOfLine false` says this data does not carry. So the
+/// filter reads two lines whole and stops inside the third, which is §7.4.6's "an error occurs".
+const TWO_BLACK_LINES_THEN_DAMAGE: [u8; 7] = [0x35, 0x14, 0xD4, 0x50, 0x00, 0x00, 0x00];
+
+/// Data the filter stops on before it has delivered one whole scan line, drawn as nothing.
+///
+/// Every T.4 code has a one in its first eight bits, so an image whose data is four zero bytes
+/// has no first line, and there is nothing to draw beside a report: the picture is refused, as
+/// it always was. The test is the boundary of the change — what makes a damaged stream worth
+/// drawing is a scan line the file carried, and this one carries none.
+const DAMAGE_BEFORE_A_LINE: [u8; 4] = [0x00, 0x00, 0x00, 0x00];
+
+/// Damaged data draws the scan lines before the damage, blanks the rest, and says so.
+///
+/// ISO 32000-2 §7.4.6: "The filter shall not perform any error correction or resynchronization"
+/// beyond what `/DamagedRowsBeforeError` asks for, and Table 11 gives that parameter as "[t]he
+/// number of damaged rows of data that shall be tolerated before an error occurs" with a
+/// default of zero. So at the third line an error occurs and the filter's output is the two
+/// lines before it. What the two lines it never reached show is stated nowhere, and they are
+/// left *unpainted* — the grey the page has under them shows through, where a white the filter
+/// invented would not — which is ADR 0356's choice for §7.3.8.2's short image and the same
+/// clause's error; the report is what separates this page from one whose lower half the
+/// producer left empty. Before ADR 0794 this fixture drew *nothing*: the whole picture was
+/// refused for the rows after the damage.
+#[test]
+fn damaged_data_draws_the_lines_before_the_damage_and_says_so() {
+    let (raster, said) = interpret(page_with_ccitt_image_over_grey(
+        "/K 0 /Columns 8",
+        &TWO_BLACK_LINES_THEN_DAMAGE,
+    ));
+    assert_eq!(
+        scan_line(&raster, 0),
+        0,
+        "the first line the filter delivered"
+    );
+    assert_eq!(scan_line(&raster, 1), 0, "and the second");
+    let grey = 100..=160;
+    assert!(
+        grey.contains(&scan_line(&raster, 2)),
+        "the third line is where the error occurred, so it is left unpainted and the page's \
+         grey shows through; read {}",
+        scan_line(&raster, 2)
+    );
+    assert!(
+        grey.contains(&scan_line(&raster, 3)),
+        "and so is the fourth; read {}",
+        scan_line(&raster, 3)
+    );
+    assert!(
+        said.iter().any(|report| report.contains("CCITTFaxDecode")
+            && report.contains("delivered 2 of the 4 scan lines")
+            && report.contains("7.4.6")),
+        "the shortfall should name the filter, both numbers and the clause, and said {said:?}"
+    );
+}
+
+/// Damage before the first whole scan line is still a refusal, with the decoder's sentence.
+#[test]
+fn damage_before_the_first_line_refuses_the_picture_out_loud() {
+    let (raster, said) = interpret(page_with_ccitt_image(
+        "/K 0 /Columns 8",
+        &DAMAGE_BEFORE_A_LINE,
+    ));
+    for row in 0..4 {
+        assert_eq!(
+            scan_line(&raster, row),
+            255,
+            "nothing was delivered to draw"
+        );
+    }
+    assert!(
+        said.iter()
+            .any(|report| report.contains("CCITTFaxDecode") && !report.contains("delivered")),
+        "the refusal should carry the filter's own sentence and no delivery, and said {said:?}"
     );
 }
 

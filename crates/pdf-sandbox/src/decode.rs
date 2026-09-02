@@ -141,6 +141,11 @@ struct PackedRows {
     partial: u8,
     /// How many bits of `partial` are filled, always less than eight.
     filled: u32,
+    /// The rows the decoder delivered before [`Self::pad_to_height`] filled the rest, or
+    /// `None` until it has: a decode that reached the grid delivered every row.
+    delivered: Option<usize>,
+    /// The decoder's own sentence where it stopped on damaged data; see [`Self::stop_short`].
+    stopped_by: Option<String>,
 }
 
 impl PackedRows {
@@ -154,7 +159,39 @@ impl PackedRows {
             rows: Vec::with_capacity(row_bytes.saturating_mul(height as usize)),
             partial: 0,
             filled: 0,
+            delivered: None,
+            stopped_by: None,
         }
+    }
+
+    /// Keeps the whole rows a decoder delivered before it stopped on damaged data, and
+    /// records why it stopped.
+    ///
+    /// ISO 32000-2 §7.4.6: "The filter shall not perform any error correction or
+    /// resynchronization" beyond what `/DamagedRowsBeforeError` asks for, whose Table 11 row
+    /// reads "[t]he number of damaged rows of data that shall be tolerated before an error
+    /// occurs" and defaults to zero — so at the first damaged row the filter's decode
+    /// *ends*, and where it ends is a scan line the encoded data reached and this reader did
+    /// not invent. What the rows it did not reach show is stated nowhere: [`Self::pad_to_height`]
+    /// fills them for the wire's fixed size, and `pdf_model::image` leaves them unpainted,
+    /// reading [`Bilevel::delivered`] — the worker knows the filter's white and not the
+    /// page's. A row the error fell inside is discarded rather than padded, because its runs
+    /// after the damage are not the file's.
+    ///
+    /// # Errors
+    ///
+    /// The sentence back, where not one whole row was delivered: there is nothing to draw, and
+    /// a blank picture reported as damaged would be a picture this reader made up.
+    fn stop_short(&mut self, reason: String) -> Result<(), String> {
+        let whole = self.rows.len().checked_div(self.row_bytes).unwrap_or(0);
+        if whole == 0 {
+            return Err(reason);
+        }
+        self.rows.truncate(whole.saturating_mul(self.row_bytes));
+        self.partial = 0;
+        self.filled = 0;
+        self.stopped_by = Some(reason);
+        Ok(())
     }
 
     /// Returns the packed image, or says why it is not one.
@@ -171,9 +208,14 @@ impl PackedRows {
                 self.rows.len()
             ));
         }
+        let delivered = self.delivered.unwrap_or(self.height as usize);
         Ok(Bilevel {
             width: self.width,
             height: self.height,
+            delivered: u32::try_from(delivered)
+                .unwrap_or(u32::MAX)
+                .min(self.height),
+            stopped_by: self.stopped_by,
             rows: self.rows,
         })
     }
@@ -243,6 +285,7 @@ impl PackedRows {
     /// so it is a choice, and it is made here: blank, which is what an unsent fax scan line is.
     fn pad_to_height(&mut self, one: bool) {
         self.end_row();
+        self.delivered = Some(self.rows.len().checked_div(self.row_bytes).unwrap_or(0));
         let expected = self.row_bytes.saturating_mul(self.height as usize);
         let byte = if one { 0xFF } else { 0x00 };
         while self.rows.len() < expected {
@@ -287,9 +330,20 @@ impl hayro_jbig2::Decoder for PackedRows {
 ///
 /// # Errors
 ///
-/// Returns a description of what the decoder refused. A malformed stream is reported rather
+/// Returns a description of what the decoder refused, or — where the data is damaged and not
+/// one whole scan line came before the damage — the decoder's own sentence about it.
+///
+/// **A damaged stream is drawn as far as it decodes, and says so.** This said the opposite
+/// until the eight-hundred-and-seventy-sixth session: "a malformed stream is reported rather
 /// than partially drawn: the decoder can leave usable rows behind an error, and taking them
-/// would be a page that is silently missing its bottom half.
+/// would be a page that is silently missing its bottom half". The word carrying that sentence
+/// was *silently*, and the rows are not taken silently — [`Bilevel::stopped_by`] carries the
+/// decoder's sentence out beside them and `pdf_model::image` reports it beside the drawing,
+/// which is the same pair §7.3.8.2's short image already gets (ADR 0356). §7.4.6 forbids the
+/// filter any "error correction or resynchronization", so the rows before the damage are
+/// exactly the filter's output and the rows after it are nobody's; refusing the first because
+/// the second do not exist threw away the two thirds of a scanned page the file does carry.
+/// [`PackedRows::stop_short`] has the clause. ADR 0794.
 pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel, String> {
     use hayro_ccitt::{DecodeSettings, DecoderContext, EncodingMode};
 
@@ -328,8 +382,9 @@ pub(crate) fn ccitt(data: &[u8], parameters: CcittParameters) -> Result<Bilevel,
         packed: PackedRows::new("CCITTFaxDecode", width, height),
         black_is_1: parameters.black_is_1,
     };
-    hayro_ccitt::decode(data, &mut rows, &mut DecoderContext::new(settings))
-        .map_err(|error| format!("CCITTFaxDecode: {error}"))?;
+    if let Err(error) = hayro_ccitt::decode(data, &mut rows, &mut DecoderContext::new(settings)) {
+        rows.packed.stop_short(format!("CCITTFaxDecode: {error}"))?;
+    }
 
     // White, in whichever sense this image's `/BlackIs1` gives the word.
     rows.packed.pad_to_height(!parameters.black_is_1);

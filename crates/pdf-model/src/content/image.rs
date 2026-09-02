@@ -302,26 +302,40 @@ impl Interpreter<'_> {
             &conversion,
             &mut self.image_masks,
         ) {
-            Ok(decoded) => self.draw(Command::Image {
-                // §10.5 applies to "any object for which transfer functions are in effect", and an
-                // image is one object however many samples it has: the clause's input is "the
-                // value of a colour component in the device's native colour space", which by this
-                // point every sample is. Done here rather than in `image::decode_parts` because a
-                // transfer belongs to the *graphics state* the image is drawn under and not to the
-                // image, and the same XObject drawn twice under two states is two pictures.
-                image: decoded.source(|image| transferred_image(image, transfer.map(Arc::as_ref))),
-                transform: state.transform,
-                alpha: state.fill_alpha,
-                clip: state.clip,
-                // §11.6.4.3: an image's own `/SMask`, `/SMaskInData` or `/Mask` "shall
-                // override, for this image object only, the current soft mask in the
-                // graphics state" — so the two are never applied together, and the state's
-                // mask survives for whatever is drawn next.
-                mask: (!crate::image::overrides_graphics_state_mask(self.document, &stream.dict))
+            Ok(crate::image::Parts { picture, shortfall }) => {
+                // A filter that stopped on damaged data delivered the rows before it, and the
+                // report travels with the raster rather than being made here, so a second `Do`
+                // answered from the cache says it too: `image::Parts::shortfall` has the reading.
+                if let Some(detail) = shortfall {
+                    self.note(Unsupported::Image {
+                        name: format!("{name}: {detail}"),
+                    });
+                }
+                self.draw(Command::Image {
+                    // §10.5 applies to "any object for which transfer functions are in effect", and an
+                    // image is one object however many samples it has: the clause's input is "the
+                    // value of a colour component in the device's native colour space", which by this
+                    // point every sample is. Done here rather than in `image::decode_parts` because a
+                    // transfer belongs to the *graphics state* the image is drawn under and not to the
+                    // image, and the same XObject drawn twice under two states is two pictures.
+                    image: picture
+                        .source(|image| transferred_image(image, transfer.map(Arc::as_ref))),
+                    transform: state.transform,
+                    alpha: state.fill_alpha,
+                    clip: state.clip,
+                    // §11.6.4.3: an image's own `/SMask`, `/SMaskInData` or `/Mask` "shall
+                    // override, for this image object only, the current soft mask in the
+                    // graphics state" — so the two are never applied together, and the state's
+                    // mask survives for whatever is drawn next.
+                    mask: (!crate::image::overrides_graphics_state_mask(
+                        self.document,
+                        &stream.dict,
+                    ))
                     .then_some(state.soft_mask)
                     .flatten(),
-                blend: state.blend,
-            }),
+                    blend: state.blend,
+                });
+            }
             Err(error) => self.note(Unsupported::Image {
                 name: format!("{name}: {error}"),
             }),
@@ -396,7 +410,14 @@ impl Interpreter<'_> {
             Color::BLACK,
             &Conversion::device(),
         ) {
-            Ok(image) => image,
+            Ok(crate::image::Flattened { image, shortfall }) => {
+                if let Some(detail) = shortfall {
+                    self.note(Unsupported::Image {
+                        name: format!("{name}: {detail}"),
+                    });
+                }
+                image
+            }
             Err(error) => {
                 self.note(Unsupported::Image {
                     name: format!("{name}: {error}"),

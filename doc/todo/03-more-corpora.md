@@ -2368,3 +2368,74 @@ change (ADR 0792, calibrated one-component blending spaces) is the likely cause 
 is a baseline rather than a ratchet. And a "legitimate" nesting is one that terminates; whether
 the sixty-four-deep Aspose page is a producer's intent or a producer's accident is not a question
 the bound can answer, and the page it holds is a page.
+
+### 40. What the eight-hundred-and-seventy-sixth took: `batch5`'s REDHAT tracker, and a fax drawn to the row it breaks on
+
+**The first of `batch5`'s two dozen trackers, walked under the four rules of 2026-09-02**: one
+walk on the machine at a time, `tools/bounded.sh --data 8 --tree 12`, twelve rayon threads, and
+the directory taken whole rather than as shards — 1712 documents in 22 s at a 2.4 GiB peak. The
+line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/REDHAT` | 1712 | 2 unopenable, 2 locked, 2 encrypted beyond us, 4 pageless, 104 incomplete, 0 slow |
+
+**The rate places the tracker where §30 would have put it.** 104 of 1712 is **6.07%** incomplete —
+between `MOZILLA`'s 2.47% and `PDFBOX`'s 7.25%, and about the pdf.js gate's 6.98%. Red Hat's
+attachments are documents evince could not show a person, which is the Mozilla shape with a
+reader in front of it that is closer to this tree's own references.
+
+- **The four pageless are nobody's**: 175, 255, 871 and 28 768 bytes, and neither `pdfinfo` nor
+  `mutool` gets a page count out of any of them. §29's claim holds here without qualification.
+- **The reports are the ones this project owns**, ranked by report: 97 `Operator` (garbled tokens
+  in damaged content streams, three of them `BT without ET`, which the interpreter notes and draws
+  through), 94 `Font` (77 a glyph the document's own program has no outline for, closed by
+  decision; two `Identity-H` over a descendant with no program, which is [`21`](21-font-substitution.md);
+  five a `/Font` resource the dictionary does not define; two an entry that is not a font
+  dictionary under §7.3.10), 16 `TransparencyGroup` ([`23`](23-transparency-departures.md)), 16
+  `Text`, 9 `Content` (three `/Contents` streams that resolve to §7.3.10's null, four corrupt
+  Flate parts drawn to the damage, two undecodable), 5 `Image`, 4 `MissingResource`, one
+  `MAX_TILES`, one `/MediaBox` inherited from nowhere.
+- **Ranked by ink** — ours, flattened on white, against `pdftoppm -cropbox` and `mutool draw` at
+  72 dpi over all 104 incomplete pages, the same instrument as every chunk above and with the
+  same two traps sprung before it was believed (`-cropbox`, and an alpha channel that returns
+  half the ink) — **the head is one finding by a factor of three**: `REDHAT-229174-0.pdf` and its
+  byte-identical `REDHAT-493442-0.pdf`, ours **0** against `poppler` 8.86 and `mupdf` 74.31, on the
+  report `I1: CCITTFaxDecode: arithmetic overflow in position calculation`. Below it the head is
+  the known populations: `1532381-0` (a resource dictionary nobody resolves, `poppler` blank
+  too), `652152-0` (`MAX_TILES`, −2.2), `1575851-0` and `443362-1` (under two levels), and the
+  rest inside ±0.6.
+
+**The finding is a decision this tree had made and the standard had not.** The stream is a
+Photoshop 4.0 Group 4 scan of a textbook page whose data breaks at scan line 756 of 2244 — a
+probe against the pinned `hayro-ccitt` decodes 756 whole lines and stops inside the 757th, which
+is exactly where `poppler`'s text stops; `poppler`'s black band below it and `mupdf`'s two further
+lines of text are what each does *after* the damage. §7.4.6 says the filter "shall not perform any
+error correction or resynchronization", and Table 11's `/DamagedRowsBeforeError` defaults to zero —
+so the decoder is right to stop, `mupdf`'s continuation is what the sentence forbids, and the only
+question was this tree's: `pdf_sandbox::decode::ccitt` refused the whole picture on any decoder
+error, on a doc comment arguing that drawing the rows before it "would be a page that is silently
+missing its bottom half". The word was *silently*. ADR 0794: the rows the filter delivered are
+drawn, the rest are left **unpainted** — not the filter's white, which under `/BlackIs1 true` with no
+`/Decode` is the page's black, and the first build of the change drew two thirds of the page solid
+before the page was looked at — and the shortfall is reported beside the drawing, through the
+raster cache, for the page's image, a `/Mask`, an `/SMask` and the transform's `images` verb. The
+page draws what `poppler` draws above row 756 and is a row in `doc/checks/fixed-documents.toml`.
+The file's `stream\r` — §7.3.8.1's forbidden CARRIAGE RETURN alone — was checked first, because an
+off-by-one at the stream's start produces the same sentence; the parser already tolerates it.
+
+**`batch5/poppler` was walked twice and surveyed neither time.** At twelve threads and again at
+four, one document asks the allocator for **6 001 925 632 bytes** in one allocation and the
+survey dies under `--data 8`, which is the whole directory's verdict lost to one file — §1's
+one-process-per-archive argument met inside one directory. Which document it is was not chased:
+finding it is a per-document walk under `tools/bounded.sh --data 2`, one process apiece, and that
+walk is what the next round of this chunk starts with, because a six-gigabyte allocation that
+passes every budget this tree has is [`10`](10-bounds-that-cap-size.md)'s question before it is
+this file's.
+
+**What is left here**: `batch5/poppler`'s six-gigabyte document and then its 1586; `batch5`'s other
+twenty-two trackers, `FOP` (808) and `PDFIUM` (379) the largest; `batch4` once its pieces land;
+and [`40`](40-mask-chain-crop.md)'s clip cost. The REDHAT ranking's second and third rows are a
+dictionary nobody resolves and a `MAX_TILES` refusal, both diagnosed populations, and the two
+`Content { Unreachable }` documents whose `/Contents` is §7.3.10's null are worth a look from
+ADR 0789's side — the survey names them and this round did not open them.

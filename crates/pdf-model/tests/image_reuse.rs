@@ -40,7 +40,9 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use pdf_model::colour::{Compositing, Conversion, Half};
-use pdf_model::image::{MaskCache, NamedStream, Parts, RasterCache, StreamIdentity, decode_parts};
+use pdf_model::image::{
+    MaskCache, NamedStream, Parts, Picture, RasterCache, StreamIdentity, decode_parts,
+};
 use pdf_render::Color;
 use pdf_syntax::{Dictionary, Document, Name, Object, Stream};
 
@@ -196,9 +198,9 @@ fn resources_naming(space: &str) -> Dictionary {
 
 /// The samples of a decode, whatever route it took.
 fn samples(parts: &Parts) -> Arc<[u8]> {
-    match parts {
-        Parts::Complete(image) => Arc::clone(&image.data),
-        Parts::Masked { base, .. } => Arc::clone(&base.data),
+    match &parts.picture {
+        Picture::Complete(image) => Arc::clone(&image.data),
+        Picture::Masked { base, .. } => Arc::clone(&base.data),
     }
 }
 

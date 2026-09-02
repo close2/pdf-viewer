@@ -272,6 +272,19 @@ pub struct Bilevel {
     pub width: u32,
     /// Height in pixels.
     pub height: u32,
+    /// How many of the rows, from the top, the filter delivered.
+    ///
+    /// `height` where it reached the whole grid, and fewer where it stopped before it — on
+    /// Table 11's `/Rows`, on the end of its data, or on damage — with the rows past it padded
+    /// to the grid by the worker. Never above `height`.
+    pub delivered: u32,
+    /// The decoder's own sentence where it stopped on damaged data before `height`.
+    ///
+    /// `None` where it stopped for a reason ISO 32000-2 §7.4.6 Table 11 allows — an
+    /// end-of-block pattern, `/Rows`, or the end of the data at a scan line's end — and where it
+    /// reached the grid. Carried so that the rows it did deliver can be drawn and the shortfall
+    /// said out loud in the same breath, which is what `pdf_model::image` does with it.
+    pub stopped_by: Option<String>,
     /// Packed rows, `ceil(width / 8)` bytes each.
     pub rows: Vec<u8>,
 }
@@ -532,9 +545,19 @@ pub(crate) fn typed_request(wire: &Wire) -> Option<Request<'_>> {
 pub(crate) fn encode_response(decoded: &Decoded) -> Vec<u8> {
     let (status, payload) = match decoded {
         Decoded::Bilevel(bilevel) => {
-            let mut payload = Vec::with_capacity(bilevel.rows.len().saturating_add(8));
+            let stopped_by = bilevel.stopped_by.as_deref().unwrap_or("").as_bytes();
+            let mut payload = Vec::with_capacity(
+                bilevel
+                    .rows
+                    .len()
+                    .saturating_add(stopped_by.len())
+                    .saturating_add(16),
+            );
             payload.extend_from_slice(&bilevel.width.to_be_bytes());
             payload.extend_from_slice(&bilevel.height.to_be_bytes());
+            payload.extend_from_slice(&bilevel.delivered.to_be_bytes());
+            payload.extend_from_slice(&length(stopped_by));
+            payload.extend_from_slice(stopped_by);
             payload.extend_from_slice(&bilevel.rows);
             (STATUS_BILEVEL, payload)
         }
@@ -619,28 +642,7 @@ pub(crate) fn parse_response(
         STATUS_ERROR => Err(SandboxError::Undecodable {
             detail: String::from_utf8_lossy(payload).into_owned(),
         }),
-        STATUS_BILEVEL => {
-            let (width, height, rest) = dimensions(payload)?;
-            let row_bytes = usize::try_from(width)
-                .ok()
-                .and_then(|width| width.checked_add(7))
-                .map(|bits| bits / 8)
-                .ok_or_else(|| malformed("implausible width".to_owned()))?;
-            let expected = row_bytes
-                .checked_mul(usize::try_from(height).unwrap_or(usize::MAX))
-                .ok_or_else(|| malformed("implausible size".to_owned()))?;
-            if rest.len() != expected {
-                return Err(malformed(format!(
-                    "{width}x{height} needs {expected} packed bytes, got {}",
-                    rest.len()
-                )));
-            }
-            Ok(Decoded::Bilevel(Bilevel {
-                width,
-                height,
-                rows: rest.to_vec(),
-            }))
-        }
+        STATUS_BILEVEL => parse_bilevel(payload),
         STATUS_RASTER => {
             let (width, height, rest) = dimensions(payload)?;
             let (stated_width, stated_height, rest) = dimensions(rest)?;
@@ -712,6 +714,76 @@ pub(crate) fn parse_response(
         }
         _ => Err(malformed("unrecognised status".to_owned())),
     }
+}
+
+/// Reads a bilevel response's payload: the grid, the rows delivered, the sentence about the
+/// rest, and the packed samples, each length checked against the one before it.
+fn parse_bilevel(payload: &[u8]) -> Result<Decoded, SandboxError> {
+    let malformed = |detail: String| SandboxError::Malformed { detail };
+    let (width, height, rest) = dimensions(payload)?;
+    // The rows delivered and the sentence about the rest, ahead of the samples. Both
+    // are recomputed against the grid rather than trusted, like every other derived
+    // field here: a count above the height is a worker that cannot be this build's.
+    let (delivered, rest) = dimensions_one(rest)?;
+    if delivered > height {
+        return Err(malformed(format!(
+            "{delivered} rows delivered of a {height}-row image"
+        )));
+    }
+    let stopped_by_len = rest
+        .get(..4)
+        .and_then(|slice| <[u8; 4]>::try_from(slice).ok())
+        .map(u32::from_be_bytes)
+        .and_then(|len| usize::try_from(len).ok())
+        .ok_or_else(|| malformed("no shortfall length".to_owned()))?;
+    let after_stopped_by = 4usize
+        .checked_add(stopped_by_len)
+        .ok_or_else(|| malformed("implausible shortfall".to_owned()))?;
+    let stopped_by = rest
+        .get(4..after_stopped_by)
+        .ok_or_else(|| malformed("truncated shortfall".to_owned()))?;
+    let stopped_by =
+        (!stopped_by.is_empty()).then(|| String::from_utf8_lossy(stopped_by).into_owned());
+    let rest = rest
+        .get(after_stopped_by..)
+        .ok_or_else(|| malformed("truncated samples".to_owned()))?;
+    let row_bytes = usize::try_from(width)
+        .ok()
+        .and_then(|width| width.checked_add(7))
+        .map(|bits| bits / 8)
+        .ok_or_else(|| malformed("implausible width".to_owned()))?;
+    let expected = row_bytes
+        .checked_mul(usize::try_from(height).unwrap_or(usize::MAX))
+        .ok_or_else(|| malformed("implausible size".to_owned()))?;
+    if rest.len() != expected {
+        return Err(malformed(format!(
+            "{width}x{height} needs {expected} packed bytes, got {}",
+            rest.len()
+        )));
+    }
+    Ok(Decoded::Bilevel(Bilevel {
+        width,
+        height,
+        delivered,
+        stopped_by,
+        rows: rest.to_vec(),
+    }))
+}
+
+/// Splits one leading big-endian `u32` off a payload.
+fn dimensions_one(payload: &[u8]) -> Result<(u32, &[u8]), SandboxError> {
+    let (Some(value), Some(rest)) = (
+        payload
+            .get(..4)
+            .and_then(|slice| <[u8; 4]>::try_from(slice).ok())
+            .map(u32::from_be_bytes),
+        payload.get(4..),
+    ) else {
+        return Err(SandboxError::Malformed {
+            detail: "truncated count".to_owned(),
+        });
+    };
+    Ok((value, rest))
 }
 
 /// Splits the leading width and height off a payload.
@@ -832,12 +904,47 @@ mod tests {
         let decoded = Decoded::Bilevel(Bilevel {
             width: 9,
             height: 2,
+            delivered: 2,
+            stopped_by: None,
             rows: vec![0b1010_1010, 0b1000_0000, 0x00, 0x00],
         });
         let encoded = encode_response(&decoded);
         let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
         let shape = parse_response_header(header.try_into().unwrap()).unwrap();
         assert_eq!(parse_response(shape, payload).unwrap(), decoded);
+    }
+
+    #[test]
+    fn a_bilevel_response_that_stopped_short_carries_its_sentence() {
+        let decoded = Decoded::Bilevel(Bilevel {
+            width: 9,
+            height: 2,
+            delivered: 1,
+            stopped_by: Some("CCITTFaxDecode: invalid CCITT code sequence".to_owned()),
+            rows: vec![0b1010_1010, 0b1000_0000, 0x00, 0x00],
+        });
+        let encoded = encode_response(&decoded);
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        assert_eq!(parse_response(shape, payload).unwrap(), decoded);
+    }
+
+    #[test]
+    fn a_bilevel_response_delivering_more_rows_than_its_height_is_malformed() {
+        let decoded = Decoded::Bilevel(Bilevel {
+            width: 9,
+            height: 2,
+            delivered: 3,
+            stopped_by: None,
+            rows: vec![0; 4],
+        });
+        let encoded = encode_response(&decoded);
+        let (header, payload) = encoded.split_at(RESPONSE_HEADER_LEN);
+        let shape = parse_response_header(header.try_into().unwrap()).unwrap();
+        assert!(matches!(
+            parse_response(shape, payload),
+            Err(SandboxError::Malformed { .. })
+        ));
     }
 
     #[test]

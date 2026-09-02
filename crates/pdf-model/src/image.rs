@@ -341,7 +341,7 @@ impl Decode {
 /// [`SoftMaskAtDeviceScale`]'s are both behind an [`Arc`] — which is what makes [`RasterCache`]
 /// able to answer a second `Do` with the first one's raster.
 #[derive(Debug, Clone)]
-pub enum Parts {
+pub enum Picture {
     /// One raster, with every mask the dictionary states already in it.
     Complete(Image),
     /// The base raster, and the soft mask that belongs with it at device resolution.
@@ -353,7 +353,31 @@ pub enum Parts {
     },
 }
 
-impl Parts {
+/// What a decode delivers: the picture, and beside it what the filter said where it stopped
+/// short of the grid.
+///
+/// The two travel together because they are answered together and remembered together:
+/// [`RasterCache`] holds both, so a second `Do` of a damaged image says what the first said
+/// (trap 5, `tests/image_reuse.rs`). The report is *in the value* rather than noted at decode
+/// time for exactly that reason — a note made on the miss would be lost on the hit.
+#[derive(Debug, Clone)]
+pub struct Parts {
+    /// The picture, in one raster or two.
+    pub picture: Picture,
+    /// The filter's own sentence where it stopped on damaged data before the grid was full,
+    /// worded for the report, or `None` where it reached the grid or stopped where the clause
+    /// lets it. The rows it did deliver are in [`Self::picture`]; the rest are blank.
+    ///
+    /// Only `CCITTFaxDecode` produces one today — §7.4.6 forbids the filter any "error
+    /// correction or resynchronization", so the rows before the damage are exactly the
+    /// filter's output (ADR 0794). It is a report beside the drawing and not a refusal, which
+    /// is the pair `doc/HANDOVER.md` sets: suppressing the drawing throws away the scan lines
+    /// the file carries, and suppressing the report makes a page whose lower half this program
+    /// left blank indistinguishable from one the producer left blank.
+    pub shortfall: Option<String>,
+}
+
+impl Picture {
     /// What a display list carries, with `over_base` given the graphics state's say first.
     ///
     /// The interpreter has one thing to add to an image's samples that the image dictionary
@@ -425,20 +449,34 @@ pub fn decode(
     resources: &Dictionary,
     fill: pdf_render::Color,
     into: &Conversion,
-) -> Result<Image, ImageError> {
+) -> Result<Flattened, ImageError> {
     let mut masks = MaskCache::default();
-    Ok(
-        match decode_parts(document, stream, resources, fill, into, &mut masks)? {
-            Parts::Complete(image) => image,
-            Parts::Masked { base, opacity } => {
-                let grid = pdf_render::Grid {
-                    width: base.width,
-                    height: base.height,
-                };
-                opacity.over(base).samples(grid)
-            }
-        },
-    )
+    let Parts { picture, shortfall } =
+        decode_parts(document, stream, resources, fill, into, &mut masks)?;
+    let image = match picture {
+        Picture::Complete(image) => image,
+        Picture::Masked { base, opacity } => {
+            let grid = pdf_render::Grid {
+                width: base.width,
+                height: base.height,
+            };
+            opacity.over(base).samples(grid)
+        }
+    };
+    Ok(Flattened { image, shortfall })
+}
+
+/// [`decode`]'s answer: one raster, and what the filter said beside it.
+///
+/// The same pair as [`Parts`], with the mask put back into the raster. A caller that wants the
+/// picture alone still has to take the sentence and say what it did with it, which is the point
+/// of the pair not being two return values.
+#[derive(Debug, Clone)]
+pub struct Flattened {
+    /// The raster, every mask the dictionary states already in it.
+    pub image: Image,
+    /// See [`Parts::shortfall`].
+    pub shortfall: Option<String>,
 }
 
 /// Decodes an image `XObject`, leaving a mask the device must place where it is.
@@ -499,6 +537,7 @@ pub fn decode_parts(
         rgba,
         grid: (raster_width, raster_height),
         opacity_included: opacity_came_with_the_samples,
+        shortfall,
     } = samples_of(
         at,
         &source,
@@ -525,6 +564,9 @@ pub fn decode_parts(
         // decide what to make of it.
         interpolate: matches!(document.get_key(dict, "Interpolate"), Object::Boolean(true)),
     };
+    // A mask's own shortfall joins the base's, named for the entry it came through; the base's
+    // takes precedence because a report names one thing and the picture is the thing.
+    let mut shortfall = shortfall;
     let image = if opacity_came_with_the_samples {
         // §7.4.9 and §11.6.5.2: a non-zero `/SMaskInData` means the opacity travelled with
         // the image samples, `/SMask` "shall not be present", and the embedded mask
@@ -539,13 +581,19 @@ pub fn decode_parts(
         // on a grid neither raster is on.
         if let Some(opacity) = masks.read(document, dict, resources, (raster_width, raster_height))
         {
-            return Ok(Parts::Masked {
-                base: image,
-                opacity,
+            return Ok(Parts {
+                picture: Picture::Masked {
+                    base: image,
+                    opacity,
+                },
+                shortfall,
             });
         }
         // Applied last so a soft mask cannot resurrect an inconsistent buffer.
-        apply_soft_mask(document, dict, resources, image)
+        let (image, mask_shortfall) = apply_soft_mask(document, dict, resources, image);
+        shortfall =
+            shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /SMask: {detail}")));
+        image
     };
 
     // §11.6.4.3 makes the two mutually exclusive — an `/SMask` "shall override any explicit
@@ -553,12 +601,17 @@ pub fn decode_parts(
     // for anything reached here after a soft mask was applied, and this arm runs only where
     // there was none. The sequence is therefore an ordering of two things that never both
     // happen, kept in the order the clauses rank them.
-    match &mask {
+    let picture = match &mask {
         MaskEntry::Explicit(stencil) => {
-            apply_explicit_mask(document, &image, resources, stencil).map(Parts::Complete)
+            let (image, mask_shortfall) =
+                apply_explicit_mask(document, &image, resources, stencil)?;
+            shortfall =
+                shortfall.or_else(|| mask_shortfall.map(|detail| format!("its /Mask: {detail}")));
+            Picture::Complete(image)
         }
-        _ => Ok(Parts::Complete(image)),
-    }
+        _ => Picture::Complete(image),
+    };
+    Ok(Parts { picture, shortfall })
 }
 
 /// One decode route's answer: samples, the grid they are on, and whether opacity came along.
@@ -571,6 +624,9 @@ struct SamplesOnGrid {
     /// §11.6.5.2's `/SMaskInData`: the opacity arrived inside the codestream and is already
     /// in the alpha channel, so no `/SMask` may be applied on top of it.
     opacity_included: bool,
+    /// The filter's sentence where it stopped short of the grid on damaged data; see
+    /// [`Parts::shortfall`]. Only the `CCITTFaxDecode` arm produces one.
+    shortfall: Option<String>,
 }
 
 /// The image's samples as straight-alpha RGBA8, the grid they are on, and whether the
@@ -624,19 +680,25 @@ fn samples_of(
                 rgba,
                 grid,
                 opacity_included: false,
+                shortfall: None,
             })
         }
         Some(b"JBIG2Decode") => Ok(SamplesOnGrid {
             rgba: decode_jbig2(at, source, width, height, is_mask, fill, into)?,
             grid: (width, height),
             opacity_included: false,
+            shortfall: None,
         }),
         Some(b"JPXDecode") => decode_jpx(at, source, width, height, is_mask, fill, into),
-        Some(b"CCITTFaxDecode" | b"CCF") => Ok(SamplesOnGrid {
-            rgba: decode_ccitt(at, source, width, height, is_mask, fill, into)?,
-            grid: (width, height),
-            opacity_included: false,
-        }),
+        Some(b"CCITTFaxDecode" | b"CCF") => {
+            let (rgba, shortfall) = decode_ccitt(at, source, width, height, is_mask, fill, into)?;
+            Ok(SamplesOnGrid {
+                rgba,
+                grid: (width, height),
+                opacity_included: false,
+                shortfall,
+            })
+        }
         Some(other) => Err(ImageError::UnsupportedFilter {
             filter: String::from_utf8_lossy(other).into_owned(),
         }),
@@ -675,6 +737,7 @@ fn samples_of(
                 rgba,
                 grid: (width, height),
                 opacity_included: false,
+                shortfall: None,
             })
         }
     }
@@ -1511,6 +1574,21 @@ fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
     }
 }
 
+/// Decodes a CCITT image through the sandbox: the samples, and beside them the filter's
+/// sentence where it stopped on damaged data short of the grid.
+///
+/// ISO 32000-2 §7.4.6: "The filter shall not perform any error correction or
+/// resynchronization" beyond what `/DamagedRowsBeforeError` asks for, and its default of zero
+/// makes the first damaged row the one where "an error occurs". So the scan lines before it
+/// are the filter's output and are drawn; what the rest show is stated nowhere, and they are
+/// left **unpainted** — no sample, no colour — which is what ADR 0356 chose for §7.3.8.2's
+/// short image, the same clause's error met in a byte count rather than in a codec. (The
+/// worker pads them for the wire, in the filter's own white; that colour is not painted here,
+/// because under `/BlackIs1 true` with no `/Decode` it is the page's black, and a colour the
+/// file never stated is not this reader's to choose.) The pair is reported beside the drawing
+/// through [`Parts::shortfall`] (ADR 0794). Until the
+/// eight-hundred-and-seventy-sixth session the whole picture was refused for the rows after
+/// the damage — two thirds of a scanned page thrown away for the third that was not there.
 fn decode_ccitt(
     at: Dictionaries,
     source: &ImageStream,
@@ -1519,7 +1597,7 @@ fn decode_ccitt(
     is_mask: bool,
     fill: pdf_render::Color,
     into: &Conversion,
-) -> Result<Vec<u8>, ImageError> {
+) -> Result<(Vec<u8>, Option<String>), ImageError> {
     let Dictionaries {
         document,
         dict,
@@ -1610,13 +1688,25 @@ fn decode_ccitt(
         });
     }
 
+    // Worded here, where both numbers are known, so that the report names the scan lines the
+    // file carried and the grid it stated rather than the decoder's error alone.
+    let shortfall = bilevel.stopped_by.as_ref().map(|reason| {
+        format!(
+            "{reason}: the filter delivered {} of the {height} scan lines the image states \
+             before the damage, which are drawn; the rest are left unpainted (§7.4.6 forbids \
+             the filter any error correction or resynchronization, and Table 11's \
+             /DamagedRowsBeforeError is 0)",
+            bilevel.delivered
+        )
+    });
+
     let space = if is_mask {
         ColourSpace::Mask
     } else {
         colour_space(document, dict, resources, into)?
     };
     let decode = Decode::read(document, dict, &space, 1);
-    unpack(
+    let mut rgba = unpack(
         &bilevel.rows,
         width,
         height,
@@ -1630,7 +1720,24 @@ fn decode_ccitt(
             fill,
             into,
         },
-    )
+    )?;
+    if shortfall.is_some() {
+        leave_unpainted(&mut rgba, bilevel.delivered, width);
+    }
+    Ok((rgba, shortfall))
+}
+
+/// Clears every sample from row `delivered` on: the rows a filter never delivered, unpainted.
+///
+/// The worker's padding of those rows is a fill for the wire's fixed size and not a statement
+/// about the page, and the RGBA the unpacker made of it is cleared here for that reason.
+fn leave_unpainted(rgba: &mut [u8], delivered: u32, width: u32) {
+    let painted = (delivered as usize)
+        .saturating_mul(width as usize)
+        .saturating_mul(4);
+    if let Some(rest) = rgba.get_mut(painted..) {
+        rest.fill(0);
+    }
 }
 
 /// Decodes a JPEG 2000 image through the sandbox.
@@ -1771,6 +1878,7 @@ fn decode_jpx(
         rgba: jpx_samples_to_rgba(&raster, &space, &decode, use_opacity, premultiplied, into),
         grid: (raster.width, raster.height),
         opacity_included: use_opacity,
+        shortfall: None,
     })
 }
 
@@ -1818,6 +1926,7 @@ fn jpx_stencil(
         )?,
         grid: (raster.width, raster.height),
         opacity_included: use_opacity,
+        shortfall: None,
     })
 }
 
@@ -3085,13 +3194,20 @@ fn combine_on_the_finer_grid(
 }
 
 /// Applies §8.9.6.3's explicit mask: where the stencil does not mark, the image is not drawn.
+///
+/// The second half of the answer is the stencil's own [`Flattened::shortfall`], where its
+/// filter stopped on damaged data: the places it did deliver mask as the clause says, and the
+/// caller reports the rest beside the drawing.
 fn apply_explicit_mask(
     document: &Document,
     image: &Image,
     resources: &Dictionary,
     stream: &Stream,
-) -> Result<Image, ImageError> {
-    let stencil = decode(
+) -> Result<(Image, Option<String>), ImageError> {
+    let Flattened {
+        image: stencil,
+        shortfall,
+    } = decode(
         document,
         stream,
         resources,
@@ -3111,14 +3227,11 @@ fn apply_explicit_mask(
     // The sense is the clause's — the mask indicates which places on the page are painted and
     // which are masked out — so a sample that marks paints and one that does not is left
     // unchanged.
-    Ok(combine_on_the_finer_grid(
-        image,
-        &stencil,
-        |colour, sample| {
-            let marks = sample.get(3).is_some_and(|alpha| *alpha != 0);
-            (colour, if marks { u8::MAX } else { 0 })
-        },
-    ))
+    let masked = combine_on_the_finer_grid(image, &stencil, |colour, sample| {
+        let marks = sample.get(3).is_some_and(|alpha| *alpha != 0);
+        (colour, if marks { u8::MAX } else { 0 })
+    });
+    Ok((masked, shortfall))
 }
 
 /// What an image's `/SMask` entry holds, once read.
@@ -4141,9 +4254,9 @@ impl Parts {
     /// under-charging would let a mask nobody else holds — one written inline, which
     /// [`MaskCache`] declines to remember — go unbudgeted.
     fn bytes(&self) -> usize {
-        match self {
-            Self::Complete(image) => image.data.len(),
-            Self::Masked { base, opacity } => base.data.len().saturating_add(opacity.data.len()),
+        match &self.picture {
+            Picture::Complete(image) => image.data.len(),
+            Picture::Masked { base, opacity } => base.data.len().saturating_add(opacity.data.len()),
         }
     }
 }
@@ -4195,13 +4308,14 @@ fn device_scaled_soft_mask(
 ///
 /// A soft mask that cannot be read leaves the image opaque rather than failing it: an
 /// opaque image is visibly present and slightly wrong, whereas dropping it loses content
-/// entirely.
+/// entirely. One whose filter stopped on damaged data is applied as far as it was delivered,
+/// and its [`Flattened::shortfall`] comes back beside the image for the caller to report.
 fn apply_soft_mask(
     document: &Document,
     dict: &Dictionary,
     resources: &Dictionary,
     image: Image,
-) -> Image {
+) -> (Image, Option<String>) {
     // The dictionary's grid rather than the raster's, deliberately: this route and
     // `unapplied_soft_mask` must answer the same question, or the interpreter's report and
     // what actually happened drift apart. For the one image whose raster is coarser than its
@@ -4214,19 +4328,23 @@ fn apply_soft_mask(
         ..
     } = soft_mask_entry(document, dict, resources, stated_grid(document, dict))
     else {
-        return image;
+        return (image, None);
     };
-    let Ok(mask) = decode(
+    let Ok(Flattened {
+        image: mask,
+        shortfall,
+    }) = decode(
         document,
         &mask_stream,
         resources,
         pdf_render::Color::BLACK,
         // §11.6.5.2's mask is read for its one channel of opacity, not for colour.
         &Conversion::device(),
-    ) else {
-        return image;
+    )
+    else {
+        return (image, None);
     };
-    combine_on_the_finer_grid(&image, &mask, |colour, sample| {
+    let masked = combine_on_the_finer_grid(&image, &mask, |colour, sample| {
         // Table 143 required `DeviceGray` and `soft_mask_entry` checked it, so the three
         // colour channels of a mask sample hold one value and the first of them is it.
         let opacity = sample.first().copied().unwrap_or(0);
@@ -4239,7 +4357,8 @@ fn apply_soft_mask(
             ],
         };
         (colour, opacity)
-    })
+    });
+    (masked, shortfall)
 }
 
 #[cfg(test)]

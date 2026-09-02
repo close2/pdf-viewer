@@ -450,17 +450,27 @@ fn write_one(
         route,
         separate,
         expanded.sanitised,
+        &mut warnings,
     )];
     if separate {
         match mask_of(document, found) {
-            Ok(Some(mask)) => outcomes.push(write_mask(
-                plan,
-                sinks,
-                found,
-                &mask_name(&name, plan.format),
-                &mask,
-                expanded.sanitised,
-            )),
+            Ok(Some(mask)) => {
+                if let Some(detail) = &mask.shortfall {
+                    warnings.push(Warning {
+                        source: plan.source,
+                        page,
+                        detail: format!("{}: {detail}", mask_name(&name, plan.format)),
+                    });
+                }
+                outcomes.push(write_mask(
+                    plan,
+                    sinks,
+                    found,
+                    &mask_name(&name, plan.format),
+                    &mask,
+                    expanded.sanitised,
+                ));
+            }
             Ok(None) => {}
             Err(reason) => warnings.push(Warning {
                 source: plan.source,
@@ -488,7 +498,7 @@ fn write_one(
 /// `/Mask`, which is what "the base as it is" means; the native route never applies one.
 #[expect(
     clippy::too_many_arguments,
-    reason = "one call site, and a struct for eight things used once would name the same eight"
+    reason = "one call site, and a struct for nine things used once would name the same nine"
 )]
 fn write_as(
     plan: &ImagesPlan,
@@ -499,6 +509,7 @@ fn write_as(
     route: Route,
     unmasked: bool,
     sanitised: bool,
+    warnings: &mut Vec<Warning>,
 ) -> Result<Output, Problem> {
     let declined = |detail: String| {
         Problem::Declined(Declined {
@@ -518,8 +529,19 @@ fn write_as(
             } else {
                 &found.stream
             };
-            let image = decode_image(document, stream, &found.resources)
-                .map_err(|error| declined(error.to_string()))?;
+            let pdf_model::image::Flattened { image, shortfall } =
+                decode_image(document, stream, &found.resources)
+                    .map_err(|error| declined(error.to_string()))?;
+            // The filter stopped on damaged data and delivered the rows before it: the file
+            // written holds those rows over an unpainted remainder, which the page would draw
+            // the same way, and the report says so where the page's own report would (ADR 0794).
+            if let Some(detail) = shortfall {
+                warnings.push(Warning {
+                    source: plan.source,
+                    page: Some(found.entry.page),
+                    detail: format!("{name}: {detail}"),
+                });
+            }
             let raster = pdf_render::Raster {
                 width: image.width,
                 height: image.height,
@@ -566,7 +588,7 @@ fn decode_image(
     document: &Document,
     stream: &Stream,
     resources: &Dictionary,
-) -> Result<pdf_render::Image, pdf_model::image::ImageError> {
+) -> Result<pdf_model::image::Flattened, pdf_model::image::ImageError> {
     pdf_model::image::decode(
         document,
         stream,
@@ -604,6 +626,9 @@ struct MaskImage {
     width: u32,
     /// Its `/Height`.
     height: u32,
+    /// The filter's sentence where the mask's decode stopped short on damaged data, for the
+    /// caller to report beside the file it writes; see `pdf_model::image::Parts::shortfall`.
+    shortfall: Option<String>,
 }
 
 /// Reads the mask an image states as an image of its own, or says why there is no such image.
@@ -619,12 +644,14 @@ fn mask_of(document: &Document, found: &Found) -> Result<Option<MaskImage>, Stri
     if let Some(mask) = soft.as_stream() {
         // A soft-mask image is a `DeviceGray` image XObject, and its decoded samples *are* the
         // opacity: the grey is read off the red channel because the three are one value.
-        let image = decode_image(document, mask, &found.resources)
-            .map_err(|error| format!("the /SMask could not be decoded ({error})"))?;
+        let pdf_model::image::Flattened { image, shortfall } =
+            decode_image(document, mask, &found.resources)
+                .map_err(|error| format!("the /SMask could not be decoded ({error})"))?;
         return Ok(Some(MaskImage {
             opacity: image.data.chunks_exact(4).map(|px| px[0]).collect(),
             width: image.width,
             height: image.height,
+            shortfall,
         }));
     }
     let explicit = document.get_key(dict, "Mask");
@@ -633,12 +660,14 @@ fn mask_of(document: &Document, found: &Found) -> Result<Option<MaskImage>, Stri
         // base image; masked areas shall not be", and §8.9.6.2 gives the stencil's sample that
         // paints. Decoded as the stencil it is, the painted places are the opaque ones, so the
         // alpha channel is the opacity the base receives.
-        let image = decode_image(document, stencil, &found.resources)
-            .map_err(|error| format!("the /Mask could not be decoded ({error})"))?;
+        let pdf_model::image::Flattened { image, shortfall } =
+            decode_image(document, stencil, &found.resources)
+                .map_err(|error| format!("the /Mask could not be decoded ({error})"))?;
         return Ok(Some(MaskImage {
             opacity: image.data.chunks_exact(4).map(|px| px[3]).collect(),
             width: image.width,
             height: image.height,
+            shortfall,
         }));
     }
     if explicit.as_array().is_some() {

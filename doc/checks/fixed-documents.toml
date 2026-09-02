@@ -503,3 +503,11 @@ session = 864
 reports = []
 ink = 2.333 .. 4.333
 why = "the same defect drawing a page rather than recovering one: the file's subsection stops at an unlexable entry, its /Contents object 4 was among the numbers after it, and §7.3.10's null was reported for a content stream that is in the file (ADR 0789, 7.5.4)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/REDHAT/REDHAT-229174-0.pdf"
+page = 1
+session = 876
+reports = ["CCITTFaxDecode", "delivered 756 of the 2244 scan lines"]
+ink = 3.918 .. 5.918
+why = "a Photoshop 4.0 fax scan whose Group 4 data breaks at scan line 756 of 2244, drawn blank and refused whole; the 756 lines the filter delivered are drawn, the rest left unpainted, and the shortfall reported beside them (ADR 0794, 7.4.6)"
