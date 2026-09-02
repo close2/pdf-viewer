@@ -3411,3 +3411,231 @@ fn a_one_component_space_the_clause_does_not_list_is_reported_though_nothing_com
         "and an isolated Separation group is named on the same condition: {reported}"
     );
 }
+
+/// [`icc_cmyk_profile`] with a `B2A1` table beside its `A2B1`: a bi-directional profile.
+///
+/// The "from CIE" table's corners state one minus each connection-space input on the three
+/// chromatic inks and no black, over the table's own XYZ encoding (`1.0` at `0x8000`) — an
+/// affine rule, so the profile's trilinear interpolation of the corners *is* the rule and a
+/// test's expected inks are `1 − v × 32768 ÷ 65535` per axis. Not a real press's inverse,
+/// and not meant to be: what it has to be is *stated by the file* and different from the
+/// right inverse a search over the `A2B` would find.
+fn two_way_cmyk_profile() -> Vec<u8> {
+    let one_way = icc_cmyk_profile();
+    // The `A2B1` tag is everything after the header, the count and the one entry.
+    let a2b = one_way[144..].to_vec();
+
+    let mut b2a = Vec::new();
+    b2a.extend_from_slice(b"mft2");
+    b2a.extend_from_slice(&[0; 4]);
+    b2a.push(3); // three input channels: the connection space
+    b2a.push(4); // four output channels: the inks
+    b2a.push(2); // two grid points per axis
+    b2a.push(0);
+    for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+        b2a.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+    }
+    b2a.extend_from_slice(&2u16.to_be_bytes());
+    b2a.extend_from_slice(&2u16.to_be_bytes());
+    for _ in 0..3 {
+        for value in [0u16, 0xFFFF] {
+            b2a.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+    for corner in 0..8usize {
+        for axis in 0..3usize {
+            let high = (corner >> (2 - axis)) & 1 == 1;
+            b2a.extend_from_slice(&(if high { 0u16 } else { 0xFFFF }).to_be_bytes());
+        }
+        b2a.extend_from_slice(&0u16.to_be_bytes());
+    }
+    for _ in 0..4 {
+        for value in [0u16, 0xFFFF] {
+            b2a.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+
+    let mut out = one_way[..128].to_vec();
+    out.extend_from_slice(&2u32.to_be_bytes()); // two tags
+    let first = 128 + 4 + 2 * 12;
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&u32::try_from(first).expect("small").to_be_bytes());
+    out.extend_from_slice(&u32::try_from(a2b.len()).expect("small").to_be_bytes());
+    out.extend_from_slice(b"B2A1");
+    out.extend_from_slice(
+        &u32::try_from(first + a2b.len())
+            .expect("small")
+            .to_be_bytes(),
+    );
+    out.extend_from_slice(&u32::try_from(b2a.len()).expect("small").to_be_bytes());
+    out.extend_from_slice(&a2b);
+    out.extend_from_slice(&b2a);
+    out
+}
+
+/// A one-page fixture whose page group names [`two_way_cmyk_profile`] as its blending space.
+fn two_way_press_fixture(content: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in two_way_cmyk_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Group << /S /Transparency /CS [/ICCBased 5 0 R] >> \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 4 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        content.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A colour painted into a page whose press is a bi-directional profile goes in through the
+/// profile's own "from CIE" table (ISO 32000-2 §8.6.5.5, §10.3.1, §11.6.6; ADR 0796).
+///
+/// §8.6.5.5, of an `ICCBased` space used as a blending colour space: "it shall have both 'to
+/// CIE' ( AToB ) and 'from CIE' ( BToA ) information. This is because the group colour space
+/// shall be used as both the destination for objects being painted within the group and the
+/// source for the group's results." So a device grey painted into this page becomes the inks
+/// the `B2A` table states for its XYZ — the table's own rule on sRGB's decoding of the grey
+/// (IEC 61966-2-1: 0.5 is 0.2140 in linear light, and a grey is that fraction of D50) with
+/// the black point compensation the conversion out applies undone first — and the pixel is
+/// those inks taken out through the `A2B`. The control is the same page over the one-way
+/// profile, where the conversion in is a right inverse of the conversion out and the grey
+/// comes back as itself (ADR 0263).
+#[test]
+fn a_colour_painted_into_a_bidirectional_press_goes_in_through_its_from_cie_table() {
+    let content = "0.5 0.5 0.5 rg 0 0 100 100 re f";
+    let drawn = interpret(two_way_press_fixture(content));
+    assert!(
+        drawn.is_complete(),
+        "the page is drawn in the press it names: {:?}",
+        drawn.unsupported
+    );
+    let painted = pixel(&drawn, 50, 50);
+
+    let profile = pdf_model::icc::Profile::parse(&two_way_cmyk_profile())
+        .expect("the two-way fixture profile parses");
+    assert!(profile.is_bidirectional());
+    // sRGB's decoding of 0.5, as a fraction of D50; the compensation undone per axis, from the
+    // press's own darkest colour at full ink.
+    let linear = ((0.5f32 + 0.055) / 1.055).powf(2.4);
+    let white = press_xyz_of(0, [0.0, 0.0, 0.0, 0.0]);
+    let black = press_xyz_of(0, [1.0, 1.0, 1.0, 1.0]);
+    let mut inks = [0.0f32; 4];
+    for axis in 0..3 {
+        let stretched = white[axis] * linear;
+        let plain = stretched / white[axis] * (white[axis] - black[axis]) + black[axis];
+        inks[axis] = 1.0 - plain * 32768.0 / 65535.0;
+    }
+    let wanted = profile.to_rgb(&inks);
+    let level = |value: f32| (value.clamp(0.0, 1.0) * 255.0 + 0.5) as i32;
+    for (axis, want) in [level(wanted.r), level(wanted.g), level(wanted.b)]
+        .into_iter()
+        .enumerate()
+    {
+        let got = i32::from(painted[axis]);
+        assert!(
+            (got - want).abs() <= 2,
+            "channel {axis} is {got} where the table's inks {inks:?} come out at {want} \
+             ({painted:?})"
+        );
+    }
+    assert!(
+        (i32::from(painted[0]) - 128).abs() > 20,
+        "and that is not the grey a right inverse would have brought back: {painted:?}"
+    );
+
+    let control = interpret(press_fixture(
+        "/Group << /S /Transparency /CS [/ICCBased 5 0 R] >>",
+        "",
+        "",
+        content,
+    ));
+    let painted = pixel(&control, 50, 50);
+    for channel in &painted[..3] {
+        assert!(
+            (i32::from(*channel) - 128).abs() <= 1,
+            "over the one-way profile the grey comes back as itself: {painted:?}"
+        );
+    }
+}
+
+/// A one-page fixture with a white page under a black fill masked by a `/Luminosity` group
+/// whose `/CS` is a `CalGray` of gamma 2, so that the mask value is the clause's arithmetic.
+///
+/// `mask` is the group's content, with the space itself available as `/CG`; `backdrop` is
+/// whatever Table 142 entry the soft-mask dictionary states beside `/S` and `/G`.
+fn calibrated_mask_fixture(mask: &str, backdrop: &str) -> Vec<u8> {
+    let cal_gray = "[/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 2 >>]";
+    let page = "1 g 0 0 100 100 re f /GM gs 0 g 0 0 100 100 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /ExtGState << /GM << /SMask << /S /Luminosity /G 5 0 R {backdrop} >> >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS {cal_gray} >> \
+         /Resources << /ColorSpace << /CG {cal_gray} >> >> /Length {} >>\n\
+         stream\n{mask}\nendstream\nendobj\n",
+        page.len() + 1,
+        mask.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A `/Luminosity` mask group whose `/CS` is `CalGray` is composited in its component and
+/// its mask value is §11.5.3's `Y` of the result (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.2).
+///
+/// §11.5.3: "For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component
+/// as the luminosity." §8.6.5.2 gives a `CalGray` component's XYZ as the gamma-decoded
+/// component times the white point, whose `Y` is 1.0 — so a component of 0.5 under `/Gamma 2`
+/// is a luminosity of 0.25, and a black fill through that mask over white leaves 0.75. Table
+/// 142's `/BC` is "n numbers, where n is the number of components in the colour space
+/// specified by the CS entry", so `/BC [0.5]` is the same component and the same 0.75 where
+/// the group paints nothing. The control is the same group in `DeviceGray`, whose 0.5 *is* the
+/// mask value by the clause's device branch.
+#[test]
+fn a_calibrated_mask_group_takes_the_luminance_of_its_composited_component() {
+    let painted = interpret(calibrated_mask_fixture(
+        "/CG cs 0.5 sc 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        painted.is_complete(),
+        "a CalGray mask group is drawn, not reported: {:?}",
+        painted.unsupported
+    );
+    assert_grey(
+        "a component of 0.5 under gamma 2 masks a quarter of the black",
+        pixel(&painted, 50, 50),
+        0.75,
+    );
+
+    let backdrop = interpret(calibrated_mask_fixture("", "/BC [0.5]"));
+    assert_grey(
+        "and /BC states that component where the group paints nothing",
+        pixel(&backdrop, 50, 50),
+        0.75,
+    );
+
+    let device = interpret(calibrated_mask_fixture("0.5 g 0 0 100 100 re f", ""));
+    // A device grey painted *into* the calibrated group is converted in first (§11.6.6): the
+    // component whose device colour has that grey, which under gamma 2 is the component whose
+    // square is sRGB's decoding of 0.5 — so the luminosity is that decoding, 0.2140, and the
+    // page keeps 0.786 of its white.
+    let linear = ((0.5f32 + 0.055) / 1.055).powf(2.4);
+    assert_grey(
+        "a device grey goes in through §11.6.6's conversion and out as its linear light",
+        pixel(&device, 50, 50),
+        1.0 - linear,
+    );
+}

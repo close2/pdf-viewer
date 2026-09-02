@@ -5063,6 +5063,16 @@ to.
   route *into* a one-component space — §10.4.2.2 here, §10.3's for two references — which is
   one decision with the masks and is priced in `doc/todo/23`. **Re-derive the order before
   believing this sentence.**
+  **The eight-hundred-and-seventy-seventh took `ICCBased` 'CMYK' and found the row had
+  mis-described it** (ADR 0796): a four-component profile had been composited as a press since
+  ADR 0272, and what was owed was one direction of one conversion — the way *in*, a right
+  inverse of the sampled `A2B` where §8.6.5.5 says the profile's `B2A` is "the destination for
+  objects being painted within the group" and §10.4.2.1 ranks that route above §10.4.2.4. The
+  profile's own table is read now, in all three encodings, and a colour reaches it as its own
+  XYZ. The same round took §11.5.3's colorimetric branch for a one-component mask group. The
+  row stays `partial` on the route-into-grey choice and on the three-component CIE-based spaces
+  this tree composites in the device's channels. **Re-derive the order before believing this
+  sentence.**
 - **The self-contradicting note has no instrument, and the seven-hundred-and-first measured the
   obvious one and declined it.** ADR 0551 closed on a shape all eighteen sweeps are blind to — two
   paragraphs of one note contradicting each other — and the construction that would see part of it

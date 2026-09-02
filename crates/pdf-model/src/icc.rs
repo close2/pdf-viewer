@@ -23,8 +23,22 @@
 //! from ICC v2, `mAB ` from v4 — and the matrix/curve form that RGB and grey display
 //! profiles use instead. Between them these cover every profile in the corpus.
 //!
-//! Rendering intents beyond picking `A2B1` over `A2B0` are not modelled, and neither is
-//! black point compensation.
+//! **And the other direction, since ADR 0796**: the `B2A1` or `B2A0` transform — "from CIE"
+//! in ISO 32000-2 §8.6.5.5's words — in the same three encodings (`mBA ` for v4), which is
+//! what a profile used as a *blending* colour space has to carry:
+//!
+//! > When such a space is used as the blending colour space for a transparency group in the
+//! > transparent imaging model (see 11.3.4, "Blending colour space"; 11.4, "Transparency
+//! > groups"; and 11.6.6, "Transparency group XObjects"), it shall have both "to CIE" ( AToB )
+//! > and "from CIE" ( BToA ) information. This is because the group colour space shall be
+//! > used as both the destination for objects being painted within the group and the source
+//! > for the group's results.
+//!
+//! [`Profile::to_device`] is that destination route, and `crate::colour`'s press takes a colour
+//! into a four-component `ICCBased` blending space through it (§11.6.6, §11.7.2).
+//!
+//! Rendering intents beyond picking the `1` table over the `0` table are not modelled; black
+//! point compensation is [`Profile::to_rgb_with`]'s, and [`Profile::to_device`] undoes it.
 
 use pdf_render::Color;
 
@@ -48,6 +62,12 @@ pub struct Profile {
     /// Whether the connection space is `Lab` rather than `XYZ`.
     lab_pcs: bool,
     transform: Transform,
+    /// The "from CIE" transform — `B2A1`, or `B2A0` — where the profile carries one.
+    ///
+    /// `None` for a profile that states none, which §8.6.5.5 permits of a profile used as a
+    /// *source* space and forbids of one used as a blending space; a press without one keeps
+    /// the right inverse of its own `A2B` that every press took before ADR 0796.
+    inverse: Option<Box<Lut>>,
     /// The darkest colour this profile's device can make, in connection-space XYZ.
     ///
     /// `None` for a profile whose black is already zero, and for the matrix and grey
@@ -73,10 +93,21 @@ enum Transform {
 }
 
 /// A colour lookup table with curves on either side.
+///
+/// The stages run in this order: [`Lut::matrix`], [`Lut::input`], [`Lut::offsets`],
+/// [`Lut::mid`], the table, [`Lut::output`]. A v2 `mft` table uses the first, second, fifth
+/// and sixth; a v4 `mAB ` the second, fifth and sixth; a v4 `mBA ` — whose B curves, matrix,
+/// M curves, table and A curves come in exactly that order (ISO 15076-1 section 10.11) — all but
+/// the first.
 #[derive(Debug, Clone)]
 struct Lut {
     /// Applied to each input before the table is sampled.
     input: Vec<Curve>,
+    /// A `mBA ` tag's 3×3 matrix and three offsets, applied after [`Lut::input`] and only
+    /// to three inputs.
+    offsets: Option<[f32; 12]>,
+    /// A `mBA ` tag's M curves, applied after [`Lut::offsets`] and before the table.
+    mid: Vec<Curve>,
     /// Applied to each output after it.
     output: Vec<Curve>,
     /// Grid points per input axis.
@@ -305,7 +336,7 @@ impl Profile {
         // round renders every dark colour too light — this profile's registration black
         // came out at (28,27,23) where every other reader shows (0,0,0).
         let transform = if let Some(table) = find(b"A2B1").or_else(|| find(b"A2B0")) {
-            Transform::Lut(Box::new(parse_lut(table, lab_pcs, version_4)?))
+            Transform::Lut(Box::new(parse_lut(table, lab_pcs, version_4, false)?))
         } else if channels == 3 {
             let curves = [b"rTRC", b"gTRC", b"bTRC"]
                 .into_iter()
@@ -326,10 +357,22 @@ impl Profile {
             return None;
         };
 
+        // The "from CIE" table, by the same ranking as the "to CIE" one: `B2A1` is relative
+        // colorimetric, which is PDF's default rendering intent, and `B2A0` is the fallback.
+        // A table this cannot read costs the profile nothing it had — the conversion out is
+        // the profile's whatever the conversion in is — so a refusal here is a `None` and
+        // not a failed parse.
+        let inverse = find(b"B2A1")
+            .or_else(|| find(b"B2A0"))
+            .and_then(|table| parse_lut(table, lab_pcs, version_4, true))
+            .filter(|table| table.grid.len() == 3 && table.outputs >= channels)
+            .map(Box::new);
+
         let mut profile = Self {
             channels,
             lab_pcs,
             transform,
+            inverse,
             black: None,
             identity: identity_of(data),
         };
@@ -423,7 +466,10 @@ impl Profile {
     /// The connection-space XYZ a colour maps to, before compensation or transfer.
     fn connection(&self, values: &[f32]) -> [f32; 3] {
         let raw = match &self.transform {
-            Transform::Lut(lut) => lut.encoding.decode(lut.apply(values, self.channels)),
+            Transform::Lut(lut) => {
+                let out = lut.apply(values, self.channels);
+                lut.encoding.decode([out[0], out[1], out[2]])
+            }
             Transform::Matrix { curves, columns } => {
                 let mut xyz = [0.0f32; 3];
                 for (index, curve) in curves.iter().enumerate().take(3) {
@@ -486,6 +532,17 @@ impl Profile {
     /// Converts a colour, choosing whether to compensate for the black point.
     #[must_use]
     pub fn to_rgb_with(&self, values: &[f32], black_point: bool) -> Color {
+        crate::colour::xyz_d50_to_srgb(self.to_xyz_with(values, black_point))
+    }
+
+    /// The D50 XYZ a colour in this profile's space becomes, compensated or not.
+    ///
+    /// What [`Self::to_rgb_with`] hands the one matrix that turns an XYZ into a pixel, and
+    /// what a caller converting *between* CIE-based spaces wants before that matrix — a
+    /// colour going into another profile's [`Self::to_device`] has no business passing
+    /// through sRGB's gamut on the way.
+    #[must_use]
+    pub fn to_xyz_with(&self, values: &[f32], black_point: bool) -> [f32; 3] {
         let mut xyz = self.connection(values);
 
         // Black point compensation: stretch the profile's range so its darkest colour
@@ -504,9 +561,68 @@ impl Profile {
                 }
             }
         }
-        crate::colour::xyz_d50_to_srgb(xyz)
+        xyz
+    }
+
+    /// Whether this profile carries the "from CIE" information §8.6.5.5 asks of a blending
+    /// colour space — a `B2A1` or `B2A0` table this crate can evaluate.
+    #[must_use]
+    pub fn is_bidirectional(&self) -> bool {
+        self.inverse.is_some()
+    }
+
+    /// The device colour that reproduces a D50 XYZ, through the profile's `B2A` table.
+    ///
+    /// This is the conversion *into* an `ICCBased` blending colour space — the destination
+    /// half of §8.6.5.5's sentence quoted in the module header — and it is the profile's
+    /// own answer rather than a search over its `A2B`: ISO 32000-2 §10.3.1 hands a
+    /// CIE-to-CIE conversion to the ICC specification, and a `B2A` table is that
+    /// specification's statement of which device colour a connection-space colour becomes,
+    /// gamut mapping included. Where the colour lies outside the device's gamut the table's
+    /// answer is the profile writer's mapping, which is what §11.7.5.3 means by the rendering
+    /// intent "taking into account the target space's colour gamut".
+    ///
+    /// `black_point` says whether `xyz` was produced *with* [`Self::to_rgb_with`]'s black
+    /// point compensation, in which case the stretch is undone first so that the two
+    /// directions are inverses in the same sense: a colour taken out of the press with the
+    /// compensation on and brought back in lands on the device colour it came from, to the
+    /// profile's own round-trip precision.
+    ///
+    /// The result has the profile's channel count and zeros beyond it. `None` where the
+    /// profile carries no table this crate reads, which [`Self::is_bidirectional`] says in
+    /// advance.
+    #[must_use]
+    pub fn to_device(&self, xyz: [f32; 3], black_point: bool) -> Option<[f32; MAX_OUTPUTS]> {
+        let inverse = self.inverse.as_ref()?;
+        let mut xyz = xyz;
+        if let Some(black) = self.black.filter(|_| black_point) {
+            for (axis, value) in xyz.iter_mut().enumerate() {
+                let white = WHITE.get(axis).copied().unwrap_or(1.0);
+                let low = black.get(axis).copied().unwrap_or(0.0);
+                let span = white - low;
+                if span > 1e-9 && white.abs() > 1e-9 {
+                    *value = *value / white * span + low;
+                }
+            }
+        }
+        let pcs = if self.lab_pcs {
+            crate::colour::xyz_to_lab(xyz)
+        } else {
+            xyz
+        };
+        let mut out = inverse.apply(&inverse.encoding.encode(pcs), 3);
+        for value in out.iter_mut().skip(self.channels) {
+            *value = 0.0;
+        }
+        Some(out)
     }
 }
+
+/// Largest number of output channels a table is evaluated for.
+///
+/// Four: PDF's `/N` permits one, three or four, and a table with more outputs — ICC permits
+/// fifteen — has the rest unread, which costs nothing this crate could consume.
+pub const MAX_OUTPUTS: usize = 4;
 
 /// Largest number of input channels a table is evaluated for without allocating.
 ///
@@ -521,18 +637,20 @@ const MAX_INPUTS: usize = 15;
 impl Lut {
     /// Runs a colour through the input curves, the table and the output curves.
     ///
-    /// The output is three components because the profile connection space has three,
-    /// whatever the table's declared output count: [`Encoding::decode`] reads exactly that
-    /// many, so computing more would be computing what nothing consumes.
-    fn apply(&self, values: &[f32], channels: usize) -> [f32; 3] {
+    /// The output holds [`MAX_OUTPUTS`] components, of which a "to CIE" table fills three —
+    /// the connection space has three, and [`Encoding::decode`] reads exactly that many — and
+    /// a "from CIE" table fills the device's count.
+    fn apply(&self, values: &[f32], channels: usize) -> [f32; MAX_OUTPUTS] {
         let count = channels.min(MAX_INPUTS);
         let mut inputs = [0.0f32; MAX_INPUTS];
         for (index, slot) in inputs.iter_mut().enumerate().take(count) {
             *slot = values.get(index).copied().unwrap_or(0.0).clamp(0.0, 1.0);
         }
 
-        // The matrix applies only to an XYZ input space, which a PDF never has; it is
-        // read and applied anyway so that a profile carrying one is not silently ignored.
+        // A `mft` table's matrix applies only to an XYZ input space, which for a "to CIE"
+        // table a PDF never has; it is read and applied anyway so that a profile carrying one
+        // is not silently ignored. For a "from CIE" table the input *is* the connection
+        // space, and the parser drops the matrix where that space is Lab.
         if let Some(matrix) = &self.matrix
             && count == 3
         {
@@ -557,6 +675,37 @@ impl Lut {
             }
         }
 
+        // A `mBA ` tag's matrix and M curves, between the B curves and the table. The
+        // matrix is three rows of three with an offset each, over three inputs only, and its
+        // result is clamped like every other stage's input — ISO 15076-1 section 10.11 has the
+        // stages produce values in the table's own encoding.
+        if let Some(offsets) = &self.offsets
+            && count == 3
+        {
+            let mut out = [0.0f32; 3];
+            for (row, value) in out.iter_mut().enumerate() {
+                for (column, input) in inputs.iter().enumerate().take(3) {
+                    *value += offsets
+                        .get(row.saturating_mul(3).saturating_add(column))
+                        .copied()
+                        .unwrap_or(0.0)
+                        * input;
+                }
+                *value += offsets
+                    .get(9usize.saturating_add(row))
+                    .copied()
+                    .unwrap_or(0.0);
+            }
+            for (slot, value) in inputs.iter_mut().zip(out) {
+                *slot = value.clamp(0.0, 1.0);
+            }
+        }
+        for (index, value) in inputs.iter_mut().enumerate().take(count) {
+            if let Some(curve) = self.mid.get(index) {
+                *value = curve.apply(*value);
+            }
+        }
+
         let mut out = self.sample(inputs.get(..count).unwrap_or_default());
         for (index, value) in out.iter_mut().enumerate() {
             if let Some(curve) = self.output.get(index) {
@@ -567,9 +716,9 @@ impl Lut {
     }
 
     /// Samples the table, interpolating multilinearly between grid points.
-    fn sample(&self, inputs: &[f32]) -> [f32; 3] {
+    fn sample(&self, inputs: &[f32]) -> [f32; MAX_OUTPUTS] {
         let dimensions = self.grid.len();
-        let mut result = [0.0f32; 3];
+        let mut result = [0.0f32; MAX_OUTPUTS];
         if dimensions > MAX_INPUTS {
             return result;
         }
@@ -624,7 +773,7 @@ impl Lut {
             if weight == 0.0 {
                 continue;
             }
-            for (component, value) in result.iter_mut().enumerate() {
+            for (component, value) in result.iter_mut().enumerate().take(self.outputs) {
                 let at = offset
                     .saturating_mul(self.outputs)
                     .saturating_add(component);
@@ -681,18 +830,28 @@ fn parse_curve(tag: &[u8]) -> Option<Curve> {
     }
 }
 
-/// Parses an `A2B` tag in any of its three encodings.
-fn parse_lut(tag: &[u8], lab_pcs: bool, version_4: bool) -> Option<Lut> {
-    match tag.get(..4)? {
-        b"mft1" => parse_mft(tag, 1, lab_pcs, version_4),
-        b"mft2" => parse_mft(tag, 2, lab_pcs, version_4),
-        b"mAB " => parse_mab(tag, lab_pcs),
+/// Parses an `A2B` or `B2A` tag in any of its three encodings.
+///
+/// `from_pcs` says which: a "from CIE" table's *inputs* are the connection space, which
+/// decides what its `mft` matrix applies to and which v4 tag type it is stored as.
+fn parse_lut(tag: &[u8], lab_pcs: bool, version_4: bool, from_pcs: bool) -> Option<Lut> {
+    match (tag.get(..4)?, from_pcs) {
+        (b"mft1", _) => parse_mft(tag, 1, lab_pcs, version_4, from_pcs),
+        (b"mft2", _) => parse_mft(tag, 2, lab_pcs, version_4, from_pcs),
+        (b"mAB ", false) => parse_mab(tag, lab_pcs),
+        (b"mBA ", true) => parse_mba(tag, lab_pcs),
         _ => None,
     }
 }
 
 /// Parses the v2 `lut8Type` and `lut16Type` tags, which differ only in sample width.
-fn parse_mft(tag: &[u8], width: usize, lab_pcs: bool, version_4: bool) -> Option<Lut> {
+fn parse_mft(
+    tag: &[u8],
+    width: usize,
+    lab_pcs: bool,
+    version_4: bool,
+    from_pcs: bool,
+) -> Option<Lut> {
     let inputs = usize::from(*tag.get(8)?);
     let outputs = usize::from(*tag.get(9)?);
     let points = usize::from(*tag.get(10)?);
@@ -714,6 +873,10 @@ fn parse_mft(tag: &[u8], width: usize, lab_pcs: bool, version_4: bool) -> Option
         reason = "detecting the literal identity a profile writes, not comparing results"
     )]
     let matrix = (matrix != identity).then_some(matrix);
+    // ISO 15076-1 section 10.10: the matrix "shall only be used when the input colour space is
+    // PCSXYZ". A "from CIE" table's input is the connection space, so the question has an
+    // answer here: it applies for an XYZ connection space and not for a Lab one.
+    let matrix = matrix.filter(|_| !(from_pcs && lab_pcs));
 
     // `lut8` has fixed 256-entry tables; `lut16` states its own sizes.
     let (input_entries, output_entries, mut at) = if width == 1 {
@@ -776,6 +939,8 @@ fn parse_mft(tag: &[u8], width: usize, lab_pcs: bool, version_4: bool) -> Option
     };
     Some(Lut {
         input,
+        offsets: None,
+        mid: Vec::new(),
         output,
         grid: vec![points; inputs],
         outputs,
@@ -783,6 +948,120 @@ fn parse_mft(tag: &[u8], width: usize, lab_pcs: bool, version_4: bool) -> Option
         matrix,
         encoding,
     })
+}
+
+/// Parses the v4 `lutBToAType` tag: B curves, a matrix, M curves, the table, A curves.
+///
+/// The mirror image of [`parse_mab`] — the same five offsets in the same header slots, with
+/// the stages run the other way round, which is why the B curves are this table's *input*
+/// and the A curves its output. Unlike the "to CIE" parser, the matrix and M curves are
+/// modelled rather than refused: a "from CIE" table's input is the connection space, and a
+/// matrix over it is how a v4 profile shapes Lab or XYZ before the table.
+fn parse_mba(tag: &[u8], lab_pcs: bool) -> Option<Lut> {
+    let inputs = usize::from(*tag.get(8)?);
+    let outputs = usize::from(*tag.get(9)?);
+    if inputs != 3 || outputs == 0 || outputs > MAX_INPUTS {
+        return None;
+    }
+
+    let offset = |at: usize| -> Option<usize> { usize::try_from(u32_at(tag, at)?).ok() };
+    let (b_at, matrix_at, m_at, clut_at, a_at) = (
+        offset(12)?,
+        offset(16)?,
+        offset(20)?,
+        offset(24)?,
+        offset(28)?,
+    );
+
+    let curves = |start: usize, count: usize| -> Option<Vec<Curve>> {
+        if start == 0 {
+            return Some(vec![Curve::None; count]);
+        }
+        let mut out = Vec::with_capacity(count);
+        let mut at = start;
+        for _ in 0..count {
+            let rest = tag.get(at..)?;
+            out.push(parse_curve(rest)?);
+            at = at.checked_add(curve_length(rest)?)?;
+            at = at.checked_add(at.wrapping_neg() % 4)?;
+        }
+        Some(out)
+    };
+
+    let input = curves(b_at, inputs)?;
+    let mid = curves(m_at, inputs)?;
+    let output = curves(a_at, outputs)?;
+
+    let offsets = if matrix_at == 0 {
+        None
+    } else {
+        let mut matrix = [0.0f32; 12];
+        for (index, slot) in matrix.iter_mut().enumerate() {
+            *slot = fixed_at(tag, matrix_at.checked_add(index.checked_mul(4)?)?)?;
+        }
+        Some(matrix)
+    };
+
+    // A table is not optional here: three connection-space components become the device's
+    // count only through one, and a `mBA ` tag with none describes a 3 → 3 map this crate
+    // has no use for.
+    if clut_at == 0 {
+        return None;
+    }
+    let (grid, samples) = parse_clut(tag, clut_at, inputs, outputs)?;
+
+    Some(Lut {
+        input,
+        offsets,
+        mid,
+        output,
+        grid,
+        outputs,
+        samples,
+        matrix: None,
+        encoding: if lab_pcs {
+            Encoding::Lab
+        } else {
+            Encoding::Xyz
+        },
+    })
+}
+
+/// Reads a v4 tag's CLUT: grid sizes per input, a sample width, and the samples.
+fn parse_clut(
+    tag: &[u8],
+    clut_at: usize,
+    inputs: usize,
+    outputs: usize,
+) -> Option<(Vec<usize>, Vec<f32>)> {
+    let mut grid = Vec::with_capacity(inputs);
+    for index in 0..inputs {
+        grid.push(usize::from(*tag.get(clut_at.checked_add(index)?)?));
+    }
+    if grid.iter().any(|points| *points < 2) {
+        return None;
+    }
+    let width = usize::from(*tag.get(clut_at.checked_add(16)?)?);
+    if width != 1 && width != 2 {
+        return None;
+    }
+    let total = grid
+        .iter()
+        .try_fold(outputs, |acc, points| acc.checked_mul(*points))?;
+    if total > MAX_CLUT {
+        return None;
+    }
+    let start = clut_at.checked_add(20)?;
+    let mut samples = Vec::with_capacity(total);
+    for index in 0..total {
+        let at = start.checked_add(index.checked_mul(width)?)?;
+        samples.push(if width == 1 {
+            f32::from(*tag.get(at)?) / 255.0
+        } else {
+            f32::from(u16_at(tag, at)?) / 65535.0
+        });
+    }
+    Some((grid, samples))
 }
 
 /// Parses the v4 `lutAToBType` tag.
@@ -829,34 +1108,7 @@ fn parse_mab(tag: &[u8], lab_pcs: bool) -> Option<Lut> {
     let (grid, samples) = if clut_at == 0 {
         (vec![2usize; inputs], vec![0.0; 1usize << inputs])
     } else {
-        let mut grid = Vec::with_capacity(inputs);
-        for index in 0..inputs {
-            grid.push(usize::from(*tag.get(clut_at.checked_add(index)?)?));
-        }
-        if grid.iter().any(|points| *points < 2) {
-            return None;
-        }
-        let width = usize::from(*tag.get(clut_at.checked_add(16)?)?);
-        if width != 1 && width != 2 {
-            return None;
-        }
-        let total = grid
-            .iter()
-            .try_fold(outputs, |acc, points| acc.checked_mul(*points))?;
-        if total > MAX_CLUT {
-            return None;
-        }
-        let start = clut_at.checked_add(20)?;
-        let mut samples = Vec::with_capacity(total);
-        for index in 0..total {
-            let at = start.checked_add(index.checked_mul(width)?)?;
-            samples.push(if width == 1 {
-                f32::from(*tag.get(at)?) / 255.0
-            } else {
-                f32::from(u16_at(tag, at)?) / 65535.0
-            });
-        }
-        (grid, samples)
+        parse_clut(tag, clut_at, inputs, outputs)?
     };
 
     // The M curves and the matrix are not modelled: they only appear in profiles whose
@@ -869,6 +1121,8 @@ fn parse_mab(tag: &[u8], lab_pcs: bool) -> Option<Lut> {
 
     Some(Lut {
         input,
+        offsets: None,
+        mid: Vec::new(),
         output,
         grid,
         outputs,
@@ -925,6 +1179,34 @@ enum Encoding {
 }
 
 impl Encoding {
+    /// Turns connection-space values into the normalised inputs a "from CIE" table reads.
+    ///
+    /// [`Self::decode`] run backwards, written beside it so that the two cannot drift;
+    /// `an_encoding_round_trips_through_its_inverse` holds them together.
+    fn encode(self, values: [f32; 3]) -> [f32; 3] {
+        let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
+        match self {
+            Self::Xyz => [
+                at(0) * 32768.0 / 65535.0,
+                at(1) * 32768.0 / 65535.0,
+                at(2) * 32768.0 / 65535.0,
+            ],
+            Self::Lab => [
+                at(0) / 100.0,
+                (at(1) + 128.0) / 255.0,
+                (at(2) + 128.0) / 255.0,
+            ],
+            Self::LabLegacy => {
+                let scale = 65280.0 / 65535.0;
+                [
+                    at(0) / 100.0 * scale,
+                    (at(1) + 128.0) / 255.0 * scale,
+                    (at(2) + 128.0) / 255.0 * scale,
+                ]
+            }
+        }
+    }
+
     /// Turns a table's normalised outputs into actual connection-space values.
     fn decode(self, values: [f32; 3]) -> [f32; 3] {
         let at = |index: usize| values.get(index).copied().unwrap_or(0.0);
@@ -948,9 +1230,191 @@ impl Encoding {
     }
 }
 
+/// Profiles assembled byte by byte, for this module's tests and `crate::colour`'s.
+///
+/// Everything here is positional, so each builder doubles as a statement of the layout the
+/// parser is expected to read.
+#[cfg(test)]
+pub(crate) mod fixtures {
+    #![expect(
+        clippy::arithmetic_side_effects,
+        reason = "layout arithmetic on a fixture's own constants, which cannot overflow"
+    )]
+
+    /// A profile of `version` over `space` and `pcs`, holding `tags` in order.
+    ///
+    /// A 128-byte header, the tag count, one 12-byte entry per tag, then the tags themselves.
+    pub(crate) fn profile_of(
+        space: [u8; 4],
+        pcs: [u8; 4],
+        version: u8,
+        tags: &[([u8; 4], Vec<u8>)],
+    ) -> Vec<u8> {
+        let mut out = vec![0u8; 128];
+        out[8] = version;
+        out[12..16].copy_from_slice(b"prtr");
+        out[16..20].copy_from_slice(&space);
+        out[20..24].copy_from_slice(&pcs);
+        out[36..40].copy_from_slice(b"acsp");
+        out.extend_from_slice(&u32::try_from(tags.len()).expect("small").to_be_bytes());
+        let mut offset = 128 + 4 + 12 * tags.len();
+        for (name, tag) in tags {
+            out.extend_from_slice(name);
+            out.extend_from_slice(&u32::try_from(offset).expect("small").to_be_bytes());
+            out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+            offset += tag.len();
+        }
+        for (_, tag) in tags {
+            out.extend_from_slice(tag);
+        }
+        out
+    }
+
+    /// An `mft2` tag with two grid points per axis and identity curves, so that the table
+    /// *is* its corners and the profile's own interpolation fills in between them.
+    ///
+    /// Sizes, matrix, input curves, CLUT, output curves, in that order. `clut` holds the
+    /// corners with the *last* input varying fastest, which is ICC's own order.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    pub(crate) fn mft2_tag(inputs: usize, outputs: usize, clut: &[u16]) -> Vec<u8> {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"mft2");
+        tag.extend_from_slice(&[0; 4]);
+        tag.push(u8::try_from(inputs).expect("small"));
+        tag.push(u8::try_from(outputs).expect("small"));
+        tag.push(2);
+        tag.push(0);
+        for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tag.extend_from_slice(&2u16.to_be_bytes());
+        tag.extend_from_slice(&2u16.to_be_bytes());
+        for _ in 0..inputs {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        assert_eq!(
+            clut.len(),
+            (1 << inputs) * outputs,
+            "a corner per grid point"
+        );
+        for value in clut {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+        for _ in 0..outputs {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        tag
+    }
+
+    /// A `mBA ` tag over three inputs: no B curves, `matrix` if given, no M curves, a 2×2×2
+    /// table of sixteen-bit samples, no A curves — the five offsets in the header slots
+    /// ISO 15076-1 section 10.11 gives them, and a zero offset for a stage that is absent.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    pub(crate) fn mba_tag(outputs: usize, clut: &[u16], matrix: Option<[f32; 12]>) -> Vec<u8> {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"mBA ");
+        tag.extend_from_slice(&[0; 4]);
+        tag.push(3);
+        tag.push(u8::try_from(outputs).expect("small"));
+        tag.extend_from_slice(&[0; 2]);
+        let matrix_at: u32 = if matrix.is_some() { 32 } else { 0 };
+        let clut_at: u32 = 32 + if matrix.is_some() { 48 } else { 0 };
+        for at in [0u32, matrix_at, 0, clut_at, 0] {
+            tag.extend_from_slice(&at.to_be_bytes());
+        }
+        if let Some(matrix) = matrix {
+            for value in matrix {
+                tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+            }
+        }
+        let mut grid = [0u8; 16];
+        grid[..3].copy_from_slice(&[2, 2, 2]);
+        tag.extend_from_slice(&grid);
+        tag.push(2);
+        tag.extend_from_slice(&[0; 3]);
+        assert_eq!(clut.len(), 8 * outputs, "a corner per grid point");
+        for value in clut {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+        tag
+    }
+
+    /// A "from CIE" table whose corners state one minus each input on the three chromatic
+    /// inks and no black — an affine rule, so trilinear interpolation of the corners *is* the
+    /// rule and a test's expected value is `1 − input` and nothing else.
+    pub(crate) fn complement_clut() -> Vec<u16> {
+        let mut clut = Vec::with_capacity(32);
+        for corner in 0..8usize {
+            for axis in 0..3usize {
+                let high = (corner >> (2 - axis)) & 1 == 1;
+                clut.push(if high { 0 } else { 0xFFFF });
+            }
+            clut.push(0);
+        }
+        clut
+    }
+
+    /// A "to CIE" table of a press whose black ink alone darkens: `XYZ = D50 × (1 − 0.9 k)`,
+    /// so its darkest colour is a tenth of white and black point compensation has a range
+    /// to align.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "the fixture's constants are written as the fixed-point values it encodes"
+    )]
+    pub(crate) fn black_only_clut() -> Vec<u16> {
+        let mut clut = Vec::with_capacity(48);
+        for corner in 0..16usize {
+            let black = if corner & 1 == 1 { 1.0f32 } else { 0.0 };
+            for white in super::WHITE {
+                clut.push((white * (1.0 - 0.9 * black) * 32768.0) as u16);
+            }
+        }
+        clut
+    }
+
+    /// A v2 CMYK profile over an XYZ connection space carrying both directions:
+    /// [`black_only_clut`] out and [`complement_clut`] in.
+    pub(crate) fn two_way_cmyk_profile() -> Vec<u8> {
+        profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+            ],
+        )
+    }
+
+    /// The same press with its "to CIE" table only.
+    pub(crate) fn one_way_cmyk_profile() -> Vec<u8> {
+        profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[(*b"A2B1", mft2_tag(4, 3, &black_only_clut()))],
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Profile;
+    use super::fixtures::{
+        black_only_clut, complement_clut, mba_tag, mft2_tag, one_way_cmyk_profile, profile_of,
+        two_way_cmyk_profile,
+    };
+    use super::{Encoding, Profile};
 
     /// A real CMYK profile, taken from the pdf.js corpus at test time.
     ///
@@ -1258,6 +1722,188 @@ mod tests {
             bytes(generic),
             bytes(managed),
             "this profile's cyan differs from the generic one, so the two must not agree"
+        );
+    }
+
+    /// The two encodings written beside each other are inverses.
+    #[test]
+    fn an_encoding_round_trips_through_its_inverse() {
+        for encoding in [Encoding::Xyz, Encoding::Lab, Encoding::LabLegacy] {
+            for values in [[0.0, 0.0, 0.0], [0.5, 0.25, 0.75], [1.0, 1.0, 1.0]] {
+                let back = encoding.encode(encoding.decode(values));
+                for (got, want) in back.iter().zip(values) {
+                    assert!(
+                        (got - want).abs() < 1e-5,
+                        "{encoding:?}: {values:?} came back as {back:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// §8.6.5.5's "from CIE" information is read, and it states the device colour of a
+    /// connection-space colour.
+    ///
+    /// The table's corners state `1 − input` on the three chromatic inks and no black, over
+    /// the table's own input encoding — XYZ with 1.0 at `0x8000`, so a connection-space value
+    /// `v` is the input `v × 32768 ÷ 65535` — and trilinear interpolation of an affine rule is
+    /// the rule. So the expected inks are that arithmetic on the XYZ handed in, and nothing
+    /// this module computes goes into them.
+    #[test]
+    fn a_from_cie_table_states_the_device_colour_of_a_connection_space_colour() {
+        let profile = Profile::parse(&two_way_cmyk_profile()).expect("parses");
+        assert!(profile.is_bidirectional());
+
+        let xyz = [0.482_1, 0.5, 0.412_45];
+        let inks = profile.to_device(xyz, false).expect("a from-CIE table");
+        let want = [
+            1.0 - 0.482_1 * 32768.0 / 65535.0,
+            1.0 - 0.5 * 32768.0 / 65535.0,
+            1.0 - 0.412_45 * 32768.0 / 65535.0,
+            0.0,
+        ];
+        for (axis, (got, want)) in inks.iter().zip(want).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-4,
+                "ink {axis}: {got} where the table states {want} ({inks:?})"
+            );
+        }
+    }
+
+    /// A profile stating no such table is not bi-directional, and keeps everything it had.
+    #[test]
+    fn a_profile_without_a_from_cie_table_is_not_bidirectional() {
+        let profile = Profile::parse(&one_way_cmyk_profile()).expect("parses");
+        assert!(!profile.is_bidirectional());
+        assert!(profile.to_device([0.5, 0.5, 0.5], false).is_none());
+        // The "to CIE" half is untouched: black point compensation still finds the press's
+        // black at a tenth of white and stretches it to the display's.
+        assert_eq!(bytes(profile.to_rgb(&[0.0, 0.0, 0.0, 1.0])), (0, 0, 0));
+    }
+
+    /// The conversion in undoes the black point compensation the conversion out applied, so
+    /// the two are inverses in the same sense whichever way §8.6.5.9's flag is set.
+    #[test]
+    fn the_conversion_in_undoes_the_compensation_the_conversion_out_applied() {
+        let profile = Profile::parse(&two_way_cmyk_profile()).expect("parses");
+        for inks in [
+            [0.0f32, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.5],
+            [0.3, 0.2, 0.1, 0.7],
+        ] {
+            let compensated = profile
+                .to_device(profile.to_xyz_with(&inks, true), true)
+                .expect("a from-CIE table");
+            let plain = profile
+                .to_device(profile.to_xyz_with(&inks, false), false)
+                .expect("a from-CIE table");
+            for (axis, (got, want)) in compensated.iter().zip(plain).enumerate() {
+                assert!(
+                    (got - want).abs() < 1e-4,
+                    "ink {axis} of {inks:?}: {got} compensated against {want} plain"
+                );
+            }
+        }
+        // And the test discriminates: a compensated XYZ read *without* undoing the stretch is
+        // a different colour, by the whole of the range the stretch aligned.
+        let inks = [0.0f32, 0.0, 0.0, 0.5];
+        let mixed = profile
+            .to_device(profile.to_xyz_with(&inks, true), false)
+            .expect("a from-CIE table");
+        let plain = profile
+            .to_device(profile.to_xyz_with(&inks, false), false)
+            .expect("a from-CIE table");
+        assert!(
+            (mixed[1] - plain[1]).abs() > 0.02,
+            "the stretch moves a mid grey: {mixed:?} against {plain:?}"
+        );
+    }
+
+    /// A v2 sixteen-bit table over a Lab connection space reads the legacy encoding on its
+    /// input — `L* = 100` at `0xFF00` — exactly as [`Encoding::decode`] reads it on an output.
+    #[test]
+    fn a_legacy_lab_from_cie_table_reads_its_input_as_the_legacy_encoding() {
+        let profile = Profile::parse(&profile_of(
+            *b"CMYK",
+            *b"Lab ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &[0x8000u16; 48])),
+                (*b"B2A1", mft2_tag(3, 4, &complement_clut())),
+            ],
+        ))
+        .expect("parses");
+        let inks = profile
+            .to_device(crate::colour::lab_to_xyz(50.0, 0.0, 0.0), false)
+            .expect("a from-CIE table");
+        let scale = 65280.0 / 65535.0;
+        let want = [
+            1.0 - 0.5 * scale,
+            1.0 - 128.0 / 255.0 * scale,
+            1.0 - 128.0 / 255.0 * scale,
+            0.0,
+        ];
+        for (axis, (got, want)) in inks.iter().zip(want).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-3,
+                "ink {axis}: {got} where the legacy encoding states {want} ({inks:?})"
+            );
+        }
+    }
+
+    /// A v4 `mBA ` tag runs its B curves, matrix and M curves before its table, in that order.
+    ///
+    /// Without a matrix the corner rule reads the v4 Lab encoding straight — `L* = 50` is
+    /// `0.5`, `a* = b* = 0` is `128 ÷ 255` — and with one whose offsets add a tenth to the
+    /// first channel, that channel's input is `0.6`.
+    #[test]
+    fn a_v4_from_cie_table_runs_its_matrix_before_its_table() {
+        let expect = |matrix: Option<[f32; 12]>, first: f32| {
+            let profile = Profile::parse(&profile_of(
+                *b"CMYK",
+                *b"Lab ",
+                4,
+                &[
+                    (*b"A2B1", mft2_tag(4, 3, &[0x8000u16; 48])),
+                    (*b"B2A1", mba_tag(4, &complement_clut(), matrix)),
+                ],
+            ))
+            .expect("parses");
+            let inks = profile
+                .to_device(crate::colour::lab_to_xyz(50.0, 0.0, 0.0), false)
+                .expect("a from-CIE table");
+            let want = [1.0 - first, 1.0 - 128.0 / 255.0, 1.0 - 128.0 / 255.0, 0.0];
+            for (axis, (got, want)) in inks.iter().zip(want).enumerate() {
+                assert!(
+                    (got - want).abs() < 1e-3,
+                    "ink {axis} with matrix {matrix:?}: {got} where the table states {want}"
+                );
+            }
+        };
+        expect(None, 0.5);
+        expect(
+            Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.1, 0.0, 0.0]),
+            0.6,
+        );
+    }
+
+    /// A "to CIE" table is still read from a profile whose "from CIE" one cannot be.
+    #[test]
+    fn an_unreadable_from_cie_table_costs_the_profile_nothing_it_had() {
+        let profile = Profile::parse(&profile_of(
+            *b"CMYK",
+            *b"XYZ ",
+            2,
+            &[
+                (*b"A2B1", mft2_tag(4, 3, &black_only_clut())),
+                (*b"B2A1", b"junk".to_vec()),
+            ],
+        ))
+        .expect("the to-CIE half parses on its own");
+        assert!(!profile.is_bidirectional());
+        assert_eq!(
+            bytes(profile.to_rgb(&[0.0, 0.0, 0.0, 0.0])),
+            (255, 255, 255)
         );
     }
 

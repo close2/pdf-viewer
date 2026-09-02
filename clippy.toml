@@ -16,3 +16,8 @@ cognitive-complexity-threshold = 20
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
+
+# ICC's own tag names, quoted verbatim from ISO 32000-2 §8.6.5.5 in rustdoc: the "to CIE"
+# (AToB) and "from CIE" (BToA) information a blending-space profile shall carry. A quotation
+# may not gain backticks, so the words are declared rather than the lint silenced at each site.
+doc-valid-idents = ["AToB", "BToA", ".."]
