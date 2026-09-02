@@ -13666,6 +13666,147 @@ fn our_rendering_agrees_with_the_reference_consensus_across_the_corpus() {
     check_the_ratchets(&results);
 }
 
+/// Every `CONTRADICTED_*` group the ratchet holds, by name, in the order the file declares them.
+///
+/// One table with two readers. [`check_the_ratchets`] chains the pages into the single ratchet the
+/// contradicted pool has always been held by, and [`rank_the_contradicted_by_the_bound`] prints
+/// the name beside each ranked row — so that a round handed the pool's head can see, on the line
+/// it reads, whether the page's cause is already written down and under which name. Until the
+/// eight-hundred-and-seventy-third session that took a round the better part of an hour, by hand,
+/// against twenty-three declarations spread over eleven thousand lines (ADR 0805).
+///
+/// [`CONTRADICTED_ON_A_PAGE_WE_REPORT`] is deliberately **not** in it: its pages are outside the
+/// ratchet by construction and held by their own staleness check below, and [`held_by`] looks
+/// there second so that the ranking — which does not filter on `complete` — still names it.
+const CONTRADICTED_GROUPS: &[(&str, &[&str])] = &[
+    ("CONTRADICTED_PAGE_ROUNDING", &CONTRADICTED_PAGE_ROUNDING),
+    (
+        "CONTRADICTED_COINCIDENT_CLIP_EDGES",
+        &CONTRADICTED_COINCIDENT_CLIP_EDGES,
+    ),
+    (
+        "CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE",
+        &CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE,
+    ),
+    (
+        "CONTRADICTED_SHARED_JBIG2_DECODER",
+        &CONTRADICTED_SHARED_JBIG2_DECODER,
+    ),
+    (
+        "CONTRADICTED_IMAGE_RESAMPLING",
+        &CONTRADICTED_IMAGE_RESAMPLING,
+    ),
+    (
+        "CONTRADICTED_CALIBRATED_COLOUR",
+        &CONTRADICTED_CALIBRATED_COLOUR,
+    ),
+    (
+        "CONTRADICTED_CALRGB_TO_SCREEN",
+        &CONTRADICTED_CALRGB_TO_SCREEN,
+    ),
+    (
+        "CONTRADICTED_REFERENCE_GLYPH_WIDTHS",
+        &CONTRADICTED_REFERENCE_GLYPH_WIDTHS,
+    ),
+    (
+        "CONTRADICTED_NEGATIVE_LINE_WIDTH",
+        &CONTRADICTED_NEGATIVE_LINE_WIDTH,
+    ),
+    (
+        "CONTRADICTED_DEVICE_CMYK_CONVERSION",
+        &CONTRADICTED_DEVICE_CMYK_CONVERSION,
+    ),
+    ("CONTRADICTED_SUBPIXEL_IMAGE", &CONTRADICTED_SUBPIXEL_IMAGE),
+    (
+        "CONTRADICTED_MASK_QUANTISATION",
+        &CONTRADICTED_MASK_QUANTISATION,
+    ),
+    (
+        "CONTRADICTED_VISIBILITY_EXPRESSION",
+        &CONTRADICTED_VISIBILITY_EXPRESSION,
+    ),
+    (
+        "CONTRADICTED_REFERENCES_DREW_NOTHING",
+        &CONTRADICTED_REFERENCES_DREW_NOTHING,
+    ),
+    ("CONTRADICTED_LINK_BORDER", &CONTRADICTED_LINK_BORDER),
+    (
+        "CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR",
+        &CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR,
+    ),
+    (
+        "CONTRADICTED_ANTIALIASED_EDGES",
+        &CONTRADICTED_ANTIALIASED_EDGES,
+    ),
+    ("CONTRADICTED_GLYPH_EDGES", &CONTRADICTED_GLYPH_EDGES),
+    (
+        "CONTRADICTED_SYMBOLIC_FONT_FLAGS",
+        &CONTRADICTED_SYMBOLIC_FONT_FLAGS,
+    ),
+    (
+        "CONTRADICTED_SUBSTITUTED_FONT",
+        &CONTRADICTED_SUBSTITUTED_FONT,
+    ),
+    ("CONTRADICTED_UNEXPLAINED", &CONTRADICTED_UNEXPLAINED),
+    (
+        "CONTRADICTED_TIGHT_CONSENSUS",
+        &CONTRADICTED_TIGHT_CONSENSUS,
+    ),
+];
+
+/// Every `CONTRADICTED_*` declaration in this file is in [`CONTRADICTED_GROUPS`], or is the one
+/// the table's comment excludes by name.
+///
+/// A group added to the file and not to the table would leave the ratchet exactly as the old
+/// hand-written chain would have — silently one group short — so the table is checked against
+/// the source it lives in. Not `#[ignore]`d: it reads no corpus and costs nothing.
+#[test]
+fn every_contradicted_group_is_in_the_table() {
+    let declared: Vec<&str> = include_str!("oracle.rs")
+        .lines()
+        .filter_map(|line| line.strip_prefix("const CONTRADICTED_"))
+        .filter_map(|rest| rest.split_once(':'))
+        // A page list and nothing else — the rule `tools/conformance`'s `overtaken` reads the
+        // same file by, which is what keeps the table itself out of its own count.
+        .filter(|(_, tail)| tail.trim_start().starts_with("[&str;"))
+        .map(|(name, _)| name.trim())
+        .collect();
+    let in_the_table: Vec<&str> = CONTRADICTED_GROUPS
+        .iter()
+        .map(|(name, _)| name.trim_start_matches("CONTRADICTED_"))
+        .chain(std::iter::once("ON_A_PAGE_WE_REPORT"))
+        .collect();
+    let missing: Vec<&&str> = declared
+        .iter()
+        .filter(|name| !in_the_table.contains(name))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "declared in this file and absent from CONTRADICTED_GROUPS: {missing:?}"
+    );
+    assert_eq!(
+        declared.len(),
+        in_the_table.len(),
+        "the table names a group this file does not declare"
+    );
+}
+
+/// The name of the group holding a contradicted page, or `None` where no group does.
+///
+/// A complete page answers `None` only in a build the ratchet has already failed; an incomplete
+/// one can answer it at any time, which is why the ranking asks.
+fn held_by(page: &str) -> Option<&'static str> {
+    CONTRADICTED_GROUPS
+        .iter()
+        .find(|(_, pages)| pages.contains(&page))
+        .map(|(name, _)| *name)
+        .or_else(|| {
+            CONTRADICTED_ON_A_PAGE_WE_REPORT
+                .contains(&page)
+                .then_some("CONTRADICTED_ON_A_PAGE_WE_REPORT")
+        })
+}
+
 /// Holds every gated outcome to the list that carries its argument.
 ///
 /// Split out of the gate itself because a hundred lines of ratchet in the middle of a test
@@ -13685,30 +13826,9 @@ fn check_the_ratchets(results: &[Examined]) {
     // The groups are one ratchet: which group a page belongs to is a hypothesis about it,
     // and holding each group separately would fail the build every time a hypothesis turned
     // out to be wrong rather than every time the rendering changed.
-    let contradicted: Vec<&str> = CONTRADICTED_PAGE_ROUNDING
+    let contradicted: Vec<&str> = CONTRADICTED_GROUPS
         .iter()
-        .chain(&CONTRADICTED_COINCIDENT_CLIP_EDGES)
-        .chain(&CONTRADICTED_IMAGE_SAMPLE_AT_THE_PIXEL_CENTRE)
-        .chain(&CONTRADICTED_SHARED_JBIG2_DECODER)
-        .chain(&CONTRADICTED_IMAGE_RESAMPLING)
-        .chain(&CONTRADICTED_CALIBRATED_COLOUR)
-        .chain(&CONTRADICTED_CALRGB_TO_SCREEN)
-        .chain(&CONTRADICTED_REFERENCE_GLYPH_WIDTHS)
-        .chain(&CONTRADICTED_NEGATIVE_LINE_WIDTH)
-        .chain(&CONTRADICTED_DEVICE_CMYK_CONVERSION)
-        .chain(&CONTRADICTED_SUBPIXEL_IMAGE)
-        .chain(&CONTRADICTED_MASK_QUANTISATION)
-        .chain(&CONTRADICTED_VISIBILITY_EXPRESSION)
-        .chain(&CONTRADICTED_REFERENCES_DREW_NOTHING)
-        .chain(&CONTRADICTED_LINK_BORDER)
-        .chain(&CONTRADICTED_GLYPHS_JUDGED_AS_VECTOR)
-        .chain(&CONTRADICTED_ANTIALIASED_EDGES)
-        .chain(&CONTRADICTED_GLYPH_EDGES)
-        .chain(&CONTRADICTED_SYMBOLIC_FONT_FLAGS)
-        .chain(&CONTRADICTED_SUBSTITUTED_FONT)
-        .chain(&CONTRADICTED_UNEXPLAINED)
-        .chain(&CONTRADICTED_TIGHT_CONSENSUS)
-        .copied()
+        .flat_map(|(_, pages)| pages.iter().copied())
         .collect();
     assert_ratchet(
         "contradicted by the reference consensus",
@@ -14669,15 +14789,20 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
     println!("\n  contradicted, and furthest outside the bound it is held to:");
     for (examined, ratio, of) in ranked.iter().take(10) {
         println!(
-            "    {ratio:>7.2}x on the {of:<22} {}{}",
+            "    {ratio:>7.2}x on the {of:<22} {}{} — {}",
             examined.name,
             if examined.complete {
                 ""
             } else {
                 " (incomplete)"
-            }
+            },
+            held_by(&examined.name).map_or_else(
+                || "held by no group".to_owned(),
+                |group| format!("held by {group}")
+            )
         );
     }
+    name_the_pages_no_group_holds(&ranked);
 
     // The pool's shape in one line, and it is `doc/todo/12`'s population counted by the gate that
     // makes it rather than by a round with a log. That item says most of this pool fails the
@@ -14774,6 +14899,36 @@ fn rank_the_contradicted_by_the_bound(results: &[Examined]) {
             .filter(|(examined, _, _)| examined.distance.is_some_and(|d| d.nearest <= 1.0))
             .count()
     );
+}
+
+/// The contradicted pages no `CONTRADICTED_*` group holds, which is the question a round handed
+/// the ranking above is asked first — *is the page's cause already written down?* — answered for
+/// the whole pool rather than for its ten printed rows.
+///
+/// Over every contradicted page, complete or not. The ratchet answers the question for the
+/// complete ones and fails the build on a `no`; an incomplete page is outside it by construction,
+/// and until this line nothing said whether one had arrived unheld — which is the population ADR
+/// 0349 found outside every diagnosis in this file, counted every run instead of once (ADR 0805).
+fn name_the_pages_no_group_holds(ranked: &[(&Examined, f64, &str)]) {
+    let unheld: Vec<&str> = ranked
+        .iter()
+        .filter(|(examined, _, _)| held_by(&examined.name).is_none())
+        .map(|(examined, _, _)| examined.name.as_str())
+        .collect();
+    if unheld.is_empty() {
+        println!(
+            "    every one of the {} pages is held by a group by name, so the next page to take \
+             is the highest row whose note names a departure of ours rather than a reference's",
+            ranked.len()
+        );
+    } else {
+        println!(
+            "    {} of the {} pages is held by no group, and each is the next page to take: {}",
+            unheld.len(),
+            ranked.len(),
+            unheld.join(", ")
+        );
+    }
 }
 
 /// The contradicted pages on which the voting reference the consensus excludes meets the bound.
