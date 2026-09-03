@@ -101,30 +101,44 @@ refused document falls on.
 
 ## The gates
 
-**The whole `doc/todo/02` §2 sequence ran again on the finished tree — all twenty-six lines, every
-one exit 0.** Verbatim where it matters:
-`Summary [69.287s] 3186 tests run: 3186 passed (1 slow), 27 skipped`; corpus **974 documents in
-10.4s — 0 unopenable, 9 locked, 1 encrypted beyond us, 5 pageless, 64 incomplete, 0 slow**; oracle
-**1945 pages in 43.1s (1841 we call complete, 104 incomplete)** with
+**The whole `doc/todo/02` §2 sequence ran three times this round — on the merged `main`, on the
+finished working tree, and once more on the *committed* tree — all twenty-six lines, every one
+exit 0 every time.** The figures below are the last of the three, because that is the tree that is
+on `main` and `doc/todo/02` §2's rule is that a number belongs to the round that ran the gate
+last. Verbatim where it matters:
+`Summary [69.181s] 3186 tests run: 3186 passed (1 slow), 27 skipped`; corpus **974 documents in
+11.7s — 0 unopenable, 9 locked, 1 encrypted beyond us, 5 pageless, 64 incomplete, 0 slow**; oracle
+**1945 pages in 48.1s (1841 we call complete, 104 incomplete)** with
 `our_rendering_agrees_with_the_reference_consensus_across_the_corpus ... ok`; text extraction
 **11 094/11 131 matched words in bounds (99.67%), 493 of 503 documents fully in**; selection census
 **1000/1011 words (98.91%) over 453 documents**; accessibility census green over **102 853 elements
 reached, 57 116 a caret can move through**; dates **1514 of 1545 (97.99%)**; XMP **318 of 319
 streams read**; quorra **958 pages compared: 929 agree, 22 differ, 7 refused, 16 not comparable**;
-fixed documents **69 checked, 0 absent, 69 rows**; the transform gate **154.9 pages/s over a floor
-of 40**; `optimize`'s walk **974 documents in 31.2s** with every one of its property counters at
-zero; the foreign readback **203 of 974 documents in 82.5s** across five writers, the new lane
-**202 written, qpdf held 202, qpdf gained a warning 0, poppler identical 200, mupdf identical 198,
+fixed documents **69 checked, 0 absent, 69 rows**; the transform gate **200.0 pages/s over a floor
+of 40**; `optimize`'s walk **974 documents in 30.5s** with every one of its property counters at
+zero; the foreign readback **203 of 974 documents in 116.8s** across five writers, the new lane
+**202 written, qpdf held 202, qpdf gained a warning 0, poppler identical 201, mupdf identical 198,
 §14.7 shapes agreed 76, §14.7 faults 0, drew differently 0, 1 refused by name**; conformance **875
 subclauses, 13 866 citations, 1241 quotations verbatim**.
 
-Two of the sequence's wall clocks are longer than the merge run's — the oracle 43.1s against 32.1s
-and quorra 145.8s against 29.8s — with every verdict identical. That is `doc/todo/02` §2's own
-sentence about a gate that spawns another program: the number is a measurement of two programs and
-a loaded machine is a silent third. The verdicts are what these lines are read for.
+**Every verdict is identical across the three runs and four numbers are not**, which is worth
+recording because it is the shape a round mistakes for a regression. The oracle took 32.1s, 43.1s
+and 48.1s; quorra 29.8s, 145.8s and 37.4s; the transform gate reported 189.1, 154.9 and 200.0
+pages/s against a floor of 40. Those are wall clocks on a machine running parallel rounds, which is
+`doc/todo/02` §2's own sentence about a gate that spawns another program — the number measures two
+programs and a loaded machine is a silent third. The fourth is the readback's own: `optimize`'s
+*poppler identical* was 201, 200 and 201, and ADR 0852's table says why that row counts a page
+rather than measuring one — a foreign reader that outruns the walk's 20-second budget on the
+**source** takes that document out of its own comparison. The rows that cannot move that way — the
+faults, the differences, the warnings gained — are 0 in all three.
 
-**§5 ran, this being a fifth round**: the eight binaries and `libviewer_ffi.so` built with
-`--release` in one invocation and installed into the project's own `target/`.
+**§5 ran, this being a fifth round, and it ran twice for a reason worth keeping**: the first
+install was taken from the merged tree, and this round's own commit then changed
+`crates/pdf-transform/src/lib.rs`, so what a person could have picked up in between was a binary
+without `Refusal::Reconstructed` in it — a stale binary is a measurement of the past, and here it
+would have been a measurement of the defect. The eight binaries and `libviewer_ffi.so` were rebuilt
+with `--release` in one invocation from the committed tree and installed into the project's own
+`target/`; `tools/state.sh binaries` shows all nine newer than `HEAD`.
 
 ## What is left
 
