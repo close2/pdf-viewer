@@ -1582,6 +1582,64 @@ form "n crawled documents unranked" and this file's header says so.
   626's lesson on our own instrument instead of a reference's. ADR 0477 and
   `doc/history/647-*.md`.
 
+### 42. What the eight-hundred-and-eightieth took: `batch5/FOP`, and a CID-keyed CFF whose Font DICTs are nowhere
+
+**The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, 2.5 s, 0.99 GiB peak. The line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/FOP` | 808 | 2 unopenable, 0 locked, 1 encrypted beyond us, 0 pageless, 34 incomplete, 0 slow |
+
+**The rate is the tracker's shape, and it is the lowest so far.** 34 of 808 is **4.2%** incomplete
+— below `MOZILLA`'s 2.47% only, and below the pdf.js gate's 6.98% — because an Apache FOP issue
+attachment is most often a document FOP *produced* rather than one it could not read: the two
+unusable files are two members of one `.zip` with no usable cross-reference table and no object
+header anywhere, and the one encrypted file is `/R 5`, which §7.6.4.2's Table 21 states no
+algorithm for. Ranked by report, one document counted once per kind: 12 `Font`, 9 `Operator`, 5
+`Annotation`, 5 `Text`, 4 `Image`, 2 `Shading`, one each of `NoninvertibleMatrix`,
+`MissingResource` and `TransparencyGroup`. Six of the nine `Operator` documents are one producer's
+habit — FOP 0.20.3rc writing `Tc` inside a `TJ` array, which §7.3.6 admits only objects into — and
+the five `Annotation` documents are one file's five revisions, a `Widget` whose `/DA` names a font
+its `/DR` does not define.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
+72 dpi over all 34 incomplete pages, round 876's script — **the head is at the light end with both
+references agreeing to a hundredth of a level**: `FOP-2736-4.pdf`, ours **0** against `poppler`
+4.35 and `mupdf` 4.36, reporting that `/F20`'s program had no outline for any of the 1816 codes the
+page shows. Then `FOP-304-2.pdf` at the dark end (ours 6.96, `poppler` 7.18, `mupdf` 2.65 — the
+`Tc`-in-array file, where `mupdf` abandons the stream and `poppler` and this tree draw on), and
+`FOP-2699-7.pdf` (ours 0, `poppler` 7.30, `mupdf` 2.05: a CFF whose `CharStrings` are missing,
+which the three renderers do three things with). Fourteen rows are within a tenth of a level of
+both references.
+
+**The head is a font whose FDArray offset lands inside its own FDSelect.** The page is FOP's glyph
+sheet of a Japanese OpenType font, embedded as a bare CID-keyed CFF by Apache FOP 2.3.0-SNAPSHOT's
+subsetter; its charset is the identity over 7925 intact charstrings, and its Top DICT puts the
+`FDArray` at offset 8001 where the format-0 `FDSelect` occupies 208 to 8133 — so every glyph
+selects a Font DICT no reader can find, and Table 124's "shall conform to Adobe Technical Note
+#5176" is the sentence the file breaks. ADR 0808: `pdf_font::cff::readable_font_dicts` re-encodes
+the Top DICT with fixed-width offsets and appends a fresh `FDArray` — every Font DICT that reads
+kept, every one a glyph selects that does not an empty Private DICT — and names the glyphs under a
+replaced DICT that call a local subroutine it cannot hold, the one way a Type 2 outline depends
+on its Private DICT; a page that shows such a code says so once per font, and a page that shows
+none has lost nothing. The sheet draws at 4.38 between the two references, looked at glyph for
+glyph; `FOP-2491-1.pdf`, the same subsetter with 9 of 13 glyphs calling local subroutines, went
+from nothing drawn to four glyphs and *12 of the codes the page shows* said; the fixed-documents
+gate holds the head at its own reading; and `doc/pdf.js`'s `issue9278.pdf`, whose two fonts hold
+four Font DICTs with no Private DICT beside fifteen that read, is why the readable ones are kept —
+the first draft replaced all of them and the corpus gate refused the regression. `batch5/FOP` is
+**33 incomplete** after it.
+
+**What is left here**: `batch5`'s other twenty trackers, `PDFIUM` (379) the largest; `batch4` once
+its pieces land; [`40`](40-mask-chain-crop.md)'s clip cost; and
+[`10`](10-bounds-that-cap-size.md)'s file-backed reader. In this tracker: `FOP-2751-3.pdf`,
+`-7` and `-11` are one name-keyed CFF (`FuturaStd-Book`, Type1C) whose Private DICT's `Subrs`
+INDEX is at a wrong offset — `read-fonts` answers `InvalidIndexOffsetSize(101)` at draw, and
+nothing can be replaced there because the subroutines the charstrings call are what is unreadable
+— which `mupdf` and `poppler` draw at 0.6 to 1.1 levels of ink through FreeType's tolerance and
+this tree reports; and `FOP-2699-7.pdf`'s `MissingCharstrings`, a one-reference page.
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own

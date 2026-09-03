@@ -1272,7 +1272,23 @@ fn complete(
     // *and* no character drew a blank page with nothing to report it. `text.rs` divides that
     // branch on the glyph now.
     for (name, coverage) in std::mem::take(&mut interpreter.glyph_coverage) {
-        if coverage.drawn > 0 || coverage.empty == 0 {
+        // The one kind of empty outline with a known reason: a glyph the program's repair could
+        // not supply (ADR 0808). Said whether or not the font drew anything else, because a
+        // page that shows such a glyph is short of it either way, and said once per font with
+        // the count of codes the page lost to it; a repaired program none of whose lost glyphs
+        // the page shows reaches neither this nor, on its own, the report below.
+        if coverage.lost > 0
+            && let Some(shortfall) = &coverage.shortfall
+        {
+            interpreter.note(Unsupported::Font {
+                detail: format!(
+                    "font /{name}: {shortfall}; {} of the code(s) the page shows through it \
+                     reach such a glyph",
+                    coverage.lost
+                ),
+            });
+        }
+        if coverage.drawn > 0 || coverage.empty == 0 || coverage.lost == coverage.empty {
             continue;
         }
         let detail = if coverage.uncovered > 0 {

@@ -315,6 +315,45 @@ pub struct CharacterGlyph {
 /// the glyph index, every write is one `insert`, and the worst a poisoned map can cost is a
 /// glyph built twice. Propagating a `PoisonError` would turn a panic anywhere in the process
 /// into a font that can no longer draw.
+/// What both loads read out of a program's bytes before anything else: its parsed Type 1 form,
+/// where that is what it is, and its scale.
+fn parsed_program(
+    program: Program,
+    data: &[u8],
+    name: &str,
+) -> Result<(Option<type1::Program>, f32), FontError> {
+    let type1 = parsed_type1(program, data, name)?;
+    let units_per_em = simple_units_per_em(type1.as_ref(), data, program, name)?;
+    Ok((type1, units_per_em))
+}
+
+/// A CID-keyed CFF whose Font DICTs cannot be read, given ones that can be before anything
+/// reads the program — and what that cost, for [`LoadedFont::program_shortfall`].
+///
+/// A program that does not open at all is left as it is, for `cid_to_glyph` to refuse with
+/// the reader's own words; an `sfnt` or a Type 1 has no CFF Font DICTs. See
+/// [`cff::FontDictRepair`]. The bytes are kept once: the repair's copy becomes `data` and the
+/// record keeps its figures only.
+fn with_readable_font_dicts(
+    data: Arc<[u8]>,
+    program: Program,
+) -> (Arc<[u8]>, Option<cff::FontDictRepair>) {
+    let repair = match program {
+        Program::BareCff => cff::readable_font_dicts(&data).ok().flatten(),
+        Program::Sfnt | Program::Type1 => None,
+    };
+    match repair {
+        Some(repair) => (
+            Arc::from(repair.data.as_slice()),
+            Some(cff::FontDictRepair {
+                data: Vec::new(),
+                ..repair
+            }),
+        ),
+        None => (data, None),
+    }
+}
+
 fn outlines(
     lock: &Mutex<BTreeMap<u16, Option<Arc<Path>>>>,
 ) -> std::sync::MutexGuard<'_, BTreeMap<u16, Option<Arc<Path>>>> {
@@ -342,6 +381,10 @@ pub struct LoadedFont {
     /// The embedded font program, which the reader borrows from on each use.
     data: Arc<[u8]>,
     program: Program,
+    /// What was done to `data` before it was read, where its Font DICTs could not be: a
+    /// CID-keyed CFF drawn against an empty Private DICT, with the glyphs that needed the
+    /// real one counted. See [`cff::FontDictRepair`].
+    font_dicts: Option<cff::FontDictRepair>,
     /// The parsed Type 1 program, when that is what was embedded.
     ///
     /// The one program kept in parsed form rather than re-read per glyph, because it is the
@@ -594,8 +637,7 @@ impl LoadedFont {
         };
         // The request outlives the match below, which consumes the encoding beside it.
         let requested = substituted.as_ref().map(|(request, _)| *request);
-        let type1 = parsed_type1(program, &data, name)?;
-        let units_per_em = simple_units_per_em(type1.as_ref(), &data, program, name)?;
+        let (type1, units_per_em) = parsed_program(program, &data, name)?;
 
         // Kept for text extraction: a glyph name is what a code means when a font carries
         // no `/ToUnicode`, which is common in older documents.
@@ -665,6 +707,7 @@ impl LoadedFont {
         Ok(Self {
             data,
             program,
+            font_dicts: None, // name-keyed, so there are no Font DICTs to replace
             type1,
             mapping,
             widths,
@@ -748,11 +791,11 @@ impl LoadedFont {
             Ok(Embedded { data, program }) => (data, program, false),
             Err(other) => return Err(other),
         };
+        let (data, font_dicts) = with_readable_font_dicts(data, program);
         // Kept parsed for the same measured reason a simple font keeps it (`type1::Program`),
         // and read for its scale the same way: a Type 1 program states it in a `/FontMatrix`
         // rather than in an `sfnt` header, so `FontRef` cannot be asked.
-        let type1 = parsed_type1(program, &data, name)?;
-        let units_per_em = simple_units_per_em(type1.as_ref(), &data, program, name)?;
+        let (type1, units_per_em) = parsed_program(program, &data, name)?;
 
         let mapping = if substituted {
             // A CID is meaningless outside the font that defined it — it is an index into
@@ -819,6 +862,7 @@ impl LoadedFont {
         Ok(Self {
             data,
             program,
+            font_dicts,
             // §9.9's Table 124 gives a CIDFont `/FontFile2` and `/FontFile3` and never
             // `/FontFile` — but a descriptor writing one is read rather than refused; see
             // the `mapping` above for the clause's own analogy that decides how.
@@ -1261,6 +1305,39 @@ impl LoadedFont {
     #[must_use]
     pub fn program_bytes(&self) -> usize {
         self.data.len()
+    }
+
+    /// What was done to read the program at all, where its own Font DICTs could not be.
+    ///
+    /// A CID-keyed CFF some of whose Font DICTs could not be read draws the glyphs under them
+    /// against an empty Private DICT ([`cff::FontDictRepair`]), and the sentence says so and
+    /// how many of those glyphs call a local subroutine that DICT cannot hold. It is a fact about the program; whether the page
+    /// shows one of those glyphs is [`Self::glyph_lost_to_repair`]'s question, asked per code,
+    /// and a page that shows none has lost nothing and reports nothing.
+    #[must_use]
+    pub fn repair_shortfall(&self) -> Option<String> {
+        let repair = self.font_dicts.as_ref()?;
+        Some(format!(
+            "{} of the {} Font DICTs its CID-keyed CFF selects cannot be read (FDArray at offset \
+             {}), so the glyphs under them are drawn against an empty Private DICT, and the {} \
+             of its {} glyphs that call a local subroutine that DICT cannot hold are not drawn",
+            repair.replaced,
+            repair.font_dicts,
+            repair.fd_array_at,
+            repair.lost.len(),
+            repair.glyphs
+        ))
+    }
+
+    /// Whether `code` reaches a glyph the repaired program cannot draw — one that calls a local
+    /// subroutine the replacement Private DICT does not hold. `false` for a program that needed
+    /// no repair.
+    #[must_use]
+    pub fn glyph_lost_to_repair(&self, code: Code) -> bool {
+        self.font_dicts.as_ref().is_some_and(|repair| {
+            self.glyph_for(code)
+                .is_some_and(|glyph| repair.lost.contains(&glyph))
+        })
     }
 
     /// Whether this font is shown in §9.2.4's writing mode 1, one glyph below the next.

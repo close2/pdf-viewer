@@ -850,6 +850,13 @@ fn a_font_refusal(detail: &str) -> Option<(Whose, &'static str)> {
             Whose::TheFile,
             "a /Font name §7.8.3's resource dictionary does not define",
         ),
+        // ADR 0808: a CID-keyed CFF some of whose Font DICTs cannot be read draws the glyphs
+        // under them against an empty Private DICT, and the page names the codes it shows that
+        // reach a glyph the empty DICT cannot draw.
+        _ if has("Font DICTs its CID-keyed CFF selects cannot be read") => (
+            Whose::TheFile,
+            "a CID-keyed CFF whose Font DICTs cannot all be read, drawn against an empty Private DICT (ADR 0808)",
+        ),
         _ if has("could not be parsed") || has("Type 3 glyph for code") => (
             Whose::TheFile,
             "an embedded font program that would not parse",

@@ -162,7 +162,7 @@ impl TextObject {
 }
 
 /// What a page's codes got out of one font, tallied while they are shown.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct Coverage {
     /// Codes that reached an outline.
     pub(super) drawn: u32,
@@ -171,6 +171,12 @@ pub(super) struct Coverage {
     /// How many of `empty` were §9.10.2's uncovered characters, which decides which of the
     /// two reports a silent font gets.
     pub(super) uncovered: u32,
+    /// How many of `empty` reached a glyph the program's repair could not draw — a CID-keyed
+    /// CFF read against an empty Private DICT, whose glyph calls a local subroutine (ADR 0808).
+    pub(super) lost: u32,
+    /// The repair's own sentence, taken from the font the first time `lost` is raised, so that
+    /// the page's report can say what was done to the program and not only what it cost.
+    pub(super) shortfall: Option<String>,
 }
 
 /// What one code contributed to the page's readback.
@@ -266,6 +272,10 @@ impl Interpreter<'_> {
             entry.drawn = entry.drawn.saturating_add(counted.drawn);
             entry.empty = entry.empty.saturating_add(counted.empty);
             entry.uncovered = entry.uncovered.saturating_add(counted.uncovered);
+            entry.lost = entry.lost.saturating_add(counted.lost);
+            if entry.shortfall.is_none() {
+                entry.shortfall = counted.shortfall;
+            }
         } else {
             self.glyph_coverage.insert(name.to_owned(), counted);
         }
@@ -507,7 +517,19 @@ impl Interpreter<'_> {
                             let blank = program
                                 .glyph_index(code)
                                 .is_some_and(|glyph| glyph != pdf_font::NOTDEF_GLYPH);
-                            if blank {
+                            // Asked before the two arms below, because a glyph the program's
+                            // repair could not supply has an index and no contours *drawn* —
+                            // which the first arm would read as the program describing it
+                            // empty. It is the one empty outline here with a known reason, and
+                            // the page says it at the end (`Interpreter::glyph_coverage`);
+                            // a well-formed program never reaches this.
+                            if program.glyph_lost_to_repair(code) {
+                                coverage.empty = coverage.empty.saturating_add(1);
+                                coverage.lost = coverage.lost.saturating_add(1);
+                                if coverage.shortfall.is_none() {
+                                    coverage.shortfall = program.repair_shortfall();
+                                }
+                            } else if blank {
                                 // A glyph the program contains and describes as empty is the
                                 // program answering, so nothing was missed here. What a
                                 // *reader* lost is the readback's question, and §9.10.2's own

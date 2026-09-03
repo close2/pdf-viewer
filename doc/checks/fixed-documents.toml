@@ -519,3 +519,11 @@ session = 878
 reports = ["the JPEG frame is 2480x3486 where the dictionary says 2480x3473"]
 ink = 9.478 .. 11.478
 why = "a scanned letter whose JPEG frame header states 65535 lines and whose DNL marker at the end of the scan defines 3486; the header alone was decoded, so the letter was the top five per cent of a grey page at 60 levels of ink where both references sit near 5 — ISO/IEC 10918-1's DNL defines or redefines Y, and §7.4.8 puts the dimensions in the encoded data (ADR 0799)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/FOP/FOP-2736-4.pdf"
+page = 1
+session = 880
+reports = []
+ink = 7.759 .. 9.759
+why = "Apache FOP 2.3.0-SNAPSHOT's CID-keyed CFF subset puts its FDArray at offset 8001, inside its own FDSelect, so no Font DICT reads and the page's 1816 codes drew nothing where both references draw the text; the one Font DICT every glyph selects is replaced by an empty Private DICT, the 7925 intact charstrings drawn against it, and none calls a local subroutine (ADR 0808, 9.7.4.2)"
