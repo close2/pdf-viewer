@@ -689,12 +689,15 @@ fn samples_of(
                 shortfall: None,
             })
         }
-        Some(b"JBIG2Decode") => Ok(SamplesOnGrid {
-            rgba: decode_jbig2(at, source, width, height, is_mask, fill, into)?,
-            grid: (width, height),
-            opacity_included: false,
-            shortfall: None,
-        }),
+        Some(b"JBIG2Decode") => {
+            let (rgba, shortfall) = decode_jbig2(at, source, width, height, is_mask, fill, into)?;
+            Ok(SamplesOnGrid {
+                rgba,
+                grid: (width, height),
+                opacity_included: false,
+                shortfall,
+            })
+        }
         Some(b"JPXDecode") => decode_jpx(at, source, width, height, is_mask, fill, into),
         Some(b"CCITTFaxDecode" | b"CCF") => {
             let (rgba, shortfall) = decode_ccitt(at, source, width, height, is_mask, fill, into)?;
@@ -1436,6 +1439,13 @@ fn channel(value: f32) -> u8 {
 ///
 /// What comes back is packed one bit per pixel in `DeviceGray`'s sense, so it feeds
 /// [`unpack`] exactly as any other 1-bit image does.
+///
+/// **A stream that ends inside a segment is drawn from the segments it does carry**, and the
+/// second half of the answer is the sentence the worker composed about it — see
+/// `pdf_sandbox::decode::shortfall_of`. Unlike §7.4.6's damaged fax (ADR 0794) there is
+/// nothing to leave unpainted: 14492's page information segment states a default pixel value
+/// for every pixel of the page before any region is drawn onto it, so the grid is whole and
+/// what is short is the regions that reached it. ADR 0823.
 fn decode_jbig2(
     at: Dictionaries,
     source: &ImageStream,
@@ -1444,7 +1454,7 @@ fn decode_jbig2(
     is_mask: bool,
     fill: pdf_render::Color,
     into: &Conversion,
-) -> Result<Vec<u8>, ImageError> {
+) -> Result<(Vec<u8>, Option<String>), ImageError> {
     let Dictionaries {
         document,
         dict,
@@ -1497,7 +1507,7 @@ fn decode_jbig2(
         colour_space(document, dict, resources, into)?
     };
     let decode = Decode::read(document, dict, &space, 1);
-    unpack(
+    let rgba = unpack(
         &bilevel.rows,
         width,
         height,
@@ -1511,7 +1521,8 @@ fn decode_jbig2(
             fill,
             into,
         },
-    )
+    )?;
+    Ok((rgba, bilevel.stopped_by))
 }
 
 /// Decodes a CCITT fax-encoded image through the sandbox.

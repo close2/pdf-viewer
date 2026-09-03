@@ -1673,8 +1673,8 @@ references agreeing to a hundredth of a level**: `PDFIUM-1122-0.pdf`, ours **70.
 `/FontFile2` decoded only as far as its damage), `PDFIUM-1497-2.pdf` (ours 5.79, `poppler` 10.15,
 `mupdf` 7.59: the second `MAX_TILES` page), and the three revisions of `PDFIUM-1475` (ours 9.01
 against 9.91 and 9.95: a JPEG that begins with `ADBE`, and a CID font under `Identity-H` with no
-program). `PDFIUM-1236-1.pdf` is ours 0 against 0.73 and 0.73 — a JBIG2 stream that ends early,
-which both references draw the same prefix of. At the dark end, one-reference evidence only:
+program). `PDFIUM-1236-1.pdf` is ours 0 against 0.73 and 0.73 — read here as a JBIG2 stream that ends
+early, which is not what it is; see the correction at the end of this section. At the dark end, one-reference evidence only:
 `PDFIUM-466-0.pdf` (ours 12.55, `poppler` 0, `mupdf` 76.5) and `PDFIUM-366-0.pdf` (ours 10.81,
 `poppler` 0, `mupdf` 10.78). Seven rows have a missing panel.
 
@@ -1707,9 +1707,24 @@ reports a budget and reporting `MAX_TILE_COPIES` for it.
 reader; and [`49`](49-restrictions-worth-re-examining.md)'s budget on commands that prices them.
 In this tracker: `PDFIUM-1497-2.pdf`, the other `MAX_TILES` page, now `MAX_TILE_COPIES` on its two
 largest tilings and [`49`](49-restrictions-worth-re-examining.md)'s witness; `PDFIUM-407-0.pdf`, a short JPEG and a damaged
-`/FontFile2` where the two references disagree with each other by a third of a level; and
-`PDFIUM-1236-1.pdf`, whose truncated JBIG2 both references draw a prefix of and this tree reports —
-the same question ADR 0794 answered for CCITT, one filter over.
+`/FontFile2` where the two references disagree with each other by a third of a level; and — until the eight-hundred-and-eighty-ninth session —
+`PDFIUM-1236-1.pdf`.
+
+**What that document turned out to be, and the reading above is corrected by it** (ADR 0823).
+It was ranked here as a truncated JBIG2 that both references draw a prefix of, on the strength
+of our `unexpected end of input`. **The stream is not truncated.** Its 95 declared bytes are a
+30-byte page information segment and a 64-byte immediate generic region — 94 bytes of ISO/IEC
+14492 Annex D.3, whole, terminator in place — and the ninety-fifth is the end-of-line marker
+before `endstream` that §7.3.8.1 says "shall not be included in the stream length". The
+producer counted it, the codec read it as the start of a segment, and the whole page went
+blank. `pdf_sandbox::decode::jbig2` now decodes the prefix that is whole segments and drops a
+lone marker silently; the page draws at 1.519 levels of ink against `poppler` and `mupdf` at
+1.463, and it is a row in `doc/checks/fixed-documents.toml`. Over the 1523 documents naming
+`JBIG2Decode` in cleartext across every corpus on this disk, one moves from incomplete to
+complete and seven more refusals gain the truncation beside the codec's own judgement; four
+streams carry no whole segment at all and are still refused. **The lesson is the ranking's
+rather than the filter's**: a decoder's sentence names where it stopped, not what is wrong, and
+`unexpected end of input` was read as a statement about the file.
 
 ## What the whole crawl says, now that all of it has been ranked
 

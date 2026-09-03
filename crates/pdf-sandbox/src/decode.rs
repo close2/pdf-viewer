@@ -89,8 +89,37 @@ const MAX_SAMPLES: u64 = 1 << 26;
 /// Returns a description of what the decoder refused, which the page reports verbatim.
 pub(crate) fn jbig2(data: &[u8], globals: &[u8]) -> Result<Bilevel, String> {
     let globals = (!globals.is_empty()).then_some(globals);
-    let image = hayro_jbig2::Image::new_embedded(data, globals)
-        .map_err(|error| format!("JBIG2: {error}"))?;
+    let (image, short) = match hayro_jbig2::Image::new_embedded(data, globals) {
+        Ok(image) => (image, None),
+        Err(refused) => {
+            // The segments each stream carries whole, and the bytes after them that begin no
+            // other. See [`whole_segments`]: this runs only where the codec has already
+            // refused the pair, so a shorter answer than the truth costs a stream that was
+            // not going to decode anyway, and the retry either parses or the first refusal
+            // stands. Table 12's globals take the same route because they are the same
+            // organisation, and one badly delimited stream refuses both.
+            let kept = up_to_the_last_whole_segment(data);
+            let kept_globals = globals.map(up_to_the_last_whole_segment);
+            let trimmed = kept.len() != data.len()
+                || kept_globals.map(<[u8]>::len) != globals.map(<[u8]>::len);
+            let retried = trimmed
+                .then(|| hayro_jbig2::Image::new_embedded(kept, kept_globals).ok())
+                .flatten();
+            match retried {
+                Some(image) => (
+                    image,
+                    shortfall_past_the_last_segment(
+                        data.get(kept.len()..).unwrap_or_default(),
+                        globals
+                            .zip(kept_globals)
+                            .and_then(|(whole, kept)| whole.get(kept.len()..))
+                            .unwrap_or_default(),
+                    ),
+                ),
+                None => return Err(format!("JBIG2: {refused}")),
+            }
+        }
+    };
 
     let (width, height) = (image.width(), image.height());
     let pixels = u64::from(width).saturating_mul(u64::from(height));
@@ -101,10 +130,161 @@ pub(crate) fn jbig2(data: &[u8], globals: &[u8]) -> Result<Bilevel, String> {
     }
 
     let mut rows = PackedRows::new("JBIG2", width, height);
+    if let Some(where_it_ends) = short.as_deref() {
+        rows.note_damage(shortfall_sentence(where_it_ends));
+    }
+    // A decode that fails *after* the streams were trimmed says both things. The refusal a
+    // whole segment produces is the more specific of the two and would otherwise replace the
+    // fact that this stream does not finish, which is the first thing wrong with it.
     image
         .decode(&mut rows)
-        .map_err(|error| format!("JBIG2: {error}"))?;
+        .map_err(|error| match short.as_deref() {
+            Some(where_it_ends) => format!("JBIG2: {error} — and {where_it_ends}"),
+            None => format!("JBIG2: {error}"),
+        })?;
     rows.finish()
+}
+
+/// `data` cut back to the last segment it finishes, or whole where it finishes none.
+///
+/// Nothing is trimmed to empty: a stream with no whole segment at all has nothing to retry
+/// with, and leaving it as it is keeps the codec's own refusal as the one the page reports.
+fn up_to_the_last_whole_segment(data: &[u8]) -> &[u8] {
+    match whole_segments(data) {
+        0 => data,
+        whole => data.get(..whole).unwrap_or(data),
+    }
+}
+
+/// Where the two streams end inside a segment, in words, or nothing where neither does.
+///
+/// ISO 32000-2 §7.3.8.1 states what a single end-of-line marker sitting past the last whole
+/// segment is, and that it is not the stream's:
+///
+/// > There should be an end-of-line marker after the data and before endstream ; this marker
+/// > shall not be included in the stream length.
+///
+/// So a `/Length` that counted it has handed this filter one or two bytes that are not data,
+/// and nothing is missing from the picture. **This filter is the only place with the
+/// evidence.** `pdf-syntax` trims the marker where it *recovers* a length by searching for the
+/// keyword — the byte belongs to the delimiter there — but it cannot do so where the file
+/// states a length that reaches it, because from the syntax alone that byte is indistinguishable
+/// from a stream whose last sample happens to be a LINE FEED. ISO/IEC 14492 Annex D.3's
+/// segments each state their own data length, so after the last whole one there is nothing else
+/// the byte could be.
+///
+/// Anything longer is a segment the stream does not finish, and that is a report.
+fn shortfall_past_the_last_segment(data_tail: &[u8], globals_tail: &[u8]) -> Option<String> {
+    let said = |what: &str, tail: &[u8]| {
+        (!tail.is_empty() && !matches!(tail, b"\n" | b"\r" | b"\r\n")).then(|| {
+            format!(
+                "{what} ends inside a segment, {} bytes after the last whole one",
+                tail.len()
+            )
+        })
+    };
+    match (
+        said("the stream", data_tail),
+        said("its /JBIG2Globals", globals_tail),
+    ) {
+        (Some(stream), Some(globals)) => Some(format!("{stream}, and {globals}")),
+        (Some(one), None) | (None, Some(one)) => Some(one),
+        (None, None) => None,
+    }
+}
+
+/// [`shortfall_past_the_last_segment`]'s phrase, worded for the page.
+///
+/// The page is drawn from the segments the streams do carry, and every pixel no region reached
+/// shows the page's default pixel value — which ISO/IEC 14492 7.4.8.5 makes the page
+/// information segment state, so this reader chooses no colour for it. That is the difference
+/// from §7.4.6's damaged fax, whose undelivered scan lines are stated nowhere (ADR 0794).
+fn shortfall_sentence(where_it_ends: &str) -> String {
+    format!(
+        "JBIG2: {where_it_ends}, which are not decoded. The page is drawn from the segments \
+         the stream does carry, and every pixel no region reached shows the default pixel \
+         value its page information segment states (ISO 32000-2 §7.4.7, ISO/IEC 14492 Annex \
+         D.3 and 7.4.8.5)"
+    )
+}
+
+/// How many of `data`'s bytes are whole segments of ISO/IEC 14492's sequential organisation.
+///
+/// ISO 32000-2 §7.4.7 requires exactly that organisation of a `JBIG2Decode` stream — "JBIG2
+/// bit streams shall be represented in sequential organisation as defined in ISO/IEC
+/// 14492:2019, D.1" — with no file header and no end-of-file segment, so the stream is a run
+/// of segments, each a header (14492 7.2) stating its own data length followed by that many
+/// bytes. This walks the headers only; nothing here interprets a segment's contents.
+///
+/// It returns the offset just past the last segment that is whole, which is the length of the
+/// prefix a decoder can be given. Two headers it will not bound stop the walk where they
+/// begin: one whose data length is `0xFFFFFFFF`, which 14492 7.2.7 allows only for an
+/// immediate generic region and delimits by scanning its data for a terminating pattern, and
+/// one this walk cannot finish reading. Stopping early is safe **because of where this is
+/// called from** — only after the codec has refused the whole stream — so the worst it can do
+/// is hand back a prefix that also fails to parse, and then the codec's own first refusal is
+/// what the page reports.
+fn whole_segments(data: &[u8]) -> usize {
+    let mut at = 0usize;
+    loop {
+        let Some(end) = segment_end(data, at) else {
+            return at;
+        };
+        at = end;
+        if at >= data.len() {
+            return data.len();
+        }
+    }
+}
+
+/// The offset just past the segment beginning at `from`, or `None` where it is not whole.
+///
+/// ISO/IEC 14492 7.2: the segment number (four bytes), the header flags — bit 6 widening the
+/// page association to four bytes, the low six bits being the type — the referred-to segment
+/// count and retain flags, the referred-to segment numbers (one, two or four bytes each,
+/// by 7.2.5's rule on this segment's own number), the page association, and the data length.
+fn segment_end(data: &[u8], from: usize) -> Option<usize> {
+    let take = |at: usize, count: usize| data.get(at..at.checked_add(count)?);
+    let number = u32::from_be_bytes(take(from, 4)?.try_into().ok()?);
+    let mut at = from.checked_add(4)?;
+    let flags = *data.get(at)?;
+    at = at.checked_add(1)?;
+
+    // "7.2.4 Referred-to segment count and retention flags": the top three bits are the count
+    // where it is at most four, and are all set where a four-byte count and one retain bit per
+    // referred-to segment (plus this one, rounded up to a byte) follow instead.
+    let referred = u32::from(*data.get(at)? >> 5);
+    let referred = if referred == 7 {
+        let long = u32::from_be_bytes(take(at, 4)?.try_into().ok()?) & 0x1fff_ffff;
+        at = at.checked_add(4)?;
+        at = at.checked_add(usize::try_from(long.checked_add(8)? / 8).ok()?)?;
+        long
+    } else {
+        at = at.checked_add(1)?;
+        referred
+    };
+
+    // "7.2.5 Referred-to segment numbers": one byte each where this segment's number is at
+    // most 256, two where it is at most 65536, four otherwise.
+    let each = if number <= 256 {
+        1
+    } else if number <= 65536 {
+        2
+    } else {
+        4
+    };
+    at = at.checked_add(usize::try_from(referred).ok()?.checked_mul(each)?)?;
+    at = at.checked_add(if flags & 0x40 == 0 { 1 } else { 4 })?;
+
+    let length = u32::from_be_bytes(take(at, 4)?.try_into().ok()?);
+    at = at.checked_add(4)?;
+    if length == u32::MAX {
+        // 7.2.7's unknown data length, delimited by a scan of the segment's own data. The
+        // codec does that; this walk does not, and says so by refusing to bound the segment.
+        return None;
+    }
+    let end = at.checked_add(usize::try_from(length).ok()?)?;
+    (end <= data.len()).then_some(end)
 }
 
 /// Packs decoded pixels into the rows a bilevel filter delivers.
@@ -192,6 +372,20 @@ impl PackedRows {
         self.filled = 0;
         self.stopped_by = Some(reason);
         Ok(())
+    }
+
+    /// Records why a decode's data ended early on an image whose grid is nevertheless whole.
+    ///
+    /// The other half of [`Self::stop_short`], and the difference is the filter's unit. A
+    /// `CCITTFaxDecode` decode that stops delivers the scan lines before the damage and no
+    /// more, so `delivered` falls short of the height and the rest of the grid is the page's
+    /// question. A `JBIG2Decode` page is composited rather than scanned: 14492's page
+    /// information segment states a default pixel value for "every pixel in the page, before
+    /// any region segments are decoded or drawn", so a stream that ends after fewer regions
+    /// still produces every row — the shortfall is in what reached the page, not in how much
+    /// of it there is, and there is nothing to leave unpainted.
+    fn note_damage(&mut self, reason: String) {
+        self.stopped_by = Some(reason);
     }
 
     /// Returns the packed image, or says why it is not one.
@@ -628,4 +822,159 @@ pub(crate) fn jpx(data: &[u8], indices: bool) -> Result<Raster, String> {
         colour,
         data: decoded.data_u8(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `batch5/PDFIUM/PDFIUM-1236-1.pdf`'s image stream, verbatim: 94 bytes of ISO/IEC 14492
+    /// Annex D.3 embedded organisation — a 30-byte page information segment stating a
+    /// 3562 x 851 page whose default pixel value is 0, and a 64-byte immediate generic region
+    /// covering all of it. The file's `/Length` says 95, counting the end-of-line marker
+    /// before `endstream` that §7.3.8.1 says shall not be counted.
+    const ONE_PAGE_AND_ONE_REGION: &[u8] = &[
+        0x00, 0x00, 0x00, 0x00, 0x30, 0x00, 0x01, 0x00, 0x00, 0x00, 0x13, 0x00, 0x00, 0x0D, 0xEA,
+        0x00, 0x00, 0x03, 0x53, 0x00, 0x00, 0x17, 0x11, 0x00, 0x00, 0x17, 0x11, 0x51, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01, 0x26, 0x00, 0x01, 0x00, 0x00, 0x00, 0x35, 0x00, 0x00, 0x0D, 0xEA,
+        0x00, 0x00, 0x03, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x03,
+        0xFF, 0xFD, 0xFF, 0x02, 0xFE, 0xFE, 0xFE, 0xFF, 0x7F, 0x86, 0x53, 0x0F, 0xB6, 0xC9, 0x22,
+        0xCF, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x7F,
+        0xFF, 0x7F, 0xFF, 0xAC,
+    ];
+
+    /// The offset just past the page information segment: eleven bytes of header and the
+    /// nineteen 14492 7.4.8 gives its data.
+    const PAGE_INFORMATION: usize = 30;
+
+    #[test]
+    fn a_stream_of_whole_segments_is_all_whole_segments() {
+        assert_eq!(
+            whole_segments(ONE_PAGE_AND_ONE_REGION),
+            ONE_PAGE_AND_ONE_REGION.len()
+        );
+        assert_eq!(
+            whole_segments(&ONE_PAGE_AND_ONE_REGION[..PAGE_INFORMATION]),
+            PAGE_INFORMATION
+        );
+    }
+
+    /// Every truncation of the file's stream is bounded by the last segment it finishes.
+    ///
+    /// Trap 13: the walk is run against the defect and not against the good case alone. A
+    /// byte taken off the region segment leaves the page information segment whole and
+    /// nothing else; a byte taken off the page information segment leaves nothing.
+    #[test]
+    fn a_truncated_stream_is_bounded_by_the_segment_before_the_damage() {
+        for cut in PAGE_INFORMATION..ONE_PAGE_AND_ONE_REGION.len() {
+            assert_eq!(
+                whole_segments(&ONE_PAGE_AND_ONE_REGION[..cut]),
+                PAGE_INFORMATION,
+                "{cut} bytes"
+            );
+        }
+        for cut in 0..PAGE_INFORMATION {
+            assert_eq!(
+                whole_segments(&ONE_PAGE_AND_ONE_REGION[..cut]),
+                0,
+                "{cut} bytes"
+            );
+        }
+    }
+
+    /// ISO 32000-2 §7.3.8.1's marker is not a shortfall, and anything longer is.
+    #[test]
+    fn only_an_end_of_line_marker_past_the_last_segment_is_silent() {
+        for marker in [&b"\n"[..], &b"\r"[..], &b"\r\n"[..]] {
+            let mut data = ONE_PAGE_AND_ONE_REGION.to_vec();
+            data.extend_from_slice(marker);
+            assert_eq!(whole_segments(&data), ONE_PAGE_AND_ONE_REGION.len());
+            assert_eq!(shortfall_past_the_last_segment(marker, b""), None);
+        }
+        assert_eq!(shortfall_past_the_last_segment(b"", b""), None);
+        let said =
+            shortfall_past_the_last_segment(b"abc", b"").expect("three bytes are not a marker");
+        assert_eq!(
+            said,
+            "the stream ends inside a segment, 3 bytes after the last whole one"
+        );
+        let both = shortfall_past_the_last_segment(b"abc", b"de").expect("both are short");
+        assert!(both.contains("the stream ends"), "{both}");
+        assert!(both.contains("its /JBIG2Globals ends"), "{both}");
+    }
+
+    /// A `/JBIG2Globals` stream carrying §7.3.8.1's marker takes the same route as the image's.
+    ///
+    /// Table 12's globals are the same organisation, parsed in the same call, so one badly
+    /// delimited stream of the two refuses both — which is what `GHOSTSCRIPT-693285-1.pdf`
+    /// showed by not moving when only the image's stream was trimmed.
+    #[test]
+    fn a_globals_stream_that_counted_the_marker_is_trimmed_too() {
+        let mut globals = ONE_PAGE_AND_ONE_REGION[..PAGE_INFORMATION].to_vec();
+        globals.push(b'\n');
+        let region = &ONE_PAGE_AND_ONE_REGION[PAGE_INFORMATION..];
+        assert!(
+            hayro_jbig2::Image::new_embedded(region, Some(&globals)).is_err(),
+            "the stray byte is what this test is about"
+        );
+        let bilevel = jbig2(region, &globals).expect("the segments are whole on both sides");
+        assert_eq!((bilevel.width, bilevel.height), (3562, 851));
+        assert_eq!(bilevel.stopped_by, None);
+    }
+
+    /// The file's own stream, with the byte its `/Length` counted, decodes the page.
+    ///
+    /// §7.3.8.1: "There should be an end-of-line marker after the data and before endstream ;
+    /// this marker shall not be included in the stream length." Every sample comes back, and
+    /// silently: nothing is missing from the picture. Without the trim the codec answers
+    /// `unexpected end of input` and the page is drawn blank.
+    #[test]
+    fn a_length_that_counted_the_end_of_line_marker_still_decodes() {
+        let mut data = ONE_PAGE_AND_ONE_REGION.to_vec();
+        data.push(b'\n');
+        let bilevel = jbig2(&data, b"").expect("the segments are whole");
+        assert_eq!((bilevel.width, bilevel.height), (3562, 851));
+        assert_eq!(bilevel.delivered, 851);
+        assert_eq!(bilevel.stopped_by, None);
+    }
+
+    /// A stream that ends inside a segment draws the segments before it and says so.
+    ///
+    /// The page information segment alone is whole, so 14492 7.4.8.5's default pixel value is
+    /// what every pixel of the page shows — the grid is complete and what is short is the
+    /// regions that reached it, which is what makes this filter's answer different from
+    /// §7.4.6's damaged fax (ADR 0794).
+    #[test]
+    fn a_stream_ending_inside_a_segment_draws_the_segments_before_it() {
+        let cut = PAGE_INFORMATION + 20;
+        let bilevel = jbig2(&ONE_PAGE_AND_ONE_REGION[..cut], b"").expect("one whole segment");
+        assert_eq!((bilevel.width, bilevel.height), (3562, 851));
+        assert_eq!(
+            bilevel.delivered, 851,
+            "the grid is whole; the regions are not"
+        );
+        let said = bilevel.stopped_by.expect("the shortfall is reported");
+        assert!(said.contains("ends inside a segment"), "{said}");
+        assert!(said.contains("20 bytes"), "{said}");
+        assert!(said.contains("default pixel value"), "{said}");
+        // This page's default pixel value is 0, which 14492 calls white and which this filter
+        // delivers as the PDF convention's 1. A row is 446 bytes for 3562 samples, so the
+        // whole bytes are every sample but the last two and the six bits past them are
+        // padding rather than samples, left clear.
+        let row_bytes = 446;
+        assert_eq!(bilevel.rows.len(), row_bytes * 851);
+        for row in bilevel.rows.chunks_exact(row_bytes) {
+            assert!(
+                row[..445].iter().all(|byte| *byte == 0xFF) && row[445] == 0xC0,
+                "a row is not the page's default pixel value"
+            );
+        }
+    }
+
+    /// A stream with no whole segment at all stays a refusal carrying the codec's sentence.
+    #[test]
+    fn a_stream_with_no_whole_segment_is_refused() {
+        let refused = jbig2(&ONE_PAGE_AND_ONE_REGION[..10], b"").expect_err("nothing to draw");
+        assert!(refused.starts_with("JBIG2: "), "{refused}");
+    }
 }
