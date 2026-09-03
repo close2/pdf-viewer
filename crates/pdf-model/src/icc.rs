@@ -179,6 +179,34 @@ impl Curve {
             Self::Parametric { kind, values } => parametric(*kind, values, x),
         }
     }
+
+    /// The input in `0.0..=1.0` at which this curve reaches `y`, for a curve that does not
+    /// decrease — which every tone curve is, a tone curve being a monotone map of a device
+    /// value onto light.
+    ///
+    /// A power law is inverted outright; the sampled and parametric forms by bisection over
+    /// the unit interval, twenty-four halvings deep, which places the answer to within a
+    /// sixteen-millionth — finer than any device value this crate is asked for. A `y` the
+    /// curve never reaches lands on the end nearer it, which is the clamp §8.6.5.3 applies
+    /// to a component "falling outside that range".
+    fn invert(&self, y: f32) -> f32 {
+        match self {
+            Self::None => y.clamp(0.0, 1.0),
+            Self::Gamma(gamma) if *gamma > 0.0 => y.clamp(0.0, 1.0).powf(1.0 / gamma),
+            _ => {
+                let (mut low, mut high) = (0.0f32, 1.0f32);
+                for _ in 0..24 {
+                    let middle = 0.5 * (low + high);
+                    if self.apply(middle) < y {
+                        low = middle;
+                    } else {
+                        high = middle;
+                    }
+                }
+                0.5 * (low + high)
+            }
+        }
+    }
 }
 
 /// The ICC parametric curve types, which are one function with more or fewer terms.
@@ -565,10 +593,31 @@ impl Profile {
     }
 
     /// Whether this profile carries the "from CIE" information §8.6.5.5 asks of a blending
-    /// colour space — a `B2A1` or `B2A0` table this crate can evaluate.
+    /// colour space — a `B2A1` or `B2A0` table this crate can evaluate, or the matrix and
+    /// tone curves of a three-component display profile, which are their own inverse.
+    ///
+    /// §11.3.4 says what the word means: "the ICC profile shall be capable of both device to
+    /// PCS and PCS to device transformations". A matrix profile states no `B2A` table because
+    /// it needs none — its 3×3 matrix inverts and its tone curves are monotone, and ISO
+    /// 15076-1 defines the PCS-to-device direction of such a profile as exactly that inverse
+    /// — so it is capable of both and this answers so.
     #[must_use]
     pub fn is_bidirectional(&self) -> bool {
-        self.inverse.is_some()
+        self.inverse.is_some() || matches!(self.transform, Transform::Matrix { .. })
+    }
+
+    /// The two stages of a three-component matrix profile, or `None` for any other shape.
+    ///
+    /// What a caller sampling the conversion *out* wants apart: the tone curves are one
+    /// function per component and the matrix is linear, so the two can be carried as curves
+    /// and corners rather than as one grid over the whole conversion — `pdf_render::ColourCube`
+    /// is built that way, and `crate::colour` says why the separation matters.
+    #[must_use]
+    pub fn matrix_stages(&self) -> Option<MatrixStages<'_>> {
+        match &self.transform {
+            Transform::Matrix { curves, columns } => Some(MatrixStages { curves, columns }),
+            Transform::Lut(_) | Transform::Grey(_) => None,
+        }
     }
 
     /// The device colour that reproduces a D50 XYZ, through the profile's `B2A` table.
@@ -593,6 +642,21 @@ impl Profile {
     /// advance.
     #[must_use]
     pub fn to_device(&self, xyz: [f32; 3], black_point: bool) -> Option<[f32; MAX_OUTPUTS]> {
+        // A matrix profile's conversion in is its own two stages run backwards — ISO 15076-1
+        // states the PCS-to-device direction of a three-component matrix profile as the
+        // inverse of the matrix followed by the inverse of each tone curve — and it has no
+        // black point to undo, since `detect_black` finds one for lookup tables alone. A
+        // colour the device cannot reach is clamped to its range per component after the
+        // matrix, which is the clamp §8.6.5.3 applies to a component "falling outside that
+        // range" and the only answer the two stages define.
+        if let Transform::Matrix { curves, columns } = &self.transform {
+            let linear = crate::colour::solve_three(columns, xyz)?;
+            let mut out = [0.0f32; MAX_OUTPUTS];
+            for ((value, curve), light) in out.iter_mut().zip(curves).zip(linear) {
+                *value = curve.invert(light.clamp(0.0, 1.0));
+            }
+            return Some(out);
+        }
         let inverse = self.inverse.as_ref()?;
         let mut xyz = xyz;
         if let Some(black) = self.black.filter(|_| black_point) {
@@ -623,6 +687,38 @@ impl Profile {
 /// Four: PDF's `/N` permits one, three or four, and a table with more outputs — ICC permits
 /// fifteen — has the rest unread, which costs nothing this crate could consume.
 pub const MAX_OUTPUTS: usize = 4;
+
+/// A three-component matrix profile's conversion to the connection space, in its two stages.
+///
+/// See [`Profile::matrix_stages`].
+#[derive(Debug, Clone, Copy)]
+pub struct MatrixStages<'a> {
+    curves: &'a [Curve],
+    columns: &'a [[f32; 3]; 3],
+}
+
+impl MatrixStages<'_> {
+    /// The tone curve of `channel` at the device value `value`: the profile's light on that
+    /// axis, before the matrix.
+    #[must_use]
+    pub fn linear(&self, channel: usize, value: f32) -> f32 {
+        self.curves
+            .get(channel)
+            .map_or(value.clamp(0.0, 1.0), |curve| curve.apply(value))
+    }
+
+    /// The connection-space XYZ of three linear values: the matrix, one column per channel.
+    #[must_use]
+    pub fn xyz(&self, linear: [f32; 3]) -> [f32; 3] {
+        let mut xyz = [0.0f32; 3];
+        for (column, light) in self.columns.iter().zip(linear) {
+            for (axis, out) in xyz.iter_mut().enumerate() {
+                *out += light * column.get(axis).copied().unwrap_or(0.0);
+            }
+        }
+        xyz
+    }
+}
 
 /// Largest number of input channels a table is evaluated for without allocating.
 ///

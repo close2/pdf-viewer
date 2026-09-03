@@ -63,6 +63,11 @@ impl ClipId {
 ///   composites the one list and resolves it through [`crate::blending::resolve_grey`]
 ///   before painting it. A `DeviceGray` group needs neither, because its component *is* the
 ///   channel (§10.4.2.2), and `pdf-model` builds no `GroupBlending` for it.
+/// - **Three components through a cube** ([`crate::blending::ColourCube`]): the elements are
+///   interpreted once, each colour painted as the space's three components, and a backend
+///   composites the one list and resolves it through [`crate::blending::resolve_cube`]
+///   before painting it. A `DeviceRGB` group needs none of this either, because its
+///   components are the channels.
 ///
 /// Either way the resolution runs before the group is painted, which is exactly where
 /// §11.7.2's second sentence puts the interpretation of the group's accumulated colour.
@@ -88,6 +93,13 @@ pub enum GroupBlending {
         /// The conversion out of the group's component.
         curve: crate::blending::GreyCurve,
     },
+    /// A space of three components that reaches the device through curves and a matrix or
+    /// a table — `CalRGB`, or an `ICCBased` 'RGB ' profile — applied to the composited
+    /// elements before the group is painted onto its parent.
+    ThreeComponents {
+        /// The conversion out of the group's three components.
+        cube: crate::blending::ColourCube,
+    },
 }
 
 impl GroupBlending {
@@ -96,7 +108,7 @@ impl GroupBlending {
     pub fn black(&self) -> Option<&[Command]> {
         match self {
             Self::FourComponents { black, .. } => Some(black),
-            Self::OneComponent { .. } => None,
+            Self::OneComponent { .. } | Self::ThreeComponents { .. } => None,
         }
     }
 }
@@ -697,6 +709,9 @@ pub struct DisplayList {
     /// §11.4.7's blending colour space, where it is one component that reaches the device
     /// through a curve. See [`DisplayList::set_grey_curve`].
     grey_curve: Option<crate::blending::GreyCurve>,
+    /// §11.4.7's blending colour space, where it is three components that reach the device
+    /// through curves and a grid. See [`DisplayList::set_colour_cube`].
+    colour_cube: Option<crate::blending::ColourCube>,
     /// §14.11.2.1's boundary, in this list's own space, or `None` for a list that is not a
     /// page. See [`DisplayList::content_clip`].
     content_clip: Option<Rect>,
@@ -715,6 +730,7 @@ impl DisplayList {
             blending: None,
             black: None,
             grey_curve: None,
+            colour_cube: None,
             content_clip: None,
         }
     }
@@ -797,8 +813,9 @@ impl DisplayList {
     /// through the curve with [`crate::blending::resolve_grey`], before the medium. A backend
     /// that cannot must refuse the list, because what it holds are components and not light.
     ///
-    /// A list carries at most one of this and [`DisplayList::set_blending`]; the interpreter
-    /// chooses one construction per page, and a reader that finds both refuses the list.
+    /// A list carries at most one of this, [`DisplayList::set_blending`] and
+    /// [`DisplayList::set_colour_cube`]; the interpreter chooses one construction per page,
+    /// and a reader that finds two refuses the list.
     pub fn set_grey_curve(&mut self, curve: crate::blending::GreyCurve) {
         self.grey_curve = Some(curve);
     }
@@ -807,6 +824,26 @@ impl DisplayList {
     #[must_use]
     pub fn grey_curve(&self) -> Option<&crate::blending::GreyCurve> {
         self.grey_curve.as_ref()
+    }
+
+    /// States that this page composites in a three-component CIE-based blending colour space
+    /// whose components reach the device through curves and a grid.
+    ///
+    /// ISO 32000-2 §11.4.7 once more, for a `CalRGB` or `ICCBased` 'RGB ' page group: every
+    /// colour in this list is the space's three components, so a backend composites the list
+    /// as it would any other and then resolves the raster through the cube with
+    /// [`crate::blending::resolve_cube`], before the medium. A backend that cannot must refuse
+    /// the list, because what it holds are components and not light.
+    ///
+    /// One construction per page, as [`DisplayList::set_grey_curve`] says.
+    pub fn set_colour_cube(&mut self, cube: crate::blending::ColourCube) {
+        self.colour_cube = Some(cube);
+    }
+
+    /// The cube this page's composited components leave by, where it composites in three.
+    #[must_use]
+    pub fn colour_cube(&self) -> Option<&crate::blending::ColourCube> {
+        self.colour_cube.as_ref()
     }
 
     /// A digest of everything about this list that is *not* a colour.

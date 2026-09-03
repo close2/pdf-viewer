@@ -318,6 +318,12 @@ impl Rasterizer for CpuRasterizer {
         if let Some(curve) = list.grey_curve() {
             pdf_render::resolve_grey(pixmap.data_mut(), curve);
         }
+        // And for a space of three CIE-based components (`CalRGB`, an `ICCBased` 'RGB '
+        // profile): the page composited the space's components, and the cube they leave by
+        // is applied at the same point. See `pdf_render::blending::ColourCube`.
+        if let Some(cube) = list.colour_cube() {
+            pdf_render::resolve_cube(pixmap.data_mut(), cube);
+        }
 
         // §11.4.7's page group is isolated, so the medium's colour is composited with the
         // finished page rather than being the backdrop its blend modes saw. Before the
@@ -1166,9 +1172,10 @@ impl CpuRasterizer {
     /// components are two passes of three, the same construction `rasterize` applies to
     /// §11.4.7's page — and the second is `pdf_render::blending::resolve`; for one component
     /// through a curve it is one pass with every colour painted as its component, and
-    /// `pdf_render::blending::resolve_grey`. Either runs before the caller paints the buffer
-    /// onto the parent. The group is isolated by `pdf_render::GroupBlending`'s own
-    /// guarantee, so every pass starts on transparency.
+    /// `pdf_render::blending::resolve_grey`; for three CIE-based components it is one pass
+    /// with every colour painted as its components, and `pdf_render::blending::resolve_cube`.
+    /// Each runs before the caller paints the buffer onto the parent. The group is isolated
+    /// by `pdf_render::GroupBlending`'s own guarantee, so every pass starts on transparency.
     ///
     /// # Errors
     ///
@@ -1222,6 +1229,9 @@ impl CpuRasterizer {
             }
             pdf_render::GroupBlending::OneComponent { curve } => {
                 pdf_render::resolve_grey(composited.data_mut(), curve);
+            }
+            pdf_render::GroupBlending::ThreeComponents { cube } => {
+                pdf_render::resolve_cube(composited.data_mut(), cube);
             }
         }
         Ok(composited)
@@ -4518,6 +4528,7 @@ mod tests {
                     backdrop: Color::rgb(0.0, 0.0, 0.0),
                 },
                 transfer: None,
+                luminance: None,
             })
             .expect("under the mask limit");
         let clip = list
@@ -4936,6 +4947,7 @@ mod tests {
                 commands: Vec::new(),
                 kind,
                 transfer: None,
+                luminance: None,
             };
             assert_eq!(
                 mask.outside(),
@@ -4982,6 +4994,7 @@ mod tests {
                 commands: Vec::new(),
                 kind,
                 transfer: None,
+                luminance: None,
             };
             let outside = mask.outside();
             let per_pixel: Vec<u8> = buffer

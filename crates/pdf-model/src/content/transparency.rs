@@ -180,16 +180,17 @@ fn command_composites(command: &Command) -> bool {
 
 /// Names a colour space if compositing in it is not compositing on the device's components.
 ///
-/// This tree composites on the three components of the device raster, so the spaces that ask
-/// for what already happens are the three-component RGB ones: `/DeviceRGB`, `CalRGB`, and an
-/// ICC profile of three components, each of which this tree already resolves *to* device RGB
-/// one colour at a time. Those are a colorimetric difference this renderer takes page-wide and
-/// records as a choice.
+/// This tree composites on the three components of the device raster, so the one space that
+/// asks for what already happens is `/DeviceRGB`. **`CalRGB` and a three-component profile
+/// were let through here as well until ADR 0797**, as "a colorimetric difference this
+/// renderer takes page-wide and records as a choice"; they are named now, because they are
+/// drawn in their own components ([`Interpreter::group_own_space`], [`page_own_space`]) and
+/// a group inside one introducing a different space has to be a change of space.
 ///
-/// What is named is a space whose components are not those: `/DeviceGray`, `/DeviceCMYK`,
-/// `Separation` and `DeviceN` blend a different number of components, and `Lab` blends three
-/// that are not a linear map of these. §11.3.4 is why that is a difference rather than a
-/// notation:
+/// What is named is a space whose components are not the device's: `/DeviceGray`,
+/// `/DeviceCMYK`, `Separation` and `DeviceN` blend a different number of components, the
+/// CIE-based spaces blend their own components behind a conversion, and `Lab` blends three
+/// the clause forbids. §11.3.4 is why that is a difference rather than a notation:
 ///
 /// > The result of the computation thus depends on the colour space in which the colours are
 /// > represented.
@@ -204,7 +205,7 @@ fn command_composites(command: &Command) -> bool {
 /// **A one-component space is named here and is not reported where it is drawn**: `DeviceGray`
 /// since the eight-hundred-and-sixty-fifth session (ADR 0790), and `CalGray` and a
 /// one-component profile since the eight-hundred-and-seventy-first (ADR 0792) — what
-/// [`Interpreter::group_one_component`] and [`page_one_component`] draw. Each stays a
+/// [`Interpreter::group_own_space`] and [`page_own_space`] draw. Each stays a
 /// [`Departure`] so that a group *inside* it introducing a different space is still a change
 /// of space.
 fn space_departure(document: &Document, entry: &Object) -> Option<Departure> {
@@ -219,12 +220,48 @@ fn space_departure(document: &Document, entry: &Object) -> Option<Departure> {
         _ => "an array-formed space".to_owned(),
     };
     match ColourSpace::parse(document, &object, &Dictionary::new()) {
-        Some(ColourSpace::Rgb | ColourSpace::CalRgb { .. }) => None,
-        Some(ColourSpace::Icc { profile }) if profile.channels() == 3 => None,
+        Some(ColourSpace::Rgb) => None,
         space => Some(Departure {
             name,
             components: space.as_ref().map_or(0, ColourSpace::components),
+            identity: space.as_ref().and_then(space_identity),
         }),
+    }
+}
+
+/// What tells one CIE-based space from another of the same name, or `None` for a space
+/// that is not CIE-based.
+///
+/// Two array-formed `/CS` entries print alike in a report and are not alike: a `CalRGB` of
+/// gamma 1 inside a `CalRGB` of gamma 2.2 is a change of space with a conversion between the
+/// two at its `Do`, and until ADR 0797 the two compared equal by name and the inner one
+/// inherited in silence. The hash is of the space's own parameters — Table 62's and 63's
+/// entries, a profile's bytes, `Lab`'s range — and is compared within one interpretation,
+/// which is all `std::hash::DefaultHasher` promises.
+fn space_identity(space: &ColourSpace) -> Option<u64> {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    match space {
+        ColourSpace::Icc { profile } => profile.identity().hash(&mut hasher),
+        ColourSpace::CalGray { .. } => space.grey_identity()?.hash(&mut hasher),
+        ColourSpace::CalRgb { .. } => space.rgb_identity()?.hash(&mut hasher),
+        ColourSpace::Lab { range } => range.map(f32::to_bits).hash(&mut hasher),
+        _ => return None,
+    }
+    Some(hasher.finish())
+}
+
+/// How many components a `/CS` entry has where it names a device colour space, as written.
+///
+/// §11.7.2's rule for such an entry inside a CIE-based group reads the count and nothing
+/// else, so a `/DefaultRGB` remapping is not consulted here: the rule is about the space the
+/// file wrote, as [`space_departure`]'s name is.
+fn device_components(document: &Document, entry: &Object) -> Option<usize> {
+    match ColourSpace::parse(document, &document.resolve(entry), &Dictionary::new())? {
+        ColourSpace::Gray => Some(1),
+        ColourSpace::Rgb => Some(3),
+        ColourSpace::Cmyk => Some(4),
+        _ => None,
     }
 }
 
@@ -248,9 +285,18 @@ pub(super) struct Departure {
     pub(super) name: String,
     /// How many components the space has, or 0 where this crate could not parse it.
     pub(super) components: usize,
+    /// What tells this space from another of the same name where it is CIE-based, and
+    /// `None` where it is not — which is also the condition §11.7.2 puts on a device space
+    /// inside it being the space itself: see [`group_blending`] and [`space_identity`].
+    pub(super) identity: Option<u64>,
 }
 
 impl Departure {
+    /// Whether the space is CIE-based.
+    fn calibrated(&self) -> bool {
+        self.identity.is_some()
+    }
+
     /// Whether every mark painted into this space changes colour, compositing or not.
     ///
     /// One component: the conversion in keeps a grey and nothing else, so there is no
@@ -260,15 +306,19 @@ impl Departure {
     }
 }
 
-/// What a `/CS` entry of one component asks a page or group to composite in, after the
-/// default colour spaces' remapping — or `None` where it is not one this tree draws.
+/// What a `/CS` entry of one or three components asks a page or group to composite in, after
+/// the default colour spaces' remapping — or `None` where it is not one this tree draws in a
+/// space of its own.
 ///
 /// §11.3.4 lists three one-component spaces a processor "shall" support as blending colour
 /// spaces, and this answers for all three: `DeviceGray` is
 /// [`crate::colour::Compositing::Grey`], whose component is the channel; `CalGray` and an
 /// `ICCBased` 'GRAY' profile are [`crate::colour::Compositing::Calibrated`], whose component
-/// leaves through a curve ([`crate::colour::GreyRoute`]). §11.6.6's Table 145 subjects a
-/// group's device colour space to remapping first —
+/// leaves through a curve ([`crate::colour::GreyRoute`]). And two of its three-component
+/// ones since ADR 0797: `CalRGB` and a bi-directional `ICCBased` 'RGB ' profile are
+/// [`crate::colour::Compositing::Additive`], whose components leave through a cube
+/// ([`crate::colour::RgbRoute`]) — `DeviceRGB` is the device's own and asks for nothing.
+/// §11.6.6's Table 145 subjects a group's device colour space to remapping first —
 ///
 /// > Device colour spaces shall be subject to remapping according to the DefaultGray ,
 /// > DefaultRGB , and DefaultCMYK entries in the ColorSpace subdictionary of the current
@@ -277,26 +327,35 @@ impl Departure {
 /// — so a `/DeviceGray` beside a `/DefaultGray` is that default, and takes the default's
 /// route. The parse is against `resources` for that reason, where [`space_departure`]'s is
 /// not: that one names what the file *wrote*, and this one asks what it means here.
-fn one_component_compositing(
+fn own_space_compositing(
     document: &Document,
     entry: &Object,
     resources: &Dictionary,
+    presses: &Presses,
 ) -> Option<Compositing> {
     match ColourSpace::parse(document, entry, resources)? {
         ColourSpace::Gray => Some(Compositing::Grey),
+        ColourSpace::Rgb => None,
         space => crate::colour::GreyRoute::of(&space)
             .map(Arc::new)
-            .map(Compositing::Calibrated),
+            .map(Compositing::Calibrated)
+            .or_else(|| presses.rgb_route(&space).map(Compositing::Additive)),
     }
 }
 
-/// What §11.4.7's page group asks the page to composite in, where it is one component.
+/// What §11.4.7's page group asks the page to composite in, where it is one component or
+/// three CIE-based ones.
 ///
-/// The one-component counterpart of [`page_press`]: a page whose group states `/DeviceGray`,
-/// `CalGray` or a one-component profile is interpreted once under the [`Compositing`] this
-/// returns, which `interpreted` chooses on this answer. A page group with no
-/// `/S /Transparency` asks for nothing, as [`page_blending_space`] reads it.
-pub(super) fn page_one_component(document: &Document, page: &Page) -> Option<Compositing> {
+/// The counterpart of [`page_press`] for the spaces that need one interpretation rather than
+/// two: a page whose group states `/DeviceGray`, `CalGray`, `CalRGB` or a one- or
+/// three-component profile is interpreted once under the [`Compositing`] this returns, which
+/// `interpreted` chooses on this answer. A page group with no `/S /Transparency` asks for
+/// nothing, as [`page_blending_space`] reads it.
+pub(super) fn page_own_space(
+    document: &Document,
+    page: &Page,
+    presses: &Presses,
+) -> Option<Compositing> {
     let attributes = document.get_key(&page.dict, "Group");
     let attributes = attributes.as_dict()?;
     if document
@@ -307,7 +366,7 @@ pub(super) fn page_one_component(document: &Document, page: &Page) -> Option<Com
         return None;
     }
     let entry = document.get_key(attributes, "CS");
-    one_component_compositing(document, &entry, &page.resources)
+    own_space_compositing(document, &entry, &page.resources, presses)
 }
 
 /// The blending colour space §11.4.7 gives a page, named where it is one this tree departs from.
@@ -352,6 +411,18 @@ pub(super) fn page_blending_space(document: &Document, page: &Page) -> Option<De
 /// that of the group in order to perform the compositing computations" — so a `/CS` on a
 /// non-isolated group is not the space anything composites in, and reporting it as one is
 /// reporting a departure that is not there.
+///
+/// And §11.7.2 gives a device space inside a CIE-based one no effect either:
+///
+/// > If the colour space of the transparency group is a device colour space, and some
+/// > ancestor of the group has a CIE-based colour space with the same number of colourants,
+/// > then the colour space of this group shall be the CIE-based space of the nearest such
+/// > ancestor.
+///
+/// So an isolated `/DeviceRGB` group inside a `CalRGB` page, a `/DeviceGray` one inside a
+/// `CalGray` page and a `/DeviceCMYK` one inside a profile's press all inherit — which is
+/// what keeps the commonest group of all, a `/DeviceRGB` group on a page whose group is the
+/// sRGB profile, from being a change of space at every `Do`.
 fn group_blending(
     document: &Document,
     group: &TransparencyGroup,
@@ -361,7 +432,35 @@ fn group_blending(
     if !group.isolated || matches!(entry, Object::Null) {
         return inherited.cloned();
     }
+    if let Some(inherited) = inherited
+        && inherited.calibrated()
+        && device_components(document, &entry) == Some(inherited.components)
+    {
+        return Some(inherited.clone());
+    }
     space_departure(document, &entry)
+}
+
+/// The conversion out a group drawn in its own space carries to the backend, or `None`
+/// where the raster already holds the device's answer.
+///
+/// A calibrated component leaves by its curve and three components by their cube, which
+/// the backend applies before painting the group onto its parent
+/// (`pdf_render::GroupBlending`); device grey leaves as it is, §10.4.2.2's grey level being
+/// "equivalent to an RGB value with all three components the same".
+fn own_space_conversion(compositing: &Compositing) -> Option<pdf_render::GroupBlending> {
+    match compositing {
+        Compositing::Calibrated(route) => Some(pdf_render::GroupBlending::OneComponent {
+            curve: route.curve().clone(),
+        }),
+        Compositing::Additive(route) => Some(pdf_render::GroupBlending::ThreeComponents {
+            cube: route.cube().clone(),
+        }),
+        Compositing::Device
+        | Compositing::Luminosity(_)
+        | Compositing::Grey
+        | Compositing::Subtractive(..) => None,
+    }
 }
 
 /// Whether a group's change of blending colour space can change a pixel of its elements.
@@ -1435,17 +1534,18 @@ impl Interpreter<'_> {
         }
     }
 
-    /// What this group is drawn in where its `/CS` is one component: §11.6.6's one-component
-    /// case, in either of its shapes.
+    /// What this group is drawn in where its `/CS` is one component or three CIE-based ones:
+    /// §11.6.6's own-space case, in each of its shapes but the press's.
     ///
-    /// The counterpart of [`Interpreter::group_press`] for a space of one component rather
-    /// than four, and it needs fewer of that function's conditions because it needs no pair:
-    /// the group's content runs once, its result is one number in every channel, and the
-    /// conversion out is either what the raster already holds — `DeviceGray` under
-    /// [`Compositing::Grey`], §10.4.2.2's grey level "equivalent to an RGB value with all
-    /// three components the same" — or a curve the group carries out to its backend
-    /// ([`Compositing::Calibrated`], `pdf_render::GroupBlending::OneComponent`), so the group
-    /// composites onto its parent as any other group does. So a knockout group is drawn too
+    /// The counterpart of [`Interpreter::group_press`] for a space of one or three components
+    /// rather than four, and it needs fewer of that function's conditions because it needs no
+    /// pair: the group's content runs once, its result is the space's components in the
+    /// channels, and the conversion out is either what the raster already holds —
+    /// `DeviceGray` under [`Compositing::Grey`], §10.4.2.2's grey level "equivalent to an RGB
+    /// value with all three components the same" — or a curve or a cube the group carries out
+    /// to its backend ([`Compositing::Calibrated`], [`Compositing::Additive`],
+    /// `pdf_render::GroupBlending`), so the group composites onto its parent as any other
+    /// group does. So a knockout group is drawn too
     /// (§11.4.6's staged rewrites edit one list, and there is only one), and Table 57's black
     /// generation does not enter — §11.7.5.3 puts it inside §10.4.2.4's conversion into
     /// `DeviceCMYK`, which is on no route into grey.
@@ -1456,7 +1556,7 @@ impl Interpreter<'_> {
     /// compositing on the device — a grey group inside a press is a conversion between two
     /// spaces at its `Do`, which `doc/todo/23` keeps. A grey group inside a grey page is not
     /// this function's: it inherits, and [`group_blending`] says so.
-    fn group_one_component(
+    fn group_own_space(
         &self,
         group: &TransparencyGroup,
         resources: &Dictionary,
@@ -1464,7 +1564,7 @@ impl Interpreter<'_> {
         if self.compositing != Compositing::Device || !group.isolated || self.uncoloured {
             return None;
         }
-        one_component_compositing(self.document, &group.colour_space, resources)
+        own_space_compositing(self.document, &group.colour_space, resources, self.presses)
     }
 
     /// Reports a blend mode inside a mask group whose channel is more than one component.
@@ -1713,6 +1813,7 @@ impl Interpreter<'_> {
             commands,
             kind: request.kind,
             transfer: request.transfer.clone(),
+            luminance: request.luminance.clone(),
         };
         let Ok(id) = self.list.add_soft_mask(evaluated) else {
             self.note(Unsupported::LimitReached {
@@ -2004,7 +2105,7 @@ impl Interpreter<'_> {
     /// Runs a group's content and collects its commands — twice where the group states a
     /// blending colour space of four components, once more where the two runs diverge, and
     /// once under [`Compositing::Grey`] or [`Compositing::Calibrated`] where it states one
-    /// component ([`Interpreter::group_one_component`]).
+    /// component or three ([`Interpreter::group_own_space`]).
     ///
     /// The first run is the one whose readback is kept, because a colour changes no glyph's
     /// place; every run after it is rewound (see [`ReadbackMark`]). Where
@@ -2050,7 +2151,7 @@ impl Interpreter<'_> {
         let outer_ais_mark = std::mem::replace(&mut self.alpha_sources_mark, mark);
         let ink = self.group_press(group, resources);
         let grey = if ink.is_none() {
-            self.group_one_component(group, resources)
+            self.group_own_space(group, resources)
         } else {
             None
         };
@@ -2083,13 +2184,7 @@ impl Interpreter<'_> {
                 commands = self.rerun_on_device(content, resources, inner, mark);
             } else {
                 in_own_space = true;
-                // A calibrated component leaves by its curve, which the backend applies
-                // before painting the group onto its parent; device grey leaves as it is.
-                if let Compositing::Calibrated(route) = one_component {
-                    pair = Some(pdf_render::GroupBlending::OneComponent {
-                        curve: route.curve().clone(),
-                    });
-                }
+                pair = own_space_conversion(&one_component);
             }
         }
         if let Some(press) = ink.clone()
@@ -2227,6 +2322,13 @@ impl Interpreter<'_> {
                      composite through a curve with an inverse — §11.3.4 lists DeviceGray, \
                      CalGray and ICCBased 'GRAY' (§8.6.5.2, §8.6.5.5) — so §11.6.6 has no \
                      conversion into it and §11.3.4 none back out",
+                )
+            } else if departure.components == 3 {
+                BeyondPress::stated(
+                    "its three components are not ones this tree can composite through a cube \
+                     with a way in — §11.3.4 lists CalRGB and a bi-directional ICCBased 'RGB ' \
+                     (§8.6.5.3, §8.6.5.5) and forbids Lab — so §11.6.6 has no conversion into \
+                     it and §11.3.4 none back out",
                 )
             } else {
                 BeyondPress::stated(

@@ -354,8 +354,13 @@ impl Rasterizer for QuorraRasterizer {
         // group, whose composited component leaves through a curve — is one render and one
         // pass over the readback, at the same point (`pdf_render::blending::GreyCurve`).
         let one_component = list.grey_curve();
+        // And the three-component form — a `CalRGB` or `ICCBased` 'RGB ' page group, whose
+        // composited components leave through a cube — the same way
+        // (`pdf_render::blending::ColourCube`).
+        let three_components = list.colour_cube();
         if four_components.is_some()
             || one_component.is_some()
+            || three_components.is_some()
             || self.medium.marks_anything()
             || crop.is_some()
         {
@@ -370,6 +375,9 @@ impl Rasterizer for QuorraRasterizer {
             }
             if let Some(curve) = one_component {
                 pdf_render::resolve_grey(&mut data, curve);
+            }
+            if let Some(cube) = three_components {
+                pdf_render::resolve_cube(&mut data, cube);
             }
             // The page's own ink is cut where §14.11.2.1 says it stops, before anything is put
             // under it: the crop is about what the page may show, and a pass that ran after the

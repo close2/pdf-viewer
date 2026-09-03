@@ -347,7 +347,25 @@ const MIN_STRUCTURAL_SIMILARITY: f64 = 0.99;
 /// or a driver. And because the stage is scale-free, this one array is what both scales are held
 /// to — the hazard that the five-hundred-and-twelfth session met, a second copy of these names
 /// living in the 4× list and going stale while nobody ran that lane, cannot recur.
-const REFUSED_BEFORE_THE_SCENE: [&str; 2] = ["bug1721218_reduced.pdf", "issue18032.pdf"];
+///
+/// **Three in the eight-hundred-and-seventy-ninth, all the oracle gaining §11.3.4's and
+/// §11.5.3's three-component constructions** (ADR 0797). `issue16742.pdf` and `issue5044.pdf`
+/// hold an isolated group whose `/CS` is a `CalRGB` or an RGB profile, drawn by the oracle in
+/// the space's own components and resolved through a cube — curves, a grid and the device's
+/// transfer function — per pixel at its `Do` (§11.6.6, §11.7.2); the page-level cube is one
+/// pass over a whole readback and has no group-scoped analogue here, exactly as the pair and
+/// the curve have none. `issue21346.pdf` holds a `/Luminosity` mask whose group composites in
+/// an sRGB profile's components, and §11.5.3's `Y` of that is three curves summed per pixel
+/// (`pdf_render::Luminance`), where `quorra_scene::MaskKind::Luminosity` weighs the channels in
+/// its own shader — a different formula, refused rather than drawn to the wrong mask.
+/// `doc/QUORRA_FEEDBACK.md` section 43 is the ask for both.
+const REFUSED_BEFORE_THE_SCENE: [&str; 5] = [
+    "bug1721218_reduced.pdf",
+    "issue16742.pdf",
+    "issue18032.pdf",
+    "issue21346.pdf",
+    "issue5044.pdf",
+];
 
 /// Documents whose first page **the device** refuses at [`SCALE`], by name.
 ///

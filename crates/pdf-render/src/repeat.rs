@@ -1190,6 +1190,7 @@ mod repetition {
                 commands: vec![fill_of(square(Point::new(0.0, 0.0), Point::new(2.0, 2.0)))],
                 kind: SoftMaskKind::Alpha,
                 transfer: None,
+                luminance: None,
             })
             .expect("the cell's own mask");
         list.push(Command::Fill {

@@ -876,6 +876,16 @@ impl Rasterizer for GpuRasterizer {
                     .to_owned(),
             ));
         }
+        // And its three-component form, a `CalRGB` or `ICCBased` 'RGB ' page group whose
+        // composited components leave through a cube (`pdf_render::blending::ColourCube`),
+        // for the same reason.
+        if list.colour_cube().is_some() {
+            return Err(GpuRasterError::UnsupportedCommand(
+                "a page composited in a three-component CIE-based blending colour space \
+                 through a cube (§11.4.7)"
+                    .to_owned(),
+            ));
+        }
         // Before the scene, because every mask a command names has to exist by the time that
         // command is encoded — and because a mask is a render of its own, at this target.
         let masks = evaluate_soft_masks(

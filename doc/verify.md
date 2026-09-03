@@ -257,7 +257,9 @@ cargo run --release -p pdf-model --example type4_comment_census -- @/tmp/paths
 cargo run --release -p pdf-model --example luminosity_mask_census -- doc/pdf.js/test/pdfs/*.pdf
   # what a §11.5.3 mask group is painted *with*, against what its /CS declares — 87 groups on
   # this corpus, 39 blending in /DeviceCMYK and 36 in /DeviceGray, and not one setting a `k`
-  # colour, which is what turned a report's condition into the departure itself (ADR 0217)
+  # colour, which is what turned a report's condition into the departure itself (ADR 0217).
+  # Since ADR 0797 a three-component CIE-based /CS is printed with its route: a CalRGB or a
+  # matrix profile takes the clause's Y as three curves, a table profile keeps the sRGB grey
 cargo run --release -p pdf-model --example press_census -- <dir>/*.pdf    # one process per archive
   # which press §11.4.7 gives a page and whether `crate::icc` can evaluate the profile behind it —
   # its `A2B` out, and since ADR 0796 the `B2A` §8.6.5.5 requires of a blending-space profile,

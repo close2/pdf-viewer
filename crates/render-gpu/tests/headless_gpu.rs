@@ -387,6 +387,23 @@ fn the_gpu_refuses_a_group_in_a_one_component_blending_space() {
     );
 }
 
+/// And the three-component shape, for the same reason: a cube resolves per pixel after the
+/// group composites, and a group drawn without it would paint a `CalRGB`'s components as
+/// light.
+#[test]
+fn the_gpu_refuses_a_group_in_a_three_component_blending_space() {
+    let list = test_scenes::group_in_a_three_component_blending_space();
+    let target = TargetSpec::for_page(&list, 1.0, GENEROUS).expect("valid target");
+    let refusal = gpu()
+        .rasterize(&list, target)
+        .expect_err("a scene under composition cannot resolve a cube per pixel")
+        .to_string();
+    assert!(
+        refusal.contains("§11.6.6") && refusal.contains("three CIE-based components"),
+        "the refusal names the clause and what it needs: {refusal}"
+    );
+}
+
 /// Every one of §11.3.5's sixteen blend modes is the same function on both backends, to
 /// the channel.
 ///

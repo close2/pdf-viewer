@@ -919,6 +919,106 @@ pub fn group_in_a_one_component_blending_space() -> DisplayList {
     list
 }
 
+/// An isolated group compositing in a three-component CIE-based blending colour space
+/// through a cube (ISO 32000-2 §11.6.6, §11.7.2, §8.6.5.3).
+///
+/// The same geometry as [`group_in_its_own_blending_space`] — paper, and black at constant
+/// alpha ½ over it — inside a group whose space is three components leaving by a cube
+/// ([`pdf_render::GroupBlending::ThreeComponents`]): every colour in the list is the
+/// space's components, and the cube is a linear `CalRGB`'s — identity gamma, the sRGB
+/// primaries' matrix, so its grid is the identity on linear light — with sRGB's transfer
+/// function as the output curve, which is what such a group's components show as on this
+/// device (its components are linear light).
+///
+/// # The arithmetic
+///
+/// The composite happens in the components, so half of black over paper is ½ on each, and
+/// the output curve puts ½ at `1.055 × 0.5^(1/2.4) − 0.055 = 0.735`, **188** of 255 — against
+/// the 128 that compositing on the device gives. Column 80 is half covered, so it holds ¾ and
+/// the curve at ¾.
+///
+/// # What each backend does with it
+///
+/// `render-cpu` draws it (`group_constructions.rs`); `render-gpu` and `render-quorra`
+/// refuse it by name, as they refuse the pair and the curve.
+///
+/// # Panics
+///
+/// Cannot panic: [`pdf_render::ColourCube::new`] returns `None` only for curves of fewer
+/// than two samples or a grid that is not `side³`, and this one is two, two, eight and
+/// seventeen.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "eight corners and two curves is a cube by construction; a Result here would \
+              push an impossible error case onto every caller"
+)]
+pub fn group_in_a_three_component_blending_space() -> DisplayList {
+    let square = Size {
+        width: 100.0,
+        height: 100.0,
+    };
+    let fill = |x0: f32, y0: f32, x1: f32, y1: f32, colour: Color| Command::Fill {
+        path: Arc::new(rect(x0, y0, x1, y1)),
+        transform: Transform::IDENTITY,
+        fill_rule: FillRule::NonZero,
+        paint: Paint::Solid(colour),
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+    };
+    // Identity input curves, the identity grid on linear light, and sRGB's encoding out.
+    let input: Vec<[f32; 3]> = vec![[0.0; 3], [1.0; 3]];
+    let grid: Vec<[f32; 3]> = (0..8usize)
+        .map(|corner| {
+            let at = |bit: usize| if (corner >> bit) & 1 == 1 { 1.0 } else { 0.0 };
+            [at(0), at(1), at(2)]
+        })
+        .collect();
+    let output: Vec<f32> = (0..=16u8)
+        .map(|index| {
+            let linear = f32::from(index) / 16.0;
+            if linear <= 0.003_130_8 {
+                linear * 12.92
+            } else {
+                1.055 * linear.powf(1.0 / 2.4) - 0.055
+            }
+        })
+        .collect();
+    let cube = pdf_render::ColourCube::new(Arc::from(input), 2, Arc::from(grid), Arc::from(output))
+        .expect("two curves and eight corners is a cube");
+    let mut list = DisplayList::new(square);
+    list.push(fill(0.0, 0.0, 100.0, 100.0, Color::WHITE));
+    list.push(Command::Group {
+        commands: vec![
+            fill(10.0, 10.0, 90.0, 90.0, Color::WHITE),
+            fill(
+                20.0,
+                20.0,
+                80.5,
+                80.0,
+                Color {
+                    r: 0.0,
+                    g: 0.0,
+                    b: 0.0,
+                    a: 0.5,
+                },
+            ),
+        ],
+        alpha: 1.0,
+        clip: None,
+        mask: None,
+        blend: BlendMode::Normal,
+        isolated: true,
+        knockout: false,
+        alpha_is_shape: false,
+        blending: Some(Box::new(pdf_render::GroupBlending::ThreeComponents {
+            cube,
+        })),
+    });
+    list
+}
+
 /// All sixteen of §11.3.5's blend modes, each over the same backdrop.
 ///
 /// # Why this scene exists, and what it can catch that nothing else could
@@ -1101,6 +1201,7 @@ pub fn soft_mask() -> DisplayList {
                 },
             },
             transfer: None,
+            luminance: None,
         })
         .expect("the first soft mask of this list");
 

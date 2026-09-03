@@ -71,9 +71,9 @@ Code: `crates/pdf-model/src/content/transparency.rs`, `crates/pdf-model/src/colo
 | | corpus | web witnesses | what it is |
 |---|---|---|---|
 | ~~a non-separable blend mode on such a page (§11.3.5.3)~~ | ~~1~~ → 0 | ~~1 of 1896, 2 of 4000, 27, 28, 31~~ → **0** | **closed in the 441st, ADR 0277: the K rule is the clause's own four functions on a neutral pair, which is what the black raster is.** No display-list member, no backend arm, no refusal — the collapse went further than the round set out to take it, and the explicit route it replaced (a `Backdrop` blend function, which is Destination-Over exactly) would have cost the quorra backend all 31 |
-| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses), four components no profile backs, §11.7.5.3's black generation — each still reported by name where it composites |
+| a group inside the page composites in a different space (§11.6.6) — **the standing item now** | 0 | 78, 85 → **8 of 65 944** | 77 of the 85 were a mask's group counted as the page's (ADR 0276). A further **30** — 1 in the corpus, `bug1721218_reduced.pdf` — were a group that *introduces* a space on a page that states none, and **the four-hundred-and-ninety-second draws that shape** where the space is four components this tree can sample (ADR 0327): the corpus witness composites in ink. What the condition still fires on is a space the group-scoped pair cannot carry — a three- or one-component group inside a four-component parent (a per-pixel conversion between two presses), four components no profile backs, §11.7.5.3's black generation — each still reported by name where it composites. **Narrowed by §11.7.2 in the eight-hundred-and-seventy-ninth** (ADR 0797): a device-space group of the same count inside a CIE-based one *is* that space and changes nothing, so a `/DeviceCMYK` group inside a profile's press and a `/DeviceRGB` one inside an sRGB page left this condition |
 | an `/ExtGState` states `/BG`, `/BG2`, `/UCR` or `/UCR2` (§11.7.5.3) | 0 | 1 of 1896, 0 of 4000, 7 → **9 of 65 944** | **was silent until the 426th**, and 0 of 4000 could have been read as noise. **All nine state it at `soft_mask_depth` 0**, measured in the 440th, so the monotone flag costs nothing here |
-| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` left this row in the eight-hundred-and-sixty-fifth** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile left it in the eight-hundred-and-seventy-first** (ADR 0792): the component is composited and a sampled curve out rides on the display list. What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`) and a profile whose curve has no inverse — reported on every mark, and the population of that is a number the corpus gate prints |
+| a page group whose components are not four this tree can sample | 0 | 14 of 4000, 106 → **5 of 65 944** | what is left after ADR 0272: a `/DeviceGray` or `Lab` page group, or four components with no profile behind them, so §11.3.4 has no formula to apply and no conversion out. **`/DeviceGray` left this row in the eight-hundred-and-sixty-fifth** (ADR 0790): one component is three equal channels, drawn by one interpretation under `Compositing::Grey`. **`CalGray` and a one-component profile left it in the eight-hundred-and-seventy-first** (ADR 0792): the component is composited and a sampled curve out rides on the display list. **`CalRGB` and a bi-directional three-component profile never sat on this row and are drawn since the eight-hundred-and-seventy-ninth** (ADR 0797). What stays is `Lab`, which the clause forbids, a one-component space the clause does not list (`Separation`, `Indexed`), a profile whose curve has no inverse and a three-component table profile with no `B2A` — reported on every mark or where something composites, and the population of that is a number the corpus gate prints |
 | ~~the document names the press its `DeviceCMYK` is~~ | ~~0~~ | ~~151~~ → **0** | **closed in the 436th, ADR 0272: the press is a value, and `CMYK_CORNERS` is one of them** |
 | ~~a conversion *into* the blending space~~ | ~~5~~ → 0 | ~~61~~ → 0 | **closed in the 427th, ADR 0263: a right inverse of the ink cube** |
 | ~~the four components themselves~~ | — | — | **closed in the 426th, ADR 0262: two rasters, no new format** |
@@ -280,15 +280,25 @@ table — exact, on the construction ADR 0792 built for a page. `bug1721218_redu
 such groups are the corpus witness (at most 5 of 255 on 666 pixels at two pixels per unit; the
 masks are nearly binary).
 
-**What is left of §11.3.4 and §11.5.3 together is three components**, and it is one shape in both
-places: a `CalRGB` or `ICCBased` 'RGB ' blending space — page, isolated group, or mask group — is
-composited in the device's three channels rather than in the space's own components with a
-conversion out, which is the one-component curve three channels wide (a sampled 3 → 3 grid on the
-display list, resolved where the pair and the curve already resolve) and, for a mask, a
-three-curve `Y` a backend would compute where it now reads a table. `doc/pdf.js` holds one
-`CalRGB` and nine `ICCBased` 'RGB ' page groups and three such mask groups
-(`group_space_census`, `luminosity_mask_census`). A four-component profile as a *mask* group's
-`/CS` is §11.4.7's pair inside a mask and has no corpus member.
+~~**What is left of §11.3.4 and §11.5.3 together is three components**~~ — **drawn since the
+eight-hundred-and-seventy-ninth** (ADR 0797), in both places: a `CalRGB` or `ICCBased` 'RGB '
+page, isolated group or mask group composites the space's own components under
+`Compositing::Additive`, and the conversion out is `pdf_render::ColourCube` — not the sampled
+3 → 3 grid this paragraph priced, because the device's transfer function is fifteen levels of 255
+steep at black on a linear space, but one curve per component, a grid of linear light and the
+device's own curve, which is §8.6.5.3 and a matrix profile *exactly* from eight corners. A mask
+takes §11.5.3's `Y` as three summed curves (`pdf_render::Luminance`). `raster_digest` over
+`doc/pdf.js` moves nine pages: `transparency_group.pdf` toward `mupdf` and `ghostscript`, and
+**`issue21346.pdf` away from every reference including Acrobat** — the clause's `Y` of an sRGB
+group's encoded 0.25 is 0.05, and nine renderers take the device branch's 0.25. The ADR carries
+the argument and the cost, and it is the owner's to rank.
+
+**What §11.3.4 keeps is the route-into-grey choice below and nothing else. What §11.5.3 keeps is
+two shapes**: a three-component *table* profile as a mask group's `/CS`, whose `Y` is not
+separable and which keeps the grey of the sRGB — a choice, counted by shape in
+`luminosity_mask_census`, with no member in `doc/pdf.js` — and a four-component profile as a
+mask group's `/CS`, which is §11.4.7's pair inside a mask, does not fall out of a one-raster
+construction, and has no corpus member.
 
 ## What used to block the population, and what it turned out to be
 

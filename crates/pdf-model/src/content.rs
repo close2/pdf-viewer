@@ -653,9 +653,12 @@ fn interpreted(
     // run then reports it, as it always has. The seam is kept, because one run has one seam
     // and the annotations' appearance streams inherit the page's space (Table 145). ADRs
     // 0790 and 0792.
-    if let Some(one_component) = transparency::page_one_component(document, page) {
+    // And §11.3.4's three-component CIE-based case takes the same branch since ADR 0797: a
+    // `CalRGB` or `ICCBased` 'RGB ' page group composites the space's three components and
+    // the cube they leave by rides on the display list beside the curve.
+    if let Some(own_space) = transparency::page_own_space(document, page, &presses) {
         let (grey, drawable, checkpoint) =
-            interpret_into(document, page, state, one_component, &presses, fonts, keep);
+            interpret_into(document, page, state, own_space, &presses, fonts, keep);
         if drawable {
             let replacement = checkpoint
                 .filter(|_| grey.view_dependent)
@@ -1312,7 +1315,9 @@ fn complete(
     // that changed the space with something compositing in it — because §11.7.5.3's black
     // generation is on no route into grey and there is no press to be beyond.
     let drawable = match interpreter.compositing {
-        Compositing::Grey | Compositing::Calibrated(_) => !interpreter.nested_space_departed,
+        Compositing::Grey | Compositing::Calibrated(_) | Compositing::Additive(_) => {
+            !interpreter.nested_space_departed
+        }
         Compositing::Device | Compositing::Luminosity(_) | Compositing::Subtractive(..) => {
             interpreter.blending_undrawable().is_none()
         }
@@ -1366,8 +1371,13 @@ fn finished(document: &Document, interpreter: Interpreter<'_>) -> Interpretation
     // than in `interpreted` so that `replace` — which rebuilds the list from a checkpoint
     // under the same compositing — states it again.
     let mut list = interpreter.list;
-    if let Compositing::Calibrated(route) = &interpreter.compositing {
-        list.set_grey_curve(route.curve().clone());
+    match &interpreter.compositing {
+        Compositing::Calibrated(route) => list.set_grey_curve(route.curve().clone()),
+        Compositing::Additive(route) => list.set_colour_cube(route.cube().clone()),
+        Compositing::Device
+        | Compositing::Luminosity(_)
+        | Compositing::Grey
+        | Compositing::Subtractive(..) => {}
     }
 
     Interpretation {

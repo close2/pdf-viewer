@@ -243,7 +243,7 @@ fn read_group(document: &Document, mask: &Dictionary, stream: &pdf_syntax::Strea
             describe(document, &entry),
             parsed.as_ref().map_or_else(
                 || "unparsed".to_owned(),
-                |space| format!("{} components", space.components())
+                |space| format!("{} components{}", space.components(), shape_of(space))
             )
         ),
         backdrop: parsed.as_ref().map_or(1.0, |space| {
@@ -430,6 +430,28 @@ fn blend_names(document: &Document, entry: &Object) -> Vec<String> {
             })
             .collect(),
         _ => Vec::new(),
+    }
+}
+
+/// Which of §11.5.3's routes a three-component CIE-based space takes, since ADR 0797.
+///
+/// A `CalRGB` and a matrix profile have a `Y` that is a sum of one curve per component, which
+/// `pdf_render::Luminance` carries and the backends sum; a profile whose conversion is a
+/// lookup table has not, and a mask group in one keeps the grey of the sRGB its colours become.
+/// The distinction is printed so that the second population is a count rather than a claim.
+fn shape_of(space: &ColourSpace) -> &'static str {
+    match space {
+        ColourSpace::CalRgb { .. } => ", CalRGB: Y as three curves",
+        ColourSpace::Icc { profile } if profile.channels() == 3 => {
+            if profile.matrix_stages().is_some() {
+                ", matrix profile: Y as three curves"
+            } else if profile.is_bidirectional() {
+                ", table profile: Y not separable, the sRGB grey"
+            } else {
+                ", one-way table profile: no route in"
+            }
+        }
+        _ => "",
     }
 }
 

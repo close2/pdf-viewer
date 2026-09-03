@@ -68,10 +68,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, BlendingSpace, Clip, ClipId, Color, Command, Corners, DisplayList, FillRule,
-    GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin, MAX_GROUP_DEPTH, Paint, Path,
-    PathCommand, Point, Ramp, Rect, Shading, ShadingKind, Size, SoftMask, SoftMaskId, SoftMaskKind,
-    Stop, Stroke, Transfer, Transform, Triangle,
+    BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners, DisplayList,
+    FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin, Luminance,
+    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Ramp, Rect, Shading, ShadingKind, Size,
+    SoftMask, SoftMaskId, SoftMaskKind, Stop, Stroke, Transfer, Transform, Triangle,
 };
 
 use super::{ProtocolError, Reader, Writer};
@@ -446,16 +446,27 @@ fn write_list(
     write_tables(writer, &tables)?;
     writer.append(&body);
 
-    match (page, list.blending(), list.black(), list.grey_curve()) {
-        (true, Some(space), Some(black), _) => {
+    match (
+        page,
+        list.blending(),
+        list.black(),
+        list.grey_curve(),
+        list.colour_cube(),
+    ) {
+        (true, Some(space), Some(black), _, _) => {
             writer.u8(1);
             write_blending_space(writer, space);
             write_list(writer, black, false, budget.saturating_sub(writer.len()))?;
         }
         // §11.4.7's one-component form: the curve the composited component leaves by.
-        (true, None, None, Some(curve)) => {
+        (true, None, None, Some(curve), _) => {
             writer.u8(2);
             write_grey_curve(writer, curve);
+        }
+        // And its three-component form: the cube the composited components leave by.
+        (true, None, None, None, Some(cube)) => {
+            writer.u8(3);
+            write_colour_cube(writer, cube);
         }
         // A list with a space and no companion, or a companion and no space, cannot be built
         // through `set_blending`, which takes both. Writing the absent case is the honest
@@ -564,6 +575,7 @@ fn write_soft_masks(
             commands,
             kind,
             transfer,
+            luminance,
         } = mask;
         match kind {
             SoftMaskKind::Alpha => {
@@ -581,6 +593,20 @@ fn write_soft_masks(
                 // values it can be asked about *are* the table — exactly, not approximately.
                 for value in 0..=u8::MAX {
                     writer.u8(transfer.apply(value));
+                }
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        // §11.5.3's three curves, where the group composited a CIE-based space's components.
+        match luminance {
+            Some(luminance) => {
+                writer.u8(1);
+                for sample in luminance.curves() {
+                    for component in sample {
+                        writer.f32(*component);
+                    }
                 }
             }
             None => {
@@ -736,6 +762,10 @@ fn write_group(
         Some(GroupBlending::OneComponent { curve }) => {
             writer.u8(2);
             write_grey_curve(writer, curve);
+        }
+        Some(GroupBlending::ThreeComponents { cube }) => {
+            writer.u8(3);
+            write_colour_cube(writer, cube);
         }
         None => {
             writer.u8(0);
@@ -920,6 +950,26 @@ fn write_grey_curve(writer: &mut Writer, curve: &GreyCurve) {
         for component in sample {
             writer.f32(*component);
         }
+    }
+}
+
+fn write_colour_cube(writer: &mut Writer, cube: &ColourCube) {
+    writer.usize(cube.input().len());
+    for sample in cube.input() {
+        for component in sample {
+            writer.f32(*component);
+        }
+    }
+    writer.usize(cube.side());
+    writer.usize(cube.grid().len());
+    for sample in cube.grid() {
+        for component in sample {
+            writer.f32(*component);
+        }
+    }
+    writer.usize(cube.output().len());
+    for sample in cube.output() {
+        writer.f32(*sample);
     }
 }
 
@@ -1127,9 +1177,9 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
 
     match reader.u8("a page's blending space")? {
         0 => {}
-        // The pair and the curve are two shapes of one statement — §11.4.7's space is the
-        // *page's* — so the companion list may carry neither.
-        1 | 2 if !page => {
+        // The pair, the curve and the cube are three shapes of one statement — §11.4.7's
+        // space is the *page's* — so the companion list may carry none of them.
+        1..=3 if !page => {
             return Err(ProtocolError::Unbuildable {
                 what: "a blending space",
                 why: "the companion list carrying the black component states one of its own",
@@ -1141,6 +1191,7 @@ fn read_list(reader: &mut Reader<'_>, page: bool) -> Result<DisplayList, Protoco
             list.set_blending(space, black);
         }
         2 => list.set_grey_curve(read_grey_curve(reader)?),
+        3 => list.set_colour_cube(read_colour_cube(reader)?),
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "a page's blending space",
@@ -1548,11 +1599,23 @@ fn read_soft_mask(
     } else {
         None
     };
+    let luminance = if reader.bool("a soft mask's luminance")? {
+        let mut curves = [[0.0_f32; 3]; 256];
+        for sample in &mut curves {
+            for component in sample {
+                *component = reader.f32("a soft mask's luminance")?;
+            }
+        }
+        Some(Luminance::new(Arc::new(curves)))
+    } else {
+        None
+    };
     let commands = read_commands(reader, paths, samples, shadings, clips, masks, 0)?;
     Ok(SoftMask {
         commands,
         kind,
         transfer,
+        luminance,
     })
 }
 
@@ -1631,11 +1694,40 @@ fn read_group_blending(
         2 => Ok(Some(Box::new(GroupBlending::OneComponent {
             curve: read_grey_curve(reader)?,
         }))),
+        3 => Ok(Some(Box::new(GroupBlending::ThreeComponents {
+            cube: read_colour_cube(reader)?,
+        }))),
         value => Err(ProtocolError::Unrecognised {
             what: "a group's blending space",
             value: u32::from(value),
         }),
     }
+}
+
+fn read_colour_cube(reader: &mut Reader<'_>) -> Result<ColourCube, ProtocolError> {
+    let triples = |reader: &mut Reader<'_>, what: &'static str| {
+        table(reader, what, least::SAMPLE, |reader| {
+            let mut sample = [0.0_f32; 3];
+            for component in &mut sample {
+                *component = reader.f32(what)?;
+            }
+            Ok(sample)
+        })
+    };
+    let input = triples(reader, "a colour cube's input curves")?;
+    let side = reader.usize("a colour cube's side")?;
+    let grid = triples(reader, "a colour cube's grid")?;
+    let output = table(reader, "a colour cube's output curve", 4, |reader| {
+        reader.f32("a colour cube's output curve")
+    })?;
+    // `ColourCube::new` owns the conditions — two samples a curve and an axis, `side³` of
+    // them in the grid — so the refusal is its answer, as the pair's and the curve's are.
+    ColourCube::new(Arc::from(input), side, Arc::from(grid), Arc::from(output)).ok_or(
+        ProtocolError::Unbuildable {
+            what: "a colour cube",
+            why: "its curves, its stated side and its sample count are not a cube",
+        },
+    )
 }
 
 fn read_grey_curve(reader: &mut Reader<'_>) -> Result<GreyCurve, ProtocolError> {
@@ -1868,12 +1960,14 @@ mod tests {
                     backdrop: Color::rgb(0.1, 0.2, 0.3),
                 },
                 transfer: Some(Transfer::from_samples([9; 256])),
+                luminance: None,
             })
             .expect("a first soft mask");
         list.add_soft_mask(SoftMask {
             commands: Vec::new(),
             kind: SoftMaskKind::Alpha,
             transfer: None,
+            luminance: None,
         })
         .expect("a second soft mask");
 
@@ -2090,6 +2184,58 @@ mod tests {
             blending: Some(Box::new(GroupBlending::OneComponent { curve: curve(0.5) })),
         });
         list.set_grey_curve(curve(1.0));
+        let bytes = encode(&list).expect("a list with no deferred producer");
+        let back = decode(&bytes).expect("what this encoder wrote");
+        assert_eq!(back, list);
+    }
+
+    /// The three-component shapes of §11.4.7, §11.7.2 and §11.5.3 — a page cube, a group
+    /// carrying one, and a luminosity mask carrying three curves — round-trip too, on a list
+    /// of their own for the reason the one-component test gives.
+    #[test]
+    fn a_page_in_three_components_round_trips_to_an_equal_list() {
+        let cube = |scale: f32| {
+            let input: Vec<[f32; 3]> = vec![[0.0; 3], [scale; 3]];
+            let grid: Vec<[f32; 3]> = (0..8)
+                .map(|corner| [corner as f32 / 7.0 * scale; 3])
+                .collect();
+            let output: Vec<f32> = vec![0.0, 0.5 * scale, scale];
+            ColourCube::new(Arc::from(input), 2, Arc::from(grid), Arc::from(output))
+                .expect("two curves and eight corners is a cube")
+        };
+        let curves: [[f32; 3]; 256] =
+            std::array::from_fn(|index| [index as f32 / 255.0, 0.5, 0.25]);
+        let mut list = DisplayList::new(Size::new(200.0, 100.0));
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: Vec::new(),
+                kind: SoftMaskKind::Luminosity {
+                    backdrop: Color::rgb(0.1, 0.2, 0.3),
+                },
+                transfer: None,
+                luminance: Some(Luminance::new(Arc::new(curves))),
+            })
+            .expect("one soft mask is under the table's bound");
+        list.push(Command::Group {
+            commands: vec![Command::Fill {
+                path: a_path(),
+                transform: Transform::IDENTITY,
+                fill_rule: FillRule::NonZero,
+                paint: Paint::Solid(Color::rgb(0.25, 0.5, 0.75)),
+                clip: None,
+                mask: Some(mask),
+                blend: BlendMode::Normal,
+            }],
+            alpha: 0.75,
+            clip: None,
+            mask: None,
+            blend: BlendMode::Normal,
+            isolated: true,
+            knockout: false,
+            alpha_is_shape: false,
+            blending: Some(Box::new(GroupBlending::ThreeComponents { cube: cube(0.5) })),
+        });
+        list.set_colour_cube(cube(1.0));
         let bytes = encode(&list).expect("a list with no deferred producer");
         let back = decode(&bytes).expect("what this encoder wrote");
         assert_eq!(back, list);

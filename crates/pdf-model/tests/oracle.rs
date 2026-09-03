@@ -3988,6 +3988,37 @@ const CONTRADICTED_UNEXPLAINED: [&str; 0] = [];
 /// sits on the spread rather than about the clause. ADR 0772.
 const CONTRADICTED_TIGHT_CONSENSUS: [&str; 1] = ["issue7891_bc1.pdf page 1"];
 
+/// Contradicted because the three references take §11.5.3's device branch for a mask group
+/// whose `/CS` is an sRGB profile, and this tree takes the clause's colorimetric one (session
+/// 879, ADR 0797).
+///
+/// `issue21346.pdf` is Typst's: a blue rectangle drawn through a `/Luminosity` mask whose group
+/// states an sRGB matrix profile as its `/CS` and paints white at `/ca 0.25` over the default
+/// black backdrop. The group composites in the profile's components, as §11.6.5.1 requires the
+/// `/CS` for, to an encoded (0.25, 0.25, 0.25). §11.5.3 then branches on the space's kind:
+///
+/// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
+/// > luminosity. This produces a colorimetrically correct luminosity.
+///
+/// and, for device spaces, "with no compensation for gamma or other colour calibration". An
+/// `ICCBased` space is CIE-based (§8.6.5.1), its `Y` is the profile's, and the profile's tone
+/// curve takes 0.25 to **0.0508** — so the mask is a twentieth and the rectangle nearly white.
+/// `poppler`, `mupdf` and `ghostscript` — and, by pdf.js issue #21346's own report, Acrobat and
+/// five more — weigh the encoded 0.25 with no gamma, the device branch's answer for a space that
+/// is not a device space, and draw a quarter blue. The reading was checked against the clause's
+/// EXAMPLE 1, whose `CalRGB` formula carries the gamma, and against §11.7.2's NOTES 3 and 4, which
+/// say compositing in a nonlinear space such as sRGB gives results that "might not match the
+/// user's expectations" and are "still well-defined"; it is kept, and ADR 0797 records what it
+/// costs and that it is the owner's to rank.
+///
+/// **What it fails, in the gate's own words**: furthest outside on the **differing fraction**, at
+/// **37.63x** the bound — ours at worst mean 14.23, worst tile 20.00, differing 53.26%, ssim
+/// 0.9426, against a bound of mean 1.22, worst tile 5.00, differing 1.42%, ssim 0.9900 — and
+/// 11.17 from the nearest reference. Every pixel of the rectangle differs, which is what a mask
+/// value moved everywhere it applies looks like: this is a *different mask*, not a rounding of
+/// one, and the group is named for the reading rather than for a mechanism.
+const CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK: [&str; 1] = ["issue21346.pdf page 1"];
+
 /// Documents where our page geometry differs from the references' by more than the one
 /// pixel a fractional page size can round to.
 ///
@@ -13757,6 +13788,10 @@ const CONTRADICTED_GROUPS: &[(&str, &[&str])] = &[
     (
         "CONTRADICTED_TIGHT_CONSENSUS",
         &CONTRADICTED_TIGHT_CONSENSUS,
+    ),
+    (
+        "CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK",
+        &CONTRADICTED_LUMINOSITY_OF_A_CIE_BASED_MASK,
     ),
 ];
 

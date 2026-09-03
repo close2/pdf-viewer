@@ -13,7 +13,7 @@ use std::sync::Arc;
 use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
-use crate::colour::{ColourSpace, Compositing, GreyRoute, InkScale};
+use crate::colour::{ColourSpace, Compositing, GreyRoute, InkScale, RgbRoute};
 use crate::function::Function;
 
 /// What a `gs` dictionary's `/SMask` entry holds, once read.
@@ -45,9 +45,13 @@ pub(crate) struct SoftMaskRequest {
     /// composition is the identity.
     pub transfer: Option<Transfer>,
     /// What the group's elements are painted in: the ink [`ink_scale`] decides for a device
-    /// space, the component of a one-component CIE-based space (`GreyRoute::of`), or the
-    /// device's three channels.
+    /// space, the component of a one-component CIE-based space (`GreyRoute::of`), the three
+    /// components of a three-component one (`RgbRoute::of`), or the device's three channels.
     pub compositing: Compositing,
+    /// §11.5.3's `Y` of a group painted in a three-component CIE-based space's components,
+    /// as the three curves the backend sums; `None` where the channels hold a grey or a
+    /// device colour and the luminosity is the clause's device branch.
+    pub luminance: Option<pdf_render::Luminance>,
     /// Everything about this mask §11.5.3 asks for and does not get, for the caller to report.
     pub departures: Vec<String>,
 }
@@ -94,11 +98,12 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
         Err(detail) => return SoftMaskEntry::Unusable(detail),
     };
 
-    let (kind, compositing, transfer, departures) = match subtype.as_slice() {
+    let (kind, compositing, transfer, luminance, departures) = match subtype.as_slice() {
         b"Alpha" => (
             SoftMaskKind::Alpha,
             Compositing::Device,
             transfer,
+            None,
             Vec::new(),
         ),
         b"Luminosity" => {
@@ -108,17 +113,38 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
                 (Some(space), None) => GreyRoute::of(space).map(Arc::new),
                 _ => None,
             };
+            // A three-component CIE-based space whose `Y` is a sum of one curve per
+            // component: `CalRGB`, or a matrix profile. Asked before the route is built,
+            // because a table profile's route is a grid worth sampling for a page and not
+            // for a mask that cannot use it.
+            let additive = match (&space, scale, &route) {
+                (Some(space), None, None) if RgbRoute::luminance_is_separable(space) => {
+                    RgbRoute::of(space).and_then(|route| {
+                        route
+                            .luminance()
+                            .map(|luminance| (Arc::new(route), luminance))
+                    })
+                }
+                _ => None,
+            };
             let ink = backdrop(document, mask, space.as_ref());
-            let backdrop = match (scale, &route, &space) {
+            let backdrop = match (scale, &route, &additive, &space) {
                 // The group's elements are painted in `1 − ink ÷ scale`, so its backdrop is
                 // too: a backdrop and the elements composited onto it have to be the same
                 // quantity, or the compositing is not the clause's.
-                (Some(scale), _, _) => Color::grey(1.0 - (ink / scale.factor()).min(1.0)),
+                (Some(scale), _, _, _) => Color::grey(1.0 - (ink / scale.factor()).min(1.0)),
                 // And a one-component CIE-based group's elements are painted in the space's
                 // own component, so `/BC` — "n numbers, where n is the number of components
                 // in the colour space specified by the CS entry" — is that component.
-                (None, Some(route), Some(space)) => {
+                (None, Some(route), _, Some(space)) => {
                     Color::grey(route.component_of(space, &backdrop_values(document, mask, space)))
+                }
+                // And a three-component one's in its three components, which `/BC` states
+                // as three numbers in that space.
+                (None, None, Some((route, _)), Some(space)) => {
+                    let [a, b, c] =
+                        route.components_of(space, &backdrop_values(document, mask, space), true);
+                    Color::rgb(a, b, c)
                 }
                 _ => Color {
                     a: 1.0,
@@ -132,22 +158,26 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
                 .and_then(luminosity_departure)
                 .into_iter()
                 .collect();
-            let compositing = match (scale, &route) {
-                (Some(scale), _) => Compositing::Luminosity(scale),
-                (None, Some(route)) => Compositing::Calibrated(Arc::clone(route)),
-                (None, None) => Compositing::Device,
+            let compositing = match (scale, &route, &additive) {
+                (Some(scale), _, _) => Compositing::Luminosity(scale),
+                (None, Some(route), _) => Compositing::Calibrated(Arc::clone(route)),
+                (None, None, Some((route, _))) => Compositing::Additive(Arc::clone(route)),
+                (None, None, None) => Compositing::Device,
             };
             let transfer = match (scale, &route, &space) {
                 (Some(scale), _, _) => derivation(scale, transfer.as_ref()),
                 (None, Some(_), Some(space)) => {
                     Some(luminance_derivation(space, transfer.as_ref()))
                 }
+                // A three-component group's `Y` is three curves the backend sums *before*
+                // this table, so the table is Table 142's `/TR` alone.
                 _ => transfer.clone(),
             };
             (
                 SoftMaskKind::Luminosity { backdrop },
                 compositing,
                 transfer,
+                additive.map(|(_, luminance)| luminance),
                 departures,
             )
         }
@@ -164,6 +194,7 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
         kind,
         transfer,
         compositing,
+        luminance,
         departures,
     }))
 }
@@ -265,10 +296,10 @@ fn luminance_derivation(space: &ColourSpace, transfer: Option<&Transfer>) -> Tra
 /// - **`DeviceRGB`** is the space §10.4.2.2's `gray = 0.3 R + 0.59 G + 0.11 B` is written
 ///   for, so compositing there and converting afterwards is the clause. `None`.
 /// - **A CIE-based space** — `CalRGB`, `CalGray`, `Lab`, `ICCBased` — asks for §11.5.3's
-///   *colorimetric* branch, the `Y` of the colour in CIE 1931 XYZ, and this tree answers with
-///   the grey of the sRGB it converts every such space to. That is the same page-wide choice
-///   recorded in [`luminosity_departure`] rather than a second view of it, and it does not
-///   become truer by being computed one component at a time. `None`.
+///   *colorimetric* branch, the `Y` of the colour in CIE 1931 XYZ, which is no ink at all:
+///   `None`, and [`read`] answers it with the space's own route where there is one — a
+///   component for one, three components and three curves for three — as
+///   [`luminosity_departure`] records.
 /// - **A subtractive space** — `DeviceCMYK`, `DeviceGray`, and a `Separation`, `DeviceN` or
 ///   `Indexed` space resting on one — is the case this answers with a scale. §10.4.2.3
 ///   converts it to a grey level without going near RGB, so a group composited in the
@@ -379,13 +410,16 @@ fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>)
 /// use the Y component as the luminosity" — is taken for a space of **one** component since
 /// ADR 0796: `CalGray` and an `ICCBased` 'GRAY' group are painted in their own component
 /// (`Compositing::Calibrated`, the route ADR 0792 built for a page) and
-/// [`luminance_derivation`] takes the clause's `Y` of the composited component, exactly. For
-/// **three** components — `CalRGB` and an RGB profile — it is still answered with the grey of
-/// the sRGB this tree converts every such space to, and that is a *choice*: §11.6.6 already
-/// treats a three-component CIE space as the device's own, page-wide, and a mask is not the
-/// place to take a different view of the same question; taking the clause's `Y` there would
-/// mean a backend computing a three-curve sum per pixel rather than reading a table.
-/// `examples/luminosity_mask_census` counts both populations over a corpus.
+/// [`luminance_derivation`] takes the clause's `Y` of the composited component, exactly. And
+/// for **three** since ADR 0797, where the space's `Y` is a sum of one function of each
+/// component — `CalRGB`, whose EXAMPLE 1 the clause writes out, and a matrix profile: the
+/// group is painted in the space's components (`Compositing::Additive`) and the backend sums
+/// `RgbRoute::luminance`'s three curves per pixel before Table 142's `/TR`. A three-component
+/// profile whose conversion is a lookup table has no separable `Y`, and such a mask group
+/// keeps the grey of the sRGB its colours become — a choice recorded here rather than a
+/// report, because the alternative is a three-dimensional table in every backend's mask
+/// vocabulary for a population `examples/luminosity_mask_census` counts and, on `doc/pdf.js`,
+/// finds no member of.
 ///
 /// What is left, and reported, is a `Lab` group. Its three components are not a linear map of
 /// the device's, so neither route is the clause's: compositing `L*a*b*` on the device's RGB

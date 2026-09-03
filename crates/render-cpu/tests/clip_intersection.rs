@@ -198,6 +198,7 @@ fn ramp_mask(list: &mut DisplayList) -> SoftMaskId {
             backdrop: Color::rgb(0.5, 0.5, 0.5),
         },
         transfer: None,
+        luminance: None,
     })
     .expect("the first soft mask")
 }

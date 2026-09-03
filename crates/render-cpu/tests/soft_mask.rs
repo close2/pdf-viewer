@@ -79,6 +79,7 @@ fn a_constant_mask_interpolates_between_the_object_and_the_backdrop() {
             commands: Vec::new(),
             kind: SoftMaskKind::Luminosity { backdrop },
             transfer: None,
+            luminance: None,
         })
         .expect("the first soft mask");
     list.push(fill(grey, None));
@@ -146,6 +147,7 @@ fn the_weighted_average_is_exact_at_every_mask_value() {
                     backdrop: Color::WHITE,
                 },
                 transfer: Some(Transfer::from_samples([value; 256])),
+                luminance: None,
             })
             .expect("the first soft mask");
         list.push(fill(grey, None));
@@ -184,6 +186,7 @@ fn a_black_backdrop_masks_everything_away_and_a_white_one_nothing() {
                 commands: Vec::new(),
                 kind: SoftMaskKind::Luminosity { backdrop },
                 transfer: None,
+                luminance: None,
             })
             .expect("the first soft mask");
         list.push(fill(grey, None));
@@ -212,6 +215,7 @@ fn an_alpha_mask_reads_the_groups_alpha_rather_than_its_colour() {
             commands: vec![fill(Color::rgba(0.0, 0.0, 0.0, 0.5), None)],
             kind: SoftMaskKind::Alpha,
             transfer: None,
+            luminance: None,
         })
         .expect("the first soft mask");
     list.push(fill(grey, None));
