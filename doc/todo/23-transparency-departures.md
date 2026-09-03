@@ -252,6 +252,44 @@ isolated `/DeviceGray` group on a device page one run of its content. ADR 0790.
   conversions. Moving both to §10.3's route is one decision, priced against the mask population
   the oracle already judges, and it has not been taken.
 
+## The way into a profile's press is the profile's, and the ICC `B2A` row is closed
+
+**The section above this one said a `B2A` was not needed, and the eight-hundred-and-seventy-seventh
+read the clause that says it is** (ADR 0796). §8.6.5.5 requires a blending-space profile to carry
+"from CIE" information "because the group colour space shall be used as both the destination for
+objects being painted within the group and the source for the group's results" — the second half
+is the `A2B` this tree already sampled out, and the first is the conversion *in*, which ADR 0272
+answered with a right inverse of that sampling so that an opaque mark came back exactly. §10.3.1
+hands a CIE-to-CIE conversion to the ICC specification and §10.4.2.1 ranks that route above
+§10.4.2.4's classic one for an ICC-enabled processor, so the profile's own table is the standard's
+conversion in and the search was this tree's stand-in. `icc::Profile::to_device` reads `B2A1` over
+`B2A0` in `mft1`, `mft2` and the v4 `mBA ` (matrix and M curves modelled), `Press` holds the
+profile where it is bi-directional, and a colour goes in as an XYZ — its own for a CIE-based
+source, sRGB's for a device one, with the compensation the way out applied undone. What an opaque
+mark loses on the round trip is now the profile's own residue, which is the producer's picture
+rather than one tuned to come back. A profile without the table keeps the right inverse, and the
+crawl holds none: `press_census` over all 145 archives finds every one of its 287 profile presses
+(187 page groups, 94 output intents, 6 `/DefaultCMYK`) carrying a `B2A` this tree evaluates, while
+`doc/pdf.js` names no profile press at all.
+
+**A one-component CIE-based mask group takes §11.5.3's own `Y` since the same round**: `CalGray`
+or an `ICCBased` 'GRAY' `/CS` on a `/Luminosity` group is painted in its component under
+`Compositing::Calibrated`, `/BC` is that component, and `soft_mask::luminance_derivation` composes
+"convert to the CIE 1931 XYZ space and use the Y component as the luminosity" into the mask's
+table — exact, on the construction ADR 0792 built for a page. `bug1721218_reduced.pdf`'s eight
+such groups are the corpus witness (at most 5 of 255 on 666 pixels at two pixels per unit; the
+masks are nearly binary).
+
+**What is left of §11.3.4 and §11.5.3 together is three components**, and it is one shape in both
+places: a `CalRGB` or `ICCBased` 'RGB ' blending space — page, isolated group, or mask group — is
+composited in the device's three channels rather than in the space's own components with a
+conversion out, which is the one-component curve three channels wide (a sampled 3 → 3 grid on the
+display list, resolved where the pair and the curve already resolve) and, for a mask, a
+three-curve `Y` a backend would compute where it now reads a table. `doc/pdf.js` holds one
+`CalRGB` and nine `ICCBased` 'RGB ' page groups and three such mask groups
+(`group_space_census`, `luminosity_mask_census`). A four-component profile as a *mask* group's
+`/CS` is §11.4.7's pair inside a mask and has no corpus member.
+
 ## What used to block the population, and what it turned out to be
 
 This section carried §11.7.2's second sentence as the standing blocker for one session:

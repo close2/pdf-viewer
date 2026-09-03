@@ -10754,6 +10754,12 @@ const AMBIGUOUS_HAIRLINE_BORDERS: [&str; 1] = ["issue18072.pdf page 1"];
 /// soften both, which is a sub-pixel-artwork reduction question and not a colour-space one.
 /// Four renderers, four flattenings of the same transparency stack, no consensus to hold
 /// anybody to.
+///
+/// **Its eight `/Luminosity` mask groups state a one-component `ICCBased` `/CS`, and since ADR
+/// 0796 they take §11.5.3's own `Y` of the composited component** rather than the grey of the
+/// sRGB it becomes. The masks are nearly binary, so the page moves by at most 5 of 255 on 666
+/// of its pixels at two pixels per unit, and the verdict and the figures the gate prints for it
+/// did not change at the precision it prints them.
 const AMBIGUOUS_PAGE_DRAWN_IN_INK: [&str; 3] = [
     "bug1703683_page2_reduced.pdf page 1",
     "bug1721218_reduced.pdf page 1",
