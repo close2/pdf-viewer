@@ -2,20 +2,21 @@
 
 Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
-are approved"), so the serializer, four verbs and §14.7's structure tree are done; what is left is
-**`optimize`**, `split --at-bookmarks`, the RFC 0003 hand-off, and the §13 questions the owner has
-not been asked again. **The foreign readback is no longer among them**: session 898 built it
-(ADR 0839), and §5 below records what it found rather than what it is for.
+are approved"), so the serializer, **all five writing verbs** and §14.7's structure tree are
+done; what is left is `split --at-bookmarks`, the aligned rotated comparison, a per-input
+password for `merge`, the confinement tranche, the RFC 0003 hand-off, and the §13 questions the
+owner has not been asked again. **The foreign readback is no longer among them**: session 898
+built it (ADR 0839), and §5 below records what it found rather than what it is for.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
 quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into);
 `issue18823.pdf` (an optional-content configuration whose arrays are indirect) and
 `issue15096.pdf` (one document stating a fully qualified field name twice with two values); the
 suite's own gate runs over ISO 32000-2's PDF.
-Clauses: §7.5.7's producer half, which the serializer does not emit (item 1); §7.6.4.2 Table 22
-(item 3).
+Clauses: §7.6.4.2 Table 22 (item 3). §7.5.7's producer half was the debt this file carried from
+session 886 and session 900 paid it, so that row is `implemented` and no longer names one.
 Code: `crates/pdf-transform/`, `crates/pdf-syntax/src/serialize.rs`, ADRs 0800, 0801, 0802,
-0803, 0804, 0816, 0817, 0818, 0821.
+0803, 0804, 0816, 0817, 0818, 0821, 0830, 0831, 0834, 0835, 0842, 0843.
 
 ## What is done
 
@@ -105,13 +106,24 @@ own terms: where the output states a tree, every §14.7.5.4 key in it is the out
 The three corpus walks gained `support::check_structure`, four clause-derived properties asked of
 every output.
 
-## 1. The verb left, on the serializer that exists
+**Session 900 (ADRs 0842, 0843): `optimize`, and §7.5.7's producer half.** RFC §6.5's verb, the
+last of the suite's writing verbs and the one that pays the debt session 886 recorded. Four
+lossless passes, each derived from a sentence: §7.5.5's reachability from `/Root` and §14.3.3's
+`/Info` — the pruning ADR 0818 declined to invent inside `split`; §7.5.7's object streams with
+the clause's prohibition list walked bullet by bullet, NOTE 4's two ceilings measured rather than
+borrowed and `/Extends` chaining the collection NOTE 4 describes; §7.5.8's form, which object
+streams *force* because Table 18's type 2 entry is the only way to say where a compressed object
+is; and §7.4.4.1's `FlateDecode` written over the decoded bytes of whatever chain the producer
+used, kept only where it is smaller (qpdf's `--optimize-images` rule, applied to every stream).
+13.62% of the pdf.js corpus sample, attributed pass by pass in ADR 0842's table. Lossy image
+optimisation is **not** taken and is refused by name, because RFC §13's second question — a DCT
+encoder — is unanswered and without one a downsampler would keep every image under the
+fails-to-shrink rule and do nothing while claiming to; `--linearize` is refused by name pointing
+at `CLAUDE.md`'s Annex F sentence. `tests/optimize.rs`, `tests/optimize_corpus.rs` — the fifth
+corpus walk, carrying RFC §9's idempotence property gate — and `support::check_optimized`.
 
-- **`optimize`** (RFC §6.5) is where §7.5.7's producer half is owed: the serializer generates no
-  object stream, so a piece of a 1.5 document is larger than the pages it holds, and
-  `--object-streams=generate|disable` is the knob the RFC names. Reachability pruning belongs here
-  too — `split` deliberately over-copies rather than inventing a pruning policy of its own (ADR
-  0818).
+## 1. What the suite still owes
+
 - **`split --at-bookmarks`**, the one mode of `split` that did not land: it wants
   `pdf_model::retrieval::sections`, which exists, and an outline subset for the piece, which does
   not.
@@ -136,7 +148,12 @@ every output.
 - **A per-input password for `merge`.** `viewer_core::Secret` is deliberately not `Clone`, so one
   `--password-fd` opens one document and a merge of several encrypted sources is a usage error
   today, by name. A per-input spelling or several `--password-fd`s would lift it; nobody has asked.
-- JPEG output from `render` waits on §13 question 2, the DCT encoder.
+- JPEG output from `render` waits on §13 question 2, the DCT encoder — **and so does
+  `optimize --images`**, RFC §6.5's lossy half. ADR 0842 §5 records why the absence is a decision
+  rather than a gap: without an encoder, "recompress as DCT where smaller" cannot be done at all
+  and downsampling to `FlateDecode`-compressed raw samples makes a photograph larger, so the
+  keep-the-original rule would keep every image and the flag would do nothing while claiming to.
+  One question, two features, and `doc/stack.md` is where it is answered.
 
 ## 2. The RFC 0003 hand-off
 
@@ -205,3 +222,8 @@ be five paragraphs arguing for it. What it is worth recording now is what remain
   so both readers time out on it about as often as not; a timeout takes it out of that reader's
   comparison rather than failing the run (ADR 0839 section 4). A reference cache, or a budget
   scaled to what the source render cost, would put it back.
+- **`optimize` is a fifth writer, and `tests/foreign_corpus.rs` does not know about it.** Session
+  900 added it after session 898 built the readback, so the sample goes through four writers'
+  output and not five — and a rewritten file is the one output whose whole *point* is that its
+  bytes are different, which makes it the one most worth showing somebody else. Adding it is the
+  smallest of the items above and belongs to whichever round touches that walk next.
