@@ -29,6 +29,7 @@ conformance = { path = "tools/conformance", version = "0.1.0" }
 viewer-core = { path = "crates/viewer-core", version = "0.1.0" }
 render-quorra = { path = "crates/render-quorra", version = "0.1.0" }
 viewer-accessibility = { path = "crates/viewer-accessibility", version = "0.1.0" }
+confined-transport = { path = "crates/confined-transport", version = "0.1.0" }
 viewer-confined = { path = "crates/viewer-confined", version = "0.1.0" }
 viewer-host = { path = "crates/viewer-host", version = "0.1.0" }
 viewer-gtk = { path = "crates/viewer-gtk", version = "0.1.0" }

@@ -24,7 +24,7 @@ use pdf_model::navigation::{Dimension, Direction, Motion, Style, Transition};
 use pdf_model::restriction::Operation;
 use pdf_model::view::{Entered, Markup, WidgetAppearances};
 use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
-use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
+use pdf_sandbox::lockdown::Confinement;
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
     Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
@@ -54,23 +54,18 @@ mod panels;
 /// What an older worker cannot do is answer the new question — and a host would discover that at
 /// the worst moment there is, in the middle of putting a reader back after a death, as a refusal of
 /// something the reader never asked for. The greeting is the cheap place to find it out instead.
-const MAGIC: &[u8; 8] = b"PDFVCF05";
+pub(crate) const MAGIC: &[u8; 8] = b"PDFVCF05";
 
 /// Length of the worker's greeting: the magic, the Landlock level, the address-space limit, and
 /// whether system calls are filtered — the same three facts `pdf_sandbox`'s own worker reports,
 /// because they are the same [`Confinement`].
-pub(crate) const HANDSHAKE_LEN: usize = 8 + 1 + 8 + 1;
+///
+/// The bytes are `confined_transport`'s, because a greeting is transport rather than vocabulary:
+/// `pdf-vfs`'s worker says the same three things under its own [`MAGIC`] (ADR 0846).
+pub(crate) const HANDSHAKE_LEN: usize = confined_transport::greeting::LEN;
 
 /// Length of a frame header: the kind and the payload length.
-pub(crate) const FRAME_HEADER_LEN: usize = 1 + 8;
-
-/// Largest message either side will read, in bytes.
-///
-/// A document's bytes and a page's pixels both cross this pipe, so the bound cannot be small:
-/// ISO 32000-2 itself is 25 MB and a 4K page of RGBA is 33 MB. Two gibibytes is a bound against
-/// a length that is a claim rather than a size, which is the only thing it is for — the reader
-/// refuses before it allocates, rather than believing a header and asking for the machine.
-pub(crate) const MAX_MESSAGE: u64 = 2 << 30;
+pub(crate) const FRAME_HEADER_LEN: usize = confined_transport::frame::HEADER_LEN;
 
 /// How many elements a list reserves before it has read any of them.
 ///
@@ -912,10 +907,7 @@ impl<'a> Reader<'a> {
 /// a pipe are two system calls; the concatenation was megabytes of memory traffic and the page
 /// faults to go with it.
 pub(crate) fn header(kind: u8, length: usize) -> [u8; FRAME_HEADER_LEN] {
-    let mut out = [0u8; FRAME_HEADER_LEN];
-    out[0] = kind;
-    out[1..].copy_from_slice(&as_u64(length).to_be_bytes());
-    out
+    confined_transport::frame::header(kind, length)
 }
 
 /// Prefixes a payload with its kind and length, in one buffer.
@@ -930,75 +922,44 @@ pub(crate) fn frame(kind: u8, payload: &[u8]) -> Vec<u8> {
     out
 }
 
+/// A count as the fixed-width number this format carries.
+///
+/// `try_from` rather than `as`: on every platform this compiles for `usize` is at most 64 bits,
+/// so the conversion cannot fail — and on a hypothetical wider one the fallback is a length the
+/// reader refuses as [`ProtocolError::Overlong`] rather than a number that is quietly wrong.
+pub(super) fn as_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
 /// Reads a frame header, or `None` if the kind is not one this build defines or the length is
 /// past [`MAX_MESSAGE`].
+///
+/// **The kind is checked here rather than in the transport**, which is the line ADR 0846 draws: a
+/// wire two protocols share cannot hold either one's discriminants, so it answers a length and
+/// this says whether the byte in front of it is one of the five frames *this* protocol defines.
 pub(crate) fn parse_frame_header(header: [u8; FRAME_HEADER_LEN]) -> Option<(u8, usize)> {
-    let kind = *header.first()?;
+    let (kind, length) = confined_transport::frame::parse_header(header)?;
     if !matches!(
         kind,
         FRAME_COMMAND | FRAME_QUERY | FRAME_EVENTS | FRAME_ANSWER | FRAME_REFUSAL
     ) {
         return None;
     }
-    let bytes: [u8; 8] = header.get(1..9)?.try_into().ok()?;
-    let length = u64::from_be_bytes(bytes);
-    if length > MAX_MESSAGE {
-        return None;
-    }
-    usize::try_from(length).ok().map(|length| (kind, length))
-}
-
-/// A count as the fixed-width number this format carries.
-///
-/// `try_from` rather than `as`: on every platform this compiles for `usize` is at most 64 bits,
-/// so the conversion cannot fail — and on a hypothetical wider one the fallback is a length the
-/// reader refuses as [`ProtocolError::Overlong`] rather than a number that is quietly wrong.
-fn as_u64(value: usize) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
+    Some((kind, length))
 }
 
 /// Encodes the worker's greeting.
 pub(crate) fn encode_handshake(confinement: Confinement) -> [u8; HANDSHAKE_LEN] {
-    let mut greeting = [0u8; HANDSHAKE_LEN];
-    let (magic, rest) = greeting.split_at_mut(8);
-    magic.copy_from_slice(MAGIC);
-    let (level, rest) = rest.split_at_mut(1);
-    level[0] = match confinement.landlock {
-        LandlockLevel::Enforced => 2,
-        LandlockLevel::Partial => 1,
-        LandlockLevel::Unavailable => 0,
-    };
-    let (limit, filtered) = rest.split_at_mut(8);
-    limit.copy_from_slice(&confinement.address_space_limit.to_be_bytes());
-    filtered[0] = u8::from(confinement.system_calls == SystemCalls::Filtered);
-    greeting
+    confined_transport::greeting::encode(MAGIC, confinement)
 }
 
 /// Reads the worker's greeting, or `None` if it is not one.
+///
+/// The host reads it inside `confined_transport::Host::start`, so what is left for this crate is
+/// the assertion that *its* magic is what a greeting has to carry.
+#[cfg(test)]
 pub(crate) fn parse_handshake(greeting: &[u8; HANDSHAKE_LEN]) -> Option<Confinement> {
-    let (magic, rest) = greeting.split_at(8);
-    if magic != MAGIC {
-        return None;
-    }
-    let (level, rest) = rest.split_at(1);
-    let landlock = match level.first()? {
-        2 => LandlockLevel::Enforced,
-        1 => LandlockLevel::Partial,
-        0 => LandlockLevel::Unavailable,
-        _ => return None,
-    };
-    let (limit, filtered) = rest.split_at(8);
-    let bytes: [u8; 8] = limit.try_into().ok()?;
-    let system_calls = match filtered.first()? {
-        1 => SystemCalls::Filtered,
-        0 => SystemCalls::Unfiltered,
-        _ => return None,
-    };
-    Some(Confinement {
-        landlock,
-        address_space_limit: u64::from_be_bytes(bytes),
-        system_calls,
-    })
+    confined_transport::greeting::parse(MAGIC, greeting)
 }
 
 /// Command discriminants. One per variant of [`viewer_core::Command`] that crosses.
@@ -1044,24 +1005,10 @@ mod open_kind {
 }
 
 /// A descriptor as the sender holds it while the frame it rides beside is written.
-#[cfg(unix)]
-pub(crate) type SentDescriptor<'a> = std::os::fd::BorrowedFd<'a>;
+pub(crate) type SentDescriptor<'a> = confined_transport::SentDescriptor<'a>;
 
 /// A descriptor as the receiver holds it: the kernel's duplicate, owned.
-#[cfg(unix)]
-pub(crate) type ReceivedDescriptor = std::os::fd::OwnedFd;
-
-/// A descriptor as the sender holds it — and on a platform that passes none, a type nothing
-/// can construct, so that the sending code reads the same on both and compiles on both.
-#[cfg(not(unix))]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SentDescriptor<'a>(std::convert::Infallible, std::marker::PhantomData<&'a ()>);
-
-/// A descriptor as the receiver holds it, on a platform that passes none: see
-/// [`SentDescriptor`].
-#[cfg(not(unix))]
-#[derive(Debug)]
-pub(crate) struct ReceivedDescriptor(std::convert::Infallible);
+pub(crate) type ReceivedDescriptor = confined_transport::link::ReceivedDescriptor;
 
 /// Whether a document crosses as its descriptor rather than as its bytes.
 ///
@@ -3344,9 +3291,9 @@ mod tests {
     #[test]
     fn a_greeting_round_trips_and_an_unconfined_one_is_legible() {
         let confinement = Confinement {
-            landlock: LandlockLevel::Enforced,
+            landlock: pdf_sandbox::lockdown::LandlockLevel::Enforced,
             address_space_limit: 4 << 30,
-            system_calls: SystemCalls::Filtered,
+            system_calls: pdf_sandbox::lockdown::SystemCalls::Filtered,
         };
         assert_eq!(
             parse_handshake(&encode_handshake(confinement)),
@@ -3354,9 +3301,9 @@ mod tests {
         );
 
         let none = Confinement {
-            landlock: LandlockLevel::Unavailable,
+            landlock: pdf_sandbox::lockdown::LandlockLevel::Unavailable,
             address_space_limit: 0,
-            system_calls: SystemCalls::Unfiltered,
+            system_calls: pdf_sandbox::lockdown::SystemCalls::Unfiltered,
         };
         let parsed = parse_handshake(&encode_handshake(none)).unwrap();
         assert!(!parsed.is_enforced());
@@ -5374,7 +5321,7 @@ mod tests {
         // A length past `MAX_MESSAGE` is refused at the header, before a buffer is sized from it.
         let mut absurd = [0u8; FRAME_HEADER_LEN];
         absurd[0] = FRAME_EVENTS;
-        absurd[1..].copy_from_slice(&(MAX_MESSAGE + 1).to_be_bytes());
+        absurd[1..].copy_from_slice(&(confined_transport::frame::MAX_MESSAGE + 1).to_be_bytes());
         assert_eq!(parse_frame_header(absurd), None);
     }
 }

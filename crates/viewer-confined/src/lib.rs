@@ -116,6 +116,13 @@ pub use protocol::{ProtocolError, Uncarried};
 pub use resume::{RESTARTS, Reopen, Resume, Resuming};
 pub use worker::{WorkerLimits, confine, serve};
 
+/// What a host holds so that it can end a confined viewer from another thread.
+///
+/// `confined_transport`'s, because a cancel is a `SIGKILL` and a `SIGKILL` knows nothing about
+/// what the process was doing (ADR 0846). Everything the type's own documentation says about why
+/// a cancel is a kill rather than a message applies here unchanged.
+pub use confined_transport::Canceller;
+
 /// The decoders on their own, without the process that produced the bytes.
 ///
 /// [`Confined`] spawns a worker and holds both ends of the pipe, which is what a host normally
@@ -225,14 +232,10 @@ pub mod wire {
     }
 }
 
-use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
-#[cfg(not(unix))]
-use std::process::ChildStdin;
-use std::process::{Child, ChildStdout, Command as OsCommand, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
+use confined_transport::{Host, TransportError};
 use pdf_render::{DisplayList, Raster};
 use pdf_sandbox::lockdown::Confinement;
 use pdf_syntax::ObjectId;
@@ -349,268 +352,26 @@ pub enum ConfinedError {
     Cancelled,
 }
 
-/// What a host holds so that it can end a confined viewer from another thread.
-///
-/// # Why a cancel is a kill, and not a message
-///
-/// **The confined process is running a hostile document; a cancel it has to agree to is a cancel
-/// the document can decline.** A cooperative cancel — a flag the interpreter polls, a message a
-/// second thread inside the confinement reads — bounds only the work that reaches a check. A
-/// content stream that expands into a hundred million marks, a form nested to its depth limit and
-/// branching at every level, a filter chain that inflates for a minute: each of those reaches the
-/// next check when it reaches it, and "when it reaches it" is the number the attacker chooses.
-/// So the only cancel worth the name is the one the kernel enforces, and that is `SIGKILL`.
-///
-/// What follows from that is a cost rather than a caveat, and it is in the type: the worker's
-/// document, its edits and its frame go when it does. [`ConfinedError::Cancelled`] is what every
-/// later call returns, and a host that wants to carry on starts a new [`Confined`].
-///
-/// # What it does *not* replace
-///
-/// Not a deadline. A page's cost is bounded by the document and the magnification together, so
-/// any fixed number refuses work a viewer permits; what is offered here is the *ability* to
-/// decide, on whatever grounds a host has — a person pressing escape, a wall clock the host owns,
-/// a second document becoming the one in front. `Confined` deliberately imposes none of them.
-///
-/// # Shape
-///
-/// Cheap to clone, and every clone cancels the same worker. It may be made *before* the worker
-/// is — [`Canceller::new`] then [`Confined::start_with`] — because [`Confined::start`] itself
-/// blocks reading the worker's greeting, and a blocking call whose canceller does not exist yet
-/// is exactly the hole this exists to close.
-#[derive(Debug, Clone)]
-pub struct Canceller(Arc<Cancellation>);
-
-impl Canceller {
-    /// A canceller for a worker that has not been started yet.
+impl From<TransportError> for ConfinedError {
+    /// The transport's failure population, in this crate's words.
     ///
-    /// Hand it to [`Confined::start_with`]. Cancelling one that never gets a worker is not an
-    /// error: it makes that `start_with` fail with [`ConfinedError::Cancelled`] instead of
-    /// spawning anything.
-    #[must_use]
-    pub fn new() -> Self {
-        Self(Arc::new(Cancellation {
-            cancelled: AtomicBool::new(false),
-            worker: Mutex::new(None),
-            said: Arc::default(),
-            listener: Mutex::new(None),
-        }))
-    }
-
-    /// Ends the worker, now.
-    ///
-    /// Idempotent, callable from any thread, and it never blocks on the work being cancelled —
-    /// only on the brief moment [`Confined`] spends reaping a worker that has already gone.
-    /// Returns as soon as the signal is delivered; the host thread learns of it where it was
-    /// blocked, as [`ConfinedError::Cancelled`].
-    pub fn cancel(&self) {
-        self.0.cancel();
-    }
-
-    /// Whether [`Self::cancel`] has been called.
-    #[must_use]
-    pub fn is_cancelled(&self) -> bool {
-        self.0.is_cancelled()
-    }
-}
-
-impl Default for Canceller {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// The worker handle and the cancelled flag, shared by a [`Confined`] and its [`Canceller`]s.
-///
-/// The child lives here rather than in [`Confined`] for one reason: `Child::kill` needs `&mut`,
-/// and the thread that would call it is not the thread that owns the [`Confined`] — it is the
-/// one that is *not* blocked in a read. A mutex is what lets both reach it without this crate
-/// reaching for a raw process identifier and a signal, which would cost the `unsafe` it forbids.
-#[derive(Debug)]
-struct Cancellation {
-    /// Set once by [`Canceller::cancel`] and never cleared.
-    cancelled: AtomicBool,
-    /// The worker, from the moment it is spawned until it has been waited for.
-    worker: Mutex<Option<Child>>,
-    /// What the worker wrote to its standard error, and the thread collecting it.
-    said: Arc<LastWords>,
-    /// That thread, until it has been joined.
-    listener: Mutex<Option<std::thread::JoinHandle<()>>>,
-}
-
-/// The last thing the worker said before it stopped.
-///
-/// # Why the host keeps this at all
-///
-/// **A worker that is killed cannot report why**, and the two ways it is killed are the two this
-/// crate most has to explain: the seccomp filter, which is a signal number the host can name, and
-/// the address-space ceiling, which is not. `RLIMIT_AS` makes an allocation fail; the standard
-/// library prints one line and aborts; the host sees `SIGABRT` and has no way to tell that from
-/// any other abort. The line is the diagnosis, and it was going to the operator's terminal rather
-/// than to the program that has to say something to a person.
-///
-/// # Why the pipe replaced an inherited descriptor, which is a finding rather than a preference
-///
-/// The worker's standard error used to be inherited, on the reasoning that a worker that dies
-/// should say so where an operator can see it. **`RLIMIT_FSIZE` is 0 in the confinement, and that
-/// makes the reasoning false exactly where an operator would be looking**: where the host's own
-/// standard error is a *file* — every logged deployment — the worker's first write to it raises
-/// `SIGXFSZ` and kills it before a character is printed. Measured (ADR 0597): the same document,
-/// the same worker, stderr a pipe gives `killed by signal 6` and the allocation message; stderr a
-/// file gives `killed by signal 25` and total silence, which names the wrong cause and explains
-/// nothing. A pipe is not a file, so `RLIMIT_FSIZE` does not apply to it and the worker can always
-/// speak.
-///
-/// Everything read here is still written on to this process's own standard error, so an operator
-/// watching a terminal sees exactly what they saw before. What is new is that the host keeps a
-/// copy.
-#[derive(Debug, Default)]
-struct LastWords {
-    /// The tail of what was written, bounded so that a chatty worker cannot cost the host memory.
-    tail: Mutex<String>,
-}
-
-impl LastWords {
-    /// How much of the worker's diagnostics to keep, in bytes.
-    ///
-    /// The interesting message is one line and libstd's allocation failure is two. Four kilobytes
-    /// is far past both and is a bound rather than a budget: what a host prints to a person is a
-    /// sentence, not a log.
-    const KEPT: usize = 4096;
-
-    /// Adds what the worker just said, keeping the end of it.
-    fn push(&self, said: &str) {
-        let mut tail = self.tail.lock().unwrap_or_else(PoisonError::into_inner);
-        tail.push_str(said);
-        if tail.len() > Self::KEPT {
-            // On a character boundary, because the tail is a `String` and half a code point is
-            // not one. `drain` on a range that splits one would panic.
-            let wanted = tail.len().saturating_sub(Self::KEPT);
-            let cut = tail
-                .char_indices()
-                .find(|(index, _)| *index >= wanted)
-                .map_or(tail.len(), |(index, _)| index);
-            drop(tail.drain(..cut));
-        }
-    }
-
-    /// What was said, as one line, or `None` where the worker said nothing.
-    ///
-    /// Newlines become `; ` because this is appended to a sentence a host prints, and a
-    /// diagnosis that arrives as three lines in the middle of one is harder to read than the
-    /// same words in a row.
-    fn take(&self) -> Option<String> {
-        let mut tail = self.tail.lock().unwrap_or_else(PoisonError::into_inner);
-        let said = std::mem::take(&mut *tail);
-        let joined = said
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .collect::<Vec<_>>()
-            .join("; ");
-        (!joined.is_empty()).then_some(joined)
-    }
-}
-
-/// Reads the worker's standard error to its end, echoing it and keeping the tail.
-///
-/// Its own thread because the alternative is a deadlock: a host that read the worker's diagnostics
-/// only when it had already stopped would leave them in a pipe, and a worker blocked writing to a
-/// full pipe is a worker that never answers the frame the host is blocked reading.
-fn listen(mut stderr: std::process::ChildStderr, said: &Arc<LastWords>) {
-    let mut buffer = [0u8; 4096];
-    loop {
-        match stderr.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
-            Ok(read) => {
-                let Some(chunk) = buffer.get(..read) else {
-                    break;
-                };
-                // Still the operator's. Losing the terminal copy would trade one silence for
-                // another.
-                let _ = std::io::stderr().write_all(chunk);
-                said.push(&String::from_utf8_lossy(chunk));
-            }
-        }
-    }
-}
-
-impl Cancellation {
-    /// Takes the lock, recovering it from a panic rather than propagating one.
-    ///
-    /// Nothing under this lock can panic — it holds a `Child` and calls `kill`, `wait` and
-    /// `try_wait` on it — so a poisoned lock would mean a panic somewhere that cannot poison it.
-    /// Recovering the guard is therefore the honest reading, and it is spelled out rather than
-    /// hidden behind an `unwrap` this workspace forbids.
-    fn worker(&self) -> std::sync::MutexGuard<'_, Option<Child>> {
-        self.worker.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Whether a cancel has been asked for.
-    fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
-    }
-
-    /// Marks the viewer cancelled and ends its worker if there is one.
-    fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
-        self.kill();
-    }
-
-    /// Signals the worker, if one is still held here.
-    fn kill(&self) {
-        if let Some(child) = self.worker().as_mut() {
-            // A worker that has already gone is the outcome asked for, so a failure here is not
-            // one: `kill` on a child that has exited is `ESRCH` and means the same thing.
-            let _ = child.kill();
-        }
-    }
-
-    /// Waits for the worker and says how it ended, leaving nothing behind to wait for twice.
-    ///
-    /// Called only where the worker's output has closed or it has been signalled, so the wait is
-    /// the moment it takes a dead process to be reaped rather than the length of a render. That
-    /// matters because the lock is held across it, and [`Self::kill`] wants the same lock.
-    ///
-    /// **What the worker said comes after the wait and after the listening thread has ended**, and
-    /// both orders matter: a diagnostic written on the way out is still in the pipe while the
-    /// process is dying, and reading the tail before the thread has seen the end of it would
-    /// report whatever had arrived by then. See [`LastWords`] for why the host keeps it at all.
-    fn reap(&self) -> String {
-        let ended = {
-            let mut worker = self.worker();
-            match worker.take() {
-                Some(mut child) => match child.wait() {
-                    Ok(status) => describe_exit(status),
-                    Err(error) => format!("and its status could not be read: {error}"),
-                },
-                None => "and it had already been waited for".to_owned(),
-            }
-        };
-        // The worker's standard error closes when the worker does, so this thread has already
-        // ended or is about to; joining it is what makes the tail complete rather than partial.
-        let listener = self
-            .listener
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        if let Some(handle) = listener {
-            let _ = handle.join();
-        }
-        match self.said.take() {
-            Some(said) => format!("{ended}, saying: {said}"),
-            None => ended,
-        }
-    }
-
-    /// Whether the worker has ended, without waiting for it to.
-    fn ended(&self) -> Option<String> {
-        let mut worker = self.worker();
-        let child = worker.as_mut()?;
-        match child.try_wait() {
-            Ok(Some(status)) => Some(describe_exit(status)),
-            Ok(None) => None,
-            Err(error) => Some(format!("and its status could not be read: {error}")),
+    /// **A wildcard-free match**, which is what keeps ADR 0846's split honest: a variant added to
+    /// the shared transport stops this crate's build until somebody has said which refusal it is
+    /// here, exactly as `doc/ui-boundary.md` asks of the vocabulary.
+    fn from(error: TransportError) -> Self {
+        match error {
+            TransportError::Spawn(error) => Self::Spawn(error),
+            TransportError::WorkerDied { detail } => Self::WorkerDied { detail },
+            TransportError::Connection(error) => Self::Connection(error),
+            TransportError::UnrecognisedFrame => Self::UnrecognisedFrame,
+            TransportError::NoRoom { bytes } => Self::NoRoom { bytes },
+            TransportError::Cancelled => Self::Cancelled,
+            // `TransportError` is `#[non_exhaustive]` for the reason this enum is: a kernel can
+            // fail in ways this tree learns about after a host has shipped. A refusal nobody has
+            // named yet is still a refusal, and it arrives with its own sentence.
+            other => Self::WorkerDied {
+                detail: other.to_string(),
+            },
         }
     }
 }
@@ -918,19 +679,14 @@ impl Attachment {
     }
 }
 
-/// A confined viewer: a worker process, the pipes to it, and what it reported about itself.
-///
-/// Dropping this closes the worker's input, which is how it learns to leave; the process is
-/// waited for rather than left behind.
+/// A confined viewer: a `viewer-core` host in a process with no filesystem and no network.
 ///
 /// **Every call here blocks for as long as the document takes**, and that is deliberate — see
 /// [`Canceller`] for why a page has no deadline and what a host holds instead.
 #[derive(Debug)]
 pub struct Confined {
-    cancellation: Arc<Cancellation>,
-    to_worker: ToWorker,
-    from_worker: ChildStdout,
-    confinement: Confinement,
+    /// The wire: the child, the socket its frames go down, and the pipe they come back up.
+    host: Host,
     /// The lists the last frame handed this host, so an unchanged page's bytes come back as the
     /// same `Arc` on the next one — what makes [`Payload::List`]'s sharing promise true across
     /// two [`Query::Frame`]s rather than only inside one (ADR 0725).
@@ -967,93 +723,9 @@ impl Confined {
     /// the spawn, in which case nothing was started, or during the greeting, in which case what
     /// was started has been ended and waited for.
     pub fn start_with(canceller: &Canceller) -> Result<Self, ConfinedError> {
-        let cancellation = Arc::clone(&canceller.0);
-        if cancellation.is_cancelled() {
-            return Err(ConfinedError::Cancelled);
-        }
-
         let program = worker_program()?;
-        // The worker's standard input is one end of a socket pair rather than a pipe, and the
-        // difference is the one thing a pipe cannot do: carry a descriptor. A document open on
-        // disk crosses as its open file, sent with `SCM_RIGHTS` beside `Command::Open`'s frame
-        // (ADR 0812), and a socket is the only transport the kernel passes one over. The worker
-        // reads its frames from it with `recvmsg`; what it writes back still comes up a pipe,
-        // because nothing crosses that way but bytes.
-        let (to_worker, worker_end) = ToWorker::pair().map_err(ConfinedError::Spawn)?;
-        let mut child = OsCommand::new(&program)
-            .stdin(worker_end)
-            .stdout(Stdio::piped())
-            // A pipe rather than the inherited descriptor, and [`LastWords`] has the measurement
-            // that changed it: `RLIMIT_FSIZE` is 0 in the confinement, so a worker whose standard
-            // error is a *file* — every logged deployment — is killed by `SIGXFSZ` the moment it
-            // tries to explain itself. It is still written on to this process's standard error,
-            // so an operator sees what they saw before.
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(ConfinedError::Spawn)?;
-
-        if let Some(stderr) = child.stderr.take() {
-            let said = Arc::clone(&cancellation.said);
-            match std::thread::Builder::new()
-                .name("pdf-view-worker diagnostics".to_owned())
-                .spawn(move || listen(stderr, &said))
-            {
-                Ok(handle) => {
-                    *cancellation
-                        .listener
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner) = Some(handle);
-                }
-                // A host that cannot start a thread still gets a worker: what it loses is the
-                // worker's own words, not the viewer. Said out loud rather than swallowed.
-                Err(error) => {
-                    eprintln!("{WORKER_PROGRAM}: its diagnostics will not be collected: {error}");
-                }
-            }
-        }
-
-        let (Some(to_worker), Some(from_worker)) =
-            (to_worker.attach(&mut child), child.stdout.take())
-        else {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(ConfinedError::Spawn(std::io::Error::other(
-                "the worker was started without pipes",
-            )));
-        };
-
-        // Published before the blocking read below, so that a cancel arriving during the greeting
-        // has something to signal — and re-checked after publishing, because one arriving between
-        // the check above and this line would otherwise have found an empty slot and been lost.
-        *cancellation.worker() = Some(child);
-        if cancellation.is_cancelled() {
-            cancellation.kill();
-        }
-
-        // Read before anything is constructed, so that the confinement this holds is the one the
-        // worker reported rather than a value that stood in for it: until the greeting arrives,
-        // nothing is known about the process on the other end — including whether it is the
-        // worker at all.
-        let mut greeting = [0u8; protocol::HANDSHAKE_LEN];
-        let mut from_worker = from_worker;
-        let confinement = match from_worker.read_exact(&mut greeting) {
-            Ok(()) => protocol::parse_handshake(&greeting),
-            Err(_) => None,
-        };
-        let Some(confinement) = confinement else {
-            let detail = cancellation.reap();
-            return Err(if cancellation.is_cancelled() {
-                ConfinedError::Cancelled
-            } else {
-                ConfinedError::WorkerDied { detail }
-            });
-        };
-
         Ok(Self {
-            cancellation,
-            to_worker,
-            from_worker,
-            confinement,
+            host: Host::start(&program, protocol::MAGIC, canceller)?,
             held: protocol::HeldLists::default(),
         })
     }
@@ -1064,14 +736,14 @@ impl Confined {
     /// offers is one the confined process cannot decline.
     #[must_use]
     pub fn canceller(&self) -> Canceller {
-        Canceller(Arc::clone(&self.cancellation))
+        self.host.canceller()
     }
 
     /// Whether this viewer has been cancelled, in which case every call returns
     /// [`ConfinedError::Cancelled`].
     #[must_use]
     pub fn is_cancelled(&self) -> bool {
-        self.cancellation.is_cancelled()
+        self.host.is_cancelled()
     }
 
     /// What confinement the worker reached.
@@ -1081,7 +753,7 @@ impl Confined {
     /// prevent.
     #[must_use]
     pub fn confinement(&self) -> Confinement {
-        self.confinement
+        self.host.confinement()
     }
 
     /// Performs one command in the confined process and returns everything it caused.
@@ -1094,14 +766,12 @@ impl Confined {
     /// See [`ConfinedError`]. [`ConfinedError::Uncarried`] for
     /// [`viewer_core::Command::RenderReady`], which the confined process answers itself.
     pub fn handle(&mut self, command: &Command) -> Result<Vec<Event>, ConfinedError> {
-        self.still_running()?;
         let payload = protocol::encode_command(command)?;
-        self.write_frame(
+        let (kind, payload) = self.host.exchange(
             protocol::FRAME_COMMAND,
             &payload,
             protocol::command_descriptor(command),
         )?;
-        let (kind, payload) = self.read_frame()?;
         match kind {
             protocol::FRAME_EVENTS => protocol::decode_events(&payload).map_err(Into::into),
             protocol::FRAME_REFUSAL => Err(refusal(&payload)),
@@ -1118,10 +788,8 @@ impl Confined {
     /// raster in a second pixel layout, a §7.11.6 collection value outside Table 47's three
     /// kinds, or a metadata failure `pdf_model::xmp` grew after this build. Each says which.
     pub fn query(&mut self, query: Query<'_>) -> Result<Reply, ConfinedError> {
-        self.still_running()?;
         let payload = protocol::encode_query(query)?;
-        self.write_frame(protocol::FRAME_QUERY, &payload, None)?;
-        let (kind, payload) = self.read_frame()?;
+        let (kind, payload) = self.host.exchange(protocol::FRAME_QUERY, &payload, None)?;
         match kind {
             protocol::FRAME_ANSWER => {
                 protocol::decode_answer_reusing(&payload, &mut self.held).map_err(Into::into)
@@ -1129,265 +797,6 @@ impl Confined {
             protocol::FRAME_REFUSAL => Err(refusal(&payload)),
             _ => Err(ConfinedError::UnrecognisedFrame),
         }
-    }
-
-    /// Writes one frame and flushes it.
-    ///
-    /// **Header and payload in two calls, never concatenated.** A `Command::Open` payload is the
-    /// whole document — 19.2 MB for `doc/ISO_32000-2_sponsored_EC3.pdf` — and putting nine bytes
-    /// in front of it by building a third buffer cost a whole pass over it plus the page faults
-    /// for a fresh allocation that size. The pipe itself moves those bytes in about 4 ms;
-    /// everything around it cost ten times that, which is what ADR 0241 measured and what this
-    /// takes a quarter of back.
-    ///
-    /// **A descriptor rides beside the header** (ADR 0812): the nine header bytes go out with
-    /// `sendmsg` and the descriptor as `SCM_RIGHTS`, so the worker's `recvmsg` of the header is
-    /// what delivers it, and the payload follows as bytes. The kernel duplicates the descriptor
-    /// into the worker at that moment; what this side holds stays this side's.
-    fn write_frame(
-        &mut self,
-        kind: u8,
-        payload: &[u8],
-        descriptor: Option<protocol::SentDescriptor<'_>>,
-    ) -> Result<(), ConfinedError> {
-        let header = protocol::header(kind, payload.len());
-        self.to_worker
-            .send_header(&header, descriptor)
-            .and_then(|()| self.to_worker.write_all(payload))
-            .and_then(|()| self.to_worker.flush())
-            .map_err(|error| self.explain(error))
-    }
-
-    /// Reads one whole frame.
-    ///
-    /// **The buffer is asked for rather than demanded**, because its size is a number the *worker*
-    /// wrote into the header and the worker is the untrusted side here. `protocol`'s own list
-    /// reader already reasons this way one layer down — a count on the wire is a claim, and the
-    /// claim's reservation is a separate cost from its length — and the payload itself was the one
-    /// allocation on this side that still believed the claim outright.
-    fn read_frame(&mut self) -> Result<(u8, Vec<u8>), ConfinedError> {
-        let mut header = [0u8; protocol::FRAME_HEADER_LEN];
-        self.read_exactly(&mut header)?;
-        let (kind, length) =
-            protocol::parse_frame_header(header).ok_or(ConfinedError::UnrecognisedFrame)?;
-        let mut payload = Vec::new();
-        if payload.try_reserve_exact(length).is_err() {
-            // Read past it rather than giving up on the pipe: the worker has written these bytes
-            // already, and leaving them there would make the next frame start in the middle of
-            // this one. Refusing this way costs the answer and keeps the viewer.
-            self.discard(length)?;
-            return Err(ConfinedError::NoRoom { bytes: length });
-        }
-        payload.resize(length, 0);
-        self.read_exactly(&mut payload)?;
-        Ok((kind, payload))
-    }
-
-    /// Reads and throws away a stated number of bytes, in a buffer whose size is this side's.
-    fn discard(&mut self, mut bytes: usize) -> Result<(), ConfinedError> {
-        /// Enough to empty a pipe quickly and small enough to be nobody's memory problem.
-        const SCRATCH: usize = 64 * 1024;
-
-        let mut scratch = vec![0u8; SCRATCH.min(bytes.max(1))];
-        while bytes > 0 {
-            let take = bytes.min(scratch.len());
-            let Some(slice) = scratch.get_mut(..take) else {
-                break;
-            };
-            self.read_exactly(slice)?;
-            bytes = bytes.saturating_sub(take);
-        }
-        Ok(())
-    }
-
-    /// Fills `buffer` from the worker.
-    ///
-    /// **There is no deadline here, and that is a decision rather than an omission.** A decode
-    /// has a budget because one image's cost is bounded by its own dimensions;
-    /// interpreting and rasterising a page is bounded by the document *and* the magnification,
-    /// so a fixed number would refuse work a viewer permits. What a host has instead is a
-    /// [`Canceller`], which ends the worker from another thread — and ending it is what makes
-    /// the read below return, because the pipe's other end closes with the process.
-    fn read_exactly(&mut self, buffer: &mut [u8]) -> Result<(), ConfinedError> {
-        match self.from_worker.read_exact(buffer) {
-            Ok(()) => Ok(()),
-            // The worker closed its output, which it only does on the way out — so its status is
-            // worth waiting for rather than reporting the read.
-            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Err(self.died()),
-            Err(error) => Err(self.explain(error)),
-        }
-    }
-
-    /// Refuses a call on a viewer whose worker the host has already ended.
-    ///
-    /// Checked before anything is written, so that a cancel arriving between two commands is the
-    /// same answer as one arriving during a render rather than a pipe error about a dead process.
-    fn still_running(&self) -> Result<(), ConfinedError> {
-        if self.cancellation.is_cancelled() {
-            return Err(ConfinedError::Cancelled);
-        }
-        Ok(())
-    }
-
-    /// Waits for a worker whose output has closed, and says how it ended.
-    ///
-    /// Blocking, for the reason `pdf_sandbox`'s own version gives: a status sampled the instant a
-    /// pipe closes is usually not there yet, and a diagnosis that depends on scheduling is worse
-    /// than none because it is believed.
-    fn died(&mut self) -> ConfinedError {
-        let detail = self.cancellation.reap();
-        if self.cancellation.is_cancelled() {
-            return ConfinedError::Cancelled;
-        }
-        ConfinedError::WorkerDied { detail }
-    }
-
-    /// Turns a pipe failure into the reason the worker is gone, when it is.
-    fn explain(&mut self, error: std::io::Error) -> ConfinedError {
-        if self.cancellation.is_cancelled() {
-            return ConfinedError::Cancelled;
-        }
-        match self.cancellation.ended() {
-            Some(detail) => ConfinedError::WorkerDied { detail },
-            None => ConfinedError::Connection(error),
-        }
-    }
-}
-
-/// The host's end of the worker's standard input.
-///
-/// A socket on Unix, so that a document's descriptor can cross beside a frame; a pipe
-/// elsewhere, where nothing crosses but bytes and [`protocol::encode_command`] refuses a
-/// document on disk by name. The two are one type so that [`Confined`] reads the same on both.
-#[derive(Debug)]
-struct ToWorker {
-    #[cfg(unix)]
-    socket: std::os::unix::net::UnixStream,
-    #[cfg(not(unix))]
-    pipe: Option<ChildStdin>,
-}
-
-#[cfg(unix)]
-impl ToWorker {
-    /// Both ends: this side's, and the one to give the worker as its standard input.
-    fn pair() -> std::io::Result<(Self, Stdio)> {
-        let (host_end, worker_end) = std::os::unix::net::UnixStream::pair()?;
-        Ok((
-            Self { socket: host_end },
-            Stdio::from(std::os::fd::OwnedFd::from(worker_end)),
-        ))
-    }
-
-    /// This side's end, once the worker is running.
-    ///
-    /// The socket was made before the spawn, so there is nothing to take from the child; the
-    /// signature matches the pipe's so that [`Confined::start_with`] reads the same on both.
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "the pipe's `attach` can find nothing to take, and one call site reads both"
-    )]
-    fn attach(self, _child: &mut Child) -> Option<Self> {
-        Some(self)
-    }
-
-    /// Writes a frame's header, with the descriptor beside it where there is one.
-    ///
-    /// A short send is completed with plain writes: the descriptor is attached to the first
-    /// byte the kernel accepts, so the rest of the header needs no ancillary data.
-    fn send_header(
-        &mut self,
-        header: &[u8],
-        descriptor: Option<protocol::SentDescriptor<'_>>,
-    ) -> std::io::Result<()> {
-        use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
-
-        let Some(descriptor) = descriptor else {
-            return self.socket.write_all(header);
-        };
-        let rights = [descriptor];
-        let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
-        let mut ancillary = SendAncillaryBuffer::new(&mut space);
-        if !ancillary.push(SendAncillaryMessage::ScmRights(&rights)) {
-            return Err(std::io::Error::other(
-                "the ancillary buffer for one descriptor would not take one",
-            ));
-        }
-        let sent = rustix::net::sendmsg(
-            &self.socket,
-            &[std::io::IoSlice::new(header)],
-            &mut ancillary,
-            SendFlags::empty(),
-        )?;
-        self.socket
-            .write_all(header.get(sent..).unwrap_or_default())
-    }
-}
-
-#[cfg(unix)]
-impl std::io::Write for ToWorker {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.socket.write(bytes)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.socket.flush()
-    }
-}
-
-#[cfg(not(unix))]
-impl ToWorker {
-    /// The worker's standard input as a pipe, to be taken from the child once it is spawned.
-    fn pair() -> std::io::Result<(Self, Stdio)> {
-        Ok((Self { pipe: None }, Stdio::piped()))
-    }
-
-    /// This side's end of the pipe, which the child holds until it has been spawned.
-    fn attach(self, child: &mut Child) -> Option<Self> {
-        child.stdin.take().map(|pipe| Self { pipe: Some(pipe) })
-    }
-
-    /// Writes a frame's header. No descriptor crosses here, and the encoder never offers one.
-    fn send_header(
-        &mut self,
-        header: &[u8],
-        _descriptor: Option<protocol::SentDescriptor<'_>>,
-    ) -> std::io::Result<()> {
-        self.write_all(header)
-    }
-}
-
-#[cfg(not(unix))]
-impl std::io::Write for ToWorker {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        match self.pipe.as_mut() {
-            Some(pipe) => pipe.write(bytes),
-            None => Err(std::io::Error::other(
-                "the worker's input was never attached",
-            )),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self.pipe.as_mut() {
-            Some(pipe) => pipe.flush(),
-            None => Ok(()),
-        }
-    }
-}
-
-impl Drop for Confined {
-    /// Ends the worker.
-    ///
-    /// Killed rather than asked: the worker leaves when its input closes, which dropping the
-    /// pipe does — but a worker in the middle of a render would not notice for as long as that
-    /// render takes, and a host that has dropped its handle is not waiting for one.
-    ///
-    /// This is [`Canceller::cancel`] without the flag, and it is the same one mechanism: dropping
-    /// a `Confined` is a host giving up on the work, which is what a cancel is. The [`Canceller`]s
-    /// that outlive it find an empty slot and do nothing.
-    fn drop(&mut self) {
-        self.cancellation.kill();
-        let _ = self.cancellation.reap();
     }
 }
 
@@ -1398,59 +807,19 @@ fn refusal(payload: &[u8]) -> ConfinedError {
     }
 }
 
-/// Describes how a worker ended, naming the signal where the platform has one.
-///
-/// `SIGSYS` is the interesting one and it is the seccomp filter firing: the confined viewer
-/// attempted something no page needs. A platform with no filter cannot produce that diagnosis and
-/// does not pretend to.
-///
-/// **A number is not a diagnosis, which is why [`LastWords`] exists beside this.** The two ways a
-/// confinement ends a worker that is not the filter both arrive here as numbers that name the
-/// mechanism rather than the cause: `SIGABRT` for an allocation `RLIMIT_AS` refused, and — before
-/// the worker's standard error became a pipe — `SIGXFSZ` for the worker's attempt to *say* so.
-fn describe_exit(status: std::process::ExitStatus) -> String {
-    #[cfg(unix)]
-    if let Some(signal) = {
-        use std::os::unix::process::ExitStatusExt as _;
-        status.signal()
-    } {
-        // 31 is `SIGSYS` on every Linux architecture this builds for, and naming it costs no
-        // dependency; a platform whose numbering differs simply reports the number.
-        let name = if cfg!(target_os = "linux") && signal == 31 {
-            " (SIGSYS: a system call the confinement forbids)"
-        } else {
-            ""
-        };
-        return format!("killed by signal {signal}{name}");
-    }
-    match status.code() {
-        Some(code) => format!("exited with status {code}"),
-        None => "stopped for an unknown reason".to_owned(),
-    }
-}
-
 /// Finds the worker program.
 ///
 /// Searched next to the running executable, then one directory up, because Cargo puts test
 /// binaries in `target/<profile>/deps/` while it puts programs in `target/<profile>/`. The
-/// environment variable overrides both.
+/// environment variable overrides both. The search is `confined_transport`'s; the *sentence* a
+/// missing worker produces is this crate's, because it names this crate's build command.
 fn worker_program() -> Result<PathBuf, ConfinedError> {
-    if let Some(named) = std::env::var_os(WORKER_PATH_VARIABLE) {
-        return Ok(PathBuf::from(named));
-    }
-
-    let executable = std::env::current_exe().map_err(ConfinedError::Spawn)?;
-    let directory = executable.parent().unwrap_or(&executable);
-    let name = format!("{WORKER_PROGRAM}{}", std::env::consts::EXE_SUFFIX);
-    let beside = directory.join(&name);
-    if beside.is_file() {
-        return Ok(beside);
-    }
-    if let Some(parent) = directory.parent() {
-        let above = parent.join(&name);
-        if above.is_file() {
-            return Ok(above);
-        }
-    }
-    Err(ConfinedError::WorkerMissing { executable })
+    confined_transport::program_beside_executable(WORKER_PROGRAM, WORKER_PATH_VARIABLE).map_err(
+        |missing| match missing {
+            confined_transport::ProgramMissing::NotBeside { executable } => {
+                ConfinedError::WorkerMissing { executable }
+            }
+            confined_transport::ProgramMissing::Unlocatable(error) => ConfinedError::Spawn(error),
+        },
+    )
 }

@@ -90,6 +90,7 @@ fn a_rendered_page_is_the_oracle_backends_raster_byte_for_byte() {
         page_box: None,
         annotations: true,
         names: "page-%d.png".parse().expect("a pattern"),
+        strips: None,
     });
     let report = apply(
         &plan,
@@ -1196,6 +1197,7 @@ fn the_page_box_asked_for_is_the_rasters_extent_and_the_unstated_boxes_default_t
                 page_box,
                 annotations: true,
                 names: "p.png".parse().expect("a pattern"),
+                strips: None,
             }),
             &[Source::new(bytes.clone())],
             &sinks,
@@ -1257,6 +1259,7 @@ fn without_annotations_the_page_contents_alone_are_drawn() {
                 page_box: None,
                 annotations,
                 names: "p.png".parse().expect("a pattern"),
+                strips: None,
             }),
             &[Source::new(bytes.clone())],
             &sinks,

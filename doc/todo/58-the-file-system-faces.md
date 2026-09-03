@@ -10,7 +10,8 @@ and 63 of 72, and none on page 1); `doc/PDF20_AN002-AF.pdf` (a different documen
 length, which is what the consistency tests need).
 Clauses: §7.5.5 (the generation key's third component), §7.7.3.2, §7.7.3.4, §7.11.4, §8.9.5,
 §12.3.3, §14.3.2, §14.3.3, §14.8.2.5.1.
-Code: `crates/pdf-vfs/`, `crates/pdf-vfs/tests/a_face.rs`; ADRs 0840, 0841.
+Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/confined.rs` and
+`examples/vfs_cost.rs`, `crates/confined-transport/`; ADRs 0840, 0841, 0846, 0847.
 
 ## What is done
 
@@ -30,6 +31,18 @@ worker, the inventories and every cached output; an open `Handle` keeps its byte
 write side lands, and §5.2's five verbs are refused by the operation's own name. RFC §6's boundary
 is `pdf_vfs::worker`'s two traits, with `InProcess` the unconfined implementation and the confined
 one a transport change for the reasons ADR 0841 §2 states.
+
+Session 902, RFC 0003's second landing: **the confined worker**, which §4 below used to be about.
+`pdf-vfs-worker` is a separate program that confines itself before it reads a byte, takes the
+document as ADR 0812's descriptor, and answers `Query`s over the wire `crates/confined-transport`
+now holds for it and for `pdf-view-worker` both (ADR 0846) — `viewer-confined` was moved onto that
+crate in the same round, because a shared thing nobody has moved onto is a third copy. The
+allow-list is `Profile::Interpreter` unchanged, measured with `strace -ff` rather than assumed; ADR
+0847 §1 lists the twenty-three calls the worker makes behind the filter and why each was already
+there. The allow-list found a defect on the way: `pdf_transform::render` asked the machine how many
+cores it had, which is an `openat` a confined process is killed for, so `RenderPlan` gained
+`strips` (ADR 0847 §2). Six probes hold the boundary rather than describing it, and a worker that
+dies is a named error with a fresh worker behind it rather than a hang.
 
 ## 1. The departure the owner should overrule or ratify
 
@@ -76,14 +89,29 @@ listing.
   core, the `viewer-ffi` precedent. Toolchain risk moderate: CMake, Qt 6 and KF6 enter the build
   of that one component, which lives outside the cargo workspace.
 
-## 4. The confined worker, which is the posture and not a nicety
+## 4. The confined worker — **done in session 902**, and what is left of it
 
-`pdf_vfs::worker::InProcess` parses in the calling process. ADR 0841 §2 records what makes the
-second implementation a transport change — no borrows in `Query` or `Answer`, one worker per
-generation, the document handed over once as `FileBytes` the way ADR 0812's `SCM_RIGHTS` route
-already does — and states the cost of not having it yet. **No face ships before it exists**: a
-mount is entered by anything that touches a folder, and a file manager will open a document nobody
-chose to open.
+`pdf_vfs::ConfinedWorkers` is RFC §6's worker: a separate program under seccomp-BPF, Landlock and a
+4 GiB ceiling, holding the document as a descriptor it could not have opened, answering the same
+`Query`s with the same `Answer`s as `InProcess` — which `tests/confined.rs` asserts question by
+question, both ways, over a real document. A face chooses it in one line and inherits the posture.
+ADR 0847 is the record: the allow-list, what crosses and its bound, what a death becomes.
+
+Three things this item still owes, none of them blocking a face:
+
+- **A worker is per generation and per `Vfs`, so a face mounting a hundred documents starts a
+  hundred processes.** That is the right shape for a mount of one and an open question for a file
+  manager browsing a directory of PDFs; nothing here pools, reaps on idle, or bounds how many may
+  live at once. `RLIMIT_NOFILE` is 8 in the confinement, so the *worker* side is already bounded;
+  the broker side is not.
+- **A killed worker is retried on the next operation and not on the current one.** `Vfs::current`
+  asks `Worker::is_alive` beside the generation key, so the operation after a death gets a fresh
+  worker — but the operation that *found* the death still fails, and a face has to decide whether
+  to show that or to retry once. Stated rather than chosen, because it is a face's policy.
+- **A `Canceller` reaches the worker and nothing reaches it through `Vfs`.** `Confined::canceller`
+  exists and `Vfs` holds `Box<dyn Worker>`, so a face that wants to end a render a person navigated
+  away from has to hold its own factory the way `tests/confined.rs` does. That is a small piece of
+  `Vfs` API and it wants a face's requirement to shape it.
 
 ## 5. What the core still owes, each named in `Vfs::shortfalls`
 
@@ -101,10 +129,15 @@ chose to open.
   the cache, and a read puts the whole run's outputs there at once so that `cp -r` of one page's
   images costs one extraction. Caching the listing itself is a second kind of entry the cache does
   not have.
-- **Nothing is measured.** There is no gate on this crate and no number anywhere: what a `stat`
-  costs, what `ls images/` costs on a scanned book, what the cache's hit rate is under a `cp -r`.
-  RFC 0002's suite got its perf floor in its second round (ADR 0801) and this one has none, which
-  is the reason it is written here rather than assumed to be fine.
+- **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
+  prints, per document: a worker per generation in each transport, one question of each shape in
+  each transport, the largest answer and the bound past which the confinement refuses one, and a
+  `stat` that generates beside the same `stat` cached. Session 902's run is in that round's record.
+  What is *not* measured, and what the next round of this stream should take: `ls images/` on a
+  scanned book, the cache's hit rate under a `cp -r` of one directory, and `text/document.txt` on a
+  long document — which is the streaming shortfall above, priced. And none of it is a floor: RFC
+  0002's suite got its perf floor in its second round (ADR 0801) and this crate still has no line in
+  `doc/todo/02` §2 beyond the core's.
 - A directory the document would fill past `Config::max_entries` is refused rather than truncated,
   and no document on this disk reaches it — so the ceiling is a decision without a witness.
 
