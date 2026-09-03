@@ -42,6 +42,9 @@ fn committed(name: &str) -> std::path::PathBuf {
 const FIVE_PAGES: &str = "PDF20_AN001-BPC.pdf";
 /// The ten-page PDF Declarations note, which files two §7.11.4 embedded files.
 const WITH_ATTACHMENTS: &str = "PDF-Declarations.pdf";
+/// The fourteen-page annex about associated files, which is the document the write comparison
+/// inserts: a *different* document of a different length.
+const FOURTEEN_PAGES: &str = "PDF20_AN002-AF.pdf";
 
 /// Every question the layout can ask of the five-page annex, in one list.
 ///
@@ -60,6 +63,26 @@ fn every_question() -> Vec<Query> {
         questions.push(Query::ExtractImages { page });
     }
     questions.push(Query::RenderPage { page: 1, dpi: 150 });
+    // The five write queries. Each of them computes §7.5.6's update and hands the **whole**
+    // document back, so what this compares is the byte-for-byte identity of a file two workers
+    // wrote — which is RFC 0002 section 9's first layer applied across the confinement, and the
+    // reason nothing here has a clock in it.
+    questions.push(Query::DeletePage { page: 2 });
+    questions.push(Query::InsertPages {
+        at: 3,
+        document: std::fs::read(committed(FOURTEEN_PAGES)).expect("a committed document"),
+    });
+    questions.push(Query::Attach {
+        name: String::from("crossing.txt"),
+        bytes: b"a file written into the document".to_vec(),
+    });
+    questions.push(Query::SetInformation {
+        json: br#"{"title": "set across the boundary"}"#.to_vec(),
+    });
+    // A name the document does not file: the refusal has to cross as the same refusal.
+    questions.push(Query::Detach {
+        name: String::from("nothing is filed under this"),
+    });
     questions
 }
 

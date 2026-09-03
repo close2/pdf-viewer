@@ -375,10 +375,22 @@ anything. The document is allowed to change underneath it: a generation key of (
 worker, the inventories and every cached output, while a file already open keeps the generation it
 was opened under — so no reader is ever handed a splice of two documents. A `stat` **generates**,
 because a kernel clamps reads at the size a `stat` reported and an estimate would truncate the
-file. Nothing is written yet: RFC 0003 §5.2's five verbs are declared in the table and refused by
-the operation's own name, and §5.3's four are refused by design with the sentence saying why they
-will still be refused when the write side lands. There is no face yet — no FUSE binary, no KIO
-plugin — but **there is a confined worker**, which is what a face was waiting for (ADRs 0840, 0841,
+file. **And it is written to**: all five of RFC 0003 §5.2's verbs work — a PDF copied into
+`pages/` inserts its pages at the position the name states and everything after moves down, `rm`
+takes a page out, a file copied into `attachments/` is embedded and deleting one removes it, and
+`meta/info.json` is overwritable, which is that document's fourth open question answered. §5.3's
+four refusals stay refused by design, each with the sentence saying why and each with its own
+`errno`. What made the write side a round rather than plumbing is that `pages` and `merge` write a
+*new* file while `CLAUDE.md` permits only an append to a document somebody has open, so
+`pdf-transform` grew a fourth writer: §7.7.3.2's page tree and §14.3.3's entries edited **in
+place** by §7.5.6's update (ADR 0854). A POSIX write is `create`, several `write`s, `flush` and
+`close`, so a staged write is visible in the tree and absent from the document until the flush;
+abandoning one leaves the file byte for byte as it was; the commit is a temporary file synced and
+`rename(2)`d over the original, with the broker checking §7.5.6's own prefix property against the
+disk before it writes a byte; a write staged against a generation somebody else has replaced is
+`ESTALE` rather than a clobber; and the generation our own commit produces says it is *ours*
+rather than looking like somebody editing the file underneath the mount (ADR 0855). There is no
+face yet — no FUSE binary, no KIO plugin — but **there is a confined worker**, which is what a face was waiting for (ADRs 0840, 0841,
 0846, 0847): `pdf-vfs-worker` confines itself before it reads a byte, takes the document as the
 descriptor a broker sends it, and answers the same questions with the same answers as the
 in-process one — question by question, both ways, asserted. It needs no system call the viewer's
@@ -391,7 +403,9 @@ of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
-answer) and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
+answer), **RFC 0003's mount honours all four for the same reason a pipe does** — a file system has
+no dialogue, so its *ask* is a refusal with its own sentence and never a silent proceed, and both
+it and *on* leave as `EACCES` — and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
 *refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
 caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.

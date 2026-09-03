@@ -12,6 +12,14 @@
 //! variant, so a question added to that module fails to compile in this one rather than falling
 //! into a catch-all arm.
 //!
+//! **The exhaustiveness is on the enums and not on the discriminants**, and the difference cost
+//! this crate a failing test the round it grew a sixth answer: a `match` over
+//! [`crate::worker::Answer`] will not compile with a variant missing, and the `match` over the
+//! *byte* on the way back in has a catch-all by construction, so an answer can be encodable and
+//! not decodable. The pair is what has to be written, and `tests/confined.rs` is what notices —
+//! it asks both workers every question and compares, so a kind only one side knows is a failure
+//! rather than a silence.
+//!
 //! **A message that cannot be decoded is a refusal that says so.** [`WireError`] names what was
 //! truncated or unrecognised; nothing here defaults, clamps or guesses. The confined side is the
 //! untrusted side of this boundary, so every length it states is a claim: a count is checked
@@ -65,6 +73,11 @@ mod query_kind {
     pub(super) const INFORMATION: u8 = 8;
     pub(super) const METADATA_STREAM: u8 = 9;
     pub(super) const OUTLINE: u8 = 10;
+    pub(super) const INSERT_PAGES: u8 = 11;
+    pub(super) const DELETE_PAGE: u8 = 12;
+    pub(super) const ATTACH: u8 = 13;
+    pub(super) const DETACH: u8 = 14;
+    pub(super) const SET_INFORMATION: u8 = 15;
 }
 
 /// Answer discriminants. One per variant of [`Answer`].
@@ -74,14 +87,21 @@ mod answer_kind {
     pub(super) const FILES: u8 = 3;
     pub(super) const ATTACHMENTS: u8 = 4;
     pub(super) const ABSENT: u8 = 5;
+    pub(super) const WRITTEN: u8 = 6;
 }
 
-/// Refusal discriminants: the four things a face has to be able to tell apart.
+/// Refusal discriminants: the six things a face has to be able to tell apart.
+///
+/// The last two joined when the write side did, and they are the two a face turns into a
+/// *different* `errno` from the rest: a document that withholds the operation, and a policy level
+/// that wanted somebody asked where a file system has nobody.
 mod refusal_kind {
     pub(super) const PASSWORD_REQUIRED: u8 = 1;
     pub(super) const REFUSED: u8 = 2;
     pub(super) const DECLINED: u8 = 3;
     pub(super) const NOT_PRESENT: u8 = 4;
+    pub(super) const RESTRICTED: u8 = 5;
+    pub(super) const UNANSWERABLE: u8 = 6;
 }
 
 /// Why a message could not be read.
@@ -324,6 +344,21 @@ pub(crate) fn encode_query(query: &Query) -> Vec<u8> {
         Query::Outline => {
             writer.u8(k::OUTLINE);
         }
+        Query::InsertPages { at, document } => {
+            writer.u8(k::INSERT_PAGES).count(*at).bytes(document);
+        }
+        Query::DeletePage { page } => {
+            writer.u8(k::DELETE_PAGE).count(*page);
+        }
+        Query::Attach { name, bytes } => {
+            writer.u8(k::ATTACH).text(name).bytes(bytes);
+        }
+        Query::Detach { name } => {
+            writer.u8(k::DETACH).text(name);
+        }
+        Query::SetInformation { json } => {
+            writer.u8(k::SET_INFORMATION).bytes(json);
+        }
     }
     writer.finish()
 }
@@ -360,6 +395,23 @@ pub(crate) fn decode_query(bytes: &[u8]) -> Result<Query, WireError> {
         k::INFORMATION => Query::Information,
         k::METADATA_STREAM => Query::MetadataStream,
         k::OUTLINE => Query::Outline,
+        k::INSERT_PAGES => Query::InsertPages {
+            at: reader.count("a position")?,
+            document: reader.bytes("the document being inserted")?.to_vec(),
+        },
+        k::DELETE_PAGE => Query::DeletePage {
+            page: reader.count("a page ordinal")?,
+        },
+        k::ATTACH => Query::Attach {
+            name: reader.text("an attachment's name")?,
+            bytes: reader.bytes("an attachment's bytes")?.to_vec(),
+        },
+        k::DETACH => Query::Detach {
+            name: reader.text("an attachment's name")?,
+        },
+        k::SET_INFORMATION => Query::SetInformation {
+            json: reader.bytes("the information file")?.to_vec(),
+        },
         value => {
             return Err(WireError::Unrecognised {
                 what: "a query's kind",
@@ -396,6 +448,12 @@ pub(crate) fn encode_answer(answer: &Answer) -> Vec<u8> {
         }
         Answer::Absent => {
             writer.u8(k::ABSENT);
+        }
+        Answer::Written { bytes, warnings } => {
+            writer.u8(k::WRITTEN).bytes(bytes).count(warnings.len());
+            for warning in warnings {
+                writer.text(warning);
+            }
         }
     }
     writer.finish()
@@ -446,6 +504,24 @@ pub(crate) fn decode_answer(bytes: &[u8]) -> Result<Answer, WireError> {
             Answer::Attachments(entries)
         }
         k::ABSENT => Answer::Absent,
+        k::WRITTEN => {
+            let bytes = reader.bytes("an updated document")?.to_vec();
+            let count = reader.count("a warning count")?;
+            // A count is a claim: the shortest warning on the wire is its eight-byte length, so
+            // a count past what remains is refused before a vector is grown for it.
+            if count > reader.remaining() {
+                return Err(WireError::Overlong {
+                    what: "a warning count",
+                    stated: u64::try_from(count).unwrap_or(u64::MAX),
+                    remaining: reader.remaining(),
+                });
+            }
+            let mut warnings = Vec::with_capacity(count);
+            for _ in 0..count {
+                warnings.push(reader.text("a warning")?);
+            }
+            Answer::Written { bytes, warnings }
+        }
         value => {
             return Err(WireError::Unrecognised {
                 what: "an answer's kind",
@@ -556,6 +632,12 @@ pub(crate) fn encode_refusal(error: &WorkerError) -> Vec<u8> {
         WorkerError::Refused(detail) => {
             writer.u8(k::REFUSED).text(detail);
         }
+        WorkerError::Restricted(detail) => {
+            writer.u8(k::RESTRICTED).text(detail);
+        }
+        WorkerError::Unanswerable(detail) => {
+            writer.u8(k::UNANSWERABLE).text(detail);
+        }
         other @ (WorkerError::Mismatched { .. } | WorkerError::Transport(_)) => {
             writer.u8(k::REFUSED).text(&other.to_string());
         }
@@ -577,6 +659,8 @@ pub(crate) fn decode_refusal(bytes: &[u8]) -> Result<WorkerError, WireError> {
             detail: reader.text("why it was declined")?,
         },
         k::NOT_PRESENT => WorkerError::NotPresent(reader.text("a refusal")?),
+        k::RESTRICTED => WorkerError::Restricted(reader.text("a refusal")?),
+        k::UNANSWERABLE => WorkerError::Unanswerable(reader.text("a refusal")?),
         value => {
             return Err(WireError::Unrecognised {
                 what: "a refusal's kind",

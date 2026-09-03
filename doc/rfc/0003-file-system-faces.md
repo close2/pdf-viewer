@@ -5,13 +5,18 @@ Implementation from round 899 (ADRs 0840, 0841), which landed §7's shared core 
 read side of §5, on the transform stream's branch because §7's core consumes RFC 0002's seam; and
 from round 902 (ADRs 0846, 0847), which landed §6's **confined worker** — `pdf-vfs-worker`, under
 the same seccomp filter, Landlock domain and address-space ceiling the viewer's worker runs under,
-with the document crossing as a descriptor — over a wire now shared with `viewer-confined`.
+with the document crossing as a descriptor — over a wire now shared with `viewer-confined`; and
+from round 906 (ADRs 0854, 0855), which landed **§5.2's five write verbs and §5.4's transaction**,
+on a fourth `pdf-transform` writer that edits the document in place by §7.5.6's update, because
+`pages` and `merge` rewrite and `CLAUDE.md` permits only an append to a document somebody has
+open.
 **One departure from §4 below has been taken and is recorded rather than absorbed**: `images/` is
 a directory per page (`images/0035/01.png`) instead of one flat directory, because a flat one
 cannot be listed without extracting every image in the document — ADR 0841 §3 has the argument and
-`doc/todo/58` §1 carries it for the owner to overrule. §9's seven open questions are **not**
-answered; the recommendations this document makes on them stand as defaults, with §9.7's
-resolution set now stated by the core as 150 and 300.
+`doc/todo/58` §1 carries it for the owner to overrule. **§9's fourth open question is answered
+*yes*** — `meta/info.json` writes are in v1, and ADR 0855 §5 has the argument; the other six stand
+and the recommendations this document makes on them are the defaults in force, with §9.7's
+resolution set stated by the core as 150 and 300.
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — every write below goes through it), RFC 0004
 (print), RFC 0005 (text editing). Numbering was reconciled at merge (round 788); the
@@ -166,11 +171,11 @@ directories and reads nothing but the page count).
 
 | verb | meaning | mechanism |
 |---|---|---|
-| copy a PDF **into `pages/`** | **insert its pages** at the position the target name states: `cp new.pdf pages/0004.pdf` inserts before the current fourth page (the incumbent 0004 and everything after shift up on the next listing) | transform layer: page insertion, saved as §7.5.6 append |
-| **delete `pages/NNNN.pdf`** | delete that page | transform layer: page deletion |
+| copy a PDF **into `pages/`** | **insert its pages** at the position the target name states: `cp new.pdf pages/0004.pdf` inserts before the current fourth page (the incumbent 0004 and everything after shift up on the next listing) | transform layer: page insertion, saved as §7.5.6 append — and the layer had to *grow* that shape, because `pages` and `merge` write a new file (ADR 0854) |
+| **delete `pages/NNNN.pdf`** | delete that page | transform layer: page deletion, the same in-place update |
 | copy a file **into `attachments/`** | embed it (§7.11.4 name tree gains an entry) | incremental update — the operation the viewer's sidebar already performs in reverse |
 | **delete `attachments/X`** | remove the embedded file from the name tree | incremental update |
-| **overwrite `meta/info.json`** | set the Info entries it states | incremental update (open question 4 — include in v1 or not) |
+| **overwrite `meta/info.json`** | set the Info entries it states | incremental update (open question 4, answered *yes* in round 906) |
 
 Ordinal names are **positions, not identities** — the rule that makes insertion and
 deletion coherent: after any write, the next listing renumbers. A file manager showing a

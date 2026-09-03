@@ -265,6 +265,38 @@ pub fn incremental_update_freeing(
     replacements: &BTreeMap<ObjectId, Object>,
     freed: &[ObjectId],
 ) -> Result<Vec<u8>, UpdateError> {
+    incremental_update_extending(document, replacements, freed, &Dictionary::new())
+}
+
+/// [`incremental_update_freeing`], with entries the update's own trailer states.
+///
+/// The one thing an update cannot express without this: a trailer entry the document did not
+/// have. [`carry_forward`] repeats `/Encrypt` and `/Info` where the file already states them,
+/// because §7.5.5 makes them properties of the file and a reader stops at the newest section —
+/// but a document that states **no** `/Info` and is being given one has nowhere to say so, and
+/// §7.5.5's Table 15 makes that entry the trailer's:
+///
+/// > ( Optional; shall be an indirect reference ) The PDF file's information dictionary.
+///
+/// So `additions` are written into the section's own trailer dictionary — or, for a file whose
+/// last section is §7.5.8's cross-reference stream, into that stream's dictionary, which Table 17
+/// says "may contain the entries in Table 15 ... in addition to the entries in Table 18".
+///
+/// **Five keys are this function's and not the caller's**: `/Size`, `/Root`, `/Prev` and `/ID`
+/// are computed from the update being written, and a cross-reference stream's `/Type`, `/W`,
+/// `/Index` and `/Length` describe the bytes this writes. An addition naming one of those is
+/// overwritten rather than obeyed, because a trailer that disagreed with the section under it
+/// would be a file this writer could not read back.
+///
+/// # Errors
+///
+/// [`incremental_update`]'s.
+pub fn incremental_update_extending(
+    document: &crate::Document,
+    replacements: &BTreeMap<ObjectId, Object>,
+    freed: &[ObjectId],
+    additions: &Dictionary,
+) -> Result<Vec<u8>, UpdateError> {
     if document.was_recovered() {
         return Err(UpdateError::Recovered);
     }
@@ -337,9 +369,13 @@ pub fn incremental_update_freeing(
     entries.sort_unstable_by_key(|entry| entry.number);
 
     if stream_form {
-        cross_reference_stream(&mut out, &entries, size, previous, &root, document);
+        cross_reference_stream(
+            &mut out, &entries, size, previous, &root, document, additions,
+        );
     } else {
-        cross_reference_table(&mut out, &entries, size, previous, &root, document);
+        cross_reference_table(
+            &mut out, &entries, size, previous, &root, document, additions,
+        );
     }
     Ok(out)
 }
@@ -388,6 +424,7 @@ fn cross_reference_table(
     previous: usize,
     root: &Object,
     document: &crate::Document,
+    additions: &Dictionary,
 ) {
     let at = out.len();
     let mut text = String::from("xref\n");
@@ -418,6 +455,7 @@ fn cross_reference_table(
         Object::Integer(as_integer(previous as u64)),
     );
     carry_forward(document, &mut trailer);
+    extend(additions, &mut trailer);
     identify(document, &mut trailer, out);
 
     out.extend_from_slice(b"trailer\n");
@@ -435,6 +473,7 @@ fn cross_reference_stream(
     previous: usize,
     root: &Object,
     document: &crate::Document,
+    additions: &Dictionary,
 ) {
     // The stream is itself an object, and its own entry has to be in it — so it takes the next
     // number after everything else, and its offset is where it is about to be written.
@@ -504,6 +543,7 @@ fn cross_reference_stream(
         Object::Integer(as_integer(data.len() as u64)),
     );
     carry_forward(document, &mut dict);
+    extend(additions, &mut dict);
     identify(document, &mut dict, out);
 
     let mut header = String::new();
@@ -563,6 +603,16 @@ fn identify(document: &crate::Document, trailer: &mut Dictionary, so_far: &[u8])
             changing,
         ]),
     );
+}
+
+/// The caller's own trailer entries, written over whatever was carried forward.
+///
+/// Over, deliberately: the caller is stating what the file says now, and a `/Info` it is
+/// replacing is exactly the entry [`carry_forward`] just copied from the section before.
+fn extend(additions: &Dictionary, trailer: &mut Dictionary) {
+    for (key, value) in additions.iter() {
+        trailer.insert(key.clone(), value.clone());
+    }
 }
 
 /// The trailer entries an update must repeat because a reader stops at the first section.

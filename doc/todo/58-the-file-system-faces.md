@@ -8,10 +8,12 @@ Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §1
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
 and 63 of 72, and none on page 1); `doc/PDF20_AN002-AF.pdf` (a different document of a different
 length, which is what the consistency tests need).
-Clauses: §7.5.5 (the generation key's third component), §7.7.3.2, §7.7.3.4, §7.11.4, §8.9.5,
-§12.3.3, §14.3.2, §14.3.3, §14.8.2.5.1.
-Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/confined.rs` and
-`examples/vfs_cost.rs`, `crates/confined-transport/`; ADRs 0840, 0841, 0846, 0847.
+Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`), §7.5.6, §7.7.3.2,
+§7.7.3.3, §7.7.3.4, §7.9.4, §7.11.4, §8.9.5, §12.3.3, §12.4.2, §12.5.6.15, §12.7.4.2, §14.3.2,
+§14.3.3, §14.3.4, §14.7.5.4, §14.8.2.5.1.
+Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/confined.rs` and
+`examples/vfs_cost.rs`, `crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
+ADRs 0840, 0841, 0846, 0847, 0854, 0855.
 
 ## What is done
 
@@ -44,6 +46,22 @@ cores it had, which is an `openat` a confined process is killed for, so `RenderP
 `strips` (ADR 0847 §2). Six probes hold the boundary rather than describing it, and a worker that
 dies is a named error with a fresh worker behind it rather than a hang.
 
+
+Session 906, RFC 0003's third landing: **the write side, and the transaction around it.** All five
+of §5.2's verbs work — a PDF copied into `pages/` inserts its pages at the position the name
+states, `rm pages/NNNN.pdf` deletes one, a file copied into `attachments/` is embedded, deleting
+one removes it, and `meta/info.json` is overwritable, which answers §9's fourth open question
+*yes*. What the round had to build first is the reason it is a round rather than plumbing:
+`pages` and `merge` write a *new* file and `CLAUDE.md` permits only an append to a document
+somebody has open, so `pdf_transform::update` is a fourth writing verb — §7.7.3.2's tree edited in
+place by §7.5.6's update, and §14.3.3's entries set the same way. The commit is atomic
+(temporary, sync, `rename(2)`), the broker checks §7.5.6's own prefix property against the file
+before writing a byte, the generation transition after our own commit is `Provenance::Ours` rather
+than looking like somebody else's edit, and a write staged against a generation that has gone is
+`ESTALE` rather than a clobber. `create`/`write_at`/`flush`/`release` are the POSIX transaction,
+a staged write is visible in the tree and absent from the document, and every refusal has an
+`errno` the core names. ADRs 0854 and 0855.
+
 ## 1. The departure the owner should overrule or ratify
 
 **`images/` is a directory per page** — `images/0035/01.png` — where RFC §4 draws it flat as
@@ -53,28 +71,22 @@ extracting every image in the document, because a file form depends on the codec
 can name a file a read cannot produce. Per page, the listing and the read are one call and cannot
 disagree. Nothing else in §4's layout moved.
 
-## 2. The write side, which the table already describes
+## 2. The write side — **done in session 906**, and what is left of it
 
-RFC §5.2's five verbs. Each row of `LAYOUT` already states what it means, so what is owed is the
-transform call and the transactional shape, not a design:
+RFC §5.2's five verbs all work, and §5.3's four refusals each carry their own `errno`. What this
+item still owes on the write side is three things, none of them blocking a face:
 
-- **Copy a PDF into `pages/`** — page insertion at the position the name states, through
-  `pdf-transform`'s `pages --insert`, saved as §7.5.6's append. Note that the seam's `pages` verb
-  reads *one* document and refuses a path in its range by name (ADR 0830), so an insertion from
-  another file is `merge`'s shape and not `pages`'s; which of the two a `cp` into `pages/` becomes
-  is the first thing this item has to settle.
-- **Delete `pages/NNNN.pdf`** — page deletion, which `pages --delete` already is.
-- **Copy into `attachments/`** — `attachments --attach`, which exists and writes an incremental
-  update.
-- **Delete an attachment** — `attachments --remove`, which exists.
-- **Overwrite `meta/info.json`** — §14.3.3's entries, and RFC §9's open question 4 asks whether it
-  belongs in v1 at all.
-
-And the transactional half, which is the part with edges: RFC §5.4's commit point (a KIO `put`
-commits when the worker's `put` completes; a FUSE write buffers and **commits on `flush`**, whose
-error reaches the application's `close()`, where `release` reaches nobody), the renumbering that
-follows any write to `pages/`, and the change notification that refreshes a file manager's stale
-listing.
+- **An attachment cannot be replaced in place.** A write to a name §7.7.4's tree already files is
+  `EEXIST`; replacing would be a removal and an embedding, which is two updates, and this verb
+  writes one. A face that wants `cp -f` to work needs the pair designed as one transaction.
+- **An in-place insertion carries the pages and not what the incoming document says about them.**
+  Its `/AcroForm`, `/OCProperties`, `/Outlines`, `/Names` and `/StructTreeRoot` are each named in a
+  warning rather than reconciled, and `/StructParents` is stripped from every carried page.
+  `merge` reconciles all of those and cannot be used here because it rewrites; whether the two
+  engines can be made one is `doc/todo/57`'s question as much as this one's.
+- **`pdf-transform` has a fourth writer and no fourth CLI verb.** RFC 0002's verb set is the
+  owner's, and `update` is reachable from the library alone. A command line for it would give the
+  transform suite a way to edit a file in place, which is a different offer from every verb it has.
 
 ## 3. The two faces, in the RFC's own order
 
@@ -129,6 +141,13 @@ Three things this item still owes, none of them blocking a face:
   the cache, and a read puts the whole run's outputs there at once so that `cp -r` of one page's
   images costs one extraction. Caching the listing itself is a second kind of entry the cache does
   not have.
+- **The write side has no corpus walk.** Every read generator is measured against every corpus
+  document by nothing, and so is every write: `tests/a_write.rs` drives all five verbs over four
+  committed documents and one corpus document, and the transform suite's own walks do not touch
+  `Plan::Update` at all. The shape that would answer it is RFC 0002 section 9's — a walk that
+  inserts, deletes, attaches and sets over every corpus document, re-reads the result and holds
+  §7.5.6's prefix property and the page count to what the edit said. That is the next round of
+  this stream's strongest candidate, and it is what `doc/todo/02` §2 would gain a line for.
 - **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
   prints, per document: a worker per generation in each transport, one question of each shape in
   each transport, the largest answer and the bound past which the confinement refuses one, and a
@@ -141,10 +160,22 @@ Three things this item still owes, none of them blocking a face:
 - A directory the document would fill past `Config::max_entries` is refused rather than truncated,
   and no document on this disk reaches it — so the ceiling is a decision without a witness.
 
-## 6. RFC §9's open questions, none of them answered
+## 6. RFC §9's open questions — one answered, six standing
 
-The owner has not been asked again since approving the RFC. The seven stand: the scheme name
-(`pdf:/` recommended), whether writes are opt-in per krarc's precedent, whether reorder-by-rename
-is wanted at all, `meta/info.json` writes in v1, whether a content-destroying rewrite is something
-RFC 0002 should offer so this face can refer to it, page-label alias symlinks, and the resolution
-set for `renders/` — where 150 and 300 are what the core now states.
+**The fourth is answered: `meta/info.json` writes are in v1, yes.** Session 906 implemented them
+and ADR 0855 §5 has the argument — the file *is* §14.3.3's Table 349, the write is the read's
+inverse, and reading the file and writing it straight back changes nothing the document states.
+The owner may of course overrule it; what it is not any more is undecided.
+
+The other six stand, and the owner has not been asked since approving the RFC: the scheme name
+(`pdf:/` recommended), whether writes are opt-in per krarc's precedent — **now a live question
+rather than a hypothetical, because the writes exist** — whether reorder-by-rename is wanted at
+all, whether a content-destroying rewrite is something RFC 0002 should offer so this face can
+refer to it (also now live: a page deleted through the mount keeps its bytes, and the deletion
+says so), page-label alias symlinks, and the resolution set for `renders/`, where 150 and 300 are
+what the core states.
+
+**And a seventh the write side raised**: §5.3's refusals return `EACCES` for both `on` and *ask*,
+because a file system has nobody to ask. A KIO worker *can* put a question to a person — Dolphin
+will show a dialogue — so a face with a channel could implement the *ask* level properly and
+re-issue the write. Nothing in the core has to change for it; whether it is wanted is the owner's.
