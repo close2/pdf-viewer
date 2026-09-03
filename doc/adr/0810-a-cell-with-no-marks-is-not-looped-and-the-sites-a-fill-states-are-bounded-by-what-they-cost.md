@@ -1,6 +1,18 @@
 # ADR 0810 — A cell with no marks is not looped, and the sites a fill states are bounded by what they cost: `MAX_TILES` is retired for an empty cell that loops nothing, a lattice cut to what the fill reaches, and a tiling's copies bounded in commands
 
-Status: accepted. Session 882.
+Status: accepted. Session 882. **One citation corrected by ADR 0827**, and the item this ADR
+left open is closed by ADR 0828.
+
+> Twice below — in the clause line under this one and in "What the retired count was for" — this
+> ADR calls the sentence about a raster-based implementation "§8.7.3.1's NOTE 2" and "the same
+> subclause's NOTE 2". The note it quotes is **§11.6.7's** NOTE 2, and §8.7.3.1 has no note about
+> replication at all: the two printed under that heading are Table 74's, about a zero-sized `/BBox`
+> and about `/XStep` and `/YStep` differing from the box. The note that does say a cell may be
+> "evaluated once and then replicated" is §11.6.7's NOTE **1**, and it says it of the opaque
+> imaging model. Every quotation below is verbatim and every measurement stands; what was wrong is
+> the number under which the note was filed. ADR 0827 has the reading, and ADR 0828 measured what
+> the two witnesses named at the end of this ADR are actually cut of.
+
 Clauses: ISO 32000-2 §8.7.3.1 (tiling patterns: the cell "replicated at fixed horizontal and
 vertical intervals", painted "as many times as necessary to fill an area", and NOTE 2 on a
 raster-based implementation); §8.5.3.3 (the fill rules the lattice is cut by, and the implicit

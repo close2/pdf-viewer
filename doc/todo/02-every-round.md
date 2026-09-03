@@ -156,6 +156,18 @@ here:
   a loaded machine is a silent third**: the failure is legible as a regression in the thing being
   measured, which is the worst shape a false result can take. Sweeps, censuses and background
   builds go before the sequence or after it, never during.
+
+  **And it is not only the lines that spawn a reference.** `tests/corpus.rs` carries a wall clock
+  of its own — no document may take longer than 30 s to open and draw — and in the
+  eight-hundred-and-ninety-first session that threshold produced its first recorded false
+  positive: `ContentStreamCycleType3insideType3.pdf`, the `MAX_FORM_DEPTH` cycle that costs 3.8 s
+  in ADR 0810, took **32.23 s** and failed the gate at exit 101 while a neighbouring round was
+  building and running `cargo nextest run --workspace` in its own worktree at a load of 26. The
+  same gate on the same tree passed twice quiet in the same session, the whole walk in 11.5 s with
+  `0 slow`. An eightfold margin is not proof against a machine running two rounds, so a `slow`
+  failure is a thing to re-run alone before it is a thing to diagnose — and `ps` rather than
+  `pgrep -af '…corpus…'` is what finds the neighbour, because a build is not a walk and the
+  memory rule's own grep does not name it.
 - **One of these commands runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

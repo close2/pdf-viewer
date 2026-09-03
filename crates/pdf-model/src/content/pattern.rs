@@ -812,12 +812,25 @@ impl Interpreter<'_> {
     /// 249) and the head above draws whole, and the two that do not are the two that want a
     /// hundred thousand sites or more — `2760154.pdf`'s 762 930 and `PDFIUM-1497-2.pdf`'s
     /// 448 632 at four commands apiece, 1.8 million commands for one operator, eleven seconds
-    /// and nine tenths of a gibibyte for the page. Those two are what a cell rendered once and
-    /// replicated by the rasteriser is for — §8.7.3.1's NOTE 2 anticipates exactly that
-    /// implementation — and `doc/todo/49` carries them as its witnesses. Why not the page's
-    /// whole budget: one operator's expansion would then starve every operator after it, which
-    /// is what `PDFIUM-1497-2.pdf` did to its own frame and title block when this was tried,
-    /// and a page of sixty such fills would cost eleven seconds where the count cost two.
+    /// and nine tenths of a gibibyte for the page. Why not the page's whole budget: one
+    /// operator's expansion would then starve every operator after it, which is what
+    /// `PDFIUM-1497-2.pdf` did to its own frame and title block when this was tried, and a
+    /// page of sixty such fills would cost eleven seconds where the count cost two.
+    ///
+    /// **What those two are cut of was measured in the eight-hundred-and-ninety-first session,
+    /// and it is less than this comment used to imply** (ADR 0828). Both arms in one sitting,
+    /// `examples/open_one` at scale 1: `PDFIUM-1497-2.pdf` draws a **byte-identical** raster
+    /// with the bound lifted, for 1.87 s against 10.53 and 0.19 GiB against 0.93; `2760154.pdf`
+    /// is 0.33 s and 0.02 GiB against 2.08 s and 0.42, and its whole tiling is worth a mean of
+    /// 1.087 of 255 — 33.583 of ink against 34.670, the pale wash behind its title. Eighty-one
+    /// and ninety-four per cent of that gap is *rasterisation* rather than this list, so a
+    /// display-list paint carrying a cell and its lattice for a backend to replicate as
+    /// geometry would buy the memory and a fifth of the shorter gap. This comment sent the
+    /// reader to a note that does not say so: §8.7.3.1's NOTE 2 is about `/XStep` and `/YStep`
+    /// differing from the `/BBox`, and the sentence about a cell "evaluated once and then
+    /// replicated" is §11.6.7's NOTE 1, which says it of the *opaque* imaging model (ADR 0827).
+    /// `doc/todo/49` carries the closed item and `doc/checks/fixed-documents.toml` the two
+    /// pages.
     const MAX_TILE_COPIES: usize = 65_536;
 
     /// Most edge tests one page may spend on `reach.rs`, proving which sites a fill can reach.

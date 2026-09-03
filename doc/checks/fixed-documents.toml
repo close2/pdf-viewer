@@ -543,3 +543,19 @@ session = 889
 reports = []
 ink = 1.019 .. 2.019
 why = "a JBIG2 stream whose /Length counted the end-of-line marker before endstream, which §7.3.8.1 says shall not be counted; the codec read the stray byte as the start of a segment, answered `unexpected end of input`, and the whole page was drawn blank at 0 levels of ink where poppler and mupdf agree on 1.463 by the ranking's instrument. The band is narrowed to plus and minus 0.5 rather than 1.0: the page is a light grey diagram on a 2448 x 1584 sheet worth 1.519 levels, so at the usual width the low end would sit at 0.519 and the defect this row stands against is the blank page at 0 (ADR 0823, 7.4.7)"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/2760/2760154.pdf"
+page = 1
+session = 891
+reports = ["MAX_TILE_COPIES"]
+ink = 32.583 .. 34.583
+why = "not a fix: the first of the two witnesses doc/todo/49 carried for a rasteriser-side lattice, pinned where a command can see them because the item was closed by measurement rather than by work (ADR 0828, 8.7.3.1). Its 762 930 sites are cut to 65 536 commands and the shortfall is reported; drawing them whole costs 2.08 s and 0.42 GiB against 0.33 s and 0.02 GiB and raises the ink to 34.670, so the band discriminates by 0.087 of a level and this row fails if the budget stops firing, if the cut moves, or if a paint draws the wash whole"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/PDFIUM/PDFIUM-1497-2.pdf"
+page = 1
+session = 891
+reports = ["MAX_TILE_COPIES"]
+ink = 10.905 .. 12.905
+why = "the second witness, and the measurement that closed the item: this page's raster is byte-identical whether MAX_TILE_COPIES cuts its two largest tilings or the bound is lifted, at 11.9049 of ink either way, for 1.87 s and 0.19 GiB against 10.53 s and 0.93 GiB (ADR 0828, 8.7.3.1). The ink therefore cannot discriminate the cut and is not asked to; what this row pins is that the floor plan draws and that the report is still MAX_TILE_COPIES rather than MAX_OPERATIONS, which is what starved its frame and title block when the per-tiling budget was tried as the page's own"
