@@ -599,14 +599,28 @@ fn write_soft_masks(
                 writer.u8(0);
             }
         }
-        // §11.5.3's three curves, where the group composited a CIE-based space's components.
+        // §11.5.3's `Y`, where the group composited a CIE-based space's components: three
+        // curves the reader sums, or a grid it interpolates. The tag tells the two apart, so
+        // a list stating one cannot be read back as the other.
         match luminance {
             Some(luminance) => {
-                writer.u8(1);
-                for sample in luminance.curves() {
-                    for component in sample {
-                        writer.f32(*component);
+                if let Some(curves) = luminance.as_curves() {
+                    writer.u8(1);
+                    for sample in curves {
+                        for component in sample {
+                            writer.f32(*component);
+                        }
                     }
+                } else if let Some((side, samples)) = luminance.as_grid() {
+                    writer.u8(2);
+                    writer.usize(side);
+                    for sample in samples {
+                        writer.f32(*sample);
+                    }
+                } else {
+                    return Err(Uncodable::Unknown {
+                        what: "a soft mask's luminance in a shape this build cannot write",
+                    });
                 }
             }
             None => {
@@ -1599,16 +1613,43 @@ fn read_soft_mask(
     } else {
         None
     };
-    let luminance = if reader.bool("a soft mask's luminance")? {
-        let mut curves = [[0.0_f32; 3]; 256];
-        for sample in &mut curves {
-            for component in sample {
-                *component = reader.f32("a soft mask's luminance")?;
+    let luminance = match reader.u8("a soft mask's luminance")? {
+        0 => None,
+        1 => {
+            let mut curves = [[0.0_f32; 3]; 256];
+            for sample in &mut curves {
+                for component in sample {
+                    *component = reader.f32("a soft mask's luminance")?;
+                }
             }
+            Some(Luminance::curves(Arc::new(curves)))
         }
-        Some(Luminance::new(Arc::new(curves)))
-    } else {
-        None
+        2 => {
+            let side = reader.usize("a soft mask's luminance grid")?;
+            // Not `with_capacity`: the side is a length field on the wire, so a corrupt one
+            // would reserve whatever it says. Pushing lets the reader run out of bytes first,
+            // which is the refusal this branch wants.
+            let wanted = side.checked_pow(3).ok_or(ProtocolError::Unrecognised {
+                what: "a soft mask's luminance grid side",
+                value: u32::try_from(side).unwrap_or(u32::MAX),
+            })?;
+            let mut samples = Vec::new();
+            for _ in 0..wanted {
+                samples.push(reader.f32("a soft mask's luminance grid")?);
+            }
+            Some(
+                Luminance::grid(side, Arc::from(samples)).ok_or(ProtocolError::Unrecognised {
+                    what: "a soft mask's luminance grid side",
+                    value: u32::try_from(side).unwrap_or(u32::MAX),
+                })?,
+            )
+        }
+        value => {
+            return Err(ProtocolError::Unrecognised {
+                what: "a soft mask's luminance",
+                value: u32::from(value),
+            });
+        }
     };
     let commands = read_commands(reader, paths, samples, shadings, clips, masks, 0)?;
     Ok(SoftMask {
@@ -2213,7 +2254,7 @@ mod tests {
                     backdrop: Color::rgb(0.1, 0.2, 0.3),
                 },
                 transfer: None,
-                luminance: Some(Luminance::new(Arc::new(curves))),
+                luminance: Some(Luminance::curves(Arc::new(curves))),
             })
             .expect("one soft mask is under the table's bound");
         list.push(Command::Group {
@@ -2236,6 +2277,43 @@ mod tests {
             blending: Some(Box::new(GroupBlending::ThreeComponents { cube: cube(0.5) })),
         });
         list.set_colour_cube(cube(1.0));
+        let bytes = encode(&list).expect("a list with no deferred producer");
+        let back = decode(&bytes).expect("what this encoder wrote");
+        assert_eq!(back, list);
+    }
+
+    /// §11.5.3's other shape — a luminosity mask whose `Y` is a *sampled grid* rather than
+    /// three curves, which is what a three-component table profile states (ADR 0851) — crosses
+    /// the boundary as itself.
+    ///
+    /// Its own test rather than a case in the one above, for the reason that one gives, and
+    /// because the two shapes share a tag byte: a list stating the grid must not come back as
+    /// curves, which equality here is what checks.
+    #[test]
+    fn a_luminosity_masks_sampled_y_round_trips_to_an_equal_list() {
+        let samples: Vec<f32> = (0..27).map(|index| index as f32 / 26.0).collect();
+        let mut list = DisplayList::new(Size::new(200.0, 100.0));
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: Vec::new(),
+                kind: SoftMaskKind::Luminosity {
+                    backdrop: Color::rgb(0.1, 0.2, 0.3),
+                },
+                transfer: None,
+                luminance: Some(
+                    Luminance::grid(3, Arc::from(samples)).expect("twenty-seven of a side of 3"),
+                ),
+            })
+            .expect("one soft mask is under the table's bound");
+        list.push(Command::Fill {
+            path: a_path(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::rgb(0.25, 0.5, 0.75)),
+            clip: None,
+            mask: Some(mask),
+            blend: BlendMode::Normal,
+        });
         let bytes = encode(&list).expect("a list with no deferred producer");
         let back = decode(&bytes).expect("what this encoder wrote");
         assert_eq!(back, list);

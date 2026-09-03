@@ -4971,7 +4971,7 @@ We have not pinned this in our quorra gate: the page is not in `doc/pdf.js`, so 
 sees it, and the CPU backend draws it — now in a second and a half — which is our standing answer
 for a budget refusal.
 
-## 43. Two asks from ISO 32000-2's three-component blending spaces: a per-pixel conversion at a group's `Do`, and a luminosity mask whose `Y` is three curves
+## 43. Two asks from ISO 32000-2's three-component blending spaces: a per-pixel conversion at a group's `Do`, and a luminosity mask whose `Y` is the space's own
 
 Session 879 (ADR 0797) took the last of §11.3.4's blending colour spaces into the oracle: a
 `CalRGB` or `ICCBased` 'RGB ' page, isolated group or `/Luminosity` mask group now composites
@@ -5001,8 +5001,18 @@ profile's tone curves weighted by the middle row of its matrix — and we carry 
 `backdrop`, taking three curves the shader sums instead of the fixed weights; the transfer table
 stays where it is, after the sum.
 
-Both refusals are by name and the frames go to the CPU backend, which draws them
-(`headless_quorra.rs` holds the group refusal against the cross-backend scene). Neither is
-urgent by population — three pages of `doc/pdf.js` — but the mask one is the crawl's majority
-mask population, 28 972 groups declaring a three-component `ICCBased` space, and every one of
-them will refuse on this backend once it reaches a page with such a mask.
+**The mask's luminosity has a second shape since session 904** (ADR 0851), and it widens the ask
+rather than adding one. A three-component profile whose conversion is a lookup table has no
+decomposition into three curves, so its `Y` is carried as a **grid**: `side³` samples of the `Y`
+itself, interpolated trilinearly over the composited components, `side` 33 today. So the field
+beside `backdrop` wants the same vocabulary the group ask above wants — curves on either side of
+an N-axis grid, here with one output rather than three — and a shader that reads one number out
+of it. `pdf_render::Luminance` is that pair of shapes, and `Luminance::of` is eight weighted
+samples for the grid and three curve lookups for the curves.
+
+All the refusals are by name and the frames go to the CPU backend, which draws them
+(`headless_quorra.rs` holds the group refusal against the cross-backend scene). Neither ask is
+urgent by population — three pages of `doc/pdf.js`, and the grid shape has no member in either
+corpus — but the mask one is the crawl's majority mask population, 28 972 groups declaring a
+three-component `ICCBased` space, and every one of them will refuse on this backend once it
+reaches a page with such a mask.

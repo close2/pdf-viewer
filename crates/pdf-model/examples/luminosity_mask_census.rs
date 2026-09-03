@@ -433,22 +433,33 @@ fn blend_names(document: &Document, entry: &Object) -> Vec<String> {
     }
 }
 
-/// Which of §11.5.3's routes a three-component CIE-based space takes, since ADR 0797.
+/// Which of §11.5.3's routes a mask group's space takes, since ADR 0797.
 ///
 /// A `CalRGB` and a matrix profile have a `Y` that is a sum of one curve per component, which
-/// `pdf_render::Luminance` carries and the backends sum; a profile whose conversion is a
-/// lookup table has not, and a mask group in one keeps the grey of the sRGB its colours become.
-/// The distinction is printed so that the second population is a count rather than a claim.
+/// `pdf_render::Luminance` carries as three curves; a three-component profile whose conversion
+/// is a lookup table has not, and a four-component one is §11.4.7's pair inside a mask. Each
+/// shape is named so that its population is a count rather than a claim — which is the whole
+/// point of the distinction, and it is why the four-component line separates a profile this
+/// crate reads from Table 65's `DeviceCMYK` fallback: the two are written the same way in a
+/// file and are two different clauses of §11.5.3.
 fn shape_of(space: &ColourSpace) -> &'static str {
     match space {
         ColourSpace::CalRgb { .. } => ", CalRGB: Y as three curves",
+        ColourSpace::Cmyk => ", DeviceCMYK: §10.4.2.3's ink",
         ColourSpace::Icc { profile } if profile.channels() == 3 => {
             if profile.matrix_stages().is_some() {
                 ", matrix profile: Y as three curves"
             } else if profile.is_bidirectional() {
-                ", table profile: Y not separable, the sRGB grey"
+                ", table profile: Y over a sampled grid"
             } else {
-                ", one-way table profile: no route in"
+                ", one-way table profile: no route in, reported"
+            }
+        }
+        ColourSpace::Icc { profile } if profile.channels() == 4 => {
+            if profile.is_bidirectional() {
+                ", profile press: §11.4.7's pair inside a mask, reported"
+            } else {
+                ", one-way profile press: no route in, reported"
             }
         }
         _ => "",
