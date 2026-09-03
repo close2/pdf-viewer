@@ -1730,6 +1730,79 @@ streams carry no whole segment at all and are still refused. **The lesson is the
 rather than the filter's**: a decoder's sentence names where it stopped, not what is wrong, and
 `unexpected end of input` was read as a statement about the file.
 
+
+### 44. What the eight-hundred-and-ninetieth took: `batch5/sumatrapdf`, and a rectangle of no area that stopped marks it does not place
+
+**The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, 3.1 s, 1.83 GiB peak. The line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/sumatrapdf` | 320 | 2 unopenable, 2 locked, 0 encrypted beyond us, 3 pageless, 17 incomplete, 0 slow |
+
+**The rate is the tracker's shape, and it is the second lowest so far.** 17 of 320 is **5.31%**
+incomplete — between `MOZILLA`'s 2.47% and `REDHAT`'s 6.07%, below the pdf.js gate's 6.98% and far
+below `PDFIUM`'s 17.4% — because a SumatraPDF issue attachment is most often a document somebody
+could not read rather than a fuzzer's output. The two unusable are a file with no `%PDF-` header in
+its first 537 bytes and one with a table that is unusable and no object header anywhere; the two
+locked want a password; the three pageless are section 34's population again and not chased here.
+Ranked by report, one document counted once per kind: 10 `Font`, 6 `Text`, 2 `Operator`, 2 `Image`,
+2 `Annotation`, one `TransparencyGroup`, one `Content`.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
+72 dpi over all 17 incomplete pages, round 876's script — **the head is two rows within a hundredth
+of each other, and the first of them was already answered**: `sumatrapdf-378-0.pdf`, ours **0**
+against `poppler` 3.298 and `mupdf` 3.310, a page of 339 text operations whose `/FontFile2` is
+`Corrupt` after 409 275 bytes. That is ADR 0459's decision exactly — Table 125's stated extent is
+asked *and* the damage must be a truncation, because a `Corrupt` stream is the input violating the
+filter's grammar and `issue13316_reduced.pdf` reaches its extent to the byte and draws **A C E F**
+where six CJK glyphs belong — so it was **held by name**, with `-854-0` and `-1505-4` in the same
+tracker being the same shape. The second row is the one this round took. Below them:
+`sumatrapdf-1005-0.pdf` (ours 0, 1.06, 0.57: a JPEG whose headers begin `2020`),
+`sumatrapdf-839-0.pdf` (ours 1.89, 3.60, 1.95: `BT` without `ET`, where the references disagree
+between themselves), and `sumatrapdf-LINK-1532-1.pdf`, ours **61.3** against two blank references —
+a `/Font` entry that resolves to §7.3.10's null. Eleven of the seventeen are within a tenth of a
+level of one reference or the other.
+
+**The head is a bounding box the writer got wrong, and a rule applied one branch too wide.**
+`sumatrapdf-LINK-1618-0.pdf` is `pdfcomment.sty`'s demonstration sheet — ours 4.19 against 7.48 and
+7.93 — and what the *page* showed, which the report did not, is that a line with arrowheads, a
+strikeout, six underlines, two squiggly underlines and two highlights were drawn nowhere and named
+nowhere. Every one of the thirteen states no `/AP` at all and a `/Rect` written as a point, with
+its own geometry whole: `/QuadPoints`, `/L`, `/Vertices`. `annotation::decide` dropped them on
+§12.5.5's arithmetic — the algorithm that scales a *stored* stream's `/BBox` onto `/Rect`, where a
+scale onto no extent leaves no mark — applied to annotations that go through none of it, because a
+construction is written in the page's own default user space and placed with the identity. ADR
+0825: `Constructed::bounded` becomes `appearance::bounded_by_rect`, one list asked twice instead of
+two answers to one question, and the six subtypes whose clause states their marks "in default user
+space" — §12.5.6.7's `/L`, §12.5.6.9's `/Vertices`, §12.5.6.10's `/QuadPoints`, §12.5.6.13's
+`/InkList`, §12.5.6.6's `/CL` — are no longer stopped by a rectangle that does not place them.
+That the silence is a silence is checkable rather than assumed: §12.5.6.5's Table 176 gives a
+*link's* `/QuadPoints` a fallback to `/Rect` in as many words and Table 182 gives a mark's none,
+and Table 166's `/AP` row frees a writer from an appearance dictionary for exactly this `/Rect`, so
+the standard anticipates the file. The page draws twelve of the thirteen and **names the
+thirteenth** where it was silent (a cloudy `/BE` on the `PolyLine`, §12.5.4 and ADR 0106), moving
+from 8.385 to 9.078 by the fixed-documents gate's instrument; it is a row in
+`doc/checks/fixed-documents.toml` with a band of a tenth, because the twelve marks are worth 0.693
+of a level on an A4 sheet. `examples/point_rectangle_census` is the population: over `batch5`'s
+6119 files, 6074 open, **122 documents state an annotation whose `/Rect` covers no area, 1237 of
+those annotations state no `/AP` at all, and 57 of those — over six documents — still state the
+entry their own clause puts in default user space.** The other 1180 are `Link`, `Widget`, `Text`
+and one `RichMedia`: subtypes `/Rect` places. `batch5/sumatrapdf` is **17 incomplete** after it,
+the head still reporting its three held decisions.
+
+**What is left here**: `batch5`'s other twenty trackers, `DSS` (243) and `ocrmypdf` (205) the
+largest; `batch4` once its pieces land; [`40`](40-mask-chain-crop.md)'s clip cost;
+[`10`](10-bounds-that-cap-size.md)'s file-backed reader; and
+[`49`](49-restrictions-worth-re-examining.md)'s cell rendered once and replicated by the
+rasteriser, which §8.7.3.1 NOTE 2 anticipates. In this tracker: `sumatrapdf-LINK-1532-1.pdf`, the
+one row at the dark end with two blank references, whose `/Font` entry `F1` is a reference to an
+object the file does not define — ADR 0789's side of §7.3.10, and this round did not open it;
+`sumatrapdf-404-0.pdf`, a colour-key `/Mask` on a `DCTDecode` image, which is a named refusal and
+0.36 of a level from the lighter reference; and `sumatrapdf-1550-0.pdf`, where the substituted face
+this machine offers draws none of the 148 characters asked of it, which is
+[`21`](21-font-substitution.md)'s question and not this file's.
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own

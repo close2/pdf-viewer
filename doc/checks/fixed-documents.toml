@@ -34,11 +34,13 @@
 # the number here and says why in its own history file — the same discipline as any ratchet in
 # this tree, and the reason the row carries `why`.
 #
-# **One row's band is narrower and says so in its `why`.** `GHOSTSCRIPT-699521-0.pdf` is one
+# **Two rows' bands are narrower and say so in their `why`.** `GHOSTSCRIPT-699521-0.pdf` is one
 # 30-point line of stroked text on a 795 x 842 sheet, so the marks it exists to pin are worth
 # 0.307 of a level; at plus and minus 1.0 the band would admit a blank page and pin nothing but
-# the report beside it. A band is only a band when the defect it stands against is wider than it,
-# and where it is not, the row is narrowed rather than left to look like a pin.
+# the report beside it. `sumatrapdf-LINK-1618-0.pdf`'s twelve thin markup annotations are worth
+# 0.693 of one on an A4 sheet, which is the same shape one level further up. A band is only a band
+# when the defect it stands against is wider than it, and where it is not, the row is narrowed
+# rather than left to look like a pin.
 #
 # `corpus-cache/` is a machine-local crawl (`tools/safedocs`). Rows whose document is absent are
 # skipped and counted; a run that finds none of them says so and fails.
@@ -543,6 +545,14 @@ session = 889
 reports = []
 ink = 1.019 .. 2.019
 why = "a JBIG2 stream whose /Length counted the end-of-line marker before endstream, which §7.3.8.1 says shall not be counted; the codec read the stray byte as the start of a segment, answered `unexpected end of input`, and the whole page was drawn blank at 0 levels of ink where poppler and mupdf agree on 1.463 by the ranking's instrument. The band is narrowed to plus and minus 0.5 rather than 1.0: the page is a light grey diagram on a 2448 x 1584 sheet worth 1.519 levels, so at the usual width the low end would sit at 0.519 and the defect this row stands against is the blank page at 0 (ADR 0823, 7.4.7)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/sumatrapdf/sumatrapdf-LINK-1618-0.pdf"
+page = 1
+session = 890
+reports = ["/DR does not define", "PolyLine: no appearance stream", "Square: no appearance stream", "is outside the seven names"]
+ink = 8.978 .. 9.178
+why = "thirteen markup annotations with no /AP and a /Rect written as a point — six Underline, two Squiggly, two Highlight, a StrikeOut, a Line and a PolyLine, each with its /QuadPoints, /L or /Vertices whole — were dropped before any appearance was constructed, drawn nowhere and reported nowhere; §12.5.5's scale onto no extent is a stored stream's arithmetic and those six subtypes state their marks in default user space (ADR 0825, 12.5.6.10). The band is a tenth rather than a level because the twelve marks it stands for are worth 0.693 of one on an A4 sheet"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/2760/2760154.pdf"
