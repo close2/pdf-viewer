@@ -2268,7 +2268,7 @@ impl Press {
     ///
     /// §11.3.4 lists an `ICCBased` bi-directional 'CMYK' space among the blending colour
     /// spaces and §8.6.5.1 makes it CIE-based, so a `/Luminosity` mask group naming one takes
-    /// the clause's colorimetric branch:
+    /// §11.5.3's colorimetric branch:
     ///
     /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as
     /// > the luminosity. This produces a colorimetrically correct luminosity.

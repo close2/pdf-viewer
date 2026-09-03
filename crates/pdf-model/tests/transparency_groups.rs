@@ -4179,12 +4179,15 @@ fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components()
 /// §11.5.3's `Y` off §11.4.7's pair of rasters (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7,
 /// §8.6.5.1; ADR 0857).
 ///
-/// §11.3.4 lists "ICCBased bi-directional 'GRAY', 'RGB ', and 'CMYK' colour spaces" among the
-/// blending colour spaces and §8.6.5.1 makes every one of them CIE-based, so §11.5.3's branch
-/// is the colorimetric one — "convert to the CIE 1931 XYZ space and use the Y component as the
-/// luminosity" — whatever the component count. What four components change is not the branch
-/// but the *carrier*: §11.3.4 composites per component, a raster has three channels, so the
-/// group is interpreted twice and the `Y` is a function of what the two hold between them.
+/// §11.3.4 lists, among the spaces a processor shall support as blending colour spaces:
+///
+/// > - ICCBased bi-directional 'GRAY', 'RGB ', and 'CMYK' colour spaces
+///
+/// and §8.6.5.1 makes every one of them CIE-based, so §11.5.3's branch is the colorimetric one
+/// — "convert to the CIE 1931 XYZ space and use the Y component as the luminosity" — whatever
+/// the component count. What four components change is not the branch but the *carrier*:
+/// §11.3.4 composites per component, a raster has three channels, so the group is interpreted
+/// twice and the `Y` is a function of what the two hold between them.
 ///
 /// [`press_xyz_of`] is the fixture's press and its `Y` is the middle row's product, so every
 /// expected value here comes from the model rather than from what the tree draws. The page is

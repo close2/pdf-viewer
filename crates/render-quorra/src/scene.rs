@@ -1470,7 +1470,7 @@ impl<'a> Encoder<'a> {
         //
         // The four-component shape is refused twice over: the group is §11.4.7's *pair* of
         // rasters (`pdf_render::BlackHalf`) and `quorra_scene::MaskKind::Luminosity` names one
-        // body. `doc/QUORRA_FEEDBACK.md` §43 asks for both — the curves-or-grid vocabulary
+        // body. `QUORRA_FEEDBACK.md` section 43 asks for both — the curves-or-grid vocabulary
         // beside the backdrop, and a second body for the black component.
         if def.luminance.is_some() || def.black.is_some() {
             return Err(QuorraRasterError::Unsupported(
