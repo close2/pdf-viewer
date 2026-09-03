@@ -2,8 +2,8 @@
 
 Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
-are approved"), so the serializer and three verbs are done; what is left is **`optimize`**, the
-structure tree, `split --at-bookmarks`, the foreign readback, the RFC 0003 hand-off, and the §13
+are approved"), so the serializer, four verbs and §14.7's structure tree are done; what is left is
+**`optimize`**, `split --at-bookmarks`, the foreign readback, the RFC 0003 hand-off, and the §13
 questions the owner has not been asked again.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
@@ -83,6 +83,27 @@ carrying a §12.7 widget refused by name because §12.7.4.2 makes a field's full
 identity. `tests/pages.rs` and `tests/pages_corpus.rs`, whose rotated-page comparison is a
 *measurement* rather than an assertion for the reason ADR 0831 records.
 
+**Session 897 (ADRs 0834, 0835): §14.7's structure tree, carried by all three verbs.** The debt
+sessions 888, 891 and 893 each named as the suite's largest. `crates/pdf-transform/src/structure.rs`
+reads every contributing document's `/StructTreeRoot`, keeps the elements whose content is on a
+carried page together with the ancestors that hold them, prunes the content items that name a page
+the output does not hold, and writes Table 354's root whole — `/K`, §14.7.5.4's parent tree with the
+output's **own** keys, `/ParentTreeNextKey` restated, the merged `/RoleMap` and `/ClassMap`, an
+`/IDTree` over the kept elements, the three list-valued entries concatenated, and Table 353's
+`/MarkInfo` with `/Marked` a conjunction over the sources. One implementation for `split`, `merge`
+and `pages`, behind a `Host` trait, so §14.7 is read once. The marked-content identifiers inside the
+carried content streams are **not** rewritten and the assumption was checked rather than made:
+§14.7.5.2 scopes an `/MCID` to its own content stream and §14.7.5.4 makes it an index into the array
+its key names, so carrying the array at its own length moves both ends of the index together. Three
+namespaces two sources can collide in get three answers from three clauses — §14.7.3's role map is
+an *approximation* (NOTE 1), so the first source's wins with a warning; §14.7.6.2 closes the set of
+things that name a class, so a colliding class is renamed and every `/C` follows; Table 355 makes an
+`/ID` unique and the set of things that name one is open (§14.8.5, Annex E), so a cross-source
+collision is `Refusal::StructureConflict` at exit 4. ADR 0831 §2's dangling key is superseded on its
+own terms: where the output states a tree, every §14.7.5.4 key in it is the output's own or absent.
+The three corpus walks gained `support::check_structure`, four clause-derived properties asked of
+every output.
+
 ## 1. The verb left, on the serializer that exists
 
 - **`optimize`** (RFC §6.5) is where §7.5.7's producer half is owed: the serializer generates no
@@ -93,17 +114,16 @@ identity. `tests/pages.rs` and `tests/pages_corpus.rs`, whose rotated-page compa
 - **`split --at-bookmarks`**, the one mode of `split` that did not land: it wants
   `pdf_model::retrieval::sections`, which exists, and an outline subset for the piece, which does
   not.
-- **What a piece does not carry** is now the shorter list, because `merge` built four of the five:
-  the outline subset whose destinations survive, §12.4.2 page labels per piece, and name-tree
-  entries still referenced are each `merge.rs`'s construction pointed the other way, and a round
-  taking them should reuse it rather than write a second one. What **no** verb carries is the
-  **structure tree**: §14.7's `/StructTreeRoot`, the `/StructParents` number tree and the fragments
-  that reach the kept pages. Every carried page still states its source's `/StructParents` integer,
-  which now names nothing, and a tagged document loses its tagging with only the warning to say so.
-  That is the largest single thing this suite owes, and ADR 0831 §2 is why it is not being paid
-  down a fragment at a time: half a structure tree would point a page's marked content at another
-  page's structure element, which is worse than the dangling key the output has now. §14.7's
-  ledger row carries the two-sided reading.
+- **What a piece does not carry** is now the shorter list, because `merge` built four of the five
+  and session 897 built the fifth: the outline subset whose destinations survive, §12.4.2 page
+  labels per piece, and name-tree entries still referenced are each `merge.rs`'s construction
+  pointed the other way, and a round taking them should reuse it rather than write a second one.
+  §14.7's structure tree is **carried** since session 897 (ADR 0834), which is what this bullet
+  used to name as the largest single thing the suite owed. What is left of it is small and named
+  there: Table 354's `/Namespaces` is concatenated without being interpreted, so two sources using
+  one namespace name state it twice; and the `/RoleMapNS` construction that would let each source
+  keep its own role map under its own namespace is not taken, because a namespace name "should take
+  the form of a uniform resource identifier" and this program has no basis for inventing one.
 - **The aligned rotated comparison.** `tests/pages_corpus.rs` measures the turned-raster
   comparison and does not assert on it, because a page `W` units wide at scale `s` is
   `ceil(W × s)` pixels wide and the leftover sliver sits on a different edge after the page turns
@@ -161,4 +181,8 @@ direction (RFC §11.3), and a file only this tree can read would look correct to
 **`tests/merge_corpus.rs` and `tests/pages_corpus.rs` have inherited the gap for a third and a
 fourth writer**, and the merged files are the
 ones most worth showing a foreign reader: they are the only outputs this tree *builds* a §12.7
-form, a §8.11 configuration and a §7.9.6 name tree for rather than copies.
+form, a §8.11 configuration, a §7.9.6 name tree and — since session 897 — a §14.7 structure tree
+for, rather than copies. **The structure tree sharpens the argument rather than adding to it**: it
+is the part of a derived document that only an assistive processor reads, so a tree only this tree
+can make sense of is the one a raster gate is least placed to notice. ADR 0835 records that as the
+fifth reason the instrument is owed.

@@ -218,16 +218,18 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write as _;
+use std::sync::Arc;
 
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
-use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::{Assembly, Form, serialize};
 use pdf_syntax::{Document, Version};
 
 use crate::pattern::{Fill, Pattern};
 use crate::range::Selection;
-use crate::{Origin, Output, Refusal, Report, Sinks, Warning};
+use crate::structure::{CarriedPage, Carry, Host};
+use crate::{Origin, Output, Refusal, Report, Sinks, Warning, structure};
 
 /// Several documents into one file.
 #[derive(Debug, Clone, PartialEq)]
@@ -309,13 +311,12 @@ const FIRST_WINS: [&str; 4] = ["Lang", "ViewerPreferences", "PageLayout", "PageM
 
 /// The catalog entries a merge does not carry, each named in a warning where a source has one.
 ///
-/// `/AcroForm`, `/OCProperties`, `/Names`, `/Dests`, `/Outlines`, `/PageLabels` and
-/// `/OutputIntents` are **not** here: each has its own reconciliation above. What is left is the
+/// `/AcroForm`, `/OCProperties`, `/Names`, `/Dests`, `/Outlines`, `/PageLabels`,
+/// `/OutputIntents`, `/StructTreeRoot` and `/MarkInfo` are **not** here: each has its own
+/// reconciliation, the last two in [`crate::structure`] since session 897. What is left is the
 /// document-level constructs whose merging is nobody's documented choice yet, plus `/Info`,
 /// whose reason is in the module comment.
-const NOT_CARRIED: [&str; 11] = [
-    "StructTreeRoot",
-    "MarkInfo",
+const NOT_CARRIED: [&str; 9] = [
     "Metadata",
     "Threads",
     "SpiderInfo",
@@ -380,6 +381,18 @@ struct Merge<'a> {
     to_rebuild: VecDeque<(usize, ObjectId, ObjectId)>,
     /// How many references named a page or a node the output does not hold.
     dropped: u64,
+    /// Source objects the walk refuses outright: §14.7's elements that reach no carried page.
+    blocked: BTreeSet<(usize, ObjectId)>,
+    /// Whether this merge writes a §14.7 structure tree, so that §14.7.5.4's keys are its own.
+    ///
+    /// **Every** source's objects, not only the tagged ones: an annotation out of an untagged
+    /// document that kept its producer's `/StructParent` would be a key into the *other*
+    /// source's renumbered tree, naming an element it has nothing to do with. Asked by
+    /// [`Merge::changes`], which runs from the first object the walk reaches — before
+    /// [`Carry::plan`] has answered — so an object stating the key crosses *replaced*.
+    restating_keys: bool,
+    /// §14.7's carry, once planned.
+    structure: Option<Carry>,
 }
 
 impl Merge<'_> {
@@ -391,10 +404,11 @@ impl Merge<'_> {
         if let Some(already) = self.assembly.copied(from, id) {
             return Some(already);
         }
-        if self
-            .all_pages
-            .get(from)
-            .is_some_and(|pages| pages.contains(&id))
+        if self.blocked.contains(&(from, id))
+            || self
+                .all_pages
+                .get(from)
+                .is_some_and(|pages| pages.contains(&id))
             || self.is_tree_node(from, id)
         {
             self.dropped = self.dropped.saturating_add(1);
@@ -421,6 +435,15 @@ impl Merge<'_> {
             return false;
         };
         let value = document.get(id);
+        // §14.7.5.4's third home. Table 359 puts `/StructParent` on "the stream dictionary of a
+        // form or image XObject, or in an annotation dictionary", and its value "shall be the
+        // integer key under which the entry corresponding to the object shall be found in the
+        // structural parent tree" — this file's tree, so the key is rewritten. A stream is the
+        // one object that crosses rebuilt *and* keeps its bytes: the dictionary is rewritten and
+        // the encoded data is the same `Arc` the source holds.
+        if self.restating_keys && structure::struct_parent(&value).is_some() {
+            return true;
+        }
         if !matches!(value, Object::Dictionary(_)) {
             return false;
         }
@@ -535,17 +558,93 @@ impl Merge<'_> {
     /// One object that crosses changed: its `/V` gone where it is a signature field this merge
     /// unsigned, and every reference and renamed destination in it carried.
     fn rebuild(&mut self, from: usize, id: ObjectId, value: &Object) -> Object {
-        let Object::Dictionary(dict) = value else {
-            return self.carry(from, value, 0);
-        };
-        let mut out = dict.clone();
-        // §12.8.1: the digest was computed over another file's bytes, so the merged file states
-        // no signature rather than one it knows cannot verify. Which objects those are was
-        // decided by the field walk, where §12.7.4.1's inheritance of `/FT` could be read.
-        if self.unsigned.get(from).is_some_and(|set| set.contains(&id)) {
-            out.remove("V");
+        match value {
+            Object::Dictionary(dict) => {
+                let mut out = dict.clone();
+                // §12.8.1: the digest was computed over another file's bytes, so the merged file
+                // states no signature rather than one it knows cannot verify. Which objects
+                // those are was decided by the field walk, where §12.7.4.1's inheritance of
+                // `/FT` could be read.
+                if self.unsigned.get(from).is_some_and(|set| set.contains(&id)) {
+                    out.remove("V");
+                }
+                self.restate_structure_key(from, &mut out);
+                self.carry(from, &Object::Dictionary(out), 0)
+            }
+            Object::Stream(stream) => {
+                let mut dict = stream.dict.clone();
+                self.restate_structure_key(from, &mut dict);
+                let Object::Dictionary(dict) = self.carry(from, &Object::Dictionary(dict), 0)
+                else {
+                    return Object::Null;
+                };
+                // The bytes are the source's `Arc`, never decoded and never re-encoded: only the
+                // dictionary crosses changed.
+                Object::Stream(Arc::new(Stream {
+                    dict,
+                    data: Arc::clone(&stream.data),
+                    decryption_failed: stream.decryption_failed,
+                }))
+            }
+            other => self.carry(from, other, 0),
         }
-        self.carry(from, &Object::Dictionary(out), 0)
+    }
+
+    /// §14.7.5.4's key for one object, restated in the output's own parent tree.
+    ///
+    /// Removed rather than kept where the carry has nothing to point the key at, because a key
+    /// into a tree the output *does* state, naming nothing, tells an assistive processor that
+    /// the content has a parent element and then hands it none (ADR 0831 section 2's distinction).
+    fn restate_structure_key(&mut self, from: usize, dict: &mut Dictionary) {
+        let Some(old) = dict.get("StructParent").and_then(Object::as_integer) else {
+            return;
+        };
+        let Some(document) = self.documents.get(from) else {
+            return;
+        };
+        let key = self
+            .structure
+            .as_mut()
+            .and_then(|carry| carry.object_key(document, from, old));
+        match key {
+            Some(key) => {
+                dict.insert(Name::new(&b"StructParent"[..]), Object::Integer(key));
+            }
+            None => {
+                dict.remove("StructParent");
+            }
+        }
+    }
+}
+
+/// [`crate::structure`]'s view of this merge's object table.
+///
+/// §14.7 is read and written once, in that module, for both verbs on this engine and for
+/// `split`; what each verb owns is its own walk state, which is what this trait keeps out of it.
+impl Host for Merge<'_> {
+    fn source(&self, at: usize) -> Option<&Document> {
+        self.documents.get(at)
+    }
+
+    fn carry_value(&mut self, at: usize, value: &Object) -> Object {
+        self.carry(at, value, 0)
+    }
+
+    fn reserve_slot(&mut self) -> Option<ObjectId> {
+        self.assembly.reserve().ok()
+    }
+
+    fn replace_object(&mut self, at: usize, id: ObjectId) -> Option<ObjectId> {
+        self.assembly.replace(at, id).ok()
+    }
+
+    fn place_object(&mut self, id: ObjectId, object: Object) {
+        // The slot was reserved by this module a moment ago and nothing else can have filled it.
+        drop(self.assembly.place(id, object));
+    }
+
+    fn block_object(&mut self, at: usize, id: ObjectId) {
+        self.blocked.insert((at, id));
     }
 }
 
@@ -935,6 +1034,11 @@ fn assemble<'a>(
         pending: VecDeque::new(),
         to_rebuild: VecDeque::new(),
         dropped: 0,
+        blocked: BTreeSet::new(),
+        restating_keys: contributing
+            .iter()
+            .any(|at| structure::states_a_tree(documents.get(*at))),
+        structure: None,
     };
 
     // The catalog and the page tree take the first two numbers, so that the output's numbering
@@ -977,6 +1081,8 @@ fn assemble<'a>(
         sources,
         order,
     };
+    merge.structure = plan_structure(&mut merge, &pages, &contributing, sources, warnings)?;
+
     let intents = plan_intents(documents, &contributing);
     for page in &pages {
         let built = build_page(&mut merge, page, tree, &intents);
@@ -990,6 +1096,13 @@ fn assemble<'a>(
     let reconciled = reconcile(&mut merge, &scope, outlines, intents, &reported, warnings)?;
     let root = build_catalog(&mut merge, tree, &reconciled, &scope, warnings);
     merge.drain();
+    // The elements, the parent tree and the structure tree root, built last because the object
+    // keys above are assigned by the walk that has just finished — and drained again, because
+    // an element's attributes reach objects nothing else did.
+    if let Some(carry) = merge.structure.take() {
+        carry.finish(&mut merge, warnings);
+        merge.drain();
+    }
 
     if let Some(outlines) = reconciled.outlines {
         let node = build_outline_root(&placed_tops, documents, &tops);
@@ -999,6 +1112,24 @@ fn assemble<'a>(
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
 
+    merge
+        .assembly
+        .place(tree, page_tree(&pages))
+        .and_then(|()| merge.assembly.place(catalog, root))
+        .map_err(|error| Refusal::Assembly(error.to_string()))?;
+    merge.assembly.set_root(catalog);
+
+    report_losses(&merge, &scope, warnings);
+    Ok(merge.assembly)
+}
+
+/// The output's one page-tree node: §7.7.3.2's `/Kids` in output order, and its `/Count`.
+///
+/// One node rather than a copy of the sources' shapes, because §7.7.3.2 makes the tree's shape
+/// the producer's business — "[t]he simplest structure can consist of a single page tree node
+/// that references all of the document's page objects directly" — and a merge's page order is
+/// its own rather than any source's.
+fn page_tree(pages: &[PlacedPage]) -> Object {
     let kids: Vec<Object> = pages
         .iter()
         .map(|page| Object::Reference(page.placed))
@@ -1013,15 +1144,36 @@ fn assemble<'a>(
         Object::Integer(i64::try_from(kids.len()).unwrap_or(i64::MAX)),
     );
     node.insert(Name::new(&b"Kids"[..]), Object::Array(kids));
-    merge
-        .assembly
-        .place(tree, Object::Dictionary(node))
-        .and_then(|()| merge.assembly.place(catalog, root))
-        .map_err(|error| Refusal::Assembly(error.to_string()))?;
-    merge.assembly.set_root(catalog);
+    Object::Dictionary(node)
+}
 
-    report_losses(&merge, &scope, warnings);
-    Ok(merge.assembly)
+/// §14.7's carry, planned after every page has its number and before any page is built.
+///
+/// The order is what makes it work: a page's `/StructParents` is the carry's to state, so it has
+/// to be decided before `build_page` runs, and every kept element needs its slot before the
+/// closure walk can reach one by reference and copy the source's subtree in behind it.
+///
+/// # Errors
+///
+/// [`Refusal::StructureConflict`] and [`Refusal::Assembly`].
+fn plan_structure(
+    merge: &mut Merge<'_>,
+    pages: &[PlacedPage],
+    contributing: &[usize],
+    sources: &[usize],
+    warnings: &mut Vec<Warning>,
+) -> Result<Option<Carry>, Refusal> {
+    let carried: Vec<CarriedPage> = pages
+        .iter()
+        .map(|page| CarriedPage {
+            at: page.at,
+            source: page.id,
+            placed: page.placed,
+            duplicate: page.duplicate,
+        })
+        .collect();
+    let source_of = |at: usize| sources.get(at).copied().unwrap_or(at);
+    Carry::plan(merge, contributing, &carried, warnings, &source_of)
 }
 
 /// Every selected page's slot, taken before any page is built.
@@ -1166,6 +1318,10 @@ fn build_page(
     intents: &Intents,
 ) -> Object {
     let (from, source) = (page.at, page.id);
+    let structure_key = merge
+        .structure
+        .as_ref()
+        .and_then(|carry| carry.page_key(page.placed));
     // §7.7.3.3 makes a page a dictionary, and `Pages` would not have counted anything else as
     // one — so an empty dictionary here is a page the reader already disowned, not a panic.
     let dict = match merge
@@ -1221,6 +1377,17 @@ fn build_page(
     {
         let carried = merge.carry(from, &array, 0);
         out.insert(Name::new(&b"OutputIntents"[..]), carried);
+    }
+    // Table 359: "( Required for all content streams containing marked-content sequences that
+    // are structural content items; PDF 1.3 ) The integer key of this object's entry in the
+    // structural parent tree." The key is this file's, so the carry states it; a page whose
+    // source stated one that this output has no tree for loses the entry rather than keeping a
+    // number that names nothing.
+    if merge.structure.is_some() {
+        out.remove("StructParents");
+        if let Some(key) = structure_key {
+            out.insert(Name::new(&b"StructParents"[..]), Object::Integer(key));
+        }
     }
     out.insert(Name::new(&b"Parent"[..]), Object::Reference(tree));
     if page.duplicate {
@@ -1502,7 +1669,7 @@ fn tree_entries(document: &Document, category: &str) -> Vec<(Vec<u8>, Object)> {
 ///
 /// Deterministic, so that the same merge renames the same way every time — RFC 0002 section 9's
 /// first layer applies to a rename as much as to an offset.
-fn free_key(key: &[u8], taken: &BTreeSet<Vec<u8>>) -> Vec<u8> {
+pub(crate) fn free_key(key: &[u8], taken: &BTreeSet<Vec<u8>>) -> Vec<u8> {
     for ordinal in 2..=u32::MAX {
         let mut candidate = key.to_vec();
         candidate.extend_from_slice(format!(" ({ordinal})").as_bytes());
@@ -2591,6 +2758,21 @@ fn build_catalog(
     if let Some(outlines) = reconciled.outlines {
         root.insert(Name::new(&b"Outlines"[..]), Object::Reference(outlines));
     }
+    // §14.7.2 locates the whole construct: the structure tree root is "located by means of the
+    // StructTreeRoot entry in the document catalog dictionary".
+    if let Some((structure, mark_info)) = merge
+        .structure
+        .as_ref()
+        .map(|carry| (carry.root(), carry.mark_info()))
+    {
+        root.insert(
+            Name::new(&b"StructTreeRoot"[..]),
+            Object::Reference(structure),
+        );
+        if let Some(flags) = mark_info {
+            root.insert(Name::new(&b"MarkInfo"[..]), flags);
+        }
+    }
     if let Intents::Catalog(array) = &reconciled.intents {
         let carried = scope
             .contributing
@@ -2619,7 +2801,6 @@ fn build_catalog(
                 page: None,
                 detail: format!(
                     "this source states /{} and the written document carries none of them; \
-                     §14.7's structure tree is the largest of them and doc/todo/57 has it, and \
                      /Info is a deliberate omission whose reason is in this module",
                     left_behind.join(", /")
                 ),

@@ -71,17 +71,19 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::io::Write as _;
+use std::sync::Arc;
 
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
-use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
+use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
 use pdf_syntax::serialize::{Assembly, Form, serialize};
 use pdf_syntax::{Document, Version};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
 use crate::pattern::{Fill, Pattern};
 use crate::range::Selection;
-use crate::{Declined, Origin, Output, Refusal, Report, Sinks, Warning};
+use crate::structure::{CarriedPage, Carry, Host};
+use crate::{Declined, Origin, Output, Refusal, Report, Sinks, Warning, structure};
 
 /// One document into many files.
 #[derive(Debug, Clone, PartialEq)]
@@ -161,13 +163,11 @@ const CARRIED: [&str; 8] = [
 /// §6.1 describes and this verb has not taken. Listing them here rather than warning about
 /// whatever is left over is deliberate: a construct nobody thought about is then a construct
 /// nobody is told about, and this array is where the thinking is recorded.
-const NOT_CARRIED: [&str; 14] = [
+const NOT_CARRIED: [&str; 12] = [
     "Outlines",
     "Names",
     "Dests",
     "PageLabels",
-    "StructTreeRoot",
-    "MarkInfo",
     "Metadata",
     "Threads",
     "SpiderInfo",
@@ -190,8 +190,20 @@ struct Piece<'a> {
     mine: Vec<(ObjectId, ObjectId)>,
     /// Objects whose contents have still to be reached.
     pending: VecDeque<ObjectId>,
+    /// Objects that cross changed, and the slot each was given.
+    to_rebuild: VecDeque<(ObjectId, ObjectId)>,
     /// How many references named a page outside the piece and became null.
     dropped: u64,
+    /// Source objects the walk refuses outright: §14.7's elements that reach no kept page.
+    blocked: BTreeSet<ObjectId>,
+    /// Whether the document states a §14.7 structure tree this piece is carrying.
+    ///
+    /// Asked by [`Piece::map`] from the first object the walk reaches, before [`Carry::plan`]
+    /// has answered, so that an object stating Table 359's `/StructParent` crosses *replaced*
+    /// and can have its key renumbered.
+    tagged: bool,
+    /// §14.7's carry, once planned.
+    structure: Option<Carry>,
 }
 
 impl Piece<'_> {
@@ -200,16 +212,76 @@ impl Piece<'_> {
         if let Some((_, placed)) = self.mine.iter().find(|(source, _)| *source == id) {
             return Some(*placed);
         }
-        if self.all_pages.contains(&id) || self.is_tree_node(id) {
+        if self.blocked.contains(&id) || self.all_pages.contains(&id) || self.is_tree_node(id) {
             self.dropped = self.dropped.saturating_add(1);
             return None;
         }
         if let Some(already) = self.assembly.copied(0, id) {
             return Some(already);
         }
+        // §14.7.5.4's third home. Table 359 puts `/StructParent` on "the stream dictionary of a
+        // form or image XObject, or in an annotation dictionary", and its value is the key of
+        // "this object's entry in the structural parent tree" — the *piece's* tree, so the
+        // object crosses with its key restated rather than byte for byte.
+        if self.tagged && structure::struct_parent(&self.document.get(id)).is_some() {
+            let placed = self.assembly.replace(0, id).ok()?;
+            self.to_rebuild.push_back((id, placed));
+            return Some(placed);
+        }
         let placed = self.assembly.copy(0, id).ok()?;
         self.pending.push_back(id);
         Some(placed)
+    }
+
+    /// One object that crosses changed: §14.7.5.4's key restated in the piece's own parent tree.
+    ///
+    /// A stream is the one object rebuilt that keeps its bytes — the dictionary is rewritten and
+    /// the encoded data is the same `Arc` the source holds, never decoded and never re-encoded.
+    fn rebuild(&mut self, id: ObjectId) -> Object {
+        match self.document.get(id) {
+            Object::Dictionary(dict) => {
+                let mut out = dict.clone();
+                self.restate_structure_key(&mut out);
+                self.carry(&Object::Dictionary(out), 0)
+            }
+            Object::Stream(stream) => {
+                let mut dict = stream.dict.clone();
+                self.restate_structure_key(&mut dict);
+                let Object::Dictionary(dict) = self.carry(&Object::Dictionary(dict), 0) else {
+                    return Object::Null;
+                };
+                Object::Stream(Arc::new(Stream {
+                    dict,
+                    data: Arc::clone(&stream.data),
+                    decryption_failed: stream.decryption_failed,
+                }))
+            }
+            other => self.carry(&other, 0),
+        }
+    }
+
+    /// §14.7.5.4's key for one object, restated in the piece's own parent tree.
+    ///
+    /// Removed rather than kept where the carry has nothing to point the key at: a key into a
+    /// tree the piece *does* state, naming nothing, tells an assistive processor that the
+    /// content has a parent element and then hands it none (ADR 0831 section 2's distinction).
+    fn restate_structure_key(&mut self, dict: &mut Dictionary) {
+        let Some(old) = dict.get("StructParent").and_then(Object::as_integer) else {
+            return;
+        };
+        let document = self.document;
+        let key = self
+            .structure
+            .as_mut()
+            .and_then(|carry| carry.object_key(document, 0, old));
+        match key {
+            Some(key) => {
+                dict.insert(Name::new(&b"StructParent"[..]), Object::Integer(key));
+            }
+            None => {
+                dict.remove("StructParent");
+            }
+        }
     }
 
     /// Whether an object is a page-tree node, which the walk stops at for the same reason a page
@@ -259,7 +331,15 @@ impl Piece<'_> {
     /// the serializer's own renumbering is what rewrites the references inside them, and what
     /// turns a reference to something never registered into null.
     fn drain(&mut self) {
-        while let Some(id) = self.pending.pop_front() {
+        loop {
+            if let Some((id, placed)) = self.to_rebuild.pop_front() {
+                let rebuilt = self.rebuild(id);
+                let _ = self.assembly.place(placed, rebuilt);
+                continue;
+            }
+            let Some(id) = self.pending.pop_front() else {
+                break;
+            };
             let value = self.document.get(id);
             self.reach(&value, 0);
         }
@@ -291,6 +371,37 @@ impl Piece<'_> {
             }
             _ => {}
         }
+    }
+}
+
+/// [`crate::structure`]'s view of this piece's object table.
+///
+/// One document, so `at` is always zero; §14.7 is read and written in that module for this verb
+/// and for the two on `merge`'s engine alike.
+impl Host for Piece<'_> {
+    fn source(&self, at: usize) -> Option<&Document> {
+        (at == 0).then_some(self.document)
+    }
+
+    fn carry_value(&mut self, _at: usize, value: &Object) -> Object {
+        self.carry(value, 0)
+    }
+
+    fn reserve_slot(&mut self) -> Option<ObjectId> {
+        self.assembly.reserve().ok()
+    }
+
+    fn replace_object(&mut self, _at: usize, id: ObjectId) -> Option<ObjectId> {
+        self.assembly.replace(0, id).ok()
+    }
+
+    fn place_object(&mut self, id: ObjectId, object: Object) {
+        // The slot was reserved by that module a moment ago and nothing else can have filled it.
+        drop(self.assembly.place(id, object));
+    }
+
+    fn block_object(&mut self, _at: usize, id: ObjectId) {
+        self.blocked.insert(id);
     }
 }
 
@@ -539,7 +650,11 @@ fn assemble<'a>(
         all_pages: job.all_pages,
         mine: Vec::new(),
         pending: VecDeque::new(),
+        to_rebuild: VecDeque::new(),
         dropped: 0,
+        blocked: BTreeSet::new(),
+        tagged: structure::states_a_tree(Some(job.document)),
+        structure: None,
     };
 
     // The catalog and the page tree take the first two numbers, so that a piece's numbering
@@ -569,6 +684,8 @@ fn assemble<'a>(
         piece.mine.push((id, placed));
     }
 
+    piece.structure = plan_structure(&mut piece, job, warnings).map_err(|e| e.to_string())?;
+
     for (source, placed) in piece.mine.clone() {
         let page = build_page(&mut piece, source, tree);
         piece
@@ -579,6 +696,13 @@ fn assemble<'a>(
 
     let root = build_catalog(&mut piece, job, tree, name, warnings);
     piece.drain();
+    // The elements, the parent tree and the structure tree root, built last because the object
+    // keys above are assigned by the walk that has just finished — and drained again, because an
+    // element's attributes reach objects nothing else did.
+    if let Some(carry) = piece.structure.take() {
+        carry.finish(&mut piece, warnings);
+        piece.drain();
+    }
 
     let kids: Vec<Object> = piece
         .mine
@@ -640,9 +764,48 @@ fn assemble<'a>(
     Ok(piece.assembly)
 }
 
+/// §14.7's carry, planned after every page has its number and before any page is built.
+///
+/// The order is what makes it work: a page's `/StructParents` is the carry's to state, so it has
+/// to be decided before [`build_page`] runs, and every kept element needs its slot before the
+/// closure walk can reach one by reference. A piece is one document's, so no cross-source
+/// collision is possible and the refusal path cannot fire.
+///
+/// # Errors
+///
+/// [`Refusal::Assembly`] where the numbering is spent.
+fn plan_structure(
+    piece: &mut Piece<'_>,
+    job: &Job<'_>,
+    warnings: &mut Vec<Warning>,
+) -> Result<Option<Carry>, Refusal> {
+    let carried: Vec<CarriedPage> = piece
+        .mine
+        .iter()
+        .map(|(source, placed)| CarriedPage {
+            at: 0,
+            source: *source,
+            placed: *placed,
+            duplicate: false,
+        })
+        .collect();
+    let source = job.plan.source;
+    Carry::plan(piece, &[0], &carried, warnings, &|_| source)
+}
+
 /// One emitted page: the source's dictionary, its `/Parent` replaced, §7.7.3.4's inheritance
 /// flattened onto it, and every reference in it mapped into the piece.
 fn build_page(piece: &mut Piece<'_>, source: ObjectId, tree: ObjectId) -> Object {
+    let structure_key = piece
+        .mine
+        .iter()
+        .find(|(from, _)| *from == source)
+        .and_then(|(_, placed)| {
+            piece
+                .structure
+                .as_ref()
+                .and_then(|carry| carry.page_key(*placed))
+        });
     // §7.7.3.3 makes a page a dictionary, and `Pages` would not have counted anything else as
     // one — so an empty dictionary here is a page the reader already disowned, not a panic.
     let dict = match piece.document.get(source) {
@@ -663,6 +826,16 @@ fn build_page(piece: &mut Piece<'_>, source: ObjectId, tree: ObjectId) -> Object
         {
             let carried = piece.carry(&value, 0);
             out.insert(Name::new(key.as_bytes()), carried);
+        }
+    }
+    // Table 359's `/StructParents` is "[t]he integer key of this object's entry in the
+    // structural parent tree" — the piece's tree, so the carry states it, and a page whose
+    // source stated one that this piece has no tree for loses the entry rather than keeping a
+    // number that names nothing.
+    if piece.structure.is_some() {
+        out.remove("StructParents");
+        if let Some(key) = structure_key {
+            out.insert(Name::new(&b"StructParents"[..]), Object::Integer(key));
         }
     }
     out.insert(Name::new(&b"Parent"[..]), Object::Reference(tree));
@@ -688,6 +861,21 @@ fn build_catalog(
         if let Some(value) = source_catalog.get(key) {
             let carried = piece.carry(value, 0);
             root.insert(Name::new(key.as_bytes()), carried);
+        }
+    }
+    // §14.7.2 locates the whole construct: the structure tree root is "located by means of the
+    // StructTreeRoot entry in the document catalog dictionary".
+    if let Some((structure, mark_info)) = piece
+        .structure
+        .as_ref()
+        .map(|carry| (carry.root(), carry.mark_info()))
+    {
+        root.insert(
+            Name::new(&b"StructTreeRoot"[..]),
+            Object::Reference(structure),
+        );
+        if let Some(flags) = mark_info {
+            root.insert(Name::new(&b"MarkInfo"[..]), flags);
         }
     }
     let left_behind: Vec<&str> = NOT_CARRIED

@@ -273,16 +273,10 @@ fn what_a_piece_does_not_carry_is_named() {
     let bytes = std::fs::read(committed("PDF20_AN001-BPC.pdf")).expect("a committed document");
     let source = Document::open_with_limits(bytes.clone(), Limits::DEFAULT).expect("it opens");
     let catalog = source.catalog().expect("a catalog");
-    let stated: Vec<&str> = [
-        "Outlines",
-        "Names",
-        "PageLabels",
-        "StructTreeRoot",
-        "Metadata",
-    ]
-    .into_iter()
-    .filter(|key| catalog.get(key).is_some())
-    .collect();
+    let stated: Vec<&str> = ["Outlines", "Names", "PageLabels", "Metadata"]
+        .into_iter()
+        .filter(|key| catalog.get(key).is_some())
+        .collect();
     let (report, _) = split(&bytes, "1", Pieces::EachPage);
     if stated.is_empty() {
         eprintln!("skipped: the fixture states none of the constructs a piece leaves behind");

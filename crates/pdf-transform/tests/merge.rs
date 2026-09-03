@@ -24,11 +24,13 @@
 
 mod support;
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::process::Command;
 
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
+use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::merge::{Input, MergePlan};
 use pdf_transform::range::Selection;
@@ -153,7 +155,7 @@ fn named_destination(document: &Document, dict: &pdf_syntax::Dictionary) -> Opti
 }
 
 /// Every top-level outline item of a document, in chain order.
-fn top_level_items(document: &Document) -> Vec<pdf_syntax::ObjectId> {
+fn top_level_items(document: &Document) -> Vec<ObjectId> {
     let Ok(catalog) = document.catalog() else {
         return Vec::new();
     };
@@ -602,7 +604,7 @@ fn what_the_merge_does_not_carry_is_named() {
         .map(|warning| warning.detail.clone())
         .collect::<Vec<_>>()
         .join(" ");
-    for key in ["StructTreeRoot", "Metadata", "Info"] {
+    for key in ["Metadata", "Info"] {
         assert!(
             said.contains(key),
             "the report does not name /{key}: {said:?}"
@@ -657,4 +659,240 @@ fn form_document(value: &str) -> Vec<u8> {
         "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
     );
     out.into_bytes()
+}
+
+/// A one-page tagged document, with the three §14.7 namespaces two sources can collide in.
+///
+/// Built rather than found, on `form_document`'s precedent and for the same reason: the corpus
+/// walk merges each document with **one** fixed second document, so no pair of corpus files
+/// exercises an `/ID` two sources share or a class two sources define differently, and neither
+/// collision can be made to happen out of the tree's own files. The shape is Table 354's and
+/// Table 355's minimum — a root with `/K`, `/ParentTree`, `/RoleMap`, `/ClassMap` and `/IDTree`,
+/// and one `/Document` element over one leaf whose `/K` is §14.7.5.2's integer.
+fn tagged_document(identifier: &str, role: &str, align: &str) -> Vec<u8> {
+    // §14.7.5.2's marked-content sequence, with the identifier the parent tree indexes by.
+    let content = "/P << /MCID 0 >> BDC\nEMC\n";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /MarkInfo << /Marked true \
+         >> >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << >> \
+         /Contents 4 0 R /StructParents 7 >>\nendobj\n\
+         4 0 obj\n<< /Length {len} >>\nstream\n{content}endstream\nendobj\n\
+         5 0 obj\n<< /Type /StructTreeRoot /K [6 0 R] /ParentTree 8 0 R /ParentTreeNextKey 8 \
+         /RoleMap << /Title /{role} >> /ClassMap << /Pa1 << /O /Layout /TextAlign /{align} >> >> \
+         /IDTree << /Names [({identifier}) 7 0 R] >> >>\nendobj\n\
+         6 0 obj\n<< /Type /StructElem /S /Document /P 5 0 R /K [7 0 R] >>\nendobj\n\
+         7 0 obj\n<< /Type /StructElem /S /Title /P 6 0 R /Pg 3 0 R /K [0] /ID ({identifier}) \
+         /C /Pa1 >>\nendobj\n\
+         8 0 obj\n<< /Nums [7 [7 0 R]] >>\nendobj\n",
+        len = content.len(),
+    );
+    let mut out = String::from("%PDF-1.7\n");
+    let mut offsets = Vec::new();
+    for object in body.split_inclusive("endobj\n") {
+        offsets.push(out.len());
+        out.push_str(object);
+    }
+    let xref_at = out.len();
+    let size = offsets.len().saturating_add(1);
+    let _ = writeln!(out, "xref\n0 {size}");
+    out.push_str("0000000000 65535 f \n");
+    for offset in &offsets {
+        let _ = writeln!(out, "{offset:010} 00000 n ");
+    }
+    let _ = write!(
+        out,
+        "trailer\n<< /Size {size} /Root 1 0 R /ID [<0102> <0304>] >>\nstartxref\n{xref_at}\n%%EOF\n"
+    );
+    out.into_bytes()
+}
+
+/// Table 355 makes an element's `/ID` "unique among all elements in the document's structure
+/// hierarchy", and the merged document is one hierarchy — so two sources stating one identifier
+/// is refused by name rather than renamed.
+///
+/// A rename is what §14.7.6.2's class names get, and the difference is which clause closes the
+/// set of referrers: §14.7.6.2 says a class is named by an element's `/C` and nothing else,
+/// while §14.8.5's `/Headers` attribute is "an array of byte strings, where each byte string
+/// shall be the element identifier" and Annex E permits further attributes nobody here knows.
+#[test]
+fn two_sources_stating_one_element_identifier_are_refused_by_name() {
+    let first = tagged_document("Chapter1", "H1", "Start");
+    let second = tagged_document("Chapter1", "H1", "Start");
+    let refusal = merge(&[(&first, "1"), (&second, "1")], false).expect_err("it refuses");
+    let Refusal::StructureConflict { clause, keys } = &refusal else {
+        panic!("§14.7 refuses by its own name: {refusal:?}");
+    };
+    assert!(
+        clause.contains("unique among all elements"),
+        "the refusal names Table 355's sentence: {clause}"
+    );
+    assert!(
+        keys.contains("Chapter1"),
+        "and every colliding identifier: {keys}"
+    );
+    assert_eq!(refusal.exit(), pdf_transform::Exit::Refused);
+    // Two sources whose identifiers differ merge, which is what makes the refusal about the
+    // collision rather than about tagging.
+    let other = tagged_document("Chapter2", "H1", "Start");
+    merge(&[(&first, "1"), (&other, "1")], false).expect("distinct identifiers merge");
+}
+
+/// §14.7.6.2 attaches a class's attributes to the element that names it, so a class two sources
+/// define differently is renamed and every carried element's `/C` follows.
+#[test]
+fn an_attribute_class_two_sources_disagree_on_is_renamed_and_the_elements_follow() {
+    let first = tagged_document("A", "H1", "Start");
+    let second = tagged_document("B", "H1", "End");
+    let (report, merged) = merge(&[(&first, "1"), (&second, "1")], false).expect("it merges");
+    let said: String = report
+        .warnings
+        .iter()
+        .map(|warning| warning.detail.clone())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        said.contains("§14.7.6.2") && said.contains("/Pa1"),
+        "the rename is reported by name: {said:?}"
+    );
+    let read = Document::open_with_limits(merged, Limits::DEFAULT).expect("re-read");
+    let catalog = read.catalog().expect("a catalog");
+    let root = read.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    let classes = read.get_key(root, "ClassMap");
+    let classes = classes.as_dict().expect("Table 354's /ClassMap");
+    assert!(
+        classes.get("Pa1").is_some() && classes.get("Pa1 (2)").is_some(),
+        "both definitions survive under distinct names: {classes:?}"
+    );
+    // Every element's `/C` names a class the merged map defines, and the two elements name
+    // different ones — which is the property the rename exists for.
+    let named: BTreeSet<Vec<u8>> = read
+        .xref()
+        .object_numbers()
+        .filter_map(|number| match read.get(ObjectId::new(number, 0)) {
+            Object::Dictionary(dict) => dict
+                .get("C")
+                .and_then(Object::as_name)
+                .map(|name| name.as_bytes().to_vec()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        named,
+        BTreeSet::from([b"Pa1".to_vec(), b"Pa1 (2)".to_vec()]),
+        "each source's element names its own source's class"
+    );
+}
+
+/// §14.7.3's NOTE 1 makes a role map "an approximate analogy between types", so a name two
+/// sources map differently keeps the first source's mapping and the disagreement is warned about.
+#[test]
+fn a_role_map_the_sources_disagree_on_keeps_the_first_and_says_so() {
+    let first = tagged_document("A", "H1", "Start");
+    let second = tagged_document("B", "P", "Start");
+    let (report, merged) = merge(&[(&first, "1"), (&second, "1")], false).expect("it merges");
+    let said: String = report
+        .warnings
+        .iter()
+        .map(|warning| warning.detail.clone())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        said.contains("§14.7.3") && said.contains("/Title"),
+        "the disagreement is reported by name: {said:?}"
+    );
+    let read = Document::open_with_limits(merged, Limits::DEFAULT).expect("re-read");
+    let catalog = read.catalog().expect("a catalog");
+    let root = read.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    let roles = read.get_key(root, "RoleMap");
+    let roles = roles.as_dict().expect("Table 354's /RoleMap");
+    assert_eq!(
+        read.get_key(roles, "Title")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"H1".to_vec()),
+        "the first source's approximation wins"
+    );
+}
+
+/// The marked-content identifiers in a carried content stream are **not** rewritten, and this is
+/// the assertion that says why they need not be.
+///
+/// §14.7.5.2 makes an `/MCID` unique "within its content stream" and §14.7.5.4 makes it "a
+/// zero-based index into the array" the stream's parent-tree key names. The stream crosses byte
+/// for byte, so the property that has to hold is that the array is carried at its own length and
+/// in its own order — index 0 still names the element it named. Both ends move together, and the
+/// key itself is the only thing renumbered.
+#[test]
+fn the_marked_content_identifiers_are_not_rewritten_and_the_array_still_indexes_them() {
+    let first = tagged_document("A", "H1", "Start");
+    let second = tagged_document("B", "H1", "Start");
+    let (_, merged) = merge(&[(&first, "1"), (&second, "1")], false).expect("it merges");
+    let read = Document::open_with_limits(merged, Limits::DEFAULT).expect("re-read");
+    let catalog = read.catalog().expect("a catalog");
+    let root = read.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    let tree = read.get_key(root, "ParentTree");
+    let tree = tree.as_dict().expect("§14.7.5.4's parent tree");
+
+    for (index, page) in support::page_dictionaries(&read).iter().enumerate() {
+        // The source stated 7 and the output states its own key, which is the whole renumbering.
+        let key = read
+            .get_key(page, "StructParents")
+            .as_integer()
+            .expect("the carried page states a key");
+        assert_eq!(
+            key,
+            i64::try_from(index).expect("two pages"),
+            "the keys are the output's, assigned in page order"
+        );
+        let entry = pdf_syntax::tree::lookup_unresolved(
+            tree,
+            &pdf_syntax::tree::TreeKey::Number(key),
+            &|value| read.resolve(value),
+        )
+        .expect("the key resolves");
+        let Object::Array(items) = entry else {
+            panic!("a content stream's parent-tree value is an array: {entry:?}");
+        };
+        assert_eq!(
+            items.len(),
+            1,
+            "the source's array was one element long and the index is preserved"
+        );
+        // The stream's own `/MCID 0` therefore still selects a structure element, and it is the
+        // one whose `/Pg` is this page.
+        let element = items
+            .first()
+            .and_then(Object::as_reference)
+            .expect("index 0");
+        let Object::Dictionary(element) = read.get(element) else {
+            panic!("index 0 names a structure element");
+        };
+        assert_eq!(
+            element.get("Pg").and_then(Object::as_reference),
+            page_id(&read, index),
+            "and the element it names is on this page"
+        );
+    }
+    // The identifier in the stream is untouched, which is what the two assertions above rest on.
+    for page in support::page_dictionaries(&read) {
+        let stream = read.get_key(&page, "Contents");
+        let Object::Stream(stream) = stream else {
+            panic!("a page states one content stream");
+        };
+        let bytes = read.decoded_stream_data(&stream).expect("it decodes");
+        assert!(
+            bytes.windows(6).any(|window| window == b"/MCID "),
+            "the marked-content identifier crossed with the stream"
+        );
+    }
+}
+
+/// The object number of the page at this index, for the `/Pg` comparison above.
+fn page_id(document: &Document, index: usize) -> Option<ObjectId> {
+    Pages::new(document).get(index).and_then(|page| page.id)
 }

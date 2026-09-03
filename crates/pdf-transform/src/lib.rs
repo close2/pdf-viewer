@@ -57,6 +57,7 @@ pub mod pattern;
 pub mod range;
 pub mod render;
 pub mod split;
+pub(crate) mod structure;
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -412,6 +413,20 @@ pub enum Refusal {
         /// Every colliding name, with the sources that state it, joined by `; `.
         fields: String,
     },
+    /// Two sources state one §14.7 key the derived document cannot hold both values of.
+    ///
+    /// Table 354's `/RoleMap` and `/ClassMap` are maps over a namespace two documents can both
+    /// use, and Table 355 makes a structure element's `/ID` "unique among all elements in the
+    /// document's structure hierarchy". Where the sources agree the entry is carried once;
+    /// where they disagree the derived document would have to state two values for one key,
+    /// which is §12.7.4.2's shape and gets §12.7.4.2's answer (ADR 0821 section 2, ADR 0834).
+    #[error("{clause}, and these keys are stated with different values by two sources: {keys}")]
+    StructureConflict {
+        /// Which clause forbids the document that would have to be written.
+        clause: &'static str,
+        /// Every colliding key, with the sources that state it, joined by `; `.
+        keys: String,
+    },
     /// Under `Level::On`, the document withholds the operation.
     #[error("this document restricts {operation}: {reasons}, and --restrictions is on")]
     Restricted {
@@ -550,6 +565,7 @@ impl Refusal {
             | Self::Unanswered { .. }
             | Self::Update { .. }
             | Self::FieldCollision { .. }
+            | Self::StructureConflict { .. }
             | Self::DuplicateWidget { .. } => Exit::Refused,
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }

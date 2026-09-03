@@ -68,6 +68,10 @@ use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Refusal, Secret, Source, apply};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
+mod support;
+
+use support::check_structure;
+
 /// The dots per inch every raster is drawn at — `split_corpus.rs`'s, and for its reason.
 const DPI: f32 = 48.0;
 
@@ -126,10 +130,16 @@ struct Tally {
     undrawn: Vec<(String, String)>,
     /// A carried page's §12.4.2 label is not the one its source page had.
     labels_differ: Vec<(String, String)>,
-    /// The output states a structure tree, which no verb of this suite carries.
-    structure_carried: Vec<(String, String)>,
     /// The same document edited twice did not write the same bytes.
     nondeterministic: Vec<(String, String)>,
+    /// Outputs that state §14.7.2's `/StructTreeRoot`, so a source's tagging survived.
+    structure_carried: usize,
+    /// Structure elements the outputs hold in total.
+    structure_elements: usize,
+    /// Parent-tree keys that resolved: a page's to an array, an object's to a reference.
+    structure_resolved: usize,
+    /// Outputs whose §14.7 structure states something a clause forbids.
+    structure_faults: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -452,20 +462,24 @@ fn reread_and_draw(
     }
     record(tally, |t| t.edited = t.edited.saturating_add(1));
 
-    // §14.7: no verb of this suite carries the structure tree, and a half-carried one would be
-    // worse than none. The output states none, whatever the source stated.
-    if read
-        .catalog()
-        .ok()
-        .is_some_and(|catalog| !read.get_key(&catalog, "StructTreeRoot").is_null())
-    {
-        record(tally, |t| {
-            t.structure_carried.push((
-                name.clone(),
-                "the output states a /StructTreeRoot".to_owned(),
-            ));
-        });
-    }
+    // §14.7: the carry, judged against the clauses rather than against what the writer meant —
+    // every page's key resolves in the output's own parent tree, every element's `/Pg` names a
+    // page this document holds, and `/ParentTreeNextKey` is greater than every key in use.
+    let structure = check_structure(&read);
+    record(tally, |t| {
+        if structure.carried {
+            t.structure_carried = t.structure_carried.saturating_add(1);
+        }
+        t.structure_elements = t.structure_elements.saturating_add(structure.elements);
+        t.structure_resolved = t.structure_resolved.saturating_add(
+            structure
+                .resolved_pages
+                .saturating_add(structure.resolved_objects),
+        );
+        for fault in &structure.faults {
+            t.structure_faults.push((name.clone(), fault.clone()));
+        }
+    });
 
     check_labels(&name, document, &read, expected, tally);
     draw_pages(&name, document, &read, bytes, edited, expected, tally);
@@ -709,10 +723,12 @@ fn census(tally: &Tally, documents: usize, elapsed: std::time::Duration) {
         "§12.4.2's label did not follow its page",
         &tally.labels_differ,
     );
-    print_list(
-        "§14.7's structure tree was carried",
-        &tally.structure_carried,
+    println!(
+        "transform-pages:   §14.7 structure trees carried: {}, elements: {}, parent-tree keys \
+         resolving: {}",
+        tally.structure_carried, tally.structure_elements, tally.structure_resolved
     );
+    print_list("§14.7 structure faults", &tally.structure_faults);
     print_list("+90 then -90 is not the page it was", &tally.round_trip);
     print_list(
         "a quarter turn did not exchange the raster's sides",
@@ -795,8 +811,8 @@ fn every_corpus_document_survives_a_page_edit() {
         "§7.7.3.3: a quarter turn and a quarter turn back is the page"
     );
     assert!(
-        tally.structure_carried.is_empty(),
-        "§14.7 is not carried by any verb, and a half-carry is worse than none"
+        tally.structure_faults.is_empty(),
+        "§14.7: a carried structure tree states what its clauses require, or none at all"
     );
     for (name, why) in &tally.differ {
         assert!(

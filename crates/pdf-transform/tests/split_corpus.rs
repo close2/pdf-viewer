@@ -53,6 +53,10 @@ use pdf_transform::split::{Pieces, SplitPlan};
 use pdf_transform::{Budget, MemorySinks, Plan, Policy, Refusal, Secret, Source, apply};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
+mod support;
+
+use support::check_structure;
+
 /// The dots per inch both rasters are drawn at.
 ///
 /// Low, because the question is whether two rasters are the same rather than how they look, and
@@ -104,6 +108,14 @@ struct Tally {
     undrawn: Vec<(String, String)>,
     /// The same document split twice did not write the same bytes.
     nondeterministic: Vec<(String, String)>,
+    /// Outputs that state §14.7.2's `/StructTreeRoot`, so a source's tagging survived.
+    structure_carried: usize,
+    /// Structure elements the outputs hold in total.
+    structure_elements: usize,
+    /// Parent-tree keys that resolved: a page's to an array, an object's to a reference.
+    structure_resolved: usize,
+    /// Outputs whose §14.7 structure states something a clause forbids.
+    structure_faults: Vec<(String, String)>,
     /// A document whose examination panicked, which principle 1 forbids.
     panicked: Vec<(String, String)>,
 }
@@ -358,6 +370,25 @@ fn reread_and_draw(
     }
     record(tally, |t| t.split = t.split.saturating_add(1));
 
+    // §14.7: the carry, judged against the clauses rather than against what the writer meant —
+    // every page's key resolves in the output's own parent tree, every element's `/Pg` names a
+    // page this document holds, and `/ParentTreeNextKey` is greater than every key in use.
+    let structure = check_structure(&read);
+    record(tally, |t| {
+        if structure.carried {
+            t.structure_carried = t.structure_carried.saturating_add(1);
+        }
+        t.structure_elements = t.structure_elements.saturating_add(structure.elements);
+        t.structure_resolved = t.structure_resolved.saturating_add(
+            structure
+                .resolved_pages
+                .saturating_add(structure.resolved_objects),
+        );
+        for fault in &structure.faults {
+            t.structure_faults.push((name.clone(), fault.clone()));
+        }
+    });
+
     // Layer 3, the load-bearing one.
     match (draw(&name, bytes), draw(&name, piece)) {
         (Some(before), Some(after)) if before == after => {
@@ -457,6 +488,11 @@ fn every_corpus_documents_first_page_survives_being_split_out() {
         &tally.contents_differ,
     );
     print_list("drew differently", &tally.differ);
+    println!(
+        "transform-split:   §14.7 structure trees carried: {}, elements: {}, parent-tree keys resolving: {}",
+        tally.structure_carried, tally.structure_elements, tally.structure_resolved
+    );
+    print_list("§14.7 structure faults", &tally.structure_faults);
     print_list("two splits, two files", &tally.nondeterministic);
     print_list("panicked", &tally.panicked);
 
@@ -476,6 +512,11 @@ fn every_corpus_documents_first_page_survives_being_split_out() {
         tally.contents_differ.is_empty(),
         "§11.1: every content stream in the output is a producer's, carried byte for byte"
     );
+    assert!(
+        tally.structure_faults.is_empty(),
+        "§14.7: a carried structure tree states what its clauses require, or none at all"
+    );
+
     for (name, why) in &tally.differ {
         assert!(
             HELD.iter().any(|(held, _)| held == name),

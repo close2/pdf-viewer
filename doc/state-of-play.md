@@ -323,8 +323,8 @@ re-derived from what was written; a reference to an object the output does not h
 *n*, or per comma-separated group of the selection — each piece the source's own page objects
 under a new one-level page tree, §7.7.3.4's four inheritable attributes flattened onto each page
 because the ancestors that carried them are not coming along, and the whole object closure
-carried with them. What a piece does not carry — the outline, the name trees, `/PageLabels`, the
-structure tree, `/Metadata` — is named in the report rather than dropped in silence. **`merge` is
+carried with them. What a piece does not carry — the outline, the name trees, `/PageLabels`,
+`/Metadata` — is named in the report rather than dropped in silence. **`merge` is
 the second verb on the serializer, and its substance is the document-level reconciliations rather
 than the machinery**: §8.11's optional content groups concatenated with their initial states
 rewritten as one default configuration, §7.9.6's name trees merged with a colliding key renamed
@@ -344,10 +344,19 @@ to a page object, and an insertion that makes a page appear twice as **two page 
 own annotations, since Table 31 gives a page one `/Parent` and Table 172 gives an annotation one
 `/P` — refused by name where the page carries a §12.7 widget, whose fully qualified field name is
 the field's identity. §12.5.3 was read for it and decides nothing about the file: `/NoRotate` is
-the viewer's business, so no annotation's `/Rect` is touched. **What no verb carries is §14.7's
-structure tree**, said in a warning every time: a tagged document loses its tagging, and each
-carried page keeps the `/StructParents` integer its producer wrote, which then names nothing at
-all rather than the wrong element (ADR 0831). One
+the viewer's business, so no annotation's `/Rect` is touched. **All three carry §14.7's logical
+structure**: the elements whose content is on a carried page together with the ancestors that hold
+them, the content items that name a page the output does not hold pruned and counted, and
+§14.7.5.4's parent tree rebuilt with the output's **own** keys — a page's `/StructParents` and an
+annotation's or an XObject's `/StructParent` restated to match, `/ParentTreeNextKey` greater than
+any of them. The marked-content identifiers inside the carried streams are untouched, because
+§14.7.5.2 scopes one to its own content stream and §14.7.5.4 makes it an index into the array its
+key names, so carrying the array at its own length moves both ends together. Table 354's three
+colliding namespaces get three answers from three clauses: §14.7.3's role map is an *approximate
+analogy*, so the first source's wins with a warning; §14.7.6.2 closes the set of things that name a
+class, so a collision is renamed and every `/C` follows; Table 355 makes an `/ID` unique and the set
+of things that name one is open, so a cross-source collision is **refused by name** (ADRs 0834,
+0835). One
 page-range grammar for every verb, with §12.4.2's
 labels addressable as `@iv`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named

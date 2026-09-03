@@ -25,10 +25,12 @@
 
 mod support;
 
+use std::collections::BTreeSet;
 use std::process::Command;
 
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
+use pdf_syntax::object::ObjectId;
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::range::Selection;
@@ -494,7 +496,7 @@ fn the_edits_compose_left_to_right_over_the_running_list() {
 }
 
 #[test]
-fn a_structure_tree_is_not_carried_and_the_warning_says_so() {
+fn a_structure_tree_is_carried_and_names_only_pages_the_output_holds() {
     let Some((bytes, document)) = source("Well-Tagged-PDF-WTPDF-1.0.pdf") else {
         eprintln!("skipped: the tagged fixture is not unpacked");
         return;
@@ -506,19 +508,47 @@ fn a_structure_tree_is_not_carried_and_the_warning_says_so() {
     }
     let (report, out) = edit(&bytes, vec![Edit::Delete(range("r1"))]).expect("the edit");
     assert!(
-        report
-            .warnings
-            .iter()
-            .any(|warning| warning.detail.contains("StructTreeRoot")),
-        "a tagged document that loses its tagging says so: {:?}",
+        report.warnings.iter().any(|warning| warning
+            .detail
+            .contains("§14.7: the structure tree is carried")),
+        "the report says what the carry wrote and what it dropped: {:?}",
         report.warnings
     );
     let after = Document::open_with_limits(out, Limits::DEFAULT).expect("re-read");
     let out_catalog = after.catalog().expect("a catalog");
-    assert!(
-        after.get_key(&out_catalog, "StructTreeRoot").is_null(),
-        "not half-carried: the output states none at all"
+    let root = after.get_key(&out_catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("§14.7.2's structure tree root");
+    assert_eq!(
+        after
+            .get_key(root, "Type")
+            .as_name()
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"StructTreeRoot".to_vec()),
+        "Table 354 makes /Type required and \"shall be StructTreeRoot\""
     );
+    // Every carried element's `/Pg` names a page the output holds — the property that
+    // distinguishes a pruned tree from ADR 0831 section 2's half-carried one, which would have pointed
+    // a page's marked content at another page's structure element.
+    let held: BTreeSet<ObjectId> = Pages::new(&after).indices().into_keys().collect();
+    let mut checked = 0_usize;
+    for number in after.xref().object_numbers() {
+        let id = ObjectId::new(number, 0);
+        let Object::Dictionary(dict) = after.get(id) else {
+            continue;
+        };
+        if dict.get("S").is_none() || dict.get("P").is_none() {
+            continue;
+        }
+        let Some(page) = dict.get("Pg").and_then(Object::as_reference) else {
+            continue;
+        };
+        assert!(
+            held.contains(&page),
+            "object {number}'s /Pg names a page this document does not hold"
+        );
+        checked = checked.saturating_add(1);
+    }
+    assert!(checked > 0, "the carried tree has elements with a /Pg");
 }
 
 #[test]
@@ -600,10 +630,11 @@ fn a_destination_to_a_deleted_page_is_the_clauses_null() {
 }
 
 #[test]
-fn a_carried_page_keeps_the_struct_parents_its_producer_wrote() {
-    // The honest statement of §14.7's debt, asserted rather than only written down: the tree is
-    // gone and the page's key into it is still there, so it names *nothing* — not the wrong
-    // element. Anything else would be a half-carry.
+fn a_carried_page_states_the_key_of_its_own_entry_in_the_output_s_parent_tree() {
+    // §14.7.5.4's whole point, asserted: "[t]he key for each entry shall be an integer given as
+    // the value of the StructParent or StructParents entry in the object". The key is the
+    // *output's*, so the producer's number does not cross — what crosses is the property that
+    // the number resolves.
     let Some((bytes, document)) = source("Well-Tagged-PDF-WTPDF-1.0.pdf") else {
         eprintln!("skipped: the tagged fixture is not unpacked");
         return;
@@ -612,22 +643,50 @@ fn a_carried_page_keeps_the_struct_parents_its_producer_wrote() {
     let Some(page) = pages.get(0) else {
         return;
     };
-    let stated = document.get_key(&page.dict, "StructParents");
-    let Some(key) = stated.as_integer() else {
+    if document
+        .get_key(&page.dict, "StructParents")
+        .as_integer()
+        .is_none()
+    {
         eprintln!("skipped: page 1 states no /StructParents");
         return;
-    };
+    }
     let (_, out) = edit(&bytes, vec![Edit::Delete(range("r1"))]).expect("the edit");
     let after = Document::open_with_limits(out, Limits::DEFAULT).expect("re-read");
     let carried = Pages::new(&after).get(0).expect("a first page").dict;
-    assert_eq!(
-        after.get_key(&carried, "StructParents").as_integer(),
-        Some(key),
-        "the integer crosses as the producer wrote it"
-    );
+    let key = after
+        .get_key(&carried, "StructParents")
+        .as_integer()
+        .expect("the carried page states a key");
     let catalog = after.catalog().expect("a catalog");
+    let root = after.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    let tree = after.get_key(root, "ParentTree");
+    let tree = tree.as_dict().expect("§14.7.5.4's parent tree");
+    let entry = pdf_syntax::tree::lookup_unresolved(
+        tree,
+        &pdf_syntax::tree::TreeKey::Number(key),
+        &|value| after.resolve(value),
+    )
+    .expect("the page's key resolves in the output's own parent tree");
+    // "For a content stream containing marked-content sequences that are content items, the
+    // value shall be an array of indirect references to the sequences' parent structure
+    // elements."
+    let Object::Array(items) = entry else {
+        panic!("a page's parent-tree value is an array: {entry:?}");
+    };
     assert!(
-        matches!(after.get_key(&catalog, "StructTreeRoot"), Object::Null),
-        "and there is no parent tree for it to be a key into"
+        items.iter().any(|item| item.as_reference().is_some()),
+        "and the array names structure elements: {items:?}"
+    );
+    // §14.7.5.4: "The ParentTreeNextKey entry in the structure tree root shall hold an integer
+    // value greater than any that is currently in use as a key in the structural parent tree."
+    let next = after
+        .get_key(root, "ParentTreeNextKey")
+        .as_integer()
+        .expect("Table 354's /ParentTreeNextKey");
+    assert!(
+        next > key,
+        "{next} is not greater than the key {key} in use"
     );
 }
