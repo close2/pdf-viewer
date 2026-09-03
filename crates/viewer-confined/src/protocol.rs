@@ -1811,6 +1811,7 @@ fn operation_code(operation: Operation) -> u8 {
         Operation::Print => 2,
         Operation::Extract => 3,
         Operation::Modify => 4,
+        Operation::Assemble => 5,
     }
 }
 
@@ -1822,6 +1823,7 @@ fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, ProtocolError> {
         2 => Operation::Print,
         3 => Operation::Extract,
         4 => Operation::Modify,
+        5 => Operation::Assemble,
         value => {
             return Err(ProtocolError::Unrecognised {
                 what: "an operation",

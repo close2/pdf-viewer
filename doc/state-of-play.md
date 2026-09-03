@@ -312,11 +312,57 @@ saves use: `attachments --attach` files a new embedded file in §7.7.4's tree, w
 and checksum from the bytes and no date unless one is given; `--attach --to-page N` files it by a
 §12.5.6.15 annotation on the page instead, drawn with this tree's own icon; and `--remove NAME`
 takes an entry out of the tree and marks the objects it alone reached free, by the one of
-§7.5.4's two mechanisms an update can use. One page-range grammar for every verb, with §12.4.2's
+§7.5.4's two mechanisms an update can use. **And since session 886 it writes whole files as well**,
+on `pdf_syntax::serialize` — RFC 0002 §10's structure-preserving serializer, admitted by
+`CLAUDE.md`'s redrawn authoring exclusion, which the owner ratified on 2026-09-03. It emits
+structure and never content: §7.5.2's header, a body of indirect objects, §7.5.4's table or
+§7.5.8's stream in the form the sources themselves use, §7.5.5's trailer and §14.4's two
+identifiers, with every stream's bytes crossing encoded and untouched and only its `/Length`
+re-derived from what was written; a reference to an object the output does not hold becomes
+§7.3.10's null and is counted. `split` is the first verb on it — one file per page, per group of
+*n*, or per comma-separated group of the selection — each piece the source's own page objects
+under a new one-level page tree, §7.7.3.4's four inheritable attributes flattened onto each page
+because the ancestors that carried them are not coming along, and the whole object closure
+carried with them. What a piece does not carry — the outline, the name trees, `/PageLabels`,
+`/Metadata` — is named in the report rather than dropped in silence. **`merge` is
+the second verb on the serializer, and its substance is the document-level reconciliations rather
+than the machinery**: §8.11's optional content groups concatenated with their initial states
+rewritten as one default configuration, §7.9.6's name trees merged with a colliding key renamed
+and every `/Dest` and `/GoTo` that named it rewritten to match, §12.3.3's outlines spliced into one
+chain, §12.4.2's labels written one entry per page so each keeps the label it had, §14.11.5's
+output intent pushed onto each source's own pages where the sources disagree — which is the second
+home the clause gives it, and which this tree's colour path now reads — and §12.7's interactive
+form reconciled entry by entry, with §12.7.4.2's fully qualified field name **refused by name**
+where two sources claim it with a different `/FT`, `/V` or `/DV`. A signature crosses without its
+`/V`, because §12.8.1's digest was computed over bytes the merged file is not. **`pages` is the
+third, and it is the same engine given one document's own page list to edit**: §7.7.3.3's
+`/Rotate` written as an integer — absolute where the angle is unsigned, and where it is signed
+composed with the value §7.7.3.4 gives the page rather than with what the page states — a
+deletion whose every dangling destination becomes §7.3.10's null and whose labels follow their
+pages, a reorder that needs no rewriting at all because §12.3.2.2 makes a destination a reference
+to a page object, and an insertion that makes a page appear twice as **two page objects** with its
+own annotations, since Table 31 gives a page one `/Parent` and Table 172 gives an annotation one
+`/P` — refused by name where the page carries a §12.7 widget, whose fully qualified field name is
+the field's identity. §12.5.3 was read for it and decides nothing about the file: `/NoRotate` is
+the viewer's business, so no annotation's `/Rect` is touched. **All three carry §14.7's logical
+structure**: the elements whose content is on a carried page together with the ancestors that hold
+them, the content items that name a page the output does not hold pruned and counted, and
+§14.7.5.4's parent tree rebuilt with the output's **own** keys — a page's `/StructParents` and an
+annotation's or an XObject's `/StructParent` restated to match, `/ParentTreeNextKey` greater than
+any of them. The marked-content identifiers inside the carried streams are untouched, because
+§14.7.5.2 scopes one to its own content stream and §14.7.5.4 makes it an index into the array its
+key names, so carrying the array at its own length moves both ends together. Table 354's three
+colliding namespaces get three answers from three clauses: §14.7.3's role map is an *approximate
+analogy*, so the first source's wins with a warning; §14.7.6.2 closes the set of things that name a
+class, so a collision is renamed and every `/C` follows; Table 355 makes an `/ID` unique and the set
+of things that name one is open, so a cross-source collision is **refused by name** (ADRs 0834,
+0835). One
+page-range grammar for every verb, with §12.4.2's
 labels addressable as `@iv`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
-(two as consumed by nothing, each saying why), the five operations — a field filled, an
-annotation added, a page rendered, a file extracted, a file written in — each read their bit at
+(one as consumed by nothing, saying why), the six operations — a field filled, an
+annotation added, a page rendered, a file extracted, a file written in, a document assembled out
+of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
@@ -326,8 +372,13 @@ caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` 
 `Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.
 No window can put the question yet, so each answers it `false` out loud rather than letting *ask*
 behave like *on* (ADR 0814). The suite has its own gate, with
-RFC 0002 §12's perf floor and its inventories held to the document's own structure. ADRs 0800,
-0801, 0802, 0803.
+RFC 0002 §12's perf floor and its inventories held to the document's own structure, and three
+corpus walks beside it: the writer's, `split`'s — every corpus document's first page taken
+out, re-read, and drawn against the source page bit for bit — `merge`'s, which puts every
+corpus document's first page beside a fixed second document and checks each reconciliation against
+what the source stated as well as the two rasters, and `pages`'s, which rotates and deletes within
+one document and holds every surviving page to its source page under the rotation stated. ADRs 0800,
+0801, 0802, 0803, 0804, 0816, 0817, 0818, 0821, 0830.
 
 **It can tell a person that a signed document changed after it was signed, and whether its
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the

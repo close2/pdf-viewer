@@ -239,14 +239,38 @@ The exclusions, closed, each with its reason:
 - **JavaScript and script-driven form behaviour** — a sandboxed script engine is a separate
   project with its own security argument. Field *appearance* is not excluded; field
   *behaviour* is.
-- **Authoring a document from nothing** — we do not *create* PDFs, and no clause whose
-  requirements fall on a generator is in scope: linearisation, object-stream packing,
-  optimisation, and the rest of what a producer owes.
+- **Authoring content from nothing** — we do not compose pages: no layout engine, no
+  text-setting, no chart drawing, no "HTML to PDF". No clause whose subject is deciding what
+  marks a page should contain falls on this project.
 
-  **This exclusion was "we do not create files" and was amended by argument rather than by
-  attrition.** What a *user* does to a document already open — an annotation added, a field
-  filled — is not authoring, and it is written back by §7.5.6's incremental update: the new
-  objects and a new cross-reference section appended, never a rewrite of what was there. The
+  **Assembling documents from existing documents is in scope.** Splitting, merging, reordering,
+  rotating, extracting and optimising operate on content some producer already specified; every
+  content stream in their output is a producer's, carried byte for byte or recompressed without
+  reinterpretation. The writer this requires is §10 of RFC 0002's serializer: it emits
+  structure (object table, streams containers, cross-reference, trailer, identifiers), never
+  content. §7.5.6's incremental update remains the only writing that touches a file a user is
+  *editing in place*; the serializer is how a *new* file is derived from old ones.
+
+  Generator obligations come into scope only where the serializer actually emits the construct:
+  §7.5.4/§7.5.5/§7.5.7/§7.5.8 on the way out, §14.4, §7.6 encryption on the way out. Annex F
+  stays excluded until linearisation is separately ratified. The ledger's `writer-side` status
+  narrows accordingly.
+
+  The boundary line that keeps the exclusion enforceable: **does the operation invent marks?**
+  Rotate does not (it writes an integer the producer's renderer already honours); a watermark
+  stamp *does* (it composes new content over pages), which is why qpdf's `--overlay`/`--underlay`
+  and Stirling's watermarking are **deliberately not in this suite** despite being conventional —
+  they are the first feature on the far side of the redrawn line, and taking them later must be
+  its own argued amendment, not scope creep. Variable-text field appearances
+  (`crates/pdf-model/src/variable_text.rs`) already sit on this line today, sanctioned by
+  §12.7.4.3's own requirement; the line is where it always was, now written down.
+
+  **This exclusion read "we do not create files", then "we do not *create* PDFs", and has been
+  amended twice — both times by argument rather than by attrition** (the second on 2026-09-03,
+  when the owner ratified RFC 0002 §11.1 with "RFC 002 and 003 are approved"). What a *user* does
+  to a document already open — an annotation added, a field filled — is not authoring, and it is
+  written back by §7.5.6's incremental update: the new objects and a new cross-reference section
+  appended, never a rewrite of what was there. The
   producer's bytes stay in the file, byte for byte, under whatever the user added. This tree
   already reads that construction (ADR 0100), which is why it is the one form of writing it is
   placed to get right.

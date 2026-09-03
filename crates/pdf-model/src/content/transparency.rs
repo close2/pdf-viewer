@@ -1276,7 +1276,11 @@ pub(super) fn page_press(document: &Document, page: &Page, presses: &Presses) ->
         return PagePress::Device;
     }
     let entry = document.get_key(attributes, "CS");
-    press_for_entry(document, &entry, &page.resources, presses)
+    // §14.11.5's array is resolved here, where the page is, rather than inside `named_press`:
+    // the clause puts one in a page dictionary as well as in the catalog and makes the page's
+    // the one that "shall be used", and the tail of this walk no longer holds a page.
+    let intent = output_intent_space(document, Some(&page.dict));
+    press_for_entry(document, &entry, &page.resources, presses, intent.as_ref())
 }
 
 /// The press a group or page `/CS` entry names, resolved against `resources`.
@@ -1291,9 +1295,10 @@ fn press_for_entry(
     entry: &Object,
     resources: &Dictionary,
     presses: &Presses,
+    intent: Option<&ColourSpace>,
 ) -> PagePress {
     match ColourSpace::parse(document, entry, &Dictionary::new()) {
-        Some(ColourSpace::Cmyk) => named_press(document, resources, presses),
+        Some(ColourSpace::Cmyk) => named_press(document, resources, presses, intent),
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
             press_or_beyond(&profile, presses)
         }
@@ -1323,7 +1328,12 @@ fn press_for_entry(
 /// `XObject`'s own, which is what `xobject.rs` has always passed here as `form_resources`. It
 /// is a `Caret` with no `StrikeOut`, so `spec-errata check` cannot see it by construction and
 /// `emit` is what found it; `doc/errata-read.md` has the reading and ADR 0551 the argument.
-fn named_press(document: &Document, resources: &Dictionary, presses: &Presses) -> PagePress {
+fn named_press(
+    document: &Document,
+    resources: &Dictionary,
+    presses: &Presses,
+    intent: Option<&ColourSpace>,
+) -> PagePress {
     // `None` cannot happen for a literal device name — `ColourSpace::by_name` falls back on the
     // device space when a `/DefaultCMYK` will not parse — and it is grouped with the plain
     // answer because a space that did not parse names no press.
@@ -1344,9 +1354,9 @@ fn named_press(document: &Document, resources: &Dictionary, presses: &Presses) -
         }
         Some(_) => {}
     }
-    match output_intent_space(document) {
+    match intent {
         Some(ColourSpace::Icc { profile }) if profile.channels() == 4 => {
-            press_or_beyond(&profile, presses)
+            press_or_beyond(profile, presses)
         }
         _ => PagePress::In(crate::colour::assumed_press()),
     }
@@ -1525,7 +1535,16 @@ impl Interpreter<'_> {
         {
             return None;
         }
-        match press_for_entry(self.document, &group.colour_space, resources, self.presses) {
+        // The page's own §14.11.5 intent, resolved once when this interpretation began — a
+        // group inside a page is drawn under the intent in force for that page — and borrowed
+        // rather than cloned, because cloning it would copy an ICC profile per group.
+        match press_for_entry(
+            self.document,
+            &group.colour_space,
+            resources,
+            self.presses,
+            self.output_intent.as_ref(),
+        ) {
             PagePress::In(press) => Some(press),
             // A group whose press this page has no budget left for is drawn in the parent's
             // space and keeps §11.6.6's report, which is the answer that was right before this

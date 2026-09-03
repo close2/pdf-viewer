@@ -371,15 +371,54 @@ pub(super) fn convert(
     into.paint(space, values, black_point.applies())
 }
 
-/// Reads the colour space a document's output intent describes.
+/// Reads the colour space the output intent in force for this page describes.
 ///
 /// Only a profile whose own space is one a PDF can name is useful here; an output intent
 /// for a device with some other colourant model says nothing about `DeviceCMYK`.
-pub(super) fn output_intent_space(document: &Document) -> Option<ColourSpace> {
+///
+/// **The array has two homes and the page's wins**, which is §14.11.5 in its own words:
+///
+/// > The optional OutputIntents entry in the document catalog dictionary (see 7.7.2, "Document
+/// > catalog dictionary") or a Page dictionary (see 7.7.3.3, "Page objects") holds an array of
+/// > output intent dictionaries, each describing the colour reproduction characteristics of a
+/// > possible output device.
+///
+/// and, two paragraphs later, the sentence that decides between them:
+///
+/// > The data in an output intent dictionary shall be for informational purposes only, and PDF
+/// > processors are free to disregard it. If a PDF processor chooses to respect output intents,
+/// > then when processing a page that has an associated (page-level) output intent, that
+/// > page-level output intent shall be used.
+///
+/// This tree does choose to respect them — that is what this function is — so the `shall` binds
+/// it, and until session 888 only the catalog was read. No corpus document states a page-level
+/// array (a scan of all 974 found none), so nothing this project measures changed when the
+/// second home was added; what changed is that a document *can* now say per page what its
+/// device colours mean, which is the construction `pdf_transform::merge` writes when two
+/// sources' catalog intents disagree.
+pub(super) fn output_intent_space(
+    document: &Document,
+    page: Option<&Dictionary>,
+) -> Option<ColourSpace> {
+    if let Some(page) = page
+        && let Some(space) = first_usable_intent(document, &document.get_key(page, "OutputIntents"))
+    {
+        return Some(space);
+    }
     let catalog = document.catalog().ok()?;
-    let intents = document.get_key(&catalog, "OutputIntents");
-    // The specification is explicit that PDF carries no selector for choosing among
-    // several, so the first usable one is taken.
+    first_usable_intent(document, &document.get_key(&catalog, "OutputIntents"))
+}
+
+/// The first output intent of an array that names a profile this tree can parse.
+///
+/// §14.11.5 NOTE 1:
+///
+/// > The choice of which output intent to use in a given workflow is outside the scope of ISO
+/// > 32000-2 and therefore PDF intentionally does not include a selector for choosing a
+/// > particular output intent from within the PDF file.
+///
+/// With no selector stated, the first usable one is taken.
+fn first_usable_intent(document: &Document, intents: &Object) -> Option<ColourSpace> {
     for intent in intents.as_array()? {
         let intent = document.resolve(intent);
         let Some(dict) = intent.as_dict() else {

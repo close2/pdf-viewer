@@ -766,7 +766,7 @@ impl<'a> Interpreter<'a> {
             image_rasters: crate::image::RasterCache::default(),
             structure: Arc::new(crate::structure::ParentTree::for_page(document, &page.dict)),
             stream_structures: BTreeMap::new(),
-            output_intent: output_intent_space(document),
+            output_intent: output_intent_space(document, Some(&page.dict)),
             optional_content: state.optional_content().cloned(),
             view: state,
             delegated,
