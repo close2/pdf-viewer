@@ -143,70 +143,182 @@ impl Transfer {
     }
 }
 
-/// §11.5.3's luminosity of a colour composited in a three-component CIE-based space, as
-/// one curve per component whose sum is the `Y`.
+/// §11.5.3's luminosity of a colour composited in a three-component CIE-based space
+/// (ISO 32000-2 §11.5.3).
 ///
 /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
 /// > luminosity. This produces a colorimetrically correct luminosity.
 ///
-/// and the clause's own EXAMPLE 1 states it for `CalRGB` as the sum of the three components,
-/// each decoded by its gamma and weighted by its `Y` in the space's `Matrix` — a sum of three
-/// functions of one component each. A matrix profile's `Y` is the same shape, its tone curves
-/// weighted by the middle row of its matrix. So a mask group `pdf_model` painted in such a
-/// space's own components hands the backend three curves, and the luminosity of a composited
-/// pixel is the sum of each curve at its channel, clamped to the unit a mask value holds.
+/// The clause states one derivation and the space decides its *shape*, which is why this is
+/// two shapes rather than two clauses:
 ///
-/// A space whose `Y` is not separable — a profile built on a lookup table — is not one of
-/// these, and `pdf_model` composites such a mask group on the device instead; this carries
-/// what the clause states exactly or nothing.
+/// - **Three curves summed.** The clause's own EXAMPLE 1 writes the formula out for `CalRGB`
+///   as the sum of the three components, each decoded by its gamma and weighted by its `Y` in
+///   the space's `Matrix` — a sum of three functions of one component each. A matrix profile's
+///   `Y` is the same shape, its tone curves weighted by the middle row of its matrix.
+/// - **A sampled grid.** A profile whose conversion is a lookup table has no such
+///   decomposition: its `Y` is one function of all three components at once, and EXAMPLE 1's
+///   "[a]n analogous computation applies to other CIE-based colour spaces" is that function
+///   rather than a licence to drop it. So it is sampled over `side³` points and interpolated
+///   trilinearly, which is exactly how the same profile's conversion *out* is carried
+///   ([`crate::ColourCube`]) and to the same fidelity — a property of the profile's own
+///   smoothness between its grid points.
 ///
-/// Sampled at 256 points per component so that a channel at full alpha lands on a sample
-/// exactly, and interpolated between them where the backdrop's composite leaves a channel
-/// between two.
+/// Either way a mask group `pdf_model` painted in such a space's own components hands the
+/// backend one of these and the luminosity of a composited pixel is read off it, clamped to
+/// the unit a mask value holds.
+///
+/// The curves are sampled at 256 points per component so that a channel at full alpha lands
+/// on a sample exactly, and interpolated between them where the backdrop's composite leaves a
+/// channel between two.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Luminance {
+    /// Which of the two shapes above this is.
+    shape: Shape,
+}
+
+/// The two shapes a [`Luminance`] takes, whose invariants [`Luminance`]'s constructors are
+/// what establish — which is why this is private.
+#[derive(Debug, Clone, PartialEq)]
+enum Shape {
     /// `curves[i][axis]` is that axis's share of `Y` at the component `i ÷ 255`.
-    curves: std::sync::Arc<[[f32; 3]; 256]>,
+    Curves(std::sync::Arc<[[f32; 3]; 256]>),
+    /// `side³` samples of `Y`, the first component running fastest and the third slowest, so
+    /// index 0 is every component at 0 and the last is every component at 1. At least two
+    /// samples an axis, and exactly `side³` of them.
+    Grid {
+        /// How many samples the grid holds along each axis; at least two.
+        side: usize,
+        /// The samples themselves, in the index order above.
+        samples: std::sync::Arc<[f32]>,
+    },
 }
 
 impl Luminance {
-    /// The luminosity from its three sampled curves.
+    /// The luminosity of a space whose `Y` is a sum of one function of each component.
     #[must_use]
-    pub fn new(curves: std::sync::Arc<[[f32; 3]; 256]>) -> Self {
-        Self { curves }
+    pub fn curves(curves: std::sync::Arc<[[f32; 3]; 256]>) -> Self {
+        Self {
+            shape: Shape::Curves(curves),
+        }
     }
 
-    /// The curves themselves, one sample per row and one component per column.
+    /// The luminosity of a space whose `Y` is one function of all three components, sampled
+    /// over a grid — or `None` if the samples are not one.
+    ///
+    /// The two conditions are the ones [`Luminance::of`] depends on and neither is checked
+    /// again: at least two samples per axis, and exactly `side³` of them.
     #[must_use]
-    pub fn curves(&self) -> &[[f32; 3]; 256] {
-        &self.curves
+    pub fn grid(side: usize, samples: std::sync::Arc<[f32]>) -> Option<Self> {
+        let wanted = side.checked_pow(3)?;
+        (side >= 2 && samples.len() == wanted).then_some(Self {
+            shape: Shape::Grid { side, samples },
+        })
+    }
+
+    /// The three curves, where this is the summed shape.
+    #[must_use]
+    pub fn as_curves(&self) -> Option<&[[f32; 3]; 256]> {
+        match &self.shape {
+            Shape::Curves(curves) => Some(curves),
+            Shape::Grid { .. } => None,
+        }
+    }
+
+    /// The grid's side and its samples, where this is the sampled shape.
+    #[must_use]
+    pub fn as_grid(&self) -> Option<(usize, &[f32])> {
+        match &self.shape {
+            Shape::Curves(_) => None,
+            Shape::Grid { side, samples } => Some((*side, samples)),
+        }
     }
 
     /// The `Y` of a colour whose channels hold the space's three components.
     #[must_use]
     pub fn of(&self, colour: Color) -> f32 {
-        let mut sum = 0.0f32;
-        for (axis, component) in [colour.r, colour.g, colour.b].into_iter().enumerate() {
-            let scaled = component.clamp(0.0, 1.0) * 255.0;
-            #[expect(
-                clippy::cast_possible_truncation,
-                clippy::cast_sign_loss,
-                reason = "`scaled` is in 0..=255, so its floor is a valid index"
-            )]
-            let low = (scaled as usize).min(254);
-            #[expect(clippy::cast_precision_loss, reason = "an index below 255")]
-            let fraction = scaled - low as f32;
-            let at = |index: usize| {
-                self.curves
-                    .get(index)
-                    .and_then(|sample| sample.get(axis))
-                    .copied()
-                    .unwrap_or(0.0)
-            };
-            sum += at(low).mul_add(1.0 - fraction, at(low.saturating_add(1)) * fraction);
-        }
-        sum.clamp(0.0, 1.0)
+        let components = [colour.r, colour.g, colour.b];
+        let luminosity = match &self.shape {
+            Shape::Curves(curves) => {
+                let mut sum = 0.0f32;
+                for (axis, component) in components.into_iter().enumerate() {
+                    let scaled = component.clamp(0.0, 1.0) * 255.0;
+                    #[expect(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "`scaled` is in 0..=255, so its floor is a valid index"
+                    )]
+                    let low = (scaled as usize).min(254);
+                    #[expect(clippy::cast_precision_loss, reason = "an index below 255")]
+                    let fraction = scaled - low as f32;
+                    let at = |index: usize| {
+                        curves
+                            .get(index)
+                            .and_then(|sample| sample.get(axis))
+                            .copied()
+                            .unwrap_or(0.0)
+                    };
+                    sum += at(low).mul_add(1.0 - fraction, at(low.saturating_add(1)) * fraction);
+                }
+                sum
+            }
+            Shape::Grid { side, samples } => trilinear(*side, samples, components),
+        };
+        luminosity.clamp(0.0, 1.0)
     }
+}
+
+/// One scalar interpolated trilinearly over a grid of `side³` samples on the unit cube.
+///
+/// The same weights and the same index order as [`crate::ColourCube`]'s grid, over one
+/// number per sample rather than three: a luminosity is a scalar and a device colour is not,
+/// and writing the shared half as a generic would have made both harder to read than the
+/// eight lines they each are.
+fn trilinear(side: usize, samples: &[f32], components: [f32; 3]) -> f32 {
+    let last = side.saturating_sub(1);
+    let axis = |value: f32| -> (usize, [f32; 2]) {
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a grid side and a cell index, both far below f32's exact range"
+        )]
+        let scaled = value.clamp(0.0, 1.0) * last as f32;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "`scaled` is in 0..=last, so its floor is a valid index"
+        )]
+        let cell = (scaled as usize).min(last.saturating_sub(1));
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "a cell index below the grid side"
+        )]
+        let fraction = scaled - cell as f32;
+        (cell, [1.0 - fraction, fraction])
+    };
+    let cells = [
+        axis(components[0]),
+        axis(components[1]),
+        axis(components[2]),
+    ];
+    let mut sum = 0.0f32;
+    for corner in 0..8usize {
+        let offsets = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
+        let weight = cells[0].1[offsets[0]] * cells[1].1[offsets[1]] * cells[2].1[offsets[2]];
+        if weight == 0.0 {
+            continue;
+        }
+        let index = cells[2]
+            .0
+            .saturating_add(offsets[2])
+            .saturating_mul(side)
+            .saturating_add(cells[1].0)
+            .saturating_add(offsets[1])
+            .saturating_mul(side)
+            .saturating_add(cells[0].0)
+            .saturating_add(offsets[0]);
+        sum += weight * samples.get(index).copied().unwrap_or(0.0);
+    }
+    sum
 }
 
 /// A transparency group evaluated for its opacity rather than its colour (§11.5).
@@ -377,7 +489,7 @@ mod tests {
             let decoded = component * component;
             [0.2126 * decoded, 0.7152 * decoded, 0.0722 * decoded]
         });
-        let luminance = Luminance::new(std::sync::Arc::new(curves));
+        let luminance = Luminance::curves(std::sync::Arc::new(curves));
         let close = |colour: Color, want: f32, what: &str| {
             let got = luminance.of(colour);
             assert!((got - want).abs() < 1e-3, "{what}: {got} against {want}");
@@ -414,6 +526,71 @@ mod tests {
             // is ¼ — the compositing happens on the components and the curves come after.
             64,
             "the curves are applied after the composite, not before it"
+        );
+    }
+
+    /// §11.5.3's `Y` over a sampled grid, for a space whose luminosity is not a sum of one
+    /// function of each component (ADR 0851).
+    ///
+    /// The grid below holds a *linear* `Y` — sRGB's D50-adapted weights — at two samples an
+    /// axis, and a linear map is reproduced exactly by trilinear interpolation of its corners,
+    /// so the expected values are the formula itself and the interpolation is checked rather
+    /// than approximated. The last case is the one the shape exists for: a value the summed
+    /// curves cannot state, because it is not the sum of any three functions of one component.
+    #[test]
+    fn a_luminance_over_a_grid_interpolates_the_clauses_y() {
+        let weights = [0.2225f32, 0.7169, 0.0606];
+        let samples: Vec<f32> = (0..8usize)
+            .map(|corner| {
+                (0..3usize)
+                    .map(|axis| {
+                        #[expect(clippy::cast_precision_loss, reason = "a bit")]
+                        let at = ((corner >> axis) & 1) as f32;
+                        at * weights.get(axis).copied().unwrap_or(0.0)
+                    })
+                    .sum()
+            })
+            .collect();
+        let luminance = Luminance::grid(2, std::sync::Arc::from(samples))
+            .expect("eight samples of a side of 2");
+        let close = |colour: Color, want: f32, what: &str| {
+            let got = luminance.of(colour);
+            assert!((got - want).abs() < 1e-3, "{what}: {got} against {want}");
+        };
+        close(Color::rgb(0.0, 0.0, 0.0), 0.0, "black is no light");
+        close(Color::rgb(1.0, 1.0, 1.0), 1.0, "white is the weights' sum");
+        close(
+            Color::rgb(0.0, 1.0, 0.0),
+            0.7169,
+            "a pure green is its own weight, not the device branch's 0.59",
+        );
+        close(
+            Color::rgb(0.5, 0.5, 0.5),
+            0.5,
+            "and a point between the samples is the interpolation",
+        );
+
+        assert!(
+            Luminance::grid(1, std::sync::Arc::from(vec![0.0f32])).is_none(),
+            "a side of one has no cell to interpolate over"
+        );
+        assert!(
+            Luminance::grid(2, std::sync::Arc::from(vec![0.0f32; 7])).is_none(),
+            "and a grid that is not side³ samples is not a grid"
+        );
+
+        let mask = SoftMask {
+            commands: Vec::new(),
+            kind: SoftMaskKind::Luminosity {
+                backdrop: Color::BLACK,
+            },
+            transfer: None,
+            luminance: Some(luminance),
+        };
+        assert_eq!(
+            mask.value([0, 255, 0, 255]),
+            183,
+            "a composited green masks at the grid's Y, not at 0.59 of 255"
         );
     }
 

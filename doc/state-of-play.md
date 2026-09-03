@@ -24,7 +24,8 @@ states, four components as two rasters (ADR 0262), one component as one, `Device
 channel (ADR 0790) and `CalGray` or a one-component profile through its curve (ADR 0792), and
 three CIE-based components — `CalRGB`, an RGB profile — as the space's own components through
 curves and a grid (ADR 0797) — soft masks, whose `/Luminosity` groups in such a space take
-§11.5.3's `Y` as three summed curves, and annotations both from stored appearance streams and
+§11.5.3's `Y` as three summed curves where the space decomposes and as a sampled grid where it
+does not (ADR 0851), and annotations both from stored appearance streams and
 constructed where the standard states one — including §12.5.6.4's seven icons, whose artwork is
 this processor's own because the clause requires one and draws none, and §12.5.6.15's four and
 §12.5.6.16's two, whose clauses only *recommend* one and whose names name objects — and a markup
