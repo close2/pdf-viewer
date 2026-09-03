@@ -4971,7 +4971,7 @@ We have not pinned this in our quorra gate: the page is not in `doc/pdf.js`, so 
 sees it, and the CPU backend draws it — now in a second and a half — which is our standing answer
 for a budget refusal.
 
-## 43. Two asks from ISO 32000-2's three-component blending spaces: a per-pixel conversion at a group's `Do`, and a luminosity mask whose `Y` is the space's own
+## 43. Three asks from ISO 32000-2's CIE-based blending spaces: a per-pixel conversion at a group's `Do`, a luminosity mask whose `Y` is the space's own, and a mask group that is a pair of bodies
 
 Session 879 (ADR 0797) took the last of §11.3.4's blending colour spaces into the oracle: a
 `CalRGB` or `ICCBased` 'RGB ' page, isolated group or `/Luminosity` mask group now composites
@@ -5009,6 +5009,20 @@ beside `backdrop` wants the same vocabulary the group ask above wants — curves
 an N-axis grid, here with one output rather than three — and a shader that reads one number out
 of it. `pdf_render::Luminance` is that pair of shapes, and `Luminance::of` is eight weighted
 samples for the grid and three curve lookups for the curves.
+
+**And a third shape since session 907** (ADR 0857), which is the one that needs more than a
+field. A `/Luminosity` mask group whose `/CS` is a four-component `ICCBased` space takes the
+same colorimetric branch — §11.3.4 lists 'CMYK' beside 'GRAY' and 'RGB ' among the blending
+spaces, and §8.6.5.1 makes all three CIE-based — but §11.3.4 composites *per component* and a
+texture has three channels, so the group is **two** command lists: `SoftMask::commands` in the
+additive complements of cyan, magenta and yellow, and `SoftMask::black` in the complement of
+black, each with its own backdrop, both drawn onto transparency at the same size. The `Y` is
+then one number read out of a four-axis grid of the four composited components (`side` 17,
+83 521 samples), and only then does the transfer table apply. So the ask is `MaskKind::Luminosity`
+growing (a) the curves-or-grid field above, at any axis count rather than three, and (b) a
+**second body** for the black half with a second backdrop — the same pairing `GroupSpec` would
+need for a four-component group's conversion out, so the two asks share a vocabulary. Population:
+**3417 groups in 181 crawl documents**, none in `doc/pdf.js`.
 
 All the refusals are by name and the frames go to the CPU backend, which draws them
 (`headless_quorra.rs` holds the group refusal against the cross-backend scene). Neither ask is

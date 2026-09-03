@@ -280,12 +280,14 @@ why = "a magazine page missing both photographs, refused for \"the colour space 
 path = "corpus-cache/safedocs/cc-main-2021-31/4359/4359750.pdf"
 page = 1
 session = 631
-# The row said `[]` until session 904, and what changed is a *silence becoming a report* rather
-# than the fix: this page also carries a /Luminosity mask whose group states a four-component
-# ICCBased /CS, which §11.5.3 sends down its colorimetric branch and this reader composites on
-# the device (ADR 0851). The ink band is untouched and the run held it, which is what says the
-# picture did not move — only what the reader admits about it.
-reports = ["four-component ICCBased /CS"]
+# `[]`, then one report in session 904, then `[]` again in session 907 — and the ink band did not
+# move once in the three. Session 904 found this page carries a /Luminosity mask whose group
+# states a four-component ICCBased /CS and turned the silence into a report (ADR 0851); session
+# 907 built §11.4.7's pair of rasters inside the mask and drew it (ADR 0857), so the report is
+# gone. That the band held through both is the evidence that this page's mask is not what its
+# picture rests on — 41 of the 181 crawl documents that state such a group do move, and
+# `4605565.pdf` below is one of them.
+reports = []
 ink = 39.547 .. 41.547
 why = "a photograph drawn as a solid black rectangle in silence: a DCTDecode image in a /Lab space had its samples divided by 255 instead of mapped onto Table 88's default decode range, giving a lightness of at most 1 where 100 is white (ADR 0464, 8.9.5.2, 8.6.5.4)"
 
@@ -614,3 +616,11 @@ session = 901
 reports = []
 ink = 8.945 .. 10.945
 why = "doc/todo/03 section 46's head, and the first witness in this tree for §10.7.5's second requirement on a real page rather than a fixture. The document sets /SA true in a typed /ExtGState and then shows 108 runs of SimSun in §9.3.6's rendering mode 2 under `0.240226 w` and `0.426 w`, which at scale 1.0 are 0.24 and 0.43 of a device pixel — so `If stroke adjustment is enabled and the requested line width, transformed into device space, is less than half a pixel, the stroke shall be rendered as a single-pixel line` fires on every glyph and the page is 2.66 levels darker than its own geometry. That is the clause and not a defect: renaming /SA to /S1 in place takes ours to 7.2840 and leaves poppler and mupdf byte-identical, and the resolution ladder converges to 7.2727 / 7.2921 / 7.2762 at 576 dpi. The band is the usual width, wide enough to admit anti-aliasing and far narrower than the 2.66 the promotion is worth, so it fails if the promotion is ever withdrawn; the empty `reports` is what fails if the page starts refusing something. ADR 0844"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605565.pdf"
+page = 1
+session = 907
+reports = []
+ink = 50.779 .. 52.779
+why = "the witness for §11.5.3's colorimetric branch at four components (ADRs 0856, 0857), and a row that pins a page this tree moved *away* from three references on purpose. The page is a menu whose panels are painted through /Luminosity masks in an ICCBased 'CMYK' group; §11.3.4 lists that space beside 'GRAY' and 'RGB ' and §8.6.5.1 makes it CIE-based, so §11.5.3 asks for the Y of the CIE 1931 XYZ of the composited four components rather than EXAMPLE 2's weights on a device raster. Drawing it means §11.4.7's pair of rasters inside the mask, which is what SoftMask::black now carries. Ink 57.235 before and 51.779 after, over 241 642 moved pixels with a worst channel of 56 — the 'Soup of the Day' panel goes to poppler's, mupdf's and ghostscript's bright yellow, and the salad panel's gradient fades further from all three, because the clause's Y of an encoded mid-grey is its linear luminance and every reference takes the device branch here. That is ADR 0797's issue21346.pdf disagreement one component count over, measured this time over 41 crawl pages: 38 of them move away from the reference consensus and 3 toward it, by 0.77 (poppler), 0.84 (mupdf) and 1.47 (ghostscript) levels of 255 in the mean. The band is the usual width and is what fails if the branch is ever taken back to the device's channels; `reports` is empty because session 904's report for this shape is what session 907 replaced with the construction"

@@ -77,7 +77,7 @@ pub use shading::{
     ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Patch, Radial,
     RadialRaster, Ramp, Shading, ShadingKind, ShadingRaster, Stop, Triangle, blend_parameter,
 };
-pub use soft_mask::{Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
+pub use soft_mask::{BlackHalf, Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{
     command_extents, replay_ratio, row_costs, strip_boundaries, strip_boundaries_avoiding,
     unsplittable_rows,

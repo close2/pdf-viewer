@@ -68,10 +68,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use pdf_render::{
-    BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners, DisplayList,
-    FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin, Luminance,
-    MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Ramp, Rect, Shading, ShadingKind, Size,
-    SoftMask, SoftMaskId, SoftMaskKind, Stop, Stroke, Transfer, Transform, Triangle,
+    BlackHalf, BlendMode, BlendingSpace, Clip, ClipId, Color, ColourCube, Command, Corners,
+    DisplayList, FillRule, GreyCurve, GroupBlending, Image, ImageSource, LineCap, LineJoin,
+    Luminance, MAX_GROUP_DEPTH, Paint, Path, PathCommand, Point, Ramp, Rect, Shading, ShadingKind,
+    Size, SoftMask, SoftMaskId, SoftMaskKind, Stop, Stroke, Transfer, Transform, Triangle,
 };
 
 use super::{ProtocolError, Reader, Writer};
@@ -576,6 +576,7 @@ fn write_soft_masks(
             kind,
             transfer,
             luminance,
+            black,
         } = mask;
         match kind {
             SoftMaskKind::Alpha => {
@@ -617,11 +618,30 @@ fn write_soft_masks(
                     for sample in samples {
                         writer.f32(*sample);
                     }
+                } else if let Some((side, samples)) = luminance.as_ink_grid() {
+                    writer.u8(3);
+                    writer.usize(side);
+                    for sample in samples {
+                        writer.f32(*sample);
+                    }
                 } else {
                     return Err(Uncodable::Unknown {
                         what: "a soft mask's luminance in a shape this build cannot write",
                     });
                 }
+            }
+            None => {
+                writer.u8(0);
+            }
+        }
+        // §11.4.7's second raster, where the group composited in four components: its own
+        // backdrop and its own command list. Written after the luminance and before the
+        // first list, so a reader meets the two halves in the order the mask uses them.
+        match black {
+            Some(half) => {
+                writer.u8(1);
+                write_colour(writer, half.backdrop);
+                write_commands(writer, &half.commands, tables, 0)?;
             }
             None => {
                 writer.u8(0);
@@ -1624,24 +1644,29 @@ fn read_soft_mask(
             }
             Some(Luminance::curves(Arc::new(curves)))
         }
-        2 => {
+        tag @ (2 | 3) => {
+            let axes = if tag == 2 { 3 } else { 4 };
             let side = reader.usize("a soft mask's luminance grid")?;
             // Not `with_capacity`: the side is a length field on the wire, so a corrupt one
             // would reserve whatever it says. Pushing lets the reader run out of bytes first,
             // which is the refusal this branch wants.
-            let wanted = side.checked_pow(3).ok_or(ProtocolError::Unrecognised {
+            let bad = || ProtocolError::Unrecognised {
                 what: "a soft mask's luminance grid side",
                 value: u32::try_from(side).unwrap_or(u32::MAX),
-            })?;
+            };
+            let wanted = side.checked_pow(axes).ok_or_else(bad)?;
             let mut samples = Vec::new();
             for _ in 0..wanted {
                 samples.push(reader.f32("a soft mask's luminance grid")?);
             }
+            let samples = Arc::from(samples);
             Some(
-                Luminance::grid(side, Arc::from(samples)).ok_or(ProtocolError::Unrecognised {
-                    what: "a soft mask's luminance grid side",
-                    value: u32::try_from(side).unwrap_or(u32::MAX),
-                })?,
+                if axes == 3 {
+                    Luminance::grid(side, samples)
+                } else {
+                    Luminance::ink_grid(side, samples)
+                }
+                .ok_or_else(bad)?,
             )
         }
         value => {
@@ -1651,12 +1676,22 @@ fn read_soft_mask(
             });
         }
     };
+    let black = if reader.bool("a soft mask's black half")? {
+        let backdrop = read_colour(reader, "a soft mask's black backdrop")?;
+        Some(BlackHalf {
+            commands: read_commands(reader, paths, samples, shadings, clips, masks, 0)?,
+            backdrop,
+        })
+    } else {
+        None
+    };
     let commands = read_commands(reader, paths, samples, shadings, clips, masks, 0)?;
     Ok(SoftMask {
         commands,
         kind,
         transfer,
         luminance,
+        black,
     })
 }
 
@@ -2002,6 +2037,7 @@ mod tests {
                 },
                 transfer: Some(Transfer::from_samples([9; 256])),
                 luminance: None,
+                black: None,
             })
             .expect("a first soft mask");
         list.add_soft_mask(SoftMask {
@@ -2009,6 +2045,7 @@ mod tests {
             kind: SoftMaskKind::Alpha,
             transfer: None,
             luminance: None,
+            black: None,
         })
         .expect("a second soft mask");
 
@@ -2255,6 +2292,7 @@ mod tests {
                 },
                 transfer: None,
                 luminance: Some(Luminance::curves(Arc::new(curves))),
+                black: None,
             })
             .expect("one soft mask is under the table's bound");
         list.push(Command::Group {
@@ -2303,6 +2341,65 @@ mod tests {
                 luminance: Some(
                     Luminance::grid(3, Arc::from(samples)).expect("twenty-seven of a side of 3"),
                 ),
+                black: None,
+            })
+            .expect("one soft mask is under the table's bound");
+        list.push(Command::Fill {
+            path: a_path(),
+            transform: Transform::IDENTITY,
+            fill_rule: FillRule::NonZero,
+            paint: Paint::Solid(Color::rgb(0.25, 0.5, 0.75)),
+            clip: None,
+            mask: Some(mask),
+            blend: BlendMode::Normal,
+        });
+        let bytes = encode(&list).expect("a list with no deferred producer");
+        let back = decode(&bytes).expect("what this encoder wrote");
+        assert_eq!(back, list);
+    }
+
+    /// §11.4.7's pair inside a mask — a four-axis `Y` and the black half's own list and
+    /// backdrop (ADR 0857) — crosses the boundary as itself.
+    ///
+    /// The three-axis grid and the four-axis one are two tags on purpose, so a list stating
+    /// `side⁴` samples cannot be read back as `side³` of them and silently interpolated over
+    /// the wrong cube; the black half's list carries its own clips and masks and is written
+    /// through the same `write_commands` the first list is, which is what equality here
+    /// checks.
+    #[test]
+    fn a_four_component_masks_pair_round_trips_to_an_equal_list() {
+        let samples: Vec<f32> = (0..81).map(|index| index as f32 / 80.0).collect();
+        let mut list = DisplayList::new(Size::new(200.0, 100.0));
+        let mask = list
+            .add_soft_mask(SoftMask {
+                commands: vec![Command::Fill {
+                    path: a_path(),
+                    transform: Transform::IDENTITY,
+                    fill_rule: FillRule::NonZero,
+                    paint: Paint::Solid(Color::rgb(1.0, 0.0, 1.0)),
+                    clip: None,
+                    mask: None,
+                    blend: BlendMode::Normal,
+                }],
+                kind: SoftMaskKind::Luminosity {
+                    backdrop: Color::rgb(0.1, 0.2, 0.3),
+                },
+                transfer: None,
+                luminance: Some(
+                    Luminance::ink_grid(3, Arc::from(samples)).expect("eighty-one of a side of 3"),
+                ),
+                black: Some(BlackHalf {
+                    commands: vec![Command::Fill {
+                        path: a_path(),
+                        transform: Transform::IDENTITY,
+                        fill_rule: FillRule::NonZero,
+                        paint: Paint::Solid(Color::rgb(0.5, 0.5, 0.5)),
+                        clip: None,
+                        mask: None,
+                        blend: BlendMode::Normal,
+                    }],
+                    backdrop: Color::rgb(1.0, 1.0, 1.0),
+                }),
             })
             .expect("one soft mask is under the table's bound");
         list.push(Command::Fill {

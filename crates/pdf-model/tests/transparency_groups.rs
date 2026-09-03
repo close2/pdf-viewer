@@ -4175,6 +4175,78 @@ fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components()
     );
 }
 
+/// A `/Luminosity` mask group whose `/CS` is a **four-component** `ICCBased` space takes
+/// §11.5.3's `Y` off §11.4.7's pair of rasters (ISO 32000-2 §11.5.3, §11.3.4, §11.4.7,
+/// §8.6.5.1; ADR 0857).
+///
+/// §11.3.4 lists "ICCBased bi-directional 'GRAY', 'RGB ', and 'CMYK' colour spaces" among the
+/// blending colour spaces and §8.6.5.1 makes every one of them CIE-based, so §11.5.3's branch
+/// is the colorimetric one — "convert to the CIE 1931 XYZ space and use the Y component as the
+/// luminosity" — whatever the component count. What four components change is not the branch
+/// but the *carrier*: §11.3.4 composites per component, a raster has three channels, so the
+/// group is interpreted twice and the `Y` is a function of what the two hold between them.
+///
+/// [`press_xyz_of`] is the fixture's press and its `Y` is the middle row's product, so every
+/// expected value here comes from the model rather than from what the tree draws. The page is
+/// white with a black fill through the mask, so a pixel is `1 − Y`.
+///
+/// Three cases, and the second is the one the pair exists for:
+///
+/// - **A chromatic ink.** `0 1 0 0 k` is magenta alone: `Y = 1 − 0.60`.
+/// - **The black ink.** `0 0 0 1 k` paints *nothing* into the chromatic raster, so a reader
+///   with one raster sees paper and masks nothing away. The clause's `Y` is `1 − 0.80`, and
+///   §11.5.3's device branch would give `1 − min(1, 1)` — zero — so the three answers are
+///   three different pictures and this one is the clause's.
+/// - **`/BC`.** Table 142's backdrop has four components, and each raster composites onto the
+///   ones it carries; stating the black ink there masks the area outside the group's marks at
+///   the same `1 − 0.80`.
+#[test]
+fn a_four_component_mask_group_takes_the_y_of_its_pair_of_rasters() {
+    let profile = two_way_cmyk_profile();
+    let y_of = |inks: [f32; 4]| press_xyz_of(0, inks)[1];
+
+    let magenta = interpret(profile_mask_fixture(
+        &profile,
+        4,
+        "0 1 0 0 k 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        magenta.is_complete(),
+        "a four-component profile's mask group is drawn, not reported: {:?}",
+        magenta.unsupported
+    );
+    assert_grey(
+        "a magenta ink's Y is the press's own, not EXAMPLE 2's weights on the channels",
+        pixel(&magenta, 50, 50),
+        1.0 - y_of([0.0, 1.0, 0.0, 0.0]),
+    );
+
+    let black = interpret(profile_mask_fixture(
+        &profile,
+        4,
+        "0 0 0 1 k 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        black.is_complete(),
+        "and so is one that paints only the black component: {:?}",
+        black.unsupported
+    );
+    assert_grey(
+        "the black component reaches the Y, which one raster could not have carried",
+        pixel(&black, 50, 50),
+        1.0 - y_of([0.0, 0.0, 0.0, 1.0]),
+    );
+
+    let backdrop = interpret(profile_mask_fixture(&profile, 4, "", "/BC [0 0 0 1]"));
+    assert_grey(
+        "and /BC states all four components where the group paints nothing",
+        pixel(&backdrop, 50, 50),
+        1.0 - y_of([0.0, 0.0, 0.0, 1.0]),
+    );
+}
+
 /// A `/Luminosity` mask group whose `/CS` is CIE-based and whose `Y` this reader cannot take
 /// is **named** rather than drawn in silence (ISO 32000-2 §11.5.3, §11.3.4; ADR 0851).
 ///
@@ -4185,11 +4257,12 @@ fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components()
 ///
 /// Two shapes reach it, and neither had a report before this round:
 ///
-/// - **Four components.** An `ICCBased` profile of four channels is CIE-based (§8.6.5.1) and
-///   §11.3.4 lists it as a blending space, but its `Y` is a function of four composited
-///   components and §11.4.7's construction for four is a *pair* of rasters where a mask group
-///   is one. Measured over the 65 720 documents `examples/luminosity_mask_census` opens in the
-///   crawl, 3417 mask groups in 181 documents state one; `doc/pdf.js` states none.
+/// - **Four components with no press.** An `ICCBased` profile of four channels is CIE-based
+///   (§8.6.5.1) and §11.3.4 lists it as a blending space, and since ADR 0857 such a group is
+///   *drawn* — §11.4.7's pair of rasters, with the `Y` read off the press's own grid over the
+///   four components. What is left reported is a profile this reader has no press for: a
+///   one-way profile, which §11.3.4 rules out of a blending space in as many words, or a page
+///   that has already named as many distinct presses as §11.7.2's budget allows.
 /// - **No route in.** §11.3.4 requires a blending space's profile to be "capable of both
 ///   device to PCS and PCS to device transformations"; a table profile with no `B2A` is not,
 ///   so there is nothing to composite the group's marks in even though its `A2B` would give
@@ -4200,16 +4273,15 @@ fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components()
 #[test]
 fn a_mask_group_in_a_cie_space_with_no_route_is_named_rather_than_drawn_in_silence() {
     let four = interpret(profile_mask_fixture(
-        &two_way_cmyk_profile(),
+        &icc_cmyk_profile(),
         4,
         "0 1 0 0 k 0 0 100 100 re f",
         "",
     ));
     let reported = format!("{:?}", four.unsupported);
     assert!(
-        reported.contains("four-component ICCBased /CS")
-            && reported.contains("§11.4.7's pair of rasters and a mask's group is one"),
-        "a four-component profile as a mask group's /CS is named: {reported}"
+        reported.contains("four-component ICCBased /CS this reader has no press for"),
+        "a one-way four-component profile as a mask group's /CS is named: {reported}"
     );
 
     let one_way = interpret(profile_mask_fixture(

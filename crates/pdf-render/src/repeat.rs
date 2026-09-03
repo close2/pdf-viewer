@@ -600,6 +600,12 @@ impl Displaced<'_> {
             return Ok(id);
         };
         self.commands(&mut mask.commands)?;
+        if let Some(black) = mask.black.as_mut() {
+            // §11.4.7's second raster is the same elements in the black component, so its
+            // clips and its own masks need the same remapping the first list just had —
+            // exactly what `Command::Group`'s `blending` pair gets above.
+            self.commands(&mut black.commands)?;
+        }
         let copy = self.list.add_soft_mask(mask)?;
         self.masks.insert(id.index(), copy);
         Ok(copy)
@@ -1191,6 +1197,7 @@ mod repetition {
                 kind: SoftMaskKind::Alpha,
                 transfer: None,
                 luminance: None,
+                black: None,
             })
             .expect("the cell's own mask");
         list.push(Command::Fill {

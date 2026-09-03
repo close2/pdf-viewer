@@ -2212,6 +2212,8 @@ pub struct Press {
     profile: Option<Box<crate::icc::Profile>>,
     /// [`search_ink`] over a grid of sRGB, built on first use. See [`Press::table`].
     table: OnceLock<Vec<[f32; 4]>>,
+    /// §11.5.3's `Y` over the four components, built on first use. See [`Press::luminance`].
+    luminance: OnceLock<Option<pdf_render::Luminance>>,
 }
 
 impl Press {
@@ -2235,6 +2237,7 @@ impl Press {
             identity: PressIdentity::Assumed,
             profile: None,
             table: OnceLock::new(),
+            luminance: OnceLock::new(),
         }
     }
 
@@ -2258,6 +2261,66 @@ impl Press {
     #[must_use]
     pub fn blending_space(&self) -> pdf_render::BlendingSpace {
         self.space.clone()
+    }
+
+    /// ISO 32000-2 §11.5.3's `Y` over this press's four components, or `None` where the
+    /// press is not a profile's.
+    ///
+    /// §11.3.4 lists an `ICCBased` bi-directional 'CMYK' space among the blending colour
+    /// spaces and §8.6.5.1 makes it CIE-based, so a `/Luminosity` mask group naming one takes
+    /// the clause's colorimetric branch:
+    ///
+    /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as
+    /// > the luminosity. This produces a colorimetrically correct luminosity.
+    ///
+    /// That `Y` is one function of all four components at once, so it is sampled — **at the
+    /// very grid points [`sample_press`] already samples for the conversion out**, which is
+    /// what makes the fidelity argument the same one [`PRESS_SIDE`] carries rather than a new
+    /// one: the two grids agree point for point on where they are evaluated, and a
+    /// luminosity read between them departs by the profile's own curvature exactly as the
+    /// device colour does. Interpolated over sixteen corners by `pdf_render::Luminance`.
+    ///
+    /// **Without §8.6.5.9's black point compensation**, as [`RgbRoute::luminance`] is one
+    /// axis down: the clause asks for the colour's XYZ, and the compensation is a step
+    /// toward a destination rather than part of it.
+    ///
+    /// # What it costs, and why it is behind a lock rather than in [`sample_press`]
+    ///
+    /// [`PRESS_SIDE`]⁴ profile evaluations — 83 521 of them — and 334 KB, which is a third of
+    /// the grid beside it. Almost every press a document names is a *page*'s or an output
+    /// intent's and never carries a mask, so paying this inside [`sample_press`] would put it
+    /// on the launch path of every four-component page for a number no such page reads. Built
+    /// on first use for the same reason [`Press::table`] is, and once per press rather than
+    /// once per soft-mask dictionary — `6081357.pdf` states 912 masks on one page (ADR 0851).
+    #[must_use]
+    pub fn luminance(&self) -> Option<pdf_render::Luminance> {
+        self.luminance
+            .get_or_init(|| {
+                let profile = self.profile.as_ref()?;
+                let side = PRESS_SIDE;
+                let last = side.saturating_sub(1);
+                #[expect(
+                    clippy::cast_precision_loss,
+                    reason = "a grid index below 17 and the side itself, both exact in f32"
+                )]
+                let at = |index: usize| index as f32 / last as f32;
+                let mut samples = Vec::with_capacity(side.checked_pow(4)?);
+                for black in 0..side {
+                    for yellow in 0..side {
+                        for magenta in 0..side {
+                            for cyan in 0..side {
+                                let xyz = profile.to_xyz_with(
+                                    &[at(cyan), at(magenta), at(yellow), at(black)],
+                                    false,
+                                );
+                                samples.push(channel(xyz[1]));
+                            }
+                        }
+                    }
+                }
+                pdf_render::Luminance::ink_grid(side, Arc::from(samples))
+            })
+            .clone()
     }
 }
 
@@ -2338,6 +2401,7 @@ pub fn press_for_profile(profile: &crate::icc::Profile) -> Option<Arc<Press>> {
             .is_bidirectional()
             .then(|| Box::new(profile.clone())),
         table: OnceLock::new(),
+        luminance: OnceLock::new(),
     });
     let mut held = SAMPLED.lock().ok()?;
     if let Some(found) = held
