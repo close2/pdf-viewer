@@ -657,21 +657,6 @@ impl RgbRoute {
         })
     }
 
-    /// Whether `space`'s `Y` is a sum of one function of each component, which is what
-    /// [`RgbRoute::luminance`] can state: `CalRGB`, or a matrix profile. Asked of the space
-    /// rather than of a route so that a mask group in a table profile's space does not build
-    /// a route it cannot use.
-    #[must_use]
-    pub fn luminance_is_separable(space: &ColourSpace) -> bool {
-        match space {
-            ColourSpace::CalRgb { .. } => true,
-            ColourSpace::Icc { profile } => {
-                profile.channels() == 3 && profile.matrix_stages().is_some()
-            }
-            _ => false,
-        }
-    }
-
     /// The conversion out of the space, for the display list to carry.
     #[must_use]
     pub fn cube(&self) -> &pdf_render::ColourCube {
@@ -741,10 +726,40 @@ impl RgbRoute {
     /// Matrix entries of the colour space dictionary" — the space's own XYZ, with no
     /// adaptation, which is why this reads the matrix rather than [`ColourSpace::cie_xyz_at`].
     /// A matrix profile's `Y` is the same shape, its tone curves weighted by the middle row
-    /// of its matrix; a table profile's is not separable, and a mask in such a space keeps
-    /// `crate::soft_mask`'s device route.
+    /// of its matrix.
+    ///
+    /// **A table profile's `Y` is not a sum of three functions, and is sampled instead**
+    /// (ADR 0851). Its conversion to the connection space is a lookup table, so no
+    /// decomposition exists to write down — but the clause asks for one number of three
+    /// components, and EXAMPLE 1's "[a]n analogous computation applies to other CIE-based
+    /// colour spaces" is that number rather than a licence to leave the branch. So it is
+    /// sampled at [`RGB_TABLE_SIDE`] points an axis, exactly as [`profile_stages`] samples
+    /// the same profile's conversion *out*, and interpolated trilinearly by
+    /// `pdf_render::Luminance`. **Without §8.6.5.9's black point compensation**, as the two
+    /// separable shapes are: the clause asks for "the CIE 1931 XYZ" of the colour, and the
+    /// compensation is a step toward a destination rather than part of a colour's XYZ.
     #[must_use]
     pub fn luminance(&self) -> Option<pdf_render::Luminance> {
+        if let Inward::Profile(profile) = &self.inward
+            && profile.matrix_stages().is_none()
+        {
+            let side = RGB_TABLE_SIDE;
+            let mut samples = Vec::with_capacity(side.pow(3));
+            for third in 0..side {
+                for second in 0..side {
+                    for first in 0..side {
+                        #[expect(
+                            clippy::cast_precision_loss,
+                            reason = "a grid index below the side"
+                        )]
+                        let at = |index: usize| index as f32 / (side - 1) as f32;
+                        let xyz = profile.to_xyz_with(&[at(first), at(second), at(third)], false);
+                        samples.push(channel(xyz[1]));
+                    }
+                }
+            }
+            return pdf_render::Luminance::grid(side, Arc::from(samples));
+        }
         let curves: [[f32; 3]; 256] = match &self.inward {
             Inward::CalRgb { gamma, columns, .. } => std::array::from_fn(|index| {
                 #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
@@ -770,7 +785,7 @@ impl RgbRoute {
                 })
             }
         };
-        Some(pdf_render::Luminance::new(Arc::new(curves)))
+        Some(pdf_render::Luminance::curves(Arc::new(curves)))
     }
 }
 

@@ -3962,6 +3962,286 @@ fn a_matrix_profile_page_group_composites_in_its_components() {
     );
 }
 
+/// A v2 'RGB ' profile whose conversion is a **lookup table** rather than a matrix and three
+/// curves: an `mft2` `A2B1` of two grid points an axis, and a `B2A1` beside it so that
+/// §11.3.4's "capable of both device to PCS and PCS to device transformations" is met.
+///
+/// Its `A2B1` states sRGB's D50-adapted colourants at the eight corners — a linear map, so
+/// the profile's own trilinear interpolation of the corners *is* that map and the `Y` of the
+/// components `(a, b, c)` is `0.2225 a + 0.7169 b + 0.0606 c` everywhere. That is the point of
+/// the fixture: the value is derivable in closed form while the profile carries no matrix and
+/// no tone curve for [`pdf_model::colour::RgbRoute`] to decompose, which is the shape ADR 0851
+/// samples.
+///
+/// The `B2A1` is the same corners run the other way and is not a true inverse; nothing here
+/// depends on it beyond its presence, because every colour these tests paint is either the
+/// group's own space or a `DeviceRGB` §11.7.2 reinterprets.
+fn icc_rgb_table_profile() -> Vec<u8> {
+    icc_rgb_table_profile_with(true)
+}
+
+/// [`icc_rgb_table_profile`], with or without the `B2A1` half §11.3.4 requires of a blending
+/// space — "the ICC profile shall be capable of both device to PCS and PCS to device
+/// transformations" — so that one test can state a profile that meets it and one that does not.
+fn icc_rgb_table_profile_with(bidirectional: bool) -> Vec<u8> {
+    // sRGB's colourants adapted onto D50, as `icc_rgb_profile` carries them: the columns of
+    // the map whose middle row is the `Y` weights this fixture's expected values use.
+    const COLOURANTS: [[f32; 3]; 3] = [
+        [0.4361, 0.2225, 0.0139],
+        [0.3851, 0.7169, 0.0971],
+        [0.1431, 0.0606, 0.7141],
+    ];
+
+    let mut header = vec![0u8; 128];
+    header[8] = 2; // major version
+    header[12..16].copy_from_slice(b"mntr");
+    header[16..20].copy_from_slice(b"RGB ");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let table = |inputs: u8, outputs: u8, clut: &[u16]| {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"mft2");
+        tag.extend_from_slice(&[0; 4]);
+        tag.push(inputs);
+        tag.push(outputs);
+        tag.push(2); // two grid points per axis
+        tag.push(0);
+        for value in [1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0] {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "a fixture's s15Fixed16 constants"
+            )]
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tag.extend_from_slice(&2u16.to_be_bytes()); // input table entries
+        tag.extend_from_slice(&2u16.to_be_bytes()); // output table entries
+        for _ in 0..inputs {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        for value in clut {
+            tag.extend_from_slice(&value.to_be_bytes());
+        }
+        for _ in 0..outputs {
+            for value in [0u16, 0xFFFF] {
+                tag.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+        tag
+    };
+
+    // The `A2B1` CLUT, with the *last* input varying fastest, which is ICC's own order.
+    let mut a2b_clut = Vec::new();
+    for corner in 0..8usize {
+        let at = |axis: usize| f32::from(u8::try_from((corner >> (2 - axis)) & 1).expect("a bit"));
+        for row in 0..3usize {
+            let value: f32 = (0..3)
+                .map(|column| {
+                    at(column)
+                        * COLOURANTS
+                            .get(column)
+                            .and_then(|c| c.get(row))
+                            .copied()
+                            .unwrap_or(0.0)
+                })
+                .sum();
+            // `u1Fixed15`: 0x8000 is 1.0, which is the encoding XYZ uses in a lookup table.
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "clamped into u16's range on the line above the cast"
+            )]
+            a2b_clut.push((value * 32768.0).clamp(0.0, 65535.0) as u16);
+        }
+    }
+    // The `B2A1` CLUT: the corners of the connection space sent back to device values. Present
+    // for §11.3.4's bi-directionality and nothing else.
+    let mut b2a_clut = Vec::new();
+    for corner in 0..8usize {
+        for axis in 0..3usize {
+            let high = (corner >> (2 - axis)) & 1 == 1;
+            b2a_clut.push(if high { 0xFFFFu16 } else { 0 });
+        }
+    }
+
+    let a2b = table(3, 3, &a2b_clut);
+    let b2a = table(3, 3, &b2a_clut);
+    let mut out = header;
+    let tags = if bidirectional { 2u32 } else { 1 };
+    out.extend_from_slice(&tags.to_be_bytes());
+    let first = 128 + 4 + (tags as usize) * 12;
+    out.extend_from_slice(b"A2B1");
+    out.extend_from_slice(&u32::try_from(first).expect("small").to_be_bytes());
+    out.extend_from_slice(&u32::try_from(a2b.len()).expect("small").to_be_bytes());
+    if bidirectional {
+        out.extend_from_slice(b"B2A1");
+        out.extend_from_slice(
+            &u32::try_from(first + a2b.len())
+                .expect("small")
+                .to_be_bytes(),
+        );
+        out.extend_from_slice(&u32::try_from(b2a.len()).expect("small").to_be_bytes());
+    }
+    out.extend_from_slice(&a2b);
+    if bidirectional {
+        out.extend_from_slice(&b2a);
+    }
+    out
+}
+
+/// A one-page fixture with a white page under a black fill masked by a `/Luminosity` group
+/// whose `/CS` is [`icc_rgb_table_profile`].
+///
+/// `mask` is the group's content, with the space itself available as `/PR`; `backdrop` is
+/// whatever Table 142 entry the soft-mask dictionary states beside `/S` and `/G`.
+fn table_profile_mask_fixture(mask: &str, backdrop: &str) -> Vec<u8> {
+    profile_mask_fixture(&icc_rgb_table_profile(), 3, mask, backdrop)
+}
+
+/// [`table_profile_mask_fixture`] over any profile and component count, so that one shape of
+/// fixture states the drawn case and the two reported ones.
+fn profile_mask_fixture(profile: &[u8], components: usize, mask: &str, backdrop: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in profile {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let page = "1 g 0 0 100 100 re f /GM gs 0 g 0 0 100 100 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /ExtGState << /GM << /SMask << /S /Luminosity /G 5 0 R {backdrop} >> >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS [/ICCBased 6 0 R] >> \
+         /Resources << /ColorSpace << /PR [/ICCBased 6 0 R] >> >> /Length {} >>\n\
+         stream\n{mask}\nendstream\nendobj\n\
+         6 0 obj\n<< /N {components} /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\n\
+         endstream\nendobj\n",
+        page.len() + 1,
+        mask.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A `/Luminosity` mask group whose `/CS` is a three-component **table** profile takes
+/// §11.5.3's `Y` over a sampled grid (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.5; ADR 0851).
+///
+/// §11.5.3 branches on the *kind* of the space and not on the shape of its arithmetic: "For
+/// CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
+/// luminosity", and EXAMPLE 1 adds that "[a]n analogous computation applies to other CIE-based
+/// colour spaces". An `ICCBased` space is CIE-based (§8.6.5.1) whether its profile carries a
+/// matrix or a lookup table, so the branch is the same and only the way the `Y` is computed
+/// differs — three curves summed where the profile decomposes, this grid where it does not.
+///
+/// [`icc_rgb_table_profile`] states sRGB's colourants at its corners, so a pure green's `Y` is
+/// the middle row's green entry, 0.7169, and a black fill through the mask over a white page
+/// leaves `1 − 0.7169`. **The device branch would leave `1 − 0.59`** — EXAMPLE 2's weights on
+/// the same channels — which is what this tree drew before, with no report to say so.
+#[test]
+fn a_table_profile_mask_group_takes_the_luminance_of_its_composited_components() {
+    let green = interpret(table_profile_mask_fixture(
+        "/PR cs 0 1 0 sc 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        green.is_complete(),
+        "a table profile's mask group is drawn, not reported: {:?}",
+        green.unsupported
+    );
+    assert_grey(
+        "a pure green's Y is the profile's own 0.7169, not the device branch's 0.59",
+        pixel(&green, 50, 50),
+        1.0 - 0.7169,
+    );
+
+    let device_rgb = interpret(table_profile_mask_fixture("0 1 0 rg 0 0 100 100 re f", ""));
+    assert_grey(
+        "a DeviceRGB green inside the group is the group's components (§11.7.2)",
+        pixel(&device_rgb, 50, 50),
+        1.0 - 0.7169,
+    );
+
+    let backdrop = interpret(table_profile_mask_fixture("", "/BC [0 1 0]"));
+    assert_grey(
+        "and /BC states those components where the group paints nothing",
+        pixel(&backdrop, 50, 50),
+        1.0 - 0.7169,
+    );
+}
+
+/// A `/Luminosity` mask group whose `/CS` is CIE-based and whose `Y` this reader cannot take
+/// is **named** rather than drawn in silence (ISO 32000-2 §11.5.3, §11.3.4; ADR 0851).
+///
+/// §11.5.3 branches on the space's kind — "For CIE-based spaces, convert to the CIE 1931 XYZ
+/// space and use the Y component as the luminosity" — so a CIE-based space that does not take
+/// that branch is a departure whatever the reason, and the report fires on exactly that
+/// condition rather than on a list of space names.
+///
+/// Two shapes reach it, and neither had a report before this round:
+///
+/// - **Four components.** An `ICCBased` profile of four channels is CIE-based (§8.6.5.1) and
+///   §11.3.4 lists it as a blending space, but its `Y` is a function of four composited
+///   components and §11.4.7's construction for four is a *pair* of rasters where a mask group
+///   is one. Measured over the 65 720 documents `examples/luminosity_mask_census` opens in the
+///   crawl, 3417 mask groups in 181 documents state one; `doc/pdf.js` states none.
+/// - **No route in.** §11.3.4 requires a blending space's profile to be "capable of both
+///   device to PCS and PCS to device transformations"; a table profile with no `B2A` is not,
+///   so there is nothing to composite the group's marks in even though its `A2B` would give
+///   the `Y`.
+///
+/// Both are drawn on the device's three components, which is what EXAMPLE 2's weights make of
+/// them — `0.30 × 0 + 0.59 × 1 + 0.11 × 0` for the green below, leaving `1 − 0.59`.
+#[test]
+fn a_mask_group_in_a_cie_space_with_no_route_is_named_rather_than_drawn_in_silence() {
+    let four = interpret(profile_mask_fixture(
+        &two_way_cmyk_profile(),
+        4,
+        "0 1 0 0 k 0 0 100 100 re f",
+        "",
+    ));
+    let reported = format!("{:?}", four.unsupported);
+    assert!(
+        reported.contains("four-component ICCBased /CS")
+            && reported.contains("§11.4.7's pair of rasters and a mask's group is one"),
+        "a four-component profile as a mask group's /CS is named: {reported}"
+    );
+
+    let one_way = interpret(profile_mask_fixture(
+        &icc_rgb_table_profile_with(false),
+        3,
+        "0 1 0 rg 0 0 100 100 re f",
+        "",
+    ));
+    let reported = format!("{:?}", one_way.unsupported);
+    assert!(
+        reported.contains("CIE-based /CS this reader has no route into"),
+        "a profile with no from-CIE half is named: {reported}"
+    );
+    assert_grey(
+        "and it is drawn on the device, where EXAMPLE 2's weights make a green 0.59",
+        pixel(&one_way, 50, 50),
+        1.0 - 0.59,
+    );
+
+    let drawn = interpret(profile_mask_fixture(
+        &icc_rgb_table_profile_with(true),
+        3,
+        "0 1 0 rg 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        drawn.is_complete(),
+        "and the same profile with its B2A takes the clause's branch and is not named: {:?}",
+        drawn.unsupported
+    );
+}
+
 /// `Lab` as a page group's `/CS` is reported, and named as the space §11.3.4 forbids.
 ///
 /// > The Lab space and ICCBased spaces that represent lightness and chromaticity separately

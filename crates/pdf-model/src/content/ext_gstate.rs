@@ -630,7 +630,7 @@ impl Interpreter<'_> {
 
         // §11.6.4.3's soft mask: an independent source of shape or opacity, defined by a
         // transparency group and applied to every object painted while it is in force.
-        match crate::soft_mask::entry(self.document, dict) {
+        match crate::soft_mask::entry(self.document, dict, self.presses) {
             crate::soft_mask::SoftMaskEntry::None => state.soft_mask = None,
             crate::soft_mask::SoftMaskEntry::Mask(request) => {
                 state.soft_mask = self.build_soft_mask(&request, state);

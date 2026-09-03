@@ -280,7 +280,12 @@ why = "a magazine page missing both photographs, refused for \"the colour space 
 path = "corpus-cache/safedocs/cc-main-2021-31/4359/4359750.pdf"
 page = 1
 session = 631
-reports = []
+# The row said `[]` until session 904, and what changed is a *silence becoming a report* rather
+# than the fix: this page also carries a /Luminosity mask whose group states a four-component
+# ICCBased /CS, which §11.5.3 sends down its colorimetric branch and this reader composites on
+# the device (ADR 0851). The ink band is untouched and the run held it, which is what says the
+# picture did not move — only what the reader admits about it.
+reports = ["four-component ICCBased /CS"]
 ink = 39.547 .. 41.547
 why = "a photograph drawn as a solid black rectangle in silence: a DCTDecode image in a /Lab space had its samples divided by 255 instead of mapped onto Table 88's default decode range, giving a lightness of at most 1 where 100 is white (ADR 0464, 8.9.5.2, 8.6.5.4)"
 

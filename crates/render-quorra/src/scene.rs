@@ -1461,15 +1461,16 @@ impl<'a> Encoder<'a> {
             .list
             .soft_mask(id)
             .ok_or(QuorraRasterError::UnknownSoftMask(id))?;
-        // §11.5.3's `Y` of a group composited in a three-component CIE-based space is one
-        // curve per component summed per pixel (`pdf_render::Luminance`), and quorra's
-        // luminosity mask computes §10.4.2.2's weights of the channels in its own shader —
-        // a different formula, so the mask is refused by name and the frame goes to the CPU
-        // backend rather than being drawn to the wrong luminosity in silence.
+        // §11.5.3's `Y` of a group composited in a three-component CIE-based space is read
+        // off the space's own arithmetic per pixel (`pdf_render::Luminance`: three curves
+        // summed, or a sampled grid interpolated), and quorra's luminosity mask computes
+        // §10.4.2.2's weights of the channels in its own shader — a different formula, so the
+        // mask is refused by name and the frame goes to the CPU backend rather than being
+        // drawn to the wrong luminosity in silence.
         if def.luminance.is_some() {
             return Err(QuorraRasterError::Unsupported(
                 "a luminosity soft mask whose group composites in a three-component CIE-based \
-                 space: its luminosity is three curves summed per pixel, where the scene's \
+                 space: its luminosity is the space's own `Y` per pixel, where the scene's \
                  mask weighs the channels (ISO 32000-2 §11.5.3)"
                     .to_owned(),
             ));
