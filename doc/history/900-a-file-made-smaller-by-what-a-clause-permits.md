@@ -197,6 +197,9 @@ the round placed to notice.
 `doc/todo/57` has the order. After this verb: `split --at-bookmarks`, the aligned rotated
 comparison ADR 0831 §1 priced, a per-input password for `merge`, the confinement tranche, and the
 RFC 0003 hand-off — which is now unblocked, because the owner's sequencing was that the
-file-system faces follow the writing verbs, and there are no writing verbs left. The suite's five
-writers still have exactly one gap in common, and session 898 is closing it from the other end: a
-corpus-wide *foreign* readback, which `optimize_corpus.rs` now inherits for a fifth time.
+file-system faces follow the writing verbs, and there are no writing verbs left. Session 898
+closed the gap this file was going to name last: `tests/foreign_corpus.rs` shows the writers'
+output to poppler, mupdf and qpdf, and it landed on `main` while this round was running. It knows
+about four writers. **`optimize` is the fifth and is not among them**, and a rewritten file is the
+one output whose whole point is that its bytes are different — which makes it the one most worth
+showing somebody else. That is the smallest thing left in `doc/todo/57`.
