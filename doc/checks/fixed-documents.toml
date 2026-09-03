@@ -34,11 +34,13 @@
 # the number here and says why in its own history file — the same discipline as any ratchet in
 # this tree, and the reason the row carries `why`.
 #
-# **One row's band is narrower and says so in its `why`.** `GHOSTSCRIPT-699521-0.pdf` is one
+# **Two rows' bands are narrower and say so in their `why`.** `GHOSTSCRIPT-699521-0.pdf` is one
 # 30-point line of stroked text on a 795 x 842 sheet, so the marks it exists to pin are worth
 # 0.307 of a level; at plus and minus 1.0 the band would admit a blank page and pin nothing but
-# the report beside it. A band is only a band when the defect it stands against is wider than it,
-# and where it is not, the row is narrowed rather than left to look like a pin.
+# the report beside it. `sumatrapdf-LINK-1618-0.pdf`'s twelve thin markup annotations are worth
+# 0.693 of one on an A4 sheet, which is the same shape one level further up. A band is only a band
+# when the defect it stands against is wider than it, and where it is not, the row is narrowed
+# rather than left to look like a pin.
 #
 # `corpus-cache/` is a machine-local crawl (`tools/safedocs`). Rows whose document is absent are
 # skipped and counted; a run that finds none of them says so and fails.
@@ -535,3 +537,11 @@ session = 882
 reports = []
 ink = 160.052 .. 162.052
 why = "a 10-unit tiling cell over an A4 page is 4480 sites of a two-command cell, and MAX_TILES afforded 4096 of them, so the top fifth of the sheet was white at 70.9 levels of ink by the ranking's instrument where poppler and mupdf agree on 80.5 to a hundredth, and ours reads 80.52 after; the count is retired, an empty cell loops nothing, a site the fill cannot reach is not copied, and the sites a fill states are bounded by the commands they cost, MAX_TILE_COPIES a tiling (ADR 0810, 8.7.3.1)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/sumatrapdf/sumatrapdf-LINK-1618-0.pdf"
+page = 1
+session = 890
+reports = ["/DR does not define", "PolyLine: no appearance stream", "Square: no appearance stream", "is outside the seven names"]
+ink = 8.978 .. 9.178
+why = "thirteen markup annotations with no /AP and a /Rect written as a point — six Underline, two Squiggly, two Highlight, a StrikeOut, a Line and a PolyLine, each with its /QuadPoints, /L or /Vertices whole — were dropped before any appearance was constructed, drawn nowhere and reported nowhere; §12.5.5's scale onto no extent is a stored stream's arithmetic and those six subtypes state their marks in default user space (ADR 0825, 12.5.6.10). The band is a tenth rather than a level because the twelve marks it stands for are worth 0.693 of one on an A4 sheet"

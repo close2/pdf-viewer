@@ -862,12 +862,14 @@ fn decided(
     // text', describes the process of using these entries to generate the appearance of the text
     // in these annotations". The construction is that process, so the stream is set aside and the
     // appearance is generated.
+    //
+    // A `/Rect` of no area does not stop it, for the reason the `Normal::Absent` arm below
+    // states at length: `FreeText` is one of [`crate::appearance::bounded_by_rect`]'s six, so
+    // Table 177's `/CL` reaches the page whatever `/Rect` says, and the value is clipped to the
+    // box it is laid out in rather than to a `/BBox`. One question, one answer, in both places.
     if view.contents.is_some() && subtype == b"FreeText" {
         return match stated_rect {
-            Some(rect) if !is_empty(rect) => {
-                construct(document, annotation, &subtype, &name, rect, view)
-            }
-            Some(_) => Decision::Nothing,
+            Some(rect) => construct(document, annotation, &subtype, &name, rect, view),
             None => Decision::Unsupported(format!("{name}: no usable /Rect")),
         };
     }
@@ -904,9 +906,26 @@ fn decided(
             let Some(rect) = stated_rect else {
                 return Decision::Unsupported(format!("{name}: no usable /Rect"));
             };
+            // **A `/Rect` covering no area stops only the constructions `/Rect` places**, and
+            // this line dropped every one of them until the eight-hundred-and-ninetieth session.
+            // The rule below — an annotation covering no area cannot show anything — is
+            // §12.5.5's arithmetic, which scales a *stored* stream's transformed `/BBox` onto
+            // `/Rect`; a construction goes through none of it. Six subtypes state their marks
+            // "in default user space" instead, and
+            // [`crate::appearance::bounded_by_rect`] is that list and the clauses for it: a
+            // `/Rect` that does not contain what `/QuadPoints`, `/L`, `/Vertices`, `/InkList` or
+            // `/CL` states is a bounding box the writer got wrong, and a `/Rect` of no area at
+            // all is that same file one step further. `sumatrapdf-LINK-1618-0.pdf` states
+            // thirteen of them on page one — six `Underline`, two `Squiggly`, two `Highlight`, a
+            // `StrikeOut`, a `Line` and a `PolyLine`, each with its quadrilaterals, endpoints or
+            // vertices whole and its `/Rect` written as a point — and every one was dropped
+            // here, drawn nowhere and **reported nowhere**, which is trap 5's own shape. ADR
+            // 0825.
             let rect = match anchored_icon(&subtype, rect) {
                 Some(square) => square,
-                None if is_empty(rect) => return Decision::Nothing,
+                None if is_empty(rect) && crate::appearance::bounded_by_rect(&subtype) => {
+                    return Decision::Nothing;
+                }
                 None => rect,
             };
             return construct(document, annotation, &subtype, &name, rect, view);

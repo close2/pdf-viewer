@@ -301,6 +301,91 @@ fn an_appearance_box_covering_no_area_draws_nothing_and_reports_nothing() {
     );
 }
 
+/// A `/Rect` covering no area does not unstate marks the clause puts in default user space.
+///
+/// The rule the fixture above turns on is §12.5.5's arithmetic over a **stored** stream, and it
+/// was being applied to constructions that go through none of it. §12.5.6.10's Table 182 states
+/// `/QuadPoints` as "the coordinates of n quadrilaterals in default user space" and gives them no
+/// fallback to `/Rect` — where the standard means one it says so, which is exactly what
+/// §12.5.6.5's Table 176 does for a *link's* activation region:
+///
+/// > If this entry is not present, or the PDF processor does not recognise it, or if any
+/// > coordinates in the QuadPoints array lie outside the region specified by Rect then the
+/// > activation region for the link annotation shall be defined by its Rect entry.
+///
+/// Table 166's `/AP` row is evidence the same way: it frees a writer from supplying an appearance
+/// dictionary for "[a]nnotations where the value of the Rect key consists of an array where the
+/// value at index 1 is equal to the value at index 3 and the value at index 2 is equal to the
+/// value at index 4" — this fixture, and `sumatrapdf-LINK-1618-0.pdf`'s thirteen — so a point
+/// `/Rect` beside a whole `/QuadPoints` is a file the standard anticipates rather than a file
+/// that has stated nothing. ADR 0825.
+#[test]
+fn a_text_markups_quadrilaterals_are_drawn_where_its_rect_covers_no_area() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Underline /Rect [20 20 20 20] /F 4 \
+         /QuadPoints [20 60 80 60 20 40 80 40] /C [0 0 0] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        interpretation.is_complete(),
+        "the quadrilaterals state the mark whole: {:?}",
+        interpretation.unsupported
+    );
+    let raster = render_incomplete(&interpretation);
+    // §12.5.6.10's underline is a bar on the quadrilateral's bottom edge — y 40, and x across the
+    // quadrilateral rather than at the point `/Rect` names.
+    assert!(painted(&raster, 50, 41), "the bar is on the bottom edge");
+    assert!(!painted(&raster, 50, 55), "and nowhere else in the quad");
+    assert!(
+        !painted(&raster, 5, 41),
+        "the bar stops at the quadrilateral's own edge"
+    );
+}
+
+/// §12.5.6.7's `/L` is in default user space too, so a point `/Rect` does not erase the line.
+#[test]
+fn a_line_annotation_is_drawn_where_its_rect_covers_no_area() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Line /Rect [0 0 0 0] /F 4 \
+         /L [20 50 80 50] /C [0 0 0] /BS << /W 3 >> >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        interpretation.is_complete(),
+        "the endpoints state the line whole: {:?}",
+        interpretation.unsupported
+    );
+    let raster = render_incomplete(&interpretation);
+    assert!(painted(&raster, 50, 50), "the line is where /L puts it");
+    assert!(!painted(&raster, 50, 20), "and not at the origin");
+}
+
+/// A subtype whose marks *are* `/Rect`'s still draws nothing, and still says nothing.
+///
+/// §12.5.6.8's square is "inscribed within the annotation rectangle", so a rectangle of no area
+/// inscribes nothing — the exemption above is the six subtypes whose own clause states default
+/// user space, and widening it to every construction would put this document back to reporting a
+/// gap that is Table 166's `/AP` row rather than ours.
+#[test]
+fn a_construction_that_rect_places_draws_nothing_where_rect_covers_no_area() {
+    let interpretation = interpret(pdf_with(
+        "<< /Type /Annot /Subtype /Square /Rect [20 20 20 20] /F 4 /IC [0 0 1] /C [0 0 0] >>",
+        "/BBox [0 0 10 10]",
+        "",
+    ));
+    assert!(
+        interpretation.display_list.commands().is_empty(),
+        "a square inscribed in no area is no square"
+    );
+    assert!(
+        interpretation.is_complete(),
+        "and it is not a gap: {:?}",
+        interpretation.unsupported
+    );
+}
+
 /// The `Hidden` and `NoView` flags mean nothing is drawn, and nothing is reported.
 ///
 /// Table 167 bit 2 is "do not render the annotation ... regardless of its annotation type",
