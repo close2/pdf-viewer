@@ -26,25 +26,32 @@ saying so is the first requirement principle 5 puts on it.
 
 ## 0. Provenance — what this RFC read, and what it did not
 
-**ISO 19005 is paywalled, in all four parts, and this round did not have it.** That is not an
-incidental limitation; it is the central fact about this proposal, and §10 question 2 is the
-consequence.
+**ISO 19005 is paywalled in all four parts, and this round had only the free previews.** That is
+not an incidental limitation; it is the central fact about this proposal, and §10 question 2 is
+the consequence. The previews are genuinely ISO's text and they reach further than expected —
+every part's scope and conformance clause and the opening subclauses of clause 6 — so a handful of
+the load-bearing statements below *are* first-hand. Every other statement is not, and the table
+says which is which.
 
 | source | status here |
 |---|---|
 | **ISO 32000-2** (with Errata Collection 3) | **read in full**, in `doc/md/`. Every §-numbered clause quoted below is from it, verbatim, and checkable by `tools/conformance`. |
 | **ISO 14289-1 (PDF/UA-1)** and **14289-2 (PDF/UA-2)** | **read in full**, in `doc/md/`. ISO 14289-2 states that its §8.4.5 "includes requirements matching those of the corresponding clause in ISO 19005-4 (PDF/A-4)", which makes it the one **normative** text in this tree that states a PDF/A-4 requirement in its own words. §5.1 uses it, and says what the caveat is. |
 | **WTPDF 1.0** and the **Tagged PDF Best Practice Guide** | in `doc/md/`; industry documents, not ISO standards. |
-| **ISO 19005-1, -2, -3, -4** | **not read.** Not owned, not obtainable without purchase. |
+| **ISO 19005-1, -2, -3, -4** | **partly read, and the boundary is exact.** ISO publishes a free preview of each part — cover, foreword, introduction, scope, conformance clause, and the opening subclauses of clause 6 — and this round read all four. The cut-offs are §6.1.7 (part 1), §6.1.11 (part 2), §6.2.4.1 (part 3, which therefore includes the *whole* of §6.2.3 *Output intent*) and §6.1.4 (part 4). Anything past a cut-off is second-hand. |
+| **ISO/DIS 19005-4 edition 2** | not read. ISO 19005-4:2020 is at stage 90.92, *to be revised*; a second edition has been in DIS ballot since 2025 and the PDF Association announced its public review on 2025-12-08. §10 question 2 turns on this. |
+| the **PDF/A-4 errata** (<https://pdf-issues.pdfa.org/19005-4-2020/>) and **PDF Association TN 0010** (clarifications of parts 1–3, CC-BY-4.0) | free, and the second is the most useful public document a converter could have. Neither is the standard. |
 | veraPDF's validation profiles, the PDF Association's technical notes, Ghostscript's and qpdf's documentation, ISO's own abstracts | evidence about the requirements and about how others read them — cited as such below, and never as the requirement. |
 
 **The rule this document holds itself to.** Every statement about what a part of PDF/A requires
-is marked with where it came from. A statement carrying a `§` and quotation marks is ISO 32000-2's
-or ISO 14289's own words. A statement of a PDF/A requirement with no clause number is
-**second-hand**: it is what the secondary sources agree the standard says, and it is written here
-so the owner can weigh the proposal, not so that anything can be implemented from it. **Nothing in
-§3 or §5 is a specification, and no implementation may cite this document as one.** That is
-question 2's whole point.
+is marked with where it came from. A statement carrying a `§` and quotation marks is some
+standard's own words, and the sentence around it says which — ISO 32000-2's and ISO 14289's are
+checkable against `doc/md/`, ISO 19005's are from the previews and are marked where they
+appear. A statement of a PDF/A requirement with no clause number is **second-hand**: it is what
+the secondary sources agree the standard says, and it is written here so the owner can weigh
+the proposal, not so that anything can be implemented from it. **Nothing in §3 or §5 is a
+specification, and no implementation may cite this document as one.** That is question 2's
+whole point.
 
 ---
 
@@ -61,7 +68,9 @@ that are not. The document argues that the validator is the larger part of the v
 all of the reusable work, that three of the converter's requirements are unsatisfiable or fenced
 rather than merely hard, and that the honest sequence is validator, then a measurement, then a
 decision about the converter. It also argues that neither can be built to this project's
-standards without the normative text of ISO 19005, which nobody here has.
+standards without the normative text of ISO 19005, of which this round had only ISO's free
+previews — and that ISO's own scope clause disclaims conversion, so the standard settles the
+predicate and nothing about either road to it.
 
 ---
 
@@ -121,6 +130,35 @@ or even be removed completely, in a later version of ISO 32000, or in subset sta
 PDF/X (ISO 15930), PDF/A (ISO 19005), PDF/E (ISO 24517), PDF/VT (ISO 16612-2 and ISO 16612-3) and
 PDF/UA (ISO 14289)."
 
+**And ISO says, in every part's scope clause, that it is not about the operation the commission
+asked for.** The sentence is identical in all four parts, 2005 to 2020, and this round read it in
+ISO's own text:
+
+> This document does not apply to: — specific processes for converting paper or electronic
+> documents to the PDF/A format; — specific technical design, user interface, implementation, or
+> operational details of rendering; — specific physical methods of storing these documents such
+> as media and storage conditions; — required computer hardware and/or operating systems.
+
+**And that sentence is a family idiom, which makes it checkable here rather than second-hand.**
+ISO 14289-1's scope, in `doc/md/`, is the same list with one word changed — "specific processes
+for converting paper or electronic documents to the PDF/UA format" — and ISO/TS 32001's is the
+same list again, for PDF itself, with **one extra line that settles the other half of §6's
+question outright**:
+
+> - specific processes for converting paper or electronic documents to the PDF file format;
+> - specific technical design, user interface implementation, or operational details of rendering;
+> - specific physical methods of storing these documents such as media and storage conditions;
+> - methods for validating the conformance of PDF files or PDF processors;
+> - required computer hardware and/or operating system
+
+So the family excludes **both** activities in its own words: neither converting a document to a
+subset format nor validating conformance against one is specified anywhere in these standards.
+(The PDF Association says the same of PDF/A in as many words — *Understanding Private Data in
+PDF/A*, 2024-06, CC-BY-4.0, §4.2: "Validation is not discussed in the ISO standards for PDF." — but
+it does not need to be taken on trust.) The standards define the *target* and standardise neither
+road to it. That is the single most important fact in this section, and §6 is built on it:
+whatever this project builds, the specification supplies the predicate and nothing else.
+
 The three obligations recur in every part:
 
 - **Self-containment.** Every font program embedded; no reference to external content streams, no
@@ -144,15 +182,22 @@ And two structural facts about the family matter for a converter:
 
 | part | ISO | base PDF | levels | the distinguishing thing |
 |---|---|---|---|---|
-| PDF/A-1 | 19005-1:2005 | PDF 1.4 | a, b | the strictest: **transparency forbidden**, JPEG 2000 forbidden, layers (optional content) forbidden, embedded files forbidden |
-| PDF/A-2 | 19005-2:2011 | PDF 1.7 (ISO 32000-1) | a, b, **u** | transparency and JPEG 2000 permitted; optional content permitted; PDF/A files may be embedded in a PDF/A file; adds level **u**, "all text has a Unicode mapping" |
-| PDF/A-3 | 19005-3:2012 | PDF 1.7 | a, b, u | identical to -2 except that **any** file may be embedded, whatever its format — the part that exists for hybrid invoice formats |
-| PDF/A-4 | 19005-4:2020 | **PDF 2.0** (ISO 32000-2) | none in the a/b/u sense; **PDF/A-4f** (embedded files) and **PDF/A-4e** (engineering) as variants | drops the a/b/u level scheme; the identification schema gains a revision; the base is the version this tree reads natively |
+| PDF/A-1 | 19005-1:2005 (+ Cor 1:2007, Cor 2:2011) | PDF 1.4 | a, b | the strictest: **transparency forbidden** by six clauses; optional content forbidden by name ("The document catalog dictionary shall not contain a key with the name OCProperties"); embedded files forbidden; `LZWDecode` the one filter forbidden outright. **JPEG 2000 is *not* forbidden by a clause** — it is excluded because `JPXDecode` does not exist in PDF 1.4, which the conformance clause makes the base |
+| PDF/A-2 | 19005-2:2011 | PDF 1.7 (ISO 32000-1) | a, b, **u** | transparency permitted on a condition about the blending space; JPEG 2000 permitted with constraints; optional content permitted, `/AS` forbidden; an embedded file must itself conform to part 1 or part 2. **The levels are defined by subtraction**: b is every requirement except the Unicode clause and the logical-structure clause, u is every requirement except the logical-structure clause, so b ⊂ u ⊂ a strictly and the whole scheme is two clause groups |
+| PDF/A-3 | 19005-3:2012 | PDF 1.7 | a, b, u | identical to -2 except around embedded files: **any** file may be embedded, whatever its format, with a MIME type in `/Subtype` and an `/AFRelationship` required. In veraPDF's encoding exactly four rules differ between -2 and -3 — the part that exists for hybrid invoice formats |
+| PDF/A-4 | 19005-4:2020, **at stage 90.92 and being revised** | **PDF 2.0** (ISO 32000-2) | none in the a/b/u sense; **PDF/A-4e** (engineering, Annex B) and **PDF/A-4f** (embedded files, Annex A), both annexes normative | the scheme is *structurally* gone: the notation clause lists `PDF/A-4`, `PDF/A-4e` and `PDF/A-4f` and no 4a/4b/4u, and the per-level subclauses parts 1–3 have are absent. **Level a's tagging requirement is not carried over** — the PDF Association's account is that part 4 "'offloaded' level A to WTPDF and/or PDF/UA-2". Whether level u's Unicode requirement became universal is **unresolved here** (§0). Base part 4 is *restrictive* about embedded files like part 2; **4f is part 3's successor, not 4**. `pdfaid:rev` is new; and "Features described as deprecated in ISO 32000-2 shall not be used", a blanket ban that is why many of parts 2 and 3's individual prohibitions vanish |
 
 **Level b** ("basic") is about *visual* reproducibility: the page will draw the same. **Level u**
 adds that every character shown can be recovered as Unicode. **Level a** ("accessible") adds
 tagged PDF — structure, reading order, language, alternate descriptions — and is where PDF/A meets
 PDF/UA.
+
+**One honest gap, flagged rather than smoothed over.** Whether PDF/A-4 folds level u's Unicode
+requirement into its single conformance level is a question this round could not settle: the
+Library of Congress's format description and PDFlib's account both say it does; veraPDF's PDF/A-4
+profile carries only a *conditional* rule about `/ToUnicode`, where its 2u profile carries a
+mandatory one. The governing sentence sits past the free preview's cut-off. It is left open here
+because guessing would be exactly the failure §0's rule exists to prevent.
 
 **The part that matters most for this project is -4**, and the reason is architectural rather than
 chronological: it is defined on ISO 32000-2, which is the standard this tree's conformance ledger,
@@ -182,11 +227,50 @@ replace that expectation with a number.
 
 | tool | what it does | the lesson |
 |---|---|---|
-| **Ghostscript** `pdfwrite` with `-dPDFA` | re-distils the document and writes a PDF/A file; the user supplies a definition file naming the output intent and an ICC profile | two lessons. **The profile is the user's**, not the tool's (§5.3 question 4). And re-distillation is exactly RFC 0002 §10's rejected option B: RFC 0001 already calls it "the cautionary tale, since re-distilling re-interprets content and loses what it does not understand" |
+| **Ghostscript** `pdfwrite` with `-dPDFA` (`=2`, `=3`) | re-distils the document. Its manual: "Ghostscript only supports creation of PDF/A versions 1-3 and conformance level b, other formats of PDF/A are not supported", and "you must alter the /ICCProfile so that it points to a valid ICC profile for your OutputIntent" | two lessons. **The profile is the user's**, not the tool's (§5.3 question 4). And re-distillation is exactly RFC 0002 §10's rejected option B: RFC 0001 already calls it "the cautionary tale, since re-distilling re-interprets content and loses what it does not understand" |
 | **ocrmypdf** | writes PDF/A-2b by default, via Ghostscript, but **grafts** the OCR text layer back into the original pages rather than re-rendering them | RFC 0001 records its design principle as "content preservation as a design principle" — and it is the shape a conversion should have: touch what the requirement names, carry everything else |
 | **Acrobat Pro** preflight | validates and converts, with a fixup report | the market segmentation is the evidence: RFC 0001 §7 records PDF/A as a **Pro**-tier feature, alongside OCR, redaction and compare — professional rather than everyday |
-| **veraPDF** | the reference open-source validator, whose rule sets encode ISO 19005's clauses machine-readably | the architecture is a validation *model* plus rules as data — the same recognition `crates/pdf-spec` embodies for the Arlington object model. §7.1 says why this project must not *generate from* those rules even so |
-| **qpdf** | does not claim PDF/A output at all | worth stating: the most careful structure-preserving writer in the prior art declines this feature, which is evidence about its cost rather than about its value |
+| **veraPDF** | the reference open-source validator; its rule sets ([`veraPDF/veraPDF-validation-profiles`](https://github.com/veraPDF/veraPDF-validation-profiles)) encode ISO 19005's clauses machine-readably, one rule per `shall` | the architecture is a validation *model* plus rules as data — the same recognition `crates/pdf-spec` embodies for the Arlington object model. §7.1 shows what a rule looks like, and says why this project must not *generate from* them even so |
+| **qpdf** | declines the feature in as many words. Its manual mentions PDF/A once, under `--newline-before-endstream`: "While qpdf doesn't specifically know how to generate PDF/A-compliant PDFs, this at least prevents it from removing compliance on already compliant files." | the most careful structure-preserving writer in the prior art will *avoid breaking* conformance and will not claim to produce it — evidence about the feature's cost, and a model for a serializer's obligations short of conversion |
+
+**Three things the prior art demonstrates that no amount of design can argue.**
+
+**First, a converter that re-distils destroys what it does not understand, and Artifex says so
+itself.** The Ghostscript documentation: "We often hear from users that they are 'splitting' PDF
+files, or 'modifying' them, or converting them to PDF/A, and it's important to realize that this
+is not what's happening. Instead, a new PDF file is being created… In addition, any part of the
+original input which does not actually make marks on the page (such as hyperlinks, bookmarks,
+comments etc) will normally not be present in the output." That is RFC 0002 §10 option B's
+rejection, written by the tool that took the option.
+
+**Second, and it is the sharpest evidence in this document for §5.6's rule: a converter can write
+a conformance claim it has not earned, and the leading open-source one does.** Run on this machine
+during this round's research: `gs -dPDFA=1 -sDEVICE=pdfwrite` with no `PDFA_def.ps` prologue and no
+colour-conversion strategy exits 0, emits no warning, writes an XMP packet declaring
+`pdfaid:part 1` and `pdfaid:conformance B`, and produces a file with **no output intent at all**.
+An invalid PDF/A that says it is valid, silently. The same round fed it a transparent PDF 1.4 page
+targeting PDF/A-1 at every value of `-dPDFACompatibilityPolicy` including 2, "abort on
+non-conformance": every run rasterised the whole page to a single bitmap, exit 0, no warning.
+§5.2's flattening cliff is not hypothetical, and the tool that goes over it does not say so.
+
+**Third, ISO predicted all of this in 2020.** ISO 19005-4's own introduction:
+
+> By itself, PDF/A does not necessarily ensure that the visual appearance of the content
+> accurately reflects any original source material used to create the conforming file; e.g. the
+> process used to create a conforming file might substitute fonts, reflow text, downsample images
+> or use lossy compression.
+
+A file can be perfectly conformant and no longer show what it showed. **Conformance is not
+fidelity**, and a project whose stated target is Acrobat-class fidelity should notice that the
+standard it is being asked to target says so out loud.
+
+(The sentence is a family idiom rather than PDF/A's alone: ISO 14289-1's introduction, which is in
+`doc/md/`, carries it almost word for word about PDF/UA — "By itself, PDF/UA does not necessarily
+ensure that the visual appearance of the content accurately reflects any original source material
+used to create the conforming file. For example, the process used to create a conforming file
+might substitute fonts, reflow text, downsample images, or use lossy compression." Noted here
+because the two are near enough that a quotation sweep will pair them, and because the repetition
+is itself the point: the subset standards say this about themselves deliberately.)
 
 ## 4. Current restrictions, each with its rationale
 
@@ -280,6 +364,11 @@ none of them is conversion:
    4 — the suite's "refused by name" code, which exists precisely so that a caller can tell "the
    file defeated us" from "we declined".
 
+**And ISO's own introduction names this as a thing that happens** — §3.4 quotes it: "the process
+used to create a conforming file might substitute fonts, reflow text, downsample images or use
+lossy compression". The standard is telling a reader of a PDF/A file not to assume it looks like
+what it was made from. This project's stated target is that it *does*.
+
 **The proposal is 4, and it is not a limitation to apologise for.** A file that cannot be made
 conformant should be *said* to be non-conformable, with the reason and the witness pages, because
 that is a true and actionable answer and the other three are false ones. It is also the answer
@@ -366,22 +455,35 @@ is one an ICC engine can evaluate, is machinery already in the tree.
 `data/` holds `cmaps` and `standard-fonts` and no ICC profile; nothing in `crates/` embeds one.
 Three options:
 
-1. **Ship one.** `CLAUDE.md` principle 2 already states the terms — "Any future data resource
-   follows the same rule": compiled-in `static` bytes, parsed on first use, zero startup cost.
-   Technically this is trivial and the rule is already written. What it is not is free: it is a
-   redistributed third-party data file with a licence to check and to keep checked, in a tree
-   whose dependency discipline argues every crate in `doc/stack.md`. It is also a *choice about
-   the document* being made by the program: which rendering condition a file should declare
-   depends on where the file is going, and Ghostscript's `-dPDFA` interface makes the user supply
-   it for exactly that reason.
+1. **Ship one — and the licence question, which was the objection, has an answer.** The ICC's
+   own registry publishes `sRGB2014.icc` under a grant whose whole substance is two conditions:
+   ship it unchanged including its copyright tag, and do not use ICC's name to advertise. There
+   is no copyleft and no field-of-use restriction, so a separately-licensed data file with its own
+   notice inside an Apache-2.0 tree is the same pattern as a bundled font. `CLAUDE.md` principle 2
+   already states the technical terms — "Any future data resource follows the same rule":
+   compiled-in `static` bytes, parsed on first use, zero startup cost. **Two details decide
+   *which* file.** Take the **v2** profile rather than `sRGB_v4_ICC_preference.icc`, because
+   PDF/A-1 constrains the output profile's internal ICC version to below 3.0 where parts 2 to 4
+   allow below 5.0 — one v2 file therefore covers all four parts. And **do not ship
+   Ghostscript's**: `iccprofiles/srgb.icc` is Artifex's own profile under Ghostscript's AGPL, with
+   no embedding exemption. The remaining objection is not legal but editorial: which rendering
+   condition a file should declare is a *choice about the document*, which is why Ghostscript's
+   interface makes the user supply it. The PDF Association's TN 0002 states the sane default —
+   "RGB contents of unknown origin are usually best described by sRGB" — and one trap worth
+   knowing: a document with colourised annotations needs an RGB output intent, because `/C` and
+   `/IC` are always `DeviceRGB`.
 2. **Require the caller to supply one** (`--output-intent-profile <file>`), with no default. The
    library never opens a path — the seam forbids it — so the profile arrives as bytes through
    `Sources`, like any other input.
 3. **Refuse to convert a document that has no output intent and paints in device colour.** Too
    strict to be useful: it would refuse most documents that exist.
 
-**Recommendation: option 2 in tranche one**, with option 1 available later if the owner wants a
-default. Question 4 puts it.
+**Recommendation, revised once the licence was actually read: ship the ICC v2 sRGB profile as the
+default *and* accept `--output-intent-profile` to override it.** The objection to shipping was that
+a bundled data file carries an unexamined licence; that objection is answered above, and a flag
+with no default makes the common case awkward for no remaining reason. The override is what keeps
+the editorial half honest — a document going to a press is not an sRGB document, and the program
+should not pretend to know. Question 4 puts it.
 
 **And there is a sharper problem underneath, which this round found by reading the code rather
 than the standard.** §14.11.5 says of the output intent dictionary:
@@ -477,14 +579,32 @@ wanted (Okular bug 452403 is cited there as viewer-side demand for it).
 ### 5.6 XMP, the identification schema, and metadata this program would be authoring
 
 **The requirement.** A PDF/A file identifies itself in its document-level XMP packet through the
-PDF/A identification schema: `pdfaid:part` (1, 2, 3 or 4), `pdfaid:conformance` (`A`, `B` or `U`
-for parts 1 to 3), and for part 4 a `pdfaid:rev`. The parts also require that where the document
-information dictionary and the XMP packet both state a property, they agree, and that any XMP
-property outside the predefined schemas be described by an embedded extension schema.
-(Provenance: second-hand — §0 — except where ISO 32000-2 states the same thing, below.)
+PDF/A identification schema: `pdfaid:part` (1, 2, 3 or 4), `pdfaid:conformance`, and for part 4 a
+`pdfaid:rev`. For parts 1 to 3 the conformance property is `A`, `B` or `U`, the document
+information dictionary and the XMP packet must agree wherever both state a property, and any XMP
+property outside the predefined schemas needs an embedded extension schema.
 
-**ISO 32000-2 states the agreement rule itself**, in §14.3.4, and it binds *this program as a
-writer* independently of PDF/A:
+**Part 4 changes all three of those, and this is the largest single difference between it and its
+predecessors.** ISO 19005-4 §6.1.3, read here in ISO's own text:
+
+> The Info key shall not be present in the trailer dictionary of PDF/A-4 conforming files unless
+> there exists a PieceInfo entry in the document catalog dictionary. If a document information
+> dictionary is present, it shall only contain a ModDate entry.
+
+So a converter targeting part 4 must **delete** `/Info`, not reconcile it — and the whole
+DocInfo↔XMP consistency requirement disappears with it, because nothing is left to be consistent
+with. `pdfaid:conformance` is likewise not simply gone: it is **absent** for a plain PDF/A-4 file,
+`E` for PDF/A-4e and `F` for PDF/A-4f. And part 4 drops the extension-schema machinery entirely —
+parts 1 to 3 need eighteen or nineteen rules' worth of it in veraPDF's encoding, part 4 none,
+recommending a RELAX NG schema as an associated file instead.
+
+(Provenance: §6.1.3 and the conformance-property rule are ISO's own words, from the free preview;
+the extension-schema and rule-count observations are veraPDF's encoding — §0.)
+
+**For parts 1 to 3, ISO 32000-2 states the agreement rule itself**, in §14.3.4, and it binds
+*this program as a writer* independently of PDF/A — and part 4's answer above is visibly the same
+rule taken to its conclusion, since deleting one of the two sources is the surest way to make them
+agree:
 
 > When writing the time and date of creation for the first time, typically when a new document is
 > created, a PDF processor shall ensure that the data in the document information dictionary and
@@ -508,9 +628,11 @@ itself*. Writing `pdfaid:part 2` and `pdfaid:conformance B` into a file is this 
 in the file, to every future reader, that the file conforms — and no reader of that assertion can
 tell whether the program checked or merely stamped. That is a qualitatively different act from
 deleting a JavaScript action, and it is the reason §6's ordering is not a matter of taste: **a
-converter that writes the identification schema without a validator to justify it is a program
-that lies for a living.** The design consequence is a rule, proposed here and worth writing into
-the code the day it exists:
+converter that writes the identification schema without a validator behind it is making a claim it
+has not checked.** §3.4's second finding is what that looks like in the field — Ghostscript, asked
+for PDF/A-1 without a prologue, writes `pdfaid:part 1 / pdfaid:conformance B` into a file with no
+output intent, exits 0 and says nothing. The design consequence is a rule, proposed here and worth
+writing into the code the day it exists:
 
 > The identification schema is written by the converter **only** after the output has been
 > re-read and passed by this tree's own validator, in the same operation. A conversion whose
@@ -577,6 +699,15 @@ The commission asked for a converter. This section argues that the converter's *
 the more valuable half, that it is the half this project is unusually placed to build, and that
 the two should be sequenced rather than bundled.
 
+**Neither activity is in the standards, and that is the starting point rather than an objection.**
+§3.1 has the scope clauses: every part of ISO 19005 excludes "specific processes for converting
+paper or electronic documents to the PDF/A format", and ISO/TS 32001's copy of the same list —
+readable in `doc/md/` — excludes "methods for validating the conformance of PDF files or PDF
+processors" as well. The standards state a predicate over a file. Deciding whether a file
+satisfies it, and producing a file that does, are two engineering activities left entirely to the
+implementer — so nothing here is settled by authority, and the choice between them is a choice
+about this project.
+
 **They ask opposite questions.** A validator asks *does this file meet ISO 19005 part N level L,
 and if not, which requirement does it fail and where?* It is a reader: it opens a document, walks
 its objects, and decides. It invents nothing, writes nothing, and every one of its answers is a
@@ -599,13 +730,17 @@ is the one no standard states and no gate can fully check.
 
 Every row's left column is a walk over structures this tree already parses. The right column's
 first three rows are mechanical; its last five are either impossible, or need a decision no
-program can take, or sit on the far side of `CLAUDE.md`'s redrawn fence. **That is the whole argument, and it is an argument about
-this project rather than about PDF/A**: a reader whose defining discipline is citing the clause
-it implements is a validator with the hard 90 % already built, and a producer with almost none of
-it.
+program can take, or sit on the far side of `CLAUDE.md`'s redrawn fence. **That is the whole
+argument, and it is an argument about this project rather than about PDF/A**: a reader whose
+defining discipline is citing the clause it implements is a validator with the hard 90 %
+already built, and a producer with almost none of it.
 
-**And the project has the instrument nobody else's validator has.** veraPDF decides conformance
-from an object model. This tree decides conformance from an object model *and can render the
+**And the project has the instrument nobody else's validator has — on veraPDF's own account.**
+Its functional specification draws the boundary itself: "In addition to file format requirements,
+PDF/A includes requirements for 'conforming reader' software to ensure consistent rendering of
+text and graphics. As visual rendering is out of scope in a file format validator, veraPDF does
+not address requirements for a conforming reader." veraPDF decides conformance from an object
+model. This tree decides conformance from an object model *and can render the
 page*, on three independent backends held against each other. A requirement whose purpose is
 "the file will still look right in twenty years" — every font embedded, every colour anchored to
 a profile, no reliance on anything outside the file — can be checked here not only structurally
@@ -652,7 +787,35 @@ owner which.
 
 **The requirement set is data, and the shape of that data is the design decision** — what
 veraPDF calls a validation *profile*, a word this document avoids because §5.3 needs it for
-ICC. A requirement is (part, level, clause, predicate over the object model, witness
+ICC. Its shape there is worth seeing, because it is close to what is proposed and the differences
+are the argument. One complete rule, PDF/A-1 §6.3.4, verbatim from the repository:
+
+```xml
+<rule object="PDFont">
+    <id specification="ISO_19005_1" clause="6.3.4" testNumber="1"/>
+    <description>The font programs for all fonts used within a conforming file shall be
+      embedded within that file, as defined in PDF Reference 5.8, except when the fonts are
+      used exclusively with text rendering mode 3</description>
+    <test>Subtype == "Type3" || Subtype == "Type0" || renderingMode == 3
+      || containsFontFile == true</test>
+    <error><message>The font program is not embedded</message></error>
+</rule>
+```
+
+Five fields: the model type the rule is about, the ISO citation and a stable rule number, the
+standard's own sentence, a boolean predicate, and the message a person reads. The predicate is
+literal JavaScript, evaluated by an embedded Rhino; the object model is a separate Xtext DSL with
+several hundred types in five layers — file syntax, document objects, one type per content-stream
+operator, structure, XMP. Rules needing cross-object state fold it through declared variables (one
+in PDF/A-1b, five in PDF/A-4), which is the part a naive reimplementation misses. The profiles run
+to roughly 111 rules per PDF/A-4 flavour and 129 to 155 for the parts with levels — the honest
+size of the checking job. **And one caution that is itself a principle-5 lesson**: the
+`<description>` texts are ISO's sentences and check out, but a `<test>` sometimes asserts more
+than the sentence it quotes — the ICC version bound is attributed to a working-group note rather
+than to a clause. Rules as data are the right architecture; somebody else's rules are not the
+requirement.
+
+A requirement here would be (part, level, clause, predicate over the object model, witness
 extractor). Some are pure `pdf-spec` questions — a key that shall be absent, a value that shall
 be one of a set. Some need `pdf-model` — is every font's program embedded, does every
 annotation with a normal appearance have one. A few need the interpreter — does any content
@@ -731,6 +894,19 @@ question of its own that none of them asks. Strongest first:
    reverse, is either a misreading here, a misreading there, or a genuinely unspecified point,
    and those three have different consequences. `doc/PLAN.md` §4 already lists both corpora as
    ones to add; this RFC is the first thing in the tree that would give them a denominator.
+
+   **The corpora, with their licences, because one of them constrains what may be committed.**
+   The **veraPDF corpus** (<https://github.com/veraPDF/veraPDF-corpus>) is CC BY 4.0, a few
+   thousand atomic files named by the clause they exercise, and — unlike Isartor — it carries
+   both quadrants, files that pass as well as files that fail. The **BFO suite**
+   (<https://github.com/bfosupport/pdfa-testsuite>) is CC BY 3.0 and small, and also has valid
+   documents. **Isartor is the exception and must be handled differently**: 204 files, all
+   failures by design — its manual says it exists "to 'validate the validators'" — under terms
+   that reserve all rights and state that "Redistributing all or parts of the Isartor test suite
+   is also not allowed." It may be fetched, tested against, and its results published; it may
+   **not** be vendored into this repository or into a container image. `doc/todo/03`'s
+   fetched-on-demand pattern is what it needs, and the distinction is worth writing down before
+   somebody commits it.
 5. **The corpus, for the question a standard cannot answer.** `CLAUDE.md`'s two denominators
    again: the ledger and the ISO 19005 requirement list answer *coverage*; running the validator
    over every corpus document and asking what share of real files already conform, and by how
@@ -751,7 +927,7 @@ current rules, with the one-sentence why. **V** is the validator, **C** the conv
 | **PDF/A-2u** | **moderate** | **moderate-hard** | adds "every character maps to Unicode"; the *check* is `pdf-font`'s existing `/ToUnicode` and encoding machinery, and the *fix* — synthesising a `/ToUnicode` for a symbolic subset font — is possible only where the glyph names or the encoding permit it, and must refuse otherwise |
 | **PDF/A-2a** | **moderate** | **declined** | as -1a |
 | **PDF/A-3b/u** (19005-3) | **easy** given -2 | **easy** given -2 | the part differs from -2 essentially in permitting arbitrary embedded files, which for a validator is a relaxed predicate and for a converter is one fewer removal; `attachments` already reads and writes §7.11.4 |
-| **PDF/A-4** (19005-4) | **moderate** | **moderate** | on PDF 2.0, which is the version this tree reads natively and cites throughout — the least translation of any part; the tagging requirement is not a separate level here, which removes the -1a/-2a problem |
+| **PDF/A-4** (19005-4) | **moderate** | **moderate** | on PDF 2.0, which is the version this tree reads natively and cites throughout — the least translation of any part, and there is no level a to decline. Two things raise its cost: `/Info` must be *deleted* rather than reconciled (§5.6), and the 2020 text is being replaced (question 2) |
 | **PDF/A-4f** | **easy** given -4 | **easy** given -4 | embedded files permitted, as -3 to -2 |
 | **PDF/A-4e** | **moderate** | **hard/declined** | the engineering variant admits 3D and rich media, which is `CLAUDE.md`'s clause-13 exclusion by name; the validator can check the rest and refuse to judge what it does not read |
 | the profile-data layer (§7.1) | **moderate** | — | writing a few hundred requirements as reviewable data from the normative text is the bulk of the work, and it is reading rather than research |
@@ -776,29 +952,44 @@ in the middle.
    with teeth: is a program that *tells you your file cannot be made conformant, and why*, an
    acceptable answer to "convert to PDF/A" — because on the evidence of §5.1 it is the answer a
    large share of real documents will get.
-2. **Buying ISO 19005.** §0 says exactly what this RFC could and could not read, and the honest
-   summary is that every requirement §3 and §5 attribute to PDF/A is second-hand except where
-   ISO 32000-2 or ISO 14289 states the same thing in its own words. Principle 5 does not permit
-   shipping a conformance verdict derived from veraPDF's rule set, so **a validator cannot be
-   built to this project's standards without the normative text.** Four parts, plus amendments.
-   **Recommendation: this is the one dependency the feature genuinely has, and it should be
-   settled before any code.** The nearest precedent points the other way and is worth stating
-   for that reason: on 2026-08-28 the owner declined to buy ISO 21757-1 because Adobe's own
-   JavaScript for Acrobat API Reference *is* the working specification of that subject. There
-   is no such document here. veraPDF's rule set is not ISO 19005 in the way Adobe's reference
-   is the JavaScript API; it is somebody's reading of a text we would not have.
-3. **Which parts, in which order?** **Recommendation: PDF/A-4 and PDF/A-2b first** — -4 because
-   it is built on PDF 2.0, the version this tree reads natively and cites in every doc comment,
-   so it needs the least translation; -2b because it is what people are actually asked for and
-   what accepts a transparent document. -1 last, and -3 free once -2 exists.
-4. **The ICC profile: ship one, or require the caller to supply one?** §5.3. A converter cannot
-   write an output intent without a `/DestOutputProfile`, and this tree ships no profile.
-   Ghostscript's answer is to make the user supply one. **Recommendation: require
-   `--output-intent-profile <file>` with no default in tranche one** — it keeps a data dependency
-   and its licence out of the tree, it is honest about the fact that *which* profile is a
-   decision about the document rather than about the program, and it can be softened later by
-   shipping a default if the owner wants one. The counter-argument is real: a flag with no
-   default makes the common case awkward, and every competing tool has a default.
+2. **Buying ISO 19005, and which edition.** §0 says exactly what this round could and could not
+   read. Principle 5 does not permit shipping a conformance verdict derived from veraPDF's rule
+   set — that is somebody's reading of a text we would not have — so **a validator cannot be
+   built to this project's standards without the normative text**, and this is the one dependency
+   the feature genuinely has. Two facts complicate the timing and both point the same way.
+   **ISO 19005-4:2020 is at stage 90.92, *to be revised***: a second edition has been through two
+   DIS ballots, and it is the text a part-4 implementation written now would be overtaken by,
+   `pdfaid:rev` included. And the free material reaches further than expected — ISO's own previews
+   cover each part's scope, conformance clause and opening subclauses, which is where §3.1's
+   scope disclaimer, §3.2's level definitions and §5.6's `/Info` rule came from; the PDF/A-4
+   errata are public; and PDF Association TN 0010 is twenty-eight ISO-reviewed clarifications of
+   parts 1 to 3 under CC-BY-4.0. **Recommendation: buy parts 1, 2 and 3 now** — they are stable,
+   they are what users are actually asked for, and part 3 is nearly free once part 2 is read —
+   **and wait for edition 2 of part 4 rather than buying a text with a successor in ballot.** The
+   nearest precedent points the other way and is worth stating for that reason: on 2026-08-28 the
+   owner declined to buy ISO 21757-1, because Adobe's own JavaScript for Acrobat API Reference
+   *is* the working specification of that subject. There is no equivalent document here.
+3. **Which parts, in which order?** This is question 2's other half and the answer moved while
+   this document was being written. Architecturally **PDF/A-4 is the natural first**, because it
+   is built on PDF 2.0 — the version this tree reads natively and cites in every doc comment — so
+   it needs no translation across a version boundary at all. Practically it is the one part whose
+   text is being replaced. **Recommendation: PDF/A-2b first, PDF/A-3 immediately after it (four
+   rules' difference), PDF/A-4 when its second edition lands, PDF/A-1 last or never.** -2b is what
+   deposit rules actually name and it is the part that accepts a transparent document; -1 is the
+   only part with §5.2's cliff and it has been superseded twice.
+4. **Shipping an ICC profile as a data resource.** §5.3. A converter cannot write an output
+   intent without a `/DestOutputProfile`, and this tree ships no profile. **Recommendation: ship
+   the ICC's own v2 sRGB profile as the default, and accept `--output-intent-profile` to override
+   it.** The reason to hesitate was the licence, and the licence turns out to be a permissive
+   grant with two conditions — ship it unchanged with its copyright tag, do not use ICC's name to
+   advertise — with no copyleft and no field-of-use term; the v2 file satisfies PDF/A-1's
+   below-3.0 internal-version constraint as well as parts 2 to 4's below-5.0, so one file covers
+   every part. It would be the first bundled third-party data file here that is not a font metric
+   or a CMap, so it is the owner's call and `doc/stack.md` gains an entry either way.
+   **A sub-question rides on it and is genuinely open**: §5.3's last paragraph shows that adding
+   an output intent changes what every device colour means *in this renderer*, which is neither
+   clearly inside nor clearly outside ADR 0816's "does the operation invent marks?" fence — the
+   first case that tests the fence's wording rather than its intent.
 5. **Does the "no invented marks" fence move for PDF/A-1?** §5.2. **Recommendation: no.** A
    PDF/A-1 conversion of a transparent document refuses by name and names PDF/A-2b as the format
    that accepts it. The fence was drawn in ADR 0816 days before this document and a flattener is
@@ -830,16 +1021,18 @@ document.**
 
 The order is:
 
-1. **Obtain ISO 19005** (question 2). Nothing else in this list is legal under principle 5
-   without it, and everything else in this list is cheap once it is done.
-2. **`crates/pdf-archive`, part 4 and part 2 level b**, as reviewable requirement data plus a
-   walk, over readers that all exist. Every requirement carries its clause, the way every row of
-   the conformance ledger does, and every requirement nobody has read is reported as *not
-   checked* rather than passed.
-3. **Run it over the corpus, and over the veraPDF and Isartor corpora** `doc/PLAN.md` §4 already
-   names — the corpus as this project's robustness denominator for a second standard, the other
-   two as principle 5 evidence about our reading. The disagreements are the product of that
-   round, not the pass rate.
+1. **Obtain ISO 19005 parts 1 to 3** (question 2), and wait on part 4's second edition. Nothing
+   else in this list is legal under principle 5 without the text, and everything else in it is
+   cheap once that is done.
+2. **`crates/pdf-archive`, part 2 level b first and part 3 straight after**, as reviewable
+   requirement data plus a walk, over readers that all exist. Every requirement carries its
+   clause, the way every row of the conformance ledger does, and every requirement nobody has
+   read is reported as *not checked* rather than passed.
+3. **Run it over the corpus, and over the conformance corpora** `doc/PLAN.md` §4 already
+   names — veraPDF's and BFO's vendored, Isartor fetched on demand under its own terms (§8) —
+   the corpus as this project's robustness denominator for a second standard, the other two as
+   principle 5 evidence about our reading. The disagreements are the product of that round, not
+   the pass rate.
 4. **Then answer question 1 with the numbers in hand.** How many real documents fail only on
    requirements a converter could mechanically fix, and how many fail on a missing font program?
    If the second number dominates, the converter is a small feature attached to a large refusal
