@@ -76,7 +76,7 @@ impl Session {
     ) -> Events {
         self.handle(Command::Open {
             id: DocumentId(id),
-            bytes,
+            bytes: bytes.into(),
             password,
             fragment,
         })

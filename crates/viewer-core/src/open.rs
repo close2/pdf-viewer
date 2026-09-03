@@ -615,7 +615,7 @@ impl Open {
     /// [`pdf_syntax::SyntaxError::PasswordRequired`], which the caller turns into a prompt
     /// rather than into a failure.
     pub(crate) fn new(
-        bytes: Vec<u8>,
+        bytes: impl Into<pdf_syntax::FileBytes>,
         password: Option<&crate::Secret>,
     ) -> Result<Self, pdf_syntax::SyntaxError> {
         Ok(Self::around(Document::open_with_password(

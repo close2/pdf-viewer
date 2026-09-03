@@ -7,7 +7,7 @@ use pdf_model::action::Trigger;
 use pdf_model::optional_content::{ListMode, OptionalContent, Presented};
 use pdf_model::view::Pointer;
 use pdf_render::{DisplayList, Point, Rect, TargetSpec, Transform};
-use pdf_syntax::{ObjectId, SyntaxError};
+use pdf_syntax::{FileBytes, ObjectId, SyntaxError};
 
 use crate::command::{
     Command, Find, FindDirection, PageTarget, PointerAction, Purpose, Rendered,
@@ -496,7 +496,7 @@ impl Viewer {
     fn open(
         &mut self,
         id: DocumentId,
-        bytes: Vec<u8>,
+        bytes: FileBytes,
         password: Option<&crate::Secret>,
         fragment: Option<&str>,
         events: &mut Vec<Event>,

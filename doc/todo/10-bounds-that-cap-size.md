@@ -217,11 +217,22 @@ They were not architecture and did not wait for a decision, which is why they we
   the first copy. `pdf_syntax::FileBytes` holds the vector where it was, and `pdf_syntax::read_file`
   asks `try_reserve_exact` for the whole length first and answers `NoRoom { length }` by name.
   **Deliberately no number of this program's own**: the owner's brief above is the reason, and the
-  bound is the process's limit, asked once. What that leaves is the *kind* of the quantity, which is
-  this file's §5 D question one layer down: a 5.6 GB document costs 5.6 GiB resident to show page
-  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks. A file-backed reader
-  that reads what §7.5.4's offsets name is the road that changes it, and it is a design rather than
-  a bound — recorded here so that the next document of that size finds the question asked.
+  bound is the process's limit, asked once. ~~What that leaves is the *kind* of the quantity, which
+  is this file's §5 D question one layer down: a 5.6 GB document costs 5.6 GiB resident to show page
+  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks.~~ **Answered in the
+  eight-hundred-and-eighty-first session** (ADR 0809): `pdf_syntax::FileBytes::on_disk` keeps the
+  file open and every reader in the crate asks for bytes from an offset, through a window the
+  parser grows until it examined nothing at the window's end — so the 5.6 GB document costs its
+  trailer, its table and page one's objects, and every host that opens a file itself opens it that
+  way. `tools/state.sh` does not print the figure; `examples/open_cost` does, both routes, with
+  `OPEN_COST_ROUTE=whole` for the old one. **What is left, each written down rather than left**:
+  the confined viewer's host still reads the file whole because its worker has no file system and
+  receives the document over a pipe (an open file descriptor handed to the worker at spawn, with
+  `pread64` allowed through the filter, is the road, and `Command::Open` would carry the length
+  rather than the bytes); a signature's `/ByteRange` digest reads its ranges into memory, which is
+  every byte of a signed file but the hole, because `cms::Digest::compute` takes slices rather than
+  a stream; a scan still reads the file whole, by design, and `Document::scan_refused` says when
+  the process could not — which no host consumes yet.
 - **`image::RasterCache`'s probe is still linear in its entries**, and after ADR 0399 those entries
   are the *distinct* images a page draws rather than the draws — which is the property a resource
   image always had, and it is what took the two witnesses from 330.5 G and 71.9 G instructions to

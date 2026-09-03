@@ -168,6 +168,17 @@ impl<'a> Parser<'a> {
         self.lexer.input()
     }
 
+    /// How many bytes of the input, from its start, what has been parsed depended on.
+    ///
+    /// [`crate::Lexer::examined`]'s count, plus the look-aheads a stream's delimiting makes:
+    /// a stated `/Length` checked for the `endstream` after it, or the search for one. What it
+    /// is for is [`crate::FileBytes::parse_from`], which reads a file on disk a window at a
+    /// time and takes a parse only where this is short of the window's end.
+    #[must_use]
+    pub fn examined(&self) -> usize {
+        self.lexer.examined()
+    }
+
     /// Returns the limits in force.
     #[must_use]
     pub fn limits(&self) -> Limits {
@@ -444,17 +455,23 @@ impl<'a> Parser<'a> {
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok());
 
-        let end = match declared {
-            // Trust the declared length only if `endstream` actually follows it. That
-            // check is what turns a corrupt length into recovery instead of garbage.
-            Some(length)
-                if start.saturating_add(length) <= input.len()
-                    && endstream_follows(input, start.saturating_add(length)) =>
-            {
-                start.saturating_add(length)
-            }
-            _ => find_endstream(input, start).unwrap_or(input.len()),
-        };
+        // Trust the declared length only if `endstream` actually follows it. That check is
+        // what turns a corrupt length into recovery instead of garbage. Both the check and the
+        // search note how far they looked, because over a *window* of a longer file (ADR 0809)
+        // a stated end past the window's end is a question the window cannot answer — the
+        // note is what has the window grown to where it can, and over a whole file it is moot.
+        let stated = declared.and_then(|length| {
+            let stated_end = start.saturating_add(length);
+            let (follows, looked) = endstream_examined(input, stated_end);
+            self.lexer.note_examined(looked);
+            (stated_end <= input.len() && follows).then_some(stated_end)
+        });
+        let end = stated.unwrap_or_else(|| {
+            let found = find_endstream(input, start);
+            self.lexer
+                .note_examined(found.map_or(input.len(), |end| end.saturating_add(ENDSTREAM_SPAN)));
+            found.unwrap_or(input.len())
+        });
 
         let length = end.saturating_sub(start);
         if length > self.limits.max_stream_len {
@@ -614,16 +631,31 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Returns `true` if `endstream` appears at `offset`, allowing leading whitespace.
-pub(crate) fn endstream_follows(input: &[u8], offset: usize) -> bool {
+/// The most bytes `endstream` and the end-of-line before it can span: the keyword and CR LF.
+const ENDSTREAM_SPAN: usize = b"endstream".len().saturating_add(2);
+
+/// Whether `endstream` appears at `offset`, allowing leading whitespace, beside how many bytes
+/// of `input` the answer looked at.
+///
+/// The second number is for a parser over a window of a longer file: an `offset` past the
+/// input, or whitespace that runs to the input's end, is an answer the window could not give,
+/// and the count says so by reaching past it. See [`Parser::examined`].
+pub(crate) fn endstream_examined(input: &[u8], offset: usize) -> (bool, usize) {
     let rest = input.get(offset..).unwrap_or_default();
     let trimmed = rest
         .iter()
         .position(|&byte| !crate::lexer::is_whitespace(byte))
         .unwrap_or(rest.len());
-    rest.get(trimmed..)
+    let follows = rest
+        .get(trimmed..)
         .unwrap_or_default()
-        .starts_with(b"endstream")
+        .starts_with(b"endstream");
+    (
+        follows,
+        offset
+            .saturating_add(trimmed)
+            .saturating_add(b"endstream".len()),
+    )
 }
 
 /// Finds the offset of the `endstream` keyword at or after `from`.

@@ -89,8 +89,13 @@ sentence (ADR 0304); and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
 writing `CLAUDE.md` permits.
 
-**Page one goes to the graphics device**, decided by the project owner and written into
-`CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
+**A document is opened on disk and read where its own offsets point** — `startxref` from the
+last two kilobytes, each cross-reference section from where the chain names it, each object from
+its entry, through a window the parser grows until nothing at its end was examined — so what a
+file costs to open is its trailer, its table and page one's objects rather than its length, and a
+six-gigabyte document opens in the time a small one does; a damaged file, which a scan reads whole,
+costs on disk what it cost in memory (ADR 0809). **Page one goes to the graphics device**, decided
+by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
 makes what it costs a number to keep rather than a cost to hide. What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).

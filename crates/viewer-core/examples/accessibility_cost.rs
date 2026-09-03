@@ -64,7 +64,7 @@ fn main() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
