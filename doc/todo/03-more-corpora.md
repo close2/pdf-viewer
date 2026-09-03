@@ -1926,6 +1926,87 @@ held with their reasons on the record rather than as intentions:
   census names the population a round revisiting it would need.
 - **`sumatrapdf-LINK-1532-1.pdf`'s `/Font` entry**, above.
 
+### 46. What the nine-hundred-and-first took: `batch5/ocrmypdf`, and a ranking head that is a clause working
+
+**The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, 2.9 s, 0.85 GiB peak. The line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/ocrmypdf` | 205 | 4 unopenable, 0 locked, 0 encrypted beyond us, 0 pageless, 4 incomplete, 0 slow |
+
+**1.95% incomplete is the second-lowest rate of any tracker**, above `DSS`'s 1.23% and below
+`MOZILLA`'s 2.47%, and the shape is the tracker's: an ocrmypdf issue attachment is a document
+somebody put *through* a program, so most of them are a clean scan with a text layer over it.
+**The four unusable files are nobody's and are not PDFs at all** — one is a terminal transcript
+beginning `peterwannheden(~/MyApps/Python)> ocrmypdf --desk`, the other three share a binary header
+`84 5e 03 97 40 4e ec 0d` that no `%PDF-` follows; `not a PDF: no %PDF- or %FDF- header in the
+first 1024 bytes` is the right sentence for each.
+
+Ranked by report, the four incomplete are 2 `Font`, 1 `Image`, 1 `Operator`, and **every one names
+a population this project has already argued**: two are §9.9's closed-by-decision case (a font
+program with no outline for the codes its page shows, 12 codes and 1), one is §7.4.8's frame that
+contradicts its own dictionary (`the JPEG frame is 1264x1744 where the dictionary says 1264x1736`,
+held by ADR 0340 and named in `tests/corpus.rs`'s own arm), and one is an unclosed `BT`.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at 72 dpi
+— over the four incomplete pages there is no head at all:
+
+| document | ours | poppler | mupdf |
+|---|---|---|---|
+| `ocrmypdf-78-1.pdf` | 1.031 | 1.039 | 1.034 |
+| `ocrmypdf-86-3.zip-0.pdf` | 7.019 | 7.219 | 7.006 |
+| `ocrmypdf-LINK-325-29.pdf` | 15.254 | 15.095 | 13.740 |
+| `ocrmypdf-LINK-325-7.pdf` | 25.568 | 25.974 | 25.660 |
+
+So the round ranked **all 201 openable documents** rather than the four, which is what §44's round
+did and is where both its and §45's findings came from. That ranking has one head and it is
+**dark**: `ocrmypdf-99-0.zip-0.pdf`, ours **9.9448** against `poppler` 8.6045 and `mupdf` 7.4452,
+1.34 above the darkest reference where the next row in either direction is 0.28. The page reports
+nothing — `open_one` says `unsupported []`.
+
+**It is §10.7.5 working, and ADR 0844 has the three measurements.** The page is a Chinese hospital
+laboratory report with one embedded `SimSun` subset; its `/ExtGState` states `/SA true`, and its
+one form XObject shows 108 runs in §9.3.6's rendering mode 2 under `0.240226 w`, `0.3203 w` and
+`0.426 w` with a unity CTM — so every glyph's stroke is under half a device pixel at 72 dpi and the
+clause's second requirement promotes each to a single-pixel line. The resolution ladder converges
+from a 2.50-level spread at 72 dpi to **0.02 at 576** (7.2727 / 7.2921 / 7.2762); replacing `2 Tr`
+with `0 Tr` puts all three within 0.04, so the whole disagreement is the stroke half of the mode;
+and renaming `/SA` to `/S1` takes ours to 7.2840 while leaving both references **byte-identical**,
+which is ADR 0688's finding confirmed a second time — neither reference reads the entry.
+
+**The transferable half is about the instrument, and it is the third way to be wrong with this
+ranking.** Round 876 recorded two — `pdftoppm` without `-cropbox`, and reading our alpha channel as
+ink — and both are operating errors. This one is not: at 72 dpi the ranking can put this tree at
+the head of a directory **for obeying a clause neither reference reads**, and the page looks wrong
+beside them, boldly and over every glyph, so trap 1's "look at the page" confirms the false reading
+instead of breaking it. Two cheap instruments break it: the **ladder**, four renders, which
+separates scan conversion from geometry; and `/SA`, one grep over `qpdf --qdf` output. The rule is
+in `doc/oracle-and-corpus.md` §3d beside the other two.
+
+**The condition is not the entry on its own**, and that was measured rather than assumed: 13 of the
+201 state `/SA true` and **exactly one** is displaced by it, the other twelve spread from +0.17 to
+−33.59 of the darkest reference. What displaces a page is `/SA true` *and* a stroke the CTM puts
+under half a device pixel.
+
+Every other row of the ranking that was checked converges too: `ocrmypdf-144-0.pdf` (−0.577 at 72
+dpi, ours 9.6698 against 9.6869 and 9.6861 at 288), `ocrmypdf-605-1.pdf` (−0.806, within 0.02 at
+288) and `ocrmypdf-LINK-490-0.pdf` (−0.756, within 0.30). **So this tracker holds no defect of
+ours**, which is a result and is recorded as one — the walk cost three seconds and the ranking ten
+minutes.
+
+**What is left here**: `batch5`'s other eighteen trackers, `cairo` (166), `pdfminer.six` (123) and
+`qpdf` (111) the largest of them and none above two hundred documents — the seven walked are its
+seven biggest, so what remains is a long tail; `batch4` once its pieces land;
+[`40`](40-mask-chain-crop.md)'s clip cost; [`10`](10-bounds-that-cap-size.md)'s file-backed reader;
+and [`49`](49-restrictions-worth-re-examining.md)'s cell rendered once. From this round, one thing
+held with its reason on the record:
+
+- **§10.7.5's promotion**, above. What would reopen it is a reading of the clause that makes the
+  second requirement conditional on something, and there is none — the sentence is unconditional
+  once `/SA` is true. `doc/checks/fixed-documents.toml` pins the page so that withdrawing it fails
+  a gate rather than a memory.
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own
