@@ -13,7 +13,7 @@ use std::sync::Arc;
 use pdf_render::{Color, SoftMaskKind, Transfer};
 use pdf_syntax::{Dictionary, Document, Object, Stream};
 
-use crate::colour::{ColourSpace, Compositing, GreyRoute, InkScale, RgbRoute};
+use crate::colour::{ColourSpace, Compositing, GreyRoute, InkScale, Presses};
 use crate::function::Function;
 
 /// What a `gs` dictionary's `/SMask` entry holds, once read.
@@ -57,7 +57,14 @@ pub(crate) struct SoftMaskRequest {
 }
 
 /// Reads `/SMask` from a graphics state parameter dictionary.
-pub(crate) fn entry(document: &Document, dict: &Dictionary) -> SoftMaskEntry {
+///
+/// `presses` is the interpretation's own route cache, and it is a parameter rather than a
+/// local for a reason worth stating: the route into a three-component *table* profile is
+/// 36 000 profile evaluations for the conversion out and as many again for §11.5.3's `Y`
+/// (ADR 0851), while a page can name one mask per `gs` and `6081357.pdf` names 912. Built
+/// here, that would be a profile sampled once per soft-mask dictionary; asked of
+/// [`Presses::rgb_route`], it is sampled once per interpretation per space.
+pub(crate) fn entry(document: &Document, dict: &Dictionary, presses: &Presses) -> SoftMaskEntry {
     match document.get_key(dict, "SMask") {
         Object::Null => SoftMaskEntry::None,
         // Every other name is undefined here; `/None` is the only one Table 57 gives.
@@ -66,13 +73,13 @@ pub(crate) fn entry(document: &Document, dict: &Dictionary) -> SoftMaskEntry {
             "/SMask /{}, where Table 57 defines only /None",
             String::from_utf8_lossy(name.as_bytes())
         )),
-        Object::Dictionary(mask) => read(document, &mask),
+        Object::Dictionary(mask) => read(document, &mask, presses),
         other => SoftMaskEntry::Unusable(format!("/SMask is {}", type_of(&other))),
     }
 }
 
 /// Reads a soft-mask dictionary's four entries.
-fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
+fn read(document: &Document, mask: &Dictionary, presses: &Presses) -> SoftMaskEntry {
     // Table 142's `/G` is required, and is a stream: a form XObject with a `/Group`.
     let group = document.get_key(mask, "G");
     let Some(group) = group.as_stream().cloned() else {
@@ -113,18 +120,14 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
                 (Some(space), None) => GreyRoute::of(space).map(Arc::new),
                 _ => None,
             };
-            // A three-component CIE-based space whose `Y` is a sum of one curve per
-            // component: `CalRGB`, or a matrix profile. Asked before the route is built,
-            // because a table profile's route is a grid worth sampling for a page and not
-            // for a mask that cannot use it.
+            // A three-component CIE-based space, whose `Y` §11.5.3 asks for and
+            // `RgbRoute::luminance` states: three curves summed for a `CalRGB` or a matrix
+            // profile, a sampled grid for a table profile. Asked of the interpretation's
+            // cache rather than built here, for the reason [`entry`] gives.
             let additive = match (&space, scale, &route) {
-                (Some(space), None, None) if RgbRoute::luminance_is_separable(space) => {
-                    RgbRoute::of(space).and_then(|route| {
-                        route
-                            .luminance()
-                            .map(|luminance| (Arc::new(route), luminance))
-                    })
-                }
+                (Some(space), None, None) => presses
+                    .rgb_route(space)
+                    .and_then(|route| route.luminance().map(|luminance| (route, luminance))),
                 _ => None,
             };
             let ink = backdrop(document, mask, space.as_ref());
@@ -153,17 +156,25 @@ fn read(document: &Document, mask: &Dictionary) -> SoftMaskEntry {
                     })
                 },
             };
-            let departures = space
-                .as_ref()
-                .and_then(luminosity_departure)
-                .into_iter()
-                .collect();
             let compositing = match (scale, &route, &additive) {
                 (Some(scale), _, _) => Compositing::Luminosity(scale),
                 (None, Some(route), _) => Compositing::Calibrated(Arc::clone(route)),
                 (None, None, Some((route, _))) => Compositing::Additive(Arc::clone(route)),
                 (None, None, None) => Compositing::Device,
             };
+            // Asked of the compositing that was chosen rather than of the space alone, which
+            // is what makes the condition §11.5.3's own: the clause branches on whether the
+            // space is CIE-based, so the departure is a CIE-based space this tree did *not*
+            // send down the colorimetric branch, whatever the reason.
+            let colorimetric = matches!(
+                compositing,
+                Compositing::Calibrated(_) | Compositing::Additive(_)
+            );
+            let departures = space
+                .as_ref()
+                .and_then(|space| luminosity_departure(space, colorimetric))
+                .into_iter()
+                .collect();
             let transfer = match (scale, &route, &space) {
                 (Some(scale), _, _) => derivation(scale, transfer.as_ref()),
                 (None, Some(_), Some(space)) => {
@@ -386,16 +397,20 @@ fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>)
     })
 }
 
-/// Names a mask group's `/CS` if neither of this tree's two routes is §11.5.3's.
+/// Names a mask group's `/CS` where §11.5.3's colorimetric branch was not taken for it.
 ///
 /// §11.5.3 converts a mask group's composited colour to luminosity "in one of the following
-/// ways, depending on the group's colour space", and there are two ways. This tree has two
-/// routes to answer them with, and this function is what is left over.
+/// ways, depending on the group's colour space", and there are two ways, chosen by whether the
+/// space is CIE-based. This tree carries out the device branch exactly and the colorimetric
+/// branch for every CIE-based space it has a route into; what is left over is this, and the
+/// condition is `colorimetric` rather than a list of space names for the reason trap 11 gives
+/// — the clause's own branch is the discriminator, so a space that stops having a route stops
+/// being silent by construction.
 ///
 /// **The device branch** — "For device colour spaces, convert the colour to `DeviceGray` by
-/// implementation-defined means and use the resulting gray value as the luminosity" — is
-/// carried out exactly, and since the three-hundred-and-eightieth session in the space the
-/// group names rather than in the device's:
+/// implementation-defined means and use the resulting gray value as the luminosity, with no
+/// compensation for gamma or other colour calibration" — is carried out exactly, and since the
+/// three-hundred-and-eightieth session in the space the group names rather than in the device's:
 ///
 /// - **`DeviceRGB`** is the space EXAMPLE 2's `Y = 0.30 R + 0.59 G + 0.11 B` is written for,
 ///   and `pdf_render::SoftMask::value` computes it on the rendered pixel.
@@ -408,30 +423,58 @@ fn backdrop(document: &Document, mask: &Dictionary, space: Option<&ColourSpace>)
 ///
 /// **The colorimetric branch** — "For CIE-based spaces, convert to the CIE 1931 XYZ space and
 /// use the Y component as the luminosity" — is taken for a space of **one** component since
-/// ADR 0796: `CalGray` and an `ICCBased` 'GRAY' group are painted in their own component
-/// (`Compositing::Calibrated`, the route ADR 0792 built for a page) and
-/// [`luminance_derivation`] takes the clause's `Y` of the composited component, exactly. And
-/// for **three** since ADR 0797, where the space's `Y` is a sum of one function of each
-/// component — `CalRGB`, whose EXAMPLE 1 the clause writes out, and a matrix profile: the
-/// group is painted in the space's components (`Compositing::Additive`) and the backend sums
-/// `RgbRoute::luminance`'s three curves per pixel before Table 142's `/TR`. A three-component
-/// profile whose conversion is a lookup table has no separable `Y`, and such a mask group
-/// keeps the grey of the sRGB its colours become — a choice recorded here rather than a
-/// report, because the alternative is a three-dimensional table in every backend's mask
-/// vocabulary for a population `examples/luminosity_mask_census` counts and, on `doc/pdf.js`,
-/// finds no member of.
+/// ADR 0796 (`Compositing::Calibrated`, with [`luminance_derivation`] composing the clause's
+/// `Y` of the composited component into the mask's table) and for **three** since ADRs 0797
+/// and 0851 (`Compositing::Additive`, with `RgbRoute::luminance` read per pixel).
 ///
-/// What is left, and reported, is a `Lab` group. Its three components are not a linear map of
-/// the device's, so neither route is the clause's: compositing `L*a*b*` on the device's RGB
-/// is a different arithmetic *and* `0.3 R + 0.59 G + 0.11 B` of the sRGB is not the `Y` of the
-/// XYZ the clause asks for. No corpus document states one, which is said out loud rather than
-/// around — this is a report with no members, kept because the alternative is a silence.
-fn luminosity_departure(space: &ColourSpace) -> Option<String> {
-    matches!(space, ColourSpace::Lab { .. }).then(|| {
-        "a soft mask's group is composited in device RGB and its luminosity taken there, \
-         rather than in the blending colour space its /CS names"
-            .to_owned()
-    })
+/// What is left, and named here, is three shapes:
+///
+/// - **A `Lab` group.** §11.3.4 rules the space out of a blending space outright, and neither
+///   route is the clause's: compositing `L*a*b*` on the device's RGB is a different arithmetic
+///   *and* `0.3 R + 0.59 G + 0.11 B` of the sRGB is not the `Y` of the XYZ the clause asks for.
+/// - **A four-component CIE-based group** — an `ICCBased` profile of four channels, which
+///   §8.6.5.1 makes CIE-based and §11.3.4 lists as a blending space. Its `Y` is a function of
+///   four composited components, and §11.4.7's construction for four components is a **pair**
+///   of rasters (`pdf_render::blending`) where a mask is one: `pdf_render::SoftMask` carries a
+///   single group and derives one value per pixel from it. Not a silence and not a shortcut —
+///   the honest cost is written down in ADR 0851 and in `doc/todo/23`, with the population
+///   `examples/luminosity_mask_census` measures.
+/// - **A CIE-based group this tree has no route into**: a profile that states no "from CIE"
+///   half, which §11.3.4 requires of a blending space — "the ICC profile shall be capable of
+///   both device to PCS and PCS to device transformations" — or a one-component curve with no
+///   inverse. §11.6.5.1 makes the `/CS` "the colour space in which the compositing computation
+///   is to be performed", and without a conversion in there is nothing to composite in it.
+///
+/// Each is drawn on the device's three components with EXAMPLE 2's weights, which is the
+/// picture that was there before the report and is stated rather than left to be discovered.
+fn luminosity_departure(space: &ColourSpace, colorimetric: bool) -> Option<String> {
+    if colorimetric {
+        return None;
+    }
+    match space {
+        ColourSpace::Lab { .. } => Some(
+            "a soft mask's group is composited in device RGB and its luminosity taken there, \
+             rather than in the blending colour space its /CS names: §11.3.4 forbids Lab as a \
+             blending colour space, so §11.5.3 has no CIE-based route to take for it"
+                .to_owned(),
+        ),
+        ColourSpace::Icc { profile } if profile.channels() == 4 => Some(
+            "a soft mask's group states a four-component ICCBased /CS, and its luminosity is \
+             taken as §11.5.3's device branch on device RGB rather than as the Y of the CIE \
+             1931 XYZ the clause asks of a CIE-based space: four composited components are \
+             §11.4.7's pair of rasters and a mask's group is one"
+                .to_owned(),
+        ),
+        ColourSpace::CalGray { .. } | ColourSpace::CalRgb { .. } | ColourSpace::Icc { .. } => Some(
+            "a soft mask's group states a CIE-based /CS this reader has no route into — \
+                 §11.3.4 requires a blending space's profile to be \"capable of both device to \
+                 PCS and PCS to device transformations\", and a curve with no inverse is not — \
+                 so its luminosity is taken as §11.5.3's device branch on device RGB rather \
+                 than as the Y of the CIE 1931 XYZ"
+                .to_owned(),
+        ),
+        _ => None,
+    }
 }
 
 /// Samples Table 142's `/TR` onto the 256 values an eight-bit mask value can take.
