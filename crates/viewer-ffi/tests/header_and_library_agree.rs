@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use viewer_ffi::{
-    BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
+    AttachKind, BoundaryKind, BoxKind, CollectionViewKind, ColumnKind, ColumnTextKind, ControlKind,
     DelegateKind, DirectionKind, DuplexKind, ElementKind, EventKind, FocusKind, FolderTextKind,
     InitialKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind, PixelFormat,
     PointerKind, PreferenceKey, PresentKind, PrintScalingKind, PurposeKind, RestrictKind, RowKind,
@@ -131,7 +131,7 @@ fn every_entry_point_is_declared_once_in_the_header_and_nowhere_else() {
     let exported = exported_names();
     assert_eq!(
         exported.len(),
-        174,
+        177,
         "the count `unsafe_position.rs` also states"
     );
     let missing: Vec<&String> = exported.difference(&declared).collect();
@@ -220,6 +220,15 @@ fn the_event_kinds(expected: &mut BTreeMap<String, i64>) {
         // nobody told it to expect this one. The lesson is the map's rather than the header's: a
         // table of expectations is only as complete as the person who wrote it.
         ("PDFV_EVENT_SEARCHED", EventKind::Searched),
+        // The eight-hundred-and-eighty-fifth session's three, and the row above is why they are
+        // written here in the same commit as the `#define`: `CLAUDE.md`'s *ask* and *warn*
+        // levels, and §7.11.4's list moving (ADR 0814).
+        ("PDFV_EVENT_ASKING", EventKind::Asking),
+        ("PDFV_EVENT_WARNED", EventKind::Warned),
+        (
+            "PDFV_EVENT_ATTACHMENTS_CHANGED",
+            EventKind::AttachmentsChanged,
+        ),
     ] {
         expected.insert(name.to_owned(), i64::from(kind.code()));
     }
@@ -279,6 +288,17 @@ fn the_argument_enumerations(expected: &mut BTreeMap<String, i64>) {
     for (name, kind) in [
         ("PDFV_RESTRICT_ON", RestrictKind::On),
         ("PDFV_RESTRICT_OFF", RestrictKind::Off),
+        // `CLAUDE.md`'s other two levels, since the eight-hundred-and-eighty-fifth session: each
+        // arrived with the event and the entry point that answer it (ADR 0814).
+        ("PDFV_RESTRICT_ASK", RestrictKind::Ask),
+        ("PDFV_RESTRICT_WARN", RestrictKind::Warn),
+    ] {
+        expected.insert(name.to_owned(), kind as i64);
+    }
+    // §7.11.4.1's two homes, which is what `pdfv_attach` chooses between.
+    for (name, kind) in [
+        ("PDFV_ATTACH_DOCUMENT", AttachKind::Document),
+        ("PDFV_ATTACH_PAGE", AttachKind::Page),
     ] {
         expected.insert(name.to_owned(), kind as i64);
     }

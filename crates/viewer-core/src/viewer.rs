@@ -239,9 +239,10 @@ impl Viewer {
             // panel models those 988 rows go into, the clone is 2% of what a host does with it.
             Query::Outline => Answer::Outline(open.outline.clone()),
             Query::Layers => Answer::Layers(layers(open)),
-            Query::Attachments => {
-                Answer::Attachments(pdf_model::attachment::attachments(&open.document))
-            }
+            // The log's view rather than the file's, since the eight-hundred-and-eighty-fifth
+            // session: a file attached this sitting is in the list before anything is saved, and
+            // one detached is out of it. `ViewState::attachments` says which home the list is.
+            Query::Attachments => Answer::Attachments(open.view.attachments(&open.document)),
             // Read here rather than held on `Open`: see `Query::Articles`. Two of the 974 corpus
             // documents state a `/Threads` entry at all, one of them an empty array and one a
             // null, so a list built at launch would be empty 999 times in a thousand.
@@ -428,6 +429,7 @@ impl Viewer {
             Command::Scroll { dx, dy } => self.scroll(dx, dy, events),
             Command::View(view) => self.restore(view, events),
             Command::Restrict(level) => self.restrictions = level,
+            Command::Answer { document, proceed } => self.answer(document, proceed, events),
             // Table 29's arrangement, as the person reading has now chosen it. The scroll is
             // measured from the current page's row and a row is what has just changed, so it
             // starts again at that page's top — the same reset a page turn makes, and for the
@@ -1062,6 +1064,20 @@ impl Viewer {
                         )],
                     });
                 }
+                // §7.11.4.1 gives an embedded file more than one home, so a detach that left
+                // the tree is not a deletion where another home still names the stream; the
+                // objects stay in use, and the person who asked is told which home keeps them.
+                for (name, homes) in written.still_reached {
+                    events.push(Event::Reported {
+                        document: id,
+                        page: None,
+                        notes: vec![format!(
+                            "{name:?} was taken out of the /EmbeddedFiles tree, but its file \
+                             specification and stream are left in use because {homes} still \
+                             reaches the stream (ISO 32000-2 §7.11.4.1)"
+                        )],
+                    });
+                }
                 events.push(Event::Saved {
                     document: id,
                     bytes: written.bytes,
@@ -1103,7 +1119,11 @@ impl Viewer {
     ) {
         let Some(id) = self.focused else { return };
         let Some(open) = self.focused() else { return };
-        let Some(file) = pdf_model::attachment::attachments(&open.document)
+        // The log's list, so that a file attached this sitting comes out again before it is
+        // saved — its stream is the one the save would write, unfiltered.
+        let Some(file) = open
+            .view
+            .attachments(&open.document)
             .into_iter()
             .find(|file| file.name == name)
         else {
@@ -1117,25 +1137,26 @@ impl Viewer {
         hand_over(id, asked, &open.document, &file, fragment, events);
     }
 
-    /// Adds one edit to the log and applies it.
+    /// Resolves one edit, asks the policy once, and does what the verdict says.
     ///
-    /// A new edit after an undo discards what was undone: the log is one sequence with a cursor,
-    /// which is what makes a replay of its prefix the whole of the state.
+    /// Four verdicts, four arms, and none of them quiet: *proceed* commits the edit; *refuse*
+    /// says why and commits nothing; *warn* commits and then says why; *ask* holds the resolved
+    /// edit and says why, for [`Command::Answer`] to settle. A new edit after an undo discards
+    /// what was undone: the log is one sequence with a cursor, which is what makes a replay of
+    /// its prefix the whole of the state.
     fn edit(&mut self, edit: crate::command::Edit, events: &mut Vec<Event>) {
         let Some(id) = self.focused else { return };
-        if let Some(refused) = self.refusal(
-            id,
-            operation_of(&edit),
-            field_of(&edit),
-            annotation_of(&edit),
-        ) {
+        let operation = operation_of(&edit);
+        let standing = self.standing(id, operation, field_of(&edit), annotation_of(&edit));
+        if let Standing::Refuse(refused) = standing {
             events.push(refused);
             return;
         }
-        // §12.5.6.6's rectangle is measured in the viewport, and the map out of it needs the
-        // viewport's size and the display's scale — this type's rather than an open document's.
-        // Taken before the mutable borrow, because the two cannot be held at once.
-        let drag = match &edit {
+        // §12.5.6.6's rectangle and §12.5.6.15's point are measured in the viewport, and the map
+        // out of it needs the viewport's size and the display's scale — this type's rather than
+        // an open document's. Taken before the mutable borrow, because the two cannot be held at
+        // once.
+        let (drag, dropped) = match &edit {
             crate::command::Edit::FreeText { from, to, .. } => {
                 let Some(open) = self.focused() else { return };
                 let (Some((_, from)), Some((_, to))) =
@@ -1143,29 +1164,96 @@ impl Viewer {
                 else {
                     return;
                 };
-                Some([from, to])
+                (Some([from, to]), None)
             }
-            _ => None,
+            crate::command::Edit::Attach {
+                home: crate::command::AttachHome::Page { at },
+                ..
+            } => {
+                let Some(open) = self.focused() else { return };
+                let Some(dropped) = self.user_space(open, *at) else {
+                    return;
+                };
+                (None, Some(dropped))
+            }
+            _ => (None, None),
         };
         let Some(open) = self.focused_mut() else {
             return;
         };
+        // §7.9.6's keys "shall not overlap", and a detach needs something to detach: both are
+        // answered before the log is touched, and said, because an entry that did nothing would
+        // be an undo step over nothing.
+        match &edit {
+            crate::command::Edit::Attach { name, .. }
+                if open.view.attachment_named(&open.document, name) =>
+            {
+                events.push(Event::Reported {
+                    document: id,
+                    page: None,
+                    notes: vec![format!(
+                        "a file is already embedded under the name {name:?}, and a name tree's \
+                         keys shall not overlap (ISO 32000-2 §7.9.6) — nothing was attached"
+                    )],
+                });
+                return;
+            }
+            crate::command::Edit::Detach { name }
+                if !open.view.attachment_named(&open.document, name) =>
+            {
+                events.push(Event::Reported {
+                    document: id,
+                    page: None,
+                    notes: vec![format!(
+                        "this document's /EmbeddedFiles tree names no file called {name:?} — \
+                         nothing was detached"
+                    )],
+                });
+                return;
+            }
+            _ => {}
+        }
         // What was *done*, rather than what was asked for: `Edit::Markup` names its target as
         // "what is selected", and a replay after the selection moved would mark up something
         // else. See `open::Done`.
-        let Some(done) = open.resolve(edit, drag) else {
+        let Some(done) = open.resolve(edit, drag, dropped) else {
             return;
         };
-        let before = open.dirty();
-        open.log.truncate(open.cursor);
-        open.log.push(done);
-        open.cursor = open.log.len();
-        open.replay();
-        if open.dirty() != before {
-            events.push(Event::Dirty {
-                document: id,
-                dirty: open.dirty(),
-            });
+        match standing {
+            Standing::Refuse(_) => {}
+            Standing::Proceed => commit(id, open, done, events),
+            Standing::Warn(notes) => {
+                commit(id, open, done, events);
+                events.push(Event::Warned {
+                    document: id,
+                    operation,
+                    notes,
+                });
+            }
+            Standing::Ask(notes) => {
+                open.asking = Some(crate::open::Held { done });
+                events.push(Event::Asking {
+                    document: id,
+                    operation,
+                    notes,
+                });
+            }
+        }
+    }
+
+    /// [`Command::Answer`]: settles the edit [`Event::Asking`] held.
+    ///
+    /// Addressed by document rather than to the focused one, because the question named a
+    /// document and a person may have turned to another window before answering.
+    fn answer(&mut self, document: DocumentId, proceed: bool, events: &mut Vec<Event>) {
+        let Some(open) = self.documents.get_mut(&document) else {
+            return;
+        };
+        let Some(held) = open.asking.take() else {
+            return;
+        };
+        if proceed {
+            commit(document, open, held.done, events);
         }
     }
 
@@ -1192,46 +1280,48 @@ impl Viewer {
     /// *ask* and *warn* need, and it is why the check moved out of `ViewState::set_field` — where
     /// it could only ever say "nothing happened" — into the crate that holds the policy.
     ///
-    /// `None` means go ahead: either the document asserts nothing against the operation, or this
-    /// reader has turned its restrictions off, which `CLAUDE.md` says shall always be possible.
-    /// The two are one answer here and two answers to a person, which is what
-    /// [`crate::Event::Refused`] carries the operation for.
+    /// [`Standing::Proceed`] means go ahead: either the document asserts nothing against the
+    /// operation, or this reader has turned its restrictions off, which `CLAUDE.md` says shall
+    /// always be possible. The two are one answer here and two answers to a person, which is
+    /// what [`crate::Event::Refused`] carries the operation for.
     ///
     /// **The policy is `pdf_model::restriction::decide`'s, asked here once and matched
-    /// exhaustively.** [`crate::RestrictionLevel`] supplies two of the four levels, so two of
-    /// the four verdicts cannot arrive from this crate today; their arms are written all the
-    /// same, in the direction that obeys, so that the day a host can answer them the change is
-    /// here and nowhere quieter (ADR 0803, `doc/todo/38`).
-    fn refusal(
+    /// exhaustively**, and since the eight-hundred-and-eighty-fifth session all four of its
+    /// verdicts have an arm of their own — the two this used to fold into a refusal are
+    /// [`Event::Asking`] and [`Event::Warned`], and the notes are worded for each (ADR 0803, ADR
+    /// 0814).
+    fn standing(
         &self,
         id: DocumentId,
         operation: pdf_model::restriction::Operation,
         field: Option<&str>,
         annotation: Option<ObjectId>,
-    ) -> Option<Event> {
+    ) -> Standing {
+        use crate::notes::{Standing as Worded, restricted};
         use pdf_model::restriction::Verdict;
-        let open = self.focused()?;
-        let restrictions = match pdf_model::restriction::decide(
+        let Some(open) = self.focused() else {
+            return Standing::Proceed;
+        };
+        match pdf_model::restriction::decide(
             self.restrictions.level(),
             &open.document,
             operation,
             field,
             annotation,
         ) {
-            Verdict::Proceed => return None,
-            // `Warn` and `Ask` are not levels `RestrictionLevel` has; a *warn* that proceeded
-            // silently or an *ask* nobody could answer would be the level behaving as another,
-            // so each is answered as a refusal — visibly, with the reasons — until
-            // `doc/todo/38`'s event and command exist and split this arm in three.
-            Verdict::Refuse(restrictions)
-            | Verdict::Warn(restrictions)
-            | Verdict::Ask(restrictions) => restrictions,
-        };
-        Some(Event::Refused {
-            document: id,
-            operation,
-            notes: crate::notes::refusal(operation, &restrictions),
-        })
+            Verdict::Proceed => Standing::Proceed,
+            Verdict::Refuse(restrictions) => Standing::Refuse(Event::Refused {
+                document: id,
+                operation,
+                notes: restricted(operation, &restrictions, Worded::Refused),
+            }),
+            Verdict::Warn(restrictions) => {
+                Standing::Warn(restricted(operation, &restrictions, Worded::Warned))
+            }
+            Verdict::Ask(restrictions) => {
+                Standing::Ask(restricted(operation, &restrictions, Worded::Asked))
+            }
+        }
     }
 
     /// Moves the log's cursor, which is what undo and redo are.
@@ -1247,6 +1337,11 @@ impl Viewer {
             return;
         }
         let before = open.dirty();
+        let crossed = open.cursor.min(cursor)..open.cursor.max(cursor);
+        let attachments = open
+            .log
+            .get(crossed)
+            .is_some_and(|entries| entries.iter().any(crate::open::Done::moves_attachments));
         open.cursor = cursor;
         open.replay();
         if open.dirty() != before {
@@ -1254,6 +1349,9 @@ impl Viewer {
                 document: id,
                 dirty: open.dirty(),
             });
+        }
+        if attachments {
+            events.push(Event::AttachmentsChanged { document: id });
         }
     }
 
@@ -3031,9 +3129,22 @@ fn operation_of(edit: &crate::command::Edit) -> pdf_model::restriction::Operatio
         // fill in interactive form fields", and bit 9 permits filling alone. So an edit to a free
         // text annotation's `/Contents` is Annotate and not FillInForm, whatever it resembles at a
         // keyboard.
+        //
+        // §12.5.6.15's annotation carries its file, so a file put on a page is an annotation
+        // added — bit 6 too — while a file put in §7.7.4's tree is bit 4's residual, as is
+        // taking one out. `AttachHome` carries the argument. ADR 0814.
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
-        | crate::command::Edit::SetFreeText { .. } => pdf_model::restriction::Operation::Annotate,
+        | crate::command::Edit::SetFreeText { .. }
+        | crate::command::Edit::Attach {
+            home: crate::command::AttachHome::Page { .. },
+            ..
+        } => pdf_model::restriction::Operation::Annotate,
+        crate::command::Edit::Attach {
+            home: crate::command::AttachHome::Document,
+            ..
+        }
+        | crate::command::Edit::Detach { .. } => pdf_model::restriction::Operation::Modify,
     }
 }
 
@@ -3048,7 +3159,9 @@ fn field_of(edit: &crate::command::Edit) -> Option<&str> {
         crate::command::Edit::SetField { field, .. } => Some(field),
         crate::command::Edit::Markup { .. }
         | crate::command::Edit::FreeText { .. }
-        | crate::command::Edit::SetFreeText { .. } => None,
+        | crate::command::Edit::SetFreeText { .. }
+        | crate::command::Edit::Attach { .. }
+        | crate::command::Edit::Detach { .. } => None,
     }
 }
 
@@ -3064,7 +3177,43 @@ fn annotation_of(edit: &crate::command::Edit) -> Option<ObjectId> {
         crate::command::Edit::SetFreeText { annotation, .. } => Some(*annotation),
         crate::command::Edit::SetField { .. }
         | crate::command::Edit::Markup { .. }
-        | crate::command::Edit::FreeText { .. } => None,
+        | crate::command::Edit::FreeText { .. }
+        | crate::command::Edit::Attach { .. }
+        | crate::command::Edit::Detach { .. } => None,
+    }
+}
+
+/// What the policy said about an edit, with the words a host will need already chosen.
+///
+/// `Verdict` one crate down, with the sentences attached: the reading is `pdf-model`'s and the
+/// wording is this crate's, and the seam between them is here so that `Viewer::edit` matches one
+/// value.
+#[derive(Debug)]
+enum Standing {
+    /// Nothing withholds it, or the reader is not obeying.
+    Proceed,
+    /// The event to send instead of doing anything.
+    Refuse(Event),
+    /// Do it, then say these.
+    Warn(Vec<String>),
+    /// Hold it and ask these.
+    Ask(Vec<String>),
+}
+
+/// Adds one resolved edit to a document's log and says what changed.
+///
+/// The two events an edit can cause, in the order a host wants them: the unsaved mark first,
+/// because it is the state, and the attachment list second, because it is a consequence of it.
+fn commit(id: DocumentId, open: &mut Open, done: crate::open::Done, events: &mut Vec<Event>) {
+    let committed = open.commit(done);
+    if committed.dirty_changed {
+        events.push(Event::Dirty {
+            document: id,
+            dirty: open.dirty(),
+        });
+    }
+    if committed.attachments {
+        events.push(Event::AttachmentsChanged { document: id });
     }
 }
 

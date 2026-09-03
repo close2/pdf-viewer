@@ -62,6 +62,8 @@ use std::sync::Arc;
 
 use pdf_syntax::{Dictionary, Document, Object, Stream, tree};
 
+pub mod filing;
+
 /// Most attachments listed from one document.
 ///
 /// A `/EmbeddedFiles` tree is a list a person scrolls; a document naming a million files is one

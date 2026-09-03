@@ -179,6 +179,25 @@ pub enum Command {
     /// restrictions without being asked would be making the choice on the person's behalf in the
     /// other direction.
     Restrict(RestrictionLevel),
+    /// The person's answer to [`crate::Event::Asking`].
+    ///
+    /// **The command that makes [`RestrictionLevel::Ask`] a level rather than a variant nothing
+    /// answers**, and it has the shape [`crate::Event::PasswordRequired`] answered by
+    /// [`Self::Open`] has: the viewer holds the edit it was asked about — resolved, so that what
+    /// goes ahead is what was asked for at the moment it was asked (see `open::Done`) — and this
+    /// carries the one bit only a person can supply. `true` performs the edit exactly as
+    /// [`RestrictionLevel::Off`] would have; `false` forgets it, and says nothing, because a
+    /// question declined is not a document doing something and not this program refusing.
+    ///
+    /// One question is outstanding per document at a time: an edit that needs asking while one is
+    /// held replaces it, on the reading that a person who moved on to a second edit has left the
+    /// first unanswered, and a `No` to nothing outstanding does nothing. ADR 0814.
+    Answer {
+        /// Which document the question was about.
+        document: DocumentId,
+        /// Whether to go ahead.
+        proceed: bool,
+    },
     /// Table 29's `/PageLayout`: how the pages are arranged in the window.
     ///
     /// **The fourth host-supplied policy value, and it passes `doc/ui-boundary.md`'s test for the
@@ -414,9 +433,10 @@ pub enum PointerAction {
 
 /// One change a person made.
 ///
-/// Four variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
-/// something the document already holds, and an annotation added to it. Both are a log beside an
-/// immutable document, and both leave through §7.5.6's incremental update.
+/// Six variants, and they are the two halves of `CLAUDE.md`'s amended exclusion: a value put into
+/// something the document already holds, and an object added to it — an annotation, or since the
+/// eight-hundred-and-eighty-fifth session §7.11.4's embedded file. All are a log beside an
+/// immutable document, and all leave through §7.5.6's incremental update.
 ///
 /// **Two of them are one subtype's**, which is what §12.5.6.6 costs and nothing else here did:
 /// a free text annotation's text *is* the annotation, so creating one and then saying what it says
@@ -521,36 +541,122 @@ pub enum Edit {
         /// one a person has just drawn is.
         text: String,
     },
+    /// §7.11.4: put a file into the document, in one of §7.11.4.1's two homes.
+    ///
+    /// > Embedded file streams ( PDF 1.3 ) address this problem by allowing the contents of
+    /// > referenced files to be embedded directly within the body of the PDF file.
+    ///
+    /// The bytes cross whole, for [`Command::Open`]'s reason: rule 2 says the host owns the
+    /// filesystem, so what arrives here is the file and never a path. The name is what the file
+    /// is filed under — §7.7.4's tree key where the home is the document, and Table 43's `/F`
+    /// and `/UF` either way — and it is one namespace for both homes, so that [`Self::Detach`]
+    /// by name is never ambiguous: a name already embedded, by the document or by this session,
+    /// is refused with [`crate::Event::Reported`], because §7.9.6's keys "shall not overlap".
+    ///
+    /// What is done is an entry in the log like every other edit: the list
+    /// [`crate::Query::Attachments`] answers with holds the file at once, the page draws its
+    /// icon at once where the home is a page, [`Command::Undo`] forgets it, and the file on disk
+    /// changes only when [`Command::Save`] writes §7.5.6's update — three objects and the tree,
+    /// through the same writer `pdf-transform attachments --attach` uses. Which of Table 22's
+    /// bits governs it depends on the home, and [`AttachHome`] says which. ADR 0814.
+    Attach {
+        /// The file, whole. A [`pdf_model::attachment::filing::Payload`] rather than a `Vec<u8>`
+        /// for [`Secret`]'s reason one field up: this enumeration derives `Debug` and two hosts
+        /// print a command, and a payload prints as its length.
+        bytes: pdf_model::attachment::filing::Payload,
+        /// The name it is filed under.
+        name: String,
+        /// Table 43's `/Desc` — and Table 166's `/Contents` where the home is a page, because
+        /// §12.5.6.15 makes that the text a reader shows.
+        description: Option<String>,
+        /// Table 44's `/Subtype`, the media type, where the host knows one.
+        mime: Option<String>,
+        /// Which of §7.11.4.1's two homes.
+        home: AttachHome,
+    },
+    /// §7.11.4: take an embedded file out of the document, by the name it is filed under.
+    ///
+    /// The name is [`pdf_model::attachment::Attachment::name`], which is what
+    /// [`crate::Query::Attachments`] answered with. A file this session attached is forgotten —
+    /// the same outcome as undoing its attach, reached from the list rather than from the log —
+    /// and one the document's own `/EmbeddedFiles` tree names leaves the list at once and the
+    /// tree when the next save rewrites it, with what the entry alone reached marked free in
+    /// §7.5.6's new cross-reference section. A name nothing files is [`crate::Event::Reported`].
+    ///
+    /// **A file §12.5.6.15's annotation carries in the file's own `/Annots` is not among what
+    /// this reaches**: taking it out would be deleting the producer's annotation, which is a
+    /// different kind of writing from appending and is `doc/todo/33`'s.
+    Detach {
+        /// The `/EmbeddedFiles` key.
+        name: String,
+    },
+}
+
+/// Where [`Edit::Attach`] puts a file: one of §7.11.4.1's two homes.
+///
+/// > An embedded file stream shall be included in a PDF file in one of the following ways:
+///
+/// — "[a]ny file specification dictionary in the document may have an EF entry", which "shall be
+/// used for file attachment annotations … which associate the embedded file with a location on a
+/// page in the document", or the `EmbeddedFiles` entry of the name dictionary, which associates
+/// it "with the document as a whole".
+///
+/// **The two homes read different bits of §7.6.4.2's Table 22, and that is decided from the
+/// table's text.** A file filed in the tree is bit 4's — "[m]odify the contents of the document
+/// by operations other than those controlled by bits 6, 9, and 11", the residual no other bit
+/// carves out (ADR 0802). A file filed by an annotation is bit 6's, "[a]dd or modify text
+/// annotations": §12.5.6.15 makes the file part of the annotation — it "contains a reference to a
+/// file, which typically shall be embedded" — and bit 4's own row hands whatever bit 6 controls
+/// to bit 6, so the annotation and the file it carries are one act of annotating, exactly as a
+/// markup and the appearance stream it carries are. The consequence is stated rather than hidden:
+/// a certification at §12.8.2.2's level 3, or a Table 22 word granting bit 6 and not 4, permits a
+/// file on a page and withholds one in the tree. ADR 0814.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AttachHome {
+    /// §7.7.4's `/EmbeddedFiles` tree: the document as a whole. Bit 4,
+    /// [`pdf_model::restriction::Operation::Modify`].
+    Document,
+    /// §12.5.6.15's annotation on the page under a point of the viewport, in device pixels from
+    /// its top-left corner exactly as [`Command::Pointer`]'s point is. Bit 6,
+    /// [`pdf_model::restriction::Operation::Annotate`].
+    ///
+    /// The icon is a 20-unit square centred on the point in the page's user space — a stated
+    /// choice, `pdf_model::attachment::filing::rect_around` — with Table 187's default `PushPin`.
+    /// A point on no page attaches nothing, which is a host's mistake rather than a document's.
+    Page {
+        /// Where, in device pixels from the viewport's top-left corner.
+        at: (f32, f32),
+    },
 }
 
 /// What this reader does with the restrictions a document asserts over it.
 ///
 /// The project owner's statement, in `CLAUDE.md`, names four levels: `off`, `on`, *ask before the
-/// operation*, and *warn before the operation*. **Two of them are here and two are not, and that
-/// is a decision rather than an instalment.**
+/// operation*, and *warn before the operation*. **All four are here since the
+/// eight-hundred-and-eighty-fifth session**, and the two that arrived last did so on the
+/// condition the two-hundred-and-twelfth set: not as variants nothing produces and nothing
+/// answers, but with the event a window receives and the command that answers it —
+/// [`crate::Event::Asking`] answered by [`Command::Answer`], and [`crate::Event::Warned`] after
+/// an edit that went ahead — which is the shape [`crate::Event::PasswordRequired`] already had.
 ///
-/// `Off` and `On` are answers this crate can give by itself. *Ask* and *warn* are not answers at
-/// all — they are a question put to a person, and a question needs somebody able to answer it: an
-/// [`crate::Event`] carrying what is about to be refused, and a [`Command`] carrying the verdict,
-/// which is the shape [`crate::Event::PasswordRequired`] already has. Shipping them as variants
-/// nothing produces and nothing answers would be two levels that silently behaved like a third,
-/// which is what `CLAUDE.md` forbids under "no placeholder implementations".
-///
-/// **What makes them cheap to add is that nothing here is `#[non_exhaustive]`.** The day a host
-/// can ask, two variants arrive and every consumer of this crate fails to compile until it says
-/// what it does about them — which is the whole reason `doc/ui-boundary.md` keeps
-/// these enums exhaustive, and it is why the shape is what this round owed rather than the
-/// levels. ADR 0212.
+/// **What made them cheap to add is that nothing here is `#[non_exhaustive]`.** Every consumer
+/// of this crate failed to compile until it said what it does about the two events, which is the
+/// whole reason `doc/ui-boundary.md` keeps these enums exhaustive (ADR 0212, ADR 0814).
 ///
 /// **The four levels themselves live in `pdf_model::restriction::Level` since the
-/// eight-hundred-and-seventy-second session**, and this type is the two of them a window can
-/// answer today, mapped by [`RestrictionLevel::level`]. `Viewer::refusal` asks
-/// `pdf_model::restriction::decide` and matches its verdict exhaustively, so when the two
-/// arrive here the arms that receive them are already written and the compiler names the one
-/// place that changes. ADR 0803.
+/// eight-hundred-and-seventy-second session**, mapped by [`RestrictionLevel::level`], and this
+/// type exists so that a host names the level in this crate's vocabulary rather than in
+/// `pdf-model`'s. `Viewer::standing` asks `pdf_model::restriction::decide` once per edit and
+/// matches its verdict exhaustively. ADR 0803.
+///
+/// **Which level a person is at is the host's to supply and never asked here**: `On` is the
+/// default for the reason its own entry gives, and a window without a way to set the other three
+/// is a window at `On` — or at `Off`, by the word `viewer_host::IGNORE_RESTRICTIONS`, because
+/// `CLAUDE.md` says that one "shall always be possible".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RestrictionLevel {
-    /// Obey what the document asserts: the operation is refused and the reason is said.
+    /// Obey what the document asserts: the operation is refused and the reason is said, as
+    /// [`crate::Event::Refused`].
     ///
     /// The default, and §7.6.4.1's `shall` — "PDF readers shall respect the intent of the
     /// document creator by restricting user access to an encrypted PDF file according to the
@@ -564,6 +670,12 @@ pub enum RestrictionLevel {
     /// — it is a statement the *file* would be making about bytes nobody signed. Turning a
     /// restriction off is the reader's; making the file lie is not.
     Off,
+    /// Put what the document asserts to the person and wait: [`crate::Event::Asking`], answered
+    /// by [`Command::Answer`], with the edit held in between and nothing done until a `yes`.
+    Ask,
+    /// Perform the operation and then say what the document asserted: [`crate::Event::Warned`],
+    /// after the edit and after the [`crate::Event::Dirty`] it caused.
+    Warn,
 }
 
 impl RestrictionLevel {
@@ -573,6 +685,8 @@ impl RestrictionLevel {
         match self {
             Self::On => pdf_model::restriction::Level::On,
             Self::Off => pdf_model::restriction::Level::Off,
+            Self::Ask => pdf_model::restriction::Level::Ask,
+            Self::Warn => pdf_model::restriction::Level::Warn,
         }
     }
 }

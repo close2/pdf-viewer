@@ -27,9 +27,9 @@ use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection, FocusMove, Found,
-    PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query, RestrictionLevel,
-    Selection, Zoom,
+    Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
+    FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query,
+    RestrictionLevel, Selection, Zoom,
 };
 
 use crate::Reply;
@@ -1030,6 +1030,9 @@ mod command_kind {
     // Where the reader is looking, said absolutely, since the eight-hundred-and-fifth session:
     // what a host hands back after starting another worker. ADR 0737.
     pub(super) const VIEW: u8 = 25;
+    // The person's answer to `Event::Asking`, since the eight-hundred-and-eighty-fifth: the
+    // *ask* level's second half, which a confined host has to be able to supply. ADR 0814.
+    pub(super) const ANSWER: u8 = 26;
 }
 
 /// How [`Command::Open`]'s document is held, on the wire.
@@ -1204,7 +1207,12 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::RESTRICT).u8(match level {
                 RestrictionLevel::On => 0,
                 RestrictionLevel::Off => 1,
+                RestrictionLevel::Ask => 2,
+                RestrictionLevel::Warn => 3,
             });
+        }
+        Command::Answer { document, proceed } => {
+            writer.u8(k::ANSWER).document(*document).bool(*proceed);
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -1392,9 +1400,15 @@ pub(crate) fn decode_command_holding(
         },
         k::VIEW => Command::View(decode_viewing(&mut reader)?),
         k::LAYOUT => Command::Layout(panels::layout_of(reader.u8("a page layout")?)?),
+        k::ANSWER => Command::Answer {
+            document: reader.document(what)?,
+            proceed: reader.bool("an answer")?,
+        },
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,
             1 => RestrictionLevel::Off,
+            2 => RestrictionLevel::Ask,
+            3 => RestrictionLevel::Warn,
             value => {
                 return Err(ProtocolError::Unrecognised {
                     what: "a restriction level",
@@ -1674,6 +1688,34 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
         Edit::SetFreeText { annotation, text } => {
             writer.u8(3).object(*annotation).str(text);
         }
+        // §7.11.4's file crosses whole, since the eight-hundred-and-eighty-fifth session. The
+        // bytes ship rather than a descriptor: a confined worker has no filesystem to open one
+        // through, and `doc/todo/38` records what a descriptor route would need. ADR 0814.
+        Edit::Attach {
+            bytes,
+            name,
+            description,
+            mime,
+            home,
+        } => {
+            writer
+                .u8(4)
+                .bytes(bytes.bytes())
+                .str(name)
+                .option_str(description.as_deref())
+                .option_str(mime.as_deref());
+            match home {
+                AttachHome::Document => {
+                    writer.u8(0);
+                }
+                AttachHome::Page { at } => {
+                    writer.u8(1).point(*at);
+                }
+            }
+        }
+        Edit::Detach { name } => {
+            writer.u8(5).str(name);
+        }
     }
 }
 
@@ -1731,9 +1773,58 @@ fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError> {
             annotation: reader.object("a free text annotation")?,
             text: reader.string("a free text annotation's contents")?,
         },
+        4 => Edit::Attach {
+            bytes: reader.owned_bytes("a file to attach")?.into(),
+            name: reader.string("an attachment's name")?,
+            description: reader.option_string("an attachment's description")?,
+            mime: reader.option_string("an attachment's media type")?,
+            home: match reader.u8("an attachment's home")? {
+                0 => AttachHome::Document,
+                1 => AttachHome::Page {
+                    at: reader.point("an attachment's point")?,
+                },
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "an attachment's home",
+                        value: u32::from(value),
+                    });
+                }
+            },
+        },
+        5 => Edit::Detach {
+            name: reader.string("an attachment's name")?,
+        },
         value => {
             return Err(ProtocolError::Unrecognised {
                 what,
+                value: u32::from(value),
+            });
+        }
+    })
+}
+
+/// One byte for one of `Operation`'s arms, the same for every event that names one.
+fn operation_code(operation: Operation) -> u8 {
+    match operation {
+        Operation::FillInForm => 0,
+        Operation::Annotate => 1,
+        Operation::Print => 2,
+        Operation::Extract => 3,
+        Operation::Modify => 4,
+    }
+}
+
+/// [`operation_code`] read back, refusing a byte no arm has.
+fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, ProtocolError> {
+    Ok(match reader.u8("an operation")? {
+        0 => Operation::FillInForm,
+        1 => Operation::Annotate,
+        2 => Operation::Print,
+        3 => Operation::Extract,
+        4 => Operation::Modify,
+        value => {
+            return Err(ProtocolError::Unrecognised {
+                what: "an operation",
                 value: u32::from(value),
             });
         }
@@ -1757,6 +1848,11 @@ mod event_kind {
     pub(super) const REFUSED: u8 = 13;
     pub(super) const REPORTED: u8 = 14;
     pub(super) const SEARCHED: u8 = 15;
+    // The *ask* and *warn* levels' events, and the attachment list moving, since the
+    // eight-hundred-and-eighty-fifth session. ADR 0814.
+    pub(super) const ASKING: u8 = 16;
+    pub(super) const WARNED: u8 = 17;
+    pub(super) const ATTACHMENTS_CHANGED: u8 = 18;
 }
 
 /// Encodes one event.
@@ -1892,14 +1988,33 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             writer
                 .u8(k::REFUSED)
                 .document(*document)
-                .u8(match operation {
-                    Operation::FillInForm => 0,
-                    Operation::Annotate => 1,
-                    Operation::Print => 2,
-                    Operation::Extract => 3,
-                    Operation::Modify => 4,
-                })
+                .u8(operation_code(*operation))
                 .strings(notes);
+        }
+        Event::Asking {
+            document,
+            operation,
+            notes,
+        } => {
+            writer
+                .u8(k::ASKING)
+                .document(*document)
+                .u8(operation_code(*operation))
+                .strings(notes);
+        }
+        Event::Warned {
+            document,
+            operation,
+            notes,
+        } => {
+            writer
+                .u8(k::WARNED)
+                .document(*document)
+                .u8(operation_code(*operation))
+                .strings(notes);
+        }
+        Event::AttachmentsChanged { document } => {
+            writer.u8(k::ATTACHMENTS_CHANGED).document(*document);
         }
         Event::Reported {
             document,
@@ -2035,20 +2150,21 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
-            operation: match reader.u8("an operation")? {
-                0 => Operation::FillInForm,
-                1 => Operation::Annotate,
-                2 => Operation::Print,
-                3 => Operation::Extract,
-                4 => Operation::Modify,
-                value => {
-                    return Err(ProtocolError::Unrecognised {
-                        what: "an operation",
-                        value: u32::from(value),
-                    });
-                }
-            },
+            operation: operation_of(&mut reader)?,
             notes: reader.strings("a refusal's notes")?,
+        },
+        k::ASKING => Event::Asking {
+            document: reader.document(what)?,
+            operation: operation_of(&mut reader)?,
+            notes: reader.strings("a question's notes")?,
+        },
+        k::WARNED => Event::Warned {
+            document: reader.document(what)?,
+            operation: operation_of(&mut reader)?,
+            notes: reader.strings("a warning's notes")?,
+        },
+        k::ATTACHMENTS_CHANGED => Event::AttachmentsChanged {
+            document: reader.document(what)?,
         },
         k::REPORTED => Event::Reported {
             document: reader.document(what)?,
@@ -3325,6 +3441,18 @@ mod tests {
             }),
             Command::Restrict(RestrictionLevel::Off),
             Command::Restrict(RestrictionLevel::On),
+            // The other two of `CLAUDE.md`'s four levels, and the answer that makes the third
+            // one a level, since the eight-hundred-and-eighty-fifth session (ADR 0814).
+            Command::Restrict(RestrictionLevel::Ask),
+            Command::Restrict(RestrictionLevel::Warn),
+            Command::Answer {
+                document: DocumentId(3),
+                proceed: true,
+            },
+            Command::Answer {
+                document: DocumentId(3),
+                proceed: false,
+            },
             Command::Present(PresentationMode::On),
             Command::Present(PresentationMode::Off),
             Command::Edit(Edit::SetField {
@@ -3360,6 +3488,25 @@ mod tests {
             Command::Edit(Edit::SetFreeText {
                 annotation: ObjectId::new(19, 0),
                 text: "Reviewed".to_owned(),
+            }),
+            // §7.11.4's file in both of §7.11.4.1's homes, and out again, since the
+            // eight-hundred-and-eighty-fifth session: the bytes cross whole (ADR 0814).
+            Command::Edit(Edit::Attach {
+                bytes: b"a,b,c\n".to_vec().into(),
+                name: "data.csv".to_owned(),
+                description: Some("last quarter".to_owned()),
+                mime: Some("text/csv".to_owned()),
+                home: AttachHome::Document,
+            }),
+            Command::Edit(Edit::Attach {
+                bytes: Vec::new().into(),
+                name: "empty".to_owned(),
+                description: None,
+                mime: None,
+                home: AttachHome::Page { at: (12.5, 34.0) },
+            }),
+            Command::Edit(Edit::Detach {
+                name: "data.csv".to_owned(),
             }),
             Command::Undo,
             Command::Redo,
@@ -3635,6 +3782,19 @@ mod tests {
                 operation: Operation::Annotate,
                 notes: vec!["this document's author certified it".to_owned()],
             },
+            // The *ask* and *warn* levels' events and the list moving, since the
+            // eight-hundred-and-eighty-fifth session (ADR 0814).
+            Event::Asking {
+                document,
+                operation: Operation::Modify,
+                notes: vec!["bit 4 is clear".to_owned(), "and /P 1".to_owned()],
+            },
+            Event::Warned {
+                document,
+                operation: Operation::Extract,
+                notes: Vec::new(),
+            },
+            Event::AttachmentsChanged { document },
             Event::Reported {
                 document,
                 page: Some(0),

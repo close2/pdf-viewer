@@ -77,6 +77,12 @@ pub enum EventKind {
     Reported = 14,
     /// [`viewer_core::Event::Searched`].
     Searched = 15,
+    /// [`viewer_core::Event::Asking`] — the *ask* level's question. Answer with `pdfv_answer`.
+    Asking = 16,
+    /// [`viewer_core::Event::Warned`] — the *warn* level's sentence, after the edit.
+    Warned = 17,
+    /// [`viewer_core::Event::AttachmentsChanged`] — ask `pdfv_attachments_read` again.
+    AttachmentsChanged = 18,
 }
 
 impl EventKind {
@@ -85,7 +91,7 @@ impl EventKind {
     /// **The number a C caller checks its header against**, which is the whole of what this ABI
     /// can offer in place of a build failure. It is written out rather than counted by a macro so
     /// that adding a variant is a line a person writes beside the variant, in the same commit.
-    pub const COUNT: u32 = 16;
+    pub const COUNT: u32 = 19;
 
     /// Which kind an event is.
     ///
@@ -111,6 +117,9 @@ impl EventKind {
             Event::Refused { .. } => Self::Refused,
             Event::Reported { .. } => Self::Reported,
             Event::Searched { .. } => Self::Searched,
+            Event::Asking { .. } => Self::Asking,
+            Event::Warned { .. } => Self::Warned,
+            Event::AttachmentsChanged { .. } => Self::AttachmentsChanged,
         }
     }
 
@@ -138,6 +147,9 @@ impl EventKind {
             Self::Refused => "Refused\0",
             Self::Reported => "Reported\0",
             Self::Searched => "Searched\0",
+            Self::Asking => "Asking\0",
+            Self::Warned => "Warned\0",
+            Self::AttachmentsChanged => "AttachmentsChanged\0",
         }
     }
 
@@ -165,6 +177,9 @@ impl EventKind {
             13 => Self::Refused,
             14 => Self::Reported,
             15 => Self::Searched,
+            16 => Self::Asking,
+            17 => Self::Warned,
+            18 => Self::AttachmentsChanged,
             _ => return None,
         })
     }
@@ -450,6 +465,10 @@ pub enum RestrictKind {
     On = 0,
     /// Ignore it and perform the operation.
     Off = 1,
+    /// Ask first: a `PDFV_EVENT_ASKING` the caller answers with `pdfv_answer`.
+    Ask = 2,
+    /// Perform the operation, then say what the document asserted: a `PDFV_EVENT_WARNED`.
+    Warn = 3,
 }
 
 impl RestrictKind {
@@ -459,6 +478,8 @@ impl RestrictKind {
         Some(match code {
             0 => Self::On,
             1 => Self::Off,
+            2 => Self::Ask,
+            3 => Self::Warn,
             _ => return None,
         })
     }
@@ -469,7 +490,31 @@ impl RestrictKind {
         match self {
             Self::On => RestrictionLevel::On,
             Self::Off => RestrictionLevel::Off,
+            Self::Ask => RestrictionLevel::Ask,
+            Self::Warn => RestrictionLevel::Warn,
         }
+    }
+}
+
+/// Where `pdfv_attach` puts the file: [`viewer_core::AttachHome`], numbered for C.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u32)]
+pub enum AttachKind {
+    /// §7.7.4's `/EmbeddedFiles` tree — the document as a whole.
+    Document = 0,
+    /// §12.5.6.15's annotation on the page under the point the call carries.
+    Page = 1,
+}
+
+impl AttachKind {
+    /// The kind for a number, or `None` for one this build does not define.
+    #[must_use]
+    pub const fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::Document,
+            1 => Self::Page,
+            _ => return None,
+        })
     }
 }
 
