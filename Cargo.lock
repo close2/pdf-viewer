@@ -3188,6 +3188,7 @@ dependencies = [
  "pdf-model",
  "pdf-render",
  "pdf-syntax",
+ "pdfref",
  "png",
  "raster-compare",
  "rayon",

@@ -670,8 +670,38 @@ fn form_document(value: &str) -> Vec<u8> {
 /// Table 355's minimum — a root with `/K`, `/ParentTree`, `/RoleMap`, `/ClassMap` and `/IDTree`,
 /// and one `/Document` element over one leaf whose `/K` is §14.7.5.2's integer.
 fn tagged_document(identifier: &str, role: &str, align: &str) -> Vec<u8> {
+    tagged_document_with(identifier, role, align, ParentTreeValue::Direct)
+}
+
+/// Which of §7.3.10's two forms the fixture's parent-tree value takes.
+///
+/// The clause makes a reference "equivalent" to the object it names, so both are one document as
+/// far as §14.7.5.4 is concerned — and a writer that reads only the first form writes a value
+/// naming nothing (ADR 0838).
+#[derive(Clone, Copy)]
+enum ParentTreeValue {
+    /// `/Nums [7 [7 0 R]]` — the array written where the number tree states it.
+    Direct,
+    /// `/Nums [7 9 0 R]`, with `9 0 obj [7 0 R]` — the array as an object of its own, which is
+    /// what most producers of the corpus's tagged documents write.
+    OutOfLine,
+}
+
+/// [`tagged_document`], with the parent-tree value in either of §7.3.10's two forms.
+fn tagged_document_with(
+    identifier: &str,
+    role: &str,
+    align: &str,
+    parent_tree: ParentTreeValue,
+) -> Vec<u8> {
     // §14.7.5.2's marked-content sequence, with the identifier the parent tree indexes by.
     let content = "/P << /MCID 0 >> BDC\nEMC\n";
+    let tree = match parent_tree {
+        ParentTreeValue::Direct => "8 0 obj\n<< /Nums [7 [7 0 R]] >>\nendobj\n".to_owned(),
+        ParentTreeValue::OutOfLine => {
+            "8 0 obj\n<< /Nums [7 9 0 R] >>\nendobj\n9 0 obj\n[7 0 R]\nendobj\n".to_owned()
+        }
+    };
     let body = format!(
         "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /StructTreeRoot 5 0 R /MarkInfo << /Marked true \
          >> >>\nendobj\n\
@@ -685,7 +715,7 @@ fn tagged_document(identifier: &str, role: &str, align: &str) -> Vec<u8> {
          6 0 obj\n<< /Type /StructElem /S /Document /P 5 0 R /K [7 0 R] >>\nendobj\n\
          7 0 obj\n<< /Type /StructElem /S /Title /P 6 0 R /Pg 3 0 R /K [0] /ID ({identifier}) \
          /C /Pa1 >>\nendobj\n\
-         8 0 obj\n<< /Nums [7 [7 0 R]] >>\nendobj\n",
+         {tree}",
         len = content.len(),
     );
     let mut out = String::from("%PDF-1.7\n");
@@ -888,6 +918,62 @@ fn the_marked_content_identifiers_are_not_rewritten_and_the_array_still_indexes_
         assert!(
             bytes.windows(6).any(|window| window == b"/MCID "),
             "the marked-content identifier crossed with the stream"
+        );
+    }
+}
+
+/// A parent-tree value the source states out of line is carried as the array it names, not as a
+/// one-long array of nothing.
+///
+/// §7.3.10: "[e]xcept where documented to the contrary, any object value may be a direct or an
+/// indirect reference; the semantics are equivalent". So §14.7.5.4's "array of indirect
+/// references to the sequences' parent structure elements" is that array whether the number tree
+/// holds it or names it, and a carry that reads only the direct form writes a value indexing
+/// nothing — which is what an assistive processor, and nothing else, would have found (ADR
+/// 0838). Most of the corpus's tagged documents state it this way, and `mutool show` on a
+/// carried piece is where it was seen.
+#[test]
+fn a_parent_tree_value_stated_out_of_line_is_carried_as_the_array_it_names() {
+    let first = tagged_document_with("A", "H1", "Start", ParentTreeValue::OutOfLine);
+    let second = tagged_document_with("B", "H1", "Start", ParentTreeValue::OutOfLine);
+    let (_, merged) = merge(&[(&first, "1"), (&second, "1")], false).expect("it merges");
+    let read = Document::open_with_limits(merged, Limits::DEFAULT).expect("re-read");
+    let catalog = read.catalog().expect("a catalog");
+    let root = read.get_key(&catalog, "StructTreeRoot");
+    let root = root.as_dict().expect("a structure tree root");
+    let tree = read.get_key(root, "ParentTree");
+    let tree = tree.as_dict().expect("§14.7.5.4's parent tree");
+
+    for (index, page) in support::page_dictionaries(&read).iter().enumerate() {
+        let key = read
+            .get_key(page, "StructParents")
+            .as_integer()
+            .expect("the carried page states a key");
+        let entry = pdf_syntax::tree::lookup_unresolved(
+            tree,
+            &pdf_syntax::tree::TreeKey::Number(key),
+            &|value| read.resolve(value),
+        )
+        .expect("the key resolves");
+        let Object::Array(items) = read.resolve(&entry) else {
+            panic!("a content stream's parent-tree value is an array: {entry:?}");
+        };
+        assert_eq!(
+            items.len(),
+            1,
+            "the source's array was one element long and the index is preserved"
+        );
+        let element = items
+            .first()
+            .and_then(Object::as_reference)
+            .expect("index 0 is an indirect reference rather than §7.3.10's null");
+        let Object::Dictionary(element) = read.get(element) else {
+            panic!("index 0 names a structure element");
+        };
+        assert_eq!(
+            element.get("Pg").and_then(Object::as_reference),
+            page_id(&read, index),
+            "and the element it names is on this page"
         );
     }
 }
