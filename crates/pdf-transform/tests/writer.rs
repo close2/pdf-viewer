@@ -352,6 +352,7 @@ fn rendered(bytes: &[u8], annotations: bool) -> (u32, u32, Vec<u8>) {
             page_box: None,
             annotations,
             names: "p.png".parse().expect("a pattern"),
+            strips: None,
         }),
         &[Source::new(bytes.to_vec())],
         &sinks,

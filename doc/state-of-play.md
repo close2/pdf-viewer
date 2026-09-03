@@ -378,7 +378,12 @@ because a kernel clamps reads at the size a `stat` reported and an estimate woul
 file. Nothing is written yet: RFC 0003 §5.2's five verbs are declared in the table and refused by
 the operation's own name, and §5.3's four are refused by design with the sentence saying why they
 will still be refused when the write side lands. There is no face yet — no FUSE binary, no KIO
-plugin — and no confined worker, which is why there is no face (ADRs 0840, 0841). **What a document asserts over its reader is read once, in
+plugin — but **there is a confined worker**, which is what a face was waiting for (ADRs 0840, 0841,
+0846, 0847): `pdf-vfs-worker` confines itself before it reads a byte, takes the document as the
+descriptor a broker sends it, and answers the same questions with the same answers as the
+in-process one — question by question, both ways, asserted. It needs no system call the viewer's
+worker does not, measured under `strace` rather than assumed, and six probes say it is *killed* for
+asking the filesystem anything. The wire under both workers is one crate, `confined-transport`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
 (one as consumed by nothing, saying why), the six operations — a field filled, an
 annotation added, a page rendered, a file extracted, a file written in, a document assembled out

@@ -793,6 +793,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "confined-transport"
+version = "0.1.0"
+dependencies = [
+ "pdf-sandbox",
+ "rustix 1.1.4",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "conformance"
 version = "0.1.0"
 dependencies = [
@@ -3201,9 +3210,13 @@ dependencies = [
 name = "pdf-vfs"
 version = "0.1.0"
 dependencies = [
+ "confined-transport",
+ "libc",
  "pdf-model",
+ "pdf-sandbox",
  "pdf-syntax",
  "pdf-transform",
+ "rayon",
  "thiserror 2.0.19",
 ]
 
@@ -4710,6 +4723,7 @@ dependencies = [
 name = "viewer-confined"
 version = "0.1.0"
 dependencies = [
+ "confined-transport",
  "libc",
  "pdf-model",
  "pdf-render",
@@ -4718,7 +4732,6 @@ dependencies = [
  "png",
  "rayon",
  "render-cpu",
- "rustix 1.1.4",
  "thiserror 2.0.19",
  "viewer-core",
 ]

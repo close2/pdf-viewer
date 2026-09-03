@@ -393,6 +393,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 page_box,
                 annotations: !arguments.switch("--no-annotations"),
                 names: names("render")?,
+                strips: None,
             }))
         }
         "images" => {

@@ -31,13 +31,14 @@
 //!   threads outside the domain, which `pdf_sandbox::lockdown_linux`'s header states as the rule
 //!   for every caller.
 
-use std::io::{Read, Write as _};
+use std::io::Write as _;
 
+use confined_transport::link::{Link, ReceivedDescriptor, Source};
 use pdf_render::Rasterizer as _;
 use render_cpu::CpuRasterizer;
 use viewer_core::{Command, Event, Rendered, Viewer};
 
-use crate::protocol::{self, ReceivedDescriptor};
+use crate::protocol;
 
 /// The viewport the worker starts with, in device pixels.
 ///
@@ -79,7 +80,12 @@ const RASTERISING_THREADS: u32 = 1;
 /// form of it. So the last copy cannot be a `try_reserve`, which is why this factor exists at all:
 /// a message the ceiling cannot hold twice is refused *before* the first byte is read, rather than
 /// aborted at the third allocation.
-const COPIES_OF_A_MESSAGE: u64 = 2;
+const COPIES_OF_A_MESSAGE: std::num::NonZeroU64 = match std::num::NonZeroU64::new(2) {
+    Some(copies) => copies,
+    // A literal two is not zero. The arm is written rather than unwrapped because this workspace
+    // forbids an `unwrap` outside a test even where the compiler can see through it.
+    None => std::num::NonZeroU64::MIN,
+};
 
 /// What confining this process settled.
 ///
@@ -98,63 +104,28 @@ pub struct WorkerLimits {
     pub message_budget: u64,
 }
 
-/// What this process still has to grow by after its baseline is taken, in bytes.
-///
-/// **The baseline is measured at the one moment it can be**, which is before the confinement —
-/// and the worker is not finished growing then. Between that moment and the first page it builds
-/// `rayon`'s pool, and on `glibc` a thread costs its stack plus a 64 MiB arena of address space.
-/// Measured on this machine (ADR 0597): `VmSize` is 14.1 MB when the baseline is taken and
-/// 82.0 MB once a page has been drawn, so what the baseline misses is 68 MB.
-///
-/// A hundred and twenty-eight mebibytes is that measurement rounded up to the next power of two,
-/// which is 3% of the ceiling — and rounding *up* is the direction to be wrong in, because being
-/// wrong the other way is the abort this whole arithmetic exists to prevent.
-const SETTLING_ALLOWANCE: u64 = 128 << 20;
-
 /// The largest message a ceiling leaves room for, in bytes.
 ///
-/// **Every term is read from somewhere or measured, and none is picked.**
+/// **Every term is read from somewhere or measured, and none is picked.** The arithmetic is
+/// `confined_transport::ceiling`'s, because it is the same arithmetic `pdf-vfs`'s worker does
+/// (ADR 0846); what is *this* worker's is the two numbers it supplies.
 ///
 /// - `ceiling` is `pdf_sandbox`'s `INTERPRETER_ADDRESS_SPACE_LIMIT`, as the kernel installed it
 ///   and as the greeting reports it. Zero means no ceiling, and then there is no budget either.
 /// - `already` is this process's own address space *before* the confinement, read once from
 ///   `/proc/self/status`. It has to be read there because a confined process has no filesystem:
 ///   `openat` is not on the allow-list, so this is the only moment the question can be asked.
-/// - [`SETTLING_ALLOWANCE`] is what it grows by after that.
 /// - [`viewer_core::MAX_PIXELS`] × 4 is what a page's pixels may claim, in RGBA. It is subtracted
 ///   because the document is still held when the raster is allocated, and it is the same
 ///   arithmetic `INTERPRETER_ADDRESS_SPACE_LIMIT` was itself derived from.
-///
-/// What is left is divided by [`COPIES_OF_A_MESSAGE`], and the result is capped at what the
-/// protocol would carry anyway.
+/// - [`COPIES_OF_A_MESSAGE`] is how many copies of it live at once at the peak.
 fn message_budget(ceiling: u64, already: u64) -> u64 {
-    if ceiling == 0 {
-        return u64::MAX;
-    }
-    let raster = viewer_core::MAX_PIXELS.saturating_mul(4);
-    ceiling
-        .saturating_sub(already)
-        .saturating_sub(SETTLING_ALLOWANCE)
-        .saturating_sub(raster)
-        .saturating_div(COPIES_OF_A_MESSAGE)
-        .min(protocol::MAX_MESSAGE)
-}
-
-/// This process's address space in bytes, or 0 where it cannot be read.
-///
-/// `VmSize` rather than `VmRSS`, because `RLIMIT_AS` is compared against the address space and a
-/// budget derived from the resident set would be derived from the wrong counter. Called before the
-/// confinement and never after it.
-fn address_space_in_use() -> u64 {
-    let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
-        return 0;
-    };
-    status
-        .lines()
-        .find(|line| line.starts_with("VmSize:"))
-        .and_then(|line| line.split_whitespace().nth(1))
-        .and_then(|value| value.parse::<u64>().ok())
-        .map_or(0, |kilobytes| kilobytes.saturating_mul(1024))
+    confined_transport::ceiling::message_budget(
+        ceiling,
+        already,
+        viewer_core::MAX_PIXELS.saturating_mul(4),
+        COPIES_OF_A_MESSAGE,
+    )
 }
 
 /// Confines this process for interpreting and drawing pages, and says what that settled.
@@ -186,7 +157,7 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
     let threads = usize::try_from(RASTERISING_THREADS)
         .unwrap_or(1)
         .min(machine);
-    let already = address_space_in_use();
+    let already = confined_transport::ceiling::address_space_in_use();
 
     let confinement = pdf_sandbox::lockdown::apply_for(pdf_sandbox::lockdown::Profile::Interpreter)
         .map_err(std::io::Error::other)?;
@@ -216,7 +187,7 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
 pub fn serve() -> Result<(), std::io::Error> {
     let limits = confine()?;
 
-    let mut input = Link::stdin();
+    let mut input = Link::stdin(crate::WORKER_PROGRAM);
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
 
@@ -276,157 +247,6 @@ fn unaffordable(length: usize, limits: &WorkerLimits) -> String {
          itself beside a page's pixels, so the largest it will read is {budget} bytes",
         budget = limits.message_budget,
     )
-}
-
-/// Where frames come from, and what can arrive beside them.
-///
-/// The worker's standard input is a socket when a [`crate::Confined`] started it — one end of
-/// a pair the host made — and a document open on disk arrives as its descriptor beside the
-/// frame's header, sent with `SCM_RIGHTS` (ADR 0812). `read` cannot see ancillary data, so a
-/// frame is read with `recvmsg`, and every descriptor that arrives is collected beside the
-/// bytes it came with. A test hands over a slice, which carries none.
-trait Source {
-    /// Fills `buffer` entirely, adding whatever descriptors arrived beside its bytes.
-    ///
-    /// # Errors
-    ///
-    /// [`std::io::ErrorKind::UnexpectedEof`] where the input ended first, as `read_exact`
-    /// reports it; and the platform's own errors.
-    fn fill(
-        &mut self,
-        buffer: &mut [u8],
-        descriptors: &mut Vec<ReceivedDescriptor>,
-    ) -> Result<(), std::io::Error>;
-
-    /// Reads and throws away `bytes` bytes, closing any descriptor that arrives with them.
-    ///
-    /// The refusal path: a frame the budget will not admit has been written already, and a
-    /// reader that left it in the socket would read the next frame out of the middle of this
-    /// one. A descriptor beside a refused frame is nobody's and is closed here.
-    fn skip(&mut self, mut bytes: usize) -> Result<(), std::io::Error> {
-        /// Enough to empty a socket quickly and small enough to be nobody's memory problem.
-        const SCRATCH: usize = 64 * 1024;
-
-        let mut scratch = vec![0u8; SCRATCH.min(bytes.max(1))];
-        let mut unclaimed = Vec::new();
-        while bytes > 0 {
-            let take = bytes.min(scratch.len());
-            let Some(slice) = scratch.get_mut(..take) else {
-                break;
-            };
-            self.fill(slice, &mut unclaimed)?;
-            unclaimed.clear();
-            bytes = bytes.saturating_sub(take);
-        }
-        Ok(())
-    }
-}
-
-/// A slice as a source: what a test hands over. Nothing arrives beside it.
-impl Source for &[u8] {
-    fn fill(
-        &mut self,
-        buffer: &mut [u8],
-        _descriptors: &mut Vec<ReceivedDescriptor>,
-    ) -> Result<(), std::io::Error> {
-        self.read_exact(buffer)
-    }
-}
-
-/// The worker's standard input.
-///
-/// Read with `recvmsg` while it is a socket, so that a descriptor sent beside a frame's header
-/// comes through with the header; and with `read` once it has turned out not to be one —
-/// `recvmsg` on a pipe is `ENOTSOCK`, which is what a worker run by hand gets, and it is an
-/// answer rather than a kill because `recvmsg` is on the allow-list.
-struct Link {
-    stdin: std::io::Stdin,
-    /// Whether `recvmsg` has been refused on this input, after which it is a plain reader.
-    #[cfg(unix)]
-    not_a_socket: bool,
-}
-
-impl Link {
-    /// This process's standard input.
-    fn stdin() -> Self {
-        Self {
-            stdin: std::io::stdin(),
-            #[cfg(unix)]
-            not_a_socket: false,
-        }
-    }
-}
-
-#[cfg(unix)]
-impl Source for Link {
-    fn fill(
-        &mut self,
-        buffer: &mut [u8],
-        descriptors: &mut Vec<ReceivedDescriptor>,
-    ) -> Result<(), std::io::Error> {
-        use std::os::fd::AsFd as _;
-
-        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags};
-
-        if self.not_a_socket {
-            return self.stdin.lock().read_exact(buffer);
-        }
-        // Room for one descriptor per call, which is what a frame carries: a host sends the
-        // document's descriptor beside the header and nothing beside the payload.
-        let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
-        let mut filled = 0usize;
-        while filled < buffer.len() {
-            let Some(rest) = buffer.get_mut(filled..) else {
-                break;
-            };
-            let mut ancillary = RecvAncillaryBuffer::new(&mut space);
-            let received = match rustix::net::recvmsg(
-                self.stdin.as_fd(),
-                &mut [std::io::IoSliceMut::new(rest)],
-                &mut ancillary,
-                RecvFlags::empty(),
-            ) {
-                Ok(received) => received,
-                Err(rustix::io::Errno::NOTSOCK) => {
-                    self.not_a_socket = true;
-                    return self.stdin.lock().read_exact(rest);
-                }
-                Err(rustix::io::Errno::INTR) => continue,
-                Err(errno) => return Err(errno.into()),
-            };
-            for message in ancillary.drain() {
-                if let RecvAncillaryMessage::ScmRights(arrived) = message {
-                    descriptors.extend(arrived);
-                }
-            }
-            // `MSG_CTRUNC` is the kernel saying it had a descriptor for this process and no
-            // slot to put it in — `RLIMIT_NOFILE` is eight here — so it closed it. Nothing is
-            // read as though it had arrived; the frame goes on to be decoded without it, and the
-            // decoder refuses a document that needed one, by name.
-            if received.flags.contains(ReturnFlags::CTRUNC) {
-                eprintln!(
-                    "pdf-view-worker: a descriptor sent with a frame was dropped by the kernel \
-                     because this process has no free descriptor slot"
-                );
-            }
-            if received.bytes == 0 {
-                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
-            }
-            filled = filled.saturating_add(received.bytes);
-        }
-        Ok(())
-    }
-}
-
-#[cfg(not(unix))]
-impl Source for Link {
-    fn fill(
-        &mut self,
-        buffer: &mut [u8],
-        _descriptors: &mut Vec<ReceivedDescriptor>,
-    ) -> Result<(), std::io::Error> {
-        self.stdin.lock().read_exact(buffer)
-    }
 }
 
 /// One frame, or the fact that there was no room for one.
@@ -644,7 +464,9 @@ fn refuse(detail: &str) -> (u8, Vec<u8>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{COPIES_OF_A_MESSAGE, Incoming, SETTLING_ALLOWANCE, message_budget, read_frame};
+    use confined_transport::ceiling::SETTLING_ALLOWANCE;
+
+    use super::{COPIES_OF_A_MESSAGE, Incoming, message_budget, read_frame};
     use crate::protocol;
 
     /// A ceiling of four gibibytes and a worker eighty mebibytes into it.
@@ -667,7 +489,7 @@ mod tests {
             message_budget(CEILING, ALREADY),
             (CEILING - ALREADY - SETTLING_ALLOWANCE - raster) / COPIES_OF_A_MESSAGE
         );
-        assert!(message_budget(CEILING, ALREADY) < protocol::MAX_MESSAGE);
+        assert!(message_budget(CEILING, ALREADY) < confined_transport::frame::MAX_MESSAGE);
     }
 
     /// No ceiling is no budget, which is what every platform `doc/todo/35` covers gets.
@@ -679,7 +501,10 @@ mod tests {
     /// A ceiling large enough stops at what the protocol carries anyway.
     #[test]
     fn a_generous_ceiling_stops_at_what_the_format_carries() {
-        assert_eq!(message_budget(u64::MAX, 0), protocol::MAX_MESSAGE);
+        assert_eq!(
+            message_budget(u64::MAX, 0),
+            confined_transport::frame::MAX_MESSAGE
+        );
     }
 
     /// A ceiling that cannot hold a page's pixels admits no message at all.

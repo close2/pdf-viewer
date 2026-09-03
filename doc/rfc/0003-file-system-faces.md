@@ -2,7 +2,10 @@
 
 Status: **accepted** — 2026-09-03, by the owner's word: "RFC 002 and 003 are approved."
 Implementation from round 899 (ADRs 0840, 0841), which landed §7's shared core `pdf-vfs` and the
-read side of §5, on the transform stream's branch because §7's core consumes RFC 0002's seam.
+read side of §5, on the transform stream's branch because §7's core consumes RFC 0002's seam; and
+from round 902 (ADRs 0846, 0847), which landed §6's **confined worker** — `pdf-vfs-worker`, under
+the same seccomp filter, Landlock domain and address-space ceiling the viewer's worker runs under,
+with the document crossing as a descriptor — over a wire now shared with `viewer-confined`.
 **One departure from §4 below has been taken and is recorded rather than absorbed**: `images/` is
 a directory per page (`images/0035/01.png`) instead of one flat directory, because a flat one
 cannot be listed without extracting every image in the document — ADR 0841 §3 has the argument and

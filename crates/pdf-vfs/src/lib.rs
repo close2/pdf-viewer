@@ -46,9 +46,12 @@
 #![warn(missing_docs)]
 
 pub mod cache;
+mod confined;
 pub mod generation;
 pub mod layout;
 pub mod path;
+mod serve;
+mod wire;
 pub mod worker;
 
 use std::sync::{Arc, Mutex};
@@ -60,7 +63,11 @@ use crate::generation::{Backing, Generation};
 use crate::layout::{Generator, Kind, Reason, Route, Write, WriteMapping};
 use crate::worker::{Answer, Query, Worker, WorkerError, Workers};
 
+pub use crate::confined::{Confined, ConfinedWorkers};
 pub use crate::generation::{FileBacking, MemoryBacking};
+pub use crate::serve::{
+    WORKER_PATH_VARIABLE, WORKER_PROGRAM, WorkerLimits, confine, message_budget, serve,
+};
 pub use crate::worker::InProcessWorkers;
 
 /// The resolutions `renders/` offers.
@@ -435,8 +442,15 @@ impl Vfs {
             .current
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // **Two questions, and both have to be `yes`.** The key is RFC 0003 section 5.4's rule; the
+        // second is RFC 0003 section 6's — a confined worker is killable by design, and one the
+        // kernel has ended answers `false` for ever after. Asking it again would produce a second,
+        // stranger error about a closed descriptor, so the generation is thrown away and the next
+        // operation starts a fresh worker over the same file. `InProcess` is always alive, so this
+        // costs the unconfined path an atomic load.
         if let Some(current) = held.as_ref()
             && current.generation == generation
+            && current.worker.is_alive()
         {
             return Ok(Arc::clone(current));
         }

@@ -116,11 +116,29 @@ pub enum Answer {
 }
 
 /// Why a question could not be answered.
+///
+/// # Why a refusal is a sentence and a kind rather than `pdf_transform::Refusal`
+///
+/// **Because the confined worker has to be a transport change and nothing else** (ADR 0847). A
+/// `Refusal` is a dozen structured variants, and re-encoding each of them on the wire would put a
+/// second copy of that vocabulary in this crate — with a face that behaved differently depending
+/// on which worker answered it, which is the one thing the seam exists to prevent. So both
+/// implementations produce the same population here: the sentence the seam wrote, under the one
+/// distinction a face actually acts on — [`Self::PasswordRequired`], which is the answer that
+/// means *ask somebody for something* rather than *this cannot be done*.
 #[derive(Debug, thiserror::Error)]
 pub enum WorkerError {
-    /// The transform seam refused the whole operation, by name.
+    /// ISO 32000-2 §7.6.4.1: the document is encrypted, and neither the empty password nor the
+    /// one supplied opens it.
+    ///
+    /// Its own variant because it is the only refusal here a face can do something about: a mount
+    /// that could ask would ask, and `crate::Vfs::shortfalls` already names the design that is
+    /// missing for it.
     #[error("{0}")]
-    Refused(#[from] Refusal),
+    PasswordRequired(String),
+    /// The transform seam refused the whole operation, in its own words.
+    #[error("{0}")]
+    Refused(String),
     /// The transform seam produced the output but declined an item on the way — a codec the
     /// confined worker does not have, a page the rasteriser would not draw. Kept as its own
     /// variant so that a face can tell "this file cannot be made" from "this document cannot be
@@ -145,6 +163,34 @@ pub enum WorkerError {
         /// What was asked for.
         wanted: &'static str,
     },
+    /// The confined worker could not be started, stopped without answering, or sent something
+    /// this build cannot read.
+    ///
+    /// **A named error rather than a hang**, which is what a face shows: RFC 0003 section 6's
+    /// worker is killable by design — by its own seccomp filter, by the address-space ceiling, by
+    /// a panic — and every one of those has to arrive somewhere a file manager can print it.
+    /// [`InProcess`] cannot produce it.
+    #[error("{0}")]
+    Transport(#[from] confined_transport::TransportError),
+}
+
+impl WorkerError {
+    /// The refusal a `pdf_transform::Refusal` is, in this vocabulary.
+    ///
+    /// The one place the seam's structured population is narrowed, so that the in-process worker
+    /// and the confined one cannot disagree about what a document that wants a password is.
+    fn of(refusal: &Refusal) -> Self {
+        match refusal {
+            Refusal::PasswordRequired { .. } => Self::PasswordRequired(refusal.to_string()),
+            _ => Self::Refused(refusal.to_string()),
+        }
+    }
+}
+
+impl From<Refusal> for WorkerError {
+    fn from(refusal: Refusal) -> Self {
+        Self::of(&refusal)
+    }
 }
 
 /// Something that can answer questions about one generation of one document.
@@ -153,8 +199,20 @@ pub trait Worker: Send + Sync + std::fmt::Debug {
     ///
     /// # Errors
     ///
-    /// [`WorkerError`] for a refusal, a declined item, or a page the document does not have.
+    /// [`WorkerError`] for a refusal, a declined item, or a page the document does not have; and
+    /// [`WorkerError::Transport`] where a confined worker is gone.
     fn ask(&self, query: &Query) -> Result<Answer, WorkerError>;
+
+    /// Whether this worker can still be asked anything.
+    ///
+    /// **What makes "the next query gets a fresh worker" a property rather than a hope.** A
+    /// confined worker that the kernel killed answers `false` for ever after, and
+    /// [`crate::Vfs`] throws the generation away rather than asking a corpse — so a face that
+    /// showed the death and was asked again gets a new worker rather than a second, stranger
+    /// error about a closed pipe. [`InProcess`] is always alive: there is nothing to die.
+    fn is_alive(&self) -> bool {
+        true
+    }
 }
 
 /// What creates a worker for one generation of a document.
@@ -194,11 +252,7 @@ impl Workers for InProcessWorkers {
             Some(password) => Source::with_password(bytes, password),
             None => Source::new(bytes),
         };
-        Ok(Box::new(InProcess {
-            source,
-            policy,
-            budget,
-        }))
+        Ok(Box::new(InProcess::new(source, policy, budget, None)))
     }
 }
 
@@ -217,9 +271,34 @@ pub struct InProcess {
     policy: Policy,
     /// The ceilings.
     budget: Budget,
+    /// How many strips a page's raster is cut into, or `None` to let `render-cpu` ask the machine.
+    ///
+    /// **A confined worker states it and an unconfined one does not**, and the reason is the
+    /// kernel's rather than a preference: `std::thread::available_parallelism` reads
+    /// `/proc/self/cgroup` on Linux, and a process with no filesystem is *killed* for it rather
+    /// than told no (ADR 0218). `crate::serve` takes the number before its confinement and states
+    /// it here; `InProcessWorkers` leaves it `None`, which is what this crate did before the
+    /// confined implementation existed.
+    strips: Option<u32>,
 }
 
 impl InProcess {
+    /// A worker over one source, drawing with `strips` strips a page.
+    ///
+    /// Public because a confinement probe has to be able to do the work *inside* a confined
+    /// process without a broker on the other end of a socket — which is what
+    /// `tests/confined.rs`'s positive probe is, and what says `Profile::Interpreter` is wide
+    /// enough for this worker.
+    #[must_use]
+    pub fn new(source: Source, policy: Policy, budget: Budget, strips: Option<u32>) -> Self {
+        Self {
+            source,
+            policy,
+            budget,
+            strips,
+        }
+    }
+
     /// Opens the document for a reader that has no verb.
     fn document(&self) -> Result<Document, WorkerError> {
         Ok(self.source.document(self.budget.limits)?)
@@ -287,6 +366,7 @@ impl Worker for InProcess {
                 page_box: None,
                 annotations: true,
                 names: page_pattern()?,
+                strips: self.strips,
             })),
             Query::ExtractImages { page } => {
                 let (report, files) =
@@ -377,9 +457,7 @@ fn page_pattern() -> Result<pattern::Pattern, WorkerError> {
     // arm is unreachable and is written rather than asserted, because a literal that stopped
     // parsing is a change to the grammar and should be a message rather than a panic.
     "%d".parse::<pattern::Pattern>()
-        .map_err(|error: pattern::PatternError| {
-            WorkerError::Refused(Refusal::Pattern(error.to_string()))
-        })
+        .map_err(|error: pattern::PatternError| WorkerError::Refused(error.to_string()))
 }
 
 /// The images plan for one page: the codec's own stream where the codec has a file form.
@@ -402,9 +480,7 @@ fn images_plan(pages: Selection) -> Result<ImagesPlan, WorkerError> {
         // index within the page is two digits as RFC 0003 section 4's own example spells it.
         names: "%02d"
             .parse::<pattern::Pattern>()
-            .map_err(|error: pattern::PatternError| {
-                WorkerError::Refused(Refusal::Pattern(error.to_string()))
-            })?,
+            .map_err(|error: pattern::PatternError| WorkerError::Refused(error.to_string()))?,
     })
 }
 

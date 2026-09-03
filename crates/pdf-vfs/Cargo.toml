@@ -18,10 +18,26 @@ repository.workspace = true
 # `fuser` is the FUSE face's dependency when that face is written and is deliberately not taken
 # here, so the core builds and is tested with no kernel interface anywhere near it.
 [dependencies]
+# RFC 0003 section 6's confinement, and the wire under it. `pdf-sandbox` installs the seccomp
+# filter, the Landlock domain and the address-space ceiling — the *same* `Profile::Interpreter`
+# the viewer's worker uses, because the vfs worker does the same work and needs not one system
+# call more (ADR 0847). `confined-transport` is the frame, the greeting, the descriptor-passing
+# socket and the supervision of the child, shared with `viewer-confined` rather than written twice
+# (ADR 0846). `rayon` for the same reason `viewer-confined` takes it: the confined process must
+# *state* how many threads to rasterise with, because asking the machine reads `/proc/self/cgroup`.
+confined-transport.workspace = true
 pdf-model.workspace = true
+pdf-sandbox.workspace = true
 pdf-syntax.workspace = true
 pdf-transform.workspace = true
+rayon.workspace = true
 thiserror.workspace = true
+
+# The confinement probes need signal numbers to tell "killed by the seccomp filter" apart from
+# every other way a process can end — which is a question only the platform with a filter can be
+# asked.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc.workspace = true
 
 [lints]
 workspace = true

@@ -118,6 +118,18 @@ pub struct RenderPlan {
     pub annotations: bool,
     /// How the outputs are named.
     pub names: Pattern,
+    /// How many strips one page's raster may be cut into, or `None` to ask the machine.
+    ///
+    /// **`None` is the batch answer and a confined caller may not use it.** `render-cpu` asks
+    /// `std::thread::available_parallelism` where a caller says nothing, and on Linux that reads
+    /// `/proc/self/cgroup` — an `openat` a process with no filesystem is *killed* for rather than
+    /// told no (ADR 0218). `pdf-vfs`'s confined worker draws through this plan, so the number has
+    /// to be sayable here; it states one, taken before its confinement (ADR 0847).
+    ///
+    /// It is `None` everywhere else, which is what this crate did before the field existed: a
+    /// batch render is already parallel across pages, and what the strips add on top of that is
+    /// the rasteriser's own judgement about one page.
+    pub strips: Option<u32>,
 }
 
 impl RenderPlan {
@@ -506,9 +518,13 @@ pub(crate) fn run(
     let done: Vec<Done> = selected
         .par_iter()
         .enumerate()
-        .map_init(CpuRasterizer::new, |rasterizer, (at, &index)| {
-            job.page(rasterizer, at, index)
-        })
+        .map_init(
+            || match plan.strips {
+                Some(strips) => CpuRasterizer::new().with_strips(strips),
+                None => CpuRasterizer::new(),
+            },
+            |rasterizer, (at, &index)| job.page(rasterizer, at, index),
+        )
         .collect();
 
     for Done { outcome, warnings } in done {
