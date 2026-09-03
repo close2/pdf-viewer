@@ -1,4 +1,4 @@
-# The four curves left, question 3, public-key handlers, `/R` 5
+# The four curves left, question 3, public-key handlers
 
 Status: **question 2 is answered for every algorithm family the standard names.** Table 260's
 three — RSA under both of RFC 8017's paddings, DSA, and ECDSA — and the EdDSA row ISO/TS 32002
@@ -6,8 +6,9 @@ section 5.1.2 adds beside them, all verify; every digest either table names is c
 left inside question 2 is **four curves out of ISO/TS 32002's eight**, each refused by package
 availability and each named at runtime by its own identifier. Question 3 is still a project.
 Priority: 51
-Corpus: 1 document (`/R` 5). For the signature populations, **run the census rather than reading a
-number here**:
+Corpus: 5 documents (§7.6.5's public-key handlers, counted below). `/R` 5 left this file in the
+eight-hundred-and-eighty-seventh session — it is implemented. For the signature populations, **run
+the census rather than reading a number here**:
 
 ```sh
 find -L corpus-cache doc/corpora doc/pdf.js/test/pdfs -name '*.pdf' > /tmp/paths
@@ -137,11 +138,56 @@ five minutes ago.
 **And question 3 is now the *only* thing between this clause and `implemented`,** which it was not
 before: every `partial` in the §12.8.3 family names either trust or one of the four curves above.
 
-## Public-key handlers (§7.6.5) — 0 corpus documents
+## Public-key handlers (§7.6.5) — 5 corpus documents, and none of them a reader's
 
 CMS enveloped data, X.509, the user's private keys — an infrastructure and a threat model, not a
 cipher. The standard security handler (§7.6.3, §7.6.4) is complete in both directions at every
-revision and method, so this is the *other* handler family and nothing in the corpus asks.
+revision and method, so this is the *other* handler family.
+
+**"0 corpus documents" was this heading for a long time and it is five**, counted in the
+eight-hundred-and-ninety-second session over everything this tree can reach — 90 535 documents,
+of which 2 374 name `/Encrypt` in their bytes and 2 360 state one in a trailer (ADR 0829):
+
+```sh
+find -L doc/pdf.js/test/pdfs doc/corpora corpus-cache -type f -iname '*.pdf' > /tmp/all
+xargs -a /tmp/all -d '\n' grep -lF /Encrypt > /tmp/enc
+xargs -a /tmp/enc -d '\n' cargo run --profile gates -p pdf-model --example encryption_census
+```
+
+| document | corpus | `/V` | `/CFM` | key bits |
+|---|---|---|---|---|
+| `3006236.pdf` | SafeDocs `cc-main-2021-31` | 5 | `AESV3` | 256 |
+| `PDFBOX-4421-0.pdf` | tika-issue-tracker `batch1` | 4 | `AESV2` | 128 |
+| `PDFBOX-4421-1.pdf` | tika-issue-tracker `batch1` | 5 | `AESV3` | 256 |
+| `PDFBOX-4421-2.pdf` | tika-issue-tracker `batch1` | 4 | `AESV2` | 128 |
+| `PDFBOX-4421-3.pdf` | tika-issue-tracker `batch1` | 5 | `AESV3` | 256 |
+
+All five are `/Filter /Adobe.PubSec` with `/SubFilter /adbe.pkcs7.s5`, a crypt filter named
+`DefaultCryptFilter` — which is what §7.6.4.1 requires of a public-key handler "when all document
+content is encrypted" — and a `/Recipients` array of exactly one CMS `EnvelopedData` carrying a
+single `KeyTransRecipientInfo` under RSA. All five are refused by name today.
+
+**Five documents is still not demand, and the reason is stronger than the number.** Four are one
+bug report's attachments — PDFBOX-4421 is Apache's own public-key issue — and the fifth,
+`3006236.pdf`, names its recipient's certificate
+`zune-tuner://windowsphone/b46fd244 - cd539804 - e37e34e4 - 6f90f8c0`: a document encrypted to a
+*device*, whose private key was never a reader's. §7.6.5.1 puts one `shall` on a reader — "scan
+the recipient list for which the content is encrypted and … attempt to find a match with a
+certificate that belongs to the user" — and for every one of these five the honest outcome of that
+scan is *no match*. Implementing the clause would turn five loud refusals into five loud refusals
+with a certificate store behind them. **So this stays where it is, and the count is now a fact
+rather than a guess.**
+
+Two more documents state a `/Filter` that is neither `/Standard` nor a handler, and neither is
+this clause's — recorded here because this is where somebody will look for them:
+
+- `PDFBOX-4351-0.pdf` writes `/Filte^/Standard` — one byte of the **key name** corrupted — so the
+  encryption dictionary states no `/Filter` at all and the refusal names the nearest one the
+  reader does find, `/FlateDecode`. The refusal is right; its message points at the wrong entry,
+  and a `/Filter` that is absent could say so instead of naming a stream filter.
+- `GHOSTSCRIPT-695040-0.zip-77.pdf` carries a well-formed `/Filter /Standard /V 1 /R 2` dictionary
+  in its body that the trailer's `/Encrypt` does not reach, so the reader sees an absent
+  `/Filter`. A cross-reference recovery question rather than an encryption one.
 
 **And the three-hundred-and-ninety-second session read this against what it built, with a result
 that is smaller than it sounds.** `der`, `cms` and `x509` are the parsing half of §7.6.5 — perhaps
@@ -156,11 +202,23 @@ been decided.
 it: every dependency §12.8.3 runs on was chosen with the `_vartime` spelling on purpose, because a
 verifier has no secret. A decryption does, and none of those choices carries over.
 
-## `/R` 5 — 1 document
+## `/R` 5 — implemented, and this section is what it replaced
 
-Table 21 says `/R` 5 "shall not be used" and states no algorithm, so there is nothing to
-implement. The one corpus witness is refused by the **encoding** rather than by the revision:
-§7.6.4.3.2 step (a)'s conversion uses the whole of Annex D Table D.3, which has no code for
-U+00A0 at all. (The row that said "this crate holds no Annex D table" was wrong for a hundred and
+**This heading used to read "`/R` 5 — 1 document" and the paragraph under it said "Table 21 says
+`/R` 5 \"shall not be used\" and states no algorithm, so there is nothing to implement."** The
+eight-hundred-and-eighty-seventh session read that sentence as binding a *writer*, found that
+Table 21's "deprecated proprietary Adobe extension" is a **pointer** rather than an absence, and
+implemented the revision (ADR 0820). 41 of the 90 535 documents state it; 33 open, 8 want a
+password nobody here has, 0 are refused.
+
+The eight-hundred-and-ninety-second session then fetched the extension itself — the Adobe
+Supplement to ISO 32000-1, `BaseVersion` 1.7, `ExtensionLevel` 3 — and every step ADR 0820 derived
+without it agrees with its Algorithm 3.2a, including the password preparation that was the one
+step resting on a reading (ADR 0829). Nothing is owed here.
+
+**What the corpus's one remaining `/R` 5 encoding refusal is about is a different clause.** A
+revision-4 password containing a character `PDFDocEncoding` has no code for is refused by
+§7.6.4.3.2 step (a)'s conversion, which uses the whole of Annex D Table D.3 and still has no code
+for U+00A0. (The row that said "this crate holds no Annex D table" was wrong for a hundred and
 twenty-nine sessions — `text_string.rs` had held it since the ninety-second, put there for
 §7.9.2.2. See `01-ledger-partial-rows.md`.)

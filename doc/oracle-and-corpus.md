@@ -784,6 +784,27 @@ then `magick identify` each output and take its ink. **Read the stderr as well a
 of the answers here are a renderer printing why it refused, and two are a renderer producing a sheet
 of *zero ink*, which is not a page and must not be counted as one.
 
+**And there is a third way to be wrong with this ranking, which is not an operating error and which
+costs a round rather than a number** (ADR 0844, session 901). The first two — `pdftoppm` without
+`-cropbox`, and averaging our alpha channel in — are mistakes in running it, and both make every
+page wrong at once, so they announce themselves. This one makes *one* page wrong and makes it look
+exactly like a finding: **at 72 dpi the ranking can put this tree at the head of a directory for
+obeying a clause neither reference reads.** `batch5/ocrmypdf/ocrmypdf-99-0.zip-0.pdf` states
+`/SA true` and shows 108 runs in §9.3.6's rendering mode 2 at 0.24 and 0.43 of a device pixel, so
+§10.7.5's "the stroke shall be rendered as a single-pixel line" fires on every glyph and the page
+is 1.34 levels above the darker reference. It *looks* wrong beside them — boldly, over every glyph
+— so trap 1's "look at the page" confirms the false reading instead of breaking it.
+
+Two instruments break it and both are cheap. **Climb the ladder before opening a page the ranking
+calls dark**: `doc/todo/00` step 6's four renders at 72, 144, 288 and 576 dpi, which on that page go
+from a 2.50-level spread to 0.02 — a head that converges is the rasteriser's and not the
+interpreter's. **And where the head is dark rather than light, ask whether the document states
+`/SA true`**: `qpdf --qdf --stream-data=uncompress <file> - | grep '/SA true'`, and then rename the
+entry in place and re-measure, which is the experiment that decides it — on that page ours falls to
+the converged value and both references are byte-identical. The condition is the entry *and* a
+stroke the CTM puts under half a device pixel, which is why the ladder goes first: 13 of that
+directory's 201 documents state the entry and one is displaced by it.
+
 Four things the first whole run said, and the second is what made the round:
 
 - **Most of the bucket is the standard working.** Eight pages are §7.6.4.1's password, which this

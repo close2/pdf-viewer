@@ -5,7 +5,8 @@ Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 
 are approved"), so the serializer, **all five writing verbs** and §14.7's structure tree are
 done; what is left is `split --at-bookmarks`, the aligned rotated comparison, a per-input
 password for `merge`, the confinement tranche, the RFC 0003 hand-off, and the §13 questions the
-owner has not been asked again.
+owner has not been asked again. **The foreign readback is no longer among them**: session 898
+built it (ADR 0839), and §5 below records what it found rather than what it is for.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
 quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into);
@@ -162,6 +163,16 @@ same things. What RFC 0003 consumes is the seam — a `Plan`, `Sources`, `Sinks`
 `Budget` and a `Report`, with no path, clock or process inside any of them — and the seam has now
 survived six verbs' worth of contact, one of which writes whole files.
 
+**Taken in session 899** (ADRs 0840, 0841, `doc/todo/58`): `pdf-vfs` is RFC 0003's core, read side
+only, and it consumes the seam for six of its eight generators — `Plan::Split` for a page taken
+out, `Plan::Render` for a page drawn, `Plan::Images` for a page's pictures, `Plan::Attachments` for
+an embedded file — with a test holding the first byte for byte against `apply`'s own output, so a
+second implementation of any of them fails a gate rather than going unnoticed. **The seam gained
+exactly one thing**, and it is three lines: `Source::document`, because three of that crate's
+generators are `pdf-model` readers no verb covers and a consumer that opened the document itself
+would need a second `Secret` — which `viewer_core::secret` deliberately makes impossible. That is
+the whole cost of the hand-off, and it is the strongest evidence the seam's shape was right.
+
 ## 3. One thing still without its dependency
 
 - `pdf_transform::Operation` moved into `pdf_model::restriction` in session 872 (ADR 0803);
@@ -185,21 +196,34 @@ The transform gate's floor is a wall-clock number over 24 threads, and ADR 0801 
 a cost that shows only where a CPU-second is worth what it was, at two or four threads — would
 pass it. The instrument for that class is the thread curve in ADR 0801, taken by hand with
 `RAYON_NUM_THREADS`; a round that touches `render`'s parallel shape re-takes it, and ADR 0804
-has the one taken in session 875. The writer's walk judges every update with this tree's own
-reader and nothing else (trap 8, said in its file): `tests/writer.rs` holds `qpdf --check` over
-the committed fixtures, and a corpus-wide *foreign* readback of the transform's updates —
-poppler and mupdf listing the file back, the shape `save_round_trip.rs` has for the viewer's
-edits — is the instrument ADR 0334 priced and nobody has taken for this writer. **The
-serializer's walk has the same shape and the same gap**: `tests/split_corpus.rs` judges every
-piece with this tree's own reader and its own rasteriser, and `tests/split.rs` holds `qpdf
---check` over the committed fixtures alone. A corpus-wide foreign readback of the *pieces* is the
-same instrument and is owed for the same reason — a writer is attack surface in the other
-direction (RFC §11.3), and a file only this tree can read would look correct to every gate here.
-**`tests/merge_corpus.rs`, `tests/pages_corpus.rs` and `tests/optimize_corpus.rs` have inherited
-the gap for a third, a fourth and a fifth writer**, and the merged files are the
-ones most worth showing a foreign reader: they are the only outputs this tree *builds* a §12.7
-form, a §8.11 configuration, a §7.9.6 name tree and — since session 897 — a §14.7 structure tree
-for, rather than copies. **The structure tree sharpens the argument rather than adding to it**: it
-is the part of a derived document that only an assistive processor reads, so a tree only this tree
-can make sense of is the one a raster gate is least placed to notice. ADR 0835 records that as the
-fifth reason the instrument is owed.
+has the one taken in session 875.
+
+**The foreign readback is taken** — `tests/foreign_corpus.rs`, ADR 0839 — and this section used to
+be five paragraphs arguing for it. What it is worth recording now is what remained after it:
+
+- All four writers' output goes through `qpdf --check`, `pdftoppm`, `mutool draw`, `mutool show`
+  and `pdfinfo`, and every foreign reading of a derived page is compared with that *same* reader's
+  reading of the source page — never with ours, which is the oracle's question and would make a
+  disagreement unattributable (traps 3 and 9).
+- **It found one defect immediately** (ADR 0838), and it was in the one thing no other instrument
+  here can see: §14.7's parent tree, which only an assistive processor reads. That is ADR 0835 §5's
+  prediction, confirmed on the first run.
+- **What it does not cover, and what a later round owes.** It is a *sample* — every tagged document
+  plus every eighth — because a document costs up to fourteen foreign invocations; the whole corpus
+  is a bigger instrument and would want the reference cache `pdfref` already has. It draws page 1
+  only, so a derived document's later pages are unread by anybody but us. It skips a document that
+  needs a password, because the foreign readers would have to be given it too. It asks mupdf about
+  §14.7 and poppler only about `/MarkInfo` — no installed tool reports a *rendered* structure tree,
+  and `mutool draw -F stext -O structure` is not in mupdf 1.28. And it says nothing about the
+  outline, the name trees or the form, all of which a foreign reader could be asked about and none
+  of which any of them prints.
+- **One document is out of the rendering comparison on wall clock alone.** `issue19517.pdf` costs
+  poppler 23.9 s and mupdf 17.6 s on the source *and* on the derived file, against a 20 s budget,
+  so both readers time out on it about as often as not; a timeout takes it out of that reader's
+  comparison rather than failing the run (ADR 0839 section 4). A reference cache, or a budget
+  scaled to what the source render cost, would put it back.
+- **`optimize` is a fifth writer, and `tests/foreign_corpus.rs` does not know about it.** Session
+  900 added it after session 898 built the readback, so the sample goes through four writers'
+  output and not five — and a rewritten file is the one output whose whole *point* is that its
+  bytes are different, which makes it the one most worth showing somebody else. Adding it is the
+  smallest of the items above and belongs to whichever round touches that walk next.

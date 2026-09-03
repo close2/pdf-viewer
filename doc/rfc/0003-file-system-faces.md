@@ -1,6 +1,14 @@
 # RFC 0003 — File-system faces: a KIO worker and a FUSE filesystem over one core
 
-Status: **draft**
+Status: **accepted** — 2026-09-03, by the owner's word: "RFC 002 and 003 are approved."
+Implementation from round 899 (ADRs 0840, 0841), which landed §7's shared core `pdf-vfs` and the
+read side of §5, on the transform stream's branch because §7's core consumes RFC 0002's seam.
+**One departure from §4 below has been taken and is recorded rather than absorbed**: `images/` is
+a directory per page (`images/0035/01.png`) instead of one flat directory, because a flat one
+cannot be listed without extracting every image in the document — ADR 0841 §3 has the argument and
+`doc/todo/58` §1 carries it for the owner to overrule. §9's seven open questions are **not**
+answered; the recommendations this document makes on them stand as defaults, with §9.7's
+resolution set now stated by the core as 150 and 300.
 Round: 786, commissioned by the owner
 Companions: RFC 0002 (the transform layer — every write below goes through it), RFC 0004
 (print), RFC 0005 (text editing). Numbering was reconciled at merge (round 788); the

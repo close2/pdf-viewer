@@ -1821,6 +1821,192 @@ moves 5384 of 386 019 pixels by at most 2 of 255, because its `/Mask [0 0 0 0 0 
 exactly-zero CMYK and a lossy encoder left almost none — NOTE 2's own phenomenon, observed. Three
 rows in `doc/checks/fixed-documents.toml`.
 
+### 45. What the eight-hundred-and-ninety-sixth took: `batch5/DSS`, a tracker with nothing in it, and a check value read as a corruption
+
+**The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, 0.5 s, 0.04 GiB peak. The line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/DSS` | 243 | 1 unopenable, 0 locked, 0 encrypted beyond us, 0 pageless, 3 incomplete, 0 slow |
+
+**The rate is the tracker's shape and it is the lowest of all of them by a factor of two.** 3 of
+243 is **1.23%** incomplete — below `MOZILLA`'s 2.47%, far below the pdf.js gate's 6.98% and
+`PDFIUM`'s 17.4% — because a DSS issue attachment is a *signed* document somebody could not
+validate rather than one somebody could not read, and a signature is applied to a file that was
+well formed when it was written. The one unusable file is **fifteen bytes**. Ranked by report:
+2 `Font`, 1 `Content`.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
+72 dpi over all three incomplete pages, round 876's script — **there is no head, and that is the
+finding**:
+
+| document | ours | poppler | mupdf |
+|---|---|---|---|
+| `DSS-1356-8.pdf` | 9.174 | 9.126 | 9.135 |
+| `DSS-1356-4.pdf` | 9.394 | 9.401 | 9.425 |
+| `DSS-1441-2.pdf` | 0 | 0 | 0 |
+
+Every row is within 0.04 of a level of both references. `DSS-1356-8.pdf` is **byte-identical** to
+`batch1/PDFBOX/PDFBOX-3631-15.pdf` (`md5sum`), which round 894 made a fixed-documents row, and
+`-4` is the same SignRequest template one revision earlier; both report §9.9's closed-by-decision
+population — a glyph the document's own program has no outline for, 8 codes each.
+`DSS-1441-2.pdf`'s `/Contents` is a `FlateDecode` stream nothing decodes, and the page is blank in
+all three renderers (`pdfinfo` says `Illegal character '{'` about it too). **So the whole ranking
+was held by name**, and this round moved down to the two documents earlier rounds had left named.
+
+**The head that was left named: three font programs reported as prefixes at their own stated
+length.** `PDFIUM-407-0.pdf` — §43's second row, ours 8.507 against `poppler` 15.919 and `mupdf`
+15.175 — is a four-page German Jobcenter form drawn with **every one of its field labels missing**,
+which the report did not say: it said three `/FontFile2` streams had `decoded only as far as
+[their] damage (Corrupt, N bytes)`. One of the three `N`s is that stream's `/Length1` **exactly**,
+which is a report about something other than a prefix. Inflating all seven of the file's font
+programs past RFC 1950's two-byte header with a raw decoder shows why: every one reaches RFC 1951's
+final block and produces every byte its deflate blocks describe, and three carry an Adler-32 that
+is not the one over those bytes. §7.4.4.1 makes **two** documents normative — the Flate method "is
+fully defined in Internet RFC 1950 , and Internet RFC 1951 " — and `flate2` reports failing either
+as the same `Err`, because zlib's `inflate` answers `Z_DATA_ERROR` for `incorrect data check`
+exactly as it does for a back-reference past the window. `mutool` says the same thing out loud on
+these files: `ignoring zlib error: incorrect data check`.
+
+ADR 0836 separates them. `filter::Damage::CheckValue` is the third value, told from a corruption by
+`only_the_check_value` the way ADR 0744 told a flush from a truncation — a raw replay over the
+same bytes, where there is no check value to satisfy, reaching `StreamEnd` at the length the framed
+decode produced.
+
+**The refusal for a font program stays, and the round's own reason for keeping it is the more
+useful half.** Withdrawing it was implemented and measured first, and `doc/pdf.js`'s
+`issue13316_reduced.pdf` — ADR 0459's own witness — is what declined it: its `/FontFile2` is the
+same shape (168 808 bytes, its `/Length1` to the byte, RFC 1951 whole, Adler-32 disagreeing, all
+ten sfnt table checksums correct), and admitted it draws **A C E F** where `pdftoppm` draws five
+CJK glyphs, reporting nothing. **The four letters are not the damage**: the page's `/Differences`
+names `/g5167` and four neighbours, which reach no glyph through the Adobe Glyph List and which
+the program has no `post` table to answer for, so §9.6.5.4's closing permission takes over — "a
+PDF processor may supply a mapping of its choosing" — and this tree supplies the codes' own
+characters. Marks standing in place of the producer's are ADR 0106's substitutive failure. So
+`PDFIUM-407-0.pdf` stays incomplete at 8.2913 of ink and its report now says the true thing;
+§8.6.5.5's ICC guard declines the value too, on Table 65's stated `/Alternate`. Both are rows or
+comments rather than memories: `doc/checks/fixed-documents.toml` pins the report, and
+`crates/pdf-model/tests/silent_fonts.rs` pins the page that decided it.
+
+**The population is `pdf-model --example damaged_stream_census`**, which now counts the value by
+consumer and names every stream carrying it. Over `doc/pdf.js`'s 974 documents and
+`doc/corpora`'s 277 — 1251 files, 1239 opening, 25 435 stream objects — **334 streams are damaged
+and 158 of them are whole deflate streams whose check value disagrees**, which is 47.3% of all
+stream damage in the tree's own gated corpora over 30 documents: 71 of 95 damaged `/Contents`, 50
+of 135 images, **18 of 44 font programs** over eight documents, 6 of 28 Type 3 glyph descriptions,
+4 of 5 ICC profiles. Not one fuzzed file's accident but the **largest single kind of stream damage
+this tree meets** — the sentence ADR 0836 corrected was wrong about nearly half the streams it was
+printed over. `doc/history/896` has the table and the names.
+
+**The other named document was opened and is nobody's finding.**
+`sumatrapdf-LINK-1532-1.pdf` — §44's dark-end row, ours 61.3 against two blank references — is a
+41 MB Library of Congress scan of a 339-page book whose page one is the tan cover, drawn correctly
+in two commands; **neither reference finds a page in it at all** (`poppler`: "Top-level pages
+object is wrong type (null)", `mutool`: "cannot find startxref"), so the 61.3 is a page we draw
+and they do not, and the ranking's instrument reads it as a gap it is not. What is lost is
+8 text operations of the scan's own OCR layer, behind a `/Font` entry `F1` that is a reference to
+an object the file does not define — §7.3.10's null, ADR 0789's side. Held: it costs no mark on
+the page, and the one thing it costs is text extraction, which is [`21`](21-font-substitution.md)'s
+and `doc/todo/05`'s question rather than this one's.
+
+**What is left here**: `batch5`'s other nineteen trackers, `ocrmypdf` (205) the largest; `batch4`
+once its pieces land; [`40`](40-mask-chain-crop.md)'s clip cost;
+[`10`](10-bounds-that-cap-size.md)'s file-backed reader; and
+[`49`](49-restrictions-worth-re-examining.md)'s cell rendered once. From this round, three things
+held with their reasons on the record rather than as intentions:
+
+- **`Damage::CheckValue` for a font program**, refused above. What would reopen it is an
+  instrument that says *where* a stream differs from what was compressed, which a 32-bit sum over
+  the whole of it cannot; the sfnt's own per-table checksums were tried and are not one —
+  `PDFIUM-407-0.pdf`'s two usable fonts fail theirs and draw correctly, and
+  `issue13316_reduced.pdf` passes all ten and draws wrongly, so the discriminator would be fitted
+  to two files rather than derived. **Not to be taken as a heuristic.**
+- **§8.6.5.5's ICC profiles under the same value**, declined on Table 65's `/Alternate`; the
+  census names the population a round revisiting it would need.
+- **`sumatrapdf-LINK-1532-1.pdf`'s `/Font` entry**, above.
+
+### 46. What the nine-hundred-and-first took: `batch5/ocrmypdf`, and a ranking head that is a clause working
+
+**The directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, 2.9 s, 0.85 GiB peak. The line, a baseline for this directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/ocrmypdf` | 205 | 4 unopenable, 0 locked, 0 encrypted beyond us, 0 pageless, 4 incomplete, 0 slow |
+
+**1.95% incomplete is the second-lowest rate of any tracker**, above `DSS`'s 1.23% and below
+`MOZILLA`'s 2.47%, and the shape is the tracker's: an ocrmypdf issue attachment is a document
+somebody put *through* a program, so most of them are a clean scan with a text layer over it.
+**The four unusable files are nobody's and are not PDFs at all** — one is a terminal transcript
+beginning `peterwannheden(~/MyApps/Python)> ocrmypdf --desk`, the other three share a binary header
+`84 5e 03 97 40 4e ec 0d` that no `%PDF-` follows; `not a PDF: no %PDF- or %FDF- header in the
+first 1024 bytes` is the right sentence for each.
+
+Ranked by report, the four incomplete are 2 `Font`, 1 `Image`, 1 `Operator`, and **every one names
+a population this project has already argued**: two are §9.9's closed-by-decision case (a font
+program with no outline for the codes its page shows, 12 codes and 1), one is §7.4.8's frame that
+contradicts its own dictionary (`the JPEG frame is 1264x1744 where the dictionary says 1264x1736`,
+held by ADR 0340 and named in `tests/corpus.rs`'s own arm), and one is an unclosed `BT`.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at 72 dpi
+— over the four incomplete pages there is no head at all:
+
+| document | ours | poppler | mupdf |
+|---|---|---|---|
+| `ocrmypdf-78-1.pdf` | 1.031 | 1.039 | 1.034 |
+| `ocrmypdf-86-3.zip-0.pdf` | 7.019 | 7.219 | 7.006 |
+| `ocrmypdf-LINK-325-29.pdf` | 15.254 | 15.095 | 13.740 |
+| `ocrmypdf-LINK-325-7.pdf` | 25.568 | 25.974 | 25.660 |
+
+So the round ranked **all 201 openable documents** rather than the four, which is what §44's round
+did and is where both its and §45's findings came from. That ranking has one head and it is
+**dark**: `ocrmypdf-99-0.zip-0.pdf`, ours **9.9448** against `poppler` 8.6045 and `mupdf` 7.4452,
+1.34 above the darkest reference where the next row in either direction is 0.28. The page reports
+nothing — `open_one` says `unsupported []`.
+
+**It is §10.7.5 working, and ADR 0844 has the three measurements.** The page is a Chinese hospital
+laboratory report with one embedded `SimSun` subset; its `/ExtGState` states `/SA true`, and its
+one form XObject shows 108 runs in §9.3.6's rendering mode 2 under `0.240226 w`, `0.3203 w` and
+`0.426 w` with a unity CTM — so every glyph's stroke is under half a device pixel at 72 dpi and the
+clause's second requirement promotes each to a single-pixel line. The resolution ladder converges
+from a 2.50-level spread at 72 dpi to **0.02 at 576** (7.2727 / 7.2921 / 7.2762); replacing `2 Tr`
+with `0 Tr` puts all three within 0.04, so the whole disagreement is the stroke half of the mode;
+and renaming `/SA` to `/S1` takes ours to 7.2840 while leaving both references **byte-identical**,
+which is ADR 0688's finding confirmed a second time — neither reference reads the entry.
+
+**The transferable half is about the instrument, and it is the third way to be wrong with this
+ranking.** Round 876 recorded two — `pdftoppm` without `-cropbox`, and reading our alpha channel as
+ink — and both are operating errors. This one is not: at 72 dpi the ranking can put this tree at
+the head of a directory **for obeying a clause neither reference reads**, and the page looks wrong
+beside them, boldly and over every glyph, so trap 1's "look at the page" confirms the false reading
+instead of breaking it. Two cheap instruments break it: the **ladder**, four renders, which
+separates scan conversion from geometry; and `/SA`, one grep over `qpdf --qdf` output. The rule is
+in `doc/oracle-and-corpus.md` §3d beside the other two.
+
+**The condition is not the entry on its own**, and that was measured rather than assumed: 13 of the
+201 state `/SA true` and **exactly one** is displaced by it, the other twelve spread from +0.17 to
+−33.59 of the darkest reference. What displaces a page is `/SA true` *and* a stroke the CTM puts
+under half a device pixel.
+
+Every other row of the ranking that was checked converges too: `ocrmypdf-144-0.pdf` (−0.577 at 72
+dpi, ours 9.6698 against 9.6869 and 9.6861 at 288), `ocrmypdf-605-1.pdf` (−0.806, within 0.02 at
+288) and `ocrmypdf-LINK-490-0.pdf` (−0.756, within 0.30). **So this tracker holds no defect of
+ours**, which is a result and is recorded as one — the walk cost three seconds and the ranking ten
+minutes.
+
+**What is left here**: `batch5`'s other eighteen trackers, `cairo` (166), `pdfminer.six` (123) and
+`qpdf` (111) the largest of them and none above two hundred documents — the seven walked are its
+seven biggest, so what remains is a long tail; `batch4` once its pieces land;
+[`40`](40-mask-chain-crop.md)'s clip cost; [`10`](10-bounds-that-cap-size.md)'s file-backed reader;
+and [`49`](49-restrictions-worth-re-examining.md)'s cell rendered once. From this round, one thing
+held with its reason on the record:
+
+- **§10.7.5's promotion**, above. What would reopen it is a reading of the clause that makes the
+  second requirement conditional on something, and there is none — the sentence is unconditional
+  once `/SA` is true. `doc/checks/fixed-documents.toml` pins the page so that withdrawing it fails
+  a gate rather than a memory.
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own

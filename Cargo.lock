@@ -3188,12 +3188,23 @@ dependencies = [
  "pdf-model",
  "pdf-render",
  "pdf-syntax",
+ "pdfref",
  "png",
  "raster-compare",
  "rayon",
  "render-cpu",
  "thiserror 2.0.19",
  "viewer-core",
+]
+
+[[package]]
+name = "pdf-vfs"
+version = "0.1.0"
+dependencies = [
+ "pdf-model",
+ "pdf-syntax",
+ "pdf-transform",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
