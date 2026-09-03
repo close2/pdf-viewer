@@ -140,6 +140,14 @@ cargo run --release -p pdf-model --example hollow_glyph_census            # cura
   # it walks every dictionary *nested* inside an object as well as the objects the table names,
   # because a font need not be an indirect object — `issue16553.pdf` writes one inline and the walk
   # without the recursion could not see it (ADR 0765, trap 25)
+cargo run --release -p pdf-model --example stroke_adjustment_census   # curated; also --pdfjs, --crawl
+  # what §10.7.5 actually reaches, which is not what a dictionary states: strokes painted with the
+  # stroke adjustment parameter enabled, how many of those the clause's second requirement already
+  # promotes to one device pixel, how many of the rest are a single axis-aligned run — the only
+  # shape a grid fit is defined for — and how many of those have edges off the pixel grid, which is
+  # the population the clause's *first* requirement would move. `absence_audit`'s §10.7.5 block
+  # counts the documents that state `/SA true`; this counts what survives to the display list, and
+  # the two differ by an order of magnitude (ADR 0848)
 cargo run --release -p pdf-font --example vertical_feature_census
   # which of OpenType's six registered vertical features the faces *on this machine* state, which
   # `GSUB` lookup shapes appear under `vert`/`vrt2`, and how many of Adobe-Japan1's own 251

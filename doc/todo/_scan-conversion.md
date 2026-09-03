@@ -263,7 +263,7 @@ for it, `pdftoppm -aa no`, `gs -dGraphicsAlphaBits=1` and `mutool draw -A 0` eac
 whole pixel at every sub-pixel width, agreeing about the clause. With anti-aliasing on the four
 references floor at four *different* device-pixel widths (`poppler` and `hayro` 1.0, `mupdf` 0.2,
 `ghostscript` 0.27), which is where §10.7.1's NOTE hands the question to the implementation. §10.7.5
-states that floor as a `shall` and conditions it on stroke adjustment, whose Table 52 initial value
+states that floor as a `shall` and conditions it on stroke adjustment, whose Table 51 initial value
 is `false`. So for an anti-aliasing device the clause's only unconditional requirement here is that
 no shape ever disappears, and `issue12295.pdf`'s pale ECG traces are this departure working rather
 than a defect. `doc/todo/11` carries the two marks that are still lost.
@@ -322,9 +322,24 @@ under half a pixel becomes one pixel — is implemented and conditioned on `/SA`
 makes `AMBIGUOUS_STROKE_ADJUSTMENT`'s reading of `bug1743245.pdf` a derivation rather than a
 preference. The other half asks that "the line width and the coordinates of a stroke shall
 automatically be adjusted": that is grid-fitting, the non-uniformity it removes is an artefact of
-the aliased scan conversion this tree already departs from, and nothing reports it because there
-is no page on which this device could do better. **Any proposal to snap something to the pixel
-grid has to say why it is not this.**
+the aliased scan conversion this tree already departs from, and nothing reports it. **Any proposal
+to snap something to the pixel grid has to say why it is not this.**
+
+**Both halves of that were arguments until the nine-hundred-and-third session measured them**
+(ADR 0848), and the instrument is the phase ladder — one width at eight sub-pixel placements, which
+is the only variable "uniform thickness" is a claim about and the one nothing here had moved. At a
+requested 0.6 of a device pixel this device's achieved thickness runs 0.5961 to 0.6000 over the
+eight, against `poppler` 1.0000 flat: the clause bounds thickness at half a device pixel from the
+requested width, we are 0.0039 from it and the only renderer that grid-fits is 0.4000 from it. So
+the fit is declined on the sentence's own second half rather than on this file's departure —
+quantising the coordinates puts both edges on integers only if the device width is a whole number,
+which is compatible with the aliased algorithm above and not with this one. What the old sentence
+got wrong is its *scope*: `pdf-model/examples/stroke_adjustment_census` counts **4832 of the 65 679
+crawl pages that open** as carrying a stroke a fit could move, against 6 of `doc/pdf.js`'s 974, so
+"there is no page on which this device could do better" was a claim about the corpus and not about
+the world. The worst thickness this device produces is **0.1802 of a device pixel**, on a 45° rule
+at or under one pixel where `substitute_width` acts rather than the closed form — this file's own
+departure, inside the clause's bound, and `doc/todo/11`'s to answer.
 
 **ADR 0226 answers it by not snapping anything**, which is the cheapest form of that answer: a
 0.1-unit rule draws 0.1 of a row at the fractional position the document put it, and what is

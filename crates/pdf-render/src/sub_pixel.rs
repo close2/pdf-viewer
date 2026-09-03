@@ -207,7 +207,7 @@
 //! §10.7.5 would: the mark stays where the document put it and keeps the width the substitution
 //! gave it, and only the last level of its alpha moves. §10.7.5's promotion of a sub-half-pixel
 //! stroke to a single-pixel line is a different rule with a different trigger — "[i]f stroke
-//! adjustment is enabled" — and Table 52 gives that parameter an initial value of `false`.
+//! adjustment is enabled" — and Table 51 gives that parameter an initial value of `false`.
 
 use crate::collapsed::{Extent, subpath_extents};
 use crate::degenerate::KAPPA;
@@ -317,7 +317,7 @@ const ONE_LEVEL: f32 = 1.0 / 255.0;
 /// same paragraph asks for — "[t]he area covered by painted pixels shall always be at least as
 /// large as the area of the original shape" — and it is the only thing that moves: the mark keeps
 /// its place and the width the substitution gave it, so this is not §10.7.5's promotion, which
-/// needs a stroke adjustment parameter Table 52 initialises to `false`.
+/// needs a stroke adjustment parameter Table 51 initialises to `false`.
 #[must_use]
 pub fn expressible_coverage(coverage: f32) -> f32 {
     if coverage > 0.0 && coverage < ONE_LEVEL {

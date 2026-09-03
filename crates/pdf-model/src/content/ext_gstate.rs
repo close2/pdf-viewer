@@ -460,8 +460,11 @@ impl Interpreter<'_> {
         // device pixel wide "shall be rendered as a single-pixel line" — which
         // `Stroke::device_width` applies once for every rasteriser, since only a backend knows
         // the resolution. The clause's other half, adjusting a stroke's *coordinates* to the
-        // pixel grid for uniform thickness, is what anti-aliasing already achieves by a
-        // different route; ADR 0028 has that argument and the ledger's §10.7.5 row records it.
+        // pixel grid for uniform thickness, is declined: ADR 0028 made that argument and
+        // ADR 0848 measured it, on a ladder of one width at eight sub-pixel placements, where
+        // this device holds the clause's own thickness bound to 0.0039 of a device pixel and
+        // the one reference that grid-fits holds it to 0.4000. The ledger's §10.7.5 row has
+        // the ladder, the population and why the status stays `partial` all the same.
         if let Object::Boolean(adjust) = self.document.get_key(dict, "SA") {
             state.stroke.adjust = adjust;
         }

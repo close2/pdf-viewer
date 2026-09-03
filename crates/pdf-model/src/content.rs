@@ -220,7 +220,7 @@ struct GraphicsState {
     use_black_pt_comp: BlackPoint,
     /// The rendering intent parameter, set by `ri` and by `/RI` (§8.6.5.8).
     ///
-    /// §8.4.1 Table 52 states the initial value, and it is not the absent answer a `bool` would
+    /// §8.4.1 Table 51 states the initial value, and it is not the absent answer a `bool` would
     /// have given: an object painted before any `ri` has an intent, and it is a named one.
     ///
     /// > Initial value: RelativeColorimetric .
@@ -252,7 +252,8 @@ struct GraphicsState {
     /// A graphics state parameter like any other in this struct — set by `gs`, saved and
     /// restored by `q`/`Q` — and carried here so that [`Interpreter::alpha_sources`] can be
     /// seeded with the value actually in force when a group's content starts, rather than
-    /// with the whole page's history. Initially `false` (§8.4.1 Table 52).
+    /// with the whole page's history. Initially `false` (§8.4.1 Table 51 — the alpha source is a
+    /// *device-independent* parameter, ADR 0849).
     alpha_is_shape: bool,
     /// Text state, which `q`/`Q` saves and restores along with everything else.
     text: TextState,
@@ -756,7 +757,7 @@ impl<'a> Interpreter<'a> {
             base: base_transform(page),
             // §11.6.7's companion to `base`, and initialised from the same place: nothing has run
             // before a page's content stream, so the parameters it begins with are §8.4.1
-            // Table 52's initial values.
+            // Table 51's and Table 52's initial values.
             pattern_initial: PatternInitial::of(&GraphicsState::initial(base_transform(page))),
             page: size,
             shadings: crate::shading::Cache::default(),
@@ -777,7 +778,7 @@ impl<'a> Interpreter<'a> {
             uncoloured: false,
             inside_knockout: false,
             transparent_initial_backdrop: false,
-            // §8.4.1 Table 52 gives the alpha source parameter an initial value of `false`,
+            // §8.4.1 Table 51 gives the alpha source parameter an initial value of `false`,
             // so a page that never states `gs` paints entirely under §11.6.4.3's opacity
             // reading.
             alpha_sources: AlphaSourcesSeen::Opacity,

@@ -210,7 +210,7 @@ The reading, in three sentences and with the ladders in ADR 0419. §8.4.3.2's on
 `shall` is about a width of **zero**; about a positive sub-pixel width the same subclause is
 permissive — "[t]he actual line width achieved can differ from the requested width by as much as 2
 device pixels" — and points at §10.7.5. §10.7.5 states the references' floor outright and conditions
-it on stroke adjustment, whose Table 52 initial value is `false`, and `issue12295.pdf` states no
+it on stroke adjustment, whose Table 51 initial value is `false`, and `issue12295.pdf` states no
 `/SA`, no `/ExtGState` and no `/GS`. §10.7.4's floor is one whole device pixel and belongs to the
 **aliased** algorithm — `pdftoppm -aa no`, `gs -dGraphicsAlphaBits=1` and `mutool draw -A 0` all
 answer exactly 1.02 of ink at every sub-pixel width on the same ladder, agreeing about the clause —

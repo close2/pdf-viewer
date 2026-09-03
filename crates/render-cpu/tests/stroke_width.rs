@@ -50,10 +50,19 @@ const LENGTH: f32 = 80.0;
 /// exactly. A line straddling a row boundary would spread the same ink over two rows, which
 /// measures identically and would make a reader wonder why.
 fn line(stroke: Stroke) -> DisplayList {
+    line_at(50.5, stroke)
+}
+
+/// The same line, at a chosen `y`, so that a caller can vary where it falls on the pixel grid.
+///
+/// The two ends are at whole units and the page is a whole number of them, so at scale 1.0 the
+/// only thing a caller's `y` changes is the fraction of a device pixel the rule's two edges sit
+/// at — which is exactly the variable ISO 32000-2 §10.7.5's first requirement is about.
+fn line_at(y: f32, stroke: Stroke) -> DisplayList {
     let mut list = DisplayList::new(Size::new(PAGE, PAGE));
     let mut path = Path::new();
-    path.push(PathCommand::MoveTo(Point::new(10.0, 50.5)));
-    path.push(PathCommand::LineTo(Point::new(10.0 + LENGTH, 50.5)));
+    path.push(PathCommand::MoveTo(Point::new(10.0, y)));
+    path.push(PathCommand::LineTo(Point::new(10.0 + LENGTH, y)));
     list.push(Command::Stroke {
         path: Arc::new(path),
         transform: Transform::IDENTITY,
@@ -193,5 +202,75 @@ fn the_substituted_width_matches_the_rasterisers_hairline() {
             one.data, two.data,
             "at scale {scale} the hairline and the explicit width differ"
         );
+    }
+}
+
+/// §10.7.5's *first* requirement, measured: the thickness a stroke achieves is within half a
+/// device pixel of the requested width wherever the rule falls on the grid.
+///
+/// > When stroke adjustment is enabled, the line width and the coordinates of a stroke shall
+/// > automatically be adjusted as necessary to produce lines of uniform thickness. The
+/// > thickness shall be as near as possible to the requested line width -no more than half a
+/// > pixel different.
+///
+/// The clause names an adjustment as the means and bounds an outcome; the bound is what a test
+/// can hold, and it is a number rather than an appearance. Thickness here is ink divided by the
+/// rule's device length, which is the width the device actually laid down — a rule `w` pixels
+/// wide over `n` pixels of length deposits `w × n` on an area-sampling rasteriser however it
+/// falls, and that is the property being asserted.
+///
+/// Eight placements an eighth of a device pixel apart is a whole period of the only variable
+/// the requirement is about. Two scales, for the reason the module comment gives.
+///
+/// The tight bound is a tenth of the clause's and is what makes this discriminating rather than
+/// vacuous. Measured in the nine-hundred-and-third session, the worst departure over all six
+/// ladders is **0.0059 of a device pixel** — one and a half levels of 255 — so `MEASURED` is
+/// eight times what the backend holds and a tenth of what the clause allows; at 0.005 this test
+/// fails, which is how it was checked against something rather than against nothing (trap 13).
+/// The reference that grid-fits instead — `poppler`, which snaps both edges to whole pixels and
+/// so draws a 0.6-pixel rule as one whole one — reads 0.4 here and would fail it while staying
+/// inside the clause's own bound. ADR 0848 has the ladder for all five renderers.
+#[test]
+fn stroke_adjustment_holds_the_thickness_within_half_a_pixel_at_every_placement() {
+    /// The clause's own bound, in device pixels of thickness.
+    const CLAUSE: f64 = 0.5;
+    /// What this backend actually holds, rounded up an order of magnitude from the measurement.
+    const MEASURED: f64 = 0.05;
+
+    for scale in [1.0_f32, 2.0] {
+        for width in [0.6_f32, 1.0, 2.5] {
+            let mut thicknesses = Vec::new();
+            for eighth in 0_u8..8 {
+                // An eighth of a *device* pixel, so the offset is a reciprocal of the scale —
+                // trap 2's argument, which is why the module runs everything at two scales.
+                let y = 50.0 + f32::from(eighth) / (8.0 * scale);
+                let list = line_at(
+                    y,
+                    Stroke {
+                        width,
+                        adjust: true,
+                        ..Stroke::default()
+                    },
+                );
+                thicknesses.push(ink_at(&list, scale) / f64::from(LENGTH * scale));
+            }
+            // The rule is stated in *device* pixels and the width in the path's own space, so
+            // the quantity the clause bounds is the width times the scale — the reciprocal the
+            // module comment warns about, met from the other side.
+            let requested = f64::from(width * scale);
+            for (eighth, got) in thicknesses.iter().enumerate() {
+                assert!(
+                    (got - requested).abs() <= CLAUSE,
+                    "scale {scale}, width {width}, placement {eighth}/8: thickness {got} is more \
+                     than half a device pixel from the requested {requested}"
+                );
+                assert!(
+                    (got - requested).abs() <= MEASURED,
+                    "scale {scale}, width {width}, placement {eighth}/8: thickness {got} against \
+                     the requested {requested}, outside what this backend held when ADR 0848 \
+                     measured it"
+                );
+            }
+        }
     }
 }

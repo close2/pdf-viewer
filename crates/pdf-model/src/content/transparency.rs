@@ -38,7 +38,7 @@ pub(super) struct TransparencyGroup {
 /// Which elementary graphics object is being painted, for §11.7.5.2's conditions.
 ///
 /// The clause's six conditions are not all about the graphics state: the fourth is about the
-/// image dictionary and the first depends on which of Table 52's two alpha constants the painting
+/// image dictionary and the first depends on which of Table 51's two alpha constants the painting
 /// operation reads. Both are the caller's to know, so they arrive as this rather than as two
 /// booleans nobody could read at a call site. See [`Interpreter::transfer_for_mark`].
 #[derive(Debug, Clone, Copy)]

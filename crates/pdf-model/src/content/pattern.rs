@@ -1392,7 +1392,7 @@ impl Interpreter<'_> {
         });
         // §10.5's transfer function. An `sh` builds its shading at the mark, so the state here is
         // the state the clause asks about and nothing can have moved between them — and §11.6.4.4
-        // makes `sh` a non-stroking painting operation, which is which of Table 52's two alpha
+        // makes `sh` a non-stroking painting operation, which is which of Table 51's two alpha
         // constants §11.7.5.2's first condition reads.
         let transfer = self.transfer_for_mark(state, Painted::Shading { stroking: false });
         let conversion = self.conversion(state);

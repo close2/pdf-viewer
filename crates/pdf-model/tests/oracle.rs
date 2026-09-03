@@ -957,7 +957,7 @@ const CONTRADICTED_REFERENCE_GLYPH_WIDTHS: [&str; 1] = ["issue9915_reduced.pdf p
 /// is the one the first sentence forbids, because |−0.1| is not a clip of −0.1 into `[0, ∞)`.
 ///
 /// §10.7.5's floor is not an alternative route to the references' answer either, for ADR 0419's
-/// reason on a second document: it applies where "stroke adjustment is enabled", Table 52
+/// reason on a second document: it applies where "stroke adjustment is enabled", Table 51
 /// initialises that parameter to `false`, and this file contains no `/SA` and no `/ExtGState`
 /// at all.
 ///
@@ -5458,6 +5458,14 @@ const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] = [
 /// `doc/HANDOVER.md` for a long time**; a pointer written as prose rather than as a path is
 /// one `conformance --bin pointers` cannot resolve, which is why it outlived the move.
 ///
+/// **ADR 0848 turned that argument into four measurements, and it is why the fit is still
+/// declined.** On a phase ladder — one width drawn at eight sub-pixel placements, which is the
+/// only variable "uniform thickness" is a claim about — this device's achieved thickness is
+/// within 0.0039 of a device pixel of the requested width at every placement, where `poppler`,
+/// grid-fitting, is 0.4000 from it; and §10.7.5 states its bound on exactly that quantity.
+/// So a fit would move this page toward `poppler` and away from the clause's own number, and
+/// the mechanism this note is written around would have to be rewritten.
+///
 /// # Which measure ranks this page, and it is not the one every paragraph above prices
 ///
 /// The page is **third on [`rank_the_pages_we_are_alone_on`] at 4.13×, marked `[widened:
@@ -5493,7 +5501,8 @@ const AMBIGUOUS_DEVICE_CMYK_CONVERSION: [&str; 2] = [
 ///
 /// `doc/todo/00` step 1's instrument (ADR 0663): make the mechanism unable to act and re-measure
 /// **both** halves. `/SA true` was renamed to `/S1 true` in place — eight bytes for eight, so the
-/// cross-reference table still resolves, and Table 58's initial value for `SA` is `false`, so the
+/// cross-reference table still resolves, and Table 51's initial value for the stroke adjustment
+/// parameter is `false`, so the
 /// page is the same page with stroke adjustment disabled — and all five renderers were re-run at
 /// 72 dpi. The control first: on the *unedited* file, freshly rendered, all four references and our
 /// own raster are **byte-identical to the gate's cached panels**, so nothing below is a measurement
@@ -8509,7 +8518,7 @@ const AMBIGUOUS_STACKED_SCREEN_UNDER_MASKS: [&str; 0] = [];
 ///
 /// §10.7.5 states the floor they draw — "[i]f stroke adjustment is enabled and the requested line
 /// width, transformed into device space, is less than half a pixel, the stroke shall be rendered as
-/// a single-pixel line" — and Table 52 initialises that parameter to `false`. **`issue12295.pdf`
+/// a single-pixel line" — and Table 51 initialises that parameter to `false`. **`issue12295.pdf`
 /// states no `/SA`, no `/ExtGState` and no `/GS` at all**, so the clause that would darken its
 /// traces is not asked for. `hayro`'s source is the one on this disk and it says the quiet part:
 /// "Best-effort attempt to ensure a line width of at least 1.0, as required by the PDF
