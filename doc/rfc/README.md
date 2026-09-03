@@ -41,3 +41,4 @@ the RFC stays here as the argument that started it.
 | [0003](0003-file-system-faces.md) | File-system faces — a KIO worker and a FUSE filesystem over one core | draft | 786 |
 | [0004](0004-print-and-print-preview.md) | Print support and print preview | draft | 786 |
 | [0005](0005-text-editing-without-reflow.md) | Basic text editing, without reflow | draft | 786 |
+| [0006](0006-pdf-a-validation-and-conversion.md) | PDF/A: validating a document, and converting one | draft | 895 |
