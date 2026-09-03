@@ -37,8 +37,9 @@ commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with
 processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
-JPEG 2000 in a confined worker. Encryption at every revision and method §7.6 states, in both
-directions. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
+JPEG 2000 in a confined worker. Encryption at every revision Table 21 lists and every method Table 25 names, in both
+directions — including revision 5, whose algorithm is the Adobe extension the table points at
+rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing eleven of §12.6's actions, §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — the Table 164 transition styles whose frame the table's own words determine,
 drawn frame by frame, and the rest reported by name for the quantity the clause does not state

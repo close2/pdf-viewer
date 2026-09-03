@@ -22,16 +22,35 @@
 //!
 //! # What this handler does and does not implement
 //!
-//! Implemented: the standard security handler (`/Filter /Standard`) at revisions 2, 3, 4
-//! and 6, which is every revision the standard specifies, over `/V` 1, 2, 4 and 5, with
-//! the `V2`, `AESV2` and `AESV3` crypt filter methods of Table 25 and the `Identity`
-//! filter of Table 26.
+//! Implemented: the standard security handler (`/Filter /Standard`) at revisions 2, 3, 4, 5
+//! and 6 — every revision Table 21 lists — over `/V` 1, 2, 4 and 5, with the `V2`, `AESV2`
+//! and `AESV3` crypt filter methods of Table 25 and the `Identity` filter of Table 26.
+//!
+//! # Revision 5, and why reading it is not a departure from principle 5
+//!
+//! Table 21 says of `/R` 5: "Shall not be used. This value was used by a deprecated
+//! proprietary Adobe extension." **That sentence binds a writer**, which is the only party
+//! that chooses an `/R` value; a reader meets the value or does not. Two more of the
+//! standard's own sentences settle the rest. §7.6.4.1 ends "Use of security handler
+//! revisions 1, 2, 3, 4 and 5 is deprecated in PDF 2.0", so revision 5 is deprecated in
+//! exactly the company of the three revisions this module has always read. And §7.6.4.1
+//! states a requirement *about* revision 5 rather than a silence: "If a security handler of
+//! revision 4 or 5 is specified, the standard security handler shall support crypt filters
+//! (see 7.6.6, "Crypt filters")."
+//!
+//! What the standard does not state for revision 5 is the key retrieval, and its authority
+//! is named where the code is: the **Adobe Supplement to ISO 32000-1, `BaseVersion` 1.7,
+//! `ExtensionLevel` 3**, which is the "deprecated proprietary Adobe extension" Table 21 points
+//! at. Its Algorithm 3.2a is ISO 32000-2 §7.6.4.3.3's Algorithm 2.A with §7.6.4.3.4's
+//! iterated hash replaced by a single SHA-256; [`authenticate_aes256`] is that one
+//! substitution and nothing else. The data encryption is not the extension's at all —
+//! Table 20's `/V` 5 entry sends it to §7.6.3.3's Algorithm 1.A with a 256-bit key, which is
+//! what this module already ran for revision 6.
+//!
+//! ADR 0820 records which steps rest on a normative sentence and which on evidence.
 //!
 //! Refused, each with a named reason rather than a guess:
 //!
-//! - **Revision 5.** Table 21 says of it: "Shall not be used. This value was used by a
-//!   deprecated proprietary Adobe extension." The standard therefore states no algorithm
-//!   for it, and inventing one would be curve-fitting to another implementation.
 //! - **Public-key security handlers** (§7.6.5), which need CMS enveloped data and X.509
 //!   certificates — a public-key infrastructure rather than a cipher.
 //! - **`/CFM /None`**, which Table 25 defines as "The application shall not decrypt data
@@ -273,14 +292,7 @@ impl Encryption {
         // The revision decides everything below it, so a revision this handler does not
         // implement is refused here rather than after its consequences have been read.
         match revision {
-            2..=4 | 6 => {}
-            5 => {
-                return Err(unsupported(
-                    "/R 5 is a deprecated proprietary extension the standard states no \
-                     algorithm for (§7.6.4.2 Table 21)"
-                        .to_owned(),
-                ));
-            }
+            2..=6 => {}
             other => {
                 return Err(unsupported(format!(
                     "/R {other} is not a revision §7.6.4 defines"
@@ -309,7 +321,14 @@ impl Encryption {
                     encrypt_metadata,
                 })
             }
-            _ => authenticate_r6(
+            // Revisions 5 and 6 share Algorithm 2.A and differ only in the hash it calls,
+            // which is the whole of what the ExtensionLevel 3 supplement changed.
+            other => authenticate_aes256(
+                if other == 5 {
+                    Aes256Hash::UnIterated
+                } else {
+                    Aes256Hash::Iterated
+                },
                 password,
                 &owner_entry,
                 &user_entry,
@@ -336,9 +355,13 @@ impl Encryption {
             Err(error) => return Err(error),
         };
 
-        // §7.6.4.3.3 step (f) and §7.6.4.4.12's Algorithm 13. Only revision 6 writes the
-        // block, and where it is readable it outranks the plaintext entries beside it.
-        if revision == 6
+        // §7.6.4.3.3 step (f) and §7.6.4.4.12's Algorithm 13. Only the AES-256 revisions
+        // write the block, and where it is readable it outranks the plaintext entries beside
+        // it. Revision 5's copy is the ExtensionLevel 3 supplement's Algorithm 3.2a step 7,
+        // which the standard's Algorithm 13 restates unchanged, marker bytes and all;
+        // `issue21579.pdf` is the witness that it decodes — its block gives back exactly the
+        // `/P -1084` and the `/EncryptMetadata true` written in the clear beside it.
+        if revision >= 5
             && let Some(block) = perms_block(&key, get("Perms").as_string().unwrap_or_default())
         {
             flags = i64::from(block.flags);
@@ -353,9 +376,9 @@ impl Encryption {
             embedded_file,
             filters,
             encrypt_metadata,
-            // The match above admits 2, 3, 4 and 6 and refuses everything else, so this
-            // conversion cannot fail; `unwrap_or` names an impossible revision rather than
-            // panicking on it, and 0 is a revision Table 22 gives no meaningful bit at all.
+            // The match above admits 2 to 6 and refuses everything else, so this conversion
+            // cannot fail; `unwrap_or` names an impossible revision rather than panicking on
+            // it, and 0 is a revision Table 22 gives no meaningful bit at all.
             permissions: Permissions::from_flags(
                 flags,
                 owner,
@@ -654,12 +677,59 @@ fn unwrap_owner_entry(padded: &[u8; 32], input: &AuthenticateLegacy<'_>) -> Opti
     Some(purported)
 }
 
-/// §7.6.4.3.3, Algorithm 2.A: retrieves the file encryption key at revision 6.
+/// Which hash Algorithm 2.A turns a password and a salt into 32 bytes with.
+///
+/// This is the *only* difference between the two AES-256 revisions, and naming it as one
+/// value is what keeps the two from being two copies of one algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Aes256Hash {
+    /// Revision 5: one SHA-256 of the concatenation, and no iteration.
+    ///
+    /// The Adobe Supplement to ISO 32000-1, `BaseVersion` 1.7, `ExtensionLevel` 3 — the
+    /// "deprecated proprietary Adobe extension" ISO 32000-2 §7.6.4.2 Table 21 names — states
+    /// Algorithm 3.2a with the SHA-256 hash written into each of its steps. §7.6.4.3.4's
+    /// iterated hash was added for revision 6 precisely because a single hash makes the
+    /// password cheap to attack, which is the whole reason the extension was superseded.
+    UnIterated,
+    /// Revision 6: §7.6.4.3.4's Algorithm 2.B.
+    Iterated,
+}
+
+impl Aes256Hash {
+    /// The 32 bytes Algorithm 2.A's steps (c) to (e) compare or use as a key.
+    fn of(self, password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
+        match self {
+            Self::UnIterated => sha256_of(password, salt, extra),
+            Self::Iterated => hash_2b(password, salt, extra),
+        }
+    }
+}
+
+/// SHA-256 of a password, a salt and — for the owner branch — the 48-byte `/U` string.
+///
+/// Algorithm 2.B's own first sentence is "[t]ake the SHA-256 hash of the original input to
+/// the algorithm", so this is that hash standing alone as well as [`hash_2b`]'s first step.
+fn sha256_of(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
+    let mut hash = sha2::Sha256::new();
+    hash.update(password);
+    hash.update(salt);
+    hash.update(extra);
+    hash.finalize().to_vec()
+}
+
+/// §7.6.4.3.3, Algorithm 2.A: retrieves the file encryption key at revision 5 or 6.
 ///
 /// The clause's own framing of the three 48-byte sections is what the slicing below
 /// follows: "The first 32 bytes are a hash value … The next 8 bytes are called the
 /// Validation Salt. The final 8 bytes are called the Key Salt."
-fn authenticate_r6(
+///
+/// **Revision 5 runs the same steps under [`Aes256Hash::UnIterated`]**, which is what the
+/// `ExtensionLevel` 3 supplement's Algorithm 3.2a is: the same three sections of `/O` and `/U`,
+/// the same two validation tests, the same two `AES-256` unwrappings of `/OE` and `/UE` with
+/// a zero initialisation vector and no padding, and the same `/Perms` check afterwards. ADR
+/// 0820 says which of those steps rest on a normative sentence and which on evidence.
+fn authenticate_aes256(
+    hash: Aes256Hash,
     password: &str,
     owner_entry: &[u8],
     user_entry: &[u8],
@@ -671,20 +741,19 @@ fn authenticate_r6(
 
     // (c) Test the password against the owner key. The owner test comes first here and
     // last at revision 4 because the clause orders it so, and because the two orders cannot
-    // disagree: a revision 6 owner hash is salted with the whole `/U` string, so a password
+    // disagree: an owner hash here is salted with the whole `/U` string, so a password
     // that satisfies it cannot also satisfy the user hash by accident.
     if let (Some(owner_hash), Some(owner_validation), Some(owner_key_salt)) = (
         owner_entry.get(..32),
         owner_entry.get(32..40),
         owner_entry.get(40..48),
-    ) && hash_2b(&password, owner_validation, user48) == owner_hash
+    ) && hash.of(&password, owner_validation, user48) == owner_hash
     {
         {
             // (d) the intermediate owner key decrypts `/OE` with a zero initialisation
             // vector and no padding; the 32-byte result is the file encryption key.
-            let intermediate = hash_2b(&password, owner_key_salt, user48);
-            if let Some(key) = aes_cbc_decrypt_raw(&intermediate, [0; AES_BLOCK], owner_encryption)
-            {
+            let intermediate = hash.of(&password, owner_key_salt, user48);
+            if let Some(key) = file_key_from(&intermediate, owner_encryption) {
                 return Ok((key, true));
             }
         }
@@ -695,17 +764,29 @@ fn authenticate_r6(
         user_entry.get(..32),
         user_entry.get(32..40),
         user_entry.get(40..48),
-    ) && hash_2b(&password, user_validation, &[]) == user_hash
+    ) && hash.of(&password, user_validation, &[]) == user_hash
     {
         {
-            let intermediate = hash_2b(&password, user_key_salt, &[]);
-            if let Some(key) = aes_cbc_decrypt_raw(&intermediate, [0; AES_BLOCK], user_encryption) {
+            let intermediate = hash.of(&password, user_key_salt, &[]);
+            if let Some(key) = file_key_from(&intermediate, user_encryption) {
                 return Ok((key, false));
             }
         }
     }
 
     Err(SyntaxError::PasswordRequired)
+}
+
+/// Unwraps `/OE` or `/UE` into the file encryption key — Algorithm 2.A steps (d) and (e).
+///
+/// The length check is the clause's own arithmetic rather than a tolerance: both steps end
+/// "[t]he 32-byte result is the file encryption key", and §7.6.3.3's Algorithm 1.A takes a
+/// 256-bit key. A wrapped entry of any other length yields something that is not a key, and
+/// saying so here makes the file a wrong-password refusal instead of a stream that quietly
+/// declines to decrypt several layers further down (trap 5).
+fn file_key_from(intermediate: &[u8], wrapped: &[u8]) -> Option<Vec<u8>> {
+    let key = aes_cbc_decrypt_raw(intermediate, [0; AES_BLOCK], wrapped)?;
+    (key.len() == 32).then_some(key)
 }
 
 /// §7.6.4.3.4, Algorithm 2.B: the iterated hash of revision 6.
@@ -722,13 +803,10 @@ fn authenticate_r6(
 /// function builds is unchanged; the quotation above it was struck text until the
 /// four-hundred-and-nineteenth session.
 fn hash_2b(password: &[u8], salt: &[u8], extra: &[u8]) -> Vec<u8> {
-    let mut k = {
-        let mut hash = sha2::Sha256::new();
-        hash.update(password);
-        hash.update(salt);
-        hash.update(extra);
-        hash.finalize().to_vec()
-    };
+    // "Take the SHA-256 hash of the original input to the algorithm and name the resulting
+    // 32 bytes, K." That first hash is the whole of revision 5's, which is why it is a
+    // function of its own and not four lines here.
+    let mut k = sha256_of(password, salt, extra);
 
     // "Perform the following steps (a)-(d) 64 times", then continue while the last byte of
     // E exceeds the round number less 32. NOTE 3 says the total is "most likely between 65
@@ -872,15 +950,23 @@ fn crypt_filters(
     // (AES128). For revision 6, the filter CFM value shall be AESV3 (AES-256)." A file
     // that disagrees is not one this handler can read, because the key it derived has the
     // wrong length for the cipher named.
-    let expected_r6 = revision == 6;
+    //
+    // **The sentence names 4 and 6 and skips 5**, so revision 5's side of it is taken from
+    // Table 20 instead, which is normative and unambiguous: `/V` 5 uses "7.6.3.3, "Algorithm
+    // 1.A: Encryption of data using the AES algorithms" with a file encryption key length of
+    // 256 bits", and `AESV3` is the only one of Table 25's methods that is that cipher. So a
+    // revision-5 file is held to the same pairing as a revision-6 one, and a revision-5 file
+    // naming `V2` or `AESV2` is refused here rather than decrypted with a 32-byte key the
+    // cipher cannot take.
+    let aes_256 = revision >= 5;
     for method in [stream, string, embedded_file]
         .into_iter()
         .chain(filters.values().copied())
     {
         let ok = match method {
             Method::Identity => true,
-            Method::AesV3 => expected_r6,
-            Method::Rc4 | Method::AesV2 => !expected_r6,
+            Method::AesV3 => aes_256,
+            Method::Rc4 | Method::AesV2 => !aes_256,
         };
         if !ok {
             return Err(SyntaxError::UnsupportedEncryption {
@@ -1051,6 +1137,22 @@ fn pdf_doc_encode(password: &str) -> SyntaxResult<Vec<u8>> {
 /// the one that encrypted the document, because a writer applying the same profile could
 /// not have produced it. So the refusal is reported as a wrong password rather than as an
 /// unsupported file.
+///
+/// # Revision 5 takes the same two steps, and that is a reading rather than a quotation
+///
+/// The clause above says "revision 6", and §7.6.4.3.3's preamble binds steps (a) and (b) to
+/// "[w]henever UTF-8 password is used below" — which is inside the algorithm revision 5
+/// shares. The `ExtensionLevel` 3 supplement's Algorithm 3.2a states the same two steps in the
+/// same order at its own step 1, so both readings agree, and this tree cannot check the
+/// second against a copy of the document (ADR 0820 says so plainly rather than implying
+/// otherwise).
+///
+/// **It is very nearly unobservable, which is why it is safe to decide it this way.**
+/// `SASLprep` is the identity on every ASCII password and on the empty one, so it can only
+/// separate two readers on a password carrying a character the profile normalises away or
+/// prohibits. pdf.js applies it at revision 6 and not at revision 5 and opens the corpus's
+/// revision-5 document exactly as this does, because that document's password is `pässwört`
+/// — outside ASCII, and fixed by `SASLprep`.
 fn utf8_password(password: &str) -> SyntaxResult<Vec<u8>> {
     let prepared = stringprep::saslprep(password).map_err(|_| SyntaxError::PasswordRequired)?;
     let mut bytes = prepared.as_bytes().to_vec();

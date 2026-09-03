@@ -15,8 +15,17 @@
 //! | `issue17215.pdf` | 2 | 3 | RC4, 128-bit |
 //! | `issue9972-1.pdf` | 4 | 4 | `AESV2` — AES-128 through a crypt filter |
 //! | `issue17069.pdf` | 4 | 4 | `AESV2`, with different permissions |
+//! | `issue21579.pdf` | 5 | 5 | `AESV3` under the `ExtensionLevel` 3 extension |
 //! | `issue7665.pdf` | 5 | 6 | `AESV3` — AES-256 |
 //! | `encrypted-attachment.pdf` | 5 | 6 | `AESV3` reaching only an attachment |
+//!
+//! **One fixture is assembled here, and it does not break the paragraph above.** The
+//! revision-5 tests at the end of this file build a document around `issue21579.pdf`'s own
+//! `/U`, `/UE`, `/Perms` and page-one ciphertext — a real producer's bytes, unchanged — so what
+//! is fabricated is the catalogue, the page tree and the cross-reference table, none of which
+//! any cipher touches. That gives §7.6.4.2's newest revision a regression test the submodule
+//! cannot take away while leaving the assertion exactly where it was: bytes this code did not
+//! encrypt have to come back out as their producer's operators.
 //!
 //! One combination has no *working* document behind it. Table 25's `V2` method — RC4 named
 //! through a crypt filter rather than by `/V` — appears twice in the corpus, in
@@ -42,8 +51,8 @@
     clippy::panic,
     clippy::arithmetic_side_effects,
     reason = "test code: a fixture that cannot exercise the rule must fail loudly rather \
-              than pass by doing nothing, and the one multiplication here is of two counts \
-              bounded by a slice length"
+              than pass by doing nothing, and the arithmetic is on counts bounded by a slice \
+              length or on hexadecimal digits this file's own constants supply"
 )]
 
 use std::path::{Path, PathBuf};
@@ -468,40 +477,27 @@ fn blank(bytes: &[u8], entry: &[u8]) -> Vec<u8> {
     out
 }
 
-/// A document this reader cannot decrypt says so, rather than drawing noise.
+/// A revision Table 21 does not list is refused by name, rather than drawing noise.
 ///
-/// `issue21579.pdf` is `/R 5`, which Table 21 describes as "a deprecated proprietary Adobe
-/// extension" and states no algorithm for. Its sibling is the revision the table does not
-/// name at all: `/R` is a direct integer in the encryption dictionary, so one byte of the
-/// file makes a `/R 7` out of it with every offset and every other entry unchanged, and
-/// §7.6.4.2's other arm — a revision this clause does not define — is exercised by a real
-/// document rather than by a fragment.
+/// **Its other half used to be `/R 5`, and the eight-hundred-and-eighty-seventh session
+/// implemented that instead** — the argument is ADR 0820 and the module comment of
+/// `crypt.rs`. What is left here is the arm that survives: Table 21 lists 2, 3, 4, 5 and 6
+/// and nothing else, and `/R` is a direct integer in the encryption dictionary, so one byte
+/// of `issue21579.pdf` makes a `/R 7` out of it with every offset and every other entry
+/// unchanged. That is a revision this clause does not define, exercised by a real document
+/// rather than by a fragment.
 ///
-/// **Both assertions name the clause rather than the revision, and that is the whole of what
-/// makes this a test** (eight-hundred-and-fifty-third session). It asserted `contains("/R 5")`
-/// and passed with the refusal removed: `crypt_filters` then declines the same file for
-/// §7.6.4.1's method pairing, whose sentence begins "/R 5 with a crypt filter method" and
-/// contains the substring too. A refusal is only *by name* if the name distinguishes it from
-/// the other refusals the same document can reach.
+/// **The assertion names the clause rather than the revision, and that is the whole of what
+/// makes this a test** (eight-hundred-and-fifty-third session). Its deleted sibling asserted
+/// `contains("/R 5")` and passed with the refusal removed, because `crypt_filters` declined
+/// the same file for §7.6.4.1's method pairing, whose sentence begins "/R 5 with a crypt
+/// filter method" and contains the substring too. A refusal is only *by name* if the name
+/// distinguishes it from the other refusals the same document can reach.
 #[test]
 fn an_unspecified_revision_is_refused_by_name() {
     let Some(bytes) = corpus_bytes("issue21579.pdf") else {
         return;
     };
-    let opened = Document::open_with_password(bytes.clone(), Limits::DEFAULT, "p\u{E4}ssw\u{F6}rt");
-    match opened {
-        Err(SyntaxError::UnsupportedEncryption { detail }) => {
-            assert!(
-                detail.contains("/R 5 is a deprecated proprietary extension")
-                    && detail.contains("§7.6.4.2 Table 21"),
-                "Table 21's own refusal, not another clause's: got {detail:?}"
-            );
-        }
-        other => panic!("expected an unsupported-encryption error, got {other:?}"),
-    }
-
-    // Table 21 lists 2, 3, 4, 5 and 6 and nothing else, so a `/R 7` is not a revision
-    // §7.6.4 defines — a different sentence from the one above, and a different arm.
     let mut seven = bytes;
     let at = find(&seven, b"/R 5");
     seven[at + 3] = b'7';
@@ -511,6 +507,33 @@ fn an_unspecified_revision_is_refused_by_name() {
             assert!(
                 detail.contains("/R 7 is not a revision §7.6.4 defines"),
                 "an undefined revision should be named as one: got {detail:?}"
+            );
+        }
+        other => panic!("expected an unsupported-encryption error, got {other:?}"),
+    }
+}
+
+/// A `/R 5` document naming a crypt filter method its own key length cannot take.
+///
+/// §7.6.4.1 states the pairing for revisions 4 and 6 and says nothing about 5, so revision
+/// 5's side of it comes from Table 20's `/V` 5 entry — §7.6.3.3's Algorithm 1.A "with a file
+/// encryption key length of 256 bits", which among Table 25's methods is `AESV3` alone. One
+/// byte of `issue21579.pdf` turns its `/CFM /AESV3` into `/CFM /AESV2`, and the key the
+/// extension's own algorithm derives is 32 bytes, which AES-128 cannot take. Refused by name
+/// rather than handed to a cipher that would decline it several layers further down.
+#[test]
+fn a_revision_five_document_naming_an_aes_128_filter_is_refused() {
+    let Some(mut bytes) = corpus_bytes("issue21579.pdf") else {
+        return;
+    };
+    let at = find(&bytes, b"/CFM /AESV3");
+    bytes[at + 10] = b'2';
+    let opened = Document::open_with_password(bytes, Limits::DEFAULT, "p\u{E4}ssw\u{F6}rt");
+    match opened {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => {
+            assert!(
+                detail.contains("/R 5 with a crypt filter method"),
+                "the pairing should name itself: got {detail:?}"
             );
         }
         other => panic!("expected an unsupported-encryption error, got {other:?}"),
@@ -606,4 +629,346 @@ fn a_metadata_stream_is_in_the_clear_when_encrypt_metadata_is_false() {
         "the metadata should be the file's own XML, got {:?}",
         String::from_utf8_lossy(data.get(..32).unwrap_or_default())
     );
+}
+
+// ---------------------------------------------------------------------------------------
+// §7.6.4.2 Table 21's revision 5, and the fixture that does not need the corpus
+// ---------------------------------------------------------------------------------------
+
+/// `issue21579.pdf`'s `/U`, the 48 bytes Algorithm 2.A reads as a hash, a validation salt and
+/// a key salt.
+///
+/// The five constants here are a real producer's, lifted verbatim out of the one revision-5
+/// document `doc/pdf.js` holds, and the fixture below is assembled around them. That is what
+/// keeps this file's opening argument intact while giving the clause a test the submodule
+/// cannot take away: **the ciphertext was not produced by this code**, so recovering the
+/// plaintext under it is a statement about the algorithm rather than about our
+/// self-consistency. What the fixture supplies is the *container* — a catalogue, a page tree
+/// and a cross-reference table — which no cipher touches.
+const USER_ENTRY: &str = "1A535BA22F2DD1CF9F37CF7540FB3A2D0F82D9EA49DB2F1E1CFD5118952D3DCC\
+                          34C814AD2CC29313002D79DE31DF86A0";
+
+/// The same document's `/UE`: the file encryption key, wrapped under the user password.
+const USER_ENCRYPTION: &str = "EE4139E2E22728C58B69A73CB2AEA4F0A8F759F895C5D1295751820432A238B6";
+
+/// The same document's `/Perms` — §7.6.4.4.9's Algorithm 10 block, keyed by the file key.
+const PERMS: &str = "CB21FA8DCEEDECEA128E0F81D834B379";
+
+/// The same document's page-one content stream, AES-256 ciphertext with its initialisation
+/// vector in front.
+const CONTENT: &str = "C7DB7E278725358D2C49C2E3484E065C57C1E330102E61843D4122C6FBFAAAF6\
+                       2B72D613B1D048882805E6C9CA6D82CE269138F7A09D517C45736167E16541E4\
+                       44C976BA99CC2762A4615B507BFE2D1992E48B81A11B1E125147D4B1B57E6111\
+                       7A0E37E5C9ADC29113557CD22468871A733DC200FB4739FEDD3BFE3C32E02FB9\
+                       138D72145C7ADA1FDDBF363C0356D0AAEA672FA0A46470AD92BB99454A5A1F58";
+
+/// What that stream decrypts to, which is the assertion no wrong key can satisfy.
+const CONTENT_PLAINTEXT: &str = "(repro1a: AES-256 R5, password 'passwoert' with umlauts) Tj";
+
+/// The user password of the document those constants came from.
+const USER_PASSWORD: &str = "p\u{E4}ssw\u{F6}rt";
+
+/// An owner password chosen here, and the `/O` and `/OE` that go with it.
+///
+/// The corpus's revision-5 document authenticates its owner half against nothing this tree
+/// knows, so the owner branch of Algorithm 2.A — the one salted with the whole 48-byte `/U`
+/// string — would be untested without these. They were computed **outside this tree**, by
+/// Python's `hashlib` and `cryptography` running the extension's own steps, and they wrap the
+/// *same* file encryption key `/UE` above wraps. So the owner branch is not checked against
+/// itself: it is checked against the real ciphertext, which comes out readable only if the key
+/// it reaches is the key the document was encrypted with.
+const OWNER_PASSWORD: &str = "eigent\u{FC}mer";
+
+/// `/O` for [`OWNER_PASSWORD`]: `SHA-256(password ‖ validation salt ‖ U₄₈)`, then the two salts.
+const OWNER_ENTRY: &str = "37339979E2EE6D29992924840F9851C2C5DE0F106CD37200D4ABC619ACB7097E\
+                           01020304050607081112131415161718";
+
+/// `/OE` for [`OWNER_PASSWORD`]: the file key under `SHA-256(password ‖ key salt ‖ U₄₈)`.
+const OWNER_ENCRYPTION: &str = "368A47EE4DDABB0D0B78025BE58C6F309D4DDCC4C8CD41FF7B719A113031A183";
+
+/// Bytes from a hexadecimal constant, white space ignored.
+fn hex(text: &str) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len() / 2);
+    let mut high: Option<u8> = None;
+    for byte in text.bytes().filter(|byte| !byte.is_ascii_whitespace()) {
+        let nibble = match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'A'..=b'F' => byte - b'A' + 10,
+            b'a'..=b'f' => byte - b'a' + 10,
+            other => panic!("{} is not a hexadecimal digit", other as char),
+        };
+        match high.take() {
+            None => high = Some(nibble),
+            Some(first) => out.push(first * 16 + nibble),
+        }
+    }
+    assert!(
+        high.is_none(),
+        "a hexadecimal constant has an even number of digits"
+    );
+    out
+}
+
+/// A PDF string in §7.3.4.3's hexadecimal form, which is what an encryption dictionary's
+/// entries are written as and what keeps arbitrary bytes out of the file's token stream.
+fn hex_string(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2 + 2);
+    out.push('<');
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02X}");
+    }
+    out.push('>');
+    out
+}
+
+/// Assembles numbered objects into a file with a §7.5.4 cross-reference table.
+///
+/// Written out rather than reached for, because the point of the fixture is that nothing
+/// about it is this crate's *reading* of a file: the offsets are computed from the bytes as
+/// they are laid down, so `Document::open` takes the fast path a well-formed file takes and
+/// never falls back to §C.4's rebuild — which would make the test pass for a document whose
+/// table was wrong.
+fn assemble(objects: &[Vec<u8>], trailer_entries: &str) -> Vec<u8> {
+    let mut out: Vec<u8> = b"%PDF-1.7\n%\xE2\xE3\xCF\xD3\n".to_vec();
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (index, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", index + 1).as_bytes());
+        out.extend_from_slice(body);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+
+    let table_at = out.len();
+    let size = objects.len() + 1;
+    out.extend_from_slice(format!("xref\n0 {size}\n0000000000 65535 f \n").as_bytes());
+    for offset in &offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size {size} {trailer_entries} >>\nstartxref\n{table_at}\n%%EOF\n")
+            .as_bytes(),
+    );
+    out
+}
+
+/// How one revision-5 fixture differs from the next.
+struct FixtureFive {
+    /// The plaintext `/P`, which Algorithm 13's block is entitled to overrule.
+    flags: i32,
+    /// Bytes of NUL appended to `/U` and `/O` beyond their 48 significant ones.
+    ///
+    /// 8 of the 41 revision-5 documents among the 90 535 in `doc/pdf.js`, `doc/corpora/` and
+    /// `corpus-cache/` write both entries as **127** bytes —
+    /// 48 significant followed by 79 zeros — and they are exactly the 8 whose catalogue
+    /// declares `/Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 3 >> >>`, which is
+    /// the extension this revision belongs to. Algorithm 2.A reads three fixed sections out of
+    /// the front of each string and salts the owner branch with "the 48-byte U string", so the
+    /// tail carries nothing; a reader that demanded a length of exactly 48 would refuse a
+    /// fifth of the population.
+    padding: usize,
+}
+
+/// A complete revision-5 document, built around a real producer's ciphertext.
+fn revision_five_document(fixture: &FixtureFive) -> Vec<u8> {
+    let pad = |entry: &str| -> String {
+        let mut bytes = hex(entry);
+        bytes.resize(48 + fixture.padding, 0);
+        hex_string(&bytes)
+    };
+
+    let content = hex(CONTENT);
+    let mut stream = format!("<< /Length {} >>\nstream\n", content.len()).into_bytes();
+    stream.extend_from_slice(&content);
+    stream.extend_from_slice(b"\nendstream");
+
+    let flags = fixture.flags;
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 460 200] \
+           /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+            .to_vec(),
+        stream,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        format!(
+            "<< /Filter /Standard /V 5 /R 5 /Length 256 \
+             /CF << /StdCF << /CFM /AESV3 /Length 32 /AuthEvent /DocOpen >> >> \
+             /StmF /StdCF /StrF /StdCF \
+             /O {} /U {} /OE {} /UE {} /Perms {} /P {flags} /EncryptMetadata true >>",
+            pad(OWNER_ENTRY),
+            pad(USER_ENTRY),
+            hex_string(&hex(OWNER_ENCRYPTION)),
+            hex_string(&hex(USER_ENCRYPTION)),
+            hex_string(&hex(PERMS)),
+        )
+        .into_bytes(),
+    ];
+
+    assemble(&objects, "/Root 1 0 R /Encrypt 6 0 R")
+}
+
+/// The fixture's page one, decrypted, as text.
+fn fixture_page_one(document: &Document) -> String {
+    String::from_utf8_lossy(&page_one_content(document, "the revision-5 fixture")).into_owned()
+}
+
+/// §7.6.4.2 Table 21's revision 5, on a document assembled here rather than in the corpus.
+///
+/// Four things at once, because they are one algorithm: the user password authenticates
+/// against `/U`'s hash under a single SHA-256, `/UE` unwraps to the file encryption key,
+/// §7.6.3.3's Algorithm 1.A decrypts the page with it, and §7.6.4.1's default user password
+/// is refused. The plaintext is the assertion — a wrong key gives bytes uniform over the whole
+/// range, and this one has to come out as the producer's own operators.
+#[test]
+fn a_revision_five_document_opens_with_its_user_password() {
+    let bytes = revision_five_document(&FixtureFive {
+        flags: -1084,
+        padding: 0,
+    });
+
+    let refused = Document::open_with_password(bytes.clone(), Limits::DEFAULT, "");
+    assert!(
+        matches!(refused, Err(SyntaxError::PasswordRequired)),
+        "the empty password is not this document's, got {:?}",
+        refused.err()
+    );
+
+    let document = Document::open_with_password(bytes, Limits::DEFAULT, USER_PASSWORD)
+        .expect("the user password should authenticate at revision 5");
+    let content = fixture_page_one(&document);
+    assert!(
+        content.contains(CONTENT_PLAINTEXT),
+        "the page should decrypt to the producer's own operators, got {content:?}"
+    );
+
+    let permissions = document.permissions().expect("the document is encrypted");
+    assert!(
+        !permissions.owner,
+        "the user password matched, not the owner's"
+    );
+    assert_eq!(
+        permissions.revision, 5,
+        "Table 21's /R travels with the flags"
+    );
+}
+
+/// The owner half of Algorithm 2.A at revision 5 — the branch salted with the 48-byte `/U`.
+///
+/// §7.6.4.1: authenticating with the owner password "should allow full (owner) access", which
+/// is what [`pdf_syntax::Permissions::owner`] carries. The key it reaches has to be the *same*
+/// key the user branch reaches, and the page proves it: both unwrap to the file key the real
+/// ciphertext was encrypted under.
+#[test]
+fn a_revision_five_owner_password_gives_owner_access() {
+    let bytes = revision_five_document(&FixtureFive {
+        flags: -1084,
+        padding: 0,
+    });
+
+    let document = Document::open_with_password(bytes, Limits::DEFAULT, OWNER_PASSWORD)
+        .expect("the owner password should authenticate at revision 5");
+    assert!(
+        document
+            .permissions()
+            .expect("the document is encrypted")
+            .owner,
+        "this password matches /O, not /U"
+    );
+    assert!(
+        fixture_page_one(&document).contains(CONTENT_PLAINTEXT),
+        "the owner branch should reach the same file encryption key"
+    );
+}
+
+/// A password that is neither is a wrong password, not a broken file.
+#[test]
+fn a_revision_five_document_refuses_a_password_that_is_neither() {
+    let bytes = revision_five_document(&FixtureFive {
+        flags: -1084,
+        padding: 0,
+    });
+    let refused = Document::open_with_password(bytes, Limits::DEFAULT, "not the password");
+    assert!(
+        matches!(refused, Err(SyntaxError::PasswordRequired)),
+        "got {:?}",
+        refused.err()
+    );
+}
+
+/// §7.6.4.4.12's Algorithm 13 at revision 5: the encrypted block outranks the plaintext `/P`.
+///
+/// §7.6.4.3.3 step (f) says the decrypted bytes **are** the user permissions, and the fixture
+/// puts that beyond doubt by writing a `/P` of −1 in the clear — every position granted — while
+/// the block the producer encrypted holds −1084. A reader that skipped the block at revision 5
+/// would report a document with no restrictions at all.
+#[test]
+fn a_revision_five_perms_block_outranks_the_plaintext_flags() {
+    let bytes = revision_five_document(&FixtureFive {
+        flags: -1,
+        padding: 0,
+    });
+    let document = Document::open_with_password(bytes, Limits::DEFAULT, USER_PASSWORD)
+        .expect("the user password should authenticate");
+    let permissions = document.permissions().expect("the document is encrypted");
+
+    // −1084 is 0xFFFFFBC4: positions 3, 9 and 12 set, positions 4, 5, 6 and 11 clear.
+    assert!(permissions.print, "bit 3");
+    assert!(!permissions.modify, "bit 4");
+    assert!(!permissions.copy, "bit 5");
+    assert!(!permissions.annotate, "bit 6");
+    assert!(permissions.fill_forms, "bit 9");
+    assert!(!permissions.assemble, "bit 11");
+    assert!(permissions.print_faithfully, "bit 12");
+}
+
+/// The `/U` and `/O` shape eight of the corpus's revision-5 documents actually write.
+///
+/// See [`FixtureFive::padding`]: the `ExtensionLevel` 3 files pad both entries to 127 bytes with
+/// NUL, and Algorithm 2.A's three sections and its "48-byte U string" are all in the front.
+#[test]
+fn a_revision_five_document_padded_to_127_bytes_opens() {
+    let bytes = revision_five_document(&FixtureFive {
+        flags: -1084,
+        padding: 79,
+    });
+    let document = Document::open_with_password(bytes, Limits::DEFAULT, USER_PASSWORD)
+        .expect("48 significant bytes followed by NUL is what the extension's files write");
+    assert!(fixture_page_one(&document).contains(CONTENT_PLAINTEXT));
+
+    // And the owner branch, whose salt is the 48-byte prefix rather than the whole string.
+    let bytes = revision_five_document(&FixtureFive {
+        flags: -1084,
+        padding: 79,
+    });
+    let document = Document::open_with_password(bytes, Limits::DEFAULT, OWNER_PASSWORD)
+        .expect("the owner hash is salted with /U's first 48 bytes");
+    assert!(
+        document
+            .permissions()
+            .expect("the document is encrypted")
+            .owner
+    );
+}
+
+/// And the corpus's own revision-5 document, which is where the constants above came from.
+///
+/// The fixture is what makes this clause testable without the submodule; this is what makes
+/// the fixture honest. If the two ever disagree, the file is right and the fixture is wrong.
+#[test]
+fn the_corpus_revision_five_document_opens() {
+    let Some(document) = open("issue21579.pdf", USER_PASSWORD) else {
+        return;
+    };
+    let content = page_one_content(&document, "issue21579.pdf");
+    assert!(
+        reads_as_a_content_stream(&content),
+        "/R 5 should decrypt to readable operators"
+    );
+    assert!(String::from_utf8_lossy(&content).contains(CONTENT_PLAINTEXT));
+
+    let permissions = document.permissions().expect("the document is encrypted");
+    assert_eq!(permissions.revision, 5);
+    assert!(!permissions.owner, "pässwört is the user password here");
+    assert!(!permissions.annotate, "/P -1084 clears bit 6");
 }

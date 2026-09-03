@@ -7,9 +7,23 @@ lists are met by `/NOTICE` and checked by `viewer-ui/tests/notices.rs`.
 `doc/HANDOVER.md`'s reader table points a round taking a dependency here. ADR 0133 cites "`HANDOVER.md` §1" and means
 this.
 
-**This project is MIT** as of the hundred-and-thirtieth session (relicensed from MPL-2.0; one
-author in the whole history, so nobody else's consent was needed). `deny.toml`'s allow-list
-dropped MPL with it.
+**This project is Apache-2.0** as of the eight-hundred-and-eighty-seventh session, on the
+project owner's word; it was MIT from the hundred-and-thirtieth, and MPL-2.0 before that. One
+author in the whole history, so no relicensing here has needed anybody else's consent.
+`deny.toml`'s allow-list dropped MPL at the first move and needed no change at the second —
+Apache-2.0 has been on it since the beginning, because dependencies were already under it.
+
+**What the move costs the graph is nothing, and that is checkable rather than assumed**: every
+package below is MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, CC0 or BSL, and Apache-2.0 is
+compatible with all of them in the direction that matters — a permissive dependency may be
+combined into an Apache-2.0 work. Nothing in this tree is under GPL or MPL; the one GPL item
+this record names is poppler's `cidToUnicode` data in the table below, which was examined and
+**not** taken. `cargo deny check licenses` is the command that keeps that true.
+
+**One obligation is new and it is met by a file that already existed.** Apache-2.0 section 4
+requires a redistribution to carry the licence text and, where the work has one, its NOTICE
+file. `/LICENSE` and `/NOTICE` are both at the root and CI packages both beside every binary,
+which is what the BSD-3-Clause font programs already needed.
 
 **All three items shipped**, in the order this section used to prescribe, and the table stays
 because it is the record of what was read — off copies on this machine, not recalled:
@@ -96,8 +110,9 @@ argument, including what would change the answer: an ECDSA or DSA signature arri
 record.** `doc/todo/30`'s order made GTK4 the first native host, and the crate is the GNOME project's
 own GIR-generated binding. **41 packages** arrive with it — `glib`, `gio`, `gdk4`, `gsk4`, `pango`,
 `cairo-rs`, `graphene-rs`, their four `-sys` crates, and the `system-deps`/`pkg-config` machinery
-their build scripts use — and **every one of them is MIT**, which is this project's own licence, so
-the answer to "what may I do with a build of this?" is unchanged. `cargo deny check` is clean on all
+their build scripts use — and **every one of them is MIT**, which was this project's own licence
+when this paragraph was written and is compatible with the Apache-2.0 it now is, so the answer to
+"what may I do with a build of this?" is unchanged. `cargo deny check` is clean on all
 four checks with no new exception in `deny.toml`.
 
 Three things about it belong here rather than in ADR 0244. **It is confined to one crate**: `gtk4`
@@ -148,7 +163,7 @@ positions, each read off the repository's own licence file rather than off GitHu
 
 | submodule | licence, as examined | what it permits here |
 |---|---|---|
-| `doc/corpora/pdf20examples` | `LICENSE.md`: "The PDF Association provides these example PDF 2.0 files under the Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0) license." | submodule freely; a file **copied** into this tree would carry attribution and the licence with it, and CC BY-SA 4.0's ShareAlike condition attaches to *Adapted Material* rather than to a Collection, so a verbatim copy beside MIT code does not relicense the code |
+| `doc/corpora/pdf20examples` | `LICENSE.md`: "The PDF Association provides these example PDF 2.0 files under the Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0) license." | submodule freely; a file **copied** into this tree would carry attribution and the licence with it, and CC BY-SA 4.0's ShareAlike condition attaches to *Adapted Material* rather than to a Collection, so a verbatim copy beside this tree's Apache-2.0 code does not relicense the code |
 | `doc/corpora/pdf-differences` | `LICENSE`: the Apache License 2.0 in full — **and the root `README.md` splits the repository in two, which this row read as one until the five-hundred-and-fifty-eighth session**: "PDF files are copyright by the PDF Association and distributed under a [Creative Common Attribution 4.0 International (CC BY 4.0) license](https://creativecommons.org/licenses/by/4.0/). Any source code in this repository is licensed under [Apache License, Version 2.0]" | submodule and copy freely; a **PDF** copied out carries CC BY 4.0's attribution rather than Apache-2.0's notice, and the `README.md` beside each test case is where the attribution comes from |
 | `doc/corpora/pdfbox` | `LICENSE.txt` Apache-2.0, with `NOTICE.txt` beside it | as above, and `NOTICE.txt` is the file §4(d) obliges anyone redistributing to carry — which is why the sparse checkout keeps the repository root rather than the test directory alone |
 

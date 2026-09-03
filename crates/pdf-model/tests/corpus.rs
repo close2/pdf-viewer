@@ -81,19 +81,32 @@ const MAX_UNOPENABLE: usize = 0;
 /// that file is used at all. So this row is no longer "eight documents we cannot read": it is
 /// eight documents whose decryption is verified elsewhere and which this gate opens with the
 /// empty password §7.6.4.1 requires it to try first. What is missing is still only the prompt.
-const MAX_LOCKED: usize = 8;
+///
+/// **Nine since the eight-hundred-and-eighty-seventh session, and the ninth arrived from the
+/// row below.** `issue21579.pdf` is `/R 5`, which that session implemented (ADR 0820), so it
+/// is no longer an encryption this reader declines — it is a document with a password, which
+/// `encryption.rs` opens with `pässwört` and this gate does not. That is a move *up* this
+/// list in the only direction that counts: a file that was refused is now one sentence away.
+const MAX_LOCKED: usize = 9;
 
 /// Documents whose encryption this reader does not implement.
 ///
-/// Two, both named at runtime rather than drawn as noise (ADR 0031). `issue21579.pdf` is
-/// `/R 5`, which Table 21 describes as "a deprecated proprietary Adobe extension" and states
-/// no algorithm for, so implementing it would mean copying another reader rather than
-/// reading the standard — the one row in this gate that is a *decision* rather than work
-/// owed. `PDFBOX-4352-0.pdf` is a damaged file whose trailer names an `/Encrypt` that does
-/// not resolve to a dictionary at all; `poppler` cannot read its cross-reference table
+/// **One, and it was two until the eight-hundred-and-eighty-seventh session.** The one that
+/// left is `issue21579.pdf`, `/R 5` — and this note called that "the one row in this gate that
+/// is a *decision* rather than work owed", on the reading that Table 21's "Shall not be used.
+/// This value was used by a deprecated proprietary Adobe extension" left the standard stating
+/// no algorithm. **The decision was wrong in the way `CLAUDE.md` warns a claim about the
+/// specification decays**: that sentence binds a *writer* choosing a value to store, §7.6.4.1
+/// states a requirement about revision 5 rather than a silence, and the extension Table 21
+/// points at is a document with an algorithm in it. ADR 0820 has the argument and says which
+/// of its steps rest on evidence. 33 of the 41 `/R 5` documents across the 90 535 in
+/// `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` now open.
+///
+/// What is left is `PDFBOX-4352-0.pdf`, a damaged file whose trailer names an `/Encrypt` that
+/// does not resolve to a dictionary at all; `poppler` cannot read its cross-reference table
 /// either. Refusing is the only honest answer to a file that says it is encrypted and will
-/// not say how.
-const MAX_UNREADABLE_ENCRYPTION: usize = 2;
+/// not say how — and it is named at runtime rather than drawn as noise (ADR 0031).
+const MAX_UNREADABLE_ENCRYPTION: usize = 1;
 
 /// Documents that open but whose first page cannot be reached.
 ///

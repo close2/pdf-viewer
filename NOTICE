@@ -1,10 +1,14 @@
 NOTICE
 ======
 
-This program is MIT-licensed; see LICENSE. It also *contains* third-party material, and both
-licences below oblige a binary distribution to carry their notices with it. This file is that
-carrying, `pdf-viewer --licences` prints it, and `?` puts it on the screen in every window this
-project ships — pdf-viewer, pdf-viewer-gtk and pdf-viewer-qt.
+This program is licensed under the Apache License, Version 2.0; see LICENSE. It also *contains*
+third-party material, and both licences below oblige a binary distribution to carry their notices
+with it. This file is that carrying, `pdf-viewer --licences` prints it, and `?` puts it on the
+screen in every window this project ships — pdf-viewer, pdf-viewer-gtk and pdf-viewer-qt.
+
+The Apache License asks for this file by name: section 4(d) obliges a redistribution of a work
+that carries a NOTICE text file to pass that file on. So this one is required twice over — once
+by what it reproduces, and once by the licence of the program reproducing it.
 
 Two things this file is not. It is not a list of the crates this program is built from — those
 are Cargo metadata, `cargo deny check licenses` enforces the policy in deny.toml, and none of them

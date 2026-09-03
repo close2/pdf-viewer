@@ -27,10 +27,15 @@ ignore = [
 
 [licenses]
 version = 2
-# Permissive licences only. This project is MIT, and so is everything it links: a
-# file-level copyleft such as MPL-2.0 would be compatible but is not needed by anything
-# in the graph, and leaving it out keeps the answer to "what may I do with a build of
-# this?" a single sentence.
+# Permissive licences only. This project is Apache-2.0, and everything it links is MIT,
+# Apache-2.0 or another of the list below: a file-level copyleft such as MPL-2.0 would be
+# compatible but is not needed by anything in the graph, and leaving it out keeps the answer
+# to "what may I do with a build of this?" a single sentence.
+#
+# **The project's own licence is not on this list and does not need to be.** `cargo deny`
+# reads the dependency graph, and the workspace members are in it — but Apache-2.0 is the
+# first entry below for reasons that predate the relicensing, so nothing had to be added when
+# the tree moved off MIT.
 #
 # **This list governs crates, not data.** `cargo deny` reads Cargo metadata, so the
 # third-party font programs and character maps under `data/` are invisible to it — their
@@ -54,7 +59,8 @@ confidence-threshold = 0.93
 #
 # `BSL-1.0` is the Boost Software License: OSI-approved, permissive, and — unlike every entry
 # above — it requires no notice in a **binary** distribution at all, so it is strictly less
-# demanding than MIT. It is not in `allow` because nothing in this tree is under it and a licence
+# demanding than either MIT or this project's own Apache-2.0. It is not in `allow` because
+# nothing in this tree is under it and a licence
 # on that list is a standing permission; these two are named instead, which is the reviewable form.
 #
 # Both arrive through `arboard`, the clipboard `viewer-ui` reaches the platform with (ADR 0519),
