@@ -51,6 +51,7 @@
 pub mod attachments;
 pub mod images;
 pub mod json;
+pub mod merge;
 pub mod pattern;
 pub mod range;
 pub mod render;
@@ -258,10 +259,15 @@ pub enum Plan {
     Attachments(attachments::AttachmentsPlan),
     /// One document into many — RFC 0002 section 6.1.
     Split(split::SplitPlan),
+    /// Several documents into one — RFC 0002 section 6.2.
+    Merge(merge::MergePlan),
 }
 
 impl Plan {
-    /// Which source the plan reads.
+    /// Which source the plan reads first.
+    ///
+    /// Every verb but [`Plan::Merge`] reads exactly one, and a merge reads its first input's —
+    /// [`Plan::sources`] is what a caller wanting all of them asks.
     #[must_use]
     pub fn source(&self) -> usize {
         match self {
@@ -269,6 +275,26 @@ impl Plan {
             Self::Images(plan) => plan.source,
             Self::Attachments(plan) => plan.source,
             Self::Split(plan) => plan.source,
+            Self::Merge(plan) => plan.inputs.first().map_or(0, |input| input.source),
+        }
+    }
+
+    /// Every source the plan reads, ascending and without repeats.
+    ///
+    /// The order [`apply`] opens them in, and therefore the order they take in the
+    /// serializer's `Assembly`; the plan's own input order decides which pages come first and
+    /// is separate from this.
+    #[must_use]
+    pub fn sources(&self) -> Vec<usize> {
+        match self {
+            Self::Merge(plan) => {
+                let mut sources: Vec<usize> =
+                    plan.inputs.iter().map(|input| input.source).collect();
+                sources.sort_unstable();
+                sources.dedup();
+                sources
+            }
+            other => vec![other.source()],
         }
     }
 
@@ -291,7 +317,14 @@ impl Plan {
             // Table 22's bit 11 names this operation in as many words — "[a]ssemble the
             // document (insert, rotate, or delete pages …)" — and a split is a file made of
             // pages the source stated. `pdf_model::restriction` has the reading.
-            Self::Split(_) => Some(Operation::Assemble),
+            //
+            // **A merge is the same operation and is asked of every source it reads.** The
+            // bit's sentence names inserting pages first of all, which is what a merge does to
+            // each input's pages; and §12.8.2.2's certification permits it for the reason
+            // `restriction::certification_permits` records — Table 257 is about "changes to the
+            // document", and a merge leaves every source's bytes where they were and writes a
+            // different file beside them.
+            Self::Split(_) | Self::Merge(_) => Some(Operation::Assemble),
         }
     }
 }
@@ -340,6 +373,37 @@ pub enum Refusal {
     /// The output-name pattern cannot name what the plan produces — a usage error.
     #[error("{0}")]
     Pattern(String),
+    /// The output could not be assembled at all: a ceiling one file cannot state, a page that
+    /// is not an indirect object, a serializer refusal.
+    #[error("{0}")]
+    Assembly(String),
+    /// A merge names one page twice, and Table 31 gives a page one `/Parent`.
+    #[error(
+        "source {at}: page {page} would be in the merged document twice, and Table 31 makes a \
+         page's /Parent \"the page tree node that is the immediate parent of this page object\""
+    )]
+    PageTwice {
+        /// Which source.
+        at: usize,
+        /// The page, counted from 1.
+        page: usize,
+    },
+    /// §12.7.4.2: two sources state one fully qualified field name with different contents.
+    ///
+    /// > In addition, actual field dictionaries with the same fully qualified field name shall
+    /// > have the same field type ( FT ), value ( V ), and default value ( DV ).
+    ///
+    /// A merged document holding both would break that `shall`, and renaming one would change
+    /// what §12.7.6.2's submit-form action exports — a change to the document's meaning that is
+    /// invisible on the page. So the merge is refused by name instead.
+    #[error(
+        "§12.7.4.2: these fully qualified field names are stated by two sources with a different \
+         /FT, /V or /DV, and one document may not hold both: {fields}"
+    )]
+    FieldCollision {
+        /// Every colliding name, with the sources that state it, joined by `; `.
+        fields: String,
+    },
     /// Under `Level::On`, the document withholds the operation.
     #[error("this document restricts {operation}: {reasons}, and --restrictions is on")]
     Restricted {
@@ -421,9 +485,14 @@ impl Refusal {
             Self::Pattern(_) => Exit::Usage,
             // Both are this program declining a well-formed request by name: a policy, or a
             // document whose cross-reference table it will not chain an update to.
-            Self::Restricted { .. } | Self::Unanswered { .. } | Self::Update { .. } => {
-                Exit::Refused
-            }
+            //
+            // §12.7.4.2's field collision is here too, and it is the clearest case of the
+            // status's meaning: the request is well formed, the sources are readable, and this
+            // program declines to write a document the clause forbids.
+            Self::Restricted { .. }
+            | Self::Unanswered { .. }
+            | Self::Update { .. }
+            | Self::FieldCollision { .. } => Exit::Refused,
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }
@@ -431,6 +500,8 @@ impl Refusal {
             | Self::NoSuchPage { .. }
             | Self::NoSuchAttachment { .. }
             | Self::AttachmentExists { .. }
+            | Self::Assembly(_)
+            | Self::PageTwice { .. }
             | Self::Sink { .. } => Exit::Error,
         }
     }
@@ -548,6 +619,15 @@ pub enum Origin {
         /// The first page's §12.4.2 label, where the document states one.
         label: Option<String>,
         /// How many indirect objects the piece was written with.
+        objects: u32,
+    },
+    /// One document assembled out of several sources' pages — `merge`'s output.
+    Merged {
+        /// The sources it drew pages from, in input order.
+        sources: Vec<usize>,
+        /// How many pages it holds.
+        pages: usize,
+        /// How many indirect objects it was written with.
         objects: u32,
     },
     /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
@@ -706,6 +786,19 @@ impl Output {
                 ("label".to_owned(), Value::optional(label.clone())),
                 ("objects".to_owned(), Value::Integer(i64::from(*objects))),
             ],
+            Origin::Merged {
+                sources,
+                pages,
+                objects,
+            } => vec![
+                ("kind".to_owned(), Value::text("merged")),
+                (
+                    "sources".to_owned(),
+                    Value::Array(sources.iter().map(|source| Value::count(*source)).collect()),
+                ),
+                ("pages".to_owned(), Value::count(*pages)),
+                ("objects".to_owned(), Value::Integer(i64::from(*objects))),
+            ],
             Origin::Attachment { source, name } => vec![
                 ("kind".to_owned(), Value::text("attachment")),
                 ("source".to_owned(), Value::count(*source)),
@@ -738,10 +831,15 @@ impl Listed {
 
 /// Applies a plan to its sources through the sinks, under the policy and the budget.
 ///
-/// The one entry point. Opens the source the plan names, asks the policy once, resolves the
-/// plan's selection against the document, and runs the verb — which writes its outputs through
-/// `sinks`, in parallel where the verb is embarrassingly so, and accounts for every one of them
-/// in the returned [`Report`].
+/// The one entry point. Opens **every** source the plan names, asks the policy once per opened
+/// document, resolves the plan's selection against each, and runs the verb — which writes its
+/// outputs through `sinks`, in parallel where the verb is embarrassingly so, and accounts for
+/// every one of them in the returned [`Report`].
+///
+/// **The policy is asked per document and not per plan**, which is what a merge made necessary:
+/// Table 22's flags and §12.8.2.2's certification are each *one document's* assertion over its
+/// reader, so a merge of a document that permits assembly with one that does not is refused on
+/// the second's word, by name. A verb reading one source asks once, as before.
 ///
 /// # Errors
 ///
@@ -757,16 +855,19 @@ pub fn apply(
     policy: &Policy,
     budget: &Budget,
 ) -> Result<Report, Refusal> {
-    let at = plan.source();
-    let source = sources.get(at).ok_or(Refusal::NoSuchSource {
-        at,
-        count: sources.len(),
-    })?;
-    let document = source.open(at, budget.limits)?;
+    let wanted = plan.sources();
+    let mut opened = Vec::with_capacity(wanted.len());
+    for at in &wanted {
+        let source = sources.get(*at).ok_or(Refusal::NoSuchSource {
+            at: *at,
+            count: sources.len(),
+        })?;
+        opened.push(source.open(*at, budget.limits)?);
+    }
     let mut report = Report::default();
 
-    // The policy is asked here, once, and nowhere else: this is the place a host supplies its
-    // answer, and every verdict has an arm — a pipe's answer to *ask* included.
+    // The policy is asked here, once per document, and nowhere else: this is the place a host
+    // supplies its answer, and every verdict has an arm — a pipe's answer to *ask* included.
     if let Some(operation) = plan.operation() {
         let reasons = |restrictions: &[Restriction]| {
             restrictions
@@ -775,38 +876,54 @@ pub fn apply(
                 .collect::<Vec<_>>()
                 .join("; ")
         };
-        match pdf_model::restriction::decide(policy.restrictions, &document, operation, None, None)
-        {
-            Verdict::Proceed => {}
-            Verdict::Refuse(restrictions) => {
-                return Err(Refusal::Restricted {
-                    operation: operation.as_str(),
-                    reasons: reasons(&restrictions),
-                });
+        for (position, at) in wanted.iter().enumerate() {
+            let Some(document) = opened.get(position) else {
+                continue;
+            };
+            match pdf_model::restriction::decide(
+                policy.restrictions,
+                document,
+                operation,
+                None,
+                None,
+            ) {
+                Verdict::Proceed => {}
+                Verdict::Refuse(restrictions) => {
+                    return Err(Refusal::Restricted {
+                        operation: operation.as_str(),
+                        reasons: reasons(&restrictions),
+                    });
+                }
+                Verdict::Ask(restrictions) => {
+                    return Err(Refusal::Unanswered {
+                        operation: operation.as_str(),
+                        reasons: reasons(&restrictions),
+                    });
+                }
+                Verdict::Warn(restrictions) => report.warnings.push(Warning {
+                    source: *at,
+                    page: None,
+                    detail: format!(
+                        "this document restricts {}: {}",
+                        operation.as_str(),
+                        reasons(&restrictions)
+                    ),
+                }),
             }
-            Verdict::Ask(restrictions) => {
-                return Err(Refusal::Unanswered {
-                    operation: operation.as_str(),
-                    reasons: reasons(&restrictions),
-                });
-            }
-            Verdict::Warn(restrictions) => report.warnings.push(Warning {
-                source: at,
-                page: None,
-                detail: format!(
-                    "this document restricts {}: {}",
-                    operation.as_str(),
-                    reasons(&restrictions)
-                ),
-            }),
         }
     }
 
+    // Every verb but `merge` reads one document, and `Plan::sources` gave it first.
+    let first = opened.first().ok_or(Refusal::NoSuchSource {
+        at: plan.source(),
+        count: sources.len(),
+    })?;
     match plan {
-        Plan::Render(plan) => render::run(plan, &document, sinks, budget, &mut report)?,
-        Plan::Images(plan) => images::run(plan, &document, sinks, &mut report)?,
-        Plan::Attachments(plan) => attachments::run(plan, &document, sinks, &mut report)?,
-        Plan::Split(plan) => split::run(plan, &document, sinks, &mut report)?,
+        Plan::Render(plan) => render::run(plan, first, sinks, budget, &mut report)?,
+        Plan::Images(plan) => images::run(plan, first, sinks, &mut report)?,
+        Plan::Attachments(plan) => attachments::run(plan, first, sinks, &mut report)?,
+        Plan::Split(plan) => split::run(plan, first, sinks, &mut report)?,
+        Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
     }
     Ok(report)
 }

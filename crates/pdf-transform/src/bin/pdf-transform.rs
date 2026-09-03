@@ -17,6 +17,9 @@
 //! pdf-transform split       in.pdf -o 'page-%d.pdf'
 //! pdf-transform split       in.pdf --every 10 -o 'part-%d.pdf'
 //! pdf-transform split       in.pdf --pages 1-3,7-end -o 'sel-%d.pdf'
+//! pdf-transform merge       a.pdf b.pdf -o out.pdf
+//! pdf-transform merge       a.pdf:1-5 b.pdf:end-1 -o out.pdf
+//! pdf-transform merge       --collate a.pdf b.pdf -o out.pdf
 //! ```
 
 //!
@@ -46,6 +49,7 @@ use std::sync::Mutex;
 
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
+use pdf_transform::merge::{Input, MergePlan};
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
@@ -144,6 +148,7 @@ const KNOWN: &[&str] = &[
     "--icon",
     "--remove",
     "--every",
+    "--collate",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -266,20 +271,7 @@ fn run() -> Result<Exit, Failure> {
         ));
     }
     let plan = plan(&arguments, output)?;
-
-    let [path] = arguments.positional.as_slice() else {
-        return Err(Failure::Usage(format!(
-            "exactly one input file, and {} were given",
-            arguments.positional.len()
-        )));
-    };
-    let path = PathBuf::from(path);
-    let bytes =
-        pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
-    let source = match arguments.parsed::<u32>(&["--password-fd"])? {
-        Some(fd) => Source::with_password(bytes, password_from(fd)?),
-        None => Source::new(bytes),
-    };
+    let sources = open_inputs(&arguments, &plan)?;
 
     let policy = Policy {
         restrictions: match arguments.value(&["--restrictions"]) {
@@ -305,9 +297,9 @@ fn run() -> Result<Exit, Failure> {
     }
 
     let report = if to_stdout {
-        apply(&plan, &[source], &StdoutSinks::default(), &policy, &budget)?
+        apply(&plan, &sources, &StdoutSinks::default(), &policy, &budget)?
     } else {
-        apply(&plan, &[source], &FileSinks, &policy, &budget)?
+        apply(&plan, &sources, &FileSinks, &policy, &budget)?
     };
 
     for warning in &report.warnings {
@@ -418,6 +410,7 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 names: names("split")?,
             }))
         }
+        "merge" => Ok(Plan::Merge(merge_plan(arguments, names("merge")?)?)),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
             action: attachments_action(arguments, output)?,
@@ -425,6 +418,91 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
     }
+}
+
+/// `merge`: one input per positional argument, in the order their pages appear.
+fn merge_plan(arguments: &Arguments, names: Pattern) -> Result<MergePlan, Failure> {
+    if arguments.value(&["--pages"]).is_some() {
+        return Err(Failure::Usage(
+            "merge takes a range per input, as file.pdf:1-5, rather than one --pages for all of \
+             them"
+                .to_owned(),
+        ));
+    }
+    if arguments.positional.is_empty() {
+        return Err(Failure::Usage(
+            "merge needs at least one input file".to_owned(),
+        ));
+    }
+    let mut inputs = Vec::new();
+    for (source, spec) in arguments.positional.iter().enumerate() {
+        let (_, selection) = input_spec(spec);
+        inputs.push(Input {
+            source,
+            pages: selection.unwrap_or_else(Selection::all),
+        });
+    }
+    Ok(MergePlan {
+        inputs,
+        collate: arguments.switch("--collate"),
+        names,
+    })
+}
+
+/// One positional argument split into a path and, where it has one, a page selection.
+///
+/// `merge` takes its ranges per input — `a.pdf:1-5` — because one `--pages` cannot say
+/// different things about different files. The split is at the **last** colon and only where
+/// what follows it parses as §4.2's range grammar, so a file whose name contains a colon and no
+/// range is still opened by its own name.
+fn input_spec(spec: &str) -> (PathBuf, Option<Selection>) {
+    if let Some((path, range)) = spec.rsplit_once(':')
+        && let Ok(selection) = range.parse::<Selection>()
+        && !path.is_empty()
+    {
+        return (PathBuf::from(path), Some(selection));
+    }
+    (PathBuf::from(spec), None)
+}
+
+/// The files the plan reads, opened into [`Source`]s.
+///
+/// **One `--password-fd` opens one document**, which is `viewer_core::Secret`'s own rule: it is
+/// deliberately not `Clone`, because "[a] copy is a second buffer to clear and a second lifetime
+/// to reason about". So a merge of more than one input with a password is a usage error rather
+/// than a password quietly used for a file it was not typed for; a per-input fd is what would
+/// lift it and nobody has asked for one.
+fn open_inputs(arguments: &Arguments, plan: &Plan) -> Result<Vec<Source>, Failure> {
+    let wanted = if matches!(plan, Plan::Merge(_)) {
+        arguments.positional.len()
+    } else {
+        1
+    };
+    if arguments.positional.len() != wanted {
+        return Err(Failure::Usage(format!(
+            "exactly {wanted} input file(s), and {} were given",
+            arguments.positional.len()
+        )));
+    }
+    let mut password = arguments.parsed::<u32>(&["--password-fd"])?;
+    if password.is_some() && wanted > 1 {
+        return Err(Failure::Usage(
+            "--password-fd opens one document, and this merge reads several; a password is one \
+             file's"
+                .to_owned(),
+        ));
+    }
+    let mut sources = Vec::with_capacity(wanted);
+    for spec in &arguments.positional {
+        let (path, _) = input_spec(spec);
+        let bytes = pdf_syntax::read_file(&path)
+            .map_err(|error| Failure::Unreadable(path.clone(), error))?;
+        sources.push(match password.take() {
+            Some(fd) => Source::with_password(bytes, password_from(fd)?),
+            None => Source::new(bytes),
+        });
+    }
+    Ok(sources)
 }
 
 /// `attachments`: exactly one of its five actions, from the flags.
@@ -701,6 +779,7 @@ verbs:
   render       pages to raster images        -o 'page-%d.png' | -o -
   images       the images the pages embed     -o 'img-%d.png' | --list
   split        one document into many        -o 'page-%d.pdf'
+  merge        several documents into one    a.pdf b.pdf [--collate] -o out.pdf
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
@@ -756,6 +835,24 @@ split:
   name trees, /PageLabels, the structure tree and /Metadata are **not** carried and every one
   the document states is named in a warning. A piece of an encrypted document is not
   encrypted, and says so.
+
+merge:
+  a.pdf b.pdf …         the inputs, in the order their pages appear; a range per input, as
+                        a.pdf:1-5 or b.pdf:end-1, using the same grammar as --pages
+  --collate             interleave the inputs a page at a time (pdftk's shuffle) instead of
+                        concatenating them
+  the merged document is a new file: every page's object closure and content streams carried
+  byte for byte under one page tree, with §7.7.3.4's inherited /Resources, /MediaBox, /CropBox
+  and /Rotate written onto each page. What is reconciled, and where each choice comes from:
+  §8.11's optional content groups and their initial states are unioned; §7.9.6's name trees
+  are merged and a colliding key is renamed, with every /Dest and /GoTo naming a renamed
+  destination rewritten to match; §12.3.3's outlines are spliced into one chain; §12.4.2's
+  labels are written one entry per page; and §14.11.5's output intent goes onto each source's
+  own pages where the sources disagree, which is the home the clause gives it. §12.7.4.2's
+  fully qualified field names must not collide with a different /FT, /V or /DV — a merge that
+  would write two such fields is refused by name (exit 4). A signature crosses without its /V
+  (§12.8.1), the outline destinations that leave the merge become §7.3.10's null, and
+  /Info, the structure tree and /Metadata are not carried and are named in a warning.
 
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)

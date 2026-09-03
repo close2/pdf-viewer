@@ -307,7 +307,17 @@ re-derived from what was written; a reference to an object the output does not h
 under a new one-level page tree, §7.7.3.4's four inheritable attributes flattened onto each page
 because the ancestors that carried them are not coming along, and the whole object closure
 carried with them. What a piece does not carry — the outline, the name trees, `/PageLabels`, the
-structure tree, `/Metadata` — is named in the report rather than dropped in silence. One
+structure tree, `/Metadata` — is named in the report rather than dropped in silence. **`merge` is
+the second verb on the serializer, and its substance is the document-level reconciliations rather
+than the machinery**: §8.11's optional content groups concatenated with their initial states
+rewritten as one default configuration, §7.9.6's name trees merged with a colliding key renamed
+and every `/Dest` and `/GoTo` that named it rewritten to match, §12.3.3's outlines spliced into one
+chain, §12.4.2's labels written one entry per page so each keeps the label it had, §14.11.5's
+output intent pushed onto each source's own pages where the sources disagree — which is the second
+home the clause gives it, and which this tree's colour path now reads — and §12.7's interactive
+form reconciled entry by entry, with §12.7.4.2's fully qualified field name **refused by name**
+where two sources claim it with a different `/FT`, `/V` or `/DV`. A signature crosses without its
+`/V`, because §12.8.1's digest was computed over bytes the merged file is not. One
 page-range grammar for every verb, with §12.4.2's
 labels addressable as `@iv`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
@@ -319,9 +329,11 @@ whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
 answer) and the viewer supplies the two a window answers today. The suite has its own gate, with
 RFC 0002 §12's perf floor and its inventories held to the document's own structure, and two
-corpus walks beside it: the writer's, and `split`'s — every corpus document's first page taken
-out, re-read, and drawn against the source page bit for bit. ADRs 0800,
-0801, 0802, 0803, 0804, 0816, 0817, 0818.
+corpus walks beside it: the writer's, `split`'s — every corpus document's first page taken
+out, re-read, and drawn against the source page bit for bit — and `merge`'s, which puts every
+corpus document's first page beside a fixed second document and checks each reconciliation against
+what the source stated as well as the two rasters. ADRs 0800,
+0801, 0802, 0803, 0804, 0816, 0817, 0818, 0821.
 
 **It can tell a person that a signed document changed after it was signed, and whether its
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the

@@ -149,6 +149,9 @@ section_writer() {
     run "split over the corpus (RFC 0002 section 9's layers 2 and 3, first page)" \
         '^transform-split:' \
         cargo test --profile gates -p pdf-transform --test split_corpus -- --ignored --nocapture
+    run "merge over the corpus (RFC 0002 section 9's layers 2 and 3, plus each reconciliation)" \
+        '^transform-merge:' \
+        cargo test --profile gates -p pdf-transform --test merge_corpus -- --ignored --nocapture
 }
 
 section_dates() {

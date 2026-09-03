@@ -2,16 +2,18 @@
 
 Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
-are approved"), so the serializer and the first verb are done; what is left is **three more
+are approved"), so the serializer and two verbs are done; what is left is **two more
 verbs**, the RFC 0003 hand-off, and the §13 questions the owner has not been asked again.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
-quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into); the
+quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into);
+`issue18823.pdf` (an optional-content configuration whose arrays are indirect) and
+`issue15096.pdf` (one document stating a fully qualified field name twice with two values); the
 suite's own gate runs over ISO 32000-2's PDF.
 Clauses: §7.5.7's producer half, which the serializer does not emit (item 1); §7.6.4.2 Table 22
 (item 3).
 Code: `crates/pdf-transform/`, `crates/pdf-syntax/src/serialize.rs`, ADRs 0800, 0801, 0802,
-0803, 0804, 0816, 0817, 0818.
+0803, 0804, 0816, 0817, 0818, 0821.
 
 ## What is done
 
@@ -50,12 +52,28 @@ counted. `split` is the first verb on it, with `tests/split.rs`, `tests/split_co
 fuzz target that re-reads what the writer wrote. Everything below is what the RFC proposed and
 no round has taken, in the order the next round should.
 
-## 1. The three verbs left, on the serializer that exists
+**Session 888 (ADR 0821): `merge`, and one clause per reconciliation.** RFC §6.2's other half, on
+the serializer session 886 built. The machinery was `Assembly`'s already, so the round's substance
+is the document-level reconciliations, each derived from a sentence: §8.11's groups unioned and
+their initial states rewritten as one default configuration on §8.11.4.3's own parenthesis about
+`/BaseState`; §7.9.6's name trees merged with a colliding key renamed deterministically and every
+`/Dest` and `/GoTo` naming it rewritten, because §12.3.2.4's two homes are one namespace to this
+tree's reader; §12.3.3's outlines spliced into one chain rather than parented under a synthesised
+item Table 151 would make this program invent a `/Title` for; §12.4.2's labels one entry per page;
+§14.11.5's array on each source's own pages where several contribute — the clause's *second* home,
+which `pdf_model`'s colour path now reads for the same clause's sake; §12.7's Table 224 entry by
+entry with §12.7.4.2's fully qualified field name **refused by name** across sources and carried
+with a warning within one; and §12.8.1's signature crossing without its `/V`. `apply` opens every
+source the plan names and asks the restriction policy per document. `tests/merge.rs`,
+`tests/merge_corpus.rs` and RFC §9's `split`-then-`merge` property gate; the walk found two defects
+on its first run, both real.
 
-- **`merge` and `pages`** (RFC §6.2) are next and are `split`'s machinery: cross-file renumbering
-  is trivial once renumbering exists at all, and the work is the document-level reconciliations —
-  concatenating outlines, merging §7.9.6 name trees with collision renaming, `/AcroForm` field-name
-  collisions named rather than silently coexisting, optional-content order, page labels per source.
+## 1. The two verbs left, on the serializer that exists
+
+- **`pages`** (RFC §6.2) — the single-document page edits: delete, insert, reorder, and
+  `--rotate [+|-]angle:range`. `merge` with one input already subsumes most of it, and Table 31's
+  `/Rotate` is one inheritable integer per page; what is new is the composition order the RFC
+  states ("operations compose left to right over the current page list") and the rotation grammar.
 - **`optimize`** (RFC §6.5) is where §7.5.7's producer half is owed: the serializer generates no
   object stream, so a piece of a 1.5 document is larger than the pages it holds, and
   `--object-streams=generate|disable` is the knob the RFC names. Reachability pruning belongs here
@@ -64,10 +82,17 @@ no round has taken, in the order the next round should.
 - **`split --at-bookmarks`**, the one mode of `split` that did not land: it wants
   `pdf_model::retrieval::sections`, which exists, and an outline subset for the piece, which does
   not.
-- **What a piece does not carry** is the same list: the outline subset whose destinations survive,
-  §12.4.2 page labels recomputed so each piece starts with the label its pages had, name-tree
-  entries still referenced, and the structure-tree fragments that reach the kept pages. Each is a
-  documented choice with edges, and the report names every one it leaves behind today.
+- **What a piece does not carry** is now the shorter list, because `merge` built four of the five:
+  the outline subset whose destinations survive, §12.4.2 page labels per piece, and name-tree
+  entries still referenced are each `merge.rs`'s construction pointed the other way, and a round
+  taking them should reuse it rather than write a second one. What **neither** verb carries is the
+  **structure tree**: §14.7's `/StructTreeRoot`, the `/StructParents` number tree and the fragments
+  that reach the kept pages. Every carried page still states its source's `/StructParents` integer,
+  which now names nothing, and a tagged document loses its tagging with only the warning to say so.
+  That is the largest single thing this suite owes.
+- **A per-input password for `merge`.** `viewer_core::Secret` is deliberately not `Clone`, so one
+  `--password-fd` opens one document and a merge of several encrypted sources is a usage error
+  today, by name. A per-input spelling or several `--password-fd`s would lift it; nobody has asked.
 - JPEG output from `render` waits on §13 question 2, the DCT encoder.
 
 ## 2. The RFC 0003 hand-off
@@ -111,3 +136,6 @@ piece with this tree's own reader and its own rasteriser, and `tests/split.rs` h
 --check` over the committed fixtures alone. A corpus-wide foreign readback of the *pieces* is the
 same instrument and is owed for the same reason — a writer is attack surface in the other
 direction (RFC §11.3), and a file only this tree can read would look correct to every gate here.
+**`tests/merge_corpus.rs` has inherited the gap for a third writer**, and the merged files are the
+ones most worth showing a foreign reader: they are the only outputs this tree *builds* a §12.7
+form, a §8.11 configuration and a §7.9.6 name tree for rather than copies.

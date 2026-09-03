@@ -13,6 +13,7 @@
 
 #![expect(
     clippy::expect_used,
+    clippy::panic,
     clippy::print_stderr,
     reason = "test code: a fixture that cannot exercise the rule must fail loudly, and a \
               skipped test says so"
@@ -48,6 +49,27 @@ fn split(bytes: &[u8], pages: &str, pieces: Pieces) -> (Report, Vec<(String, Vec
     )
     .expect("the split applies");
     (report, sinks.into_outputs())
+}
+
+/// One named output of a split, by the name the pattern gave it.
+///
+/// **By name, never by position.** `split` writes its pieces across rayon and [`MemorySinks`]
+/// keeps them "in the order they were opened", which is thread order; three of these tests
+/// indexed the vector instead and one of them failed on a run where the second piece finished
+/// first — a test of the scheduler wearing a gate's name (trap 30).
+fn piece(outputs: &[(String, Vec<u8>)], name: &str) -> Vec<u8> {
+    outputs
+        .iter()
+        .find(|(written, _)| written == name)
+        .map_or_else(
+            || panic!("no piece named {name}: {:?}", names(outputs)),
+            |(_, bytes)| bytes.clone(),
+        )
+}
+
+/// Every output's name, for a failure to print.
+fn names(outputs: &[(String, Vec<u8>)]) -> Vec<String> {
+    outputs.iter().map(|(name, _)| name.clone()).collect()
 }
 
 /// Page 1 of `bytes` as a PPM, or `None` where nothing was drawn.
@@ -98,8 +120,9 @@ fn a_document_becomes_one_file_per_page_and_each_holds_its_own() {
     assert_eq!(report.outputs.len(), count);
     assert!(report.refused.is_empty(), "{:?}", report.refused);
 
-    for (ordinal, (name, piece)) in outputs.iter().enumerate() {
-        let read = Document::open_with_limits(piece.clone(), Limits::DEFAULT)
+    for ordinal in 0..count {
+        let name = format!("piece-{}.pdf", ordinal.saturating_add(1));
+        let read = Document::open_with_limits(piece(&outputs, &name), Limits::DEFAULT)
             .unwrap_or_else(|error| panic!("{name}: does not open: {error}"));
         assert_eq!(Pages::new(&read).len(), 1, "{name}: one page");
         let origin = &report.outputs[ordinal].origin;
@@ -225,14 +248,17 @@ fn the_cuts_are_where_the_grammar_and_the_flag_say_they_are() {
     }
     let (_, groups) = split(&bytes, "1-2,3", Pieces::Groups);
     assert_eq!(groups.len(), 2, "one piece per comma-separated group");
-    let first = Document::open_with_limits(groups[0].1.clone(), Limits::DEFAULT).expect("opens");
+    let first =
+        Document::open_with_limits(piece(&groups, "piece-1.pdf"), Limits::DEFAULT).expect("opens");
     assert_eq!(Pages::new(&first).len(), 2);
-    let second = Document::open_with_limits(groups[1].1.clone(), Limits::DEFAULT).expect("opens");
+    let second =
+        Document::open_with_limits(piece(&groups, "piece-2.pdf"), Limits::DEFAULT).expect("opens");
     assert_eq!(Pages::new(&second).len(), 1);
 
     let (_, chunks) = split(&bytes, "1-3", Pieces::Every(2));
     assert_eq!(chunks.len(), 2, "three pages in twos is two pieces");
-    let last = Document::open_with_limits(chunks[1].1.clone(), Limits::DEFAULT).expect("opens");
+    let last =
+        Document::open_with_limits(piece(&chunks, "piece-2.pdf"), Limits::DEFAULT).expect("opens");
     assert_eq!(
         Pages::new(&last).len(),
         1,

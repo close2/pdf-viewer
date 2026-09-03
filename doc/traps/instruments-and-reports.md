@@ -584,6 +584,24 @@ And read every site that *derives* a number from the constant, because those mov
 `grep` for the name finds them in a second and the eight-hundred-and-seventy-first session, which
 found the two nestings, did not look.
 
+### 30. A sink keyed by name hands its outputs back in the order they were *opened*
+
+`pdf_transform::MemorySinks` says so in its own doc comment — "in the order the outputs were
+opened" — and `split` opens them from inside a `rayon` map, so the order is whichever thread got
+there first. Three of `tests/split.rs`'s assertions indexed the returned vector by position
+anyway, and for two rounds every run happened to schedule the pieces in order. The
+eight-hundred-and-eighty-eighth session's first run of a *different* test scheduled them the other
+way and `assert_eq!(Pages::new(&first).len(), 2)` failed with `left: 1, right: 2` — a gate
+reporting on the scheduler under a name that promised something about the writer.
+
+**The rule is about what the collection is keyed by, not about parallelism.** A sink hands back
+`(name, bytes)`; the name is the identity the pattern gave the output and the position is an
+implementation detail of the collection. So a test looks an output up **by its name**, and a
+helper that panics naming every output it did have is what makes the failure legible when the name
+is wrong. The same applies to any report, listing or map whose producer is parallel: `Report`'s
+`outputs` *are* in plan order because the verb assembles them that way after the join, and the
+difference between the two vectors is exactly the kind of thing no type says out loud.
+
 ## Things worth knowing
 
 - **The sandbox is a flag and the default is the safe one.** `--no-sandbox` trades panic
