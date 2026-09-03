@@ -1,0 +1,27 @@
+[package]
+name = "pdf-vfs"
+description = "RFC 0003's shared core: one declarative layout table over a document, the generation cache that answers it, and the broker side of the confined-worker protocol the file-system faces sit on."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The readers, reached the way RFC 0003 section 7 requires: `pdf-transform` for every derived
+# *file* — a page taken out, a page drawn, an image, an embedded file — so that nothing here is a
+# second implementation of a verb the transform suite already states, and `pdf-model` for the three
+# answers no verb covers: a page's text, §14.3.3's information dictionary and §14.3.2's metadata
+# stream. `pdf-syntax` for the bytes and for `FileBytes`, which is how a descriptor a broker opened
+# reaches a reader (ADR 0812).
+#
+# No FUSE and no Qt: this crate is the core, and RFC 0003 section 7 puts both faces outside it.
+# `fuser` is the FUSE face's dependency when that face is written and is deliberately not taken
+# here, so the core builds and is tested with no kernel interface anywhere near it.
+[dependencies]
+pdf-model.workspace = true
+pdf-syntax.workspace = true
+pdf-transform.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

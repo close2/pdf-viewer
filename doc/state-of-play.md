@@ -358,7 +358,27 @@ class, so a collision is renamed and every `/C` follows; Table 355 makes an `/ID
 of things that name one is open, so a cross-source collision is **refused by name** (ADRs 0834,
 0835). One
 page-range grammar for every verb, with §12.4.2's
-labels addressable as `@iv`. **What a document asserts over its reader is read once, in
+labels addressable as `@iv`. 
+
+**And a document is a directory.** `pdf-vfs` is RFC 0003's shared core: one declarative table
+that says what every path in a document-as-a-folder is, what generates it, and what writing to it
+and deleting it would each mean — `pages/0007.pdf` a complete single-page PDF so that `cp` *is*
+page extraction, `renders/150dpi/` and `renders/300dpi/` the same pages drawn, `images/0035/` a
+page's pictures under the names the extraction itself gave them, `text/0007.txt` and
+`text/document.txt` the extraction identity byte for byte, `attachments/` §7.11.4's embedded files
+under the names the document files them by, and `meta/` §14.3.3's information dictionary,
+§14.3.2's metadata stream and §12.3.3's outline. Six of the eight generators are a
+`pdf_transform::Plan` and nothing else, and a test holds a page out of the tree byte for byte
+against `pdf-transform`'s own piece, so the core cannot become a second implementation of
+anything. The document is allowed to change underneath it: a generation key of (mtime, size,
+§7.5.5's last `startxref` offset) is asked before every answer and a change of it throws away the
+worker, the inventories and every cached output, while a file already open keeps the generation it
+was opened under — so no reader is ever handed a splice of two documents. A `stat` **generates**,
+because a kernel clamps reads at the size a `stat` reported and an estimate would truncate the
+file. Nothing is written yet: RFC 0003 §5.2's five verbs are declared in the table and refused by
+the operation's own name, and §5.3's four are refused by design with the sentence saying why they
+will still be refused when the write side lands. There is no face yet — no FUSE binary, no KIO
+plugin — and no confined worker, which is why there is no face (ADRs 0840, 0841). **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
 (one as consumed by nothing, saying why), the six operations — a field filled, an
 annotation added, a page rendered, a file extracted, a file written in, a document assembled out

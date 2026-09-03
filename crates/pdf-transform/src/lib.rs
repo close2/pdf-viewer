@@ -114,6 +114,24 @@ impl Source {
         self.bytes.is_empty()
     }
 
+    /// Opens the document, for a consumer of the seam that wants a *reader* rather than a verb.
+    ///
+    /// RFC 0003's `pdf-vfs` is why this is public: three of its generators — a page's text,
+    /// §14.3.3's information dictionary and §14.3.2's metadata stream — are `pdf-model` readers
+    /// that no verb of this suite covers, and a consumer that had to open the document itself
+    /// would need its own copy of §7.6.4.1's password. [`Secret`] is deliberately not `Clone`
+    /// (`viewer_core::secret`), so a second buffer is exactly what this avoids: one `Source`
+    /// holds the password, and both the verbs and the readers reach the document through it.
+    ///
+    /// # Errors
+    ///
+    /// [`Refusal::PasswordRequired`] where §7.6.4.1's password does not open it, and
+    /// [`Refusal::Unopenable`] for bytes this tree does not open at all. The source's index is
+    /// reported as 0, because a caller holding one source has one.
+    pub fn document(&self, limits: Limits) -> Result<Document, Refusal> {
+        self.open(0, limits)
+    }
+
     /// Opens the document, which is the one place in this crate a password is read.
     fn open(&self, at: usize, limits: Limits) -> Result<Document, Refusal> {
         // `Secret::reveal` is named so that this moment is visible at the call site; §7.6.4.1's
