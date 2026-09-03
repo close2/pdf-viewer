@@ -444,7 +444,7 @@ fn main() {
             };
             // The document's own bytes rather than a second copy of them: `/ByteRange` names
             // offsets in the file, and a 94 GB population is not one to hold twice.
-            let bytes = std::sync::Arc::clone(document.bytes());
+            let bytes = document.bytes().clone();
             counts.absorb(census(path, &bytes, &document));
             counts
         })

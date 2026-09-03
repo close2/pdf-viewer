@@ -208,6 +208,20 @@ They were not architecture and did not wait for a decision, which is why they we
   and not one word of the worker's own explanation. A document the ceiling cannot hold is now
   refused by name before an allocation is attempted, and a breach that still kills arrives with the
   worker's last line attached.
+- **The file itself is held whole, once, and the room for it is asked for before a byte is read
+  (ADR 0795).** It was held *twice* until the eight-hundred-and-seventy-eighth session: every host
+  read the file into a `Vec<u8>` and `Document::open` copied it into an `Arc<[u8]>`, and the copy was
+  the one allocation on the open path that could not fail gracefully — `batch5/poppler`'s
+  `poppler-44085-1.xz-0.pdf`, 6 001 925 614 bytes and an honest PDF 1.5 file, aborted the survey on
+  it under an 8 GiB `RLIMIT_DATA` after `std::fs::read`'s own `try_reserve_exact` had already held
+  the first copy. `pdf_syntax::FileBytes` holds the vector where it was, and `pdf_syntax::read_file`
+  asks `try_reserve_exact` for the whole length first and answers `NoRoom { length }` by name.
+  **Deliberately no number of this program's own**: the owner's brief above is the reason, and the
+  bound is the process's limit, asked once. What that leaves is the *kind* of the quantity, which is
+  this file's §5 D question one layer down: a 5.6 GB document costs 5.6 GiB resident to show page
+  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks. A file-backed reader
+  that reads what §7.5.4's offsets name is the road that changes it, and it is a design rather than
+  a bound — recorded here so that the next document of that size finds the question asked.
 - **`image::RasterCache`'s probe is still linear in its entries**, and after ADR 0399 those entries
   are the *distinct* images a page draws rather than the draws — which is the property a resource
   image always had, and it is what took the two witnesses from 330.5 G and 71.9 G instructions to

@@ -2439,3 +2439,74 @@ and [`40`](40-mask-chain-crop.md)'s clip cost. The REDHAT ranking's second and t
 dictionary nobody resolves and a `MAX_TILES` refusal, both diagnosed populations, and the two
 `Content { Unreachable }` documents whose `/Contents` is §7.3.10's null are worth a look from
 ADR 0789's side — the survey names them and this round did not open them.
+
+### 41. What the eight-hundred-and-seventy-eighth took: `batch5/poppler`, the six-gigabyte document, and a JPEG whose lines are stated after its data
+
+**Section 40's allocation was the file.** The directory walked one document per process under
+`tools/bounded.sh --data 2 --tree 4`, four lanes side by side, exited 0 on every one of its 1586
+documents — because the failing allocation is not a decode, a raster or a table sized from a stated
+dimension but `Arc<[u8]>: From<Vec<u8>>`'s copy of the whole file in `Document::open`.
+`poppler-44085-1.xz-0.pdf` is **6 001 925 614 bytes**, an honest `%PDF-1.5` with a ten-digit
+`startxref`, and 6 001 925 614 plus an `Arc`'s header rounded to eight is the 6 001 925 632 the
+survey died asking for: `std::fs::read`'s own `try_reserve_exact` had already held the first copy
+and the second was the one allocation on the open path that could not fail gracefully. ADR 0795:
+`pdf_syntax::FileBytes` holds the vector where it was, `pdf_syntax::read_file` asks for the whole
+length before the first byte is read and refuses by name (`NoRoom { length }`, under
+`io::ErrorKind::OutOfMemory`) with **deliberately no number of this program's own** — the bound is
+the process's limit, which is [`10`](10-bounds-that-cap-size.md)'s brief — and the document opens
+and draws page one in 3.2 s at a 5.58 GiB peak, `complete`. The same round read every allocation
+site sized by an expression across the six crates that touch a document's bytes and closed the one
+other member of the class it found: §7.4.4.4's predictor sized two row buffers to `/Columns` before
+reading a byte, so six bytes stating `/Columns 1099511627776` asked for two terabytes; they are
+sized to the data now, byte-identical output, and both tests abort against the old sizing.
+
+**Then the directory, surveyed whole under the four rules** — twelve rayon threads, `--data 8
+--tree 12`, the six-gigabyte document surveyed on its own beside it. The line, a baseline for this
+directory and never a ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/poppler` | 1586 | 6 unopenable, 3 locked, 2 encrypted beyond us, 27 pageless, 183 incomplete, 0 slow |
+
+**The rate is the tracker's shape.** 183 of 1586 is **11.5%** incomplete — above every tracker
+before it (`PDFBOX` 7.25%, `REDHAT` 6.07%, `MOZILLA` 2.47%) and above the pdf.js gate's 6.98% — and
+the reason is what a poppler bug attachment is: a reduced or fuzzed file that crashed a renderer,
+far more often than a document a person could not read. The unopenable are three files with no
+header, two with a table that is unusable and no object header anywhere, and one that is `.xz`
+in name only and opens; the locked are three. **The 27 pageless are not section 29's** — `pdfinfo`
+counts pages in eighteen of them and `mutool` in four, and every one is a hand-mangled tree (a
+`/Kids 3 0 R` naming an object the file does not hold, a `/Type` whose name is corrupt bytes
+before `/Page`, `3 32767 obj` headers with no table): section 34's population again, the doors of
+sections 35 and 36 already read, and not chased here. Ranked by report, one document counted once
+per kind: 52 `Font`, 42 `Text`, 34 `Content`, 30 `Image`, 26 `Operator`, 23 `MediaBox`, 20
+`LimitReached` (17 `MAX_TILES`, 2 `MAX_OPERATIONS`, one `MAX_OPERANDS`, one `MAX_FORM_DEPTH`), 19
+`MissingResource`, 17 `TransparencyGroup`, 16 `Shading`, 15 `Annotation`, 6
+`DamagedContentStream`, 5 `UndefinedCurrentPoint`, 4 `NoninvertibleMatrix`, 3 `PageDictionary`,
+one `CompositedInParts`.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
+72 dpi over all 183 incomplete pages, the same instrument as section 40 with its two traps sprung
+— **the head is at the *dark* end and both references agree on it**: `poppler-61994-0.pdf`, ours
+**60.4** against `poppler` 5.38 and `mupdf` 5.03, a scanned letter drawn as the top five per cent
+of a grey page. The light end is one-reference evidence throughout: `poppler-103116-0.pdf` (ours 0,
+`poppler` 32.8, `mupdf` 0: garbled operators, an unreadable font, a JPEG with no headers),
+`poppler-26280-0.pdf` (ours 0, `poppler` 0, `mupdf` 30.5: a JPEG with no quantisation table for
+Cb, which `mupdf`'s decoder tolerates), `poppler-6688-0.pdf` (ours 0, `poppler` 27.6, `mupdf` 0: a
+corrupt Flate content stream of which 202 bytes decode). Fifty-six rows have no reference ink at
+all.
+
+**The head is a number the encoded data states after its data.** The letter's `SOF0` says
+`Y = 65535`; a `DNL` marker after the scan says 3486 lines; the dictionary says 3473. ISO/IEC
+10918-1 section B.2.5 makes the `DNL` define or redefine `Y`, §7.4.8 puts the dimensions in the encoded
+data, and `zune-jpeg` reads the header alone and pads to it. ADR 0799: `image::frame_as_defined`
+walks the markers, writes the `DNL`'s count into `Y` and takes the segment out before the decoder
+sees the bytes; the page draws the letter at 5.24 between the two references; the fixture pins all
+three of 10918-1's cases and is a row in `doc/checks/fixed-documents.toml`.
+
+**What is left here**: `batch5`'s other twenty-one trackers, `FOP` (808) and `PDFIUM` (379) the
+largest; `batch4` once its pieces land; [`40`](40-mask-chain-crop.md)'s clip cost; and a
+file-backed reader for a document the size of section 40's, which [`10`](10-bounds-that-cap-size.md)
+now carries as the question a 5.6 GiB resident peak leaves open. The poppler ranking's second and
+third rows are one-reference pages of damaged JPEGs, which `mupdf` and `poppler` disagree about
+between themselves; and the 27 pageless files are section 34's population and worth a census
+before any of them is opened by hand.

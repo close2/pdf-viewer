@@ -22,6 +22,7 @@ use std::thread::ThreadId;
 
 use crate::crypt::{Encryption, Method, Permissions};
 use crate::error::{SyntaxError, SyntaxResult};
+use crate::file::FileBytes;
 use crate::filter::{Damage, Decoded, EncodedExtent, FilterRefusal};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::parser::{Limits, Parser};
@@ -96,7 +97,8 @@ pub const RECOVERY_DECODE_BUDGET: usize = 64 * 1024 * 1024;
 /// `&Document` in 1.61 s against 6.11, at 625 MB of peak resident memory against 225. ADR 0260
 /// has the tables and says why nothing in `viewer-core` does it yet.
 pub struct Document {
-    bytes: Arc<[u8]>,
+    /// The file, held once; see `file.rs` for why it is not an `Arc<[u8]>` (ADR 0795).
+    bytes: FileBytes,
     xref: XrefTable,
     limits: Limits,
     /// Objects already parsed, so a repeated lookup does not re-parse.
@@ -338,7 +340,7 @@ impl Document {
     /// [`SyntaxError::NoHeader`] if this is not a PDF,
     /// [`SyntaxError::NoCrossReferences`] if no objects can be located even by scanning,
     /// and the two encryption errors [`Self::open_with_password`] describes.
-    pub fn open(bytes: impl Into<Arc<[u8]>>) -> SyntaxResult<Self> {
+    pub fn open(bytes: impl Into<FileBytes>) -> SyntaxResult<Self> {
         Self::open_with_limits(bytes, Limits::DEFAULT)
     }
 
@@ -347,7 +349,7 @@ impl Document {
     /// # Errors
     ///
     /// As [`Self::open`].
-    pub fn open_with_limits(bytes: impl Into<Arc<[u8]>>, limits: Limits) -> SyntaxResult<Self> {
+    pub fn open_with_limits(bytes: impl Into<FileBytes>, limits: Limits) -> SyntaxResult<Self> {
         Self::open_with_password(bytes, limits, "")
     }
 
@@ -364,13 +366,13 @@ impl Document {
     /// [`SyntaxError::UnsupportedEncryption`] when it names a handler or method §7.6 does
     /// not specify or this reader does not implement.
     pub fn open_with_password(
-        bytes: impl Into<Arc<[u8]>>,
+        bytes: impl Into<FileBytes>,
         limits: Limits,
         password: &str,
     ) -> SyntaxResult<Self> {
         let bytes = bytes.into();
         let xref = crate::xref::read(&bytes, limits)?;
-        let mut document = Self::around(Arc::clone(&bytes), xref, limits);
+        let mut document = Self::around(bytes.clone(), xref, limits);
         document.authenticate(password)?;
         // Nothing for a document whose table the file supplied, and §7.5.7's other half of the
         // recovery for one whose table came from a scan. It runs *after* authentication because
@@ -418,11 +420,11 @@ impl Document {
     /// real file gives for a dangling reference, rather than a special case.
     #[must_use]
     pub fn empty() -> Self {
-        Self::around(Arc::from(&[][..]), XrefTable::default(), Limits::DEFAULT)
+        Self::around(FileBytes::default(), XrefTable::default(), Limits::DEFAULT)
     }
 
     /// The document a cross-reference table and some bytes make, before authentication.
-    fn around(bytes: Arc<[u8]>, xref: XrefTable, limits: Limits) -> Self {
+    fn around(bytes: FileBytes, xref: XrefTable, limits: Limits) -> Self {
         Self {
             bytes,
             xref,
@@ -2009,8 +2011,11 @@ impl Document {
     }
 
     /// Returns the bytes the document was opened from.
+    ///
+    /// A [`FileBytes`] dereferences to the slice; a caller that needs to know whether two
+    /// documents are the same bytes in memory clones it and asks [`FileBytes::same`].
     #[must_use]
-    pub fn bytes(&self) -> &Arc<[u8]> {
+    pub fn bytes(&self) -> &FileBytes {
         &self.bytes
     }
 
@@ -3009,7 +3014,7 @@ mod tests {
             max_stream_len: 2,
             ..Limits::DEFAULT
         };
-        let document = Document::around(Arc::from(&[][..]), XrefTable::default(), limits);
+        let document = Document::around(FileBytes::default(), XrefTable::default(), limits);
         // §7.4.5's run: a length byte above 128 repeats the byte after it 257 − length times,
         // and 128 is the end of data. Seven bytes out of three, which is four too many.
         let encoded: Arc<[u8]> = Arc::from([0xFA, b'x', 0x80].as_slice());

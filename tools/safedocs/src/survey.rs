@@ -132,7 +132,7 @@ struct Noted {
 
 /// The body of [`examine`], separated so that the timing wraps every path out of it.
 fn read_and_draw(path: &Path, noted: &mut Noted) -> Outcome {
-    let bytes = match std::fs::read(path) {
+    let bytes = match pdf_syntax::read_file(path) {
         Ok(bytes) => bytes,
         Err(error) => return Outcome::Unreadable(error.to_string()),
     };

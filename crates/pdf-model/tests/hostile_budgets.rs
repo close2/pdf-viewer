@@ -622,3 +622,34 @@ fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
         "the list is bounded by the operator budget plus one cell, not by nine times it: {commands}"
     );
 }
+
+/// An image whose `/DecodeParms` states a predictor row wider than every byte of its data.
+///
+/// §7.4.4.4's `/Columns` is the file's to state, and `pdf_syntax::filter::apply_predictor` sized
+/// two row buffers to it before reading a byte — so three bytes of samples declaring
+/// `/Columns 1099511627776` asked the allocator for two terabytes, which is the class of
+/// allocation `doc/todo/10` names: a size computed from a stated dimension before any byte is
+/// read. The buffers are sized to the data now; the two samples draw, and nothing is reported,
+/// because nothing about the *picture* is wrong. Run against the defect this aborts the process
+/// rather than failing, which is what an allocation of that size does (ADR 0795).
+#[test]
+fn an_image_stating_a_predictor_row_wider_than_its_data_still_draws() {
+    // zlib of `00 10 20`: one PNG `None` row of two 8-bit grey samples.
+    let image = "5 0 obj\n<< /Type /XObject /Subtype /Image /Width 2 /Height 1 \
+                 /ColorSpace /DeviceGray /BitsPerComponent 8 \
+                 /Filter [/ASCIIHexDecode /FlateDecode] \
+                 /DecodeParms [null << /Predictor 12 /Colors 1 /BitsPerComponent 8 \
+                 /Columns 1099511627776 >>] /Length 23 >>\nstream\n\
+                 789c631050000000430031>\nendstream\nendobj\n";
+    let document = page(
+        "q 200 0 0 100 50 50 cm /Im1 Do Q",
+        "<< /XObject << /Im1 5 0 R >> >>",
+        image,
+    );
+    let reported = reported(&document);
+    assert_eq!(
+        reported, "[]",
+        "a picture with nothing wrong reports nothing: {reported}"
+    );
+    assert!(commands(&document) >= 1, "the image draws");
+}

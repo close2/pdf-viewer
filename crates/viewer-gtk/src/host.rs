@@ -415,7 +415,7 @@ impl Host {
         restrictions: viewer_core::RestrictionLevel,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
-        let bytes = std::fs::read(path).map_err(|error| HostError::Unreadable {
+        let bytes = pdf_syntax::read_file(path).map_err(|error| HostError::Unreadable {
             path: path.to_owned(),
             error: error.to_string(),
         })?;

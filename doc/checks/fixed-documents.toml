@@ -511,3 +511,11 @@ session = 876
 reports = ["CCITTFaxDecode", "delivered 756 of the 2244 scan lines"]
 ink = 3.918 .. 5.918
 why = "a Photoshop 4.0 fax scan whose Group 4 data breaks at scan line 756 of 2244, drawn blank and refused whole; the 756 lines the filter delivered are drawn, the rest left unpainted, and the shortfall reported beside them (ADR 0794, 7.4.6)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/poppler/poppler-61994-0.pdf"
+page = 1
+session = 878
+reports = ["the JPEG frame is 2480x3486 where the dictionary says 2480x3473"]
+ink = 9.478 .. 11.478
+why = "a scanned letter whose JPEG frame header states 65535 lines and whose DNL marker at the end of the scan defines 3486; the header alone was decoded, so the letter was the top five per cent of a grey page at 60 levels of ink where both references sit near 5 — ISO/IEC 10918-1's DNL defines or redefines Y, and §7.4.8 puts the dimensions in the encoded data (ADR 0799)"

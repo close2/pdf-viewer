@@ -469,3 +469,78 @@ fn a_frame_past_the_decoders_default_dimension_limit_is_still_this_crates_budget
         "the samples are on the grid §7.4.8 puts in the encoded data"
     );
 }
+
+/// The same 8×8 frame with its header's number of lines replaced by `header` and a `DNL`
+/// marker segment stating `lines` at the end of its one scan.
+///
+/// ISO/IEC 10918-1 section B.2.5: the `DNL` segment defines or redefines the frame header's `Y` at the
+/// end of the first scan, and `Y = 0` in the header means the count is the `DNL`'s to give.
+fn one_component_jpeg_with_dnl(header: u16, lines: u16) -> Vec<u8> {
+    let mut out = one_component_jpeg();
+    // The frame header's `Y` follows `FF C0`, its two-byte length and the one-byte precision.
+    let sof = out
+        .windows(2)
+        .position(|pair| pair == [0xFF, 0xC0])
+        .expect("the fixture has a baseline frame header");
+    out[sof + 5..sof + 7].copy_from_slice(&header.to_be_bytes());
+    // `DNL` before `EOI`: marker, length 4, `NL`.
+    let eoi = out.len() - 2;
+    assert_eq!(&out[eoi..], &[0xFF, 0xD9]);
+    let mut dnl = vec![0xFF, 0xDC, 0x00, 0x04];
+    dnl.extend_from_slice(&lines.to_be_bytes());
+    out.splice(eoi..eoi, dnl);
+    out
+}
+
+/// A `DNL` marker defines the number of lines where the frame header left it open, and
+/// redefines it where the header wrote a placeholder.
+///
+/// §7.4.8 puts the dimensions in the encoded data, and ISO/IEC 10918-1 lets the encoded data
+/// state its number of lines in two places: the frame header, or a `DNL` segment at the end of
+/// the first scan, which section B.2.5 of that standard says defines *or redefines* the header's `Y`.
+/// A scanner that does not know the page length when it writes the header writes `0` or
+/// `65535` there and the true count after the data. `zune-jpeg` reads the header alone, so
+/// `poppler-61994-0.pdf`'s 2480 × 3486 letter was drawn as the top five per cent of a
+/// 2480 × 65535 image over grey, where both reference renderers drew the letter; against the
+/// header alone, the first case here draws an 8 × 65535 grid. ADR 0799.
+#[test]
+fn a_dnl_marker_defines_or_redefines_the_frames_number_of_lines() {
+    for (header, why) in [
+        (65535, "a placeholder the DNL redefines"),
+        (0, "left open for the DNL to define"),
+        (8, "already what the DNL states"),
+    ] {
+        let (drawn, reported) = interpret_one(pdf_with_image(
+            &one_component_jpeg_with_dnl(header, 8),
+            "/DeviceGray",
+            (8, 8),
+        ));
+        let image = drawn.unwrap_or_else(|| panic!("the frame draws with Y {why}: {reported}"));
+        let pdf_render::ImageSource::Decoded(decoded) = &image else {
+            panic!("a DCTDecode image is decoded rather than deferred to the device scale");
+        };
+        assert_eq!(
+            (decoded.width, decoded.height),
+            (8, 8),
+            "the DNL's eight lines are the frame's, with the header's Y {why}"
+        );
+        let placed = image.at(pdf_render::Transform::IDENTITY);
+        assert_eq!(placed.data[0], 128, "and the samples are the scan's");
+        assert_eq!(
+            reported, "[]",
+            "a frame whose lines agree with the dictionary reports nothing, with Y {why}"
+        );
+    }
+    // A `DNL` at odds with the dictionary is reported with the number the encoded data states,
+    // not the header's placeholder.
+    let (drawn, reported) = interpret_one(pdf_with_image(
+        &one_component_jpeg_with_dnl(65535, 8),
+        "/DeviceGray",
+        (8, 9),
+    ));
+    assert!(drawn.is_some());
+    assert!(
+        reported.contains("the JPEG frame is 8x8 where the dictionary says 8x9"),
+        "the report names the DNL's count: {reported}"
+    );
+}

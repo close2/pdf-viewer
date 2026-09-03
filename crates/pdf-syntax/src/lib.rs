@@ -28,6 +28,7 @@ pub mod crypt;
 pub mod date;
 pub mod document;
 pub mod error;
+pub mod file;
 pub mod filter;
 pub mod lexer;
 pub mod object;
@@ -45,6 +46,7 @@ pub use document::{
     StreamRefusal, StreamSource,
 };
 pub use error::{SyntaxError, SyntaxResult};
+pub use file::{FileBytes, NoRoom, read_file};
 pub use filter::{
     Damage, Decoded, Delimiting, EncodedExtent, FilterRefusal, Pump, Pumped, Pumping, Stage,
 };

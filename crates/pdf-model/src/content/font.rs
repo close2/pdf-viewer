@@ -261,7 +261,7 @@ struct Kept {
     /// The bytes of the document these keys name objects in, held rather than remembered.
     ///
     /// `None` before the first font of the first document. See [`Kept::bind`].
-    document: Option<Arc<[u8]>>,
+    document: Option<pdf_syntax::FileBytes>,
     /// The fonts, by the object each one's dictionary is.
     fonts: BTreeMap<FontKey, Entry>,
     /// How many bytes of font program that is, counted as it changes.
@@ -433,17 +433,13 @@ impl Kept {
     /// walk, where it is the whole of what keeps the walk honest.
     fn bind(&mut self, document: &Document) {
         let bytes = document.bytes();
-        if self
-            .document
-            .as_ref()
-            .is_some_and(|held| Arc::ptr_eq(held, bytes))
-        {
+        if self.document.as_ref().is_some_and(|held| held.same(bytes)) {
             return;
         }
         if self.document.is_some() {
             self.rebound = self.rebound.saturating_add(1);
         }
-        self.document = Some(Arc::clone(bytes));
+        self.document = Some(bytes.clone());
         self.fonts.clear();
         self.bytes = 0;
     }

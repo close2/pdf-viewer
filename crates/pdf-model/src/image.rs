@@ -2176,6 +2176,115 @@ struct DecodedJpeg {
     grid: (u32, u32),
 }
 
+/// The number of lines a codestream's first scan ends by defining, and where the frame header
+/// states it.
+///
+/// §7.4.8 puts a JPEG's dimensions in the encoded data — "[t]he values of these parameters,
+/// which include the dimensions of the image […] shall be stored in the encoded data" — and
+/// ISO/IEC 10918-1 gives the encoded data two places to state its number of lines: the frame
+/// header's `Y`, and a `DNL` marker segment at the end of the first scan, which section B.2.5 of that
+/// standard describes as defining *or redefining* `Y`. A frame header of `Y = 0` means the lines
+/// are the `DNL`'s to define; a scanner that does not know the page length when it writes the
+/// header writes `0` or `65535` there and the true count after the data. `zune-jpeg` reads the
+/// header only: it refuses a `DNL` it meets before the scan and, meeting one after the scan's
+/// data, pads the frame header's grid — so a 2480 × 3486 letter was drawn as the top five per
+/// cent of a 2480 × 65535 image with grey below it, and both reference renderers drew the letter
+/// (`poppler-61994-0.pdf`, `batch5/poppler`, ADR 0795).
+///
+/// Walks the markers without decoding — 10918-1's byte stuffing makes the end of entropy-coded
+/// data findable, exactly as `pdf_syntax`'s `jpeg_extent` finds `EOI` — and answers `None` for a
+/// codestream whose first scan is not followed by a `DNL`, which is nearly every one. `Some` is
+/// the offset of the frame header's two-byte `Y`, the `DNL`'s `NL`, and the byte range of the
+/// `DNL` segment itself, from the `FF` that opens it to the end of `NL`.
+fn defined_number_of_lines(data: &[u8]) -> Option<(usize, u16, std::ops::Range<usize>)> {
+    if data.get(..2)? != [0xFF, 0xD8] {
+        return None;
+    }
+    let field = |at: usize| -> Option<u16> {
+        Some(u16::from_be_bytes([
+            *data.get(at)?,
+            *data.get(at.checked_add(1)?)?,
+        ]))
+    };
+    let mut y_at = None;
+    let mut at = 2usize;
+    loop {
+        // A marker is a run of `FF` and the byte after it.
+        while data.get(at) == Some(&0xFF) {
+            at = at.checked_add(1)?;
+        }
+        let code = *data.get(at)?;
+        at = at.checked_add(1)?;
+        match code {
+            // End of image, or a marker that cannot precede the first scan's `DNL`.
+            0xD9 => return None,
+            // Markers 10918-1 gives no length: TEM, a second SOI, the restarts.
+            0x01 | 0xD8 | 0xD0..=0xD7 => {}
+            _ => {
+                let length = usize::from(field(at)?);
+                if length < 2 {
+                    return None;
+                }
+                // Every frame header — baseline, extended, progressive, lossless, and their
+                // arithmetic-coded forms — puts `P` then `Y` after its length.
+                if matches!(code, 0xC0..=0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF) {
+                    y_at = Some(at.checked_add(3)?);
+                }
+                at = at.checked_add(length)?;
+                if code != 0xDA {
+                    continue;
+                }
+                // The first scan's entropy-coded data: inside it, `FF` is followed only by a
+                // stuffed `00` or a restart marker. The next marker is what ends the scan.
+                loop {
+                    let opens = at;
+                    let byte = *data.get(at)?;
+                    at = at.checked_add(1)?;
+                    if byte != 0xFF {
+                        continue;
+                    }
+                    while data.get(at) == Some(&0xFF) {
+                        at = at.checked_add(1)?;
+                    }
+                    match *data.get(at)? {
+                        0x00 | 0xD0..=0xD7 => at = at.checked_add(1)?,
+                        0xDC => {
+                            // `DNL`: length 4, then `NL`, which 10918-1 bounds to 1..=65535.
+                            let lines = field(at.checked_add(3)?)?;
+                            let closes = at.checked_add(5)?;
+                            return (lines != 0).then_some((y_at?, lines, opens..closes));
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The codestream as the decoder should read it: `Y` set to what the `DNL` defined, and the
+/// `DNL` segment itself taken out.
+///
+/// `zune-jpeg` sizes the frame from the header alone, so the one way to have it decode the
+/// number of lines the encoded data actually states is to write that number where it reads —
+/// and it refuses a `DNL` marker it meets ("Parsing of the following header `DNL` is not
+/// supported"), so once `Y` carries the count the segment that carried it is removed; a frame
+/// whose header and `DNL` already agree still needs that. Borrowed and untouched for the
+/// codestreams that state no `DNL`, which is nearly all of them; a copy six bytes shorter for
+/// the rest. See [`defined_number_of_lines`].
+fn frame_as_defined(data: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    let Some((y_at, lines, dnl)) = defined_number_of_lines(data) else {
+        return std::borrow::Cow::Borrowed(data);
+    };
+    let mut defined = Vec::with_capacity(data.len());
+    defined.extend_from_slice(data.get(..dnl.start).unwrap_or(data));
+    defined.extend_from_slice(data.get(dnl.end..).unwrap_or_default());
+    if let Some(field) = defined.get_mut(y_at..y_at.saturating_add(2)) {
+        field.copy_from_slice(&lines.to_be_bytes());
+    }
+    std::borrow::Cow::Owned(defined)
+}
+
 /// Decodes §7.4.8's `DCTDecode` codestream.
 ///
 /// # The dictionary's `/Width` and `/Height` do not have to agree with the codestream's
@@ -2243,10 +2352,11 @@ fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
 /// See [`ImageError`]. The grid the codestream states is bounded by [`MAX_SAMPLES`] here,
 /// because it is no longer the dictionary's grid that [`decode_parts`] already checked.
 fn decode_jpeg(data: &[u8]) -> Result<DecodedJpeg, ImageError> {
+    let data = frame_as_defined(data);
     // `ZCursor` is the reader `zune-jpeg` wants; a bare slice does not implement its
     // trait because the decoder needs to seek.
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
-        zune_jpeg::zune_core::bytestream::ZCursor::new(data),
+        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
         jpeg_options(),
     );
     decoder
@@ -2910,8 +3020,9 @@ pub fn contradicted_frame(document: &Document, stream: &Stream) -> Option<String
         return None;
     }
     let source = document.image_stream(stream)?;
+    let data = frame_as_defined(&source.data);
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(
-        zune_jpeg::zune_core::bytestream::ZCursor::new(&*source.data),
+        zune_jpeg::zune_core::bytestream::ZCursor::new(&*data),
         jpeg_options(),
     );
     decoder.decode_headers().ok()?;

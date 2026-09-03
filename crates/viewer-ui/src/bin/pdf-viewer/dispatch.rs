@@ -318,7 +318,7 @@ impl App {
             // Trap 5, and the second `exit` this method used to carry: a file that has gone away
             // between the first open and the second is a fact about this machine, and a window that
             // vanished rather than saying so would be answering nothing.
-            match std::fs::read(&self.path) {
+            match pdf_syntax::read_file(&self.path) {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     println!("note: cannot re-read {}: {error}", self.title);

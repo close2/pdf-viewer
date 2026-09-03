@@ -165,7 +165,7 @@ fn open_document(
     fragment: Option<&str>,
     restrictions: RestrictionLevel,
 ) -> (Viewer, Vec<Event>) {
-    let bytes = match std::fs::read(path) {
+    let bytes = match pdf_syntax::read_file(path) {
         Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("cannot read {}: {error}", path.to_string_lossy());

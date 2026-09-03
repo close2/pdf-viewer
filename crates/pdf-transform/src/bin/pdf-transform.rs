@@ -268,7 +268,8 @@ fn run() -> Result<Exit, Failure> {
         )));
     };
     let path = PathBuf::from(path);
-    let bytes = std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let bytes =
+        pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
     let source = match arguments.parsed::<u32>(&["--password-fd"])? {
         Some(fd) => Source::with_password(bytes, password_from(fd)?),
         None => Source::new(bytes),
@@ -449,7 +450,8 @@ fn attach_action(
             .map_err(|error| Failure::Usage(format!("-o: {error}")))
     };
     let path = PathBuf::from(file);
-    let bytes = std::fs::read(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let bytes =
+        pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
     // The filing name is the file's own unless `--name` says otherwise, and
     // it has to be a name: a path with no final component names nothing.
     let name = match arguments.value(&["--name"]) {

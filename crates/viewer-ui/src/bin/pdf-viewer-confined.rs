@@ -361,7 +361,7 @@ impl Host {
         if self.stopped.is_some() {
             return;
         }
-        let bytes = match std::fs::read(&self.path) {
+        let bytes = match pdf_syntax::read_file(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
                 self.stop(format!("cannot read {}: {problem}", self.path.display()));
@@ -934,7 +934,7 @@ impl Host {
                 return;
             }
         };
-        let bytes = match std::fs::read(&self.path) {
+        let bytes = match pdf_syntax::read_file(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
                 eprintln!("note: cannot re-read {}: {problem}", self.path.display());
@@ -1053,7 +1053,7 @@ impl ApplicationHandler for Host {
         }
         self.confined = Some(confined);
 
-        let bytes = match std::fs::read(&self.path) {
+        let bytes = match pdf_syntax::read_file(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
                 self.stop(format!("cannot read {}: {problem}", self.path.display()));

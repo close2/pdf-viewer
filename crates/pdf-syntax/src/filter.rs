@@ -245,8 +245,17 @@ pub fn apply_predictor(
     // opens of that file (`cargo run -p pdf-syntax --example callgrind_open`): **138.3 M
     // instructions per `Document::open` before, 131.3 M after — 5.1%** — and every millisecond
     // of it in `calloc` and `free` rather than in this loop. ADR 0180.
-    let mut previous = vec![0u8; row_len];
-    let mut current = vec![0u8; row_len];
+    //
+    // **Sized to what the data can fill, not to what `/Columns` states.** Every row copies at
+    // most `min(row.len(), row_len)` bytes, and a row is a chunk of `data`, so no row buffer
+    // ever needs more than `min(row_len, data.len())` — while `/Columns`, `/Colors` and
+    // `/BitsPerComponent` are the file's to state, and a stream of six bytes declaring
+    // `/Columns 1099511627776` asked for two terabytes here before a byte of it was read. The
+    // output is byte-identical either way, because only `copy` bytes of a row are ever written
+    // out; what changes is that the allocation is bounded by the data it unfilters (ADR 0795).
+    let held = row_len.min(data.len());
+    let mut previous = vec![0u8; held];
+    let mut current = vec![0u8; held];
 
     for chunk in data.chunks(stride) {
         let (&tag, row) = chunk.split_first()?;
@@ -3916,5 +3925,27 @@ mod tests {
                 String::from_utf8_lossy(filter)
             );
         }
+    }
+
+    /// §7.4.4.4's `/Columns` sizes the row a filter reverses, and a row wider than the whole
+    /// stream is a row the data cannot fill: the buffers are sized to the data, the output is
+    /// what the honest width produces, and a six-byte stream stating a terabyte row costs six
+    /// bytes. Run with the buffers sized to `row_len` again, this asks the allocator for 2^40
+    /// bytes twice and aborts (ADR 0795).
+    #[test]
+    fn a_stated_row_wider_than_the_data_costs_the_data_and_unfilters_the_same() {
+        // PNG `Sub` (tag 1) over three one-byte samples.
+        let data = [1u8, 0x10, 0x20, 0x30];
+        let honest = super::apply_predictor(&data, 12, 1, 8, 3).expect("a whole row");
+        let stated = super::apply_predictor(&data, 12, 1, 8, 1 << 40).expect("the same row");
+        assert_eq!(&*honest, &[0x10, 0x30, 0x60]);
+        assert_eq!(honest, stated);
+        // `Up` (tag 2) over two rows, the second short: a short final row is unfiltered to its
+        // own length and the stated width beyond the data changes nothing about it.
+        let data = [2u8, 1, 2, 2, 3];
+        let honest = super::apply_predictor(&data, 12, 1, 8, 2).expect("two rows");
+        assert_eq!(&*honest, &[1, 2, 4]);
+        let stated = super::apply_predictor(&data, 12, 1, 8, usize::MAX).expect("one row");
+        assert_eq!(&*stated, &[1, 2, 2, 3]);
     }
 }
