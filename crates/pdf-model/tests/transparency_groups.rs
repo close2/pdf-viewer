@@ -3639,3 +3639,446 @@ fn a_calibrated_mask_group_takes_the_luminance_of_its_composited_component() {
         1.0 - linear,
     );
 }
+
+/// §8.6.5.3's space with the sRGB primaries, a D65 white point and a gamma of 1.0 on every
+/// component: its components are sRGB's linear light, so what a component shows as on this
+/// device is [`srgb_encode`] of it, and the expected values below follow from that alone.
+const LINEAR_CAL_RGB: &str = "[/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [1 1 1] \
+                              /Matrix [0.4124 0.2126 0.0193 0.3576 0.7152 0.1192 \
+                              0.1805 0.0722 0.9505] >>]";
+
+/// White, half of black over the left half, a `DeviceRGB` grey of ½ in the bottom right and a
+/// `DeviceGray` of ½ in the top right.
+///
+/// The two greys are the same colour on the device and are told apart by §11.7.2 inside a
+/// three-component CIE-based group: the `rg` one is reinterpreted as the group's components
+/// and the `g` one is converted in.
+const WHITE_HALF_BLACK_TWO_GREYS: &str = "1 g 0 0 100 100 re f\n\
+                                          q /GS gs 0 g 0 0 50 100 re f Q\n\
+                                          0.5 0.5 0.5 rg 50 0 50 50 re f\n\
+                                          0.5 g 50 50 50 50 re f";
+
+/// ISO 32000-2 §11.4.7, §11.3.4 and §11.7.2: a `CalRGB` page group composites the space's
+/// three components and leaves by §8.6.5.3's conversion.
+///
+/// §11.3.4 lists `CalRGB` among the spaces that "shall be supported as blending colour
+/// spaces" and applies its formula per component, so half of black over white composites
+/// each component to ½ — which under a gamma of 1.0 is linear light, shown as `srgb_encode(½)`,
+/// 188 of 255, where the device's average is 128. §11.7.2 then decides the two greys: "if the
+/// colour space of any graphics object is a device colour space, and the current group or an
+/// ancestor of the current group is defined with a CIE-based colour space with the same
+/// number of colourants, then, for compositing purposes only, the colour space of the
+/// graphics object shall be the CIE-based space of the nearest such ancestor" — so
+/// `0.5 0.5 0.5 rg` *is* the components (½, ½, ½) and shows as 188 — while a `DeviceGray`
+/// has a different number of colourants, is "converted or mapped to a CIE-based colour space
+/// in an implementationdependent fashion", and this tree's way is the colour's sRGB (§10.3.2),
+/// whose linear light is 0.214 in the group and 128 back out. The control is the same content
+/// with no page group, where both greys are 128.
+#[test]
+fn a_cal_rgb_page_group_composites_its_components_and_leaves_by_the_matrix() {
+    let calibrated = interpret(one_component_fixture(
+        &format!("/Group << /S /Transparency /CS {LINEAR_CAL_RGB} >>"),
+        "",
+        WHITE_HALF_BLACK_TWO_GREYS,
+        "",
+        "",
+    ));
+    assert!(
+        calibrated.is_complete(),
+        "a CalRGB page group is drawn, not reported: {:?}",
+        calibrated.unsupported
+    );
+    // Device y is the page's flipped: the `rg` grey at page (75, 25) is device (75, 75).
+    assert_grey(
+        "half of black over white composites the components to ½ and leaves by the curve",
+        pixel(&calibrated, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "a DeviceRGB grey of ½ is the group's own components by §11.7.2, shown as linear light",
+        pixel(&calibrated, 75, 75),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "a DeviceGray of ½ is converted in through sRGB's XYZ and comes back out as itself",
+        pixel(&calibrated, 75, 25),
+        0.5,
+    );
+
+    let device = interpret(one_component_fixture(
+        "",
+        "",
+        WHITE_HALF_BLACK_TWO_GREYS,
+        "",
+        "",
+    ));
+    assert_grey(
+        "on the device the two greys are one",
+        pixel(&device, 75, 75),
+        0.5,
+    );
+    assert_grey(
+        "on the device the two greys are one",
+        pixel(&device, 75, 25),
+        0.5,
+    );
+    assert_grey(
+        "and half of black over white is their average",
+        pixel(&device, 25, 50),
+        0.5,
+    );
+}
+
+/// An isolated `CalRGB` group on a device page composites in its components and comes out
+/// through the cube at its `Do` (ISO 32000-2 §11.6.6, §11.7.2).
+///
+/// §11.7.2: "all blending and compositing computations shall be done in that space", and
+/// "[t]he resulting colours shall then be interpreted in the group's colour space when the
+/// group is subsequently composited with its backdrop". The same marks and values as the page
+/// test one scope down; the control is the same group non-isolated, whose `/CS` §11.6.6 gives
+/// no effect, so its greys are the device's 128.
+#[test]
+fn an_isolated_cal_rgb_group_composites_in_its_components_and_leaves_by_the_cube() {
+    let calibrated = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        &format!("/Group << /S /Transparency /I true /CS {LINEAR_CAL_RGB} >>"),
+        WHITE_HALF_BLACK_TWO_GREYS,
+    ));
+    assert!(
+        calibrated.is_complete(),
+        "an isolated CalRGB group is drawn, not reported: {:?}",
+        calibrated.unsupported
+    );
+    assert_grey(
+        "half of black over white inside the group leaves by the cube",
+        pixel(&calibrated, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "a DeviceRGB grey inside the group is the group's components",
+        pixel(&calibrated, 75, 75),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "a DeviceGray inside the group goes in through sRGB's XYZ and out as itself",
+        pixel(&calibrated, 75, 25),
+        0.5,
+    );
+
+    let inherited = interpret(one_component_fixture(
+        "",
+        "",
+        "/Fm Do",
+        &format!("/Group << /S /Transparency /I false /CS {LINEAR_CAL_RGB} >>"),
+        WHITE_HALF_BLACK_TWO_GREYS,
+    ));
+    assert!(inherited.is_complete(), "{:?}", inherited.unsupported);
+    assert_grey(
+        "a non-isolated group's /CS is not the space anything composites in",
+        pixel(&inherited, 25, 50),
+        0.5,
+    );
+    assert_grey(
+        "and its DeviceRGB grey stays the device's",
+        pixel(&inherited, 75, 75),
+        0.5,
+    );
+}
+
+/// §11.7.2's rule about a device space inside a CIE-based one: an isolated `/DeviceRGB`
+/// group inside a `CalRGB` page is that `CalRGB`, and changes no space.
+///
+/// > If the colour space of the transparency group is a device colour space, and some
+/// > ancestor of the group has a CIE-based colour space with the same number of colourants,
+/// > then the colour space of this group shall be the CIE-based space of the nearest such
+/// > ancestor.
+///
+/// So the page stays drawn in its own components — complete, with nothing reported — and the
+/// group's half of black over white composites to ½ in the page's components, 188, exactly
+/// as it would outside the group. A group stating a *different* `CalRGB` is a change of
+/// space with something compositing in it, which this tree cannot convert per pixel at the
+/// `Do`: the page falls back to the device and says so.
+#[test]
+fn a_device_rgb_group_inside_a_cal_rgb_page_is_that_cal_rgb() {
+    let inherits = interpret(one_component_fixture(
+        &format!("/Group << /S /Transparency /CS {LINEAR_CAL_RGB} >>"),
+        "",
+        "1 g 0 0 100 100 re f /Fm Do",
+        "/Group << /S /Transparency /I true /CS /DeviceRGB >>",
+        "q /GS gs 0 g 0 0 50 100 re f Q 0.5 0.5 0.5 rg 50 0 50 50 re f",
+    ));
+    assert!(
+        inherits.is_complete(),
+        "a DeviceRGB group inside a CalRGB page inherits the page's space: {:?}",
+        inherits.unsupported
+    );
+    assert_grey(
+        "half of black over white inside the group composites in the page's components",
+        pixel(&inherits, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "and a DeviceRGB grey inside it is those components too",
+        pixel(&inherits, 75, 75),
+        srgb_encode(0.5),
+    );
+
+    let other = "[/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [2.2 2.2 2.2] >>]";
+    let changes = interpret(one_component_fixture(
+        &format!("/Group << /S /Transparency /CS {LINEAR_CAL_RGB} >>"),
+        "",
+        "1 g 0 0 100 100 re f /Fm Do",
+        &format!("/Group << /S /Transparency /I true /CS {other} >>"),
+        "q /GS gs 0 g 0 0 50 100 re f Q",
+    ));
+    let reported = format!("{:?}", changes.unsupported);
+    assert!(
+        reported.contains("blending colour space"),
+        "a second CalRGB inside the first, with something compositing, is a change of space \
+         the page reports: {reported}"
+    );
+    assert_grey(
+        "and the page is drawn on the device, where half of black over white is 128",
+        pixel(&changes, 25, 50),
+        0.5,
+    );
+}
+
+/// A one-page fixture whose page group is `/CS [/ICCBased 5 0 R]`, object 5 being
+/// [`icc_rgb_profile`] as an `ASCIIHexDecode` stream with `/N 3`.
+fn icc_rgb_fixture(page_group: &str, page: &str) -> Vec<u8> {
+    let mut hex = String::new();
+    for byte in icc_rgb_profile() {
+        let _ = write!(hex, "{byte:02X}");
+    }
+    hex.push('>');
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] {page_group} \
+         /Resources << /ExtGState << /GS << /ca 0.5 /CA 0.5 >> >> >> /Contents 4 0 R >>\n\
+         endobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /N 3 /Filter /ASCIIHexDecode /Length {} >>\nstream\n{hex}\nendstream\n\
+         endobj\n",
+        page.len() + 1,
+        hex.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A v2 'RGB ' display profile in the matrix form: sRGB's D50-adapted colourants as its
+/// three `XYZ ` columns and a `curv` gamma of 1.0 on each tone curve.
+///
+/// Positional like [`icc_gray_profile`]: the 128-byte header, a tag count of six, six tag
+/// entries, then the three colourant tags (a signature, four reserved bytes and three
+/// `s15Fixed16` numbers) and the three curve tags. Its components are linear sRGB, so its
+/// expected values are [`LINEAR_CAL_RGB`]'s.
+fn icc_rgb_profile() -> Vec<u8> {
+    let mut header = vec![0u8; 128];
+    header[8] = 2; // major version
+    header[12..16].copy_from_slice(b"mntr");
+    header[16..20].copy_from_slice(b"RGB ");
+    header[20..24].copy_from_slice(b"XYZ ");
+    header[36..40].copy_from_slice(b"acsp");
+
+    let xyz_tag = |column: [f32; 3]| {
+        let mut tag = Vec::new();
+        tag.extend_from_slice(b"XYZ ");
+        tag.extend_from_slice(&[0; 4]);
+        for value in column {
+            tag.extend_from_slice(&((value * 65536.0) as i32).to_be_bytes());
+        }
+        tag
+    };
+    let mut curve = Vec::new();
+    curve.extend_from_slice(b"curv");
+    curve.extend_from_slice(&[0; 4]);
+    curve.extend_from_slice(&1u32.to_be_bytes()); // one entry: a gamma
+    curve.extend_from_slice(&0x0100u16.to_be_bytes()); // 1.0 in u8Fixed8
+    curve.extend_from_slice(&[0; 2]); // padding to four bytes
+
+    // sRGB's colourants adapted onto D50, as the standard sRGB profile carries them.
+    let tags: [(&[u8; 4], Vec<u8>); 6] = [
+        (b"rXYZ", xyz_tag([0.4361, 0.2225, 0.0139])),
+        (b"gXYZ", xyz_tag([0.3851, 0.7169, 0.0971])),
+        (b"bXYZ", xyz_tag([0.1431, 0.0606, 0.7141])),
+        (b"rTRC", curve.clone()),
+        (b"gTRC", curve.clone()),
+        (b"bTRC", curve),
+    ];
+    let mut out = header;
+    out.extend_from_slice(&6u32.to_be_bytes());
+    let mut offset = 128 + 4 + 6 * 12;
+    for (name, tag) in &tags {
+        out.extend_from_slice(*name);
+        out.extend_from_slice(&u32::try_from(offset).expect("small").to_be_bytes());
+        out.extend_from_slice(&u32::try_from(tag.len()).expect("small").to_be_bytes());
+        offset += tag.len();
+    }
+    for (_, tag) in &tags {
+        out.extend_from_slice(tag);
+    }
+    out
+}
+
+/// A page whose group is a three-component matrix `ICCBased` space composites in the
+/// profile's components and leaves by its curves and matrix (ISO 32000-2 §11.3.4, §8.6.5.5).
+///
+/// §11.3.4 lists a bi-directional `ICCBased` 'RGB ' profile beside `CalRGB`, and a matrix
+/// profile is bi-directional by construction — its matrix inverts and its curves are
+/// monotone, which is what "capable of both device to PCS and PCS to device transformations"
+/// asks. The profile below is sRGB's colourants under a gamma of 1.0, so its components are
+/// linear light and every expected value is the `CalRGB` test's: half of black over white at
+/// `srgb_encode(½)`, a `DeviceRGB` grey reinterpreted by §11.7.2, a `DeviceGray` converted in
+/// and back out as itself.
+#[test]
+fn a_matrix_profile_page_group_composites_in_its_components() {
+    let profiled = interpret(icc_rgb_fixture(
+        "/Group << /S /Transparency /CS [/ICCBased 5 0 R] >>",
+        WHITE_HALF_BLACK_TWO_GREYS,
+    ));
+    assert!(
+        profiled.is_complete(),
+        "an ICCBased 'RGB ' page group is drawn, not reported: {:?}",
+        profiled.unsupported
+    );
+    assert_grey(
+        "half of black over white leaves by the profile's curves and matrix",
+        pixel(&profiled, 25, 50),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "a DeviceRGB grey is the profile's own components by §11.7.2",
+        pixel(&profiled, 75, 75),
+        srgb_encode(0.5),
+    );
+    assert_grey(
+        "a DeviceGray goes in through the inverted matrix and out as itself",
+        pixel(&profiled, 75, 25),
+        0.5,
+    );
+}
+
+/// `Lab` as a page group's `/CS` is reported, and named as the space §11.3.4 forbids.
+///
+/// > The Lab space and ICCBased spaces that represent lightness and chromaticity separately
+/// > (such as L*a*b*, L*u*v*, and HSV ) shall not be used as blending colour spaces because
+/// > the compositing computations in such spaces do not give meaningful results when applied
+/// > separately to each component.
+///
+/// So there is no route into it and the page stays on the device, where the half of black
+/// over white is 128, and the report says which three-component spaces there *are* routes into.
+#[test]
+fn a_lab_page_group_is_reported_as_the_space_the_clause_forbids() {
+    let lab = interpret(one_component_fixture(
+        "/Group << /S /Transparency /CS [/Lab << /WhitePoint [0.9505 1 1.089] >>] >>",
+        "",
+        WHITE_HALF_BLACK_TWO_GREYS,
+        "",
+        "",
+    ));
+    let reported = format!("{:?}", lab.unsupported);
+    assert!(
+        reported.contains("§11.3.4 lists CalRGB and a bi-directional ICCBased 'RGB '")
+            && reported.contains("forbids Lab"),
+        "a Lab page group is named with the clause's own list: {reported}"
+    );
+    assert_grey(
+        "and the page is drawn on the device",
+        pixel(&lab, 25, 50),
+        0.5,
+    );
+}
+
+/// A one-page fixture with a white page under a black fill masked by a `/Luminosity` group
+/// whose `/CS` is a `CalRGB` of gamma 2 on sRGB's primaries, so that the mask value is
+/// §11.5.3's EXAMPLE 1 written out.
+///
+/// `mask` is the group's content, with the space itself available as `/CR`; `backdrop` is
+/// whatever Table 142 entry the soft-mask dictionary states beside `/S` and `/G`.
+fn additive_mask_fixture(mask: &str, backdrop: &str) -> Vec<u8> {
+    let cal_rgb = "[/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [2 2 2] \
+                   /Matrix [0.4124 0.2126 0.0193 0.3576 0.7152 0.1192 0.1805 0.0722 0.9505] >>]";
+    let page = "1 g 0 0 100 100 re f /GM gs 0 g 0 0 100 100 re f";
+    let body = format!(
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
+         2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n\
+         3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] \
+         /Resources << /ExtGState << /GM << /SMask << /S /Luminosity /G 5 0 R {backdrop} >> >> >> >> \
+         /Contents 4 0 R >>\nendobj\n\
+         4 0 obj\n<< /Length {} >>\nstream\n{page}\nendstream\nendobj\n\
+         5 0 obj\n<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] \
+         /Group << /S /Transparency /CS {cal_rgb} >> \
+         /Resources << /ColorSpace << /CR {cal_rgb} >> >> /Length {} >>\n\
+         stream\n{mask}\nendstream\nendobj\n",
+        page.len() + 1,
+        mask.len() + 1
+    );
+    assemble(&body)
+}
+
+/// A `/Luminosity` mask group whose `/CS` is `CalRGB` is composited in its components and
+/// its mask value is §11.5.3's `Y` of the result (ISO 32000-2 §11.5.3, §11.6.5.1, §8.6.5.3).
+///
+/// §11.5.3: "For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component
+/// as the luminosity", and its EXAMPLE 1 writes the `CalRGB` case out as the `Y` entries of
+/// the `Matrix` weighting each gamma-decoded component. With sRGB's primaries and a gamma of
+/// 2 on each, a component of ½ apiece is `0.2126 × ¼ + 0.7152 × ¼ + 0.0722 × ¼ = ¼`, so a
+/// black fill through that mask over white leaves ¾; a pure green is `0.7152` and leaves
+/// `0.2848`, where the device branch's `0.59` would leave `0.41`. Table 142's `/BC` is "n
+/// numbers, where n is the number of components in the colour space specified by the CS
+/// entry", three, and `/BC [0.5 0.5 0.5]` is the same ¾ where the group paints nothing. A
+/// `DeviceRGB` grey inside the group is the group's components by §11.7.2 and masks the same
+/// ¾; a `DeviceGray` goes in through sRGB's XYZ, so its `Y` is sRGB's decoding of ½, 0.214.
+#[test]
+fn a_cal_rgb_mask_group_takes_the_luminance_of_its_composited_components() {
+    let painted = interpret(additive_mask_fixture(
+        "/CR cs 0.5 0.5 0.5 sc 0 0 100 100 re f",
+        "",
+    ));
+    assert!(
+        painted.is_complete(),
+        "a CalRGB mask group is drawn, not reported: {:?}",
+        painted.unsupported
+    );
+    assert_grey(
+        "components of ½ under gamma 2 have a Y of ¼ and mask a quarter of the black",
+        pixel(&painted, 50, 50),
+        0.75,
+    );
+
+    let green = interpret(additive_mask_fixture(
+        "/CR cs 0 1 0 sc 0 0 100 100 re f",
+        "",
+    ));
+    assert_grey(
+        "a pure green's Y is its Matrix column's, 0.7152, not the device branch's 0.59",
+        pixel(&green, 50, 50),
+        1.0 - 0.7152,
+    );
+
+    let backdrop = interpret(additive_mask_fixture("", "/BC [0.5 0.5 0.5]"));
+    assert_grey(
+        "and /BC states those components where the group paints nothing",
+        pixel(&backdrop, 50, 50),
+        0.75,
+    );
+
+    let device_rgb = interpret(additive_mask_fixture("0.5 0.5 0.5 rg 0 0 100 100 re f", ""));
+    assert_grey(
+        "a DeviceRGB grey inside the group is the group's components (§11.7.2)",
+        pixel(&device_rgb, 50, 50),
+        0.75,
+    );
+
+    let device_gray = interpret(additive_mask_fixture("0.5 g 0 0 100 100 re f", ""));
+    let linear = ((0.5f32 + 0.055) / 1.055).powf(2.4);
+    assert_grey(
+        "a DeviceGray goes in through sRGB's XYZ and its Y is that grey's linear light",
+        pixel(&device_gray, 50, 50),
+        1.0 - linear,
+    );
+}

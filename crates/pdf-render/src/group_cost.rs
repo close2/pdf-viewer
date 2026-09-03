@@ -372,6 +372,7 @@ mod tests {
             kind: crate::soft_mask::SoftMaskKind::Alpha,
             commands: vec![group(None, Vec::new())],
             transfer: None,
+            luminance: None,
         })
         .expect("one soft mask is under the table's bound");
         let whole = u64::from(target.width) * u64::from(target.height);

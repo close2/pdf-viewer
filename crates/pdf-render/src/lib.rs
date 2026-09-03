@@ -46,7 +46,9 @@ pub use backend::{
     BackendError, Interrupt, MAX_EXTENT, MAX_GROUP_DEPTH, Raster, RasterFormat, Rasterizer,
     TargetSpec,
 };
-pub use blending::{BlendingSpace, GreyCurve, resolve as resolve_blending, resolve_grey};
+pub use blending::{
+    BlendingSpace, ColourCube, GreyCurve, resolve as resolve_blending, resolve_cube, resolve_grey,
+};
 pub use closing::opened_where_a_dash_ends_at_the_close;
 pub use collapsed::{CollapsedFill, split_collapsed_fill};
 pub use crop::cropped_rectangle;
@@ -75,7 +77,7 @@ pub use shading::{
     ColourGrid, ColoursAtDeviceScale, Corners, DeferredColours, MeshRaster, Patch, Radial,
     RadialRaster, Ramp, Shading, ShadingKind, ShadingRaster, Stop, Triangle, blend_parameter,
 };
-pub use soft_mask::{SoftMask, SoftMaskId, SoftMaskKind, Transfer};
+pub use soft_mask::{Luminance, SoftMask, SoftMaskId, SoftMaskKind, Transfer};
 pub use strips::{
     command_extents, replay_ratio, row_costs, strip_boundaries, strip_boundaries_avoiding,
     unsplittable_rows,

@@ -322,6 +322,227 @@ pub fn resolve_grey(pixels: &mut [u8], curve: &GreyCurve) {
     }
 }
 
+/// The conversion out of a three-component CIE-based blending colour space, as curves on
+/// either side of a sampled grid (ISO 32000-2 §11.3.4, §8.6.5.3, §8.6.5.5).
+///
+/// §11.3.4 lists `CalRGB` and a bi-directional `ICCBased` 'RGB ' profile among the spaces
+/// that "shall be supported as blending colour spaces", and its compositing formula is per
+/// component, so a page or group in either composites the space's own three components —
+/// `CalRGB`'s `A`, `B` and `C`, or the profile's device values — and converts the result
+/// out where §11.4.7 puts the conversion, "before being composited with the context-dependent
+/// backdrop". This is that conversion, sampled the way the space itself is built:
+///
+/// - **`input`** is one curve per component, applied first. §8.6.5.3 has the components
+///   "first be decoded individually by the gamma functions", and a matrix profile's tone
+///   curves are the same stage.
+/// - **`grid`** is `side³` device colours *in linear light*, interpolated trilinearly over
+///   the curved components. The stage between the curves in §8.6.5.3 and in a matrix profile
+///   is linear — a 3×3 matrix to XYZ, an adaptation, and a matrix to the device's primaries —
+///   and a linear map is reproduced exactly by trilinear interpolation of its corners, so
+///   `side` is two for those two spaces and the construction is exact. A profile whose
+///   conversion is a lookup table has no linear stage to separate, and takes a finer grid
+///   with identity curves.
+/// - **`output`** is the device's own transfer function, applied last to each linear channel.
+///
+/// Curves on both sides rather than one grid sampled over the whole conversion, and the
+/// reason is the device's transfer function: it is steep at black, so a grid of any
+/// practical side sampled in the encoded domain is fifteen levels of 255 out just above
+/// black on a linear space — which is the space §11.7.2's NOTE 3 recommends a producer
+/// choose. [`BlendingSpace`] samples the whole conversion at once, and ADR 0272 measured
+/// what that costs; this is the shape that note said would close it, one component down.
+///
+/// The interpreter resolves every sample and hands them over; a backend never sees the
+/// space, which is [`BlendingSpace`]'s argument again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColourCube {
+    /// At least two samples per axis: `input[i][axis]` is the curved value of the component
+    /// `i ÷ (len − 1)` on that axis.
+    input: std::sync::Arc<[[f32; 3]]>,
+    /// How many samples the grid holds along each of the three axes; at least two.
+    side: usize,
+    /// `side³` linear-light device colours. The first component runs fastest and the third
+    /// slowest, so index 0 is every component at 0 and the last is every component at 1.
+    grid: std::sync::Arc<[[f32; 3]]>,
+    /// At least two samples of the device's transfer function: `output[i]` is the encoded
+    /// value of the linear light `i ÷ (len − 1)`, applied to every channel alike.
+    output: std::sync::Arc<[f32]>,
+}
+
+impl ColourCube {
+    /// A cube from its stages, or `None` if they are not one.
+    ///
+    /// The conditions every reader below depends on and none checks again: two samples at
+    /// least on each curve and along each axis, and exactly `side³` grid samples.
+    #[must_use]
+    pub fn new(
+        input: std::sync::Arc<[[f32; 3]]>,
+        side: usize,
+        grid: std::sync::Arc<[[f32; 3]]>,
+        output: std::sync::Arc<[f32]>,
+    ) -> Option<Self> {
+        let wanted = side.checked_pow(3)?;
+        (input.len() >= 2 && output.len() >= 2 && side >= 2 && grid.len() == wanted).then_some(
+            Self {
+                input,
+                side,
+                grid,
+                output,
+            },
+        )
+    }
+
+    /// The input curves, one sample per row and one axis per column.
+    #[must_use]
+    pub fn input(&self) -> &[[f32; 3]] {
+        &self.input
+    }
+
+    /// How many samples the grid holds along each axis.
+    #[must_use]
+    pub fn side(&self) -> usize {
+        self.side
+    }
+
+    /// The grid's samples, in the index order [`ColourCube::new`] documents.
+    #[must_use]
+    pub fn grid(&self) -> &[[f32; 3]] {
+        &self.grid
+    }
+
+    /// The output curve's samples, evenly spaced over linear light's `0.0..=1.0`.
+    #[must_use]
+    pub fn output(&self) -> &[f32] {
+        &self.output
+    }
+
+    /// The device colour of three components, each in `0.0..=1.0`.
+    #[must_use]
+    pub fn convert(&self, components: [f32; 3]) -> [f32; 3] {
+        let mut curved = [0.0f32; 3];
+        for (axis, (value, component)) in curved.iter_mut().zip(components).enumerate() {
+            *value = sample_curve(&self.input, component, |sample| {
+                sample.get(axis).copied().unwrap_or(0.0)
+            });
+        }
+        let last = self.side.saturating_sub(1);
+        let axis = |value: f32| -> (usize, [f32; 2]) {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a grid side and a cell index, both far below f32's exact range"
+            )]
+            let scaled = value.clamp(0.0, 1.0) * last as f32;
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "`scaled` is in 0..=last, so its floor is a valid index"
+            )]
+            let cell = (scaled as usize).min(last.saturating_sub(1));
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a cell index below the grid side"
+            )]
+            let fraction = scaled - cell as f32;
+            (cell, [1.0 - fraction, fraction])
+        };
+        let cells = [axis(curved[0]), axis(curved[1]), axis(curved[2])];
+        let mut linear = [0.0f32; 3];
+        for corner in 0..8usize {
+            let offsets = [corner & 1, (corner >> 1) & 1, (corner >> 2) & 1];
+            let weight = cells[0].1[offsets[0]] * cells[1].1[offsets[1]] * cells[2].1[offsets[2]];
+            if weight == 0.0 {
+                continue;
+            }
+            let index = cells[2]
+                .0
+                .saturating_add(offsets[2])
+                .saturating_mul(self.side)
+                .saturating_add(cells[1].0)
+                .saturating_add(offsets[1])
+                .saturating_mul(self.side)
+                .saturating_add(cells[0].0)
+                .saturating_add(offsets[0]);
+            let Some(sample) = self.grid.get(index) else {
+                continue;
+            };
+            for (channel, value) in linear.iter_mut().zip(sample) {
+                *channel += weight * value;
+            }
+        }
+        // The grid holds the linear map unclamped, so that interpolation runs on the map
+        // itself; a colour the device cannot show is clamped here, after it, which is where
+        // the space's own conversion clamps.
+        let mut encoded = [0.0f32; 3];
+        for (channel, value) in encoded.iter_mut().zip(linear) {
+            *channel = sample_curve(&self.output, value, |sample| *sample);
+        }
+        encoded
+    }
+}
+
+/// Linear interpolation over evenly spaced samples of a curve on `0.0..=1.0`.
+///
+/// `read` picks the number out of a sample, so one function serves a curve of triples and a
+/// curve of scalars. The input is clamped to the unit interval, which for the output curve is
+/// the clamp the space's conversion applies to a colour outside the device's gamut.
+fn sample_curve<T>(samples: &[T], at: f32, read: impl Fn(&T) -> f32) -> f32 {
+    let last = samples.len().saturating_sub(1);
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a sample count far below f32's exact range"
+    )]
+    let scaled = at.clamp(0.0, 1.0) * last as f32;
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`scaled` is in 0..=last, so its floor is a valid index"
+    )]
+    let cell = (scaled as usize).min(last.saturating_sub(1));
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a cell index below the sample count"
+    )]
+    let fraction = scaled - cell as f32;
+    match (samples.get(cell), samples.get(cell.saturating_add(1))) {
+        (Some(low), Some(high)) => read(low).mul_add(1.0 - fraction, read(high) * fraction),
+        // Unreachable by construction — every curve here has two samples — and the last
+        // sample is the honest answer if it ever were.
+        _ => samples.last().map_or(0.0, read),
+    }
+}
+
+/// Converts a premultiplied RGBA8 raster out of a three-component blending colour space.
+///
+/// Each channel of `pixels` holds one composited component of the space — the interpreter
+/// painted every colour as its components — and the three are overwritten with the device
+/// colour the cube gives them. The alpha is divided out and multiplied back exactly as
+/// [`resolve`] does for four components, and the error bound is the same one level of 255.
+/// A pixel nothing painted is left alone.
+pub fn resolve_cube(pixels: &mut [u8], cube: &ColourCube) {
+    for pixel in pixels.chunks_exact_mut(4) {
+        let alpha = f32::from(pixel[3]);
+        if pixel[3] == 0 {
+            continue;
+        }
+        let component = |value: u8| (f32::from(value) / alpha).clamp(0.0, 1.0);
+        let rgb = cube.convert([
+            component(pixel[0]),
+            component(pixel[1]),
+            component(pixel[2]),
+        ]);
+        for (channel, value) in pixel.iter_mut().zip(rgb) {
+            let scaled = value.clamp(0.0, 1.0).mul_add(alpha, 0.5);
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a value in 0..=1 scaled by an alpha in 0..=255 is in 0..=255"
+            )]
+            {
+                *channel = scaled as u8;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -466,6 +687,141 @@ mod tests {
         let mut cyan = vec![0, 255, 255, 255];
         resolve(&mut cyan, &[255, 255, 255, 255], &space);
         assert_eq!(cyan, vec![0, 173, 239, 255]);
+    }
+
+    /// A cube whose curves square their input, whose grid is the identity map, and whose
+    /// output curve is the square root: the identity on every component, which is what a
+    /// cube built from a space's own stages has to be when the stages cancel.
+    fn identity_cube() -> ColourCube {
+        let input: Vec<[f32; 3]> = (0..=16u8)
+            .map(|index| {
+                let component = f32::from(index) / 16.0;
+                [component * component; 3]
+            })
+            .collect();
+        let grid: Vec<[f32; 3]> = (0..8usize)
+            .map(|corner| {
+                #[expect(clippy::cast_precision_loss, reason = "a bit")]
+                let at = |bit: usize| ((corner >> bit) & 1) as f32;
+                [at(0), at(1), at(2)]
+            })
+            .collect();
+        let output: Vec<f32> = (0..=64u8)
+            .map(|index| (f32::from(index) / 64.0).sqrt())
+            .collect();
+        ColourCube::new(Arc::from(input), 2, Arc::from(grid), Arc::from(output))
+            .expect("two corners a side is a cube")
+    }
+
+    /// A linear map between the curves is reproduced exactly by two corners a side, which is
+    /// the property the whole construction rests on: `CalRGB` and a matrix profile are curves,
+    /// a matrix and curves, and the matrix costs no sample beyond the corners.
+    #[test]
+    fn a_linear_map_is_exact_from_its_corners() {
+        // A matrix that mixes the axes, sampled at its eight corners.
+        let map = |c: [f32; 3]| {
+            [
+                0.6f32.mul_add(c[0], 0.3f32.mul_add(c[1], 0.1 * c[2])),
+                0.2f32.mul_add(c[0], 0.7f32.mul_add(c[1], 0.1 * c[2])),
+                0.1f32.mul_add(c[0], 0.1f32.mul_add(c[1], 0.8 * c[2])),
+            ]
+        };
+        let grid: Vec<[f32; 3]> = (0..8usize)
+            .map(|corner| {
+                #[expect(clippy::cast_precision_loss, reason = "a bit")]
+                let at = |bit: usize| ((corner >> bit) & 1) as f32;
+                map([at(0), at(1), at(2)])
+            })
+            .collect();
+        let straight: Vec<[f32; 3]> = vec![[0.0; 3], [1.0; 3]];
+        let cube = ColourCube::new(
+            Arc::from(straight),
+            2,
+            Arc::from(grid),
+            Arc::from(vec![0.0f32, 1.0]),
+        )
+        .expect("a cube");
+        for step in 0..=10u8 {
+            let value = f32::from(step) / 10.0;
+            let components = [value, 1.0 - value, value * 0.5];
+            let want = map(components);
+            let got = cube.convert(components);
+            for (left, right) in got.iter().zip(want) {
+                assert!(
+                    (left - right).abs() < 1e-5,
+                    "a linear map through two corners a side: {got:?} against {want:?}"
+                );
+            }
+        }
+    }
+
+    /// The curves are applied in their order — input, grid, output — and each on its own axis.
+    #[test]
+    fn the_stages_run_in_order_and_cancel_when_they_are_inverses() {
+        let cube = identity_cube();
+        for step in 0..=8u8 {
+            let value = f32::from(step) / 8.0;
+            let got = cube.convert([value, 0.25, 1.0 - value]);
+            let want = [value, 0.25, 1.0 - value];
+            for (left, right) in got.iter().zip(want) {
+                assert!(
+                    (left - right).abs() < 0.02,
+                    "square, identity, root is the identity to the curves' sampling: \
+                     {got:?} against {want:?}"
+                );
+            }
+        }
+        assert!(
+            ColourCube::new(
+                Arc::from(vec![[0.0; 3]]),
+                2,
+                Arc::from(vec![[0.0; 3]; 8]),
+                Arc::from(vec![0.0, 1.0])
+            )
+            .is_none(),
+            "one input sample is not a curve"
+        );
+        assert!(
+            ColourCube::new(
+                Arc::from(vec![[0.0; 3], [1.0; 3]]),
+                2,
+                Arc::from(vec![[0.0; 3]; 7]),
+                Arc::from(vec![0.0, 1.0])
+            )
+            .is_none(),
+            "seven samples is not a grid of side two"
+        );
+    }
+
+    /// `resolve_cube` reads the components through the alpha, converts, and writes the
+    /// device colour back premultiplied; an unpainted pixel is left alone.
+    #[test]
+    fn a_three_component_raster_resolves_through_the_cube_under_its_own_alpha() {
+        // Identity curves and a grid that swaps the first two axes, so the arithmetic is
+        // visibly not the identity.
+        let grid: Vec<[f32; 3]> = (0..8usize)
+            .map(|corner| {
+                #[expect(clippy::cast_precision_loss, reason = "a bit")]
+                let at = |bit: usize| ((corner >> bit) & 1) as f32;
+                [at(1), at(0), at(2)]
+            })
+            .collect();
+        let cube = ColourCube::new(
+            Arc::from(vec![[0.0; 3], [1.0; 3]]),
+            2,
+            Arc::from(grid),
+            Arc::from(vec![0.0f32, 1.0]),
+        )
+        .expect("a cube");
+        let mut pixels = [255, 0, 128, 255, 128, 0, 64, 128, 7, 7, 7, 0];
+        resolve_cube(&mut pixels, &cube);
+        assert_eq!(&pixels[..4], &[0, 255, 128, 255]);
+        assert_eq!(&pixels[4..8], &[0, 128, 64, 128]);
+        assert_eq!(
+            &pixels[8..],
+            &[7, 7, 7, 0],
+            "an unpainted pixel is left alone"
+        );
     }
 
     /// A curve of two samples is the straight line between them, and a component lands on

@@ -143,6 +143,72 @@ impl Transfer {
     }
 }
 
+/// §11.5.3's luminosity of a colour composited in a three-component CIE-based space, as
+/// one curve per component whose sum is the `Y`.
+///
+/// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as the
+/// > luminosity. This produces a colorimetrically correct luminosity.
+///
+/// and the clause's own EXAMPLE 1 states it for `CalRGB` as the sum of the three components,
+/// each decoded by its gamma and weighted by its `Y` in the space's `Matrix` — a sum of three
+/// functions of one component each. A matrix profile's `Y` is the same shape, its tone curves
+/// weighted by the middle row of its matrix. So a mask group `pdf_model` painted in such a
+/// space's own components hands the backend three curves, and the luminosity of a composited
+/// pixel is the sum of each curve at its channel, clamped to the unit a mask value holds.
+///
+/// A space whose `Y` is not separable — a profile built on a lookup table — is not one of
+/// these, and `pdf_model` composites such a mask group on the device instead; this carries
+/// what the clause states exactly or nothing.
+///
+/// Sampled at 256 points per component so that a channel at full alpha lands on a sample
+/// exactly, and interpolated between them where the backdrop's composite leaves a channel
+/// between two.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Luminance {
+    /// `curves[i][axis]` is that axis's share of `Y` at the component `i ÷ 255`.
+    curves: std::sync::Arc<[[f32; 3]; 256]>,
+}
+
+impl Luminance {
+    /// The luminosity from its three sampled curves.
+    #[must_use]
+    pub fn new(curves: std::sync::Arc<[[f32; 3]; 256]>) -> Self {
+        Self { curves }
+    }
+
+    /// The curves themselves, one sample per row and one component per column.
+    #[must_use]
+    pub fn curves(&self) -> &[[f32; 3]; 256] {
+        &self.curves
+    }
+
+    /// The `Y` of a colour whose channels hold the space's three components.
+    #[must_use]
+    pub fn of(&self, colour: Color) -> f32 {
+        let mut sum = 0.0f32;
+        for (axis, component) in [colour.r, colour.g, colour.b].into_iter().enumerate() {
+            let scaled = component.clamp(0.0, 1.0) * 255.0;
+            #[expect(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "`scaled` is in 0..=255, so its floor is a valid index"
+            )]
+            let low = (scaled as usize).min(254);
+            #[expect(clippy::cast_precision_loss, reason = "an index below 255")]
+            let fraction = scaled - low as f32;
+            let at = |index: usize| {
+                self.curves
+                    .get(index)
+                    .and_then(|sample| sample.get(axis))
+                    .copied()
+                    .unwrap_or(0.0)
+            };
+            sum += at(low).mul_add(1.0 - fraction, at(low.saturating_add(1)) * fraction);
+        }
+        sum.clamp(0.0, 1.0)
+    }
+}
+
 /// A transparency group evaluated for its opacity rather than its colour (§11.5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SoftMask {
@@ -162,6 +228,11 @@ pub struct SoftMask {
     /// where that is the identity — see [`Transfer`], which since the
     /// three-hundred-and-eighty-third session carries more than §11.6.5.1's `/TR`.
     pub transfer: Option<Transfer>,
+    /// §11.5.3's `Y` of a group composited in a three-component CIE-based space, where the
+    /// channels hold that space's components rather than a device colour; `None` where the
+    /// luminosity is [`Color::grey_level`] of what the channels hold. Meaningful only under
+    /// [`SoftMaskKind::Luminosity`].
+    pub luminance: Option<Luminance>,
 }
 
 impl SoftMask {
@@ -205,13 +276,20 @@ impl SoftMask {
                     over(pixel[1], backdrop.g),
                     over(pixel[2], backdrop.b),
                 );
+                // And §11.5.3's other branch, for a group whose channels hold a CIE-based
+                // space's three components: the `Y` is the sum of one curve per component
+                // ([`Luminance`]), which is the clause's EXAMPLE 1 for `CalRGB`.
+                let luminosity = self
+                    .luminance
+                    .as_ref()
+                    .map_or_else(|| composited.grey_level(), |curves| curves.of(composited));
                 #[expect(
                     clippy::cast_possible_truncation,
                     clippy::cast_sign_loss,
                     reason = "clamped to 0..=255 on the line above the cast"
                 )]
                 {
-                    (composited.grey_level() * 255.0).round().clamp(0.0, 255.0) as u8
+                    (luminosity * 255.0).round().clamp(0.0, 255.0) as u8
                 }
             }
         };
@@ -276,7 +354,7 @@ impl SoftMask {
 
 #[cfg(test)]
 mod tests {
-    use super::{SoftMask, SoftMaskKind, Transfer};
+    use super::{Luminance, SoftMask, SoftMaskKind, Transfer};
     use crate::paint::Color;
 
     fn mask(kind: SoftMaskKind, transfer: Option<Transfer>) -> SoftMask {
@@ -284,7 +362,59 @@ mod tests {
             commands: Vec::new(),
             kind,
             transfer,
+            luminance: None,
         }
+    }
+
+    /// §11.5.3 EXAMPLE 1's `Y` for a `CalRGB` group, as three curves: a gamma of 2 on each
+    /// component and the sRGB primaries' `Y` weights, so the clause's formula is
+    /// `0.2126 A² + 0.7152 B² + 0.0722 C²` and the curves are that formula term by term.
+    #[test]
+    fn a_luminance_of_three_curves_sums_the_clauses_own_formula() {
+        let curves: [[f32; 3]; 256] = std::array::from_fn(|index| {
+            #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+            let component = index as f32 / 255.0;
+            let decoded = component * component;
+            [0.2126 * decoded, 0.7152 * decoded, 0.0722 * decoded]
+        });
+        let luminance = Luminance::new(std::sync::Arc::new(curves));
+        let close = |colour: Color, want: f32, what: &str| {
+            let got = luminance.of(colour);
+            assert!((got - want).abs() < 1e-3, "{what}: {got} against {want}");
+        };
+        close(Color::rgb(1.0, 1.0, 1.0), 1.0, "white is the weights' sum");
+        close(Color::rgb(0.0, 1.0, 0.0), 0.7152, "green is its own weight");
+        close(
+            Color::rgb(0.5, 0.0, 0.0),
+            0.2126 * 0.25,
+            "half red is gamma-decoded first",
+        );
+        close(
+            Color::rgb(0.5, 0.5, 0.5),
+            0.25,
+            "a grey of ½ under gamma 2 is a Y of ¼",
+        );
+
+        let mask = SoftMask {
+            commands: Vec::new(),
+            kind: SoftMaskKind::Luminosity {
+                backdrop: Color::BLACK,
+            },
+            transfer: None,
+            luminance: Some(luminance),
+        };
+        assert_eq!(
+            mask.value([128, 128, 128, 255]),
+            64,
+            "a composited grey of ½ masks at the clause's ¼, not at 0.30 + 0.59 + 0.11 of ½"
+        );
+        assert_eq!(
+            mask.value([255, 255, 255, 128]),
+            // Half of white over black composites the components to ½, whose Y under gamma 2
+            // is ¼ — the compositing happens on the components and the curves come after.
+            64,
+            "the curves are applied after the composite, not before it"
+        );
     }
 
     /// §11.5.2: the alpha is the mask value, whatever colour carried it.

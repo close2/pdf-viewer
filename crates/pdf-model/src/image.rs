@@ -149,11 +149,17 @@ impl ColourSpace {
             // converting arm before the `DeviceGray` exception below: a `DeviceGray` sample
             // is *not* its own component there, because the component is the curve's
             // inverse of that grey (ADR 0792).
+            // A three-component CIE-based page keeps the `DeviceRGB` fast arm and no other:
+            // §11.7.2 makes a device colour of three components the group's space "for
+            // compositing purposes only", so a `DeviceRGB` sample *is* its own components
+            // there, where a grey or a CMYK one is converted in through the route (ADR 0797).
+            (crate::colour::ColourSpace::Rgb, Compositing::Additive(_)) => Self::Rgb,
             (
                 space,
                 Compositing::Luminosity(_)
                 | Compositing::Subtractive(..)
-                | Compositing::Calibrated(_),
+                | Compositing::Calibrated(_)
+                | Compositing::Additive(_),
             ) => Self::Resolved(space),
             // A page composited in `DeviceGray` is the same argument once more, with one
             // exception the arm order states: a `DeviceGray` sample *is* its own grey, so the

@@ -4970,3 +4970,39 @@ corpus (`batch3/MOZILLA`), and `MOZILLA-892314-0.pdf` in the same shard is the s
 We have not pinned this in our quorra gate: the page is not in `doc/pdf.js`, so the gate never
 sees it, and the CPU backend draws it — now in a second and a half — which is our standing answer
 for a budget refusal.
+
+## 43. Two asks from ISO 32000-2's three-component blending spaces: a per-pixel conversion at a group's `Do`, and a luminosity mask whose `Y` is three curves
+
+Session 879 (ADR 0797) took the last of §11.3.4's blending colour spaces into the oracle: a
+`CalRGB` or `ICCBased` 'RGB ' page, isolated group or `/Luminosity` mask group now composites
+the space's own three components, and two things are resolved *after* the compositing that a
+scene under composition cannot state. Both are the shapes this file has asked about before (§17's
+page-level pair, and the group-scoped pair and curve `REFUSED_BEFORE_THE_SCENE` names), one
+component wider.
+
+**The group's conversion out.** `pdf_render::ColourCube` is one curve per component, a grid of
+`side³` linear-light device colours interpolated trilinearly, and one output curve applied to each
+channel — for `CalRGB` and a matrix profile the grid is two samples an axis and the construction
+is exact. At page level we apply it to your readback in one pass, as we do the one-component
+curve; at group level there is no readback, so `issue16742.pdf` and `issue5044.pdf` are refused
+before the scene. The ask is the one §17 answered for the page: a `GroupSpec` that carries a
+conversion to run over the group's composited result before it is painted onto its parent. The
+three shapes we would hand it are a 3×3 curves-grid-curve (this one), a four-axis grid
+(`BlendingSpace`, side 2 to 17) and a one-axis curve (`GreyCurve`), and one vocabulary — curves
+on either side of an N-axis grid — would hold all three.
+
+**The mask's luminosity.** `MaskKind::Luminosity { backdrop }` composites over the backdrop and
+weighs the channels with §11.5.3's device coefficients in its shader. For a mask group in a
+CIE-based space of three components the clause's `Y` is a sum of one function of each component
+— `Y_A · A^G_R + Y_B · B^G_G + Y_C · C^G_C` for `CalRGB` (the clause's own EXAMPLE 1), a matrix
+profile's tone curves weighted by the middle row of its matrix — and we carry it as three
+256-sample curves (`pdf_render::Luminance`) summed per pixel before the transfer table.
+`issue21346.pdf` is refused for it. The ask: a `MaskKind::Luminosity` variant, or a field beside
+`backdrop`, taking three curves the shader sums instead of the fixed weights; the transfer table
+stays where it is, after the sum.
+
+Both refusals are by name and the frames go to the CPU backend, which draws them
+(`headless_quorra.rs` holds the group refusal against the cross-backend scene). Neither is
+urgent by population — three pages of `doc/pdf.js` — but the mask one is the crawl's majority
+mask population, 28 972 groups declaring a three-component `ICCBased` space, and every one of
+them will refuse on this backend once it reaches a page with such a mask.

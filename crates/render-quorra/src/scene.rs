@@ -202,6 +202,14 @@ fn refuse_untranslatable_group(
                     .to_owned(),
             ))
         }
+        Some(pdf_render::GroupBlending::ThreeComponents { .. }) => {
+            Err(QuorraRasterError::Unsupported(
+                "a group compositing in a blending colour space of three CIE-based components \
+                 through a cube: the cube resolves per pixel after the group composites \
+                 (ISO 32000-2 §11.6.6, §11.7.2)"
+                    .to_owned(),
+            ))
+        }
         None => Ok(()),
     }
 }
@@ -1453,6 +1461,19 @@ impl<'a> Encoder<'a> {
             .list
             .soft_mask(id)
             .ok_or(QuorraRasterError::UnknownSoftMask(id))?;
+        // §11.5.3's `Y` of a group composited in a three-component CIE-based space is one
+        // curve per component summed per pixel (`pdf_render::Luminance`), and quorra's
+        // luminosity mask computes §10.4.2.2's weights of the channels in its own shader —
+        // a different formula, so the mask is refused by name and the frame goes to the CPU
+        // backend rather than being drawn to the wrong luminosity in silence.
+        if def.luminance.is_some() {
+            return Err(QuorraRasterError::Unsupported(
+                "a luminosity soft mask whose group composites in a three-component CIE-based \
+                 space: its luminosity is three curves summed per pixel, where the scene's \
+                 mask weighs the channels (ISO 32000-2 §11.5.3)"
+                    .to_owned(),
+            ));
+        }
         let kind = match def.kind {
             SoftMaskKind::Alpha => quorra_scene::MaskKind::Alpha,
             SoftMaskKind::Luminosity { backdrop } => quorra_scene::MaskKind::Luminosity {

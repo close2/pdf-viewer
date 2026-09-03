@@ -123,6 +123,19 @@ pub enum Compositing {
     /// then, if the colour spaces are not equivalent, be converted to the native colour space
     /// of the output device". ADR 0792.
     Calibrated(Arc<GreyRoute>),
+    /// A page or an isolated group whose blending colour space is `CalRGB` or an `ICCBased`
+    /// 'RGB ' profile (§11.3.4, §8.6.5.3, §8.6.5.5), painted in that space's own three
+    /// components, with the conversion out applied once at the end.
+    ///
+    /// The three-component form of [`Compositing::Calibrated`]: §11.3.4's per-component
+    /// formula composites each of the three, so the raster's channels carry the components
+    /// themselves — `A`, `B` and `C`, or the profile's device values — and §11.4.7's
+    /// conversion to the device runs over the composited result through
+    /// [`RgbRoute::cube`], applied by `pdf_render::blending::resolve_cube`. The conversion
+    /// in is [`RgbRoute::components_of`], and §11.7.2 decides most of it: a device colour of
+    /// three components "shall be the CIE-based space of the nearest such ancestor" for
+    /// compositing purposes, so a `DeviceRGB` mark keeps its numbers. ADR 0797.
+    Additive(Arc<RgbRoute>),
     /// A page §11.4.7 composites in four components, painted in the half of them this raster
     /// carries. See [`Half`] for which half, [`Press`] for whose four, and
     /// `pdf_render::blending`.
@@ -140,17 +153,21 @@ type CompositingKey = (
     Option<Half>,
     Option<PressIdentity>,
     Option<GreyIdentity>,
+    Option<RgbIdentity>,
 );
 
 impl Compositing {
     /// This value as the tuple every derived trait below is defined on.
     fn key(&self) -> CompositingKey {
         match self {
-            Self::Device => (0, None, None, None, None),
-            Self::Luminosity(scale) => (1, Some(*scale), None, None, None),
-            Self::Subtractive(half, press) => (2, None, Some(*half), Some(press.identity), None),
-            Self::Grey => (3, None, None, None, None),
-            Self::Calibrated(route) => (4, None, None, None, Some(route.identity)),
+            Self::Device => (0, None, None, None, None, None),
+            Self::Luminosity(scale) => (1, Some(*scale), None, None, None, None),
+            Self::Subtractive(half, press) => {
+                (2, None, Some(*half), Some(press.identity), None, None)
+            }
+            Self::Grey => (3, None, None, None, None, None),
+            Self::Calibrated(route) => (4, None, None, None, Some(route.identity), None),
+            Self::Additive(route) => (5, None, None, None, None, Some(route.identity)),
         }
     }
 }
@@ -246,6 +263,13 @@ impl Compositing {
                 a: colour.a,
                 ..Color::grey(route.component_of(space, values))
             },
+            Self::Additive(route) => {
+                let [a, b, c] = route.components_of(space, values, black_point);
+                Color {
+                    a: colour.a,
+                    ..Color::rgb(a, b, c)
+                }
+            }
             Self::Subtractive(half, press) => {
                 let [cyan, magenta, yellow, black] = space.to_cmyk(values, black_point, press);
                 let painted = match *half {
@@ -408,6 +432,345 @@ impl GreyRoute {
         #[expect(clippy::cast_precision_loss, reason = "sample indices below 256")]
         let component = (below as f32 + fraction) / last as f32;
         channel(component)
+    }
+}
+
+/// Which three-component CIE-based space an [`RgbRoute`] is the route into and out of.
+///
+/// What [`Compositing`]'s key and §11.6.6's "not equivalent to the group colour space" both
+/// need, as [`GreyIdentity`] is for one component: two `CalRGB` dictionaries stating one
+/// gamma, one white point and one matrix are one space, and a profile is the profile
+/// [`crate::icc::Profile::identity`] says it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RgbIdentity {
+    /// §8.6.5.3's space, by the bits of its `Gamma`, `WhitePoint` and `Matrix`.
+    CalRgb {
+        /// `Gamma`, as `f32::to_bits` apiece.
+        gamma: [u32; 3],
+        /// `WhitePoint`, as `f32::to_bits` apiece.
+        white: [u32; 3],
+        /// `Matrix`, as `f32::to_bits` apiece.
+        matrix: [u32; 9],
+    },
+    /// A three-component `ICCBased` space, by its profile.
+    Profile(u128),
+}
+
+/// How many samples [`RgbRoute`] takes of each input curve: one per value an eight-bit
+/// channel can hold, so that a component at full alpha lands on a sample exactly.
+const RGB_CURVE_SAMPLES: usize = 256;
+
+/// How many samples [`RgbRoute`] takes of the device's transfer function.
+///
+/// More than the input curves', because this one is steep at black — the sRGB encoding has
+/// a slope of 12.92 there — and it is sampled over linear light, where the interesting part
+/// is the first few percent. At 1024 samples the linear interpolation is within a tenth of a
+/// level of 255 of the function everywhere; at 256 it is within half a level, which the
+/// raster would round away, but the finer table costs four kilobytes and settles it.
+const RGB_OUTPUT_SAMPLES: usize = 1024;
+
+/// How many samples an axis takes of a profile whose conversion is a lookup table.
+///
+/// A table has no linear stage to carry as corners, so the whole conversion to linear light
+/// is sampled, at the side a `B2A` table itself typically has. Thirty-three cubed is 36 000
+/// samples, and what it departs from evaluating the profile is a property of that profile's
+/// own smoothness between its grid points; a matrix profile and a `CalRGB` need no such
+/// grid at all, which is [`RgbRoute::of`]'s first branch.
+const RGB_TABLE_SIDE: usize = 33;
+
+/// The way into a `CalRGB` or `ICCBased` 'RGB ' blending colour space, and the way out
+/// (ISO 32000-2 §11.3.4, §11.6.6, §11.7.2, §8.6.5.3, §8.6.5.5).
+///
+/// [`GreyRoute`]'s construction for three components rather than one. §11.6.6 has every
+/// painting operator "convert source colours in a colour space (that are not equivalent to
+/// the group colour space) to the group colour space before compositing objects into the
+/// group", and §11.4.7 converts the composited result out to the device at the end. The
+/// standard states the conversion *out* in full — §8.6.5.3's gamma decoding and `Matrix`, a
+/// profile's `A2B` — and the conversion *in* in three parts:
+///
+/// - **A device colour of three components keeps its numbers**, by §11.7.2: "if the colour
+///   space of any graphics object is a device colour space, and the current group or an
+///   ancestor of the current group is defined with a CIE-based colour space with the same
+///   number of colourants, then, for compositing purposes only, the colour space of the
+///   graphics object shall be the CIE-based space of the nearest such ancestor". So a
+///   `DeviceRGB` mark is composited as the components it states, unconverted.
+/// - **A CIE-based colour goes in from its XYZ** (§10.3.1's conversion between CIE-based
+///   spaces): through a profile's `B2A` or a matrix profile's inverted stages
+///   ([`crate::icc::Profile::to_device`]), or through §8.6.5.3's stages run backwards for a
+///   `CalRGB` — adapted onto the space's white point, the `Matrix` inverted, each component
+///   clamped to the range the clause gives it and raised to the reciprocal of its gamma.
+/// - **A device colour of another component count** — a grey, a `DeviceCMYK` — has, in the
+///   clause's words, "no generally defined method for converting them", and "shall be
+///   converted or mapped to a CIE-based colour space in an implementationdependent fashion".
+///   This tree's way is the one ADR 0796 chose for a press: the colour's sRGB, which §10.3.2
+///   has this processor establish for its device spaces, taken to XYZ and in from there.
+///
+/// The conversion out is carried to the backends as a [`pdf_render::ColourCube`] — the
+/// space's own curves, its linear stage as eight corners, and the device's transfer function
+/// — which for `CalRGB` and a matrix profile is the conversion exactly rather than a sampling
+/// of it; a table profile is sampled over a grid.
+///
+/// **A profile without a way in is not a route.** §11.3.4 requires a blending-space profile
+/// to be bi-directional; a table profile without a `B2A` this crate reads has no conversion
+/// in, and [`RgbRoute::of`] answers `None`, which keeps the report the space had.
+#[derive(Debug)]
+pub struct RgbRoute {
+    /// The conversion out, as the backends apply it.
+    cube: pdf_render::ColourCube,
+    /// Which space this is the route into.
+    identity: RgbIdentity,
+    /// What the conversion in runs through.
+    inward: Inward,
+}
+
+/// The stages an [`RgbRoute`] runs backwards on the way in.
+#[derive(Debug)]
+enum Inward {
+    /// §8.6.5.3's space: adapt onto `white`, invert `columns`, undo `gamma`.
+    CalRgb {
+        white: [f32; 3],
+        gamma: [f32; 3],
+        columns: [[f32; 3]; 3],
+    },
+    /// A profile, whose `to_device` is its own inverse.
+    Profile(Arc<crate::icc::Profile>),
+}
+
+/// The first two stages of an [`RgbRoute`]'s cube, and the way back in, for a space.
+type Stages = (Vec<[f32; 3]>, usize, Vec<[f32; 3]>, Inward);
+
+/// The eight corners of a linear map, in [`pdf_render::ColourCube`]'s index order.
+fn corners(linear_of: impl Fn([f32; 3]) -> [f32; 3]) -> Vec<[f32; 3]> {
+    (0..8usize)
+        .map(|corner| {
+            #[expect(clippy::cast_precision_loss, reason = "a bit")]
+            let at = |bit: usize| ((corner >> bit) & 1) as f32;
+            linear_of([at(0), at(1), at(2)])
+        })
+        .collect()
+}
+
+/// One curve per component, sampled at [`RGB_CURVE_SAMPLES`] points.
+fn curves(curve: impl Fn(usize, f32) -> f32) -> Vec<[f32; 3]> {
+    (0..RGB_CURVE_SAMPLES)
+        .map(|index| {
+            #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+            let component = index as f32 / (RGB_CURVE_SAMPLES - 1) as f32;
+            [
+                curve(0, component),
+                curve(1, component),
+                curve(2, component),
+            ]
+        })
+        .collect()
+}
+
+/// §8.6.5.3's stages, with the adaptation `cie_to_srgb` applies between the matrix and the
+/// device: the curves are the gamma decoding, and everything after it is linear.
+fn cal_rgb_stages(white: [f32; 3], gamma: [f32; 3], matrix: &[f32; 9]) -> Stages {
+    let mut columns = [[0.0f32; 3]; 3];
+    for (column, values) in columns.iter_mut().enumerate() {
+        for (axis, value) in values.iter_mut().enumerate() {
+            *value = matrix
+                .get(column.saturating_mul(3).saturating_add(axis))
+                .copied()
+                .unwrap_or(0.0);
+        }
+    }
+    let input = curves(|axis, component| component.powf(gamma.get(axis).copied().unwrap_or(1.0)));
+    let grid =
+        corners(|decoded| xyz_d50_to_linear_srgb(adapt(cal_rgb_xyz(decoded, matrix), white, D50)));
+    (
+        input,
+        2,
+        grid,
+        Inward::CalRgb {
+            white,
+            gamma,
+            columns,
+        },
+    )
+}
+
+/// A profile's stages: a matrix profile's curves and corners, or a table profile's grid,
+/// or `None` for a profile with no way in.
+fn profile_stages(profile: &crate::icc::Profile) -> Option<Stages> {
+    let inward = Inward::Profile(Arc::new(profile.clone()));
+    if let Some(stages) = profile.matrix_stages() {
+        let input = curves(|axis, component| stages.linear(axis, component));
+        let grid = corners(|linear| xyz_d50_to_linear_srgb(stages.xyz(linear)));
+        return Some((input, 2, grid, inward));
+    }
+    if !profile.is_bidirectional() {
+        return None;
+    }
+    let side = RGB_TABLE_SIDE;
+    let mut grid = Vec::with_capacity(side.pow(3));
+    for third in 0..side {
+        for second in 0..side {
+            for first in 0..side {
+                #[expect(clippy::cast_precision_loss, reason = "a grid index below the side")]
+                let at = |index: usize| index as f32 / (side - 1) as f32;
+                // With the compensation on, as every colour of the space reaches the screen
+                // and as `to_device` is asked on the way in.
+                let xyz = profile.to_xyz_with(&[at(first), at(second), at(third)], true);
+                grid.push(xyz_d50_to_linear_srgb(xyz));
+            }
+        }
+    }
+    Some((vec![[0.0f32; 3], [1.0f32; 3]], side, grid, inward))
+}
+
+impl RgbRoute {
+    /// The route into and out of `space`, or `None` where `space` is not a three-component
+    /// space §11.3.4 lists, or is a profile with no way in.
+    #[must_use]
+    pub fn of(space: &ColourSpace) -> Option<Self> {
+        let identity = space.rgb_identity()?;
+        let (input, side, grid, inward) = match space {
+            ColourSpace::CalRgb {
+                white,
+                black: _,
+                gamma,
+                matrix,
+            } => cal_rgb_stages(*white, *gamma, matrix),
+            ColourSpace::Icc { profile } => profile_stages(profile)?,
+            _ => return None,
+        };
+        let output: Vec<f32> = (0..RGB_OUTPUT_SAMPLES)
+            .map(|index| {
+                #[expect(clippy::cast_precision_loss, reason = "an index below 1024")]
+                let linear = index as f32 / (RGB_OUTPUT_SAMPLES - 1) as f32;
+                gamma(linear)
+            })
+            .collect();
+        let cube = pdf_render::ColourCube::new(
+            Arc::from(input),
+            side,
+            Arc::from(grid),
+            Arc::from(output),
+        )?;
+        Some(Self {
+            cube,
+            identity,
+            inward,
+        })
+    }
+
+    /// Whether `space`'s `Y` is a sum of one function of each component, which is what
+    /// [`RgbRoute::luminance`] can state: `CalRGB`, or a matrix profile. Asked of the space
+    /// rather than of a route so that a mask group in a table profile's space does not build
+    /// a route it cannot use.
+    #[must_use]
+    pub fn luminance_is_separable(space: &ColourSpace) -> bool {
+        match space {
+            ColourSpace::CalRgb { .. } => true,
+            ColourSpace::Icc { profile } => {
+                profile.channels() == 3 && profile.matrix_stages().is_some()
+            }
+            _ => false,
+        }
+    }
+
+    /// The conversion out of the space, for the display list to carry.
+    #[must_use]
+    pub fn cube(&self) -> &pdf_render::ColourCube {
+        &self.cube
+    }
+
+    /// Which space this is the route into.
+    #[must_use]
+    pub fn identity(&self) -> RgbIdentity {
+        self.identity
+    }
+
+    /// The components a colour becomes inside the space: §11.6.6's conversion in, decided
+    /// as the type's documentation says.
+    #[must_use]
+    pub fn components_of(
+        &self,
+        space: &ColourSpace,
+        values: &[f32],
+        black_point: bool,
+    ) -> [f32; 3] {
+        space.rgb_components_at(values, 0, black_point, self)
+    }
+
+    /// The components whose colour has the D50 XYZ `xyz`.
+    fn components_with_xyz(&self, xyz: [f32; 3], black_point: bool) -> [f32; 3] {
+        match &self.inward {
+            Inward::CalRgb {
+                white,
+                gamma,
+                columns,
+            } => {
+                // §8.6.5.3 run backwards: the adaptation `cie_to_srgb` applied is undone by
+                // adapting from D50 onto the space's own white, the `Matrix` is inverted, and
+                // each decoded component — "shall be in the range 0.0 to 1.0; component
+                // values falling outside that range shall be adjusted to the nearest valid
+                // value" — is clamped and raised to the reciprocal of its gamma.
+                let decoded = solve_three(columns, adapt(xyz, D50, *white)).unwrap_or([0.0; 3]);
+                let mut components = [0.0f32; 3];
+                for ((component, value), exponent) in components.iter_mut().zip(decoded).zip(gamma)
+                {
+                    let clamped = channel(value);
+                    *component = if *exponent > 0.0 {
+                        clamped.powf(1.0 / exponent)
+                    } else {
+                        clamped
+                    };
+                }
+                components
+            }
+            Inward::Profile(profile) => profile
+                .to_device(xyz, black_point)
+                .map_or([0.0; 3], |device| {
+                    [channel(device[0]), channel(device[1]), channel(device[2])]
+                }),
+        }
+    }
+
+    /// §11.5.3's `Y` of a colour composited in this space, as one curve per component —
+    /// or `None` where the space's `Y` is not a sum of one function of each component.
+    ///
+    /// > For CIE-based spaces, convert to the CIE 1931 XYZ space and use the Y component as
+    /// > the luminosity. This produces a colorimetrically correct luminosity.
+    ///
+    /// For `CalRGB` the clause's EXAMPLE 1 writes the formula out: the `Y` entries of the
+    /// `Matrix` weighting each gamma-decoded component, "using components of the Gamma and
+    /// Matrix entries of the colour space dictionary" — the space's own XYZ, with no
+    /// adaptation, which is why this reads the matrix rather than [`ColourSpace::cie_xyz_at`].
+    /// A matrix profile's `Y` is the same shape, its tone curves weighted by the middle row
+    /// of its matrix; a table profile's is not separable, and a mask in such a space keeps
+    /// `crate::soft_mask`'s device route.
+    #[must_use]
+    pub fn luminance(&self) -> Option<pdf_render::Luminance> {
+        let curves: [[f32; 3]; 256] = match &self.inward {
+            Inward::CalRgb { gamma, columns, .. } => std::array::from_fn(|index| {
+                #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+                let component = index as f32 / 255.0;
+                let mut share = [0.0f32; 3];
+                for ((value, column), exponent) in share.iter_mut().zip(columns).zip(gamma) {
+                    *value = column.get(1).copied().unwrap_or(0.0) * component.powf(*exponent);
+                }
+                share
+            }),
+            Inward::Profile(profile) => {
+                let stages = profile.matrix_stages()?;
+                std::array::from_fn(|index| {
+                    #[expect(clippy::cast_precision_loss, reason = "an index below 256")]
+                    let component = index as f32 / 255.0;
+                    let mut share = [0.0f32; 3];
+                    for (axis, value) in share.iter_mut().enumerate() {
+                        let mut linear = [0.0f32; 3];
+                        linear[axis] = stages.linear(axis, component);
+                        *value = stages.xyz(linear)[1];
+                    }
+                    share
+                })
+            }
+        };
+        Some(pdf_render::Luminance::new(Arc::new(curves)))
     }
 }
 
@@ -1035,6 +1398,32 @@ impl ColourSpace {
         }
     }
 
+    /// Which three-component CIE-based space this is, for [`RgbRoute`], or `None` for a
+    /// space that is not one §11.3.4 admits as a blending colour space of three components.
+    ///
+    /// `Lab` is not one: the clause says it "shall not be used as blending colour spaces
+    /// because the compositing computations in such spaces do not give meaningful results
+    /// when applied separately to each component".
+    #[must_use]
+    pub fn rgb_identity(&self) -> Option<RgbIdentity> {
+        match self {
+            Self::CalRgb {
+                white,
+                black: _,
+                gamma,
+                matrix,
+            } => Some(RgbIdentity::CalRgb {
+                gamma: gamma.map(f32::to_bits),
+                white: white.map(f32::to_bits),
+                matrix: matrix.map(f32::to_bits),
+            }),
+            Self::Icc { profile } if profile.channels() == 3 => {
+                Some(RgbIdentity::Profile(profile.identity()))
+            }
+            _ => None,
+        }
+    }
+
     /// How many numbers a colour in this space takes.
     #[must_use]
     pub fn components(&self) -> usize {
@@ -1344,6 +1733,60 @@ impl ColourSpace {
             _ => match self.cie_xyz_at(values, depth, black_point) {
                 Some(xyz) if press.converts_in_by_profile() => xyz_to_ink(press, xyz),
                 _ => rgb_to_ink(press, self.to_rgb_at(values, depth, black_point)),
+            },
+        }
+    }
+
+    /// [`RgbRoute::components_of`], carrying the recursion depth a nested space costs.
+    ///
+    /// The arms are §11.7.2's: a device space of three colourants is the group's space "for
+    /// compositing purposes only", a colour already in the space keeps its components
+    /// (§11.6.6's "not equivalent"), a special space is the colour it resolves to in its base
+    /// or alternate, and everything else goes in from an XYZ — its own for a CIE-based
+    /// colour, sRGB's for a device colour of another count.
+    fn rgb_components_at(
+        &self,
+        values: &[f32],
+        depth: usize,
+        black_point: bool,
+        route: &RgbRoute,
+    ) -> [f32; 3] {
+        if depth > MAX_DEPTH {
+            return [0.0; 3];
+        }
+        let at = |index: usize| channel(values.get(index).copied().unwrap_or(0.0));
+        match self {
+            Self::Rgb => [at(0), at(1), at(2)],
+            Self::CalRgb { .. } | Self::Icc { .. }
+                if self.rgb_identity() == Some(route.identity) =>
+            {
+                [at(0), at(1), at(2)]
+            }
+            Self::Indexed { base, .. } => base.rgb_components_at(
+                &self.entry_of(values),
+                depth.saturating_add(1),
+                black_point,
+                route,
+            ),
+            Self::Separation {
+                alternate,
+                transform,
+                ..
+            } => alternate.rgb_components_at(
+                &transform.eval(values),
+                depth.saturating_add(1),
+                black_point,
+                route,
+            ),
+            Self::Pattern { base } => base.as_ref().map_or([0.0; 3], |base| {
+                base.rgb_components_at(values, depth.saturating_add(1), black_point, route)
+            }),
+            _ => match self.cie_xyz_at(values, depth, black_point) {
+                Some(xyz) => route.components_with_xyz(xyz, black_point),
+                None => route.components_with_xyz(
+                    srgb_to_xyz_d50(self.to_rgb_at(values, depth, black_point)),
+                    black_point,
+                ),
             },
         }
     }
@@ -1917,9 +2360,53 @@ fn cached(identity: PressIdentity) -> Option<Arc<Press>> {
 pub struct Presses {
     /// The presses named so far, in the order they were named.
     named: Mutex<Vec<Arc<Press>>>,
+    /// The three-component routes built so far, in the order they were built.
+    routes: Mutex<Vec<Arc<RgbRoute>>>,
 }
 
+/// How many [`RgbRoute`]s an interpretation keeps.
+///
+/// A route into a table profile is 36 000 profile evaluations — the same shape of cost as
+/// sampling a press, which `examples/press_cost` puts at 17 to 46 ms against a 14 to 18 ms
+/// interpretation of the page (ADR 0417) — and a group names its space at every `Do`, so
+/// a page of such groups would sample the same profile once per group. The cap is the
+/// press's; a route beyond it is built and not kept, which is slower and not wrong.
+const MAX_RGB_ROUTES: usize = MAX_PRESSES;
+
 impl Presses {
+    /// The route into and out of `space`, built once per interpretation for each space.
+    ///
+    /// `None` where `space` is not one [`RgbRoute::of`] answers for. Keyed on
+    /// [`ColourSpace::rgb_identity`], so that two dictionaries stating one `CalRGB`, or two
+    /// streams carrying one profile, are one route.
+    #[must_use]
+    pub fn rgb_route(&self, space: &ColourSpace) -> Option<Arc<RgbRoute>> {
+        let identity = space.rgb_identity()?;
+        if let Some(found) = self
+            .routes
+            .lock()
+            .ok()?
+            .iter()
+            .find(|route| route.identity == identity)
+        {
+            return Some(Arc::clone(found));
+        }
+        // Built with no lock held, for the reason `press_for_profile` gives.
+        let built = Arc::new(RgbRoute::of(space)?);
+        let mut routes = self.routes.lock().ok()?;
+        if let Some(found) = routes
+            .iter()
+            .find(|route| route.identity == identity)
+            .map(Arc::clone)
+        {
+            return Some(found);
+        }
+        if routes.len() < MAX_RGB_ROUTES {
+            routes.push(Arc::clone(&built));
+        }
+        Some(built)
+    }
+
     /// The press this profile describes, or `None` if this interpretation has spent its budget.
     ///
     /// `None` is [`MAX_PRESSES`] distinct presses already named, which
@@ -2738,7 +3225,7 @@ fn multilinear<const N: usize>(
 /// no pivoting to be read: each unknown is the determinant with its own column replaced,
 /// divided by the determinant. A singular system is a point where the map is locally flat in
 /// some direction, and the caller stops there rather than stepping to infinity.
-fn solve_three(columns: &[[f32; 3]; 3], right: [f32; 3]) -> Option<[f32; 3]> {
+pub(crate) fn solve_three(columns: &[[f32; 3]; 3], right: [f32; 3]) -> Option<[f32; 3]> {
     let (a, b, c) = (columns[0], columns[1], columns[2]);
     let determinant = triple(a, b, c);
     if determinant.abs() < 1e-9 {
@@ -2910,19 +3397,31 @@ fn adapt(xyz: [f32; 3], from: [f32; 3], to: [f32; 3]) -> [f32; 3] {
 ///
 /// The only place in this crate where an XYZ becomes a pixel. `Lab`, `CalGray`, `CalRGB`
 /// and every ICC profile arrive here, and the module documentation says why that matters.
+pub(crate) fn xyz_d50_to_srgb(xyz: [f32; 3]) -> Color {
+    let [r, g, b] = xyz_d50_to_linear_srgb(xyz);
+    Color::rgb(gamma(r), gamma(g), gamma(b))
+}
+
+/// Converts a D50 XYZ to *linear* sRGB, unclamped: [`xyz_d50_to_srgb`] before its transfer
+/// function.
+///
+/// XYZ (D50) to linear sRGB is the sRGB primaries' matrix with a Bradford adaptation from
+/// D50 to sRGB's own D65 white already folded in, which is why it is not the matrix
+/// IEC 61966-2-1 prints. `a_folded_matrix_equals_adapting_then_converting` derives it.
+///
+/// Unclamped on purpose: a colour outside sRGB's gamut lands outside the unit cube here, and
+/// [`RgbRoute`] carries this stage as the corners of a grid that interpolates the *map*, so
+/// the clamp belongs after the interpolation, where [`gamma`] applies it.
 #[expect(
     clippy::many_single_char_names,
     reason = "X, Y, Z and R, G, B are the colour spaces' own axis names"
 )]
-pub(crate) fn xyz_d50_to_srgb(xyz: [f32; 3]) -> Color {
+pub(crate) fn xyz_d50_to_linear_srgb(xyz: [f32; 3]) -> [f32; 3] {
     let (x, y, z) = (xyz[0], xyz[1], xyz[2]);
-    // XYZ (D50) to linear sRGB: the sRGB primaries' matrix with a Bradford adaptation from
-    // D50 to sRGB's own D65 white already folded in, which is why it is not the matrix
-    // IEC 61966-2-1 prints. `a_folded_matrix_equals_adapting_then_converting` derives it.
     let r = 3.134_136 * x - 1.617_036 * y - 0.490_662 * z;
     let g = -0.978_755 * x + 1.916_142 * y + 0.033_454 * z;
     let b = 0.071_95 * x - 0.228_988 * y + 1.405_386 * z;
-    Color::rgb(gamma(r), gamma(g), gamma(b))
+    [r, g, b]
 }
 
 /// Converts CIE L*a*b* to sRGB through XYZ, using the D50 white point PDF specifies.

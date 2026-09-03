@@ -126,6 +126,7 @@ fn unit_mask(list: &mut DisplayList) -> SoftMaskId {
             backdrop: Color::WHITE,
         },
         transfer: None,
+        luminance: None,
     })
     .expect("the first soft mask")
 }

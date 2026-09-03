@@ -436,6 +436,7 @@ impl Interpreter<'_> {
             }],
             kind: pdf_render::SoftMaskKind::Alpha,
             transfer: None,
+            luminance: None,
         };
         let Ok(mask) = self.list.add_soft_mask(mask) else {
             self.note(Unsupported::LimitReached {

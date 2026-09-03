@@ -200,6 +200,14 @@ fn refuse_untranslatable_group(
                     .to_owned(),
             ))
         }
+        Some(pdf_render::GroupBlending::ThreeComponents { .. }) => {
+            Err(GpuRasterError::UnsupportedCommand(
+                "a group compositing in a blending colour space of three CIE-based components \
+                 through a cube (ISO 32000-2 §11.6.6, §11.7.2): the cube resolves per pixel, \
+                 which a scene under composition cannot"
+                    .to_owned(),
+            ))
+        }
         None => Ok(()),
     }
 }
