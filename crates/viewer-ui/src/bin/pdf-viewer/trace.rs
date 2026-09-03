@@ -271,6 +271,7 @@ pub(crate) fn describe_command(command: &Command) -> String {
         Command::Open { id, bytes, .. } => format!("open {:?}, {} bytes", id, bytes.len()),
         Command::Close(id) => format!("close {id:?}"),
         Command::Restrict(level) => format!("restrictions {level:?}"),
+        Command::Answer { proceed, .. } => format!("answer {proceed}"),
         Command::Delegate(appearances) => format!("widget appearances {appearances:?}"),
         Command::Tick { millis } => format!("tick {millis} ms"),
         Command::Present(mode) => format!("presentation {mode:?}"),
@@ -340,6 +341,13 @@ pub(crate) fn describe_event(event: &Event) -> String {
         Event::Refused {
             operation, notes, ..
         } => format!("refused {}: {}", operation.as_str(), notes.join("; ")),
+        Event::Asking {
+            operation, notes, ..
+        } => format!("asking about {}: {}", operation.as_str(), notes.join("; ")),
+        Event::Warned {
+            operation, notes, ..
+        } => format!("warned about {}: {}", operation.as_str(), notes.join("; ")),
+        Event::AttachmentsChanged { .. } => "attachments changed".to_owned(),
         Event::Searched {
             found, remaining, ..
         } => match found {

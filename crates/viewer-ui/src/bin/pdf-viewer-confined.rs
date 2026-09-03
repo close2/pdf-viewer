@@ -133,10 +133,11 @@ struct Arguments {
 
 /// A message's `Debug` form cut to a line, for the trace.
 ///
-/// The cut is what the other hosts apply and is load-bearing here, not cosmetic: `Command::Open`
-/// carries the whole document and a `Debug` of its bytes is five characters a byte — the first
-/// run of this program wrote three quarters of a megabyte of trace for one open. A `Secret`
-/// already prints no password whatever the length, so what the cut protects is the terminal.
+/// The cut is what the other hosts apply, and it was load-bearing here before it was cosmetic:
+/// `Command::Open` used to carry the whole document as a `Vec<u8>` whose `Debug` is five
+/// characters a byte, and the first run of this program wrote three quarters of a megabyte of
+/// trace for one open. `pdf_syntax::FileBytes` prints its length and how it is held now, and a
+/// `Secret` prints no password whatever the length, so what the cut protects is a long event.
 fn brief(message: &impl std::fmt::Debug) -> String {
     let whole = format!("{message:?}");
     if whole.chars().count() > 120 {
@@ -361,10 +362,10 @@ impl Host {
         if self.stopped.is_some() {
             return;
         }
-        let bytes = match pdf_syntax::read_file(&self.path) {
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                self.stop(format!("cannot read {}: {problem}", self.path.display()));
+                self.stop(format!("cannot open {}: {problem}", self.path.display()));
                 return;
             }
         };
@@ -450,6 +451,44 @@ impl Host {
         }
     }
 
+    /// §7.6.4.1's prompt, which is the one arm of [`Self::event`] long enough to be its own.
+    ///
+    /// "an interactive PDF processor *should* prompt", and this window is one (ADR 0718; the
+    /// refusal it replaces was ADR 0713's scope decision). The policy — how many attempts, what
+    /// exhaustion means — is `viewer_host::password`'s, shared with the three established
+    /// windows.
+    fn password_required(&mut self) {
+        if self.chrome.is_none() {
+            match Chrome::new() {
+                Ok(chrome) => self.chrome = Some(chrome),
+                Err(said) => {
+                    // A build whose compiled-in faces will not parse cannot draw the card;
+                    // refusing by name is what is left (trap 5).
+                    self.stop(format!(
+                        "{} is encrypted and this build cannot draw the prompt ({said}); open \
+                         it in pdf-viewer, pdf-viewer-gtk or pdf-viewer-qt",
+                        self.path.display()
+                    ));
+                    return;
+                }
+            }
+        }
+        match self.asking.required() {
+            Ask::Prompt { attempt, of } => {
+                self.password
+                    .ask(viewer_host::password::prompt(&self.name(), attempt, of));
+                self.card_changed();
+            }
+            Ask::Exhausted => {
+                // Stop asking and leave the window open — `viewer_host::password`'s rule: no
+                // host may make `Exhausted` mean the window closes.
+                eprintln!("note: {}", viewer_host::password::EXHAUSTED);
+                self.heading = format!("{} — {}", self.name(), viewer_host::password::EXHAUSTED);
+                self.retitle();
+            }
+        }
+    }
+
     /// What this window does about each event the confined viewer sent back.
     ///
     /// Exhaustive on purpose: a message added to the boundary must fail to compile here rather
@@ -473,52 +512,18 @@ impl Host {
                 // The worker survives an open it refused; only this document is over.
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));
             }
-            Event::PasswordRequired { .. } => {
-                // §7.6.4.1: an interactive processor *should* prompt, and this window is one
-                // (ADR 0718; the refusal it replaces was ADR 0713's scope decision). The policy
-                // — how many attempts, what exhaustion means — is `viewer_host::password`'s,
-                // shared with the three established windows.
-                if self.chrome.is_none() {
-                    match Chrome::new() {
-                        Ok(chrome) => self.chrome = Some(chrome),
-                        Err(said) => {
-                            // A build whose compiled-in faces will not parse cannot draw the
-                            // card; refusing by name is what is left (trap 5).
-                            self.stop(format!(
-                                "{} is encrypted and this build cannot draw the prompt \
-                                 ({said}); open it in pdf-viewer, pdf-viewer-gtk or \
-                                 pdf-viewer-qt",
-                                self.path.display()
-                            ));
-                            return;
-                        }
-                    }
-                }
-                match self.asking.required() {
-                    Ask::Prompt { attempt, of } => {
-                        self.password
-                            .ask(viewer_host::password::prompt(&self.name(), attempt, of));
-                        self.card_changed();
-                    }
-                    Ask::Exhausted => {
-                        // Stop asking and leave the window open — `viewer_host::password`'s
-                        // rule: no host may make `Exhausted` mean the window closes.
-                        eprintln!("note: {}", viewer_host::password::EXHAUSTED);
-                        self.heading =
-                            format!("{} — {}", self.name(), viewer_host::password::EXHAUSTED);
-                        self.retitle();
-                    }
-                }
-            }
-            // Four arms with nothing to do, and each for its own reason, kept in one place so
+            Event::PasswordRequired { .. } => self.password_required(),
+            // Five arms with nothing to do, and each for its own reason, kept in one place so
             // that a message added to the boundary still breaks this build: a `Closed` follows
             // this window's own `Close` and nothing else; a `Transition` never fires because this
             // window sends no `Command::Tick` and starts no presentation; a `Searched` answers a
-            // `Find` this window never sends; and a `Dirty` reports an edit no key here can make.
+            // `Find` this window never sends; a `Dirty` reports an edit no key here can make; and
+            // an `AttachmentsChanged` names a list this window shows no panel for (ADR 0713).
             Event::Closed(_)
             | Event::Transition { .. }
             | Event::Dirty { .. }
-            | Event::Searched { .. } => {}
+            | Event::Searched { .. }
+            | Event::AttachmentsChanged { .. } => {}
             Event::PageChanged {
                 index, label, of, ..
             } => {
@@ -562,6 +567,22 @@ impl Host {
                 for note in notes {
                     eprintln!("refused by the document's restrictions: {note}");
                 }
+            }
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814). This window makes no edit
+            // and sets no level, so neither arrives; both are answered all the same, in the
+            // direction that obeys, so that a level added to this window later cannot behave
+            // like another one in silence.
+            Event::Warned { notes, .. } => {
+                eprintln!("note: {}", viewer_host::warned(&notes));
+            }
+            Event::Asking {
+                document, notes, ..
+            } => {
+                eprintln!("note: {}", viewer_host::unanswerable(&notes));
+                self.dispatch(&Command::Answer {
+                    document,
+                    proceed: false,
+                });
             }
             Event::Reported { page, notes, .. } => {
                 for note in notes {
@@ -920,7 +941,7 @@ impl Host {
     ///
     /// The [`viewer_core::Secret`] moves from the card into [`Command::Open`] and is dropped
     /// with it — no copy of it stays on this side, and the trace's [`brief`] never prints one.
-    /// The file is read again rather than kept: rule 2 makes the filesystem this side's, and a
+    /// The file is opened again rather than kept: rule 2 makes the filesystem this side's, and a
     /// file that has gone away between the attempts is a fact about this machine, said out loud.
     fn password_answered(&mut self) {
         let typed = self.password.take();
@@ -934,18 +955,19 @@ impl Host {
                 return;
             }
         };
-        let bytes = match pdf_syntax::read_file(&self.path) {
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                eprintln!("note: cannot re-read {}: {problem}", self.path.display());
-                self.heading = format!("{} — cannot re-read the file", self.name());
+                eprintln!("note: cannot reopen {}: {problem}", self.path.display());
+                self.heading = format!("{} — cannot reopen the file", self.name());
                 self.retitle();
                 return;
             }
         };
         // The worker survives an open it could not finish (ADR 0597), so the retry goes to the
-        // same process: the document's bytes cross the pipe once more, which is the cost of the
-        // host keeping no copy — priced in `doc/todo/15` §5 and paid at most `ATTEMPTS` times.
+        // same process: the document's descriptor crosses once more, which since ADR 0812 costs
+        // an `open` and a `sendmsg` rather than the file's whole length down a pipe, however
+        // many of `ATTEMPTS` it is paid.
         self.dispatch(&Command::Open {
             id: DOCUMENT,
             bytes,
@@ -1053,10 +1075,14 @@ impl ApplicationHandler for Host {
         }
         self.confined = Some(confined);
 
-        let bytes = match pdf_syntax::read_file(&self.path) {
+        // Opened rather than read: the file crosses to the worker as its descriptor beside
+        // `Command::Open`, and this side holds no byte of it (ADR 0812). What it costs this window
+        // is the `open` and the metadata's length; what a 6 GB document used to cost it was 6 GB
+        // resident here and a refusal from the worker, whose budget is half its ceiling.
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                self.stop(format!("cannot read {}: {problem}", self.path.display()));
+                self.stop(format!("cannot open {}: {problem}", self.path.display()));
                 return;
             }
         };
@@ -1289,7 +1315,7 @@ mod tests {
         assert!(!host.password.shown, "the card came down");
         assert!(host.stopped.is_none(), "the window is still a window");
         assert!(
-            host.heading.contains("cannot re-read"),
+            host.heading.contains("cannot reopen"),
             "the missing file is said, was {:?}",
             host.heading
         );

@@ -68,6 +68,8 @@
 //! requirements on a `PAdES` signature, which are checkable without cryptography and which no
 //! corpus document exercises.
 
+use std::borrow::Cow;
+
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
 use crate::dsa::{self, DsaError};
 use crate::ecdsa::{self, EcdsaError};
@@ -75,13 +77,23 @@ use crate::eddsa::{self, EdDsaError};
 use crate::pkcs1::{self, Pkcs1Error};
 use crate::pss;
 use crate::x509::{self, X509Error};
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, FileBytes, Object};
 
 /// Most signatures read from one document.
 ///
 /// §12.8.1 permits "[o]ne or more approval signatures" and any number of timestamps, so the
 /// bound is on a file built to make a reader work rather than on any real workflow.
 const MAX_SIGNATURES: usize = 1024;
+
+/// How much of a signed range is resident while it is digested, in bytes.
+///
+/// A window rather than the range (ADR 0812): the range of a signed document is the document,
+/// and a digest is fed a piece at a time whatever the piece. Sixty-four kibibytes is the size
+/// `pdf_syntax` reads a cross-reference section through, and it was measured rather than
+/// assumed — `the_window_a_signed_range_is_digested_through_is_priced`, an ignored test below,
+/// prints the cost of the whole file's range through four windows against the range held
+/// whole, and ADR 0812 records what it printed.
+const SIGNED_WINDOW: usize = 64 * 1024;
 
 /// Most `(offset, length)` pairs a `/ByteRange` may state before it stops describing a file.
 ///
@@ -242,10 +254,43 @@ pub enum Integrity {
     UnknownDigest,
     /// The `/ByteRange` does not name bytes of this file, so there is nothing to hash.
     RangeNotInThisFile,
+    /// The `/ByteRange` names bytes of this file and the file on disk would not give them.
+    ///
+    /// The reader's refusal, by name rather than as a mismatch (ADR 0812): the pairs were inside
+    /// the file's stated length and a window came back short, because the file shrank under the
+    /// reader or a read failed. `pdf_syntax::FileBytes::read_failure` on the document's bytes
+    /// says which. Distinct from [`Self::RangeNotInThisFile`], which is a fact about the range,
+    /// and from [`Self::Changed`], which this must never be mistaken for: a digest over fewer
+    /// bytes than the range names would differ from the recorded one and read as a modified
+    /// document.
+    RangeNotReadable,
     /// The dictionary states no `/Contents`, which Table 255 makes required.
     NoSignatureValue,
     /// The signature value could not be read as §12.8.3.3's CMS object.
     Unreadable(CmsError),
+}
+
+/// Why the bytes `/ByteRange` names could not be read off the file.
+///
+/// Two facts, kept apart because they are about two different things: the first is about the
+/// range and the second about the disk. Both reach a person through
+/// [`Integrity::RangeNotInThisFile`] and [`Integrity::RangeNotReadable`], and their
+/// [`Authenticity`] twins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RangeProblem {
+    /// A pair names bytes outside the file: the condition [`Coverage::Malformed`] reports.
+    NotInThisFile,
+    /// A pair is inside the file and the file on disk gave fewer bytes than it names.
+    NotReadable,
+}
+
+impl From<RangeProblem> for Authenticity {
+    fn from(problem: RangeProblem) -> Self {
+        match problem {
+            RangeProblem::NotInThisFile => Self::RangeNotInThisFile,
+            RangeProblem::NotReadable => Self::RangeNotReadable,
+        }
+    }
 }
 
 /// What a signature's bytes were computed over — which decides what verifying one *proves*.
@@ -443,6 +488,10 @@ pub enum Authenticity {
     NoSignatureValue,
     /// The `/ByteRange` does not name bytes of this file, so there was nothing to hash.
     RangeNotInThisFile,
+    /// The `/ByteRange` names bytes of this file and the file on disk would not give them.
+    ///
+    /// See [`Integrity::RangeNotReadable`], which is the same refusal for the same reason.
+    RangeNotReadable,
     /// The signature value could not be read as §12.8.3.3's CMS object.
     Unreadable(CmsError),
 }
@@ -628,24 +677,120 @@ impl Signature {
         }
     }
 
-    /// The bytes this signature was made over: the file with `/ByteRange`'s hole in it.
+    /// Runs `feed` over every byte `/ByteRange` names, in the order the pairs state them, a
+    /// window at a time.
     ///
-    /// Slices rather than one buffer, because the ranges of a 3 MB document describe 3 MB and
-    /// joining them to hash them would copy the whole file. `None` where any pair names bytes
-    /// outside the file, which is the same condition [`Coverage::Malformed`] reports.
-    #[must_use]
-    pub fn signed_bytes<'a>(&self, file: &'a [u8]) -> Option<Vec<&'a [u8]>> {
+    /// **Nothing here holds more of the file than one window** (ADR 0812). A signed document's
+    /// range is every byte of it but the hole where `/Contents` sits, so a reader that took the
+    /// ranges as slices of a whole file held the whole file — which on disk is `FileBytes::whole`
+    /// and, for the six-gigabyte document ADR 0809 opened at the cost of its trailer, would have
+    /// been the whole six gigabytes again. A digest is over every signed byte and cannot avoid
+    /// reading them; what it can avoid is keeping them, and [`SIGNED_WINDOW`] is what it keeps.
+    ///
+    /// Refuses by name what the reader refuses: a pair outside the file is
+    /// [`RangeProblem::NotInThisFile`], the condition [`Coverage::Malformed`] reports; and a window
+    /// that came back short on disk is [`RangeProblem::NotReadable`] — the file ended early or a
+    /// read failed, and `FileBytes::read_failure` says which.
+    fn each_signed_window(
+        &self,
+        file: &FileBytes,
+        feed: impl FnMut(&[u8]),
+    ) -> Result<(), RangeProblem> {
+        self.each_signed_window_of(file, SIGNED_WINDOW, feed)
+    }
+
+    /// [`Self::each_signed_window`] with the window stated, for the measurement that chose it.
+    fn each_signed_window_of(
+        &self,
+        file: &FileBytes,
+        window: usize,
+        mut feed: impl FnMut(&[u8]),
+    ) -> Result<(), RangeProblem> {
+        let window = window.max(1);
         if self.byte_range.is_empty() {
-            return None;
+            return Err(RangeProblem::NotInThisFile);
+        }
+        for &(start, length) in &self.byte_range {
+            let start = usize::try_from(start).map_err(|_| RangeProblem::NotInThisFile)?;
+            let length = usize::try_from(length).map_err(|_| RangeProblem::NotInThisFile)?;
+            let end = start
+                .checked_add(length)
+                .ok_or(RangeProblem::NotInThisFile)?;
+            if end > file.len() {
+                return Err(RangeProblem::NotInThisFile);
+            }
+            let mut at = start;
+            while at < end {
+                let stop = at.saturating_add(window).min(end);
+                let bytes = file.read(at..stop);
+                // The pair was inside the file's stated length, so a short window is the disk's
+                // doing rather than the range's: the file shrank, or a read failed.
+                if bytes.len() != stop.saturating_sub(at) {
+                    return Err(RangeProblem::NotReadable);
+                }
+                feed(&bytes);
+                at = stop;
+            }
+        }
+        Ok(())
+    }
+
+    /// The digests of the bytes `/ByteRange` names, one per algorithm asked for, in one pass.
+    ///
+    /// One pass rather than one per algorithm because §12.8.3.2's signature states no digest
+    /// and [`Digest::TRIED_WHEN_UNSTATED`] has to be tried in turn: six reads of a signed
+    /// document would be six times its length off the disk for one answer. Every hasher is fed
+    /// every window, so the file is read once whatever is asked.
+    ///
+    /// # Errors
+    ///
+    /// [`RangeProblem`], as [`Self::each_signed_window`] refuses.
+    pub fn signed_digests(
+        &self,
+        file: &FileBytes,
+        algorithms: &[Digest],
+    ) -> Result<Vec<Vec<u8>>, RangeProblem> {
+        let mut hashers: Vec<cms::Hasher> =
+            algorithms.iter().map(|digest| digest.hasher()).collect();
+        self.each_signed_window(file, |window| {
+            for hasher in &mut hashers {
+                hasher.update(window);
+            }
+        })?;
+        Ok(hashers.into_iter().map(cms::Hasher::finish).collect())
+    }
+
+    /// The bytes this signature was made over, resident: the file with `/ByteRange`'s hole in it.
+    ///
+    /// **The one route that still holds every signed byte at once, and it is for the one
+    /// construction that needs the message itself rather than a digest of it**: RFC 8032's
+    /// Ed25519 hashes `R ‖ A ‖ M` under SHA-512 inside the verification, and
+    /// [`crate::eddsa::verify`] takes the message in parts. Every other arm of
+    /// [`Self::authenticity`] and the whole of [`Self::integrity`] go through
+    /// [`Self::signed_digests`] and hold one window. Borrowed where the file is in memory, and
+    /// read range by range where it is on disk — into memory the process has to find room for,
+    /// which is the refusal [`RangeProblem::NotReadable`] carries when it cannot.
+    fn signed_bytes<'a>(&self, file: &'a FileBytes) -> Result<Vec<Cow<'a, [u8]>>, RangeProblem> {
+        if self.byte_range.is_empty() {
+            return Err(RangeProblem::NotInThisFile);
         }
         let mut pieces = Vec::with_capacity(self.byte_range.len());
         for &(start, length) in &self.byte_range {
-            let start = usize::try_from(start).ok()?;
-            let length = usize::try_from(length).ok()?;
-            let end = start.checked_add(length)?;
-            pieces.push(file.get(start..end)?);
+            let start = usize::try_from(start).map_err(|_| RangeProblem::NotInThisFile)?;
+            let length = usize::try_from(length).map_err(|_| RangeProblem::NotInThisFile)?;
+            let end = start
+                .checked_add(length)
+                .ok_or(RangeProblem::NotInThisFile)?;
+            if end > file.len() {
+                return Err(RangeProblem::NotInThisFile);
+            }
+            let piece = file.read(start..end);
+            if piece.len() != length {
+                return Err(RangeProblem::NotReadable);
+            }
+            pieces.push(piece);
         }
-        Some(pieces)
+        Ok(pieces)
     }
 
     /// §12.8.3.3's signature value, read as RFC 5652's `SignedData`.
@@ -676,7 +821,7 @@ impl Signature {
     ///
     /// Read [`Integrity`] before reading a result: [`Integrity::Unchanged`] is not "valid".
     #[must_use]
-    pub fn integrity(&self, file: &[u8]) -> Integrity {
+    pub fn integrity(&self, file: &FileBytes) -> Integrity {
         // §12.8.3.2: "For signing PDF files using PKCS #1, the only value of SubFilter that should
         // be used is adbe.x509.rsa_sha1". Table 255 says such a `/Contents` "should be either a
         // DER-encoded PKCS #1 binary data object, a DER-encoded CMS binary data object or a
@@ -689,9 +834,6 @@ impl Signature {
         if self.contents.is_empty() {
             return Integrity::NoSignatureValue;
         }
-        let Some(signed) = self.signed_bytes(file) else {
-            return Integrity::RangeNotInThisFile;
-        };
         let cms = match self.signed_data() {
             Ok(cms) => cms,
             Err(error) => return Integrity::Unreadable(error),
@@ -725,7 +867,13 @@ impl Signature {
             // attributes, so nothing records the document's digest in the clear.
             return Integrity::UnderTheSignersKey;
         };
-        if digest.compute(&signed) == recorded {
+        // The one read of a signed document's bytes that nothing can avoid, a window at a time.
+        let computed = match self.signed_digests(file, &[digest]) {
+            Ok(mut digests) => digests.pop().unwrap_or_default(),
+            Err(RangeProblem::NotInThisFile) => return Integrity::RangeNotInThisFile,
+            Err(RangeProblem::NotReadable) => return Integrity::RangeNotReadable,
+        };
+        if computed == recorded {
             Integrity::Unchanged { digest }
         } else {
             Integrity::Changed { digest }
@@ -765,19 +913,16 @@ impl Signature {
                   splitting them apart would scatter the one match that keeps a signature \
                   algorithm and a key from being paired wrongly"
     )]
-    pub fn authenticity(&self, file: &[u8]) -> Authenticity {
+    pub fn authenticity(&self, file: &FileBytes) -> Authenticity {
         if self.contents.is_empty() {
             return Authenticity::NoSignatureValue;
         }
-        let Some(signed) = self.signed_bytes(file) else {
-            return Authenticity::RangeNotInThisFile;
-        };
         // §12.8.3.2: "For signing PDF files using PKCS #1, the only value of SubFilter that should
         // be used is adbe.x509.rsa_sha1 … The certificate chain of the signer shall be stored in
         // the Cert entry." So there is no CMS object to read: `/Contents` is the signature and
         // `/Cert` is the key.
         if self.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
-            return self.pkcs1_authenticity(&signed);
+            return self.pkcs1_authenticity(file);
         }
         let cms = match self.signed_data() {
             Ok(cms) => cms,
@@ -819,16 +964,24 @@ impl Signature {
             (None, Some(_)) => Signed::EncapsulatedContent,
             (None, None) => Signed::TheDocumentsBytes,
         };
-        // The bytes themselves rather than only their digest, because one of the four families
-        // does not take a digest at all: RFC 8032's Ed25519 hashes the message internally, so
-        // [`crate::eddsa::verify`] needs the parts. They stay parts rather than being joined —
-        // a signature over a whole document would otherwise cost a copy of it.
-        let parts: Vec<&[u8]> = match (&attributes, cms.encapsulated) {
-            (Some(attributes), _) => vec![attributes.as_slice()],
-            (None, Some(content)) => vec![content],
-            (None, None) => signed.clone(),
+        // What is in memory is digested in memory, and the document's own bytes are digested
+        // off the file a window at a time (ADR 0812): the signed attributes and the encapsulated
+        // content are a few hundred bytes of the CMS object already read, and the third case is
+        // every signed byte of the document, which is what `signed_digests` exists not to hold.
+        let in_memory: Option<&[u8]> = match (&attributes, cms.encapsulated) {
+            (Some(attributes), _) => Some(attributes.as_slice()),
+            (None, Some(content)) => Some(content),
+            (None, None) => None,
         };
-        let compute = |algorithm: Digest| algorithm.compute(&parts);
+        let compute = |algorithm: Digest| -> Result<Vec<u8>, Authenticity> {
+            match in_memory {
+                Some(bytes) => Ok(algorithm.compute(&[bytes])),
+                None => self
+                    .signed_digests(file, &[algorithm])
+                    .map(|mut digests| digests.pop().unwrap_or_default())
+                    .map_err(Authenticity::from),
+            }
+        };
         // The pair rather than either alone: a `SignerInfo` naming DSA over a certificate holding
         // an RSA key is two claims by one producer that contradict each other, and picking the one
         // to believe would be this program inventing a fact.
@@ -839,10 +992,14 @@ impl Signature {
                         algorithm: name(cms.digest_algorithm),
                     };
                 };
+                let computed = match compute(digest) {
+                    Ok(computed) => computed,
+                    Err(answer) => return answer,
+                };
                 (
                     digest,
                     Family::Rsa,
-                    pkcs1::verify(key, cms.signature, digest, &compute(digest))
+                    pkcs1::verify(key, cms.signature, digest, &computed)
                         .map_err(Authenticity::Refused)
                         .map(|verified| (verified, key.bits())),
                 )
@@ -855,10 +1012,14 @@ impl Signature {
                 // RFC 8017 section 9.1.2 step 2's `mHash` is computed with the parameters' own
                 // hash — RFC 5652's `digestAlgorithm` describes the `message-digest` attribute,
                 // which is question 1's comparison, not this one's.
+                let computed = match compute(parameters.hash) {
+                    Ok(computed) => computed,
+                    Err(answer) => return answer,
+                };
                 (
                     parameters.hash,
                     Family::RsaPss,
-                    pss::verify(key, cms.signature, parameters, &compute(parameters.hash))
+                    pss::verify(key, cms.signature, parameters, &computed)
                         .map_err(Authenticity::Refused)
                         .map(|verified| (verified, key.bits())),
                 )
@@ -869,10 +1030,14 @@ impl Signature {
                         algorithm: name(cms.digest_algorithm),
                     };
                 };
+                let computed = match compute(digest) {
+                    Ok(computed) => computed,
+                    Err(answer) => return answer,
+                };
                 (
                     digest,
                     Family::Dsa,
-                    dsa::verify(key, cms.signature, &compute(digest))
+                    dsa::verify(key, cms.signature, &computed)
                         .map_err(Authenticity::RefusedDsa)
                         .map(|verified| (verified, key.bits())),
                 )
@@ -883,10 +1048,14 @@ impl Signature {
                         algorithm: name(cms.digest_algorithm),
                     };
                 };
+                let computed = match compute(digest) {
+                    Ok(computed) => computed,
+                    Err(answer) => return answer,
+                };
                 (
                     digest,
                     Family::Ecdsa(key.curve),
-                    ecdsa::verify(key, cms.signature, &compute(digest))
+                    ecdsa::verify(key, cms.signature, &computed)
                         .map_err(Authenticity::RefusedEcdsa)
                         .map(|verified| (verified, key.curve.bits())),
                 )
@@ -899,6 +1068,20 @@ impl Signature {
                     return Authenticity::UnknownDigest {
                         algorithm: name(cms.digest_algorithm),
                     };
+                };
+                // The one construction that takes the message rather than a digest of it, so
+                // the one place the signed bytes are held whole: RFC 8032 hashes `R ‖ A ‖ M`
+                // inside the verification, and a signature over the document's own bytes with
+                // no signed attributes puts the whole document in `M`.
+                let resident;
+                let parts: Vec<&[u8]> = if let Some(bytes) = in_memory {
+                    vec![bytes]
+                } else {
+                    resident = match self.signed_bytes(file) {
+                        Ok(pieces) => pieces,
+                        Err(problem) => return Authenticity::from(problem),
+                    };
+                    resident.iter().map(AsRef::as_ref).collect()
                 };
                 (
                     digest,
@@ -945,7 +1128,7 @@ impl Signature {
     /// **Six and not ten**, because ISO/TS 32001 section 5.1.4 adds its four to Table 260's Message
     /// Digest entry "for adbe.pkcs7.detached, ETSI.CAdES.detached or ETSI.RFC3161" and this
     /// `/SubFilter` is none of the three. That constant's own documentation carries the reasoning.
-    fn pkcs1_authenticity(&self, signed: &[&[u8]]) -> Authenticity {
+    fn pkcs1_authenticity(&self, file: &FileBytes) -> Authenticity {
         let Some(bytes) = self.chain.first() else {
             return Authenticity::NoSignerCertificate {
                 certificates: self.chain.len(),
@@ -977,9 +1160,15 @@ impl Signature {
         );
         let value = self.contents.get(..length).unwrap_or(&self.contents);
         let key_bits = key.bits();
+        // All six in one pass over the signed bytes, because the file is read once for them
+        // rather than six times.
+        let computed = match self.signed_digests(file, &Digest::TRIED_WHEN_UNSTATED) {
+            Ok(computed) => computed,
+            Err(problem) => return Authenticity::from(problem),
+        };
         let mut refusal = None;
-        for digest in Digest::TRIED_WHEN_UNSTATED {
-            match pkcs1::verify(key, value, digest, &digest.compute(signed)) {
+        for (digest, computed) in Digest::TRIED_WHEN_UNSTATED.into_iter().zip(&computed) {
+            match pkcs1::verify(key, value, digest, computed) {
                 Ok(true) => {
                     return Authenticity::Verified {
                         digest,
@@ -2160,7 +2349,7 @@ mod tests {
     };
     use crate::cms::{Digest, fixtures};
     use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
-    use pdf_syntax::Document;
+    use pdf_syntax::{Document, FileBytes};
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
@@ -2632,6 +2821,142 @@ mod tests {
         );
     }
 
+    /// A signed document answers the same through a file on disk as through its bytes.
+    ///
+    /// The digest is fed a window at a time off the disk (ADR 0812), and this pins that the
+    /// windows add up to the range: the same `Integrity` and `Authenticity`, exact, on a range
+    /// wider than one window — the fixture is padded past several of them — and after a byte
+    /// inside the range moves. The corpus's real signatures do the same in
+    /// `tests/signatures.rs::every_corpus_signature_answers_the_same_on_disk`.
+    #[test]
+    fn a_signed_document_answers_the_same_on_disk_as_in_memory() {
+        let bytes = signed_document(
+            "adbe.pkcs7.detached",
+            &"% padding so the range spans several windows\n".repeat(8000),
+            Digest::Sha256,
+            fixtures::detached,
+        );
+        assert!(bytes.len() > 3 * super::SIGNED_WINDOW);
+        let directory = std::env::temp_dir().join(format!(
+            "pdf-model-signature-{}-on-disk",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        let path = directory.join("signed.pdf");
+        std::fs::write(&path, &bytes).expect("the fixture is written");
+
+        let (in_memory, signature) = only_signature(&bytes);
+        let on_disk = Document::open(FileBytes::on_disk(&path).expect("opens")).expect("opens");
+        let expected = signature.integrity(in_memory.bytes());
+        assert_eq!(
+            expected,
+            Integrity::Unchanged {
+                digest: Digest::Sha256
+            }
+        );
+        assert_eq!(signature.integrity(on_disk.bytes()), expected);
+        assert_eq!(
+            signature.authenticity(on_disk.bytes()),
+            signature.authenticity(in_memory.bytes())
+        );
+        assert_eq!(
+            signature
+                .signed_digests(on_disk.bytes(), &Digest::ALL)
+                .expect("in the file"),
+            signature
+                .signed_digests(in_memory.bytes(), &Digest::ALL)
+                .expect("in the file"),
+            "every algorithm agrees between the two routes"
+        );
+
+        // One byte of the range, deep in the padding: both routes see it move.
+        let mut altered = bytes.clone();
+        let at = altered.len() / 2;
+        altered[at] = altered[at].wrapping_add(1);
+        std::fs::write(&path, &altered).expect("the altered fixture is written");
+        let (altered_memory, altered_signature) = only_signature(&altered);
+        let altered_disk =
+            Document::open(FileBytes::on_disk(&path).expect("opens")).expect("opens");
+        assert_eq!(
+            altered_signature.integrity(altered_disk.bytes()),
+            Integrity::Changed {
+                digest: Digest::Sha256
+            }
+        );
+        assert_eq!(
+            altered_signature.integrity(altered_disk.bytes()),
+            altered_signature.integrity(altered_memory.bytes())
+        );
+
+        // A file that shrinks under the reader is refused by name, never reported as changed:
+        // the document was opened at the full length and the file is then cut inside the range.
+        let shrunk = Document::open(FileBytes::on_disk(&path).expect("opens")).expect("opens");
+        std::fs::write(&path, &altered[..altered.len() / 2]).expect("the file is cut");
+        assert_eq!(
+            altered_signature.integrity(shrunk.bytes()),
+            Integrity::RangeNotReadable
+        );
+        // This fixture's signature is over its signed attributes, so `authenticity` never reads
+        // the range and answers as it did before the cut; the same refusal on the path that does
+        // read it — §12.8.3.2's, and a signer with no signed attributes — is `From<RangeProblem>`.
+        assert_eq!(
+            altered_signature.authenticity(shrunk.bytes()),
+            altered_signature.authenticity(altered_memory.bytes())
+        );
+        assert_eq!(
+            altered_signature.signed_digests(shrunk.bytes(), &[Digest::Sha1]),
+            Err(super::RangeProblem::NotReadable)
+        );
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
+    }
+
+    /// What the digest window costs, printed: the committed 19 MB document's whole extent as a
+    /// range, through four windows and held whole.
+    ///
+    /// ```sh
+    /// cargo test --release -p pdf-model --lib -- --ignored --nocapture the_window_a_signed_range
+    /// ```
+    ///
+    /// Ignored because it is a measurement and not a check, and a wall clock in a test is a
+    /// coin toss under load; what it pins is written in ADR 0812 beside [`super::SIGNED_WINDOW`].
+    #[test]
+    #[ignore = "a measurement, printed: run with --ignored --nocapture"]
+    fn the_window_a_signed_range_is_digested_through_is_priced() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../doc/ISO_32000-2_sponsored_EC3.pdf");
+        let on_disk = FileBytes::on_disk(&path).expect("the committed document opens");
+        let length = u64::try_from(on_disk.len()).expect("a length");
+        let (_, base) = only_signature(&signed_document(
+            "adbe.pkcs7.detached",
+            "",
+            Digest::Sha256,
+            fixtures::detached,
+        ));
+        let signature = Signature {
+            byte_range: vec![(0, length / 2), (length / 2, length - length / 2)],
+            ..base
+        };
+        let time = |window: usize| {
+            let started = std::time::Instant::now();
+            let mut hasher = Digest::Sha256.hasher();
+            signature
+                .each_signed_window_of(&on_disk, window, |bytes| hasher.update(bytes))
+                .expect("in the file");
+            (hasher.finish(), started.elapsed())
+        };
+        let (whole, whole_took) = time(on_disk.len());
+        for window in [4 * 1024, 64 * 1024, 1024 * 1024, 16 * 1024 * 1024] {
+            let (digest, took) = time(window);
+            assert_eq!(digest, whole);
+            println!(
+                "window {:>9} B: {:>7.2} ms  (whole range held at once: {:.2} ms)",
+                window,
+                took.as_secs_f64() * 1e3,
+                whole_took.as_secs_f64() * 1e3
+            );
+        }
+    }
+
     /// A signer with no signed attributes records no digest, and the program says which it is.
     ///
     /// RFC 5652 then signs the encapsulated content directly, so question 1 has no answer that
@@ -2708,7 +3033,7 @@ mod tests {
         let file = b"the signed bytes";
         let signature = pkcs1_signature(file.len() as u64, hex(CERTIFICATE));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::Rsa,
@@ -2720,7 +3045,7 @@ mod tests {
         // §12.8.3.2's signature is over the document's own bytes, so question 2 settles question
         // 1 here: change one byte of the file and the same signature stops verifying.
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha1,
                 family: Family::Rsa,
@@ -2747,7 +3072,7 @@ mod tests {
         let file = b"the signed bytes";
         let signature = pkcs1_signature(file.len() as u64, hex(EC_CERTIFICATE));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::KeyNotVerifiable {
                 algorithm: "1.2.840.10045.2.1".to_owned(),
             },
@@ -2762,7 +3087,7 @@ mod tests {
         let mut signature = pkcs1_signature(file.len() as u64, Vec::new());
         signature.chain = Vec::new();
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::NoSignerCertificate { certificates: 0 }
         );
     }
@@ -2847,7 +3172,7 @@ mod tests {
             format_version: None,
         };
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::Dsa,
@@ -2858,7 +3183,7 @@ mod tests {
         );
         // And question 2 settles question 1 in this shape, which is what `Signed` records.
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::Dsa,
@@ -2922,7 +3247,7 @@ mod tests {
                 &ec::hex(value),
             ));
             assert_eq!(
-                signature.authenticity(file),
+                signature.authenticity(&FileBytes::from(file)),
                 Authenticity::Verified {
                     digest,
                     family: Family::Ecdsa(curve),
@@ -2933,7 +3258,7 @@ mod tests {
                 curve.name()
             );
             assert_eq!(
-                signature.authenticity(b"the signed byteS"),
+                signature.authenticity(&FileBytes::from(b"the signed byteS")),
                 Authenticity::NotUnderThatKey {
                     digest,
                     family: Family::Ecdsa(curve),
@@ -2973,7 +3298,7 @@ mod tests {
             &crate::ecdsa::fixtures::hex(crate::eddsa::fixtures::ED25519_SIGNATURE),
         ));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha512,
                 family: Family::EdDsa,
@@ -2982,7 +3307,7 @@ mod tests {
             }
         );
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha512,
                 family: Family::EdDsa,
@@ -3012,7 +3337,7 @@ mod tests {
             &ec::hex(ec::BP256_SIGNATURE),
         ));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::CurveNotVerifiable {
                 curve: "1.3.36.3.3.2.8.1.1.7 (brainpoolP256r1)".to_owned(),
             }
@@ -3078,7 +3403,7 @@ mod tests {
             format_version: None,
         };
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::RsaPss,
@@ -3088,7 +3413,7 @@ mod tests {
             "the signer states no signed attributes, so RFC 5652 signs the byte range itself"
         );
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::RsaPss,
@@ -3131,7 +3456,7 @@ mod tests {
             format_version: None,
         };
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::KeyDoesNotMatchAlgorithm {
                 algorithm: "2.16.840.1.101.3.4.3.2".to_owned(),
                 key: "1.2.840.113549.1.1.1".to_owned(),
@@ -3255,7 +3580,7 @@ mod tests {
         ));
         signature.sub_filter = Some("ETSI.CAdES.detached".to_owned());
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::Ecdsa(crate::ecdsa::Curve::P256),
@@ -3265,7 +3590,7 @@ mod tests {
             "ISO/TS 32002 Table 3 covers ETSI.CAdES.detached by name"
         );
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::Ecdsa(crate::ecdsa::Curve::P256),

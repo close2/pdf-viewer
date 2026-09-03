@@ -183,7 +183,7 @@ mod tests {
         secret.push_str("hunter2");
         let command = crate::Command::Open {
             id: crate::DocumentId(1),
-            bytes: b"%PDF-1.7".to_vec(),
+            bytes: b"%PDF-1.7".to_vec().into(),
             password: Some(secret),
             fragment: None,
         };

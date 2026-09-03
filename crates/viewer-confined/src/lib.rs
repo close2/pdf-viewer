@@ -59,7 +59,13 @@
 //! Rule 2's division survives the process boundary unchanged, which is the second reason this
 //! was cheap. A confined process has no filesystem *at all*, and it does not need one:
 //!
-//! - the document arrives as bytes in [`viewer_core::Command::Open`];
+//! - the document arrives in [`viewer_core::Command::Open`] — as bytes where the host holds
+//!   it in memory, and **as the open file's descriptor where the host opened it on disk**
+//!   (ADR 0812): the host sends the descriptor beside the frame with `SCM_RIGHTS`, and the
+//!   worker holds the same open file and reads it where the document's offsets point, through
+//!   the one system call the filter admits on it. A descriptor to one file is not a file
+//!   system: the worker can still name no path, and a 6 GB document costs it its trailer,
+//!   its table and page one rather than 6 GB down a pipe and twice that in its address space;
 //! - a file the document asks for arrives in [`viewer_core::Command::Supply`], after
 //!   [`viewer_core::Event::NeedsFile`] asked the host for it;
 //! - a saved file and an extracted attachment leave as bytes, for the host to write.
@@ -221,7 +227,9 @@ pub mod wire {
 
 use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command as OsCommand, Stdio};
+#[cfg(not(unix))]
+use std::process::ChildStdin;
+use std::process::{Child, ChildStdout, Command as OsCommand, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -920,7 +928,7 @@ impl Attachment {
 #[derive(Debug)]
 pub struct Confined {
     cancellation: Arc<Cancellation>,
-    to_worker: ChildStdin,
+    to_worker: ToWorker,
     from_worker: ChildStdout,
     confinement: Confinement,
     /// The lists the last frame handed this host, so an unchanged page's bytes come back as the
@@ -965,8 +973,15 @@ impl Confined {
         }
 
         let program = worker_program()?;
+        // The worker's standard input is one end of a socket pair rather than a pipe, and the
+        // difference is the one thing a pipe cannot do: carry a descriptor. A document open on
+        // disk crosses as its open file, sent with `SCM_RIGHTS` beside `Command::Open`'s frame
+        // (ADR 0812), and a socket is the only transport the kernel passes one over. The worker
+        // reads its frames from it with `recvmsg`; what it writes back still comes up a pipe,
+        // because nothing crosses that way but bytes.
+        let (to_worker, worker_end) = ToWorker::pair().map_err(ConfinedError::Spawn)?;
         let mut child = OsCommand::new(&program)
-            .stdin(Stdio::piped())
+            .stdin(worker_end)
             .stdout(Stdio::piped())
             // A pipe rather than the inherited descriptor, and [`LastWords`] has the measurement
             // that changed it: `RLIMIT_FSIZE` is 0 in the confinement, so a worker whose standard
@@ -997,7 +1012,9 @@ impl Confined {
             }
         }
 
-        let (Some(to_worker), Some(from_worker)) = (child.stdin.take(), child.stdout.take()) else {
+        let (Some(to_worker), Some(from_worker)) =
+            (to_worker.attach(&mut child), child.stdout.take())
+        else {
             let _ = child.kill();
             let _ = child.wait();
             return Err(ConfinedError::Spawn(std::io::Error::other(
@@ -1079,7 +1096,11 @@ impl Confined {
     pub fn handle(&mut self, command: &Command) -> Result<Vec<Event>, ConfinedError> {
         self.still_running()?;
         let payload = protocol::encode_command(command)?;
-        self.write_frame(protocol::FRAME_COMMAND, &payload)?;
+        self.write_frame(
+            protocol::FRAME_COMMAND,
+            &payload,
+            protocol::command_descriptor(command),
+        )?;
         let (kind, payload) = self.read_frame()?;
         match kind {
             protocol::FRAME_EVENTS => protocol::decode_events(&payload).map_err(Into::into),
@@ -1099,7 +1120,7 @@ impl Confined {
     pub fn query(&mut self, query: Query<'_>) -> Result<Reply, ConfinedError> {
         self.still_running()?;
         let payload = protocol::encode_query(query)?;
-        self.write_frame(protocol::FRAME_QUERY, &payload)?;
+        self.write_frame(protocol::FRAME_QUERY, &payload, None)?;
         let (kind, payload) = self.read_frame()?;
         match kind {
             protocol::FRAME_ANSWER => {
@@ -1118,10 +1139,20 @@ impl Confined {
     /// for a fresh allocation that size. The pipe itself moves those bytes in about 4 ms;
     /// everything around it cost ten times that, which is what ADR 0241 measured and what this
     /// takes a quarter of back.
-    fn write_frame(&mut self, kind: u8, payload: &[u8]) -> Result<(), ConfinedError> {
+    ///
+    /// **A descriptor rides beside the header** (ADR 0812): the nine header bytes go out with
+    /// `sendmsg` and the descriptor as `SCM_RIGHTS`, so the worker's `recvmsg` of the header is
+    /// what delivers it, and the payload follows as bytes. The kernel duplicates the descriptor
+    /// into the worker at that moment; what this side holds stays this side's.
+    fn write_frame(
+        &mut self,
+        kind: u8,
+        payload: &[u8],
+        descriptor: Option<protocol::SentDescriptor<'_>>,
+    ) -> Result<(), ConfinedError> {
         let header = protocol::header(kind, payload.len());
         self.to_worker
-            .write_all(&header)
+            .send_header(&header, descriptor)
             .and_then(|()| self.to_worker.write_all(payload))
             .and_then(|()| self.to_worker.flush())
             .map_err(|error| self.explain(error))
@@ -1219,6 +1250,127 @@ impl Confined {
         match self.cancellation.ended() {
             Some(detail) => ConfinedError::WorkerDied { detail },
             None => ConfinedError::Connection(error),
+        }
+    }
+}
+
+/// The host's end of the worker's standard input.
+///
+/// A socket on Unix, so that a document's descriptor can cross beside a frame; a pipe
+/// elsewhere, where nothing crosses but bytes and [`protocol::encode_command`] refuses a
+/// document on disk by name. The two are one type so that [`Confined`] reads the same on both.
+#[derive(Debug)]
+struct ToWorker {
+    #[cfg(unix)]
+    socket: std::os::unix::net::UnixStream,
+    #[cfg(not(unix))]
+    pipe: Option<ChildStdin>,
+}
+
+#[cfg(unix)]
+impl ToWorker {
+    /// Both ends: this side's, and the one to give the worker as its standard input.
+    fn pair() -> std::io::Result<(Self, Stdio)> {
+        let (host_end, worker_end) = std::os::unix::net::UnixStream::pair()?;
+        Ok((
+            Self { socket: host_end },
+            Stdio::from(std::os::fd::OwnedFd::from(worker_end)),
+        ))
+    }
+
+    /// This side's end, once the worker is running.
+    ///
+    /// The socket was made before the spawn, so there is nothing to take from the child; the
+    /// signature matches the pipe's so that [`Confined::start_with`] reads the same on both.
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the pipe's `attach` can find nothing to take, and one call site reads both"
+    )]
+    fn attach(self, _child: &mut Child) -> Option<Self> {
+        Some(self)
+    }
+
+    /// Writes a frame's header, with the descriptor beside it where there is one.
+    ///
+    /// A short send is completed with plain writes: the descriptor is attached to the first
+    /// byte the kernel accepts, so the rest of the header needs no ancillary data.
+    fn send_header(
+        &mut self,
+        header: &[u8],
+        descriptor: Option<protocol::SentDescriptor<'_>>,
+    ) -> std::io::Result<()> {
+        use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
+
+        let Some(descriptor) = descriptor else {
+            return self.socket.write_all(header);
+        };
+        let rights = [descriptor];
+        let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut ancillary = SendAncillaryBuffer::new(&mut space);
+        if !ancillary.push(SendAncillaryMessage::ScmRights(&rights)) {
+            return Err(std::io::Error::other(
+                "the ancillary buffer for one descriptor would not take one",
+            ));
+        }
+        let sent = rustix::net::sendmsg(
+            &self.socket,
+            &[std::io::IoSlice::new(header)],
+            &mut ancillary,
+            SendFlags::empty(),
+        )?;
+        self.socket
+            .write_all(header.get(sent..).unwrap_or_default())
+    }
+}
+
+#[cfg(unix)]
+impl std::io::Write for ToWorker {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.socket.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()
+    }
+}
+
+#[cfg(not(unix))]
+impl ToWorker {
+    /// The worker's standard input as a pipe, to be taken from the child once it is spawned.
+    fn pair() -> std::io::Result<(Self, Stdio)> {
+        Ok((Self { pipe: None }, Stdio::piped()))
+    }
+
+    /// This side's end of the pipe, which the child holds until it has been spawned.
+    fn attach(self, child: &mut Child) -> Option<Self> {
+        child.stdin.take().map(|pipe| Self { pipe: Some(pipe) })
+    }
+
+    /// Writes a frame's header. No descriptor crosses here, and the encoder never offers one.
+    fn send_header(
+        &mut self,
+        header: &[u8],
+        _descriptor: Option<protocol::SentDescriptor<'_>>,
+    ) -> std::io::Result<()> {
+        self.write_all(header)
+    }
+}
+
+#[cfg(not(unix))]
+impl std::io::Write for ToWorker {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        match self.pipe.as_mut() {
+            Some(pipe) => pipe.write(bytes),
+            None => Err(std::io::Error::other(
+                "the worker's input was never attached",
+            )),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self.pipe.as_mut() {
+            Some(pipe) => pipe.flush(),
+            None => Ok(()),
         }
     }
 }

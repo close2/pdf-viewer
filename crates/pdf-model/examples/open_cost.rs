@@ -39,7 +39,27 @@ fn main() {
     let path = std::env::args()
         .nth(1)
         .expect("usage: open_cost <document.pdf>");
-    let bytes = std::fs::read(&path).expect("readable");
+    // On disk, as every host opens a file since ADR 0809; `OPEN_COST_ROUTE=whole` reads it whole
+    // first, which is the route the confined viewer's worker still receives it by.
+    let whole = std::env::var("OPEN_COST_ROUTE").is_ok_and(|route| route == "whole");
+    let started = Instant::now();
+    let bytes = if whole {
+        pdf_syntax::FileBytes::from(
+            pdf_syntax::read_file(std::path::Path::new(&path)).expect("readable"),
+        )
+    } else {
+        pdf_syntax::FileBytes::on_disk(std::path::Path::new(&path)).expect("opens")
+    };
+    println!(
+        "{:8.3} ms  {}  ({} bytes)",
+        ms(started),
+        if whole {
+            "read_file       "
+        } else {
+            "FileBytes::on_disk"
+        },
+        bytes.len()
+    );
 
     let started = Instant::now();
     let document = Document::open(bytes).expect("opens");
@@ -123,4 +143,24 @@ fn main() {
         ms(started),
         interpreted.display_list.command_count()
     );
+    println!(
+        "{:>8} kB  peak resident   (VmHWM, the whole process)",
+        peak_resident_kb()
+    );
+}
+
+/// The process's resident high-water mark in kilobytes, off `/proc/self/status`.
+///
+/// A high-water mark rather than a sample, because the kernel keeps it across frees and it does
+/// not move with the machine's load — `confined_peak` quotes `VmPeak` for the same reason.
+fn peak_resident_kb() -> String {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|status| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix("VmHWM:"))
+                .map(|rest| rest.trim().trim_end_matches(" kB").to_owned())
+        })
+        .unwrap_or_else(|| "?".to_owned())
 }

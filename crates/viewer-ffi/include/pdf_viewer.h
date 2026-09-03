@@ -51,7 +51,7 @@ extern "C" {
  * This is what stands in for the Rust rule that a new message fails to compile in every consumer.
  * It cannot fail a build, so it fails a startup instead, once, naming the number that moved.
  */
-#define PDFV_EVENT_KIND_COUNT 16u
+#define PDFV_EVENT_KIND_COUNT 19u
 
 /* What an entry point returns. `PDFV_OK` is zero; everything else is a refusal. */
 #define PDFV_OK                 0
@@ -84,6 +84,13 @@ extern "C" {
  * here at all until the five-hundred-and-eleventh session — the count moved and the constant did
  * not, so a caller switching on kinds had to write the number 15 by hand. */
 #define PDFV_EVENT_SEARCHED          15u
+/* The two levels of the reader's restriction policy that need a person, and the list of embedded
+ * files moving — the three kinds that moved the count from 16 to 19 (ADR 0814). ASKING waits on
+ * pdfv_answer; WARNED follows an edit that went ahead; ATTACHMENTS_CHANGED means ask
+ * pdfv_attachments_read again. */
+#define PDFV_EVENT_ASKING            16u
+#define PDFV_EVENT_WARNED            17u
+#define PDFV_EVENT_ATTACHMENTS_CHANGED 18u
 
 /* §12.5.5's three situations, of which a press is two. What `pdfv_pointer` takes. */
 #define PDFV_POINTER_MOVED     0u
@@ -103,6 +110,15 @@ extern "C" {
 /* How much of what a document asserts about its reader this viewer obeys. ON is the default. */
 #define PDFV_RESTRICT_ON   0u
 #define PDFV_RESTRICT_OFF  1u
+/* ASK holds the edit behind a PDFV_EVENT_ASKING until pdfv_answer; WARN does it and then sends a
+ * PDFV_EVENT_WARNED. CLAUDE.md's four levels, all four (ADR 0814). */
+#define PDFV_RESTRICT_ASK  2u
+#define PDFV_RESTRICT_WARN 3u
+
+/* Where pdfv_attach puts a file: §7.7.4's /EmbeddedFiles tree, or §12.5.6.15's annotation on the
+ * page under a point. */
+#define PDFV_ATTACH_DOCUMENT 0u
+#define PDFV_ATTACH_PAGE     1u
 
 /* Table 29's /PageLayout: how the pages are arranged. SINGLE_PAGE is the table's default, and
  * the document's own value is what a session opens in — this is how a reader changes it. */
@@ -606,6 +622,15 @@ int32_t pdfv_free_text(pdfv_viewer *viewer, float from_x, float from_y, float to
 /* §12.5.6.6: what one this session added says. Only one this session added. */
 int32_t pdfv_set_free_text(pdfv_viewer *viewer, uint32_t number, uint16_t generation,
                            const char *text, pdfv_events **events);
+/* §7.11.4: put a file into the document (PDFV_ATTACH_*; x,y are the page point under PAGE), or
+ * take one out by the /EmbeddedFiles key pdfv_panel_name answered with. Both are edits: undone
+ * by pdfv_undo, written by pdfv_save, and answered by the policy like every other edit. */
+int32_t pdfv_attach(pdfv_viewer *viewer, const uint8_t *bytes, size_t len, const char *name,
+                    const char *description, const char *mime, uint32_t home, float x, float y,
+                    pdfv_events **events);
+int32_t pdfv_detach(pdfv_viewer *viewer, const char *name, pdfv_events **events);
+/* The answer to a PDFV_EVENT_ASKING, for the document the event named. */
+int32_t pdfv_answer(pdfv_viewer *viewer, uint64_t document, bool proceed, pdfv_events **events);
 int32_t pdfv_undo(pdfv_viewer *viewer, pdfv_events **events);
 int32_t pdfv_redo(pdfv_viewer *viewer, pdfv_events **events);
 

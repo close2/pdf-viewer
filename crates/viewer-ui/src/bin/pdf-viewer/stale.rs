@@ -1996,7 +1996,7 @@ mod tests {
             };
             column.send(viewer_core::Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             });

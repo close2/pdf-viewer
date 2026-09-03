@@ -742,7 +742,8 @@ fn a_raster_is_not_shared_across_black_points() {
 ///
 /// The fixture is the shape the two documents that found it state — an 8×8 stencil in a `/BBox
 /// [0 0 1 1]` cell with `/XStep` and `/YStep` of one, poured over a 40 × 40 square, which is a
-/// 42 × 42 lattice inside `MAX_TILES` — and the assertion is on the allocation because that says the
+/// 42 × 42 lattice, inside the 4096 sites `MAX_TILES` afforded when this was written — and the
+/// assertion is on the allocation because that says the
 /// decode did not happen again. **Neither witness is committed**: both are `SafeDocs` members of a
 /// Common Crawl archive, which `.gitignore` and `doc/third-party-data.md` keep out of this history
 /// on licence grounds, so the shape is rebuilt here instead. ADR 0399.

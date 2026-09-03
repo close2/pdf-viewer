@@ -68,6 +68,37 @@ pub fn refused(notes: &[String]) -> String {
     )
 }
 
+/// What a window says when [`viewer_core::Event::Warned`] arrives.
+///
+/// The notes already say the operation was done; what a host adds is which level did it, so that
+/// a person reading a status bar can tell a warning from a refusal without reading to the end.
+#[must_use]
+pub fn warned(notes: &[String]) -> String {
+    format!(
+        "{} — this reader is set to warn rather than obey (CLAUDE.md: a document's restrictions \
+         are the reader's to set)",
+        notes.join("; ")
+    )
+}
+
+/// What a window with no way to put a question says when [`viewer_core::Event::Asking`] arrives,
+/// beside the [`viewer_core::Command::Answer`] it sends with `proceed: false`.
+///
+/// **A window that cannot ask answers no, out loud.** Going ahead on an unanswered question would
+/// be the *off* level under another name, and not going ahead is what a closed dialogue means
+/// everywhere else — `pdf-transform` makes the same choice for a pipe with `Refusal::Unanswered`.
+/// The three windows have no dialogue for this yet, by the owner's word that the gestures follow
+/// the mockups (`doc/todo/38`); until one does, this sentence is what keeps the *ask* level from
+/// silently behaving like *on*.
+#[must_use]
+pub fn unanswerable(notes: &[String]) -> String {
+    format!(
+        "{} — this window cannot ask yet, so it answered no; {IGNORE_RESTRICTIONS} turns the \
+         restriction off",
+        notes.join("; ")
+    )
+}
+
 /// Why a file a document named was not supplied.
 ///
 /// Typed rather than a string, and every one of them is said out loud: trap 5 on the one path

@@ -178,7 +178,7 @@ pub struct Host {
     /// The directory §12.7.6.4's policy resolves against.
     directory: Option<PathBuf>,
     /// The file, kept because §7.6.4.1's second attempt opens it again with a password.
-    bytes: Vec<u8>,
+    bytes: pdf_syntax::FileBytes,
     /// Annex O's fragment, where the host was given one.
     fragment: Option<String>,
     /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
@@ -415,13 +415,16 @@ impl Host {
         restrictions: viewer_core::RestrictionLevel,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
-        let bytes = pdf_syntax::read_file(path).map_err(|error| HostError::Unreadable {
-            path: path.to_owned(),
-            error: error.to_string(),
-        })?;
+        // Open on disk rather than read whole: the core reads what page one needs through the
+        // handle, and the file's size stops being the launch's cost (ADR 0809).
+        let bytes =
+            pdf_syntax::FileBytes::on_disk(path).map_err(|error| HostError::Unreadable {
+                path: path.to_owned(),
+                error: error.to_string(),
+            })?;
         trace.say(
             Topic::Launch,
-            format_args!("read {} bytes of {}", bytes.len(), path.display()),
+            format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
         Ok(Rc::new_cyclic(|me| {
             let chrome = Rc::new(RefCell::new(Chrome {
@@ -861,6 +864,26 @@ impl Host {
             // this host's own because it names the word the argument parser takes, and this host
             // wrote its own copy of it for sessions while taking no such word (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
+            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
+            // question this window has no dialogue for yet — the gestures follow the owner's
+            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
+            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
+            Event::Asking {
+                document, notes, ..
+            } => {
+                self.say(&viewer_host::unanswerable(&notes));
+                queue.push_back(Command::Answer {
+                    document,
+                    proceed: false,
+                });
+            }
+            // §7.11.4's list moved under the files tab: a file attached this sitting is in it
+            // before anything is saved, and one detached is out of it. The tab is rebuilt from
+            // the same answer it was built from, which is the only thing a window may do here
+            // this round — display the list it already shows.
+            Event::AttachmentsChanged { .. } => self.rebuild_panel(Tab::Files),
         }
     }
 
@@ -1290,45 +1313,52 @@ impl Host {
 
     /// Builds every panel from its own answer.
     fn build_panels(&mut self) {
+        self.miniatures.borrow_mut().clear();
+        for tab in Tab::ALL {
+            self.rebuild_panel(*tab);
+        }
+    }
+
+    /// Builds one panel from its own answer, replacing whatever its slot held.
+    ///
+    /// Every panel at launch, and §7.11.4's files tab again whenever
+    /// `Event::AttachmentsChanged` says the list it was built from has moved.
+    fn rebuild_panel(&mut self, tab: Tab) {
         let act = self.row_sink();
         let row = self.page_sink();
         let show = self.show_page_sink();
-        self.miniatures.borrow_mut().clear();
-        for tab in Tab::ALL {
-            let filled = self.panel_of(*tab);
-            let Some(slot) = self.ui.slots.get(tab.index()) else {
-                continue;
-            };
-            while let Some(child) = slot.first_child() {
-                slot.remove(&child);
+        let filled = self.panel_of(tab);
+        let Some(slot) = self.ui.slots.get(tab.index()) else {
+            return;
+        };
+        while let Some(child) = slot.first_child() {
+            slot.remove(&child);
+        }
+        match &filled {
+            Panel::Rows(rows) => {
+                self.trace.say(
+                    Topic::Panel,
+                    format_args!("{}: {} row(s)", tab.label(), rows.len()),
+                );
+                slot.append(&tree::tree(rows, &act));
             }
-            match &filled {
-                Panel::Rows(rows) => {
-                    self.trace.say(
-                        Topic::Panel,
-                        format_args!("{}: {} row(s)", tab.label(), rows.len()),
-                    );
-                    slot.append(&tree::tree(rows, &act));
-                }
-                Panel::Pages(count) => {
-                    self.trace.say(
-                        Topic::Panel,
-                        format_args!("{}: {count} page(s), miniatures on demand", tab.label()),
-                    );
-                    // **On the idle queue, not here**, and the screen is what said so.
-                    // `GtkListView` binds a row from GTK's layout, and putting the list into a
-                    // realised window starts one *synchronously* — inside this method, which runs
-                    // with the host's `RefCell` borrowed. The first run printed "the host was busy,
-                    // so page 1's row was drawn without its /Thumb" and drew a page list with no
-                    // pictures in it. Deferring lets the command that got here unwind first; it is
-                    // the same move `find.connect_search_mode_enabled_notify` makes below, and
-                    // `viewer-qt` makes with `Busy`.
-                    let (slot, count, row, show) =
-                        (slot.clone(), *count, row.clone(), show.clone());
-                    glib::idle_add_local_once(move || {
-                        slot.append(&pages::page_list(count, &row, &show));
-                    });
-                }
+            Panel::Pages(count) => {
+                self.trace.say(
+                    Topic::Panel,
+                    format_args!("{}: {count} page(s), miniatures on demand", tab.label()),
+                );
+                // **On the idle queue, not here**, and the screen is what said so.
+                // `GtkListView` binds a row from GTK's layout, and putting the list into a
+                // realised window starts one *synchronously* — inside this method, which runs
+                // with the host's `RefCell` borrowed. The first run printed "the host was busy,
+                // so page 1's row was drawn without its /Thumb" and drew a page list with no
+                // pictures in it. Deferring lets the command that got here unwind first; it is
+                // the same move `find.connect_search_mode_enabled_notify` makes below, and
+                // `viewer-qt` makes with `Busy`.
+                let (slot, count, row, show) = (slot.clone(), *count, row.clone(), show.clone());
+                glib::idle_add_local_once(move || {
+                    slot.append(&pages::page_list(count, &row, &show));
+                });
             }
         }
     }

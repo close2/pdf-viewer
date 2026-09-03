@@ -4084,9 +4084,17 @@ const GEOMETRY: [&str; 0] = [];
 /// there: `poppler` prints *Unsupported version/revision (4/4) of Standard security handler*
 /// and then emits an 842x596 sheet of **zero ink**, so what it drew is not the document. `gs`
 /// and `mutool` refuse it as they refuse the rest.
-const NO_RENDER_NEEDS_A_PASSWORD: [&str; 8] = [
+///
+/// **Nine since the eight-hundred-and-eighty-seventh session, and the ninth came off the list
+/// below** (ADR 0820). `issue21579.pdf` was there as an encryption the standard states no
+/// algorithm for; revision 5 is implemented now, so the file is what the other eight are — a
+/// document with a password this gate does not supply, opened by `encryption.rs` with
+/// `pässwört`. That is the whole of what changed for the oracle: the page it cannot draw is
+/// the same page, and the sentence it cannot draw it for is a weaker one.
+const NO_RENDER_NEEDS_A_PASSWORD: [&str; 9] = [
     "bug1782186.pdf page 1",
     "issue15893_reduced.pdf page 1",
+    "issue21579.pdf page 1",
     "issue3371.pdf page 1",
     "issue6010_1.pdf page 1",
     "issue6010_2.pdf page 1",
@@ -4097,9 +4105,12 @@ const NO_RENDER_NEEDS_A_PASSWORD: [&str; 8] = [
 
 /// Pages refused because the file's encryption is not something §7.6 states an algorithm for.
 ///
-/// `issue21579.pdf` is Table 21's `/R` 5, the deprecated proprietary extension ISO 32000-2
-/// describes and does not specify; `doc/HANDOVER.md` records the decision to leave it, and the
-/// crawl puts it at 0.03% of the web. All three references refuse it too.
+/// **One since the eight-hundred-and-eighty-seventh session.** `issue21579.pdf` was the other,
+/// as Table 21's `/R` 5 — "the deprecated proprietary extension ISO 32000-2 describes and does
+/// not specify", which is a claim about the standard that decayed: the sentence binds a writer,
+/// §7.6.4.1 states a requirement about revision 5, and the extension is a document with an
+/// algorithm in it. The file is now in the list above, wanting a password rather than a clause.
+/// ADR 0820.
 ///
 /// `PDFBOX-4352-0.pdf` is a fuzzed cross-reference table — one entry reads
 /// `0007777777770000130 00000 n`, nineteen digits where §7.5.4 states twenty bytes — so object 6
@@ -4108,8 +4119,7 @@ const NO_RENDER_NEEDS_A_PASSWORD: [&str; 8] = [
 /// cannot decrypt one stream of the file, and opening it would mean reading ciphertext as
 /// content. `poppler` and `mutool` rebuild the table and produce a 200x50 sheet of **zero ink**;
 /// `gs` produces nothing. A blank page is not a recovery, and nothing here is owed to it.
-const NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE: [&str; 2] =
-    ["PDFBOX-4352-0.pdf page 1", "issue21579.pdf page 1"];
+const NO_RENDER_ENCRYPTION_THE_STANDARD_DOES_NOT_STATE: [&str; 1] = ["PDFBOX-4352-0.pdf page 1"];
 
 /// Pages the page tree does not yield, which `tests/corpus.rs` documents one file at a time.
 ///

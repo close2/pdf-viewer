@@ -309,13 +309,18 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
         }
     }
 
-    reread_and_draw(&name, &document, &piece, tally);
+    reread_and_draw(&name, &document, &bytes, &piece, tally);
 }
 
 /// RFC 0002 section 9's layers 2 and 3 over one piece.
-fn reread_and_draw(name: &str, document: &Document, piece: &[u8], tally: &Mutex<Tally>) {
+fn reread_and_draw(
+    name: &str,
+    document: &Document,
+    bytes: &[u8],
+    piece: &[u8],
+    tally: &Mutex<Tally>,
+) {
     let name = name.to_owned();
-    let bytes = document.bytes().to_vec();
     // Layer 2: the piece opens, holds exactly the one page, and carries the producer's stream.
     let read = match Document::open_with_limits(piece.to_vec(), Limits::DEFAULT) {
         Ok(read) => read,
@@ -354,7 +359,7 @@ fn reread_and_draw(name: &str, document: &Document, piece: &[u8], tally: &Mutex<
     record(tally, |t| t.split = t.split.saturating_add(1));
 
     // Layer 3, the load-bearing one.
-    match (draw(&name, &bytes), draw(&name, piece)) {
+    match (draw(&name, bytes), draw(&name, piece)) {
         (Some(before), Some(after)) if before == after => {
             record(tally, |t| t.identical = t.identical.saturating_add(1));
         }

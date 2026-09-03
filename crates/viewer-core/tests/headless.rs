@@ -86,7 +86,7 @@ fn opened(width: u32, height: u32) -> (Viewer, Vec<Event>) {
     let events = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: specification_bytes(),
+            bytes: specification_bytes().into(),
             password: None,
             fragment: None,
         })
@@ -466,7 +466,7 @@ fn a_document_that_is_not_a_pdf_is_refused_by_name() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: b"this is not a PDF".to_vec(),
+            bytes: b"this is not a PDF".to_vec().into(),
             password: None,
             fragment: None,
         })
@@ -493,7 +493,7 @@ fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: bytes.clone(),
+            bytes: bytes.clone().into(),
             password: None,
             fragment: None,
         })
@@ -514,7 +514,7 @@ fn an_encrypted_document_asks_for_a_password_and_opens_with_it() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: Some("abc".to_owned().into()),
             fragment: None,
         })
@@ -591,7 +591,7 @@ fn objects_lost_inside_a_damaged_object_stream_are_said_out_loud() {
     let mut said: Vec<String> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -661,7 +661,7 @@ fn a_page_whose_codes_no_method_can_name_answers_with_a_count_and_not_a_report()
     let _ = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: assemble(body),
+            bytes: assemble(body).into(),
             password: None,
             fragment: None,
         })
@@ -806,7 +806,7 @@ fn a_rebuild_says_what_it_recovered_from_an_object_stream() {
     let mut said: Vec<String> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: a_packed_page_behind_an_unreadable_table(),
+            bytes: a_packed_page_behind_an_unreadable_table().into(),
             password: None,
             fragment: None,
         })
@@ -846,7 +846,7 @@ fn a_page_that_could_not_be_drawn_whole_says_so() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1141,7 +1141,7 @@ fn a_click_on_a_link_shows_the_page_it_names() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1195,7 +1195,7 @@ fn a_press_dragged_off_a_link_does_not_activate_it() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1237,7 +1237,7 @@ fn a_uri_is_handed_over_rather_than_opened() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1279,7 +1279,7 @@ fn a_document_says_what_it_carries_before_a_page_is_drawn() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1322,7 +1322,7 @@ fn a_file_newer_than_this_program_says_so_before_a_page_is_drawn() {
         viewer
             .handle(Command::Open {
                 id: DOCUMENT,
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -1398,7 +1398,7 @@ fn a_click_on_an_action_this_program_will_not_perform_says_which_and_why() {
         viewer
             .handle(Command::Open {
                 id: DOCUMENT,
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -1496,7 +1496,7 @@ fn a_document_whose_unmet_requirements_pass_the_clauses_threshold_says_the_total
         viewer
             .handle(Command::Open {
                 id: DOCUMENT,
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -1688,7 +1688,7 @@ fn a_press_over_an_annotation_still_anchors_a_selection() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1747,7 +1747,7 @@ fn the_tab_key_walks_the_pages_annotations() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1902,7 +1902,7 @@ fn a_field_is_typed_into_undone_and_redone() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1980,7 +1980,7 @@ fn a_save_takes_the_unsaved_mark_off_and_an_edit_puts_it_back() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2045,7 +2045,7 @@ fn a_caret_says_where_the_next_character_goes() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2150,7 +2150,7 @@ fn a_point_inside_a_value_names_the_byte_it_is_nearest() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2265,7 +2265,7 @@ fn a_visible_pages_list_mode_keeps_the_groups_the_page_reaches() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2313,7 +2313,7 @@ fn a_locked_group_reaches_a_host_and_its_switch_is_refused() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: two_groups_one_locked(),
+            bytes: two_groups_one_locked().into(),
             password: None,
             fragment: None,
         })
@@ -2420,7 +2420,7 @@ fn a_press_on_a_widget_draws_the_page_again() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2490,7 +2490,7 @@ fn a_click_finds_the_field_it_landed_on() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2548,7 +2548,7 @@ fn a_page_states_its_whole_form_as_controls_a_host_can_build() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2676,7 +2676,7 @@ fn a_password_fields_value_says_that_it_is_not_the_fields_characters() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2743,7 +2743,7 @@ fn a_host_can_check_a_box_with_the_name_the_page_gave_it() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2835,7 +2835,7 @@ fn a_host_can_select_several_items_of_a_list_box_and_save_them() {
     let _events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2893,7 +2893,7 @@ fn a_host_can_select_several_items_of_a_list_box_and_save_them() {
     let _events: Vec<_> = again
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: bytes.clone(),
+            bytes: bytes.clone().into(),
             password: None,
             fragment: None,
         })
@@ -2957,7 +2957,7 @@ fn a_field_states_the_name_a_user_interface_is_to_show() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -2998,7 +2998,7 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: bytes.clone(),
+            bytes: bytes.clone().into(),
             password: None,
             fragment: None,
         })
@@ -3045,7 +3045,7 @@ fn a_saved_document_carries_the_edit_and_the_file_under_it() {
     let events: Vec<_> = reader
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: saved,
+            bytes: saved.into(),
             password: None,
             fragment: None,
         })
@@ -3135,7 +3135,7 @@ fn a_query_about_the_page_on_the_screen_costs_less_than_finding_it() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: bytes.clone(),
+            bytes: bytes.clone().into(),
             password: None,
             fragment: None,
         })
@@ -3233,7 +3233,7 @@ fn a_tagged_page_answers_with_its_structure_and_an_untagged_one_says_so() {
     plain
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -3278,7 +3278,7 @@ fn page_one_answers_where_its_page_tree_node_has_the_lower_object_number() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -3326,7 +3326,7 @@ fn every_page_of_a_large_tagged_document_answers_with_its_own_elements() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -3389,7 +3389,7 @@ fn a_continuing_list_names_the_earlier_one_by_its_place_in_this_pages_answer() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_two_lists(),
+            bytes: with_two_lists().into(),
             password: None,
             fragment: None,
         })
@@ -3544,7 +3544,7 @@ fn a_structure_type_crosses_role_mapped_and_speaking_only_for_itself() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_role_map(),
+            bytes: with_a_role_map().into(),
             password: None,
             fragment: None,
         })
@@ -3736,7 +3736,7 @@ fn an_element_that_marks_no_text_crosses_with_the_bounds_the_document_states() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_figure(),
+            bytes: with_a_figure().into(),
             password: None,
             fragment: None,
         })
@@ -3869,7 +3869,7 @@ fn an_element_that_marks_no_text_crosses_with_the_rectangle_its_content_drew() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_figure(),
+            bytes: with_a_figure().into(),
             password: None,
             fragment: None,
         })
@@ -4005,7 +4005,7 @@ fn a_content_rectangle_is_not_taken_from_another_content_stream() {
         let events: Vec<Event> = viewer
             .handle(Command::Open {
                 id: DOCUMENT,
-                bytes: with_a_form_that_marks(form_mcid),
+                bytes: with_a_form_that_marks(form_mcid).into(),
                 password: None,
                 fragment: None,
             })
@@ -4076,7 +4076,7 @@ fn a_header_cell_crosses_with_the_axis_it_describes() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_table(),
+            bytes: with_a_table().into(),
             password: None,
             fragment: None,
         })
@@ -4133,7 +4133,7 @@ fn a_tables_summary_and_a_headers_short_form_cross_for_their_own_types() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_table(),
+            bytes: with_a_table().into(),
             password: None,
             fragment: None,
         })
@@ -4268,7 +4268,7 @@ fn an_element_reached_through_an_object_reference_is_placed_and_says_what_contro
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_form(),
+            bytes: with_a_form().into(),
             password: None,
             fragment: None,
         })
@@ -4446,7 +4446,7 @@ fn an_element_reaching_its_widget_through_stmown_is_placed_and_says_what_control
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_an_owned_appearance(),
+            bytes: with_an_owned_appearance().into(),
             password: None,
             fragment: None,
         })
@@ -4509,7 +4509,7 @@ fn a_cell_is_given_the_header_cells_that_describe_it() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_table(),
+            bytes: with_a_table().into(),
             password: None,
             fragment: None,
         })
@@ -4555,7 +4555,7 @@ fn a_page_stating_a_duration_advances_when_it_is_told_the_time() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_durations(),
+            bytes: with_durations().into(),
             password: None,
             fragment: None,
         })
@@ -4645,7 +4645,7 @@ fn a_thread_action_shows_the_bead_and_not_merely_its_page() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_thread(),
+            bytes: with_a_thread().into(),
             password: None,
             fragment: None,
         })
@@ -4747,7 +4747,7 @@ fn a_transition_frame_is_between_the_two_pages() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: two_coloured_pages(),
+            bytes: two_coloured_pages().into(),
             password: None,
             fragment: None,
         })
@@ -4831,7 +4831,7 @@ fn a_transition_this_reader_does_not_draw_is_named_rather_than_cut() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: assemble(body),
+            bytes: assemble(body).into(),
             password: None,
             fragment: None,
         })
@@ -4874,7 +4874,7 @@ fn a_direction_the_table_does_not_give_a_style_is_named_rather_than_cut() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: assemble(body),
+            bytes: assemble(body).into(),
             password: None,
             fragment: None,
         })
@@ -5039,7 +5039,7 @@ fn an_outline_item_whose_action_is_a_uri_hands_it_over() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -5128,7 +5128,7 @@ fn an_embedded_file_comes_out_of_the_document() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -5203,7 +5203,7 @@ fn a_click_on_a_file_attachment_annotation_extracts_its_file() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -5287,7 +5287,7 @@ fn the_catalog_says_which_panel_a_host_should_open() {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: specification_bytes(),
+            bytes: specification_bytes().into(),
             password: None,
             fragment: None,
         })
@@ -5310,7 +5310,7 @@ fn the_catalog_says_which_panel_a_host_should_open() {
     plain
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_durations(),
+            bytes: with_durations().into(),
             password: None,
             fragment: None,
         })
@@ -5377,7 +5377,7 @@ fn a_document_hands_over_what_it_says_about_itself() {
     plain
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_durations(),
+            bytes: with_durations().into(),
             password: None,
             fragment: None,
         })
@@ -5414,7 +5414,7 @@ fn the_pointer_raises_table_197s_events() {
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_triggers(),
+            bytes: with_triggers().into(),
             password: None,
             fragment: None,
         })
@@ -5495,7 +5495,7 @@ fn a_press_gives_a_widget_the_focus_and_a_press_elsewhere_takes_it_away() {
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_focus_triggers(),
+            bytes: with_focus_triggers().into(),
             password: None,
             fragment: None,
         })
@@ -5681,7 +5681,7 @@ fn geometry_in(destination: &str, width: u32, height: u32) -> viewer_core::PageG
     let _ = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_open_action(destination),
+            bytes: with_open_action(destination).into(),
             password: None,
             fragment: None,
         })
@@ -5891,7 +5891,7 @@ fn a_page_turn_raises_the_events_the_clause_orders() {
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_page_triggers(),
+            bytes: with_page_triggers().into(),
             password: None,
             fragment: None,
         })
@@ -5938,7 +5938,7 @@ fn a_zoom_holds_the_point_it_is_given() {
     let _ = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_open_action("[3 0 R /Fit]"),
+            bytes: with_open_action("[3 0 R /Fit]").into(),
             password: None,
             fragment: None,
         })
@@ -6045,7 +6045,7 @@ fn a_no_zoom_annotation_is_the_one_thing_a_zoom_re_interprets() {
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_no_zoom_annotation(),
+            bytes: with_no_zoom_annotation().into(),
             password: None,
             fragment: None,
         })
@@ -6095,7 +6095,7 @@ fn a_zoom_re_interprets_the_page_with_the_annotation_and_not_the_page_beside_it(
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_view_dependent_page_above_a_plain_one(),
+            bytes: with_a_view_dependent_page_above_a_plain_one().into(),
             password: None,
             fragment: None,
         })
@@ -6254,7 +6254,7 @@ fn popup_viewer(open: bool) -> Viewer {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: with_a_popup(open),
+            bytes: with_a_popup(open).into(),
             password: None,
             fragment: None,
         })
@@ -6523,7 +6523,7 @@ fn opened_with(bytes: Vec<u8>, level: RestrictionLevel) -> Viewer {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -6693,7 +6693,7 @@ fn collection_of(bytes: Vec<u8>) -> pdf_model::collection::Initial {
     let opened = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -6876,7 +6876,7 @@ fn a_free_text_annotation_is_drawn_from_a_drag_typed_into_and_read_back() {
     let events: Vec<_> = reader
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: saved,
+            bytes: saved.into(),
             password: None,
             fragment: None,
         })
@@ -6932,7 +6932,7 @@ fn a_host_can_ask_for_the_page_without_the_widgets_it_draws_itself() {
     let events: Vec<_> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -7560,7 +7560,7 @@ fn a_drag_across_a_hollow_ocr_layer_selects_under_a_full_height_band() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: scanned_ocr_pdf(OcrFont::HollowEmbedded, 3),
+            bytes: scanned_ocr_pdf(OcrFont::HollowEmbedded, 3).into(),
             password: None,
             fragment: None,
         })
@@ -7872,7 +7872,7 @@ fn a_link_is_hit_where_the_column_has_moved_the_page_to() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -8162,7 +8162,7 @@ fn each_radio_button_of_a_set_says_whether_it_is_on_rather_than_whether_the_fiel
     viewer
         .handle(Command::Open {
             id: DocumentId(1),
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -8189,4 +8189,443 @@ fn each_radio_button_of_a_set_says_whether_it_is_on_rather_than_whether_the_fiel
         "exactly one of the six is on, which is the one whose field states its appearance state: \
          {radios:?}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// §7.11.4's embedded files attached and detached, and the four levels over both homes (ADR 0814).
+// ---------------------------------------------------------------------------------------------
+
+/// The file the attach tests put in: a sentence no fixture contains, so reading it back is the
+/// writer's doing and nobody else's.
+const ATTACHED: &[u8] = b"the quarter's figures, attached by the reader\n";
+
+/// A device point inside the one page of [`certified_form`], for the page home.
+fn a_point_on_the_page(viewer: &Viewer) -> (f32, f32) {
+    let Answer::Geometry(geometry) = viewer.query(Query::PageGeometry(0)) else {
+        panic!("the page on the screen has a geometry");
+    };
+    (
+        geometry.origin.0 + geometry.page.width * 0.5 * geometry.scale,
+        geometry.origin.1 + geometry.page.height * 0.5 * geometry.scale,
+    )
+}
+
+/// [`Edit::Attach`] for one of the two homes, under one name.
+fn attach(viewer: &Viewer, home: viewer_core::AttachHome, name: &str) -> Edit {
+    let home = match home {
+        viewer_core::AttachHome::Document => viewer_core::AttachHome::Document,
+        viewer_core::AttachHome::Page { .. } => viewer_core::AttachHome::Page {
+            at: a_point_on_the_page(viewer),
+        },
+    };
+    Edit::Attach {
+        bytes: ATTACHED.to_vec().into(),
+        name: name.to_owned(),
+        description: Some("figures".to_owned()),
+        mime: Some("text/plain".to_owned()),
+        home,
+    }
+}
+
+/// The two homes, as [`attach`] takes them; the page's point is filled in per viewer.
+const HOMES: [viewer_core::AttachHome; 2] = [
+    viewer_core::AttachHome::Document,
+    viewer_core::AttachHome::Page { at: (0.0, 0.0) },
+];
+
+/// `CLAUDE.md`'s four levels, over both of §7.11.4.1's homes, against a document whose author
+/// certified it at §12.8.2.2's `/P` 1 — which withholds bit 4's modification and bit 6's
+/// annotation alike, so both homes are restricted and the *level* is what varies. One function
+/// per level, below, each saying what that level owes; the notes name what withheld the
+/// operation and what became of it, in the tail each level owns.
+#[test]
+fn every_level_answers_an_attach_in_both_homes() {
+    for home in HOMES {
+        let operation = match home {
+            viewer_core::AttachHome::Document => pdf_model::restriction::Operation::Modify,
+            viewer_core::AttachHome::Page { .. } => pdf_model::restriction::Operation::Annotate,
+        };
+        an_attach_at_on_is_refused(home, operation);
+        an_attach_at_off_is_done_in_silence(home);
+        an_attach_at_ask_waits_for_the_answer(home, operation);
+        an_attach_at_warn_is_done_and_said(home, operation);
+    }
+}
+
+/// `On`: `Event::Refused`, nothing done, nothing dirty, and the note names the clause.
+fn an_attach_at_on_is_refused(
+    home: viewer_core::AttachHome,
+    operation: pdf_model::restriction::Operation,
+) {
+    let mut viewer = opened_with(certified_form(1), RestrictionLevel::On);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(attach(&viewer, home, "on.txt")))
+        .collect();
+    let [
+        Event::Refused {
+            operation: refused,
+            notes,
+            ..
+        },
+    ] = events.as_slice()
+    else {
+        panic!("{home:?} at On: one refusal and nothing else: {events:?}");
+    };
+    assert_eq!(*refused, operation, "{home:?}");
+    assert!(
+        notes[0].contains("§12.8.2.2's /P 1") && notes[0].contains("was not done"),
+        "{home:?}: {notes:?}"
+    );
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+}
+
+/// `Off`: done — `Event::Dirty` and `Event::AttachmentsChanged` — and nothing said about the
+/// document's assertions, because turning them off is the reader's (`CLAUDE.md`).
+fn an_attach_at_off_is_done_in_silence(home: viewer_core::AttachHome) {
+    let mut viewer = opened_with(certified_form(1), RestrictionLevel::Off);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(attach(&viewer, home, "off.txt")))
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{home:?} at Off: {events:?}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
+        "{home:?} at Off: {events:?}"
+    );
+    assert!(
+        !events.iter().any(|event| matches!(
+            event,
+            Event::Refused { .. } | Event::Asking { .. } | Event::Warned { .. }
+        )),
+        "{home:?} at Off says nothing about the document's assertions: {events:?}"
+    );
+}
+
+/// `Ask`: `Event::Asking` and nothing done; a `no` is silent and changes nothing, a `yes` does
+/// the held edit exactly as `Off` would have, and an answer to nothing outstanding does nothing.
+fn an_attach_at_ask_waits_for_the_answer(
+    home: viewer_core::AttachHome,
+    operation: pdf_model::restriction::Operation,
+) {
+    let mut viewer = opened_with(certified_form(1), RestrictionLevel::Ask);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(attach(&viewer, home, "ask.txt")))
+        .collect();
+    let [
+        Event::Asking {
+            operation: asked,
+            notes,
+            document,
+        },
+    ] = events.as_slice()
+    else {
+        panic!("{home:?} at Ask: one question and nothing done: {events:?}");
+    };
+    assert_eq!(*asked, operation);
+    assert!(
+        notes[0].contains("waiting on your answer"),
+        "{home:?}: {notes:?}"
+    );
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+    let document = *document;
+    let declined: Vec<_> = viewer
+        .handle(Command::Answer {
+            document,
+            proceed: false,
+        })
+        .collect();
+    assert!(
+        declined.is_empty(),
+        "{home:?}: a no is silent: {declined:?}"
+    );
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+    viewer
+        .handle(Command::Edit(attach(&viewer, home, "ask.txt")))
+        .for_each(drop);
+    let agreed: Vec<_> = viewer
+        .handle(Command::Answer {
+            document,
+            proceed: true,
+        })
+        .collect();
+    assert!(
+        agreed
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "{home:?}: {agreed:?}"
+    );
+    assert!(
+        agreed
+            .iter()
+            .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
+        "{home:?}: {agreed:?}"
+    );
+    let again: Vec<_> = viewer
+        .handle(Command::Answer {
+            document,
+            proceed: true,
+        })
+        .collect();
+    assert!(
+        again.is_empty(),
+        "an answer to nothing outstanding does nothing"
+    );
+}
+
+/// `Warn`: done, and `Event::Warned` **after** the `Dirty` it caused — the state first, then the
+/// sentence about it — with the note's tail saying it was done anyway.
+fn an_attach_at_warn_is_done_and_said(
+    home: viewer_core::AttachHome,
+    operation: pdf_model::restriction::Operation,
+) {
+    let mut viewer = opened_with(certified_form(1), RestrictionLevel::Warn);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(attach(&viewer, home, "warn.txt")))
+        .collect();
+    let dirty = events
+        .iter()
+        .position(|event| matches!(event, Event::Dirty { dirty: true, .. }))
+        .unwrap_or_else(|| panic!("{home:?} at Warn is done: {events:?}"));
+    let warned = events
+        .iter()
+        .position(|event| matches!(event, Event::Warned { .. }))
+        .unwrap_or_else(|| panic!("{home:?} at Warn says so: {events:?}"));
+    assert!(
+        dirty < warned,
+        "the state first, then the sentence: {events:?}"
+    );
+    let Event::Warned {
+        operation: warned_about,
+        notes,
+        ..
+    } = &events[warned]
+    else {
+        unreachable!("found above");
+    };
+    assert_eq!(*warned_about, operation);
+    assert!(notes[0].contains("was done anyway"), "{home:?}: {notes:?}");
+}
+
+/// Which of Table 22's bits a file attached on a page reads, decided from the text and pinned
+/// here: §12.8.2.2's level 3 permits "annotation creation" and no level permits the residual
+/// modification, so a certification at `/P` 3 admits a file on a page and refuses one in the tree.
+#[test]
+fn a_certification_permitting_annotations_admits_a_file_on_a_page_and_not_in_the_tree() {
+    let mut viewer = opened_with(certified_form(3), RestrictionLevel::On);
+    let on_page: Vec<_> = viewer
+        .handle(Command::Edit(attach(
+            &viewer,
+            viewer_core::AttachHome::Page { at: (0.0, 0.0) },
+            "page.txt",
+        )))
+        .collect();
+    assert!(
+        on_page
+            .iter()
+            .any(|event| matches!(event, Event::Dirty { dirty: true, .. })),
+        "bit 6's annotation, which level 3 permits: {on_page:?}"
+    );
+    let in_tree: Vec<_> = viewer
+        .handle(Command::Edit(attach(
+            &viewer,
+            viewer_core::AttachHome::Document,
+            "tree.txt",
+        )))
+        .collect();
+    assert!(
+        matches!(
+            in_tree.as_slice(),
+            [Event::Refused {
+                operation: pdf_model::restriction::Operation::Modify,
+                ..
+            }]
+        ),
+        "bit 4's residual, which no level permits: {in_tree:?}"
+    );
+}
+
+/// The whole life of an attachment in the viewer: listed the moment it is attached, gone on
+/// undo, back on redo, out on detach, and — after a save — in the file, read back by this tree's
+/// own reader with the bytes intact and the producer's bytes under them (§7.5.6).
+#[test]
+fn an_attached_file_is_listed_at_once_undone_redone_detached_and_saved() {
+    let mut viewer = opened_with(certified_form(2), RestrictionLevel::On);
+    let names = |viewer: &Viewer| match viewer.query(Query::Attachments) {
+        Answer::Attachments(files) => files.into_iter().map(|file| file.name).collect::<Vec<_>>(),
+        _ => panic!("a list"),
+    };
+    assert!(names(&viewer).is_empty());
+
+    // A certification at /P 2 withholds bit 4's residual; the reader turns that off.
+    viewer
+        .handle(Command::Restrict(RestrictionLevel::Off))
+        .for_each(drop);
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(attach(
+            &viewer,
+            viewer_core::AttachHome::Document,
+            "figures.txt",
+        )))
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
+        "{events:?}"
+    );
+    assert_eq!(names(&viewer), ["figures.txt"]);
+
+    // The same name again is §7.9.6's overlap, said and not logged.
+    let twice: Vec<_> = viewer
+        .handle(Command::Edit(attach(
+            &viewer,
+            viewer_core::AttachHome::Document,
+            "figures.txt",
+        )))
+        .collect();
+    assert!(
+        matches!(twice.as_slice(), [Event::Reported { notes, .. }] if notes[0].contains("§7.9.6")),
+        "{twice:?}"
+    );
+
+    // Out of the list on undo, back on redo, and the list says so each time.
+    let undone: Vec<_> = viewer.handle(Command::Undo).collect();
+    assert!(
+        undone
+            .iter()
+            .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
+        "{undone:?}"
+    );
+    assert!(names(&viewer).is_empty());
+    viewer.handle(Command::Redo).for_each(drop);
+    assert_eq!(names(&viewer), ["figures.txt"]);
+
+    // Extracted before it is saved, from the list it is in.
+    let out: Vec<_> = viewer
+        .handle(Command::Extract {
+            name: "figures.txt".to_owned(),
+        })
+        .collect();
+    assert!(
+        matches!(out.as_slice(), [Event::Extracted { bytes, .. }] if bytes == ATTACHED),
+        "{out:?}"
+    );
+
+    // Saved: the file is in the tree of what was written, bytes and checksum agreeing.
+    let saved: Vec<_> = viewer.handle(Command::Save).collect();
+    let Some(Event::Saved { bytes, .. }) = saved
+        .iter()
+        .find(|event| matches!(event, Event::Saved { .. }))
+    else {
+        panic!("the fixture can be updated: {saved:?}");
+    };
+    assert!(bytes.starts_with(&certified_form(2)));
+    let reopened = pdf_syntax::Document::open(bytes.clone()).expect("a PDF");
+    let files = pdf_model::attachment::attachments(&reopened);
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].name, "figures.txt");
+    assert_eq!(
+        reopened.decoded_stream_data(&files[0].stream).as_deref(),
+        Some(ATTACHED)
+    );
+    assert_eq!(files[0].checksum_matches(ATTACHED), Some(true));
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(false)));
+
+    // Detached: gone from the list now, dirty again, and a name nothing files is said.
+    let detached: Vec<_> = viewer
+        .handle(Command::Edit(Edit::Detach {
+            name: "figures.txt".to_owned(),
+        }))
+        .collect();
+    assert!(
+        detached
+            .iter()
+            .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
+        "{detached:?}"
+    );
+    assert!(names(&viewer).is_empty());
+    assert!(matches!(viewer.query(Query::Dirty), Answer::Dirty(true)));
+    let nothing: Vec<_> = viewer
+        .handle(Command::Edit(Edit::Detach {
+            name: "figures.txt".to_owned(),
+        }))
+        .collect();
+    assert!(
+        matches!(nothing.as_slice(), [Event::Reported { .. }]),
+        "{nothing:?}"
+    );
+}
+
+/// A file dropped on a page draws its icon at once — §12.5.6.15's `PushPin`, synthesised by
+/// this tree — and after a save the page's `/Annots` reaches it.
+#[test]
+fn a_file_dropped_on_a_page_draws_its_icon_at_once_and_is_on_the_page_after_a_save() {
+    let mut viewer = opened_with(certified_form(3), RestrictionLevel::On);
+    let before = viewer
+        .handle(Command::Resize {
+            width: 400,
+            height: 200,
+            scale: 1.0,
+        })
+        .collect::<Vec<_>>();
+    let plain = request(&before).clone();
+    let ink_before = count_ink(&raster(&plain));
+    let events: Vec<_> = viewer
+        .handle(Command::Edit(attach(
+            &viewer,
+            viewer_core::AttachHome::Page { at: (0.0, 0.0) },
+            "dropped.txt",
+        )))
+        .collect();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, Event::AttachmentsChanged { .. })),
+        "{events:?}"
+    );
+    let drawn = request(&events).clone();
+    assert!(
+        count_ink(&raster(&drawn)) > ink_before,
+        "the icon is on the page before anything is saved"
+    );
+
+    let saved: Vec<_> = viewer.handle(Command::Save).collect();
+    let Some(Event::Saved { bytes, .. }) = saved
+        .iter()
+        .find(|event| matches!(event, Event::Saved { .. }))
+    else {
+        panic!("the fixture can be updated: {saved:?}");
+    };
+    let reopened = pdf_syntax::Document::open(bytes.clone()).expect("a PDF");
+    let page = pdf_model::Pages::new(&reopened).get(0).expect("the page");
+    let file = pdf_model::retrieval::annotations(&reopened, &page)
+        .iter()
+        .find_map(|annotation| pdf_model::attachment::of_annotation(&reopened, annotation))
+        .expect("the page's annotation names the file");
+    assert_eq!(file.name, "dropped.txt");
+    assert_eq!(
+        file.description.as_deref(),
+        Some("figures"),
+        "§12.5.6.15: the annotation's /Contents"
+    );
+    assert_eq!(
+        reopened.decoded_stream_data(&file.stream).as_deref(),
+        Some(ATTACHED)
+    );
+}
+
+/// Pixels that are not white, over a raster: the crudest measure of ink, and enough to tell a
+/// page with an icon from the same page without one.
+fn count_ink(raster: &pdf_render::Raster) -> usize {
+    raster
+        .data
+        .chunks_exact(4)
+        .filter(|pixel| pixel[0] < 250 || pixel[1] < 250 || pixel[2] < 250)
+        .count()
 }

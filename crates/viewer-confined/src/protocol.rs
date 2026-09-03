@@ -27,9 +27,9 @@ use pdf_render::{Point, Raster, RasterFormat, Rect, Size};
 use pdf_sandbox::lockdown::{Confinement, LandlockLevel, SystemCalls};
 use pdf_syntax::{Name, ObjectId};
 use viewer_core::{
-    Answer, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection, FocusMove, Found,
-    PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query, RestrictionLevel,
-    Selection, Zoom,
+    Answer, AttachHome, Command, DocumentId, Edit, Event, Extraction, Find, FindDirection,
+    FocusMove, Found, PageGeometry, PageTarget, PointerAction, PresentationMode, Purpose, Query,
+    RestrictionLevel, Selection, Zoom,
 };
 
 use crate::Reply;
@@ -388,6 +388,19 @@ pub enum ProtocolError {
         index: usize,
         /// How many entries the table read before it holds.
         held: usize,
+    },
+    /// The message says a descriptor rides beside it, and none arrived.
+    ///
+    /// A document on disk crosses as its open file, sent with `SCM_RIGHTS` beside the frame's
+    /// header (ADR 0812). A frame that states the descriptor form and arrives with nothing
+    /// beside it is one of three things — a sender on a pipe rather than a socket, a receiver
+    /// whose descriptor table was full so the kernel dropped it (`MSG_CTRUNC`), or a message
+    /// somebody made up — and in all three the honest answer is a refusal naming the field
+    /// rather than an empty document.
+    #[error("{what} was to arrive as a descriptor beside the message, and none did")]
+    NoDescriptor {
+        /// Which field.
+        what: &'static str,
     },
     /// The message is well formed and describes a value that cannot exist.
     ///
@@ -1017,6 +1030,93 @@ mod command_kind {
     // Where the reader is looking, said absolutely, since the eight-hundred-and-fifth session:
     // what a host hands back after starting another worker. ADR 0737.
     pub(super) const VIEW: u8 = 25;
+    // The person's answer to `Event::Asking`, since the eight-hundred-and-eighty-fifth: the
+    // *ask* level's second half, which a confined host has to be able to supply. ADR 0814.
+    pub(super) const ANSWER: u8 = 26;
+}
+
+/// How [`Command::Open`]'s document is held, on the wire.
+mod open_kind {
+    /// The bytes follow, whole.
+    pub(super) const BYTES: u8 = 0;
+    /// The file's length follows, and its descriptor rides beside the frame (ADR 0812).
+    pub(super) const ON_DISK: u8 = 1;
+}
+
+/// A descriptor as the sender holds it while the frame it rides beside is written.
+#[cfg(unix)]
+pub(crate) type SentDescriptor<'a> = std::os::fd::BorrowedFd<'a>;
+
+/// A descriptor as the receiver holds it: the kernel's duplicate, owned.
+#[cfg(unix)]
+pub(crate) type ReceivedDescriptor = std::os::fd::OwnedFd;
+
+/// A descriptor as the sender holds it — and on a platform that passes none, a type nothing
+/// can construct, so that the sending code reads the same on both and compiles on both.
+#[cfg(not(unix))]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SentDescriptor<'a>(std::convert::Infallible, std::marker::PhantomData<&'a ()>);
+
+/// A descriptor as the receiver holds it, on a platform that passes none: see
+/// [`SentDescriptor`].
+#[cfg(not(unix))]
+#[derive(Debug)]
+pub(crate) struct ReceivedDescriptor(std::convert::Infallible);
+
+/// Whether a document crosses as its descriptor rather than as its bytes.
+///
+/// One predicate for the two halves of the encoder — [`encode_command`]'s tag and
+/// [`command_descriptor`]'s answer — so that they cannot disagree. A file on disk crosses as a
+/// descriptor wherever the platform can pass one; elsewhere it does not cross at all, and
+/// [`encode_command`] says so by name.
+fn crosses_as_descriptor(bytes: &pdf_syntax::FileBytes) -> bool {
+    cfg!(unix) && bytes.is_on_disk()
+}
+
+/// What rides beside an encoded command: the document's open file, where it opens one on disk.
+///
+/// `None` for every other command and for a document held in memory. The transport sends it
+/// with the frame's header (`SCM_RIGHTS`, ADR 0812), and the receiving side takes it back out
+/// in [`decode_command_holding`].
+pub(crate) fn command_descriptor(command: &Command) -> Option<SentDescriptor<'_>> {
+    match command {
+        #[cfg(unix)]
+        Command::Open { bytes, .. } if crosses_as_descriptor(bytes) => bytes.descriptor(),
+        _ => None,
+    }
+}
+
+/// The document a descriptor beside the frame opens, at the length the host stated.
+#[cfg(unix)]
+fn document_from_descriptor(
+    descriptors: &mut Vec<ReceivedDescriptor>,
+    length: u64,
+) -> Result<pdf_syntax::FileBytes, ProtocolError> {
+    if descriptors.is_empty() {
+        return Err(ProtocolError::NoDescriptor {
+            what: "a document on disk",
+        });
+    }
+    // The first, because a frame carries one document and the sender attaches it to the
+    // header; anything after it is nobody's and the caller closes it.
+    let descriptor = descriptors.remove(0);
+    pdf_syntax::FileBytes::from_handle(std::fs::File::from(descriptor), length).map_err(|_| {
+        ProtocolError::Unbuildable {
+            what: "a document on disk",
+            why: "its stated length is more than this process can address",
+        }
+    })
+}
+
+/// On a platform that passes no descriptor, none can have arrived.
+#[cfg(not(unix))]
+fn document_from_descriptor(
+    _descriptors: &mut Vec<ReceivedDescriptor>,
+    _length: u64,
+) -> Result<pdf_syntax::FileBytes, ProtocolError> {
+    Err(ProtocolError::NoDescriptor {
+        what: "a document on disk",
+    })
 }
 
 /// Encodes one command.
@@ -1039,10 +1139,28 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             password,
             fragment,
         } => {
+            writer.u8(k::OPEN).document(*id);
+            // **A file on disk crosses as its descriptor and its length, and bytes in memory
+            // cross as bytes** (ADR 0812). The confined process has no file system, and it
+            // needs none for a file somebody else opened: the host sends the open file's
+            // descriptor beside this frame with `SCM_RIGHTS` — [`command_descriptor`] is what
+            // rides beside these bytes — and the worker holds the same open file, reading it
+            // where the document's offsets point through `pread64`, the one system call the
+            // filter admits on it. The length crosses here because the worker cannot ask for
+            // it: `fstat` is not on the allow-list, deliberately. Bytes in memory are what a
+            // test hands over and what §7.11.4's extracted file is handed straight back as,
+            // and those still cross whole.
+            if crosses_as_descriptor(bytes) {
+                writer.u8(open_kind::ON_DISK).u64(as_u64(bytes.len()));
+            } else {
+                let whole = bytes.whole().map_err(|_| Uncarried {
+                    message: "Command::Open",
+                    reason: "the document is on disk, which crosses as a descriptor on a \
+                             platform that passes one, and this is not that platform",
+                })?;
+                writer.u8(open_kind::BYTES).bytes(whole);
+            }
             writer
-                .u8(k::OPEN)
-                .document(*id)
-                .bytes(bytes)
                 .option_str(password.as_ref().map(viewer_core::Secret::reveal))
                 .option_str(fragment.as_deref());
         }
@@ -1089,7 +1207,12 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             writer.u8(k::RESTRICT).u8(match level {
                 RestrictionLevel::On => 0,
                 RestrictionLevel::Off => 1,
+                RestrictionLevel::Ask => 2,
+                RestrictionLevel::Warn => 3,
             });
+        }
+        Command::Answer { document, proceed } => {
+            writer.u8(k::ANSWER).document(*document).bool(*proceed);
         }
         // Table 29's arrangement crosses for the reason every other policy value does: the
         // confined process is the one that decides which pages to interpret and where each of
@@ -1204,11 +1327,30 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
 ///
 /// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
 /// or bytes are left over.
+pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
+    decode_command_holding(bytes, &mut Vec::new())
+}
+
+/// Reads one command, taking the document's descriptor from what arrived beside the frame.
+///
+/// **The descriptor is consumed here and nowhere else**, so a caller that reads a frame with
+/// descriptors beside it and decodes it through this function is left holding exactly the ones
+/// no command claimed — which it closes, because a descriptor nobody asked for is not a thing a
+/// confined process should keep (ADR 0812). [`decode_command`] is this with nothing beside the
+/// bytes, which is what a fuzz target and a test hand over.
+///
+/// # Errors
+///
+/// [`ProtocolError`] as [`decode_command`], and [`ProtocolError::NoDescriptor`] where the
+/// command opens a file on disk and no descriptor arrived with it.
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
 )]
-pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
+pub(crate) fn decode_command_holding(
+    bytes: &[u8],
+    descriptors: &mut Vec<ReceivedDescriptor>,
+) -> Result<Command, ProtocolError> {
     use command_kind as k;
 
     let mut reader = Reader::new(bytes);
@@ -1216,7 +1358,19 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
     let command = match reader.u8(what)? {
         k::OPEN => Command::Open {
             id: reader.document(what)?,
-            bytes: reader.owned_bytes("a document's bytes")?,
+            bytes: match reader.u8("how a document is held")? {
+                open_kind::BYTES => reader.owned_bytes("a document's bytes")?.into(),
+                open_kind::ON_DISK => {
+                    let length = reader.u64("a document's length on disk")?;
+                    document_from_descriptor(descriptors, length)?
+                }
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "how a document is held",
+                        value: u32::from(value),
+                    });
+                }
+            },
             password: reader.option_string("a password")?.map(Into::into),
             fragment: reader.option_string("a fragment identifier")?,
         },
@@ -1246,9 +1400,15 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
         },
         k::VIEW => Command::View(decode_viewing(&mut reader)?),
         k::LAYOUT => Command::Layout(panels::layout_of(reader.u8("a page layout")?)?),
+        k::ANSWER => Command::Answer {
+            document: reader.document(what)?,
+            proceed: reader.bool("an answer")?,
+        },
         k::RESTRICT => Command::Restrict(match reader.u8("a restriction level")? {
             0 => RestrictionLevel::On,
             1 => RestrictionLevel::Off,
+            2 => RestrictionLevel::Ask,
+            3 => RestrictionLevel::Warn,
             value => {
                 return Err(ProtocolError::Unrecognised {
                     what: "a restriction level",
@@ -1528,6 +1688,34 @@ fn encode_edit(writer: &mut Writer, edit: &Edit) {
         Edit::SetFreeText { annotation, text } => {
             writer.u8(3).object(*annotation).str(text);
         }
+        // §7.11.4's file crosses whole, since the eight-hundred-and-eighty-fifth session. The
+        // bytes ship rather than a descriptor: a confined worker has no filesystem to open one
+        // through, and `doc/todo/38` records what a descriptor route would need. ADR 0814.
+        Edit::Attach {
+            bytes,
+            name,
+            description,
+            mime,
+            home,
+        } => {
+            writer
+                .u8(4)
+                .bytes(bytes.bytes())
+                .str(name)
+                .option_str(description.as_deref())
+                .option_str(mime.as_deref());
+            match home {
+                AttachHome::Document => {
+                    writer.u8(0);
+                }
+                AttachHome::Page { at } => {
+                    writer.u8(1).point(*at);
+                }
+            }
+        }
+        Edit::Detach { name } => {
+            writer.u8(5).str(name);
+        }
     }
 }
 
@@ -1585,9 +1773,60 @@ fn decode_edit(reader: &mut Reader<'_>) -> Result<Edit, ProtocolError> {
             annotation: reader.object("a free text annotation")?,
             text: reader.string("a free text annotation's contents")?,
         },
+        4 => Edit::Attach {
+            bytes: reader.owned_bytes("a file to attach")?.into(),
+            name: reader.string("an attachment's name")?,
+            description: reader.option_string("an attachment's description")?,
+            mime: reader.option_string("an attachment's media type")?,
+            home: match reader.u8("an attachment's home")? {
+                0 => AttachHome::Document,
+                1 => AttachHome::Page {
+                    at: reader.point("an attachment's point")?,
+                },
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "an attachment's home",
+                        value: u32::from(value),
+                    });
+                }
+            },
+        },
+        5 => Edit::Detach {
+            name: reader.string("an attachment's name")?,
+        },
         value => {
             return Err(ProtocolError::Unrecognised {
                 what,
+                value: u32::from(value),
+            });
+        }
+    })
+}
+
+/// One byte for one of `Operation`'s arms, the same for every event that names one.
+fn operation_code(operation: Operation) -> u8 {
+    match operation {
+        Operation::FillInForm => 0,
+        Operation::Annotate => 1,
+        Operation::Print => 2,
+        Operation::Extract => 3,
+        Operation::Modify => 4,
+        Operation::Assemble => 5,
+    }
+}
+
+/// [`operation_code`] read back, refusing a byte no arm has.
+fn operation_of(reader: &mut Reader<'_>) -> Result<Operation, ProtocolError> {
+    Ok(match reader.u8("an operation")? {
+        0 => Operation::FillInForm,
+        1 => Operation::Annotate,
+        2 => Operation::Print,
+        3 => Operation::Extract,
+        4 => Operation::Modify,
+        5 => Operation::Assemble,
+        value => {
+            return Err(ProtocolError::Unrecognised {
+                what: "an operation",
                 value: u32::from(value),
             });
         }
@@ -1611,6 +1850,11 @@ mod event_kind {
     pub(super) const REFUSED: u8 = 13;
     pub(super) const REPORTED: u8 = 14;
     pub(super) const SEARCHED: u8 = 15;
+    // The *ask* and *warn* levels' events, and the attachment list moving, since the
+    // eight-hundred-and-eighty-fifth session. ADR 0814.
+    pub(super) const ASKING: u8 = 16;
+    pub(super) const WARNED: u8 = 17;
+    pub(super) const ATTACHMENTS_CHANGED: u8 = 18;
 }
 
 /// Encodes one event.
@@ -1746,15 +1990,33 @@ pub(crate) fn encode_event(event: &Event) -> Result<Vec<u8>, Uncarried> {
             writer
                 .u8(k::REFUSED)
                 .document(*document)
-                .u8(match operation {
-                    Operation::FillInForm => 0,
-                    Operation::Annotate => 1,
-                    Operation::Print => 2,
-                    Operation::Extract => 3,
-                    Operation::Modify => 4,
-                    Operation::Assemble => 5,
-                })
+                .u8(operation_code(*operation))
                 .strings(notes);
+        }
+        Event::Asking {
+            document,
+            operation,
+            notes,
+        } => {
+            writer
+                .u8(k::ASKING)
+                .document(*document)
+                .u8(operation_code(*operation))
+                .strings(notes);
+        }
+        Event::Warned {
+            document,
+            operation,
+            notes,
+        } => {
+            writer
+                .u8(k::WARNED)
+                .document(*document)
+                .u8(operation_code(*operation))
+                .strings(notes);
+        }
+        Event::AttachmentsChanged { document } => {
+            writer.u8(k::ATTACHMENTS_CHANGED).document(*document);
         }
         Event::Reported {
             document,
@@ -1890,21 +2152,21 @@ pub(crate) fn decode_event(bytes: &[u8]) -> Result<Event, ProtocolError> {
         },
         k::REFUSED => Event::Refused {
             document: reader.document(what)?,
-            operation: match reader.u8("an operation")? {
-                0 => Operation::FillInForm,
-                1 => Operation::Annotate,
-                2 => Operation::Print,
-                3 => Operation::Extract,
-                4 => Operation::Modify,
-                5 => Operation::Assemble,
-                value => {
-                    return Err(ProtocolError::Unrecognised {
-                        what: "an operation",
-                        value: u32::from(value),
-                    });
-                }
-            },
+            operation: operation_of(&mut reader)?,
             notes: reader.strings("a refusal's notes")?,
+        },
+        k::ASKING => Event::Asking {
+            document: reader.document(what)?,
+            operation: operation_of(&mut reader)?,
+            notes: reader.strings("a question's notes")?,
+        },
+        k::WARNED => Event::Warned {
+            document: reader.document(what)?,
+            operation: operation_of(&mut reader)?,
+            notes: reader.strings("a warning's notes")?,
+        },
+        k::ATTACHMENTS_CHANGED => Event::AttachmentsChanged {
+            document: reader.document(what)?,
         },
         k::REPORTED => Event::Reported {
             document: reader.document(what)?,
@@ -3123,7 +3385,7 @@ mod tests {
         let commands = vec![
             Command::Open {
                 id: DocumentId(7),
-                bytes: b"%PDF-2.0".to_vec(),
+                bytes: b"%PDF-2.0".to_vec().into(),
                 password: Some("secret".to_owned().into()),
                 fragment: Some("page=3".to_owned()),
             },
@@ -3181,6 +3443,18 @@ mod tests {
             }),
             Command::Restrict(RestrictionLevel::Off),
             Command::Restrict(RestrictionLevel::On),
+            // The other two of `CLAUDE.md`'s four levels, and the answer that makes the third
+            // one a level, since the eight-hundred-and-eighty-fifth session (ADR 0814).
+            Command::Restrict(RestrictionLevel::Ask),
+            Command::Restrict(RestrictionLevel::Warn),
+            Command::Answer {
+                document: DocumentId(3),
+                proceed: true,
+            },
+            Command::Answer {
+                document: DocumentId(3),
+                proceed: false,
+            },
             Command::Present(PresentationMode::On),
             Command::Present(PresentationMode::Off),
             Command::Edit(Edit::SetField {
@@ -3216,6 +3490,25 @@ mod tests {
             Command::Edit(Edit::SetFreeText {
                 annotation: ObjectId::new(19, 0),
                 text: "Reviewed".to_owned(),
+            }),
+            // §7.11.4's file in both of §7.11.4.1's homes, and out again, since the
+            // eight-hundred-and-eighty-fifth session: the bytes cross whole (ADR 0814).
+            Command::Edit(Edit::Attach {
+                bytes: b"a,b,c\n".to_vec().into(),
+                name: "data.csv".to_owned(),
+                description: Some("last quarter".to_owned()),
+                mime: Some("text/csv".to_owned()),
+                home: AttachHome::Document,
+            }),
+            Command::Edit(Edit::Attach {
+                bytes: Vec::new().into(),
+                name: "empty".to_owned(),
+                description: None,
+                mime: None,
+                home: AttachHome::Page { at: (12.5, 34.0) },
+            }),
+            Command::Edit(Edit::Detach {
+                name: "data.csv".to_owned(),
             }),
             Command::Undo,
             Command::Redo,
@@ -3270,6 +3563,91 @@ mod tests {
         }
     }
 
+    /// A document open on disk crosses as its length and a descriptor, and decodes to the same
+    /// file — or refuses by name where the descriptor did not come (ADR 0812).
+    ///
+    /// The encoder writes no byte of the document, the descriptor is what [`command_descriptor`]
+    /// hands the transport, and a decoder given one holds the same open file at the same length;
+    /// given none, it names the field rather than answering with an empty document.
+    #[test]
+    #[cfg(unix)]
+    fn a_document_on_disk_crosses_as_a_descriptor_and_its_length() {
+        let directory =
+            std::env::temp_dir().join(format!("viewer-confined-wire-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("on-disk.pdf");
+        let content = b"%PDF-2.0\n% a document on disk, not a byte of which crosses\n";
+        std::fs::write(&path, content).unwrap();
+
+        let on_disk = pdf_syntax::FileBytes::on_disk(&path).unwrap();
+        let command = Command::Open {
+            id: DocumentId(11),
+            bytes: on_disk,
+            password: None,
+            fragment: Some("page=2".to_owned()),
+        };
+        let encoded = encode_command(&command).unwrap();
+        assert!(
+            encoded.len() < content.len(),
+            "the document's bytes were written into the frame: {} bytes",
+            encoded.len()
+        );
+        assert!(command_descriptor(&command).is_some());
+        assert!(
+            command_descriptor(&Command::Tick { millis: 1 }).is_none(),
+            "only an open on disk has a descriptor"
+        );
+
+        // Without the descriptor: refused by name.
+        assert_eq!(
+            decode_command(&encoded).unwrap_err(),
+            ProtocolError::NoDescriptor {
+                what: "a document on disk"
+            }
+        );
+
+        // With one — the kernel's duplicate, here made by `try_clone` — the same file.
+        let duplicate: std::os::fd::OwnedFd = std::fs::File::open(&path).unwrap().into();
+        let mut descriptors = vec![duplicate];
+        let decoded = decode_command_holding(&encoded, &mut descriptors).unwrap();
+        assert!(descriptors.is_empty(), "the descriptor was claimed");
+        let Command::Open {
+            id,
+            bytes,
+            fragment,
+            ..
+        } = decoded
+        else {
+            panic!("an Open decoded as something else");
+        };
+        assert_eq!(id, DocumentId(11));
+        assert_eq!(fragment.as_deref(), Some("page=2"));
+        assert!(bytes.is_on_disk());
+        assert_eq!(bytes.len(), content.len());
+        assert_eq!(bytes.whole().unwrap(), content);
+
+        // Bytes in memory still cross as bytes, and claim no descriptor.
+        let in_memory = Command::Open {
+            id: DocumentId(12),
+            bytes: content.to_vec().into(),
+            password: None,
+            fragment: None,
+        };
+        assert!(command_descriptor(&in_memory).is_none());
+        let encoded = encode_command(&in_memory).unwrap();
+        let mut unclaimed = vec![std::os::fd::OwnedFd::from(
+            std::fs::File::open(&path).unwrap(),
+        )];
+        let decoded = decode_command_holding(&encoded, &mut unclaimed).unwrap();
+        assert_eq!(unclaimed.len(), 1, "a descriptor beside bytes is nobody's");
+        let Command::Open { bytes, .. } = decoded else {
+            panic!("an Open decoded as something else");
+        };
+        assert!(!bytes.is_on_disk());
+        assert_eq!(bytes.whole().unwrap(), content);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
     /// §7.6.4.1's password crosses whole, which the comparison above can no longer see.
     ///
     /// `Command`'s `Debug` compares every field of every variant, and since the
@@ -3281,7 +3659,7 @@ mod tests {
     fn a_password_crosses_the_transport_unchanged() {
         let command = Command::Open {
             id: DocumentId(7),
-            bytes: b"%PDF-2.0".to_vec(),
+            bytes: b"%PDF-2.0".to_vec().into(),
             password: Some("m\u{fc}hsam gew\u{e4}hlt".to_owned().into()),
             fragment: None,
         };
@@ -3406,6 +3784,19 @@ mod tests {
                 operation: Operation::Annotate,
                 notes: vec!["this document's author certified it".to_owned()],
             },
+            // The *ask* and *warn* levels' events and the list moving, since the
+            // eight-hundred-and-eighty-fifth session (ADR 0814).
+            Event::Asking {
+                document,
+                operation: Operation::Modify,
+                notes: vec!["bit 4 is clear".to_owned(), "and /P 1".to_owned()],
+            },
+            Event::Warned {
+                document,
+                operation: Operation::Extract,
+                notes: Vec::new(),
+            },
+            Event::AttachmentsChanged { document },
             Event::Reported {
                 document,
                 page: Some(0),
@@ -3446,7 +3837,7 @@ mod tests {
         let events: Vec<Event> = viewer
             .handle(Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -4598,7 +4989,7 @@ mod tests {
         let events: Vec<Event> = viewer
             .handle(Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -4805,7 +5196,7 @@ mod tests {
             let mut viewer = viewer_core::Viewer::new(900, 1200, 1.0);
             for _ in viewer.handle(Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             }) {}
@@ -4916,7 +5307,7 @@ mod tests {
         let messages = [
             encode_command(&Command::Open {
                 id: DocumentId(3),
-                bytes: b"%PDF-2.0\n1 0 obj".to_vec(),
+                bytes: b"%PDF-2.0\n1 0 obj".to_vec().into(),
                 password: Some("p".to_owned().into()),
                 fragment: None,
             })

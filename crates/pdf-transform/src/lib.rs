@@ -70,13 +70,14 @@ use crate::json::Value;
 
 /// Bytes this tree may read, with the password that opens them where one is needed.
 ///
-/// Whole bytes rather than a seekable reader, because `pdf_syntax::Document` opens over an
-/// `Arc<[u8]>` today; RFC 0002 section 5's seekable form is the serializer round's need, and the type
-/// is where it will be added.
+/// Held as [`pdf_syntax::FileBytes`], which is whole in memory or open on disk and read where
+/// the file's offsets point — RFC 0002 section 5's seekable form, which arrived with ADR 0809
+/// under the syntax crate rather than here. A verb that appends to the file asks for it whole
+/// through the same type and is refused by name where the process cannot hold it.
 #[derive(Debug)]
 pub struct Source {
     /// The file.
-    bytes: Arc<[u8]>,
+    bytes: pdf_syntax::FileBytes,
     /// §7.6.4.1's user or owner password, where the caller has one.
     password: Option<Secret>,
 }
@@ -84,7 +85,7 @@ pub struct Source {
 impl Source {
     /// A document with no password: §7.6.4.1's default user password, the empty string, is
     /// what an encrypted document is first tried with.
-    pub fn new(bytes: impl Into<Arc<[u8]>>) -> Self {
+    pub fn new(bytes: impl Into<pdf_syntax::FileBytes>) -> Self {
         Self {
             bytes: bytes.into(),
             password: None,
@@ -92,7 +93,7 @@ impl Source {
     }
 
     /// A document with a password the caller already holds.
-    pub fn with_password(bytes: impl Into<Arc<[u8]>>, password: Secret) -> Self {
+    pub fn with_password(bytes: impl Into<pdf_syntax::FileBytes>, password: Secret) -> Self {
         Self {
             bytes: bytes.into(),
             password: Some(password),
@@ -116,7 +117,7 @@ impl Source {
         // `Secret::reveal` is named so that this moment is visible at the call site; §7.6.4.1's
         // default user password is the empty string, so a source without one asks with it.
         let password = self.password.as_ref().map_or("", Secret::reveal);
-        Document::open_with_password(Arc::clone(&self.bytes), limits, password).map_err(|error| {
+        Document::open_with_password(self.bytes.clone(), limits, password).map_err(|error| {
             match error {
                 SyntaxError::PasswordRequired => Refusal::PasswordRequired { at },
                 other => Refusal::Unopenable { at, error: other },

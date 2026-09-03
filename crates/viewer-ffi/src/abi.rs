@@ -59,10 +59,10 @@ use crate::answers::{Collection, Matches, Miniature, Popups, Structure};
 use crate::events::Events;
 use crate::form::Form;
 use crate::kinds::{
-    BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind, EventKind, FocusKind,
-    FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind, PageTargetKind,
-    PixelFormat, PointerKind, PreferenceKey, PresentKind, PurposeKind, RestrictKind, RowKind,
-    SelectKind, ShortfallKind, TextKind, ZoomKind,
+    AttachKind, BoxKind, ColumnTextKind, ControlKind, DelegateKind, ElementKind, EventKind,
+    FocusKind, FolderTextKind, LayoutKind, MarkupKind, NoteKind, OrderKind, PageModeKind,
+    PageTargetKind, PixelFormat, PointerKind, PreferenceKey, PresentKind, PurposeKind,
+    RestrictKind, RowKind, SelectKind, ShortfallKind, TextKind, ZoomKind,
 };
 use crate::panels::{Outline, Panel};
 use crate::session::{self, FrameInfo, Session};
@@ -2378,6 +2378,108 @@ pub unsafe extern "C" fn pdfv_extract(
         return Status::NotUtf8.code();
     };
     *events = Box::into_raw(Box::new(viewer.extract(name)));
+    Status::Ok.code()
+}
+
+/// §7.11.4: puts a file into the document, in one of §7.11.4.1's two homes — `PDFV_ATTACH_*`.
+///
+/// The file is what `bytes` reads for `len`; the name is what it is filed under, one namespace
+/// for both homes, and a name already embedded is a `PDFV_EVENT_REPORTED` rather than a second
+/// entry. `description` and `mime` may be null. Under `PDFV_ATTACH_PAGE`, `x` and `y` are the
+/// point of the viewport the file goes under, in device pixels; under `PDFV_ATTACH_DOCUMENT`
+/// they are ignored. What comes back is the ordinary edit's events — a `PDFV_EVENT_DIRTY`, a
+/// `PDFV_EVENT_ATTACHMENTS_CHANGED` — or the reader's policy speaking: refused, asked or warned.
+/// Nothing reaches the file until `pdfv_save`.
+///
+/// # Safety
+///
+/// See the module documentation. `bytes` is readable for `len`; `name`, `description` and
+/// `mime` are NUL-terminated UTF-8, the last two or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_attach(
+    viewer: *mut Session,
+    bytes: *const u8,
+    len: usize,
+    name: *const c_char,
+    description: *const c_char,
+    mime: *const c_char,
+    home: u32,
+    x: f32,
+    y: f32,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false, false) = (
+        viewer.as_mut(),
+        events.as_mut(),
+        name.is_null(),
+        bytes.is_null(),
+    ) else {
+        return Status::NullArgument.code();
+    };
+    let Some(home) = AttachKind::from_code(home) else {
+        return Status::WrongKind.code();
+    };
+    let (Ok(Some(name)), Ok(description), Ok(mime)) =
+        (owned_text(name), owned_text(description), owned_text(mime))
+    else {
+        return Status::NotUtf8.code();
+    };
+    let file = core::slice::from_raw_parts(bytes, len).to_vec();
+    let home = match home {
+        AttachKind::Document => viewer_core::AttachHome::Document,
+        AttachKind::Page => viewer_core::AttachHome::Page { at: (x, y) },
+    };
+    *events = Box::into_raw(Box::new(viewer.attach(file, name, description, mime, home)));
+    Status::Ok.code()
+}
+
+/// §7.11.4: takes an embedded file out of the document, by the `/EmbeddedFiles` key
+/// [`pdfv_panel_name`] answered with.
+///
+/// A file this session attached is forgotten; one the document's own tree names leaves the
+/// list now and the tree at the next `pdfv_save`, with what it alone reached marked free. A name
+/// nothing files is a `PDFV_EVENT_REPORTED`.
+///
+/// # Safety
+///
+/// See the module documentation. `name` is NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_detach(
+    viewer: *mut Session,
+    name: *const c_char,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events), false) = (viewer.as_mut(), events.as_mut(), name.is_null())
+    else {
+        return Status::NullArgument.code();
+    };
+    let Ok(Some(name)) = owned_text(name) else {
+        return Status::NotUtf8.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.detach(name)));
+    Status::Ok.code()
+}
+
+/// The answer to a `PDFV_EVENT_ASKING`: whether the edit the document restricts goes ahead.
+///
+/// `document` is the one the event named ([`pdfv_events_document`]). `true` performs the held
+/// edit exactly as `PDFV_RESTRICT_OFF` would have; `false` forgets it and says nothing. An answer
+/// to a document with nothing outstanding does nothing.
+///
+/// # Safety
+///
+/// See the module documentation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pdfv_answer(
+    viewer: *mut Session,
+    document: u64,
+    proceed: bool,
+    events: *mut *mut Events,
+) -> c_int {
+    let (Some(viewer), Some(events)) = (viewer.as_mut(), events.as_mut()) else {
+        return Status::NullArgument.code();
+    };
+    *events = Box::into_raw(Box::new(viewer.answer(document, proceed)));
     Status::Ok.code()
 }
 

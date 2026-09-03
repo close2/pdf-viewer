@@ -162,8 +162,14 @@ fn every_unsafe_token_in_this_crate_is_in_one_file_and_is_one_of_three_forms() {
     // them (ADR 0737). A struct *did* cross by value this time — `pdfv_viewing` — and
     // `PDFV_ABI_VERSION` still did not move, for the reason a new entry point does not move it:
     // a caller compiled before it existed passes nothing of that shape.
-    assert_eq!(no_mangle, 174, "one `#[unsafe(no_mangle)]` per entry point");
-    assert_eq!(signatures, 160, "158 `unsafe` entry points and two helpers");
+    // **And three in the eight-hundred-and-eighty-fifth**, which are one feature and its policy:
+    // `pdfv_attach` and `pdfv_detach` put §7.11.4's file into one of §7.11.4.1's two homes or take
+    // one out, and `pdfv_answer` is the second half of `PDFV_RESTRICT_ASK` — a level is not a
+    // level until something can answer its question (ADR 0814). Three event kinds came with them,
+    // so `PDFV_EVENT_KIND_COUNT` moved 16 → 19; `PDFV_ABI_VERSION` did not, for the standing
+    // reason that a caller compiled before an entry point existed calls nothing of that shape.
+    assert_eq!(no_mangle, 177, "one `#[unsafe(no_mangle)]` per entry point");
+    assert_eq!(signatures, 163, "161 `unsafe` entry points and two helpers");
 }
 
 #[test]

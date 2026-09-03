@@ -324,17 +324,17 @@ why = "the same defect on a nearly blank page, where the 250-unit icon was most 
 path = "corpus-cache/safedocs/cc-main-2021-31/7803/7803372.pdf"
 page = 1
 session = 647
-reports = ["MAX_TILES"]
-ink = 10.096 .. 12.096
-why = "two hatched table columns drawn as white, because a fill wanting more sites than MAX_TILES was given none instead of the four thousand the bound affords; §8.7.3.1 asks the processor to paint the cell as many times as necessary, so the budget decides how many and not whether (ADR 0477, 8.7.3.1)"
+reports = []
+ink = 17.907 .. 19.907
+why = "two hatched table columns drawn as white, because a fill wanting more sites than MAX_TILES was given none instead of the four thousand the bound affords; §8.7.3.1 asks the processor to paint the cell as many times as necessary, so the budget decides how many and not whether (ADR 0477, 8.7.3.1). The band moved from 10.096 .. 12.096 in session 882, when ADR 0810 retired the count and the whole of both columns drew (ADR 0810)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/4650/4650000.pdf"
 page = 1
 session = 647
-reports = ["MAX_TILES"]
-ink = 48.213 .. 50.213
-why = "the same refusal on a page whose hatching is most of its ink: 41.262 of 255 against three references between 43.7 and 62.9, now 49.213 (ADR 0477, 8.7.3.1)"
+reports = []
+ink = 56.328 .. 58.328
+why = "the same refusal on a page whose hatching is most of its ink: 41.262 of 255 against three references between 43.7 and 62.9, now 49.213 (ADR 0477, 8.7.3.1). The band moved from 48.213 .. 50.213 in session 882, when ADR 0810 retired the count and every site drew: 57.328, inside the references' own spread (ADR 0810)"
 
 [[document]]
 path = "corpus-cache/safedocs/cc-main-2021-31/4605/4605705.pdf"
@@ -527,3 +527,19 @@ session = 880
 reports = []
 ink = 7.759 .. 9.759
 why = "Apache FOP 2.3.0-SNAPSHOT's CID-keyed CFF subset puts its FDArray at offset 8001, inside its own FDSelect, so no Font DICT reads and the page's 1816 codes drew nothing where both references draw the text; the one Font DICT every glyph selects is replaced by an empty Private DICT, the 7925 intact charstrings drawn against it, and none calls a local subroutine (ADR 0808, 9.7.4.2)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/PDFIUM/PDFIUM-1122-0.pdf"
+page = 1
+session = 882
+reports = []
+ink = 160.052 .. 162.052
+why = "a 10-unit tiling cell over an A4 page is 4480 sites of a two-command cell, and MAX_TILES afforded 4096 of them, so the top fifth of the sheet was white at 70.9 levels of ink by the ranking's instrument where poppler and mupdf agree on 80.5 to a hundredth, and ours reads 80.52 after; the count is retired, an empty cell loops nothing, a site the fill cannot reach is not copied, and the sites a fill states are bounded by the commands they cost, MAX_TILE_COPIES a tiling (ADR 0810, 8.7.3.1)"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/PDFIUM/PDFIUM-1236-1.pdf"
+page = 1
+session = 889
+reports = []
+ink = 1.019 .. 2.019
+why = "a JBIG2 stream whose /Length counted the end-of-line marker before endstream, which §7.3.8.1 says shall not be counted; the codec read the stray byte as the start of a segment, answered `unexpected end of input`, and the whole page was drawn blank at 0 levels of ink where poppler and mupdf agree on 1.463 by the ranking's instrument. The band is narrowed to plus and minus 0.5 rather than 1.0: the page is a light grey diagram on a 2448 x 1584 sheet worth 1.519 levels, so at the usual width the low end would sit at 0.519 and the defect this row stands against is the blank page at 0 (ADR 0823, 7.4.7)"

@@ -236,9 +236,27 @@ fn tagged_structure(document: &Document, notes: &mut Vec<String>) {
 /// before it. The cost of that choice is that no gate sees this sentence, and the benefit is that
 /// no page leaves the oracle's judged set for a fact that is not about a page.
 pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
+    let mut notes = Vec::new();
+    // **A scan the process could not hold the file for**, said once, when the reader first
+    // records it (ADR 0812). The same channel as the object-stream losses below and for the same
+    // reason: a scan runs when an object the table names is not where it says, which is at
+    // whichever page first asks for one — and a document this reader opened on disk at the cost
+    // of its trailer is a document it may not be able to hold whole when that happens. What the
+    // reader did instead is read the file as far as its table was right, and no further; the
+    // object it could not find is nothing, and the page draws without it. The sentence carries
+    // the length because the length is the reason, and it is the pattern the locked and the
+    // pageless document already use: a fact about the file, worded once, on the document's
+    // report rather than a page's.
+    if !open.scan_refusal_said
+        && let Some(refused) = open.document.scan_refused()
+    {
+        open.scan_refusal_said = true;
+        notes.push(scan_refused(refused));
+    }
+
     let lost = open.document.objects_lost_to_damage();
     if lost.count() <= open.losses_said {
-        return Vec::new();
+        return notes;
     }
     open.losses_said = lost.count();
     let named = if lost.objects.is_empty() {
@@ -246,32 +264,84 @@ pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
     } else {
         format!(", among them {:?}", lost.objects)
     };
-    vec![format!(
+    notes.push(format!(
         "{} object(s) this file stores inside an object stream (§7.5.7) could not be read, \
          because the stream decoded only as far as its damage and the rest of each object is not \
          in the file{named} — what refers to them draws without them",
         lost.count(),
-    )]
+    ));
+    notes
 }
 
-/// Why a document does not permit an operation, in sentences a host can show.
+/// The sentence for a scan the process could not hold the file for.
+///
+/// §C.4 (informative) licenses the scan — "[w]hen a PDF processor reads a PDF file with a
+/// damaged or missing cross-reference table" — and a scan reads every byte, which the reader
+/// asks for whole and is refused by name (`pdf_syntax::NoRoom`, ADR 0809). Worded here so that
+/// the words say what the reader did rather than what it could not do: read as far as the table
+/// was right.
+fn scan_refused(refused: pdf_syntax::NoRoom) -> String {
+    format!(
+        "this file's cross-reference table names an object that is not where it says, and the \
+         scan that would find it needs the whole file in memory — {} bytes, which this process \
+         cannot hold — so the file was read as far as its table was right and what the table \
+         misplaces draws as nothing (§7.5.4, §C.4)",
+        refused.length
+    )
+}
+
+/// What became of an operation a document restricts, for the sentences that say why.
+///
+/// One value per verdict a window can receive, because the *tail* of every sentence
+/// [`restricted`] words depends on it: a reason that ends "it was not done" is a lie under
+/// *warn*, where it was, and premature under *ask*, where nobody has answered yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Standing {
+    /// `Level::On`: the operation was not performed.
+    Refused,
+    /// `Level::Ask`: the operation is held until the person answers.
+    Asked,
+    /// `Level::Warn`: the operation was performed and the reasons are said after it.
+    Warned,
+}
+
+impl Standing {
+    /// The clause of the sentence that says what happened to the operation.
+    fn tail(self, operation: pdf_model::restriction::Operation) -> String {
+        match self {
+            Self::Refused => format!("{} was not done", operation.as_str()),
+            Self::Asked => format!("{} is waiting on your answer", operation.as_str()),
+            Self::Warned => format!(
+                "{} was done anyway, because this reader is set to warn rather than obey",
+                operation.as_str()
+            ),
+        }
+    }
+}
+
+/// Why a document does not permit an operation, in sentences a host can show, and what became
+/// of it.
 ///
 /// The other half of [`about`], and the same vocabulary: what a document asserts is read by
 /// `pdf_model::restriction`, which answers with clauses and levels, and the words are here
 /// because words about a document belong where the rest of this program's words about one are.
-/// One sentence per restriction, in the order `pdf_model::restriction::asserted` found them.
+/// One sentence per restriction, in the order `pdf_model::restriction::asserted` found them,
+/// each ending in [`Standing`]'s clause.
 ///
 /// **A function of the restrictions rather than of the document**, since the
 /// eight-hundred-and-seventy-second session: the reading and the policy are both
-/// `pdf_model::restriction::decide`'s, and what reaches here is what the verdict carried — the
-/// same list *ask* and *warn* will need worded at exactly this moment, when they arrive.
-pub(crate) fn refusal(
+/// `pdf_model::restriction::decide`'s, and what reaches here is what the verdict carried. Since
+/// the eight-hundred-and-eighty-fifth the same list is worded for all three verdicts a window
+/// receives, which is what that session's comment here said it would need (ADR 0814).
+pub(crate) fn restricted(
     operation: pdf_model::restriction::Operation,
     restrictions: &[pdf_model::restriction::Restriction],
+    standing: Standing,
 ) -> Vec<String> {
     use pdf_model::restriction::Restriction;
     use pdf_model::signature::Modification;
 
+    let tail = standing.tail(operation);
     restrictions
         .iter()
         .map(|restriction| match *restriction {
@@ -281,27 +351,23 @@ pub(crate) fn refusal(
             Restriction::Certified { level } => match level {
                 Modification::None => format!(
                     "this document's author certified it as final (§12.8.2.2's /P 1), so it \
-                     permits no change at all — {} was not done",
-                    operation.as_str()
+                     permits no change at all — {tail}"
                 ),
                 Modification::FormFilling => format!(
                     "this document's author permitted only form filling and signing (§12.8.2.2's \
-                     /P 2), which does not include {} — it was not done",
+                     /P 2), which does not include {} — {tail}",
                     operation.as_str()
                 ),
                 // Level 3 and an undefined level both permit, so `asserted` never names them
                 // here; saying which one arrived is better than a sentence that claims a rule.
-                other => format!(
-                    "this document's /DocMDP states {other:?}, and {} was not done",
-                    operation.as_str()
-                ),
+                other => format!("this document's /DocMDP states {other:?} — {tail}"),
             },
             // §7.6.4.2's Table 22, and §7.6.4.1's sentence about it: "PDF readers shall respect
             // the intent of the document creator by restricting user access to an encrypted PDF
             // file according to the permissions contained in the file."
             Restriction::AccessDenied { bit } => format!(
                 "this document's encryption does not grant {} (§7.6.4.2's Table 22, bit {}) — \
-                 it was not done",
+                 {tail}",
                 operation.as_str(),
                 bit.position()
             ),
@@ -312,8 +378,7 @@ pub(crate) fn refusal(
             // document's encryption or its author's certification.
             Restriction::FieldLocked => format!(
                 "a signature in this document locks this field against further change \
-                 (§12.7.5.5's /Lock) — {} was not done",
-                operation.as_str()
+                 (§12.7.5.5's /Lock) — {tail}"
             ),
             // §12.8.2.4 states a consequence where §12.7.5.5 states a prohibition, and the
             // sentence keeps them apart: "any modifications to specific form fields shall
@@ -321,8 +386,7 @@ pub(crate) fn refusal(
             // forbids the edit — it says what the edit costs, which is what the clause says.
             Restriction::FieldCovered => format!(
                 "a signature in this document covers this field, and changing it invalidates \
-                 that signature (§12.8.2.4's FieldMDP) — {} was not done",
-                operation.as_str()
+                 that signature (§12.8.2.4's FieldMDP) — {tail}"
             ),
             // §12.5.3's Table 167 bit 10: "If set, do not allow the contents of the annotation to
             // be modified by the user." Bit 8's `Locked` is named in the same breath because it
@@ -330,8 +394,7 @@ pub(crate) fn refusal(
             // "does not restrict changes to the annotation's contents".
             Restriction::AnnotationLocked => format!(
                 "this annotation is marked LockedContents (§12.5.3's Table 167, bit 10), so its \
-                 text may not be changed — {} was not done",
-                operation.as_str()
+                 text may not be changed — {tail}"
             ),
         })
         .collect()
@@ -628,6 +691,13 @@ fn verdicts(
     );
     if !settled_by_the_key {
         notes.push(changed(integrity));
+        // The reader's own sentence about *why* the range could not be read, where it has one:
+        // `RangeNotReadable` is the refusal by name and this is the name (ADR 0812).
+        if integrity == Integrity::RangeNotReadable
+            && let Some(failure) = document.bytes().read_failure()
+        {
+            notes.push(format!("the file on disk refused the read: {failure}"));
+        }
     }
     if let Some(said) = verifies(&authenticity, integrity) {
         notes.push(said);
@@ -661,6 +731,12 @@ fn changed(integrity: pdf_model::signature::Integrity) -> String {
         Integrity::RangeNotInThisFile => {
             "that signature's /ByteRange names bytes outside this file, so there was nothing to \
              hash"
+                .to_owned()
+        }
+        Integrity::RangeNotReadable => {
+            "that signature's /ByteRange names bytes the file on disk would not give — it shrank \
+             under this reader or a read of it failed — so whether the document changed was not \
+             checked rather than reported wrongly"
                 .to_owned()
         }
         Integrity::NoSignatureValue => {
@@ -787,6 +863,7 @@ fn verifies(
         ),
         Authenticity::NoSignatureValue
         | Authenticity::RangeNotInThisFile
+        | Authenticity::RangeNotReadable
         | Authenticity::Unreadable(_) => return None,
     })
 }
@@ -796,6 +873,30 @@ mod tests {
     use super::about;
 
     use pdf_syntax::Document;
+
+    /// The sentence for a scan the process could not hold the file for names the length, says
+    /// what was read instead, and claims nothing about what the misplaced object held.
+    ///
+    /// Wording only, and honestly so: provoking `pdf_syntax::Document::scan_refused` needs a
+    /// file the process cannot hold whole, which a unit test cannot make. The wiring — the
+    /// reader's refusal reaching a host's report, once, on the page that first needed the scan
+    /// — was exercised by hand on a 4.6 GB file through the confined viewer, whose worker runs
+    /// under a 4 GiB ceiling; ADR 0812 records the run.
+    #[test]
+    fn a_scan_the_process_could_not_hold_the_file_for_is_said_with_its_length() {
+        let said = super::scan_refused(pdf_syntax::NoRoom {
+            length: 6_001_925_614,
+        });
+        assert!(
+            said.contains("6001925614 bytes, which this process cannot hold"),
+            "{said}"
+        );
+        assert!(
+            said.contains("read as far as its table was right"),
+            "{said}"
+        );
+        assert!(said.contains("§C.4"), "{said}");
+    }
 
     /// Builds a document from object bodies numbered from 1, as `pdf_model::signature`'s tests do.
     fn document(objects: &[&str]) -> Document {

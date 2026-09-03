@@ -17,12 +17,12 @@
 //! the argument.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::ThreadId;
 
 use crate::crypt::{Encryption, Method, Permissions};
 use crate::error::{SyntaxError, SyntaxResult};
-use crate::file::FileBytes;
+use crate::file::{FileBytes, NoRoom};
 use crate::filter::{Damage, Decoded, EncodedExtent, FilterRefusal};
 use crate::object::{Dictionary, Name, Object, ObjectId, Stream};
 use crate::parser::{Limits, Parser};
@@ -57,6 +57,12 @@ const MAX_REFERENCE_DEPTH: usize = 64;
 /// this project owns, and the bound costs a document nothing it can notice. What it buys is
 /// in ADR 0317 and in the A/B on [`Document::decoded_streams`].
 pub const DECODED_BUDGET: usize = 4 * 1024 * 1024;
+
+/// How many bytes the look for `endstream` after a stated `/Length` starts with.
+///
+/// The keyword and the end-of-line before it are eleven bytes; the window grows over any
+/// further whitespace a producer wrote, as [`crate::parser::endstream_examined`] reports it.
+const ENDSTREAM_WINDOW: usize = 32;
 
 /// How many decoded bytes of object stream a *rebuild* spends recovering §7.5.7's objects.
 ///
@@ -124,6 +130,8 @@ pub struct Document {
     /// derived from it. Empty until [`Document::damaged_dictionary`] is called, which is only
     /// ever from a recovery that has already found the document pageless.
     damaged: RwLock<Option<Arc<BTreeMap<u32, crate::parser::DamagedDictionary>>>>,
+    /// A scan the process could not hold the file for, recorded once. See [`Self::scan_refused`].
+    scan_refused: OnceLock<NoRoom>,
     /// Which object numbers were found by their own header rather than through the table.
     ///
     /// Counted rather than merely handled, because a document that needed this is a document
@@ -434,6 +442,7 @@ impl Document {
             loading: RwLock::new(HashMap::new()),
             headers: RwLock::new(None),
             damaged: RwLock::new(None),
+            scan_refused: OnceLock::new(),
             misfiled: RwLock::new(BTreeSet::new()),
             lost_to_damage: RwLock::new(LostToDamage::default()),
             decoded: RwLock::new(DecodedStreams::with_budget(DECODED_BUDGET)),
@@ -652,10 +661,14 @@ impl Document {
             return Arc::clone(found);
         }
         let mut found: BTreeMap<u32, crate::parser::DamagedDictionary> = BTreeMap::new();
-        for offset in crate::xref::object_header_offsets(&self.bytes) {
-            let mut parser = Parser::at(&self.bytes, offset, self.limits);
-            if let Some(damaged) = parser.parse_damaged_dictionary() {
-                found.insert(damaged.id.number, damaged);
+        // A look at every header reads every byte, so a file on disk is asked for whole here
+        // and a file the process cannot hold whole yields nothing, by name (ADR 0809).
+        if let Some(input) = self.whole_for_a_scan() {
+            for offset in crate::xref::object_header_offsets(input) {
+                let mut parser = Parser::at(input, offset, self.limits);
+                if let Some(damaged) = parser.parse_damaged_dictionary() {
+                    found.insert(damaged.id.number, damaged);
+                }
             }
         }
         let found = Arc::new(found);
@@ -898,9 +911,44 @@ impl Document {
         if let Some(headers) = read(&self.headers).as_ref() {
             return Arc::clone(headers);
         }
-        let scanned = Arc::new(crate::xref::scan_for_objects(&self.bytes, self.limits));
+        let scanned = Arc::new(
+            self.whole_for_a_scan()
+                .map(|input| crate::xref::scan_for_objects(input, self.limits))
+                .unwrap_or_default(),
+        );
         *write(&self.headers) = Some(Arc::clone(&scanned));
         scanned
+    }
+
+    /// The whole file for a scan, or `None` where the file is on disk and the process cannot
+    /// hold it — recorded once, for [`Self::scan_refused`].
+    ///
+    /// Every scan in this type goes through here, so that "this reader could not scan the file"
+    /// is one fact in one place rather than a silence in three. In memory the answer is always
+    /// the bytes.
+    fn whole_for_a_scan(&self) -> Option<&[u8]> {
+        match self.bytes.whole() {
+            Ok(input) => Some(input),
+            Err(no_room) => {
+                // Two threads refusing at once record one refusal, which is the same refusal.
+                let _ = self.scan_refused.set(no_room);
+                None
+            }
+        }
+    }
+
+    /// Whether a scan of the file was refused because the process could not hold it whole.
+    ///
+    /// `None` for every document held in memory and for every document on disk whose
+    /// cross-reference table was right about each object it was asked for: a scan is what runs
+    /// when the table is disproved — by an offset that names no object, by a `/Root` that leads
+    /// nowhere, by a page tree that reaches no page — and reading the file whole is what a scan
+    /// is. A document this answers `Some` for has been read as far as its table was right, and
+    /// no further: an object the scan would have found is [`Object::Null`] here, and a host
+    /// that wants to say why asks this (ADR 0809).
+    #[must_use]
+    pub fn scan_refused(&self) -> Option<NoRoom> {
+        self.scan_refused.get().copied()
     }
 
     /// Parses the indirect object at `offset` and decrypts it if the document is encrypted.
@@ -910,9 +958,21 @@ impl Document {
     /// the object identifier of the string or stream to be encrypted" — that is, from the
     /// object as written.
     fn parse_at(&self, offset: usize) -> Option<(ObjectId, Object)> {
-        let mut parser = Parser::at(&self.bytes, offset, self.limits);
-        let (found, object) = parser.parse_indirect_object().ok()?;
-        let object = self.with_stated_length(parser.stream_data_at(), object);
+        // The bytes from `offset`, which is the rest of the file in memory and a window that
+        // grows to what the parse examined on disk — the same slice either way, which is what
+        // keeps the object a function of the bytes alone (ADR 0809). The parser's positions are
+        // the window's, so the one it hands out is put back into the file's.
+        let (found, object, data_at) =
+            self.bytes
+                .parse_from(offset, crate::file::FIRST_WINDOW, |input, _| {
+                    let mut parser = Parser::at(input, 0, self.limits);
+                    let parsed = parser.parse_indirect_object().ok().map(|(found, object)| {
+                        let data_at = parser.stream_data_at().map(|at| at.saturating_add(offset));
+                        (found, object, data_at)
+                    });
+                    (parsed, parser.examined())
+                })?;
+        let object = self.with_stated_length(data_at, object);
         Some((found, self.decrypt_object(found, object)))
     }
 
@@ -961,15 +1021,24 @@ impl Document {
         let Some(end) = start.checked_add(stated) else {
             return object;
         };
-        if end > self.bytes.len() || !crate::parser::endstream_follows(&self.bytes, end) {
+        if end > self.bytes.len() {
             return object;
         }
-        let Some(data) = self.bytes.get(start..end) else {
+        // Whether `endstream` follows the stated end, read from there: a small window that
+        // grows over any whitespace before the keyword, as the parser's own check does.
+        let follows = self.bytes.parse_from(end, ENDSTREAM_WINDOW, |input, _| {
+            crate::parser::endstream_examined(input, 0)
+        });
+        if !follows {
             return object;
-        };
+        }
+        let data = self.bytes.read(start..end);
+        if data.len() != stated {
+            return object;
+        }
         Object::Stream(Arc::new(Stream {
             dict: stream.dict.clone(),
-            data: Arc::from(data),
+            data: Arc::from(&*data),
             decryption_failed: stream.decryption_failed,
         }))
     }
@@ -1777,7 +1846,7 @@ impl Document {
     /// sometimes three times, and a Type 3 glyph description runs once per character drawn with
     /// it. A window that re-inflated the stream for each of those would trade an allocation for
     /// unbounded work, which is not the trade `doc/todo/14` is about. A tiling pattern's cell
-    /// used to be the sharpest case of that — once per site, with `MAX_TILES` allowing four
+    /// used to be the sharpest case of that — once per site, with `MAX_TILES` then allowing four
     /// thousand — and is now read *once* for the whole tiling, its sites being copies of its
     /// marks (ADR 0430).
     ///

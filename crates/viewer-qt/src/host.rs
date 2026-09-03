@@ -133,7 +133,7 @@ pub struct Host {
     /// The directory §12.7.6.4's policy resolves against.
     directory: Option<PathBuf>,
     /// The file, kept because §7.6.4.1's second attempt opens it again with a password.
-    bytes: Vec<u8>,
+    bytes: pdf_syntax::FileBytes,
     /// Annex O's fragment, where the host was given one.
     fragment: Option<String>,
     /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
@@ -309,13 +309,16 @@ impl Host {
         restrictions: viewer_core::RestrictionLevel,
         trace: Trace,
     ) -> Result<Self, HostError> {
-        let bytes = pdf_syntax::read_file(path).map_err(|error| HostError::Unreadable {
-            path: path.to_owned(),
-            error: error.to_string(),
-        })?;
+        // Open on disk rather than read whole: the core reads what page one needs through the
+        // handle, and the file's size stops being the launch's cost (ADR 0809).
+        let bytes =
+            pdf_syntax::FileBytes::on_disk(path).map_err(|error| HostError::Unreadable {
+                path: path.to_owned(),
+                error: error.to_string(),
+            })?;
         trace.say(
             Topic::Launch,
-            format_args!("read {} bytes of {}", bytes.len(), path.display()),
+            format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
         Ok(Self {
             viewer: Viewer::new(1, 1, 1.0),
@@ -1932,6 +1935,25 @@ impl Host {
             // this host's own because it names the word the argument parser takes, and this host
             // wrote its own copy of it for sessions while taking no such word (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
+            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
+            // question this window has no dialogue for yet — the gestures follow the owner's
+            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
+            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
+            Event::Asking {
+                document, notes, ..
+            } => {
+                self.say(&viewer_host::unanswerable(&notes));
+                queue.push_back(Command::Answer {
+                    document,
+                    proceed: false,
+                });
+            }
+            // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
+            // built from, which is the only thing a window may do here this round — display
+            // the list it already shows.
+            Event::AttachmentsChanged { .. } => self.build_panels(),
         }
     }
 

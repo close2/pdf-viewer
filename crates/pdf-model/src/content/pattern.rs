@@ -23,6 +23,10 @@ use super::run::narrow;
 use super::transparency::{Painted, any_command, command_blends, group_alpha_is_shape};
 use super::{GraphicsState, Interpreter, MAX_OPERATIONS};
 
+mod reach;
+
+use reach::Reach;
+
 /// The graphics state a shading pattern's *definition* is evaluated under (ISO 32000-2 §11.6.7).
 ///
 /// A pattern is a colour (§8.7.2) and `scn` is where a colour is set, so the obvious moment to
@@ -792,6 +796,54 @@ impl Interpreter<'_> {
         true
     }
 
+    /// Most commands one tiling may copy, whatever its cell holds and whatever the fill spans.
+    ///
+    /// A site is a copy of the cell's commands (ADR 0430), and a copy costs what a command
+    /// costs: about 225 bytes of display list and, on this machine, two to three microseconds
+    /// of rasterisation — so a tiling's cost is the commands it copies, and that is the unit this
+    /// bound is in. `MAX_TILES` bounded the same loop in *sites* until ADR 0810, at 4096
+    /// whatever the cell held, and the unit was the whole of what was wrong with it: a fill of
+    /// 4480 sites of a two-command cell (`PDFIUM-1122-0.pdf`, 8960 commands) was refused its
+    /// top fifth while a cell of forty commands was afforded 163 840.
+    ///
+    /// **The value is a choice, and it is sixteen times the count at a one-command cell.** What
+    /// it admits and refuses was measured before it was chosen (ADR 0810): every tiling of the
+    /// crawl's `7803372.pdf` (21 320), `4650000.pdf` (17 384), `7680183.pdf` (7610 at most of
+    /// 249) and the head above draws whole, and the two that do not are the two that want a
+    /// hundred thousand sites or more — `2760154.pdf`'s 762 930 and `PDFIUM-1497-2.pdf`'s
+    /// 448 632 at four commands apiece, 1.8 million commands for one operator, eleven seconds
+    /// and nine tenths of a gibibyte for the page. Those two are what a cell rendered once and
+    /// replicated by the rasteriser is for — §8.7.3.1's NOTE 2 anticipates exactly that
+    /// implementation — and `doc/todo/49` carries them as its witnesses. Why not the page's
+    /// whole budget: one operator's expansion would then starve every operator after it, which
+    /// is what `PDFIUM-1497-2.pdf` did to its own frame and title block when this was tried,
+    /// and a page of sixty such fills would cost eleven seconds where the count cost two.
+    const MAX_TILE_COPIES: usize = 65_536;
+
+    /// Most edge tests one page may spend on `reach.rs`, proving which sites a fill can reach.
+    ///
+    /// The scan is a saving rather than a requirement, and a saving has to cost less than what
+    /// it saves. A row costs [`reach::Reach::cost`] edge tests to ask about — every edge twice
+    /// and every curve box once — and a row that reaches *no* site spends no copies, so nothing
+    /// else in `repeat_cell` charges for it: a fill of a hundred thousand edges clustered at the
+    /// foot of a lattice of a million rows would scan the other nine hundred thousand for
+    /// nothing, at about four hundred billion tests. That is the same shape `MAX_TILES` was
+    /// retired for — a loop whose trip count a file states and whose body a budget cannot see —
+    /// one level in, so it is answered the same way: in the unit of the work.
+    ///
+    /// **Page-wide rather than per tiling**, because a page may state as many fills as
+    /// [`MAX_OPERATIONS`] affords and a per-tiling allowance would multiply by that. Four
+    /// million tests is about forty milliseconds here, and **the value is fifteen times the
+    /// heaviest page measured** (ADR 0810): `7680183.pdf`, 249 hatched polygons of a plan and
+    /// the page every other figure in that ADR is worst on, spends **under 300 000** across all
+    /// of them; `PDFIUM-1497-2.pdf` and `2760154.pdf` spend fewer than 5000 rows' worth apiece.
+    ///
+    /// Running out is not a refusal and is not reported: the caller stops asking and keeps
+    /// every site, which is what it does for a stroke and what it did before `reach.rs` existed.
+    /// The direction is the safe one — more sites, never fewer — and those sites are still
+    /// bounded by [`Self::MAX_TILE_COPIES`] and [`MAX_OPERATIONS`].
+    const MAX_REACH_SCAN: usize = 4_194_304;
+
     /// Draws every site of a tiling but the one its cell was interpreted at.
     ///
     /// §8.7.3.1: "The pattern cell shall be replicated at fixed horizontal and vertical
@@ -805,60 +857,147 @@ impl Interpreter<'_> {
     /// the direction that matters: a command costs at least one operator to state, so no page
     /// that finished its tiling before reaches the bound now, and a cell that copies four
     /// million commands stops at the same place a cell that ran four million operators did.
-    /// `MAX_TILES` is still the bound on the site count itself.
+    ///
+    /// **Three things bound the site count since ADR 0810, and none of them is a count of
+    /// sites.** Until the eight-hundred-and-eighty-second session a constant, `MAX_TILES`,
+    /// capped the sites at 4096 whatever the cell held, and what kept it after ADR 0430 made a
+    /// site a copy was the one case a charge per copy cannot see: a cell that drew *nothing*
+    /// copies nothing, so its loop ran the trip count `/XStep` and `/YStep` state — 3.6 × 10¹¹
+    /// of them for a thousandth of a unit over a 600-unit fill, about four days at 0.89 µs a
+    /// trip (ADR 0271). But a cell with no marks replicated any number of times is no marks:
+    /// §8.7.3.1's replication has nothing to replicate, so the loop is not entered at all. Every
+    /// other cell costs at least one command a site, charged to the page's budget above and to
+    /// [`Self::MAX_TILE_COPIES`], the tiling's own — the same cost bounded twice, once for the
+    /// page and once so that one operator's expansion cannot take the page from the operators
+    /// after it. And a site is only copied where the fill's interior can reach its cell at all
+    /// (`reach.rs`), so a hatched wall costs its own area and not its hull's.
+    ///
+    /// The prefix a budget affords is whole rows, on the same argument ADR 0477 made for the
+    /// constant: the sites are laid down row-major from the span's own corner, and a budget
+    /// running out mid-row would put a ragged edge where the file states none. And a row is
+    /// only the sites the fill's interior reaches — `reach` is that question, answered a row at
+    /// a time — so a hatched wall costs its own area in copies and not its hull's (ADR 0810).
+    ///
+    /// **Asking that question is work too, and the page has a budget for it.** A row that
+    /// reaches no site spends no copy, so a lattice of a million rows a fill barely touches
+    /// would be scanned for nothing at no charge to either budget above — the same shape the
+    /// retired count was retired for, one level in. [`Self::MAX_REACH_SCAN`] bounds the page's
+    /// whole scan; past it the rows are taken whole, which loses the saving and nothing else.
     fn repeat_cell(
         &mut self,
         cell: &pdf_render::Cell,
         tiling: &Tiling,
         spans: ((i32, i32), (i32, i32)),
+        reach: Option<&Reach>,
     ) {
+        // A cell with no marks replicated any number of times is no marks, and the trip count
+        // a file may state is the one cost a copy of nothing never charges — so the loop is not
+        // entered. This line is what retired `MAX_TILES` (ADR 0810).
+        if cell.is_empty() {
+            return;
+        }
         let ((first_column, last_column), (first_row, last_row)) = spans;
+        let columns = (first_column, last_column);
+        let mut rows_laid = 0usize;
+        let mut spent = 0usize;
         for row in first_row..=last_row {
-            for column in first_column..=last_column {
-                if (column, row) == (first_column, first_row) {
-                    continue;
+            // The sites of this row the fill's interior can reach at all (`reach.rs`); a
+            // stroke's hull is taken whole, and so is every row once the page has spent its
+            // scan (see [`Self::MAX_REACH_SCAN`] for why asking is itself charged).
+            let sites = match reach {
+                Some(reach) if self.reach_scanned < Self::MAX_REACH_SCAN => {
+                    self.reach_scanned = self.reach_scanned.saturating_add(reach.cost());
+                    reach.row(row, columns)
                 }
-                let by = displacement(
-                    tiling,
-                    column.saturating_sub(first_column),
-                    row.saturating_sub(first_row),
-                );
-                // Asked **before** the copy, not after it, and that is the whole of what keeps a
-                // nested tiling bounded. A cell that holds a tiling holds every one of its
-                // copies, so a chain of patterns each filling with the next is 9ⁿ commands —
-                // the span takes a neighbour on each side even for a fill inside one cell — and
-                // a check after the copy stopped only *this* loop: the parent tiling then
-                // copied a list already past the budget eight more times, and its parent that,
-                // so `ContentStreamCycleType3insideType3.pdf` cost 25 GB and a minute the day
-                // the nesting bound was raised past its cycle (ADR 0793). Refusing the copy
-                // that would cross the budget bounds the whole list at the budget plus one cell.
-                if self.operations.saturating_add(cell.len()) > MAX_OPERATIONS {
-                    self.note(Unsupported::LimitReached {
-                        limit: "MAX_OPERATIONS",
-                    });
-                    return;
-                }
-                match cell.repeat(&mut self.list, by) {
-                    Ok(copied) => {
-                        self.operations = self.operations.saturating_add(copied);
-                        if self.operations > MAX_OPERATIONS {
+                _ => vec![columns],
+            };
+            let count: usize = sites.iter().map(|&(a, b)| extent(a, b)).sum();
+
+            // §8.7.3.1 puts the requirement on the processor rather than on the file: "[w]hen
+            // performing painting operations such as S (stroke) or f (fill), the PDF processor
+            // shall paint the cell on the current page as many times as necessary to fill an
+            // area." A budget means some pages cannot have as many times as necessary — but
+            // painting the cell *no* times is the furthest a processor can get from that
+            // sentence, and the sites the budget does afford are the producer's own marks. So
+            // the shortfall is reported and the affordable prefix is drawn, which is §7.8.2's
+            // rule for a stream that decoded part-way (ADR 0343) applied to the second of the
+            // two things a tiling is made of; the first — the cell's own content stream — has
+            // drawn its prefix since ADR 0359. The prefix is whole rows, asked for row by row:
+            // the sites are laid down row-major from the span's own corner, and a budget that
+            // ran out mid-row would put a ragged edge where the file states none (ADR 0477).
+            // Where one row alone is over budget the row is cut instead, by the check inside
+            // the loop, since a prefix of one row is all there is to keep.
+            let (bound, remaining) = tighter_of(
+                (
+                    "MAX_OPERATIONS",
+                    MAX_OPERATIONS.saturating_sub(self.operations),
+                ),
+                (
+                    "MAX_TILE_COPIES",
+                    Self::MAX_TILE_COPIES.saturating_sub(spent),
+                ),
+            );
+            let affordable = remaining.checked_div(cell.len()).unwrap_or(0);
+            if count > affordable && rows_laid > 0 {
+                self.note(Unsupported::LimitReached { limit: bound });
+                return;
+            }
+            for (low, high) in sites {
+                for column in low..=high {
+                    if (column, row) == (first_column, first_row) {
+                        continue;
+                    }
+                    let by = displacement(
+                        tiling,
+                        column.saturating_sub(first_column),
+                        row.saturating_sub(first_row),
+                    );
+                    // Asked **before** the copy, not after it, and that is the whole of what
+                    // keeps a nested tiling bounded. A cell that holds a tiling holds every one
+                    // of its copies, so a chain of patterns each filling with the next is 9ⁿ
+                    // commands — the span takes a neighbour on each side even for a fill inside
+                    // one cell — and a check after the copy stopped only *this* loop: the parent
+                    // tiling then copied a list already past the budget eight more times, and
+                    // its parent that, so `ContentStreamCycleType3insideType3.pdf` cost 25 GB
+                    // and a minute the day the nesting bound was raised past its cycle (ADR
+                    // 0793). Refusing the copy that would cross the budget bounds the whole
+                    // list at the budget plus one cell.
+                    if self.operations.saturating_add(cell.len()) > MAX_OPERATIONS {
+                        self.note(Unsupported::LimitReached {
+                            limit: "MAX_OPERATIONS",
+                        });
+                        return;
+                    }
+                    if spent.saturating_add(cell.len()) > Self::MAX_TILE_COPIES {
+                        self.note(Unsupported::LimitReached {
+                            limit: "MAX_TILE_COPIES",
+                        });
+                        return;
+                    }
+                    match cell.repeat(&mut self.list, by) {
+                        Ok(copied) => {
+                            spent = spent.saturating_add(copied);
+                            self.operations = self.operations.saturating_add(copied);
+                            if self.operations > MAX_OPERATIONS {
+                                self.note(Unsupported::LimitReached {
+                                    limit: "MAX_OPERATIONS",
+                                });
+                                return;
+                            }
+                        }
+                        Err(error) => {
                             self.note(Unsupported::LimitReached {
-                                limit: "MAX_OPERATIONS",
+                                limit: match error {
+                                    DisplayListError::TooManySoftMasks => "max_soft_masks",
+                                    _ => "max_clips",
+                                },
                             });
                             return;
                         }
                     }
-                    Err(error) => {
-                        self.note(Unsupported::LimitReached {
-                            limit: match error {
-                                DisplayListError::TooManySoftMasks => "max_soft_masks",
-                                _ => "max_clips",
-                            },
-                        });
-                        return;
-                    }
                 }
             }
+            rows_laid = rows_laid.saturating_add(1);
         }
     }
 
@@ -928,40 +1067,6 @@ impl Interpreter<'_> {
         tiling: &Tiling,
         state: &GraphicsState,
     ) {
-        /// Most cells one pattern fill may draw.
-        ///
-        /// A small cell over a large area is an enormous number of tiles, and the content
-        /// stream inside each one is unbounded. This is the bound that keeps a pattern
-        /// from becoming a decompression bomb with extra steps.
-        ///
-        /// **And it is the only bound on this loop, which the four-hundred-and-thirty-fifth
-        /// session measured rather than assumed.** A cell's content runs through this same
-        /// interpreter, so its operators count against [`MAX_OPERATIONS`] — but an *empty*
-        /// cell executes no operator, and the trip count is then whatever `/XStep` and
-        /// `/YStep` say. With this lifted to 4 194 304, a pattern whose cell is empty ran
-        /// 1 000 000 tiles in **889 ms reporting nothing**: 0.89 µs a tile, and a `/XStep` of
-        /// 0.001 over a 600-unit fill states 3.6 × 10¹¹ of them, which is four days.
-        ///
-        /// The 48 documents of 65 944 that reach it all *terminate* when it is lifted —
-        /// 0.06 s to 14.2 s, wanting 4104 to 895 500 tiles — so the population is legitimate
-        /// hatching rather than an attack, and 14 of the 48 want fewer than twice the bound.
-        /// It is left at 4096 because **the count is the wrong quantity and a larger count is
-        /// no safer**: `7680183.pdf` wants 42 282 tiles and takes 14.2 s while `2760154.pdf`
-        /// wants 765 440 and takes 8.7. A bound on the *work* is what this should become, and
-        /// `doc/todo/49` carries it. ADR 0271, `tests/hostile_budgets.rs`.
-        ///
-        /// **Since ADR 0430 the loop copies where it used to interpret**, so the work per site
-        /// is the cell's *commands* rather than its operators — and
-        /// [`Interpreter::repeat_cell`] charges each copy to [`MAX_OPERATIONS`], which is
-        /// where the second bound now bites. This one still bounds the trip count, which is
-        /// what an empty cell needs and what a bound on the work would replace.
-        ///
-        /// **What the bound does when it is reached is [`affordable_span`]'s, and it used to be
-        /// to paint nothing at all.** That is the half of this budget the six-hundred-and-forty-seventh
-        /// session changed: the value stays where ADR 0271 left it and the sites it affords are
-        /// spent instead of discarded.
-        const MAX_TILES: usize = 4096;
-
         // The pattern is anchored to the page, so the question "which cells does this path
         // touch" has to be asked in the pattern's own coordinates.
         let Some(to_pattern) = tiling.to_page.invert() else {
@@ -986,32 +1091,10 @@ impl Interpreter<'_> {
         let Some(bounds) = bounds else {
             return;
         };
+        // How many sites that is, is not asked here: the span is cut to what the budget affords
+        // in [`Interpreter::repeat_cell`], which is the first place the cell's own size is known
+        // and therefore the first place the question has a unit (ADR 0810).
         let ((first_column, last_column), (first_row, last_row)) = spans(tiling, bounds);
-
-        let columns = last_column.saturating_sub(first_column).saturating_add(1);
-        let rows = last_row.saturating_sub(first_row).saturating_add(1);
-        let total = usize::try_from(columns)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(usize::try_from(rows).unwrap_or(usize::MAX));
-        // §8.7.3.1 puts the requirement on the processor rather than on the file: "[w]hen
-        // performing painting operations such as S (stroke) or f (fill), the PDF processor
-        // shall paint the cell on the current page as many times as necessary to fill an
-        // area." A budget means some pages cannot have as many times as necessary — but
-        // painting the cell *no* times is the furthest a processor can get from that sentence,
-        // and the sites the bound does afford are the producer's own marks. So the shortfall is
-        // reported and the affordable prefix is drawn, which is §7.8.2's rule for a stream that
-        // decoded part-way (ADR 0343) applied to the second of the two things a tiling is made
-        // of. The first — the cell's own content stream — has drawn its prefix since ADR 0359.
-        let (last_column, last_row) = if total > MAX_TILES {
-            self.note(Unsupported::LimitReached { limit: "MAX_TILES" });
-            affordable_span(
-                (first_column, last_column),
-                (first_row, last_row),
-                MAX_TILES,
-            )
-        } else {
-            (last_column, last_row)
-        };
 
         // What cuts the tiles to the region. A fill's interior is a clip, which is exactly
         // what a clip is; a stroke's outline is a shape mask, for [`Tiled`]'s reason — and
@@ -1117,10 +1200,29 @@ impl Interpreter<'_> {
         // `clip` is the path's own, which bounds the whole tiling: it is what tells a clip the
         // cell built from one that was already in force. See [`pdf_render::Cell`].
         let cell = pdf_render::Cell::drawn(&self.list, at, clip);
+        // Which sites the region reaches at all. A fill's interior is scanned onto the lattice
+        // (`reach.rs`), so a site whose cell box the interior never touches is not copied — a
+        // hatched wall is a few per cent of its own hull. A stroke's outline is not a region
+        // that scan can take, and its hull is kept whole.
+        let box_extent = tiling
+            .bbox
+            .unwrap_or([0.0, 0.0, tiling.step.0, tiling.step.1]);
+        let reach = match region {
+            Tiled::Fill(rule) => Reach::of(
+                path,
+                path_to_pattern,
+                rule,
+                tiling.step,
+                (box_extent[0], box_extent[2]),
+                (box_extent[1], box_extent[3]),
+            ),
+            Tiled::Stroke(_) => None,
+        };
         self.repeat_cell(
             &cell,
             tiling,
             ((first_column, last_column), (first_row, last_row)),
+            reach.as_ref(),
         );
 
         // The two groups the finished tiling may want, and which of §11.6.4.1's sources of
@@ -1873,44 +1975,16 @@ fn spans(tiling: &Tiling, bounds: (f32, f32, f32, f32)) -> ((i32, i32), (i32, i3
     )
 }
 
-/// The last column and row of the prefix of a lattice that a budget of `budget` sites affords.
-///
-/// §8.7.3.1 asks the processor to "paint the cell on the current page as many times as necessary
-/// to fill an area", and a budget is this tree's own answer to a file that says *more times than
-/// there is time for* (ADR 0271). What the budget decides is how many; what it does not decide is
-/// **which end of the requirement to fail from**, and until the six-hundred-and-forty-seventh
-/// session the answer was to paint none of them — throwing away the four thousand sites the
-/// budget had already been sized to afford.
-///
-/// Whole rows first, because the sites are laid down row-major from the span's own corner and a
-/// partial row would put a ragged edge where the file states none. Where one row alone is over
-/// budget the row is cut instead, since a prefix of one row is all there is to keep.
-///
-/// The order the sites are painted in is the implementation's — §8.7.3.1 says it "is unspecified
-/// and unpredictable", and Errata Collection 3's Issue #428 adds "(implementation dependent)" to
-/// that very sentence — so which prefix this is, is a choice this function makes rather than one
-/// the standard makes for it. It is the corner `Interpreter::tile` already interprets the cell at,
-/// which keeps the drawn site and the copied ones contiguous.
-fn affordable_span(
-    (first_column, last_column): (i32, i32),
-    (first_row, last_row): (i32, i32),
-    budget: usize,
-) -> (i32, i32) {
-    let extent = |first: i32, last: i32| {
-        usize::try_from(last.saturating_sub(first).saturating_add(1))
-            .unwrap_or(usize::MAX)
-            .max(1)
-    };
-    let columns = extent(first_column, last_column).min(budget.max(1));
-    // `columns` is at least one by `extent`'s own `max`, so the division cannot fail; it is
-    // written as a `checked_div` because that is a claim a reader has to re-derive and this is not.
-    let rows = extent(first_row, last_row)
-        .min(budget.checked_div(columns).unwrap_or(0))
-        .max(1);
-    let step = |first: i32, kept: usize| {
-        first.saturating_add(i32::try_from(kept.saturating_sub(1)).unwrap_or(i32::MAX))
-    };
-    (step(first_column, columns), step(first_row, rows))
+/// Whichever of two named budgets has less left, and how much that is.
+fn tighter_of(a: (&'static str, usize), b: (&'static str, usize)) -> (&'static str, usize) {
+    if b.1 < a.1 { b } else { a }
+}
+
+/// How many columns or rows an inclusive index range spans, and never fewer than one.
+fn extent(first: i32, last: i32) -> usize {
+    usize::try_from(last.saturating_sub(first).saturating_add(1))
+        .unwrap_or(usize::MAX)
+        .max(1)
 }
 
 /// The range of tile indices covering an interval, given a step and where the cell itself sits.

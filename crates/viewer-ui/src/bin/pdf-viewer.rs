@@ -165,10 +165,12 @@ fn open_document(
     fragment: Option<&str>,
     restrictions: RestrictionLevel,
 ) -> (Viewer, Vec<Event>) {
-    let bytes = match pdf_syntax::read_file(path) {
+    // Open on disk rather than read whole: the core reads the trailer, the table and the objects
+    // page one needs through the handle, and a document's size stops being its cost (ADR 0809).
+    let bytes = match pdf_syntax::FileBytes::on_disk(path) {
         Ok(bytes) => bytes,
         Err(error) => {
-            eprintln!("cannot read {}: {error}", path.to_string_lossy());
+            eprintln!("cannot open {}: {error}", path.to_string_lossy());
             std::process::exit(1);
         }
     };

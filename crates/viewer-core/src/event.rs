@@ -168,10 +168,13 @@ pub enum Event {
     /// person that a document is defective when what happened is that their program obeyed it
     /// would be a false statement about the file.
     ///
-    /// It carries the operation as well as the sentences, so that it can become a **question**.
-    /// [`crate::RestrictionLevel`]'s two unbuilt levels — ask and warn — are exactly this event
-    /// plus a host able to answer it with a [`crate::Command`], which is the shape
-    /// [`Self::PasswordRequired`] already uses; a refusal that had only prose could not.
+    /// It carries the operation as well as the sentences, so that it can become a **question**
+    /// — and since the eight-hundred-and-eighty-fifth session it has: [`Self::Asking`] is the
+    /// same list under [`crate::RestrictionLevel::Ask`] and [`Self::Warned`] under
+    /// [`crate::RestrictionLevel::Warn`]. **This one is the answer of exactly one level**,
+    /// [`crate::RestrictionLevel::On`], which is how the level is named on it; the bit is named in
+    /// the notes, by `pdf_model::restriction::Bit::position`, where §7.6.4.2's Table 22 is what
+    /// withheld it.
     ///
     /// [`crate::Command::Restrict`] with [`crate::RestrictionLevel::Off`] is what stops it.
     Refused {
@@ -186,6 +189,50 @@ pub enum Event {
         /// well as by the security handler", so two clauses can withhold one operation and a
         /// person being asked is owed both reasons.
         notes: Vec<String>,
+    },
+    /// An operation the document restricts is waiting on the person's answer — the answer of
+    /// [`crate::RestrictionLevel::Ask`], and the *ask before the operation* level of `CLAUDE.md`'s
+    /// four.
+    ///
+    /// The host puts the notes to the person and sends [`crate::Command::Answer`]; the viewer
+    /// holds the edit, resolved, in the meantime, and nothing is done — not the edit, not
+    /// [`Self::Dirty`] — until a `yes` arrives. A host that cannot ask answers `false`, out loud,
+    /// which is what a closed dialogue means everywhere else; going ahead unasked would be
+    /// [`crate::RestrictionLevel::Off`] under another name. The shape is
+    /// [`Self::PasswordRequired`]'s. ADR 0814.
+    Asking {
+        /// Which document.
+        document: DocumentId,
+        /// What is waiting.
+        operation: pdf_model::restriction::Operation,
+        /// One sentence per restriction that applied, worded as a question's reasons.
+        notes: Vec<String>,
+    },
+    /// An operation the document restricts was performed, and this is what the document said —
+    /// the answer of [`crate::RestrictionLevel::Warn`], and the *warn before the operation* level
+    /// of `CLAUDE.md`'s four.
+    ///
+    /// Sent **after** the edit and after the [`Self::Dirty`] it caused, so that a host reading
+    /// events in order sees the state change and then the sentence about it; the sentence says
+    /// the operation was done anyway, so that it cannot be read as a refusal. ADR 0814.
+    Warned {
+        /// Which document.
+        document: DocumentId,
+        /// What was done.
+        operation: pdf_model::restriction::Operation,
+        /// One sentence per restriction that applied, worded for after the fact.
+        notes: Vec<String>,
+    },
+    /// §7.11.4's list of embedded files is not what [`crate::Query::Attachments`] last answered:
+    /// a file was attached or detached, or an undo or a redo crossed such an edit. Ask again.
+    ///
+    /// A fact a host cannot work out for itself, which is the test this vocabulary applies to a
+    /// message: a host sent the edit, but it did not send the *verdict* — an attach under
+    /// [`crate::RestrictionLevel::On`] changed nothing — and an undo names no edit at all. Sent
+    /// once per command that moved the list, however many entries it moved by. ADR 0814.
+    AttachmentsChanged {
+        /// Which document.
+        document: DocumentId,
     },
     /// What could not be drawn on the page that was just interpreted.
     ///

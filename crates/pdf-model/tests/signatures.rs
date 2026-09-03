@@ -415,6 +415,53 @@ fn every_corpus_signature_is_asked_whether_its_document_changed() {
     );
 }
 
+/// Every signature in the corpus answers both questions the same through a file on disk.
+///
+/// The digest over `/ByteRange` is fed a window at a time off the disk since ADR 0812, where it
+/// used to be computed over slices of the whole file held in memory; this is the check that the
+/// windows add up to the range on every real signature this tree holds — ten dictionaries in
+/// nine documents, two digest algorithms, four constructions — with the answers compared exact
+/// rather than counted. A corpus that is not checked out says so.
+#[test]
+fn every_corpus_signature_answers_the_same_on_disk() {
+    let Some(files) = corpus() else {
+        println!("skipped: the doc/pdf.js submodule is not checked out");
+        return;
+    };
+    let mut compared = 0usize;
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(in_memory) = Document::open(bytes) else {
+            continue;
+        };
+        let found = every_signature(&in_memory);
+        if found.is_empty() {
+            continue;
+        }
+        let on_disk = Document::open(pdf_syntax::FileBytes::on_disk(path).expect("opens"))
+            .expect("a document that opened in memory opens on disk");
+        assert!(on_disk.bytes().is_on_disk());
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        for signature in &found {
+            assert_eq!(
+                signature.integrity(on_disk.bytes()),
+                signature.integrity(in_memory.bytes()),
+                "{name}: the two routes disagree about whether the document changed"
+            );
+            assert_eq!(
+                signature.authenticity(on_disk.bytes()),
+                signature.authenticity(in_memory.bytes()),
+                "{name}: the two routes disagree about whether the signature verifies"
+            );
+            compared += 1;
+        }
+    }
+    println!("{compared} corpus signatures answer the same on disk as in memory");
+    assert_eq!(compared, 10, "signature dictionaries compared both ways");
+}
+
 /// Every signature dictionary in the corpus, asked whether it verifies under the signer's key.
 ///
 /// **This is the three-hundred-and-ninety-second session's measurement** (ADR 0229), and it is

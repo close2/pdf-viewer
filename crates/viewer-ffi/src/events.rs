@@ -152,39 +152,29 @@ impl Events {
                 None if *remaining == 0 => "a search found nothing in the document".to_owned(),
                 None => format!("a search has {remaining} page(s) left to read"),
             },
-            // The provenance is in the sentence rather than in an accessor, because this ABI has
-            // no structured answer for an extraction at all — a C caller learns the kind and reads
-            // this. §O.2.1 is why it matters: a URI naming a file is not a person asking for one,
-            // and a caller writing bytes to disk needs to know which it has (ADR 0310).
             Event::Extracted {
                 asked,
                 name,
                 bytes,
                 fragment,
                 ..
-            } => format!(
-                "the embedded file {name:?} is {} byte(s), asked for by {}{}",
-                bytes.len(),
-                match asked {
-                    Extraction::Asked => "a person",
-                    Extraction::Fragment => "the URI's fragment",
-                },
-                // §O.2.1's remaining parameters, **said rather than answered**: they reach a Rust
-                // host as `Event::Extracted`'s `fragment` and this ABI has no accessor for them,
-                // so a C caller cannot yet open the file at the place the URI named. Trap 5 —
-                // named here at runtime rather than passed over in silence, and an entry point is
-                // what it needs (ADR 0431).
-                match fragment {
-                    Some(rest) => format!(
-                        ", and the URI's fragment continues `{rest}` for it — this ABI states \
-                         that but cannot hand it to you yet"
-                    ),
-                    None => String::new(),
-                }
-            ),
+            } => extracted(*asked, name, bytes, fragment.as_deref()),
+            // The three sentences `CLAUDE.md`'s four restriction levels reach a C caller as.
+            // They differ in one clause — what became of the operation — so they are one arm
+            // and the clause is the argument (ADR 0814).
             Event::Refused {
                 operation, notes, ..
-            } => format!("{operation:?} was refused: {}", notes.join(" ")),
+            } => restricted(*operation, notes, "was refused"),
+            Event::Asking {
+                operation, notes, ..
+            } => restricted(*operation, notes, "is waiting on pdfv_answer"),
+            Event::Warned {
+                operation, notes, ..
+            } => restricted(*operation, notes, "was done and warned about"),
+            Event::AttachmentsChanged { document } => format!(
+                "document {}'s embedded files changed; read the panel again",
+                document.0
+            ),
             Event::Reported { page, notes, .. } => match page {
                 Some(page) => format!("page {}: {}", page.saturating_add(1), notes.join(" ")),
                 None => notes.join(" "),
@@ -287,7 +277,10 @@ impl Events {
             | Event::Extracted { document, .. }
             | Event::Refused { document, .. }
             | Event::Reported { document, .. }
-            | Event::Searched { document, .. } => document.0,
+            | Event::Searched { document, .. }
+            | Event::Asking { document, .. }
+            | Event::Warned { document, .. }
+            | Event::AttachmentsChanged { document } => document.0,
             Event::NeedsRender(request) => request.document.0,
             Event::Damage(_) => return Err(Status::WrongKind),
         })
@@ -479,6 +472,47 @@ fn style_name(style: &Style) -> String {
     }
 }
 
+/// [`Events::describe`]'s sentence for [`Event::Extracted`], which is its longest.
+///
+/// The provenance is in the sentence rather than in an accessor, because this ABI has no
+/// structured answer for an extraction at all — a C caller learns the kind and reads this.
+/// §O.2.1 is why it matters: a URI naming a file is not a person asking for one, and a caller
+/// writing bytes to disk needs to know which it has (ADR 0310).
+fn extracted(asked: Extraction, name: &str, bytes: &[u8], fragment: Option<&str>) -> String {
+    format!(
+        "the embedded file {name:?} is {} byte(s), asked for by {}{}",
+        bytes.len(),
+        match asked {
+            Extraction::Asked => "a person",
+            Extraction::Fragment => "the URI's fragment",
+        },
+        // §O.2.1's remaining parameters, **said rather than answered**: they reach a Rust host
+        // as `Event::Extracted`'s `fragment` and this ABI has no accessor for them, so a C
+        // caller cannot yet open the file at the place the URI named. Trap 5 — named here at
+        // runtime rather than passed over in silence, and an entry point is what it needs
+        // (ADR 0431).
+        match fragment {
+            Some(rest) => format!(
+                ", and the URI's fragment continues `{rest}` for it — this ABI states that but \
+                 cannot hand it to you yet"
+            ),
+            None => String::new(),
+        }
+    )
+}
+
+/// [`Events::describe`]'s sentence for an operation a document restricts.
+///
+/// One function for [`Event::Refused`], [`Event::Asking`] and [`Event::Warned`], because the
+/// three differ only in `became`, which says what happened to the operation.
+fn restricted(
+    operation: pdf_model::restriction::Operation,
+    notes: &[String],
+    became: &str,
+) -> String {
+    format!("{operation:?} {became}: {}", notes.join(" "))
+}
+
 #[cfg(test)]
 mod tests {
     use viewer_core::{Command, DocumentId, Viewer};
@@ -498,7 +532,7 @@ mod tests {
             viewer
                 .handle(Command::Open {
                     id: DocumentId(7),
-                    bytes,
+                    bytes: bytes.into(),
                     password: None,
                     fragment: None,
                 })

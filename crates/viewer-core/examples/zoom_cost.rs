@@ -163,7 +163,7 @@ fn drive(bytes: &[u8], page: usize, ticks: usize, gesture: Gesture) -> Option<Ar
     let opened: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes: bytes.to_vec(),
+            bytes: bytes.to_vec().into(),
             password: None,
             fragment: None,
         })

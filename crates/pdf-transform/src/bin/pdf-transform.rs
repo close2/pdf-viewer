@@ -495,7 +495,9 @@ fn open_inputs(arguments: &Arguments, plan: &Plan) -> Result<Vec<Source>, Failur
     let mut sources = Vec::with_capacity(wanted);
     for spec in &arguments.positional {
         let (path, _) = input_spec(spec);
-        let bytes = pdf_syntax::read_file(&path)
+        // On disk rather than read whole: ADR 0809's window, so that a merge of six-gigabyte
+        // inputs costs each one's trailer, table and selected pages rather than its bytes.
+        let bytes = pdf_syntax::FileBytes::on_disk(&path)
             .map_err(|error| Failure::Unreadable(path.clone(), error))?;
         sources.push(match password.take() {
             Some(fd) => Source::with_password(bytes, password_from(fd)?),
@@ -555,6 +557,8 @@ fn attach_action(
             .map_err(|error| Failure::Usage(format!("-o: {error}")))
     };
     let path = PathBuf::from(file);
+    // The payload is *attached*, so every byte of it is written into the document: read whole,
+    // with the room asked for first, rather than opened on disk.
     let bytes =
         pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
     // The filing name is the file's own unless `--name` says otherwise, and

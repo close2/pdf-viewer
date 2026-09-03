@@ -737,6 +737,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_vertical_form: 0,
             codes_without_a_character: UnnamedCodes::default(),
             operations: 0,
+            reach_scanned: 0,
             fonts: BTreeMap::new(),
             across,
             text: String::new(),
@@ -851,6 +852,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_vertical_form,
             codes_without_a_character,
             operations,
+            reach_scanned,
             text,
             described,
             artifacts,
@@ -892,6 +894,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_vertical_form: *codes_without_a_vertical_form,
             codes_without_a_character: *codes_without_a_character,
             operations: *operations,
+            reach_scanned: *reach_scanned,
             text: text.clone(),
             described: described.clone(),
             artifacts: artifacts.clone(),
@@ -940,6 +943,7 @@ impl<'a> Interpreter<'a> {
             codes_without_a_vertical_form,
             codes_without_a_character,
             operations,
+            reach_scanned,
             text,
             described,
             artifacts,
@@ -980,6 +984,7 @@ impl<'a> Interpreter<'a> {
         self.codes_without_a_vertical_form = codes_without_a_vertical_form;
         self.codes_without_a_character = codes_without_a_character;
         self.operations = operations;
+        self.reach_scanned = reach_scanned;
         self.text = text;
         self.described = described;
         self.artifacts = artifacts;
@@ -1056,6 +1061,8 @@ struct Checkpoint {
     codes_without_a_character: UnnamedCodes,
     /// See [`Interpreter::operations`].
     operations: usize,
+    /// See [`Interpreter::reach_scanned`].
+    reach_scanned: usize,
     /// The readback so far, which every span below is an offset into.
     text: String,
     /// See [`Interpretation::described`].
@@ -1598,6 +1605,9 @@ struct Interpreter<'a> {
     /// `Interpretation::codes_without_a_character`.
     codes_without_a_character: UnnamedCodes,
     operations: usize,
+    /// Edge tests spent proving which sites of a tiling its fill can reach; see
+    /// [`Interpreter::MAX_REACH_SCAN`], which is the page-wide bound on this.
+    reach_scanned: usize,
     /// Fonts already loaded during *this* interpretation, by the object each dictionary is.
     ///
     /// A page names the same font on every `Tf`, and parsing a font program is expensive,

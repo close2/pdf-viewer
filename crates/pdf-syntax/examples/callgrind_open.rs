@@ -33,15 +33,23 @@ fn main() {
         },
         std::path::PathBuf::from,
     );
-    // An `Arc<[u8]>` cloned per repetition rather than a `Vec` cloned per repetition, and the
+    // A `FileBytes` cloned per repetition rather than a `Vec` cloned per repetition, and the
     // trailer counted rather than the table: the first put a 19 MB memcpy inside the loop and
-    // the second walked 101 318 entries, and both were the harness measuring itself.
-    let bytes: std::sync::Arc<[u8]> = std::fs::read(&path).expect("the file is readable").into();
+    // the second walked 101 318 entries, and both were the harness measuring itself. On disk,
+    // as every host opens a file since ADR 0809, unless `OPEN_COST_ROUTE=whole` asks for the
+    // route the confined viewer's worker still receives a document by; the clone shares the
+    // handle, so each repetition reads the trailer and the table off the disk again, which is
+    // the cost being counted.
+    let whole = std::env::var("OPEN_COST_ROUTE").is_ok_and(|route| route == "whole");
+    let bytes = if whole {
+        pdf_syntax::FileBytes::from(std::fs::read(&path).expect("the file is readable"))
+    } else {
+        pdf_syntax::FileBytes::on_disk(&path).expect("the file opens")
+    };
 
     let mut total = 0usize;
     for _ in 0..repetitions {
-        let document =
-            pdf_syntax::Document::open(std::sync::Arc::clone(&bytes)).expect("valid PDF");
+        let document = pdf_syntax::Document::open(bytes.clone()).expect("valid PDF");
         total += document.xref().trailer().len();
     }
     println!("{total}");

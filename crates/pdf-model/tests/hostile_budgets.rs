@@ -210,28 +210,27 @@ fn a_form_that_draws_itself_is_refused_by_name() {
     );
 }
 
-/// A tiling pattern whose cell is **empty** is refused by `MAX_TILES` and by nothing else.
+/// A tiling pattern whose cell is **empty** costs nothing however many sites the file states.
 ///
-/// The case that makes this bound load-bearing rather than a second opinion. Every other
-/// runaway a pattern can state is caught by `MAX_OPERATIONS`, because a cell's content stream
-/// runs through the same interpreter and its operators are counted — but an *empty* cell
-/// executes no operator at all, so the loop over `columns × rows` would run the number of
-/// times the file's `/XStep` and `/YStep` say and no counter would ever move. The file states
-/// the trip count directly; this is what bounds it.
+/// This fixture used to be the case that made a second constant, `MAX_TILES`, load-bearing:
+/// every other runaway a pattern can state is caught by `MAX_OPERATIONS`, because a cell's
+/// content stream runs through the same interpreter and its operators are counted, and since
+/// ADR 0430 every further site is a copy charged to the same budget — but an *empty* cell
+/// executes no operator and copies no command, so the loop over `columns × rows` ran the number
+/// of times the file's `/XStep` and `/YStep` say and no counter ever moved. **Measured rather
+/// than reasoned about** (ADR 0271): with that constant lifted, an empty cell stepped to give
+/// 1 000 000 sites interpreted in 889 ms reporting nothing — 0.89 µs a trip — and this fixture
+/// states a `/XStep` of 0.001 over a 600-unit fill, 600 000 columns and as many rows,
+/// 3.6 × 10¹¹ trips or about **four days** at that rate.
 ///
-/// **Measured rather than reasoned about.** With `MAX_TILES` lifted to 4 194 304 in a scratch
-/// build, an empty cell stepped to give 1 000 000 tiles interprets in **889 ms and reports
-/// nothing at all** — so the per-tile cost is 0.89 µs and `MAX_OPERATIONS` is never consulted.
-/// The fixture below states a `/XStep` of 0.001 over a 600-unit fill, which is 600 000 columns
-/// and as many rows: 3.6 × 10¹¹ tiles, or about **four days** at that rate.
-///
-/// **What "refused" means here is the trip count and not the paint**, since the
-/// six-hundred-and-forty-seventh session: the bound is reported by name and the sites it affords
-/// are laid down, which for an *empty* cell is four thousand copies of nothing. The work this
-/// test bounds is unchanged — 4096 sites is what the check admitted before it and what it spends
-/// now — and the assertion is on the name for that reason. ADR 0477.
+/// ADR 0810 retired the constant on the observation this test now pins: a cell with no marks
+/// replicated any number of times is no marks, so §8.7.3.1's replication has nothing to do and
+/// the loop is not entered. What "costs nothing" means here is that the test finishes — a trip
+/// count of 3.6 × 10¹¹ is not a duration this harness would wait for — and that nothing is
+/// reported, because nothing was refused: every one of the sites the file asked for is painted,
+/// with nothing.
 #[test]
-fn a_tiling_whose_cell_is_empty_is_refused_by_name() {
+fn a_tiling_whose_cell_is_empty_loops_nothing_and_reports_nothing() {
     let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] \
                    /XStep 0.001 /YStep 0.001 /Resources << >> /Length 0 >>\n\
                    stream\n\nendstream\nendobj\n";
@@ -241,9 +240,126 @@ fn a_tiling_whose_cell_is_empty_is_refused_by_name() {
         pattern,
     );
     let reported = reported(&document);
+    assert_eq!(
+        reported, "[]",
+        "an empty cell stepped every thousandth of a unit paints nothing at every site and is \
+         refused nowhere: {reported}"
+    );
+}
+
+/// A tiling pattern whose cell **marks** is bounded by `MAX_TILE_COPIES`, and says so by name.
+///
+/// The lattice of the test above with one square in the cell, at a step of 1/1024 — exact in
+/// binary, so the arithmetic below is the file's and not the rounding's: 3.8 × 10¹¹ sites of
+/// one command each. Every copy is charged to the page's four million operators and to the
+/// tiling's own 65 536 copies before it is made (`Interpreter::repeat_cell`), so what this
+/// fixture costs is the tiling's budget and not one command more — `commands` is the copies plus
+/// the one site the cell was interpreted at — and the page's budget is left for the operators
+/// after it, which is why the fill's own four operators are still counted and the page is not
+/// refused as a whole.
+#[test]
+fn a_tiling_whose_cell_marks_is_bounded_by_its_own_budget() {
+    let cell = "0 0 1 1 re f";
+    let pattern = format!(
+        "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] \
+         /XStep 0.0009765625 /YStep 0.0009765625 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        cell.len()
+    );
+    let document = page(
+        "/Pattern cs /P0 scn 0 0 600 600 re f",
+        "<< /Pattern << /P0 5 0 R >> >>",
+        &pattern,
+    );
+    let reported = reported(&document);
     assert!(
-        reported.contains("MAX_TILES"),
-        "an empty cell stepped every thousandth of a unit must be refused by name: {reported}"
+        reported.contains("MAX_TILE_COPIES") && !reported.contains("MAX_OPERATIONS"),
+        "a marking cell stepped every thousandth of a unit must be refused by the tiling's own \
+         budget, by name, and by nothing else: {reported}"
+    );
+    // A unit cell at a step of 1/1024 over 0..600 spans columns −1024 to 614 400 — 615 425 of
+    // them, because a cell one unit wide reaches the fill from a whole unit to the left — so
+    // one row alone is over the budget and the prefix is the row's own: 65 536 copies, and the
+    // site the cell was interpreted at.
+    let commands = commands(&document);
+    assert_eq!(
+        commands,
+        65_536 + 1,
+        "the sites laid down are the copies the tiling's budget affords, and the interpreted one"
+    );
+}
+
+/// …and the same lattice over a fill of many rows keeps whole rows, on ADR 0477's argument.
+///
+/// A unit cell stepped every 1/8 over 0..64 spans columns −8 to 512 — a cell one unit wide
+/// reaches the fill from a whole unit to the left — so the lattice is 521 columns by 521 rows,
+/// 271 441 sites; the tiling's budget of 65 536 copies buys 125 whole rows of 521 and not the
+/// 126th, so the cut is a straight edge along the 126th row rather than a ragged one 411 sites
+/// into it.
+#[test]
+fn a_tiling_over_its_budget_keeps_whole_rows() {
+    let cell = "0 0 1 1 re f";
+    let pattern = format!(
+        "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] \
+         /XStep 0.125 /YStep 0.125 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        cell.len()
+    );
+    let document = page(
+        "/Pattern cs /P0 scn 0 0 64 64 re f",
+        "<< /Pattern << /P0 5 0 R >> >>",
+        &pattern,
+    );
+    let reported = reported(&document);
+    assert!(
+        reported.contains("MAX_TILE_COPIES"),
+        "a quarter of a million sites is over the tiling's budget and said so: {reported}"
+    );
+    let commands = commands(&document);
+    assert_eq!(
+        commands,
+        521 * 125,
+        "125 whole rows of 521 sites: the interpreted site and 65 124 copies, the 126th row not begun"
+    );
+}
+
+/// A fill whose *edges* are the bomb: the reach scan is bounded by the page, not by the file.
+///
+/// `reach.rs` cuts the lattice to the sites a fill's interior can touch, and asking costs one
+/// pass over the path's edges **per row band**. A row that reaches no site copies nothing, so
+/// neither `MAX_OPERATIONS` nor `MAX_TILE_COPIES` sees it — which is exactly the shape ADR 0810
+/// retired `MAX_TILES` for, one level in. This fixture is that shape: twenty thousand unit
+/// squares stacked at the origin and one more six hundred units above them, so `span` states a
+/// lattice of a million rows at `/YStep 0.0006` of which all but three thousand reach nothing,
+/// against a path of a hundred thousand edges. Unbounded that is about 10^11 edge tests, which
+/// is hours; `Interpreter::MAX_REACH_SCAN` stops the *asking* after four million of them and the
+/// rows are then taken whole, so the copies budget ends the loop as it does anywhere else.
+///
+/// The assertion is that this returns at all, and that it returns saying which budget stopped
+/// it. A test whose failure mode is the harness's timeout is still the test for a loop whose
+/// defect is that it does not finish (ADR 0810).
+#[test]
+fn a_fill_of_many_edges_does_not_pay_for_the_rows_it_cannot_reach() {
+    let cell = "0 0 1 1 re f";
+    let pattern = format!(
+        "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 1 1] \
+         /XStep 1 /YStep 0.0006 /Resources << >> /Length {} >>\nstream\n{cell}\nendstream\nendobj\n",
+        cell.len()
+    );
+    let mut operators = String::from("/Pattern cs /P0 scn ");
+    for _ in 0..20_000 {
+        operators.push_str("0 0 1 1 re ");
+    }
+    operators.push_str("0 600 1 1 re f");
+    let document = page(&operators, "<< /Pattern << /P0 5 0 R >> >>", &pattern);
+    let reported = reported(&document);
+    assert!(
+        reported.contains("MAX_TILE_COPIES"),
+        "a million rows of a lattice this fill barely touches must end at the copies budget, \
+         by name: {reported}"
+    );
+    let commands = commands(&document);
+    assert!(
+        commands <= 65_536 + 20_002,
+        "the copies are the tiling's budget and the rest is the fill's own path: {commands}"
     );
 }
 
@@ -599,7 +715,10 @@ fn the_sixty_fourth_nested_form_draws_and_the_sixty_fifth_is_refused_by_name() {
 /// copied that list nine times over — 25 GB and a minute for a document of a few kilobytes on the
 /// day the nesting bound was raised past sixteen (ADR 0793). The budget is asked before the copy
 /// now, so the list is at most the budget plus one cell, and this asserts the count rather than
-/// the time because a count is what the bound states.
+/// the time because a count is what the bound states. Since ADR 0810 each tiling of the chain
+/// also has a budget of its own, `MAX_TILE_COPIES`, which the ninefold growth reaches long
+/// before the page's — so which of the two names the refusal is the tighter one at each level,
+/// and the assertion admits either; what it holds is that the list is bounded by the page's.
 #[test]
 fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
     let pattern = "5 0 obj\n<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 612 792] \
@@ -613,8 +732,9 @@ fn a_marking_cycle_through_a_tiling_cell_stays_inside_the_operator_budget() {
     );
     let reported = reported(&document);
     assert!(
-        reported.contains("MAX_FORM_DEPTH") && reported.contains("MAX_OPERATIONS"),
-        "the cycle reaches the nesting bound and the copies reach the operator budget: {reported}"
+        reported.contains("MAX_FORM_DEPTH")
+            && (reported.contains("MAX_OPERATIONS") || reported.contains("MAX_TILE_COPIES")),
+        "the cycle reaches the nesting bound and the copies reach a budget by name: {reported}"
     );
     let commands = commands(&document);
     assert!(

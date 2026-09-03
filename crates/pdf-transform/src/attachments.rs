@@ -48,6 +48,12 @@
 //! as `ViewState::save` builds one, and the document is read, never changed. The edit is
 //! Table 22's bit 4 — see [`crate::Operation::Modify`]. ADR 0802.
 //!
+//! **The objects themselves are built by `pdf_model::attachment::filing` since the
+//! eight-hundred-and-eighty-fifth session**, because the viewer's edit log writes the same three
+//! and the same tree, and the crate graph runs this crate → `viewer-core` (ADR 0800), so the one
+//! writer both can reach lives beside the reader in `pdf-model`. What stays here is the verb: the
+//! object numbers, the refusals, the output and the report. ADR 0814.
+//!
 //! # The third home, written: `--to-page`
 //!
 //! The same embedded file stream and file specification, filed by a §12.5.6.15 file attachment
@@ -64,13 +70,13 @@
 //! nobody says is a choice the standard leaves open, and [`OnPage::rect`] states it. ADR 0803.
 
 use std::collections::BTreeMap;
-use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::Arc;
 
 use pdf_model::Pages;
+use pdf_model::attachment::filing::{self, Holder, Tree};
 use pdf_model::attachment::{Attachment, attachments, of_annotation};
-use pdf_syntax::{Date, Dictionary, Document, Name, Object, ObjectId, Stream, tree};
+use pdf_syntax::{Date, Document, Object, ObjectId};
 
 use crate::json::Value;
 use crate::pattern::{Fill, Pattern};
@@ -160,37 +166,16 @@ pub struct OnPage {
 
 impl OnPage {
     /// §12.5.6.15's four icon names, which are the only ones this tree draws.
-    pub const ICONS: [&'static str; 4] = ["Graph", "PushPin", "Paperclip", "Tag"];
+    pub const ICONS: [&'static str; 4] = filing::ICONS;
 
     /// Table 187's default.
-    pub const DEFAULT_ICON: &'static str = "PushPin";
+    pub const DEFAULT_ICON: &'static str = filing::DEFAULT_ICON;
 
     /// The side of the square placed where no rectangle is stated, in user-space units.
-    pub const DEFAULT_SIDE: f32 = 20.0;
+    pub const DEFAULT_SIDE: f32 = filing::DEFAULT_SIDE;
 }
 
-/// The bytes of a file to attach, which print as their length rather than themselves.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Payload(Arc<[u8]>);
-
-impl Payload {
-    /// The file.
-    pub fn new(bytes: impl Into<Arc<[u8]>>) -> Self {
-        Self(bytes.into())
-    }
-
-    /// Its bytes.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for Payload {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Payload({} bytes)", self.0.len())
-    }
-}
+pub use pdf_model::attachment::filing::Payload;
 
 /// One embedded file, as the inventory describes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -406,11 +391,11 @@ fn attach(
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     replacements.insert(
         stream_id,
-        embedded_file_stream(attaching.payload.bytes(), attaching.date),
+        filing::embedded_file_stream(attaching.payload.bytes(), None, attaching.date),
     );
     replacements.insert(
         specification_id,
-        file_specification(&key, stream_id, attaching.description),
+        filing::file_specification(&key, stream_id, attaching.description),
     );
 
     if let Some(on_page) = attaching.on_page {
@@ -425,25 +410,23 @@ fn attach(
             &mut replacements,
         )?;
     } else {
-        let TreeState {
+        let Tree {
             names_entry,
             names_dict,
             tree_entry,
             mut entries,
-        } = TreeState::read(document, &catalog);
+        } = Tree::read(document, &catalog, &|id| document.get(id));
         if entries.iter().any(|(existing, _)| *existing == key) {
             return Err(Refusal::AttachmentExists {
                 at,
                 name: attaching.name.to_owned(),
             });
         }
-        // §7.9.6: "[t]he keys shall be sorted in lexical order", and "[s]horter keys shall
-        // appear before longer ones beginning with the same byte sequence" — which is what a
-        // byte vector's own ordering does.
+        // §7.9.6's order is `tree_root`'s to keep.
         entries.push((key, Object::Reference(specification_id)));
         let tree_id = fresh();
-        replacements.insert(tree_id, tree_root(entries));
-        point_holder_at_tree(
+        replacements.insert(tree_id, filing::tree_root(entries));
+        filing::point_holder_at_tree(
             &mut replacements,
             tree_id,
             Holder {
@@ -516,12 +499,12 @@ fn remove(
             error: pdf_syntax::write::UpdateError::NoRoot,
         });
     };
-    let TreeState {
+    let Tree {
         names_entry,
         names_dict,
         tree_entry,
         entries,
-    } = TreeState::read(document, &catalog);
+    } = Tree::read(document, &catalog, &|id| document.get(id));
     let key = pdf_syntax::text_string::encode_text_string(name);
     let Some(position) = entries.iter().position(|(existing, _)| *existing == key) else {
         return Err(Refusal::NoSuchAttachment {
@@ -534,26 +517,9 @@ fn remove(
 
     // The objects this entry alone reached: the specification where the leaf held a
     // reference, and the streams under its `/EF` — unless another home still reaches one.
-    let mut freed: Vec<ObjectId> = Vec::new();
-    let specification = document.resolve(&value);
-    if let Some(specification) = specification.as_dict() {
-        let mut streams: Vec<ObjectId> = Vec::new();
-        if let Some(embedded) = document.get_key(specification, "EF").as_dict() {
-            for entry_key in ["F", "UF", "DOS", "Mac", "Unix"] {
-                if let Some(Object::Reference(id)) = embedded.get(entry_key)
-                    && !streams.contains(id)
-                {
-                    streams.push(*id);
-                }
-            }
-        }
-        let elsewhere = other_homes(document, &streams);
-        if elsewhere.is_empty() {
-            if let Object::Reference(id) = value {
-                freed.push(id);
-            }
-            freed.extend(streams);
-        } else {
+    let mut freed: Vec<ObjectId> = match filing::freed_by_removing(document, &value) {
+        Ok(freed) => freed,
+        Err(elsewhere) => {
             report.warnings.push(Warning {
                 source: at,
                 page: None,
@@ -562,16 +528,17 @@ fn remove(
                      another home in the document still reaches the stream ({elsewhere})"
                 ),
             });
+            Vec::new()
         }
-    }
+    };
 
     let mut replacements: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let tree_id = ObjectId {
         number: next_object_number(document),
         generation: 0,
     };
-    replacements.insert(tree_id, tree_root(entries));
-    point_holder_at_tree(
+    replacements.insert(tree_id, filing::tree_root(entries));
+    filing::point_holder_at_tree(
         &mut replacements,
         tree_id,
         Holder {
@@ -615,58 +582,6 @@ fn remove(
     Ok(())
 }
 
-/// Which of the other two homes — the catalog's `/AF`, a page's annotation — still reach one
-/// of these streams, as a sentence, or empty where none does.
-///
-/// By object identity rather than by pointer: the tree's own entry is being let go of, and
-/// what matters is whether any *other* reference to the stream remains.
-fn other_homes(document: &Document, streams: &[ObjectId]) -> String {
-    let mut homes: Vec<String> = Vec::new();
-    if let Ok(catalog) = document.catalog()
-        && let Some(associated) = document.get_key(&catalog, "AF").as_array()
-        && associated.iter().any(|entry| {
-            document
-                .resolve(entry)
-                .as_dict()
-                .is_some_and(|spec| references_one_of(document, spec, streams))
-        })
-    {
-        homes.push("the catalog's /AF".to_owned());
-    }
-    let pages = Pages::new(document);
-    for index in 0..pages.len() {
-        let Some(page) = pages.get(index) else {
-            continue;
-        };
-        for annotation in pdf_model::retrieval::annotations(document, &page) {
-            if document
-                .get_key(&annotation, "FS")
-                .as_dict()
-                .is_some_and(|spec| references_one_of(document, spec, streams))
-            {
-                homes.push(format!("page {}'s annotation", index.saturating_add(1)));
-            }
-        }
-    }
-    homes.join(", ")
-}
-
-/// Whether a file specification's `/EF` names any of these streams.
-fn references_one_of(
-    document: &Document,
-    specification: &Dictionary,
-    streams: &[ObjectId],
-) -> bool {
-    document
-        .get_key(specification, "EF")
-        .as_dict()
-        .is_some_and(|embedded| {
-            embedded
-                .iter()
-                .any(|(_, entry)| matches!(entry, Object::Reference(id) if streams.contains(id)))
-        })
-}
-
 /// §12.5.6.15's annotation, and the page's `/Annots` rewritten to reach it.
 ///
 /// Table 187's three entries — `/Subtype /FileAttachment`, the required `/FS`, and `/Name` —
@@ -705,47 +620,11 @@ fn file_on_page(
             "--icon takes Graph, PushPin, Paperclip or Tag, not {icon:?}"
         )));
     }
-    let [x0, y0, x1, y1] = on_page.rect.unwrap_or_else(|| {
-        let [left, _, _, top] = page.crop_box;
-        let inset = OnPage::DEFAULT_SIDE;
-        [
-            left + inset,
-            top - 2.0 * inset,
-            left + 2.0 * inset,
-            top - inset,
-        ]
-    });
-
-    let mut annotation = Dictionary::new();
-    annotation.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"Annot"[..])),
-    );
-    annotation.insert(
-        Name::new(&b"Subtype"[..]),
-        Object::Name(Name::new(&b"FileAttachment"[..])),
-    );
-    annotation.insert(
-        Name::new(&b"Rect"[..]),
-        Object::Array(
-            [x0, y0, x1, y1]
-                .into_iter()
-                .map(|value| Object::Real(f64::from(value)))
-                .collect(),
-        ),
-    );
-    annotation.insert(Name::new(&b"P"[..]), Object::Reference(page_id));
-    annotation.insert(Name::new(&b"FS"[..]), Object::Reference(specification_id));
-    annotation.insert(
-        Name::new(&b"Name"[..]),
-        Object::Name(Name::new(icon.as_bytes())),
-    );
-    if let Some(description) = description {
-        annotation.insert(
-            Name::new(&b"Contents"[..]),
-            Object::String(pdf_syntax::text_string::encode_text_string(description).into()),
-        );
-    }
+    let rect = on_page
+        .rect
+        .unwrap_or_else(|| filing::default_rect(page.crop_box));
+    let annotation =
+        filing::file_attachment_annotation(page_id, rect, specification_id, icon, description);
     replacements.insert(annotation_id, Object::Dictionary(annotation));
 
     match page.dict.get("Annots").cloned() {
@@ -764,117 +643,14 @@ fn file_on_page(
             };
             entries.push(Object::Reference(annotation_id));
             let mut dict = page.dict.clone();
-            dict.insert(Name::new(&b"Annots"[..]), Object::Array(entries));
+            dict.insert(
+                pdf_syntax::Name::new(&b"Annots"[..]),
+                Object::Array(entries),
+            );
             replacements.insert(page_id, Object::Dictionary(dict));
         }
     }
     Ok(())
-}
-
-/// One `/Names` node holding every entry, in §7.9.6's order.
-fn tree_root(mut entries: Vec<(Vec<u8>, Object)>) -> Object {
-    entries.sort_by(|(a, _), (b, _)| a.cmp(b));
-    let mut names_array = Vec::with_capacity(entries.len().saturating_mul(2));
-    for (key, value) in entries {
-        names_array.push(Object::String(key.into()));
-        names_array.push(value);
-    }
-    let mut root = Dictionary::new();
-    root.insert(Name::new(&b"Names"[..]), Object::Array(names_array));
-    Object::Dictionary(root)
-}
-
-/// Where §7.7.4's `/EmbeddedFiles` tree is now: the name dictionary as the catalog states it,
-/// the tree as the name dictionary states it, and the entries the tree's leaves hold, values
-/// as stated.
-struct TreeState {
-    /// The catalog's `/Names` entry, unresolved.
-    names_entry: Option<Object>,
-    /// The name dictionary it names, where it names one.
-    names_dict: Option<Dictionary>,
-    /// The name dictionary's `/EmbeddedFiles` entry, unresolved.
-    tree_entry: Option<Object>,
-    /// Every key and value in the tree, values as the leaves state them.
-    entries: Vec<(Vec<u8>, Object)>,
-}
-
-impl TreeState {
-    /// Reads the tree's state out of the catalog.
-    fn read(document: &Document, catalog: &Dictionary) -> Self {
-        let resolve = |object: &Object| document.resolve(object);
-        let names_entry = catalog.get("Names").cloned();
-        let names_dict = names_entry
-            .as_ref()
-            .map(resolve)
-            .and_then(|object| object.as_dict().cloned());
-        let tree_entry = names_dict
-            .as_ref()
-            .and_then(|names| names.get("EmbeddedFiles").cloned());
-        let entries = tree_entry
-            .as_ref()
-            .map(resolve)
-            .and_then(|object| {
-                object
-                    .as_dict()
-                    .map(|root| tree::name_entries(root, &resolve))
-            })
-            .unwrap_or_default();
-        Self {
-            names_entry,
-            names_dict,
-            tree_entry,
-            entries,
-        }
-    }
-}
-
-/// The objects that can hold the tree, from the outermost in.
-struct Holder {
-    /// The catalog, as read.
-    catalog: Dictionary,
-    /// Its object number, from the trailer's `/Root`.
-    root_id: ObjectId,
-    /// The catalog's `/Names` entry, unresolved.
-    names_entry: Option<Object>,
-    /// The name dictionary, where there is one.
-    names_dict: Option<Dictionary>,
-    /// The name dictionary's `/EmbeddedFiles` entry, unresolved.
-    tree_entry: Option<Object>,
-}
-
-/// Points whichever object held the tree at the new root, rewriting the nearest indirect
-/// object so that as little as possible is said twice: the old root's number where the tree
-/// was indirect, the name dictionary's where that was, and the catalog's otherwise.
-fn point_holder_at_tree(
-    replacements: &mut BTreeMap<ObjectId, Object>,
-    tree_id: ObjectId,
-    holder: Holder,
-) {
-    let Holder {
-        mut catalog,
-        root_id,
-        names_entry,
-        names_dict,
-        tree_entry,
-    } = holder;
-    match (tree_entry, names_entry) {
-        (Some(Object::Reference(old_root)), _) => {
-            // The new root takes the old root's number, so nothing above it changes.
-            let root = replacements.remove(&tree_id).unwrap_or(Object::Null);
-            replacements.insert(old_root, root);
-        }
-        (_, Some(Object::Reference(names_id))) => {
-            let mut names = names_dict.unwrap_or_default();
-            names.insert(Name::new(&b"EmbeddedFiles"[..]), Object::Reference(tree_id));
-            replacements.insert(names_id, Object::Dictionary(names));
-        }
-        _ => {
-            let mut names = names_dict.unwrap_or_default();
-            names.insert(Name::new(&b"EmbeddedFiles"[..]), Object::Reference(tree_id));
-            catalog.insert(Name::new(&b"Names"[..]), Object::Dictionary(names));
-            replacements.insert(root_id, Object::Dictionary(catalog));
-        }
-    }
 }
 
 /// The first object number nothing in the file uses.
@@ -893,94 +669,6 @@ fn next_object_number(document: &Document) -> u32 {
         .and_then(|size| u32::try_from(size).ok())
         .unwrap_or_default();
     highest.saturating_add(1).max(stated)
-}
-
-/// §7.11.4's embedded file stream, Tables 44 and 45.
-///
-/// Unfiltered: the bytes are the file's, and a compression this crate chose would be a second
-/// decision in a writer whose one job is to say what was attached. `/CheckSum` is Table 45's —
-/// "[t]he checksum shall be calculated by applying the standard MD5 message-digest algorithm
-/// (defined in Internet RFC 1321) to the bytes of the embedded file stream" — and `/Size` its
-/// "size of the uncompressed embedded file, in bytes".
-fn embedded_file_stream(bytes: &[u8], date: Option<Date>) -> Object {
-    let mut params = Dictionary::new();
-    params.insert(
-        Name::new(&b"Size"[..]),
-        Object::Integer(i64::try_from(bytes.len()).unwrap_or(i64::MAX)),
-    );
-    params.insert(
-        Name::new(&b"CheckSum"[..]),
-        Object::String(<md5::Md5 as md5::Digest>::digest(bytes).to_vec().into()),
-    );
-    if let Some(date) = date {
-        let spelled = Object::String(pdf_date(date).into_bytes().into());
-        params.insert(Name::new(&b"CreationDate"[..]), spelled.clone());
-        params.insert(Name::new(&b"ModDate"[..]), spelled);
-    }
-    let mut dict = Dictionary::new();
-    dict.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"EmbeddedFile"[..])),
-    );
-    dict.insert(
-        Name::new(&b"Length"[..]),
-        Object::Integer(i64::try_from(bytes.len()).unwrap_or(i64::MAX)),
-    );
-    dict.insert(Name::new(&b"Params"[..]), Object::Dictionary(params));
-    Object::Stream(Arc::new(Stream {
-        dict,
-        data: bytes.into(),
-        decryption_failed: false,
-    }))
-}
-
-/// §7.11.3's file specification dictionary, Table 43, for a file embedded under both of
-/// Table 43's names.
-///
-/// `/F` and `/UF` are both written, as the table asks — "[t]he UF entry should be used in
-/// addition to the F entry" — and both are the filing name; `/EF` names the one stream under
-/// both keys, which is "a subset of the F and UF keys corresponding to the entries by those
-/// names". `/Type` is required "if an EF, EP or RF entry is present".
-fn file_specification(name: &[u8], stream: ObjectId, description: Option<&str>) -> Object {
-    let mut embedded = Dictionary::new();
-    embedded.insert(Name::new(&b"F"[..]), Object::Reference(stream));
-    embedded.insert(Name::new(&b"UF"[..]), Object::Reference(stream));
-    let mut dict = Dictionary::new();
-    dict.insert(
-        Name::new(&b"Type"[..]),
-        Object::Name(Name::new(&b"Filespec"[..])),
-    );
-    dict.insert(Name::new(&b"F"[..]), Object::String(name.into()));
-    dict.insert(Name::new(&b"UF"[..]), Object::String(name.into()));
-    dict.insert(Name::new(&b"EF"[..]), Object::Dictionary(embedded));
-    if let Some(description) = description {
-        dict.insert(
-            Name::new(&b"Desc"[..]),
-            Object::String(pdf_syntax::text_string::encode_text_string(description).into()),
-        );
-    }
-    Object::Dictionary(dict)
-}
-
-/// §7.9.4's date string, `D:YYYYMMDDHHmmSSOHH'mm'`, every field written.
-///
-/// The zone is written only where the date states one, and `Z` is written with the two zero
-/// fields the clause's grammar places after it.
-fn pdf_date(date: Date) -> String {
-    let mut text = format!(
-        "D:{:04}{:02}{:02}{:02}{:02}{:02}",
-        date.year, date.month, date.day, date.hour, date.minute, date.second
-    );
-    match date.offset {
-        None => {}
-        Some(0) => text.push_str("Z00'00'"),
-        Some(minutes) => {
-            let sign = if minutes < 0 { '-' } else { '+' };
-            let absolute = minutes.unsigned_abs();
-            let _ = write!(text, "{sign}{:02}'{:02}'", absolute / 60, absolute % 60);
-        }
-    }
-    text
 }
 
 /// Reads a date a caller typed, in ISO 8601's `YYYY-MM-DDTHH:MM:SS` with an optional `Z` or

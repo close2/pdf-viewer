@@ -296,14 +296,19 @@ bound lifted, one process apiece:
 
 | bound | documents | with the bound lifted |
 |---|---|---|
-| `MAX_TILES` 4096 | 48 | all terminate, 0.06–14.2 s, wanting 4104–895 500 tiles |
+| `MAX_TILES` 4096 (retired by ADR 0810) | 48 | all terminate, 0.06–14.2 s, wanting 4104–895 500 tiles |
 | `MAX_OPERATIONS` 4 M | 31 | all terminate, wanting 4.1–53.6 M **lexer tokens**, 0.27–49.9 s |
 | `MAX_FORM_DEPTH` 16 | 4 | **all four are cycles**: lifted to 256, all four reach 256 |
 | `MAX_STATE_DEPTH` 256 | 1 | wants 337, draws in 0.05 s |
 
 and one number that is a property of the loop rather than of any document: with `MAX_TILES` lifted,
 **1 000 000 empty tiles interpret in 889 ms reporting nothing** — 0.89 µs apiece, and `/XStep 0.001`
-over a 600-unit fill states 3.6 × 10¹¹ of them, about four days. None of the four bounds moved.
+over a 600-unit fill states 3.6 × 10¹¹ of them, about four days. None of the four bounds moved then;
+`MAX_TILES` went in the eight-hundred-and-eighty-second session (ADR 0810), because an empty cell
+need not be looped at all, a site the fill cannot reach is not copied, and every other site is a
+copy bounded in *commands* — `MAX_TILE_COPIES`, 65 536 a tiling. `7680183.pdf` draws in 2.2 s where
+it took 3.3, four fifths of its sites being outside the polygons they hatch; `2760154.pdf`'s
+762 930 sites are still cut, at 65 536 rather than 4096.
 
 **And the second column of that table was in the wrong unit for the whole of the bound's life**
 (ADR 0306). `MAX_OPERATIONS` said *operators* and counted lexer tokens, which §7.8.2 makes seven of

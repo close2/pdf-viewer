@@ -83,6 +83,14 @@ const INTERPRETER_ADDRESS_SPACE_LIMIT: u64 = 4 << 30;
 ///
 /// The worker inherits three and opens none. Eight leaves room for the runtime to do
 /// something ordinary without leaving room to do something interesting.
+///
+/// **The interpreter is also *handed* one per open document** (ADR 0812): the document arrives
+/// as a descriptor beside `Command::Open`, which the kernel enters into the worker's table
+/// under this same ceiling — so five documents may be open in a confined viewer at once, and a
+/// sixth's descriptor is dropped by the kernel with `MSG_CTRUNC` set, which the worker reads
+/// as a refusal by name rather than as a document. The number is not raised for it: a
+/// document that is closed gives its descriptor back, and a viewer holding six documents in
+/// one confined process is not a shape any host on that boundary has.
 const DESCRIPTOR_LIMIT: u64 = 8;
 
 /// Confines the calling thread. There is no way to undo this.
@@ -213,8 +221,8 @@ const PERMITTED: &[i64] = &[
 ///
 /// Found the same way that list was: `strace -f -c` over a real page of a real document
 /// interpreted and rasterised — `pdf-model`'s `render_at` example on `doc/PDF20_AN001-BPC.pdf`
-/// — and every call it issued after process start is either here or above. Four entries, and
-/// they are one fact: **`render-cpu` draws a page on every core**.
+/// — and every call it issued after process start is either here or above. The first four
+/// entries are one fact: **`render-cpu` draws a page on every core**.
 ///
 /// - `clone3` — the thread. `clone` is beside it because `glibc` falls back to it on a kernel
 ///   that answers `ENOSYS`, and a worker that died on such a kernel would look like a defect in
@@ -223,6 +231,27 @@ const PERMITTED: &[i64] = &[
 ///   before it runs anything of ours.
 /// - `sched_getaffinity` — `std::thread::available_parallelism`, which is how the pool learns
 ///   how many threads to make.
+///
+/// **And two more since the document stopped crossing as bytes** (ADR 0812), each on the
+/// same evidence — `strace -f` over `pdf-view-worker` opening a document handed to it as a
+/// descriptor — and each a fact about a descriptor the worker already holds rather than about
+/// anything it could reach:
+///
+/// - `recvmsg` — how the descriptor arrives. The host makes the socket pair and gives the
+///   worker one end as its standard input, so the worker reads its frames from a socket it did
+///   not create and cannot create: `socket`, `socketpair`, `connect`, `bind` and `accept` stay
+///   off the list, and `a_confined_interpreter_cannot_reach_the_network` still holds. What
+///   `recvmsg` admits over `read` is exactly the ancillary data — a descriptor the host chose
+///   to send — on that one socket.
+/// - `pread64` — how the document is read. `pdf_syntax::FileBytes` reads a file on disk where
+///   its offsets point, through `FileExt::read_at`, which is one positional read and moves no
+///   cursor. It reads a descriptor the worker holds; on the three it inherits, a pipe and a
+///   socket, it is `ESPIPE`. **Not `fstat`, `statx`, `lseek` or `openat`**: the file's length
+///   crosses beside the descriptor rather than being asked for, because `statx` takes a path
+///   and admitting it would let a confined process ask whether `/etc/passwd` exists, and
+///   `std::fs::File::read_to_end` asks both `statx` and `lseek` — which is why every read the
+///   worker makes goes through `pdf_syntax`'s own positional reader and none through
+///   `File::read`. `a_confined_interpreter_cannot_stat_a_descriptor_it_holds` pins that shape.
 ///
 /// **What is deliberately still absent is what makes this a thread and not a program**:
 /// `execve`, `execveat`, `fork` and `vfork` are on no list here, so nothing confined can start
@@ -235,6 +264,8 @@ const PERMITTED_INTERPRETER_EXTRA: &[i64] = &[
     libc::SYS_rseq,
     libc::SYS_set_robust_list,
     libc::SYS_sched_getaffinity,
+    libc::SYS_recvmsg,
+    libc::SYS_pread64,
 ];
 
 /// Installs the seccomp-BPF allow-list.

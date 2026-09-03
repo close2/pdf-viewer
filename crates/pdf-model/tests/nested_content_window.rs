@@ -321,7 +321,7 @@ fn a_chained_form_is_read_through_the_window_and_draws_what_the_whole_decode_dra
 ///
 /// **The exception it replaces was found by fuzzing.** A mutated tiling pattern the `page` target
 /// reached took 0.24 s held and 9.0 s windowed, because the cell's content stream was run once
-/// per site painted and `MAX_TILES` allows four thousand of them — so `NestedContent::of`'s
+/// per site painted and `MAX_TILES` allowed four thousand of them — so `NestedContent::of`'s
 /// premise, that a decode the memo declines is re-run on every read anyway, was false for exactly
 /// this one of the four. The cell is now interpreted **once** and every other site is its commands
 /// displaced, so the premise holds again and the type that kept the exception is gone. What this

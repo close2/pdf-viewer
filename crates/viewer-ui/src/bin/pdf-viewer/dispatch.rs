@@ -7,7 +7,7 @@
 
 use std::collections::VecDeque;
 
-use viewer_core::{Command, Event};
+use viewer_core::{Answer, Command, Event, Query};
 
 use crate::app::App;
 use crate::trace::{Topic, describe_command, describe_event};
@@ -123,24 +123,7 @@ impl App {
                 of,
                 section,
                 ..
-            } => {
-                // ISO 32000-2 §12.4.2: "Page labels and page indices need not coincide". Where
-                // the document states a label it is what a reader is meant to see — a page of
-                // front matter is *iv*, not page four — so the index is shown beside it rather
-                // than instead of it, because a title saying only `iv` cannot say `of 320`.
-                let page = match label {
-                    Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
-                    None => format!("page {} of {of}", index.saturating_add(1)),
-                };
-                // §12.3.3's outline is a table of contents, so the item covering this page is
-                // the section a reader is in. After the page number rather than before it,
-                // because it is context for a position rather than the position itself.
-                self.caption = match section {
-                    Some(section) if !section.is_empty() => format!("{page} — {section}"),
-                    _ => page,
-                };
-                self.retitle();
-            }
+            } => self.page_changed(index, label.as_deref(), of, section.as_deref()),
             Event::NeedsRender(request) => {
                 // Page one's display list arriving is the launch milestone between
                 // `document joined` and the first frame: interpretation, which the trace
@@ -212,6 +195,29 @@ impl App {
                 }
             }
             Event::Refused { notes, .. } => Self::say_refused(&notes),
+            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
+            // question this window has no dialogue for yet — the gestures follow the owner's
+            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
+            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            Event::Warned { notes, .. } => println!("note: {}", viewer_host::warned(&notes)),
+            Event::Asking {
+                document, notes, ..
+            } => {
+                println!("note: {}", viewer_host::unanswerable(&notes));
+                queue.push_back(Command::Answer {
+                    document,
+                    proceed: false,
+                });
+            }
+            // §7.11.4's list moved: the copy `gather` took when the document opened is stale,
+            // which is the one way "a property of an immutable document" stopped being true of
+            // this list. Read again, and only this list.
+            Event::AttachmentsChanged { .. } => {
+                if let Answer::Attachments(files) = self.viewer.query(Query::Attachments) {
+                    self.attachments = files;
+                }
+            }
             Event::Searched {
                 found,
                 remaining,
@@ -223,6 +229,32 @@ impl App {
 }
 
 impl App {
+    /// §12.4.2's caption for the page now showing, which is the window's title bar.
+    ///
+    /// "Page labels and page indices need not coincide". Where the document states a label it is
+    /// what a reader is meant to see — a page of front matter is *iv*, not page four — so the
+    /// index is shown beside it rather than instead of it, because a title saying only `iv`
+    /// cannot say `of 320`. §12.3.3's outline is a table of contents, so the item covering this
+    /// page is the section a reader is in: after the page number rather than before it, because
+    /// it is context for a position rather than the position itself.
+    fn page_changed(
+        &mut self,
+        index: usize,
+        label: Option<&str>,
+        of: usize,
+        section: Option<&str>,
+    ) {
+        let page = match label {
+            Some(label) => format!("{label} — page {} of {of}", index.saturating_add(1)),
+            None => format!("page {} of {of}", index.saturating_add(1)),
+        };
+        self.caption = match section {
+            Some(section) if !section.is_empty() => format!("{page} — {section}"),
+            _ => page,
+        };
+        self.retitle();
+    }
+
     /// §7.6.4.1: a processor tries the default user password and then prompts.
     ///
     /// **This used to write to `stderr`, read `stdin` and call `std::process::exit(1)` when there
@@ -313,15 +345,15 @@ impl App {
         // Annex O's `ef` left it: §7.11.4 puts an embedded file inside another document, so there
         // is no path to re-read for one (§O.2.1, ADR 0431).
         let bytes = if let Some(bytes) = self.embedded.clone() {
-            bytes
+            bytes.into()
         } else {
             // Trap 5, and the second `exit` this method used to carry: a file that has gone away
             // between the first open and the second is a fact about this machine, and a window that
             // vanished rather than saying so would be answering nothing.
-            match pdf_syntax::read_file(&self.path) {
+            match pdf_syntax::FileBytes::on_disk(&self.path) {
                 Ok(bytes) => bytes,
                 Err(error) => {
-                    println!("note: cannot re-read {}: {error}", self.title);
+                    println!("note: cannot re-open {}: {error}", self.title);
                     return;
                 }
             }

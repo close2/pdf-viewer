@@ -37,8 +37,9 @@ commissioned (`doc/RENDER_LIBRARY.md`), **what the window actually presents with
 processor's raster over the whole corpus at the page's own scale and at four times it. The Vello
 backend **bands a target the device cannot draw in one pass**, because its working buffers are fixed
 constants with no knob and a page of small text at a laptop's resolution can exceed them. JBIG2 and
-JPEG 2000 in a confined worker. Encryption at every revision and method §7.6 states, in both
-directions. §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
+JPEG 2000 in a confined worker. Encryption at every revision Table 21 lists and every method Table 25 names, in both
+directions — including revision 5, whose algorithm is the Adobe extension the table points at
+rather than a clause of the standard (ADR 0820). §12.3.2's destinations, §12.3.3's outline, §12.4.2's page labels, §12.5.6.5's links
 performing eleven of §12.6's actions, §14.9's accessibility entries, §12.4.4's whole presentation
 read **and played** — the Table 164 transition styles whose frame the table's own words determine,
 drawn frame by frame, and the rest reported by name for the quantity the clause does not state
@@ -85,12 +86,28 @@ one markup subtype whose text *is* the annotation and therefore the one whose ge
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
 can be retyped**, which is §7.5.6's second case rather than a second kind of writing, with Table
 167's `LockedContents` asked as a policy and its `Locked` deliberately not, on the table's own
-sentence (ADR 0304); and the result can be **saved** — the file it
+sentence (ADR 0304); a person can **put a file into the document and take one out** — §7.11.4's
+embedded file, in either of §7.11.4.1's two homes: the name tree, or §12.5.6.15's annotation on
+the page under the point it was dropped on, which draws its icon before anything is saved (ADR
+0814) — with §7.9.6's one namespace over both homes, an undo that forgets it and a list that
+answers the log rather than the file; and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
-writing `CLAUDE.md` permits.
+writing `CLAUDE.md` permits. **No window has a gesture for the attach yet**, by the owner's word
+that the flows are being reviewed as mockups first; the C ABI has `pdfv_attach` and `pdfv_detach`,
+because an ABI has no gestures.
 
-**Page one goes to the graphics device**, decided by the project owner and written into
-`CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
+**A document is opened on disk and read where its own offsets point** — `startxref` from the
+last two kilobytes, each cross-reference section from where the chain names it, each object from
+its entry, through a window the parser grows until nothing at its end was examined — so what a
+file costs to open is its trailer, its table and page one's objects rather than its length, and a
+six-gigabyte document opens in the time a small one does; a damaged file, which a scan reads whole,
+costs on disk what it cost in memory (ADR 0809) — and a scan the process cannot hold the file for
+is refused by name and said once on the document's report. **The confined viewer opens the same
+way**: the file crosses to its worker as an open descriptor beside `Command::Open`, read behind the
+filter through `pread64` and nothing else, so the host holds no byte of it and the six-gigabyte
+document opens through the confinement too (ADR 0812). A signature's `/ByteRange` is digested
+through 64 KiB windows of the file rather than held whole. **Page one goes to the graphics device**, decided
+by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
 makes what it costs a number to keep rather than a cost to hide. What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is
 [todo 42](todo/42-the-launch-path.md).
@@ -327,13 +344,19 @@ of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
-answer) and the viewer supplies the two a window answers today. The suite has its own gate, with
-RFC 0002 §12's perf floor and its inventories held to the document's own structure, and two
+answer) and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
+*refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
+caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
+`Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.
+No window can put the question yet, so each answers it `false` out loud rather than letting *ask*
+behave like *on* (ADR 0814). The suite has its own gate, with
+RFC 0002 §12's perf floor and its inventories held to the document's own structure, and three
 corpus walks beside it: the writer's, `split`'s — every corpus document's first page taken
-out, re-read, and drawn against the source page bit for bit — and `merge`'s, which puts every
+out, re-read, and drawn against the source page bit for bit — `merge`'s, which puts every
 corpus document's first page beside a fixed second document and checks each reconciliation against
-what the source stated as well as the two rasters. ADRs 0800,
-0801, 0802, 0803, 0804, 0816, 0817, 0818, 0821.
+what the source stated as well as the two rasters, and `pages`'s, which rotates and deletes within
+one document and holds every surviving page to its source page under the rotation stated. ADRs 0800,
+0801, 0802, 0803, 0804, 0816, 0817, 0818, 0821, 0830.
 
 **It can tell a person that a signed document changed after it was signed, and whether its
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the

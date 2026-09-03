@@ -93,12 +93,14 @@ layers where a merge is most expensive.**
 Three shapes were considered. The answer is the third, and the useful part of the answer is that
 **it has already happened**.
 
-- **We absorb hayro.** Licence-clean: they are `Apache-2.0 OR MIT`, we are MIT, and taking the MIT
-  arm is free. But absorbing 43 933 lines with 0 clause citations and 3 957 lint sites (§3) is not
+- **We absorb hayro.** Licence-clean: they are `Apache-2.0 OR MIT`, we are Apache-2.0, and taking
+  the Apache-2.0 arm is free. (This read "we are MIT, and taking the MIT arm is free" until the
+  eight-hundred-and-eighty-seventh session relicensed this tree; the conclusion is unchanged and
+  the arm taken is the other one.) But absorbing 43 933 lines with 0 clause citations and 3 957 lint sites (§3) is not
   a merge, it is a rewrite of somebody else's code — and it buys nothing we do not already have,
   since ours is the larger and more complete implementation everywhere the two overlap.
-- **hayro absorbs us.** Licence-costly: our MIT code would need dual-licensing, which is the
-  owner's decision alone. (Theirs is nearly a single-party decision — `git shortlog` since
+- **hayro absorbs us.** Licence-costly: our Apache-2.0 code would need dual-licensing to keep
+  their `Apache-2.0 OR MIT` offer intact, which is the owner's decision alone. (Theirs is nearly a single-party decision — `git shortlog` since
   2026-02-01 gives 353 of 373 commits to the maintainer, the other 20 split across eleven people.)
   It is also a handover of direction to a project whose stated first
   priority is speed over correctness. And it ends this project.

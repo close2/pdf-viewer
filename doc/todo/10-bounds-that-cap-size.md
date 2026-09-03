@@ -153,7 +153,8 @@ lookup walk, and can a document grow that population without limit?*
 |---|---|---|
 | `MAX_FORM_DEPTH` 64 (16 until ADR 0793, which found a tiling cell outside it) | recurse until the **stack** aborts the process — which the address-space ceiling cannot see, and which Rust turns into an abort rather than a report | **load-bearing, and a stack figure rather than a habit since ADR 0793** |
 | `max_stream_len` 1 GiB + the Flate/LZW guards | turned 1.85 MB into 3.7 GB (measured); 1095 MB since ADR 0306 lowered the bound to fit the ceiling and made reaching it a refusal, and **exactly the bound** since ADR 0354 stopped the buffer doubling past it | **load-bearing, and still the weakest link** |
-| `MAX_TILES` 4096 | state `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else sees it (ADR 0271) | **load-bearing**, but bounds a *count* where it means to bound *work* |
+| ~~`MAX_TILES` 4096~~ (retired by ADR 0810) | stated `/XStep 0.001` over 600 units — 3.6×10¹¹ empty cells, about four days; an empty cell executes no operator, so nothing else saw it (ADR 0271) — until an empty cell was not looped at all, which leaves every marking site a copy charged to `MAX_OPERATIONS` and to `MAX_TILE_COPIES`, 65 536 commands a tiling | **was load-bearing** for a loop that no longer runs; what bounds a tiling now is its cost in commands, and `MAX_OPERATIONS`'s row is below |
+| `MAX_TILE_COPIES` 65 536 commands a tiling, `MAX_REACH_SCAN` 4 194 304 edge tests a page (both ADR 0810) | the first is what `MAX_TILES` became once the unit was the cost rather than the count; the second is the price of asking which sites a fill reaches, which a row reaching none would otherwise scan for hours without spending a copy | **load-bearing**, and the second is the only one here whose exhaustion refuses nothing — it stops a *saving*, and the sites it stops saving are bounded by the first |
 | `pdf-sandbox`'s `MAX_PIXELS`/`MAX_SAMPLES`, `RLIMIT_AS`, seccomp, Landlock | unbounded decode in the historically worst attack surface | **load-bearing** |
 | `xmp` ×5, `der`/`cms`/`x509`/`pkcs1`, `function.rs`'s `MAX_STITCH_DEPTH` (a 720-byte file overflowed every stack until session 425), `icc`, `mesh`, `image::MAX_SAMPLES`, every cycle guard | each turns a tiny file into unbounded work | **load-bearing** |
 | §8.9.6.3's and §11.6.5.2's mask chains — `explicit_entry`, `soft_mask_entry` | until ADR 0399, **nothing at all**: an image whose `/Mask` names an image mask stating a `/Mask` of its own recursed `decode_parts` → `apply_explicit_mask` → `decode` until the stack aborted the process, and Table 143's `/Mask` row was unread while its `/SMask` row was guarded | **load-bearing, and it is not a constant** — Table 87 and Table 143 both say the entry "shall not be present", so the standard's depth is one and the guard is a refusal rather than a number |
@@ -217,11 +218,37 @@ They were not architecture and did not wait for a decision, which is why they we
   the first copy. `pdf_syntax::FileBytes` holds the vector where it was, and `pdf_syntax::read_file`
   asks `try_reserve_exact` for the whole length first and answers `NoRoom { length }` by name.
   **Deliberately no number of this program's own**: the owner's brief above is the reason, and the
-  bound is the process's limit, asked once. What that leaves is the *kind* of the quantity, which is
-  this file's §5 D question one layer down: a 5.6 GB document costs 5.6 GiB resident to show page
-  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks. A file-backed reader
-  that reads what §7.5.4's offsets name is the road that changes it, and it is a design rather than
-  a bound — recorded here so that the next document of that size finds the question asked.
+  bound is the process's limit, asked once. ~~What that leaves is the *kind* of the quantity, which
+  is this file's §5 D question one layer down: a 5.6 GB document costs 5.6 GiB resident to show page
+  one, because `pdf-syntax` reads slices of one buffer and nothing in it seeks.~~ **Answered in the
+  eight-hundred-and-eighty-first session** (ADR 0809): `pdf_syntax::FileBytes::on_disk` keeps the
+  file open and every reader in the crate asks for bytes from an offset, through a window the
+  parser grows until it examined nothing at the window's end — so the 5.6 GB document costs its
+  trailer, its table and page one's objects, and every host that opens a file itself opens it that
+  way. `tools/state.sh` does not print the figure; `examples/open_cost` does, both routes, with
+  `OPEN_COST_ROUTE=whole` for the old one. ~~**What is left, each written down rather than left**:
+  the confined viewer's host still reads the file whole because its worker has no file system and
+  receives the document over a pipe; a signature's `/ByteRange` digest reads its ranges into
+  memory; a scan still reads the file whole, by design, and `Document::scan_refused` says when the
+  process could not — which no host consumes yet.~~ **All three taken in the
+  eight-hundred-and-eighty-third session** (ADR 0812): the document crosses to the confined worker
+  as its open file's descriptor beside `Command::Open` (`SCM_RIGHTS` over a socket the host makes;
+  `recvmsg` and `pread64` on the interpreter's allow-list and nothing else — not `fstat`, which
+  takes a path, so the length crosses on the wire), and `pdf-viewer-confined` holds no byte of the
+  file; a signature's ranges are digested through 64 KiB windows, every algorithm in one pass, and
+  a window the disk would not give is `Integrity::RangeNotReadable` rather than a modified document;
+  and a scan the process could not hold the file for is said once on the document's report, with
+  the length. `examples/confined_peak` prints both routes (`CONFINED_PEAK_ROUTE=whole` for the old
+  one). **What that run found and left**: a table offset that lands in a run of white space —
+  §7.2.3 makes NUL one — has ADR 0809's window grow, doubling, to the rest of the file, because the
+  parse examined every byte of every window; on a 4.6 GB file whose misplaced object sat in 2.3 GB
+  of zeros the worker's `VmHWM` reached 2.27 GB before the parse failed and the scan was refused.
+  It is graceful (a window the process cannot hold is a recorded `ReadFailure` and read as the
+  end) and it is not cheap; a reader that noticed a window of nothing but white space and stopped
+  growing would be the fix, and it has no witness outside a fixture built to show it. And the one
+  arm of `Signature::authenticity` that still holds the ranges resident is Ed25519 over the
+  document's own bytes with no signed attributes, because RFC 8032 takes the message rather than
+  a digest of it and no corpus document is that shape.
 - **`image::RasterCache`'s probe is still linear in its entries**, and after ADR 0399 those entries
   are the *distinct* images a page draws rather than the draws — which is the property a resource
   image always had, and it is what took the two witnesses from 330.5 G and 71.9 G instructions to

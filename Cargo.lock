@@ -3185,7 +3185,6 @@ dependencies = [
 name = "pdf-transform"
 version = "0.1.0"
 dependencies = [
- "md-5",
  "pdf-model",
  "pdf-render",
  "pdf-syntax",
@@ -4707,6 +4706,7 @@ dependencies = [
  "png",
  "rayon",
  "render-cpu",
+ "rustix 1.1.4",
  "thiserror 2.0.19",
  "viewer-core",
 ]

@@ -84,7 +84,7 @@ fn the_sidebar_does_not_depend_on_the_pages_magnification() {
     let opened = viewer
         .handle(Command::Open {
             id: DocumentId(1),
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
