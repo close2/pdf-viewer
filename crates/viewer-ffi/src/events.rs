@@ -498,7 +498,7 @@ mod tests {
             viewer
                 .handle(Command::Open {
                     id: DocumentId(7),
-                    bytes,
+                    bytes: bytes.into(),
                     password: None,
                     fragment: None,
                 })

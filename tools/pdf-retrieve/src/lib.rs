@@ -223,7 +223,7 @@ impl Retrieval {
     /// [`Error::Unreadable`] where the file cannot be read, [`Error::Unopenable`] where it is
     /// not a PDF this tree opens.
     pub fn open(path: &Path) -> Result<Self, Error> {
-        let bytes = pdf_syntax::read_file(path)
+        let bytes = pdf_syntax::FileBytes::on_disk(path)
             .map_err(|error| Error::Unreadable(path.to_owned(), error))?;
         let document =
             Document::open(bytes).map_err(|error| Error::Unopenable(path.to_owned(), error))?;

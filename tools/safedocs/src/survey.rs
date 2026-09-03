@@ -132,7 +132,9 @@ struct Noted {
 
 /// The body of [`examine`], separated so that the timing wraps every path out of it.
 fn read_and_draw(path: &Path, noted: &mut Noted) -> Outcome {
-    let bytes = match pdf_syntax::read_file(path) {
+    // On disk rather than whole, as the viewer opens it (ADR 0809): what a document costs to
+    // survey is then what page one reads, and a six-gigabyte file is measured by its page.
+    let bytes = match pdf_syntax::FileBytes::on_disk(path) {
         Ok(bytes) => bytes,
         Err(error) => return Outcome::Unreadable(error.to_string()),
     };

@@ -2,7 +2,15 @@
 //!
 //! ```sh
 //! cargo run --release -p viewer-confined --example confined_peak -- file.pdf [more.pdf …]
+//! CONFINED_PEAK_ROUTE=whole cargo run --release -p viewer-confined --example confined_peak -- file.pdf
 //! ```
+//!
+//! **Each document is opened on disk and crosses as its descriptor** (ADR 0812), which is the
+//! route `pdf-viewer-confined` takes; `CONFINED_PEAK_ROUTE=whole` reads it whole in this process
+//! and sends the bytes, which is the route every confined host took before that ADR and the
+//! column to measure against. Beside the worker's peak this prints **this process's own**
+//! (`VmHWM`, the resident high-water mark), because on the whole route the host is where the
+//! document's bytes are held and a measurement of the worker alone would miss the larger half.
 //!
 //! `doc/todo/15`'s instrument, and it is `VmPeak` rather than resident size on purpose: `VmPeak`
 //! is the high-water mark of the *address space*, which is the counter `RLIMIT_AS` is compared
@@ -70,10 +78,14 @@ fn vm_kilobytes(pid: u32, field: &str) -> Option<u64> {
         .and_then(|value| value.parse().ok())
 }
 
-/// Prints the worker's address-space peak and what fraction of the ceiling it is.
+/// Prints the worker's address-space peak and what fraction of the ceiling it is, and this
+/// process's own resident high-water mark beside it.
 fn report(label: &str, pid: u32, ceiling: u64) {
     let peak = vm_kilobytes(pid, "VmPeak:");
     let size = vm_kilobytes(pid, "VmSize:");
+    let host = vm_kilobytes(std::process::id(), "VmHWM:").unwrap_or(0);
+    let worker_resident = vm_kilobytes(pid, "VmHWM:").unwrap_or(0);
+    println!("  {label}: host VmHWM {host} KB, worker VmHWM {worker_resident} KB");
     match (peak, size) {
         (Some(peak), Some(size)) => {
             let ceiling_kb = ceiling / 1024;
@@ -113,9 +125,25 @@ fn main() {
     let pid = worker_pid().expect("the worker is a child of this process");
     report("started", pid, ceiling);
 
+    let whole = std::env::var("CONFINED_PEAK_ROUTE").is_ok_and(|route| route == "whole");
     for (index, path) in paths.iter().enumerate() {
-        let bytes = std::fs::read(path).expect("the document is readable");
-        println!("{path}: {} bytes of file", bytes.len());
+        let bytes = if whole {
+            pdf_syntax::FileBytes::from(
+                pdf_syntax::read_file(std::path::Path::new(path))
+                    .expect("the document is readable"),
+            )
+        } else {
+            pdf_syntax::FileBytes::on_disk(std::path::Path::new(path)).expect("the document opens")
+        };
+        println!(
+            "{path}: {} bytes of file, {}",
+            bytes.len(),
+            if whole {
+                "read whole here and sent as bytes"
+            } else {
+                "open on disk and sent as a descriptor"
+            }
+        );
         let id = DocumentId(u64::try_from(index).unwrap_or(0).saturating_add(1));
         match confined.handle(&Command::Open {
             id,

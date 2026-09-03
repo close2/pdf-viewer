@@ -236,9 +236,27 @@ fn tagged_structure(document: &Document, notes: &mut Vec<String>) {
 /// before it. The cost of that choice is that no gate sees this sentence, and the benefit is that
 /// no page leaves the oracle's judged set for a fact that is not about a page.
 pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
+    let mut notes = Vec::new();
+    // **A scan the process could not hold the file for**, said once, when the reader first
+    // records it (ADR 0812). The same channel as the object-stream losses below and for the same
+    // reason: a scan runs when an object the table names is not where it says, which is at
+    // whichever page first asks for one — and a document this reader opened on disk at the cost
+    // of its trailer is a document it may not be able to hold whole when that happens. What the
+    // reader did instead is read the file as far as its table was right, and no further; the
+    // object it could not find is nothing, and the page draws without it. The sentence carries
+    // the length because the length is the reason, and it is the pattern the locked and the
+    // pageless document already use: a fact about the file, worded once, on the document's
+    // report rather than a page's.
+    if !open.scan_refusal_said
+        && let Some(refused) = open.document.scan_refused()
+    {
+        open.scan_refusal_said = true;
+        notes.push(scan_refused(refused));
+    }
+
     let lost = open.document.objects_lost_to_damage();
     if lost.count() <= open.losses_said {
-        return Vec::new();
+        return notes;
     }
     open.losses_said = lost.count();
     let named = if lost.objects.is_empty() {
@@ -246,12 +264,30 @@ pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
     } else {
         format!(", among them {:?}", lost.objects)
     };
-    vec![format!(
+    notes.push(format!(
         "{} object(s) this file stores inside an object stream (§7.5.7) could not be read, \
          because the stream decoded only as far as its damage and the rest of each object is not \
          in the file{named} — what refers to them draws without them",
         lost.count(),
-    )]
+    ));
+    notes
+}
+
+/// The sentence for a scan the process could not hold the file for.
+///
+/// §C.4 (informative) licenses the scan — "[w]hen a PDF processor reads a PDF file with a
+/// damaged or missing cross-reference table" — and a scan reads every byte, which the reader
+/// asks for whole and is refused by name (`pdf_syntax::NoRoom`, ADR 0809). Worded here so that
+/// the words say what the reader did rather than what it could not do: read as far as the table
+/// was right.
+fn scan_refused(refused: pdf_syntax::NoRoom) -> String {
+    format!(
+        "this file's cross-reference table names an object that is not where it says, and the \
+         scan that would find it needs the whole file in memory — {} bytes, which this process \
+         cannot hold — so the file was read as far as its table was right and what the table \
+         misplaces draws as nothing (§7.5.4, §C.4)",
+        refused.length
+    )
 }
 
 /// Why a document does not permit an operation, in sentences a host can show.
@@ -628,6 +664,13 @@ fn verdicts(
     );
     if !settled_by_the_key {
         notes.push(changed(integrity));
+        // The reader's own sentence about *why* the range could not be read, where it has one:
+        // `RangeNotReadable` is the refusal by name and this is the name (ADR 0812).
+        if integrity == Integrity::RangeNotReadable
+            && let Some(failure) = document.bytes().read_failure()
+        {
+            notes.push(format!("the file on disk refused the read: {failure}"));
+        }
     }
     if let Some(said) = verifies(&authenticity, integrity) {
         notes.push(said);
@@ -661,6 +704,12 @@ fn changed(integrity: pdf_model::signature::Integrity) -> String {
         Integrity::RangeNotInThisFile => {
             "that signature's /ByteRange names bytes outside this file, so there was nothing to \
              hash"
+                .to_owned()
+        }
+        Integrity::RangeNotReadable => {
+            "that signature's /ByteRange names bytes the file on disk would not give — it shrank \
+             under this reader or a read of it failed — so whether the document changed was not \
+             checked rather than reported wrongly"
                 .to_owned()
         }
         Integrity::NoSignatureValue => {
@@ -787,6 +836,7 @@ fn verifies(
         ),
         Authenticity::NoSignatureValue
         | Authenticity::RangeNotInThisFile
+        | Authenticity::RangeNotReadable
         | Authenticity::Unreadable(_) => return None,
     })
 }
@@ -796,6 +846,30 @@ mod tests {
     use super::about;
 
     use pdf_syntax::Document;
+
+    /// The sentence for a scan the process could not hold the file for names the length, says
+    /// what was read instead, and claims nothing about what the misplaced object held.
+    ///
+    /// Wording only, and honestly so: provoking `pdf_syntax::Document::scan_refused` needs a
+    /// file the process cannot hold whole, which a unit test cannot make. The wiring — the
+    /// reader's refusal reaching a host's report, once, on the page that first needed the scan
+    /// — was exercised by hand on a 4.6 GB file through the confined viewer, whose worker runs
+    /// under a 4 GiB ceiling; ADR 0812 records the run.
+    #[test]
+    fn a_scan_the_process_could_not_hold_the_file_for_is_said_with_its_length() {
+        let said = super::scan_refused(pdf_syntax::NoRoom {
+            length: 6_001_925_614,
+        });
+        assert!(
+            said.contains("6001925614 bytes, which this process cannot hold"),
+            "{said}"
+        );
+        assert!(
+            said.contains("read as far as its table was right"),
+            "{said}"
+        );
+        assert!(said.contains("§C.4"), "{said}");
+    }
 
     /// Builds a document from object bodies numbered from 1, as `pdf_model::signature`'s tests do.
     fn document(objects: &[&str]) -> Document {

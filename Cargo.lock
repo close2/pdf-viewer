@@ -4707,6 +4707,7 @@ dependencies = [
  "png",
  "rayon",
  "render-cpu",
+ "rustix 1.1.4",
  "thiserror 2.0.19",
  "viewer-core",
 ]

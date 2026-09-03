@@ -26,6 +26,13 @@ viewer-core.workspace = true
 # a confined process drew rather than at a count of its dark pixels.
 png.workspace = true
 
+# The document crosses to the worker as an open file's descriptor, sent with `SCM_RIGHTS`
+# beside `Command::Open`'s frame (ADR 0812). The standard library's ancillary-data API is
+# nightly-only, and `rustix`'s `sendmsg`/`recvmsg` are safe functions over the same call —
+# which is what a crate that forbids `unsafe` needs. Unix-only because the mechanism is.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["net"] }
+
 [lints]
 workspace = true
 

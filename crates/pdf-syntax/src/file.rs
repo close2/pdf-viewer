@@ -1,96 +1,431 @@
-//! The file, as this reader holds it — and the one way it is read from disk.
+//! The file, as this reader holds it — whole in memory, or open on disk and read where the
+//! file's own offsets point.
 //!
 //! A PDF is addressed by byte offset from its first byte: ISO 32000-2 §7.5.4 makes each
 //! cross-reference entry "a 10-digit byte offset in the decoded stream … giving the number of
 //! bytes from the beginning of the PDF file to the beginning of the object", §7.5.8.3's Table 18
 //! does the same for a cross-reference stream's type 1 entries, and §7.5.5's `startxref` is one
-//! more offset. So a reader holds the whole file, and how it holds it decides what a large file
-//! costs. §C.4 says what "large" can be (the `10 10` is the conversion's rendering of 10¹⁰):
+//! more offset. So a reader that has the offsets has no need of the bytes between them, and how
+//! it holds the file decides what a large file costs. §C.4 says what "large" can be (the `10 10`
+//! is the conversion's rendering of 10¹⁰):
 //!
 //! > A PDF cross-reference table (see 7.5.4, "Cross-reference table") allocates ten digits to
 //! > represent byte offsets, which limits the size of a PDF file to 10 10 bytes (approximately
 //! > 10 gigabytes). However crossreference streams (see 7.5.8, "Cross-reference streams") allow
 //! > PDF files to be even larger.
 //!
-//! Two things follow, and both are this module's (ADR 0795):
+//! Three things follow, and all are this module's:
 //!
-//! - **The bytes a host read are the bytes the document holds.** [`Document`] used to keep an
-//!   `Arc<[u8]>`, and `Arc<[u8]>: From<Vec<u8>>` *copies* — an `Arc` needs a header the `Vec`
-//!   has no room for — so every open cost the file's length twice, and the second copy was the
-//!   one allocation in that path that could not fail gracefully. A 6 001 925 614-byte bug-report
-//!   attachment (`batch5/poppler`'s `poppler-44085-1.xz-0.pdf`, `doc/todo/03` section 41) was read
-//!   whole and then aborted the process on the copy. [`FileBytes`] holds a `Vec<u8>` as it was
-//!   given, behind an `Arc` so that a document can still be shared across threads, and copies
-//!   only what arrived as a borrowed slice.
-//! - **The room is asked for before the first byte is read.** [`read_file`] reserves the file's
-//!   whole length with `try_reserve_exact` and answers [`NoRoom`] — the length, by name — where
-//!   the process cannot hold it. There is deliberately **no number here**: `doc/todo/10`'s brief
-//!   is that a bound on an honest document is not this program's to set, and a 5.6 GB PDF is
-//!   an honest document on a machine that holds it. What refuses is the process's own limit —
-//!   `RLIMIT_DATA`, a cgroup, the confined worker's ceiling — asked once, before any allocation,
-//!   and the answer is typed rather than an abort.
+//! - **The bytes a host read are the bytes the document holds** (ADR 0795). [`Document`] used to
+//!   keep an `Arc<[u8]>`, and `Arc<[u8]>: From<Vec<u8>>` *copies* — an `Arc` needs a header the
+//!   `Vec` has no room for — so every open cost the file's length twice. [`FileBytes`] holds a
+//!   `Vec<u8>` as it was given, behind an `Arc` so that a document can still be shared across
+//!   threads, and copies only what arrived as a borrowed slice.
+//! - **The room is asked for before the first byte is read** (ADR 0795). [`read_file`] reserves
+//!   the file's whole length with `try_reserve_exact` and answers [`NoRoom`] — the length, by
+//!   name — where the process cannot hold it. There is deliberately **no number here**:
+//!   `doc/todo/10`'s brief is that a bound on an honest document is not this program's to set.
+//!   What refuses is the process's own limit, asked once, and the answer is typed rather than an
+//!   abort.
+//! - **A file on disk is read where its offsets point, and nowhere else** (ADR 0809).
+//!   [`FileBytes::on_disk`] opens the file and holds the handle; every reader in this crate then
+//!   asks for the bytes *from an offset* through [`FileBytes::parse_from`], which hands a parser
+//!   a window that grows until the parse depended on nothing at its end. `CLAUDE.md`'s startup
+//!   rule — "[o]pening a document reads the trailer and the objects page one needs — not the
+//!   whole file" — was true of the *parsing* and false of the *bytes* until this: a 6 GB document
+//!   (`batch5/poppler`'s `poppler-44085-1.xz-0.pdf`, 2000 pages, `doc/todo/03` section 41) cost
+//!   5.6 GiB of resident memory and half a second to over a second of reading before its trailer
+//!   was looked at, and costs the trailer, the table and page one's objects now.
+//!
+//! **The interpretation is a function of the bytes alone, whichever way they are held.** That is
+//! the oracle's premise (`CLAUDE.md` on the immutable `Document`), and it is kept by construction
+//! rather than by care: a parser given a window is given the *same slice* it would see from the
+//! offset in a whole file, and a window is accepted only where the parse examined nothing at its
+//! end — the window's last byte is either the file's last byte or a byte the outcome did not
+//! depend on. Where a reader needs the file whole — a scan for object headers, a `startxref`
+//! that is not in the last two kilobytes — it asks [`FileBytes::whole`], which reads it once and
+//! keeps it, or refuses by name where the process cannot hold it. So a damaged file costs on disk
+//! what it costs in memory, and an intact one costs what it names.
 //!
 //! [`Document`]: crate::Document
 
+use std::borrow::Cow;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read as _};
-use std::ops::Deref;
+use std::ops::Range;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
-/// The bytes a document was opened from, held once and shared by reference.
+/// The bytes a document was opened from: held once in memory, or open on disk.
 ///
 /// Built from whatever a caller has — a `Vec<u8>` a host read, an `Arc<[u8]>` two readers
-/// share, or a borrowed slice in a test — and a `Vec` is *taken* rather than copied: see the
-/// module comment for why that is the whole point.
+/// share, a borrowed slice in a test, or a path through [`FileBytes::on_disk`] — and a `Vec` is
+/// *taken* rather than copied: see the module comment for why that is the whole point.
 ///
-/// Clones are cheap and name the same allocation, which [`FileBytes::same`] tests; a cache
-/// that keys on a document holds a clone so that the address it compares cannot be reused
-/// underneath it.
+/// Clones are cheap and name the same bytes, which [`FileBytes::same`] tests; a cache that keys
+/// on a document holds a clone so that the identity it compares cannot be reused underneath it.
+///
+/// A file on disk is read through [`Self::read`], [`Self::parse_from`] and [`Self::whole`];
+/// there is no `Deref` to a slice, because a slice of the whole file is exactly the thing a
+/// reader of a large file must not need.
 #[derive(Clone)]
 pub struct FileBytes(Held);
 
-/// How the bytes are held: as the `Vec` a host handed over, or as a slice already shared.
+/// How the bytes are held.
 #[derive(Clone)]
 enum Held {
     /// A `Vec<u8>` taken as it was given — no copy, one small allocation for the `Arc`.
     Owned(Arc<Vec<u8>>),
     /// A slice that was already reference-counted when it arrived.
     Shared(Arc<[u8]>),
+    /// A file open on disk, read where the document's offsets point.
+    OnDisk(Arc<OnDisk>),
 }
+
+/// A file open on disk, and what has been read of it.
+struct OnDisk {
+    file: File,
+    /// The file's length when it was opened. A file that grows afterwards is read to this
+    /// length; one that shrinks reads as though it ended where it now does. Both are outside
+    /// the contract — a document is a function of its bytes, and bytes that change are another
+    /// document — and neither is a panic or an abort.
+    length: usize,
+    /// The whole file, once something needed it whole. See [`FileBytes::whole`].
+    whole: OnceLock<Vec<u8>>,
+    /// The first read that did not deliver what was asked for, kept so a host can ask.
+    failure: Mutex<Option<ReadFailure>>,
+    /// Serialises reads on a platform whose positional read moves the file's cursor.
+    #[cfg(not(unix))]
+    cursor: Mutex<()>,
+}
+
+/// A read of the file on disk that did not deliver what was asked for.
+///
+/// Kept by the file and answered by [`FileBytes::read_failure`]. A short read is treated as
+/// the end of the file — the bytes that arrived are the file's own and the parse goes on over
+/// them — so this is the record of *why* the file ended early, for a host that asks.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("reading {wanted} bytes at offset {at} of the file on disk failed: {message}")]
+pub struct ReadFailure {
+    /// The offset the read began at.
+    pub at: usize,
+    /// How many bytes were asked for.
+    pub wanted: usize,
+    /// The operating system's own sentence, or the allocation refusal's.
+    pub message: String,
+}
+
+/// How many bytes a window starts with where the caller gave no better estimate.
+///
+/// Four kibibytes is one page of memory and holds every object in this tree's corpus that is
+/// not a stream; a window grows by doubling, and by the parser's own statement of what it
+/// needed where it made one, so the constant decides the first read and not the last.
+pub(crate) const FIRST_WINDOW: usize = 4096;
 
 impl FileBytes {
-    /// Whether the two handles name the same bytes in memory.
+    /// Opens a file on disk, to be read where the document's offsets point.
     ///
-    /// An address is a name only while something holds the allocation; a caller comparing
-    /// one keeps a clone of what it compares against, as `pdf_model`'s font cache does.
+    /// Nothing is read here but the file's length. A directory is refused rather than read as
+    /// an empty file, so that a host's own sentence about a path it cannot open stays true.
+    ///
+    /// # Errors
+    ///
+    /// The file system's, for a path that cannot be opened; and [`NoRoom`] under
+    /// [`io::ErrorKind::OutOfMemory`] for a length this reader cannot address at all.
+    pub fn on_disk(path: &Path) -> io::Result<Self> {
+        let file = File::open(path)?;
+        let metadata = file.metadata()?;
+        if metadata.is_dir() {
+            return Err(io::Error::from(io::ErrorKind::IsADirectory));
+        }
+        Self::from_handle(file, metadata.len())
+    }
+
+    /// Holds a file somebody else opened, at the length they measured it.
+    ///
+    /// The route for a process that holds a descriptor and cannot ask the file system about
+    /// it: the confined viewer's worker receives the document as a descriptor beside
+    /// `Command::Open` (ADR 0812) under a filter that admits `pread64` on it and nothing
+    /// else — not `fstat`, which takes a path and would be a question about the file system —
+    /// so the length crosses with the descriptor, as the host read it when it opened the
+    /// file. Nothing is read here. A length the file does not have reads as [`Self::on_disk`]
+    /// says a file that shrank or grew does: to the shorter of the two.
+    ///
+    /// # Errors
+    ///
+    /// [`NoRoom`] under [`io::ErrorKind::OutOfMemory`] for a length this reader cannot
+    /// address at all.
+    pub fn from_handle(file: File, length: u64) -> io::Result<Self> {
+        let length = usize::try_from(length)
+            .map_err(|_| io::Error::new(io::ErrorKind::OutOfMemory, NoRoom { length }))?;
+        Ok(Self(Held::OnDisk(Arc::new(OnDisk {
+            file,
+            length,
+            whole: OnceLock::new(),
+            failure: Mutex::new(None),
+            #[cfg(not(unix))]
+            cursor: Mutex::new(()),
+        }))))
+    }
+
+    /// The open file's descriptor, where the file is on disk.
+    ///
+    /// What a host hands across a process boundary in place of the bytes: the confined
+    /// viewer sends it beside `Command::Open` with `SCM_RIGHTS`, and the worker holds the same
+    /// open file through [`Self::from_handle`] (ADR 0812). Borrowed, because the file stays
+    /// this handle's; the kernel duplicates it for the receiver.
+    #[cfg(unix)]
+    #[must_use]
+    pub fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        use std::os::fd::AsFd as _;
+        match &self.0 {
+            Held::OnDisk(disk) => Some(disk.file.as_fd()),
+            Held::Owned(_) | Held::Shared(_) => None,
+        }
+    }
+
+    /// The file's length in bytes.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match &self.0 {
+            Held::Owned(bytes) => bytes.len(),
+            Held::Shared(bytes) => bytes.len(),
+            Held::OnDisk(disk) => disk.length,
+        }
+    }
+
+    /// Whether there are no bytes at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Whether the file is open on disk rather than held in memory.
+    #[must_use]
+    pub fn is_on_disk(&self) -> bool {
+        matches!(self.0, Held::OnDisk(_))
+    }
+
+    /// Whether the two handles name the same bytes.
+    ///
+    /// In memory that is the same allocation; on disk it is the same open file. An address is a
+    /// name only while something holds it; a caller comparing one keeps a clone of what it
+    /// compares against, as `pdf_model`'s font cache does.
     #[must_use]
     pub fn same(&self, other: &Self) -> bool {
-        std::ptr::eq(self.as_ptr(), other.as_ptr()) && self.len() == other.len()
+        match (&self.0, &other.0) {
+            (Held::Owned(this), Held::Owned(that)) => Arc::ptr_eq(this, that),
+            (Held::Shared(this), Held::Shared(that)) => Arc::ptr_eq(this, that),
+            (Held::OnDisk(this), Held::OnDisk(that)) => Arc::ptr_eq(this, that),
+            _ => false,
+        }
     }
-}
 
-impl Deref for FileBytes {
-    type Target = [u8];
-
-    fn deref(&self) -> &[u8] {
+    /// The bytes in `range`, clipped to the file: borrowed where the file is in memory and
+    /// read where it is on disk.
+    ///
+    /// A range past the end comes back short, as a slice's `get` would — the caller checks the
+    /// length where the length is the question. On disk a read that fails comes back short too,
+    /// and [`Self::read_failure`] says why.
+    #[must_use]
+    pub fn read(&self, range: Range<usize>) -> Cow<'_, [u8]> {
         match &self.0 {
-            Held::Owned(vec) => vec,
-            Held::Shared(slice) => slice,
+            Held::Owned(bytes) => Cow::Borrowed(clipped(bytes, range)),
+            Held::Shared(bytes) => Cow::Borrowed(clipped(bytes, range)),
+            Held::OnDisk(disk) => {
+                Cow::Owned(disk.window(range.start, range.end.saturating_sub(range.start)))
+            }
+        }
+    }
+
+    /// The whole file, read once and kept where it is on disk.
+    ///
+    /// This is what a *scan* asks for — a rebuild of the cross-reference table, a search for a
+    /// `startxref` the last two kilobytes do not carry, a look for every damaged dictionary —
+    /// because a scan reads every byte and a window at a time would read them all twice over.
+    /// An intact document never asks; a damaged one costs on disk what it costs in memory.
+    ///
+    /// # Errors
+    ///
+    /// [`NoRoom`] where the process cannot hold the file, asked with `try_reserve_exact`
+    /// before a byte is read, exactly as [`read_file`] asks.
+    pub fn whole(&self) -> Result<&[u8], NoRoom> {
+        match &self.0 {
+            Held::Owned(bytes) => Ok(bytes),
+            Held::Shared(bytes) => Ok(bytes),
+            Held::OnDisk(disk) => disk.whole(),
+        }
+    }
+
+    /// The first read of the file on disk that did not deliver what was asked for, if any.
+    ///
+    /// Always `None` for a file held in memory. A host that wants to know whether a document
+    /// read short because of the disk rather than because of the file asks here after the
+    /// fact; nothing in this crate stops on a failed read, because the bytes that did arrive
+    /// are the file's own and are read as the prefix they are.
+    #[must_use]
+    pub fn read_failure(&self) -> Option<ReadFailure> {
+        match &self.0 {
+            Held::OnDisk(disk) => disk.failure.lock().ok().and_then(|held| held.clone()),
+            Held::Owned(_) | Held::Shared(_) => None,
+        }
+    }
+
+    /// Runs `read` over the bytes from `offset`, on a slice that is the same whether the file is
+    /// in memory or on disk.
+    ///
+    /// `read` is given the bytes and whether they stop short of the file's end, and answers
+    /// its value beside **how many bytes of the slice the value depended on** — the parser's own
+    /// count, [`crate::Parser::examined`]. In memory the slice is the rest of the file and `read`
+    /// runs once. On disk it is a window of `first` bytes, which grows — doubling, and to at
+    /// least what `read` said it needed — until either the window reaches the file's end or the
+    /// value depended on nothing at the window's end; only then is the value taken. So a value
+    /// read through a window is the value the whole file would have given, because every byte it
+    /// depended on was the same byte.
+    ///
+    /// An offset at or past the end is an empty slice that is not short of the end, which is what
+    /// a slice's `get(offset..)` would give a whole file's reader: §7.5.4's offset pointing past
+    /// the file is a common corruption and the caller recovers by scanning.
+    pub(crate) fn parse_from<T>(
+        &self,
+        offset: usize,
+        first: usize,
+        mut read: impl FnMut(&[u8], bool) -> (T, usize),
+    ) -> T {
+        let disk = match &self.0 {
+            Held::Owned(bytes) => return read(bytes.get(offset..).unwrap_or_default(), false).0,
+            Held::Shared(bytes) => return read(bytes.get(offset..).unwrap_or_default(), false).0,
+            Held::OnDisk(disk) => disk,
+        };
+        let Some(remaining) = disk.length.checked_sub(offset).filter(|rest| *rest > 0) else {
+            return read(&[], false).0;
+        };
+        let mut want = first.clamp(1, remaining);
+        loop {
+            let window = disk.window(offset, want);
+            // A window that stops short of what was asked for is the file's end as far as this
+            // reader can see it — a read that failed is recorded, and the bytes that arrived are
+            // read as the prefix they are.
+            let at_end = window.len() < want || want == remaining;
+            let (value, examined) = read(&window, !at_end);
+            if at_end || examined < window.len() {
+                return value;
+            }
+            want = want
+                .saturating_mul(2)
+                .max(examined.saturating_add(1))
+                .min(remaining);
         }
     }
 }
 
-impl AsRef<[u8]> for FileBytes {
-    fn as_ref(&self) -> &[u8] {
-        self
+/// `bytes[range]`, with both ends clipped to the slice rather than panicking.
+fn clipped(bytes: &[u8], range: Range<usize>) -> &[u8] {
+    let start = range.start.min(bytes.len());
+    let end = range.end.clamp(start, bytes.len());
+    bytes.get(start..end).unwrap_or_default()
+}
+
+impl OnDisk {
+    /// Up to `want` bytes from `offset`, fewer at the file's end or where a read failed.
+    fn window(&self, offset: usize, want: usize) -> Vec<u8> {
+        let want = want.min(self.length.saturating_sub(offset));
+        let mut bytes = Vec::new();
+        if bytes.try_reserve_exact(want).is_err() {
+            self.record(
+                offset,
+                want,
+                "this process cannot hold the window".to_owned(),
+            );
+            return bytes;
+        }
+        let mut reader = Positional {
+            disk: self,
+            at: offset,
+        };
+        if let Err(error) = (&mut reader).take(want as u64).read_to_end(&mut bytes) {
+            self.record(offset, want, error.to_string());
+        }
+        bytes
+    }
+
+    /// The whole file, read once. See [`FileBytes::whole`].
+    fn whole(&self) -> Result<&[u8], NoRoom> {
+        if let Some(bytes) = self.whole.get() {
+            return Ok(bytes);
+        }
+        let mut bytes = hold(self.length as u64)?;
+        let mut reader = Positional { disk: self, at: 0 };
+        if let Err(error) = (&mut reader)
+            .take(self.length as u64)
+            .read_to_end(&mut bytes)
+        {
+            self.record(0, self.length, error.to_string());
+        }
+        // Two threads asking at once each read the file; the first to finish is kept and the
+        // other's copy is dropped, which costs one read and never a wrong answer.
+        let _ = self.whole.set(bytes);
+        self.whole.get().map(Vec::as_slice).ok_or(NoRoom {
+            length: self.length as u64,
+        })
+    }
+
+    /// Keeps the first failure, which is the one that explains every short read after it.
+    fn record(&self, at: usize, wanted: usize, message: String) {
+        if let Ok(mut held) = self.failure.lock()
+            && held.is_none()
+        {
+            *held = Some(ReadFailure {
+                at,
+                wanted,
+                message,
+            });
+        }
+    }
+
+    /// One positional read, which does not move any cursor another thread is using.
+    #[cfg(unix)]
+    fn read_at(&self, at: u64, buffer: &mut [u8]) -> io::Result<usize> {
+        use std::os::unix::fs::FileExt as _;
+        self.file.read_at(buffer, at)
+    }
+
+    /// One positional read, serialised because the platform's moves the file's cursor.
+    #[cfg(not(unix))]
+    fn read_at(&self, at: u64, buffer: &mut [u8]) -> io::Result<usize> {
+        use std::io::{Seek as _, SeekFrom};
+        let _held = self.cursor.lock().map_err(|_| {
+            io::Error::new(io::ErrorKind::Other, "the file's cursor lock was poisoned")
+        })?;
+        let mut file = &self.file;
+        file.seek(SeekFrom::Start(at))?;
+        file.read(buffer)
+    }
+}
+
+/// A cursor over the file on disk, so that `read_to_end` can fill a vector without this crate
+/// touching uninitialised memory.
+struct Positional<'a> {
+    disk: &'a OnDisk,
+    at: usize,
+}
+
+impl io::Read for Positional<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let read = self.disk.read_at(self.at as u64, buffer)?;
+        self.at = self.at.saturating_add(read);
+        Ok(read)
     }
 }
 
 impl fmt::Debug for FileBytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "FileBytes({} bytes)", self.len())
+        let held = match &self.0 {
+            Held::Owned(_) | Held::Shared(_) => "in memory",
+            Held::OnDisk(_) => "on disk",
+        };
+        write!(f, "FileBytes({} bytes, {held})", self.len())
     }
 }
 
@@ -148,7 +483,8 @@ impl<const N: usize> From<&[u8; N]> for FileBytes {
 /// A file this process cannot hold, refused before a byte of it was read.
 ///
 /// Carried inside the [`io::Error`] that [`read_file`] returns, under
-/// [`io::ErrorKind::OutOfMemory`], so a host can read the length back out of it.
+/// [`io::ErrorKind::OutOfMemory`], so a host can read the length back out of it; and answered
+/// by [`FileBytes::whole`] where a file open on disk is needed whole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the file is {length} bytes and this process cannot hold it")]
 pub struct NoRoom {
@@ -163,6 +499,11 @@ pub struct NoRoom {
 /// as [`io::ErrorKind::OutOfMemory`] carrying a [`NoRoom`] that names the length. Everything
 /// else is [`std::fs::read`]'s behaviour, including a file that grew between the two calls,
 /// which `read_to_end` follows.
+///
+/// This is the route for a caller that has to *hold the bytes* — an instrument's whole-file
+/// column, a test comparing the two routes. Every window opens the document itself with
+/// [`FileBytes::on_disk`] and reads none of the file it does not need, the confined viewer
+/// included since ADR 0812: its worker receives the open file's descriptor rather than the bytes.
 ///
 /// # Errors
 ///
@@ -193,14 +534,25 @@ fn hold(length: u64) -> Result<Vec<u8>, NoRoom> {
 mod tests {
     use super::*;
 
+    /// A directory of this test's own, named after the process so parallel rounds cannot share it.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("pdf-syntax-file-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        directory
+    }
+
     /// The reason this type exists: a `Vec` handed over is held where it was, not copied.
     #[test]
     fn a_vector_is_held_where_it_was() {
         let bytes = b"%PDF-1.7\n".to_vec();
         let address = bytes.as_ptr();
         let held = FileBytes::from(bytes);
-        assert!(std::ptr::eq(held.as_ptr(), address));
-        assert_eq!(&*held, b"%PDF-1.7\n");
+        assert!(std::ptr::eq(
+            held.whole().expect("in memory").as_ptr(),
+            address
+        ));
+        assert_eq!(held.whole().expect("in memory"), b"%PDF-1.7\n");
     }
 
     /// A shared slice is shared rather than copied, and a borrowed one has to be copied.
@@ -208,12 +560,18 @@ mod tests {
     fn a_shared_slice_is_shared_and_a_borrowed_one_is_copied() {
         let shared: Arc<[u8]> = Arc::from(b"abc".as_slice());
         let held = FileBytes::from(Arc::clone(&shared));
-        assert!(std::ptr::eq(held.as_ptr(), shared.as_ptr()));
+        assert!(std::ptr::eq(
+            held.whole().expect("in memory").as_ptr(),
+            shared.as_ptr()
+        ));
 
         let borrowed = b"abc".as_slice();
         let held = FileBytes::from(borrowed);
-        assert!(!std::ptr::eq(held.as_ptr(), borrowed.as_ptr()));
-        assert_eq!(&*held, borrowed);
+        assert!(!std::ptr::eq(
+            held.whole().expect("in memory").as_ptr(),
+            borrowed.as_ptr()
+        ));
+        assert_eq!(held.whole().expect("in memory"), borrowed);
     }
 
     /// Clones name the same allocation and distinct constructions do not.
@@ -224,7 +582,10 @@ mod tests {
         let other = FileBytes::from(b"abc".to_vec());
         assert!(one.same(&clone));
         assert!(!one.same(&other));
-        assert_eq!(&*one, &*other);
+        assert_eq!(
+            one.whole().expect("in memory"),
+            other.whole().expect("in memory")
+        );
     }
 
     /// A length no `Vec` can hold is refused by name, with the length in the refusal.
@@ -287,22 +648,151 @@ mod tests {
         let address = bytes.as_ptr();
         let length = bytes.len();
         let document = crate::Document::open(bytes).expect("the fixture opens");
-        assert!(std::ptr::eq(document.bytes().as_ptr(), address));
-        assert_eq!(document.bytes().len(), length);
+        let held = document.bytes().whole().expect("in memory");
+        assert!(std::ptr::eq(held.as_ptr(), address));
+        assert_eq!(held.len(), length);
         assert!(document.catalog().is_ok());
     }
 
     /// An ordinary file reads as `std::fs::read` reads it.
     #[test]
     fn an_ordinary_file_is_read_whole() {
-        let directory =
-            std::env::temp_dir().join(format!("pdf-syntax-file-{}", std::process::id()));
-        std::fs::create_dir_all(&directory).expect("a temporary directory");
+        let directory = scratch("whole");
         let path = directory.join("small.pdf");
         std::fs::write(&path, b"%PDF-1.7\n%%EOF\n").expect("a small file");
         let bytes = read_file(&path).expect("a small file is readable");
         assert_eq!(bytes, b"%PDF-1.7\n%%EOF\n");
         assert!(read_file(&directory.join("absent.pdf")).is_err());
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
+    }
+
+    /// A file on disk reads nothing at open, answers its length, and reads ranges clipped to
+    /// the file exactly as a slice would.
+    #[test]
+    fn a_file_on_disk_is_read_by_range_and_clipped_at_its_end() {
+        let directory = scratch("ranges");
+        let path = directory.join("ranged.pdf");
+        std::fs::write(&path, b"0123456789").expect("a small file");
+        let disk = FileBytes::on_disk(&path).expect("opens");
+        let memory = FileBytes::from(b"0123456789".to_vec());
+        assert!(disk.is_on_disk() && !memory.is_on_disk());
+        assert_eq!(disk.len(), 10);
+        let reversed = Range { start: 5, end: 2 };
+        for range in [0..0, 0..3, 3..7, 7..10, 8..20, 10..12, 12..14, reversed] {
+            assert_eq!(
+                disk.read(range.clone()),
+                memory.read(range.clone()),
+                "{range:?}"
+            );
+        }
+        assert_eq!(disk.whole().expect("small"), b"0123456789");
+        assert!(disk.read_failure().is_none());
+        assert!(
+            FileBytes::on_disk(&directory).is_err(),
+            "a directory is refused"
+        );
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
+    }
+
+    /// A file handed over as an open handle is read to the length the opener stated, and the
+    /// descriptor a host hands on is the file's own.
+    ///
+    /// The shape the confined worker receives a document in (ADR 0812): a `File` it did not
+    /// open and a length it cannot ask the file system for. A stated length shorter than the
+    /// file reads as a file of that length; one longer reads to the file's end, as
+    /// [`FileBytes::on_disk`] says a file that shrank does.
+    #[test]
+    fn a_handed_file_is_read_to_the_length_its_opener_stated() {
+        let directory = scratch("handed");
+        let path = directory.join("handed.pdf");
+        std::fs::write(&path, b"0123456789").expect("a small file");
+
+        let opened = File::open(&path).expect("opens");
+        let exact = FileBytes::from_handle(opened, 10).expect("a handle is held");
+        assert!(exact.is_on_disk());
+        assert_eq!(exact.len(), 10);
+        assert_eq!(
+            exact.read(3..7),
+            FileBytes::from(b"0123456789".to_vec()).read(3..7)
+        );
+
+        let short =
+            FileBytes::from_handle(File::open(&path).expect("opens"), 4).expect("a handle is held");
+        assert_eq!(short.len(), 4);
+        assert_eq!(short.read(0..10).as_ref(), b"0123");
+        assert_eq!(short.whole().expect("small"), b"0123");
+
+        let long = FileBytes::from_handle(File::open(&path).expect("opens"), 16)
+            .expect("a handle is held");
+        assert_eq!(long.len(), 16);
+        assert_eq!(long.read(8..16).as_ref(), b"89");
+        // A length past what a `usize` addresses is refused by name; on the 64-bit targets this
+        // runs on there is no such `u64`, so the refusal is the same arm `hold` is tested through
+        // and is not exercised here.
+
+        #[cfg(unix)]
+        {
+            assert!(
+                exact.descriptor().is_some(),
+                "a file on disk has a descriptor"
+            );
+            assert!(
+                FileBytes::from(b"abc".to_vec()).descriptor().is_none(),
+                "bytes in memory have none"
+            );
+        }
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
+    }
+
+    /// A window grows until the parse examined nothing at its end, and never past the file.
+    ///
+    /// The reader here counts how far it looked and asks for more whenever the window ended
+    /// before the closing `>`, which is the shape every parser in this crate reports through
+    /// [`crate::Parser::examined`].
+    #[test]
+    fn a_window_grows_to_what_the_reader_examined_and_stops_at_the_file() {
+        let directory = scratch("windows");
+        let path = directory.join("windowed.pdf");
+        let mut file = b"<".to_vec();
+        file.extend(std::iter::repeat_n(b'x', 10_000));
+        file.push(b'>');
+        file.extend(b"tail");
+        std::fs::write(&path, &file).expect("a small file");
+        let disk = FileBytes::on_disk(&path).expect("opens");
+        let memory = FileBytes::from(file.clone());
+
+        let bracketed = |bytes: &[u8], _short: bool| {
+            let close = bytes.iter().position(|byte| *byte == b'>');
+            let examined = close.map_or(bytes.len(), |at| at.saturating_add(1));
+            (
+                close.map(|at| bytes.get(..=at).unwrap_or_default().to_vec()),
+                examined,
+            )
+        };
+        let mut attempts = 0usize;
+        let from_disk = disk.parse_from(0, 16, |bytes, short| {
+            attempts = attempts.saturating_add(1);
+            bracketed(bytes, short)
+        });
+        let from_memory = memory.parse_from(0, 16, bracketed);
+        assert_eq!(from_disk, from_memory);
+        assert_eq!(from_disk.map(|found| found.len()), Some(10_002));
+        assert!(attempts > 1, "a 16-byte window had to grow");
+
+        // From inside the tail, where nothing closes: both readers examine to the end and both
+        // answer `None`, and the window is told it is not short once it reaches the file's end.
+        let mut told_short = Vec::new();
+        let none = disk.parse_from(10_002, 2, |bytes, short| {
+            told_short.push(short);
+            bracketed(bytes, short)
+        });
+        assert_eq!(none, None);
+        assert_eq!(told_short.last(), Some(&false));
+        assert_eq!(memory.parse_from(10_002, 2, bracketed), None);
+
+        // Past the end, both hand the reader nothing.
+        assert_eq!(disk.parse_from(20_000, 4, bracketed), None);
+        assert_eq!(memory.parse_from(20_000, 4, bracketed), None);
         std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
     }
 }

@@ -54,6 +54,10 @@ pub enum UpdateError {
     /// The trailer states no `/Root`, which §7.5.5 makes required.
     #[error("this file's trailer states no /Root")]
     NoRoot,
+    /// The file is on disk and the process cannot hold it whole, which an update that appends
+    /// to every byte of it needs (ADR 0809).
+    #[error("the file cannot be held whole to append to it: {0}")]
+    CannotHold(crate::NoRoom),
 }
 
 /// Writes one object in the syntax of clause 7.
@@ -252,13 +256,16 @@ pub fn incremental_update_freeing(
         return Err(UpdateError::Recovered);
     }
     let previous = startxref(document.bytes()).ok_or(UpdateError::NoStartxref)?;
+    // §7.5.6's update is appended to the file's every byte, so the file is needed whole — read
+    // once and kept where it is on disk, or refused by name where the process cannot hold it.
+    let original = document.bytes().whole().map_err(UpdateError::CannotHold)?;
     let root = document
         .trailer()
         .get("Root")
         .cloned()
         .ok_or(UpdateError::NoRoot)?;
 
-    let mut out = document.bytes().to_vec();
+    let mut out = original.to_vec();
     // §7.5.6's own requirement on what precedes an update: the file it appends to ends with
     // `%%EOF`, and a file that does not end with a line break would run the first new object
     // into it.
@@ -599,9 +606,9 @@ fn as_integer(value: u64) -> i64 {
 /// those is the one with teeth — the offset may name a cross-reference *stream* rather than the
 /// `xref` keyword — and `xref::read_at` has read both since long before this was noticed, which
 /// is the argument for keeping the note rather than a reason not to write it down.
-fn startxref(bytes: &[u8]) -> Option<usize> {
+fn startxref(bytes: &crate::FileBytes) -> Option<usize> {
     let tail_from = bytes.len().saturating_sub(2048);
-    let tail = bytes.get(tail_from..)?;
+    let tail = bytes.read(tail_from..bytes.len());
     let at = tail.windows(9).rposition(|window| window == b"startxref")?;
     let after = tail.get(at.saturating_add(9)..)?;
     let digits: Vec<u8> = after

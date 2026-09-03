@@ -272,7 +272,7 @@ fn start() -> Confined {
 fn open(bytes: Vec<u8>) -> Command {
     Command::Open {
         id: DocumentId(1),
-        bytes,
+        bytes: bytes.into(),
         password: None,
         fragment: None,
     }

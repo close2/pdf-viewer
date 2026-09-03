@@ -268,8 +268,8 @@ fn run() -> Result<Exit, Failure> {
         )));
     };
     let path = PathBuf::from(path);
-    let bytes =
-        pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
+    let bytes = pdf_syntax::FileBytes::on_disk(&path)
+        .map_err(|error| Failure::Unreadable(path.clone(), error))?;
     let source = match arguments.parsed::<u32>(&["--password-fd"])? {
         Some(fd) => Source::with_password(bytes, password_from(fd)?),
         None => Source::new(bytes),
@@ -450,6 +450,8 @@ fn attach_action(
             .map_err(|error| Failure::Usage(format!("-o: {error}")))
     };
     let path = PathBuf::from(file);
+    // The payload is *attached*, so every byte of it is written into the document: read whole,
+    // with the room asked for first, rather than opened on disk.
     let bytes =
         pdf_syntax::read_file(&path).map_err(|error| Failure::Unreadable(path.clone(), error))?;
     // The filing name is the file's own unless `--name` says otherwise, and

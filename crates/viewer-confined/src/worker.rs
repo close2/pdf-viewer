@@ -37,7 +37,7 @@ use pdf_render::Rasterizer as _;
 use render_cpu::CpuRasterizer;
 use viewer_core::{Command, Event, Rendered, Viewer};
 
-use crate::protocol;
+use crate::protocol::{self, ReceivedDescriptor};
 
 /// The viewport the worker starts with, in device pixels.
 ///
@@ -216,9 +216,8 @@ pub fn confine() -> Result<WorkerLimits, std::io::Error> {
 pub fn serve() -> Result<(), std::io::Error> {
     let limits = confine()?;
 
-    let stdin = std::io::stdin();
+    let mut input = Link::stdin();
     let stdout = std::io::stdout();
-    let mut input = stdin.lock();
     let mut output = stdout.lock();
 
     output.write_all(&protocol::encode_handshake(limits.confinement))?;
@@ -234,9 +233,18 @@ pub fn serve() -> Result<(), std::io::Error> {
         // is a pass over megabytes that buys nothing. The host writes the same way (`write_frame`),
         // and ADR 0241 has what the two of them were costing.
         let (kind, response) = match incoming {
-            Incoming::Frame { kind, payload } => {
-                answer(&mut viewer, &mut rasterizer, &mut marks, kind, payload)
-            }
+            Incoming::Frame {
+                kind,
+                payload,
+                descriptors,
+            } => answer(
+                &mut viewer,
+                &mut rasterizer,
+                &mut marks,
+                kind,
+                payload,
+                descriptors,
+            ),
             Incoming::NoRoom { length } => refuse(&unaffordable(length, &limits)),
         };
         output.write_all(&protocol::header(kind, response.len()))?;
@@ -270,8 +278,159 @@ fn unaffordable(length: usize, limits: &WorkerLimits) -> String {
     )
 }
 
+/// Where frames come from, and what can arrive beside them.
+///
+/// The worker's standard input is a socket when a [`crate::Confined`] started it — one end of
+/// a pair the host made — and a document open on disk arrives as its descriptor beside the
+/// frame's header, sent with `SCM_RIGHTS` (ADR 0812). `read` cannot see ancillary data, so a
+/// frame is read with `recvmsg`, and every descriptor that arrives is collected beside the
+/// bytes it came with. A test hands over a slice, which carries none.
+trait Source {
+    /// Fills `buffer` entirely, adding whatever descriptors arrived beside its bytes.
+    ///
+    /// # Errors
+    ///
+    /// [`std::io::ErrorKind::UnexpectedEof`] where the input ended first, as `read_exact`
+    /// reports it; and the platform's own errors.
+    fn fill(
+        &mut self,
+        buffer: &mut [u8],
+        descriptors: &mut Vec<ReceivedDescriptor>,
+    ) -> Result<(), std::io::Error>;
+
+    /// Reads and throws away `bytes` bytes, closing any descriptor that arrives with them.
+    ///
+    /// The refusal path: a frame the budget will not admit has been written already, and a
+    /// reader that left it in the socket would read the next frame out of the middle of this
+    /// one. A descriptor beside a refused frame is nobody's and is closed here.
+    fn skip(&mut self, mut bytes: usize) -> Result<(), std::io::Error> {
+        /// Enough to empty a socket quickly and small enough to be nobody's memory problem.
+        const SCRATCH: usize = 64 * 1024;
+
+        let mut scratch = vec![0u8; SCRATCH.min(bytes.max(1))];
+        let mut unclaimed = Vec::new();
+        while bytes > 0 {
+            let take = bytes.min(scratch.len());
+            let Some(slice) = scratch.get_mut(..take) else {
+                break;
+            };
+            self.fill(slice, &mut unclaimed)?;
+            unclaimed.clear();
+            bytes = bytes.saturating_sub(take);
+        }
+        Ok(())
+    }
+}
+
+/// A slice as a source: what a test hands over. Nothing arrives beside it.
+impl Source for &[u8] {
+    fn fill(
+        &mut self,
+        buffer: &mut [u8],
+        _descriptors: &mut Vec<ReceivedDescriptor>,
+    ) -> Result<(), std::io::Error> {
+        self.read_exact(buffer)
+    }
+}
+
+/// The worker's standard input.
+///
+/// Read with `recvmsg` while it is a socket, so that a descriptor sent beside a frame's header
+/// comes through with the header; and with `read` once it has turned out not to be one —
+/// `recvmsg` on a pipe is `ENOTSOCK`, which is what a worker run by hand gets, and it is an
+/// answer rather than a kill because `recvmsg` is on the allow-list.
+struct Link {
+    stdin: std::io::Stdin,
+    /// Whether `recvmsg` has been refused on this input, after which it is a plain reader.
+    #[cfg(unix)]
+    not_a_socket: bool,
+}
+
+impl Link {
+    /// This process's standard input.
+    fn stdin() -> Self {
+        Self {
+            stdin: std::io::stdin(),
+            #[cfg(unix)]
+            not_a_socket: false,
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Source for Link {
+    fn fill(
+        &mut self,
+        buffer: &mut [u8],
+        descriptors: &mut Vec<ReceivedDescriptor>,
+    ) -> Result<(), std::io::Error> {
+        use std::os::fd::AsFd as _;
+
+        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, ReturnFlags};
+
+        if self.not_a_socket {
+            return self.stdin.lock().read_exact(buffer);
+        }
+        // Room for one descriptor per call, which is what a frame carries: a host sends the
+        // document's descriptor beside the header and nothing beside the payload.
+        let mut space = [std::mem::MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut filled = 0usize;
+        while filled < buffer.len() {
+            let Some(rest) = buffer.get_mut(filled..) else {
+                break;
+            };
+            let mut ancillary = RecvAncillaryBuffer::new(&mut space);
+            let received = match rustix::net::recvmsg(
+                self.stdin.as_fd(),
+                &mut [std::io::IoSliceMut::new(rest)],
+                &mut ancillary,
+                RecvFlags::empty(),
+            ) {
+                Ok(received) => received,
+                Err(rustix::io::Errno::NOTSOCK) => {
+                    self.not_a_socket = true;
+                    return self.stdin.lock().read_exact(rest);
+                }
+                Err(rustix::io::Errno::INTR) => continue,
+                Err(errno) => return Err(errno.into()),
+            };
+            for message in ancillary.drain() {
+                if let RecvAncillaryMessage::ScmRights(arrived) = message {
+                    descriptors.extend(arrived);
+                }
+            }
+            // `MSG_CTRUNC` is the kernel saying it had a descriptor for this process and no
+            // slot to put it in — `RLIMIT_NOFILE` is eight here — so it closed it. Nothing is
+            // read as though it had arrived; the frame goes on to be decoded without it, and the
+            // decoder refuses a document that needed one, by name.
+            if received.flags.contains(ReturnFlags::CTRUNC) {
+                eprintln!(
+                    "pdf-view-worker: a descriptor sent with a frame was dropped by the kernel \
+                     because this process has no free descriptor slot"
+                );
+            }
+            if received.bytes == 0 {
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof));
+            }
+            filled = filled.saturating_add(received.bytes);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(unix))]
+impl Source for Link {
+    fn fill(
+        &mut self,
+        buffer: &mut [u8],
+        _descriptors: &mut Vec<ReceivedDescriptor>,
+    ) -> Result<(), std::io::Error> {
+        self.stdin.lock().read_exact(buffer)
+    }
+}
+
 /// One frame, or the fact that there was no room for one.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum Incoming {
     /// A frame, whole.
     Frame {
@@ -279,6 +438,8 @@ enum Incoming {
         kind: u8,
         /// Its bytes.
         payload: Vec<u8>,
+        /// What arrived beside it: a document's open file, where the frame opens one on disk.
+        descriptors: Vec<ReceivedDescriptor>,
     },
     /// A frame this process will not find room for.
     ///
@@ -298,9 +459,10 @@ enum Incoming {
 /// exists to prevent is not the first one — see [`COPIES_OF_A_MESSAGE`]. `try_reserve` after the
 /// check is belt to that braces: it catches a machine that cannot find the room for a reason the
 /// ceiling knows nothing about.
-fn read_frame(input: &mut impl Read, budget: u64) -> Result<Option<Incoming>, std::io::Error> {
+fn read_frame(input: &mut impl Source, budget: u64) -> Result<Option<Incoming>, std::io::Error> {
     let mut header = [0u8; protocol::FRAME_HEADER_LEN];
-    match input.read_exact(&mut header) {
+    let mut descriptors = Vec::new();
+    match input.fill(&mut header, &mut descriptors) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(error) => return Err(error),
@@ -316,24 +478,19 @@ fn read_frame(input: &mut impl Read, budget: u64) -> Result<Option<Incoming>, st
     if !affordable || payload.try_reserve_exact(length).is_err() {
         // Read past it rather than closing: the sender has already written these bytes, and a
         // reader that left them in the pipe would read the next frame out of the middle of this
-        // one.
-        std::io::copy(
-            &mut input.by_ref().take(as_u64(length)),
-            &mut std::io::sink(),
-        )?;
+        // one. A descriptor that came with the header is dropped here with the frame — closed —
+        // because the document it opens is the one this process just refused.
+        drop(descriptors);
+        input.skip(length)?;
         return Ok(Some(Incoming::NoRoom { length }));
     }
     payload.resize(length, 0);
-    input.read_exact(&mut payload)?;
-    Ok(Some(Incoming::Frame { kind, payload }))
-}
-
-/// A length as the width `io::Take` wants.
-///
-/// Cannot fail on any platform this compiles for, where `usize` is at most 64 bits; the fallback
-/// reads to end of input, which the caller treats as a truncated frame.
-fn as_u64(value: usize) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
+    input.fill(&mut payload, &mut descriptors)?;
+    Ok(Some(Incoming::Frame {
+        kind,
+        payload,
+        descriptors,
+    }))
 }
 
 /// Answers one frame, as the kind to write and the payload to write after it.
@@ -349,17 +506,25 @@ fn as_u64(value: usize) -> u64 {
 /// Held across the work instead, it was a whole third copy of the document alive at the peak,
 /// and `VmPeak` was the worker's start-up size plus exactly three times the document's length
 /// (ADR 0597).
+///
+/// **A descriptor is claimed by the one command that names it and every other is closed.** The
+/// decoder takes the document's descriptor out of `descriptors`; what it leaves — a second one
+/// somebody sent, or one beside a query — is dropped at the end of this function, which closes
+/// it. A confined process keeping a descriptor nobody asked it to hold would be the one thing
+/// the descriptor ceiling exists to notice (ADR 0812).
 fn answer(
     viewer: &mut Viewer,
     rasterizer: &mut CpuRasterizer,
     marks: &mut protocol::Marks,
     kind: u8,
     payload: Vec<u8>,
+    mut descriptors: Vec<ReceivedDescriptor>,
 ) -> (u8, Vec<u8>) {
     match kind {
         protocol::FRAME_COMMAND => {
-            let decoded = protocol::decode_command(&payload);
+            let decoded = protocol::decode_command_holding(&payload, &mut descriptors);
             drop(payload);
+            drop(descriptors);
             match decoded {
                 Ok(command) => perform(viewer, rasterizer, marks, command),
                 Err(error) => refuse(&error.to_string()),
@@ -541,18 +706,23 @@ mod tests {
         wire.extend_from_slice(b"abc");
 
         let mut input = wire.as_slice();
-        assert_eq!(
+        assert!(matches!(
             read_frame(&mut input, 8).expect("a frame is read"),
             Some(Incoming::NoRoom { length: 64 })
-        );
-        assert_eq!(
-            read_frame(&mut input, 8).expect("a frame is read"),
+        ));
+        match read_frame(&mut input, 8).expect("a frame is read") {
             Some(Incoming::Frame {
-                kind: protocol::FRAME_QUERY,
-                payload: b"abc".to_vec(),
-            })
-        );
-        assert_eq!(read_frame(&mut input, 8).expect("end of input"), None);
+                kind,
+                payload,
+                descriptors,
+            }) => {
+                assert_eq!(kind, protocol::FRAME_QUERY);
+                assert_eq!(payload, b"abc");
+                assert!(descriptors.is_empty());
+            }
+            other => panic!("the second frame was {other:?}"),
+        }
+        assert!(read_frame(&mut input, 8).expect("end of input").is_none());
     }
 
     /// A frame inside the budget is read whole, which is the control for the test above.
@@ -562,12 +732,17 @@ mod tests {
         wire.extend_from_slice(&protocol::header(protocol::FRAME_COMMAND, 4));
         wire.extend_from_slice(b"1234");
         let mut input = wire.as_slice();
-        assert_eq!(
-            read_frame(&mut input, 4).expect("a frame is read"),
+        match read_frame(&mut input, 4).expect("a frame is read") {
             Some(Incoming::Frame {
-                kind: protocol::FRAME_COMMAND,
-                payload: b"1234".to_vec(),
-            })
-        );
+                kind,
+                payload,
+                descriptors,
+            }) => {
+                assert_eq!(kind, protocol::FRAME_COMMAND);
+                assert_eq!(payload, b"1234");
+                assert!(descriptors.is_empty());
+            }
+            other => panic!("the frame was {other:?}"),
+        }
     }
 }

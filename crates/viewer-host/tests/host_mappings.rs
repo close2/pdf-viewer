@@ -46,7 +46,7 @@ fn opened(bytes: Vec<u8>) -> Viewer {
     viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })

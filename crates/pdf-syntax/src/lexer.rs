@@ -129,6 +129,8 @@ pub enum Token<'a> {
 pub struct Lexer<'a> {
     input: &'a [u8],
     position: usize,
+    /// The furthest byte a rewind gave up, or a lookahead reported; see [`Self::examined`].
+    examined: usize,
 }
 
 #[expect(
@@ -140,7 +142,11 @@ impl<'a> Lexer<'a> {
     /// Creates a lexer over `input`.
     #[must_use]
     pub fn new(input: &'a [u8]) -> Self {
-        Self { input, position: 0 }
+        Self {
+            input,
+            position: 0,
+            examined: 0,
+        }
     }
 
     /// Creates a lexer positioned at `offset`, clamped to the end of the input.
@@ -152,6 +158,7 @@ impl<'a> Lexer<'a> {
         Self {
             input,
             position: offset.min(input.len()),
+            examined: 0,
         }
     }
 
@@ -163,7 +170,28 @@ impl<'a> Lexer<'a> {
 
     /// Moves the cursor, clamped to the end of the input.
     pub fn seek(&mut self, offset: usize) {
+        self.examined = self.examined.max(self.position);
         self.position = offset.min(self.input.len());
+    }
+
+    /// How many bytes of the input, from its start, the tokens read so far depended on.
+    ///
+    /// The cursor moves backwards only through [`Self::seek`], so the furthest it has been is
+    /// the furthest position a seek gave up, or the position now. One more than that, because a
+    /// token's *end* is decided by the byte after it — `123` followed by the input's end is a
+    /// shorter number than `123` followed by `4` — and `<<`, `>>` and a CR LF pair are read one
+    /// byte past the cursor. A parser reading a *window* of a longer file hands this number
+    /// back to [`crate::FileBytes::parse_from`], which grows the window until nothing at its
+    /// end was examined; a parser over a whole file has no use for it. ADR 0809.
+    #[must_use]
+    pub fn examined(&self) -> usize {
+        self.examined.max(self.position).saturating_add(1)
+    }
+
+    /// Records that bytes up to `upto` decided something, for a look-ahead the cursor did not
+    /// make — a search for `endstream`, or a stated length checked against the input's end.
+    pub(crate) fn note_examined(&mut self, upto: usize) {
+        self.examined = self.examined.max(upto);
     }
 
     /// Returns the whole input.

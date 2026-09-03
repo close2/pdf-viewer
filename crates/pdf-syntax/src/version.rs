@@ -84,7 +84,7 @@ impl Document {
     pub fn header_version(&self) -> Option<Version> {
         let bytes = self.bytes();
         let window = bytes.len().min(crate::xref::HEADER_SEARCH_WINDOW);
-        let start = bytes.get(..window)?;
+        let start = bytes.read(0..window);
         for marker in [b"%PDF-", b"%FDF-"] {
             if let Some(at) = start
                 .windows(marker.len())

@@ -403,51 +403,116 @@ impl Digest {
     ///
     /// Pieces rather than one slice because §12.8.1's byte range is "pairs of integers (starting
     /// byte offset, length in bytes)" describing a file with a hole in it, and joining them would
-    /// copy the whole document to hash it.
+    /// copy the whole document to hash it. [`Self::hasher`] is the same computation for a message
+    /// that is not in memory at all.
     #[must_use]
     pub fn compute(self, message: &[&[u8]]) -> Vec<u8> {
-        use sha2::Digest as _;
-        /// One hasher fed every piece, so the fixed-output arms differ only in their type.
-        macro_rules! hash {
-            ($hasher:ty) => {{
-                let mut hasher = <$hasher>::new();
-                for piece in message {
-                    hasher.update(piece);
-                }
-                hasher.finalize().to_vec()
-            }};
+        let mut hasher = self.hasher();
+        for piece in message {
+            hasher.update(piece);
         }
+        hasher.finish()
+    }
+
+    /// This function, started: fed the message a piece at a time and finished once.
+    ///
+    /// What lets a signature's `/ByteRange` be digested off a file on disk a window at a time
+    /// (ADR 0812) rather than every signed byte being resident at once — which for a signed
+    /// document is every byte of it but the hole.
+    #[must_use]
+    pub fn hasher(self) -> Hasher {
+        use sha2::Digest as _;
         match self {
-            Self::Md5 => hash!(md5::Md5),
-            Self::Sha1 => hash!(sha1::Sha1),
-            Self::Sha256 => hash!(sha2::Sha256),
-            Self::Sha384 => hash!(sha2::Sha384),
-            Self::Sha512 => hash!(sha2::Sha512),
-            Self::Ripemd160 => hash!(ripemd::Ripemd160),
-            Self::Sha3_256 => hash!(sha3::Sha3_256),
-            Self::Sha3_384 => hash!(sha3::Sha3_384),
-            Self::Sha3_512 => hash!(sha3::Sha3_512),
-            // The one arm the macro cannot serve: SHAKE256 is an extendable-output function, so it
-            // is squeezed to a length rather than finalised to one.
-            Self::Shake256 => shake256(message),
+            Self::Md5 => Hasher::Md5(md5::Md5::new()),
+            Self::Sha1 => Hasher::Sha1(sha1::Sha1::new()),
+            Self::Sha256 => Hasher::Sha256(sha2::Sha256::new()),
+            Self::Sha384 => Hasher::Sha384(sha2::Sha384::new()),
+            Self::Sha512 => Hasher::Sha512(sha2::Sha512::new()),
+            Self::Ripemd160 => Hasher::Ripemd160(ripemd::Ripemd160::new()),
+            Self::Sha3_256 => Hasher::Sha3_256(sha3::Sha3_256::new()),
+            Self::Sha3_384 => Hasher::Sha3_384(sha3::Sha3_384::new()),
+            Self::Sha3_512 => Hasher::Sha3_512(sha3::Sha3_512::new()),
+            Self::Shake256 => Hasher::Shake256(shake::Shake256::default()),
         }
     }
 }
 
-/// SHAKE256 squeezed to the [`SHAKE256_OCTETS`] ISO/TS 32001 section 5.1.4 fixes it at.
+/// One of [`Digest`]'s functions in progress.
 ///
-/// Separate from [`Digest::compute`]'s macro because an extendable-output function has a different
-/// shape — `finalize_xof` then `read` — and because the length is the standard's requirement rather
-/// than a property of the function, which is the one thing a reader of this arm must not miss.
-fn shake256(message: &[&[u8]]) -> Vec<u8> {
-    use shake::{ExtendableOutput as _, Update as _, XofReader as _};
-    let mut hasher = shake::Shake256::default();
-    for piece in message {
-        hasher.update(piece);
+/// One variant per algorithm rather than a boxed trait object, so that the type says which ten
+/// functions this program computes — the same ten [`Digest`] lists — and a hasher's cost is a
+/// few hundred bytes of state on the stack rather than an allocation per window.
+#[derive(Debug, Clone)]
+pub enum Hasher {
+    /// MD5 in progress.
+    Md5(md5::Md5),
+    /// SHA-1 in progress.
+    Sha1(sha1::Sha1),
+    /// SHA-256 in progress.
+    Sha256(sha2::Sha256),
+    /// SHA-384 in progress.
+    Sha384(sha2::Sha384),
+    /// SHA-512 in progress.
+    Sha512(sha2::Sha512),
+    /// RIPEMD-160 in progress.
+    Ripemd160(ripemd::Ripemd160),
+    /// SHA3-256 in progress.
+    Sha3_256(sha3::Sha3_256),
+    /// SHA3-384 in progress.
+    Sha3_384(sha3::Sha3_384),
+    /// SHA3-512 in progress.
+    Sha3_512(sha3::Sha3_512),
+    /// SHAKE256 in progress, to be squeezed to [`SHAKE256_OCTETS`].
+    Shake256(shake::Shake256),
+}
+
+impl Hasher {
+    /// Feeds the next piece of the message.
+    pub fn update(&mut self, piece: &[u8]) {
+        use sha2::Digest as _;
+        match self {
+            Self::Md5(hasher) => hasher.update(piece),
+            Self::Sha1(hasher) => hasher.update(piece),
+            Self::Sha256(hasher) => hasher.update(piece),
+            Self::Sha384(hasher) => hasher.update(piece),
+            Self::Sha512(hasher) => hasher.update(piece),
+            Self::Ripemd160(hasher) => hasher.update(piece),
+            Self::Sha3_256(hasher) => hasher.update(piece),
+            Self::Sha3_384(hasher) => hasher.update(piece),
+            Self::Sha3_512(hasher) => hasher.update(piece),
+            Self::Shake256(hasher) => {
+                use shake::Update as _;
+                hasher.update(piece);
+            }
+        }
     }
-    let mut out = vec![0; SHAKE256_OCTETS];
-    hasher.finalize_xof().read(&mut out);
-    out
+
+    /// The digest of everything fed so far.
+    #[must_use]
+    pub fn finish(self) -> Vec<u8> {
+        use sha2::Digest as _;
+        match self {
+            Self::Md5(hasher) => hasher.finalize().to_vec(),
+            Self::Sha1(hasher) => hasher.finalize().to_vec(),
+            Self::Sha256(hasher) => hasher.finalize().to_vec(),
+            Self::Sha384(hasher) => hasher.finalize().to_vec(),
+            Self::Sha512(hasher) => hasher.finalize().to_vec(),
+            Self::Ripemd160(hasher) => hasher.finalize().to_vec(),
+            Self::Sha3_256(hasher) => hasher.finalize().to_vec(),
+            Self::Sha3_384(hasher) => hasher.finalize().to_vec(),
+            Self::Sha3_512(hasher) => hasher.finalize().to_vec(),
+            // The one arm that is not a `finalize`: SHAKE256 is an extendable-output function,
+            // so it is squeezed to a length rather than finalised to one — and the length is
+            // ISO/TS 32001 section 5.1.4's requirement rather than a property of the function,
+            // which is the one thing a reader of this arm must not miss.
+            Self::Shake256(hasher) => {
+                use shake::{ExtendableOutput as _, XofReader as _};
+                let mut out = vec![0; SHAKE256_OCTETS];
+                hasher.finalize_xof().read(&mut out);
+                out
+            }
+        }
+    }
 }
 
 /// What stopped a signature value from being read as RFC 5652's `SignedData`.

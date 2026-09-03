@@ -6,7 +6,7 @@
 //! scheduler.
 
 use pdf_render::Raster;
-use pdf_syntax::ObjectId;
+use pdf_syntax::{FileBytes, ObjectId};
 
 use crate::secret::Secret;
 use crate::viewer::{DocumentId, RenderToken};
@@ -32,8 +32,11 @@ pub enum Command {
     Open {
         /// What the host will call this document.
         id: DocumentId,
-        /// The file, whole.
-        bytes: Vec<u8>,
+        /// The file, as the host holds it: whole in memory, or open on disk and read where
+        /// its offsets point ([`FileBytes::on_disk`], ADR 0809). The host still owns the file
+        /// system — it opened the file and chose how to hold it — and the core reads through
+        /// what it was handed, never a path.
+        bytes: FileBytes,
         /// §7.6.4.1's user or owner password, where one is already known.
         ///
         /// A [`Secret`] rather than a `String` because this enumeration derives [`Debug`] and two

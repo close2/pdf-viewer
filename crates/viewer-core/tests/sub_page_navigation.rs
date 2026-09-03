@@ -97,7 +97,7 @@ fn opened(steps: bool, presenting: PresentationMode) -> Viewer {
     let opened = viewer
         .handle(Command::Open {
             id: DocumentId(1),
-            bytes: slides(steps),
+            bytes: slides(steps).into(),
             password: None,
             fragment: None,
         })
