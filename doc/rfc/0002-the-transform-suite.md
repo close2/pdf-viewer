@@ -339,8 +339,11 @@ reconciliations are a long tail of individually small decisions, each of which m
 documented choice rather than an accident.
 
 **Open questions.** Collation grouping syntax (`--collate=n` per qpdf?); whether `pages` and
-`merge` are truly two verbs or one (`merge` with a single input and edit flags subsumes `pages`;
-two verbs are kept in the proposal because the common cases read better).
+`merge` are truly two verbs or one — **answered in session 893 (ADR 0830): two verbs, and the
+boundary is the count of files rather than the kind of edit.** `pages` reads one document and
+`merge` reads several, which is what §4.1 already says of both, so `pages --insert` takes a range
+of its own input and another file's pages are a usage refusal naming `merge`. The engine is
+shared: `merge::write` takes a list of placements and both verbs build one.
 
 ### 6.3 `images` — extract embedded images
 

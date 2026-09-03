@@ -334,7 +334,20 @@ output intent pushed onto each source's own pages where the sources disagree —
 home the clause gives it, and which this tree's colour path now reads — and §12.7's interactive
 form reconciled entry by entry, with §12.7.4.2's fully qualified field name **refused by name**
 where two sources claim it with a different `/FT`, `/V` or `/DV`. A signature crosses without its
-`/V`, because §12.8.1's digest was computed over bytes the merged file is not. One
+`/V`, because §12.8.1's digest was computed over bytes the merged file is not. **`pages` is the
+third, and it is the same engine given one document's own page list to edit**: §7.7.3.3's
+`/Rotate` written as an integer — absolute where the angle is unsigned, and where it is signed
+composed with the value §7.7.3.4 gives the page rather than with what the page states — a
+deletion whose every dangling destination becomes §7.3.10's null and whose labels follow their
+pages, a reorder that needs no rewriting at all because §12.3.2.2 makes a destination a reference
+to a page object, and an insertion that makes a page appear twice as **two page objects** with its
+own annotations, since Table 31 gives a page one `/Parent` and Table 172 gives an annotation one
+`/P` — refused by name where the page carries a §12.7 widget, whose fully qualified field name is
+the field's identity. §12.5.3 was read for it and decides nothing about the file: `/NoRotate` is
+the viewer's business, so no annotation's `/Rect` is touched. **What no verb carries is §14.7's
+structure tree**, said in a warning every time: a tagged document loses its tagging, and each
+carried page keeps the `/StructParents` integer its producer wrote, which then names nothing at
+all rather than the wrong element (ADR 0831). One
 page-range grammar for every verb, with §12.4.2's
 labels addressable as `@iv`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named

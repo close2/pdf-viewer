@@ -2,8 +2,9 @@
 
 Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
-are approved"), so the serializer and two verbs are done; what is left is **two more
-verbs**, the RFC 0003 hand-off, and the §13 questions the owner has not been asked again.
+are approved"), so the serializer and three verbs are done; what is left is **`optimize`**, the
+structure tree, `split --at-bookmarks`, the foreign readback, the RFC 0003 hand-off, and the §13
+questions the owner has not been asked again.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
 quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into);
@@ -68,12 +69,22 @@ source the plan names and asks the restriction policy per document. `tests/merge
 `tests/merge_corpus.rs` and RFC §9's `split`-then-`merge` property gate; the walk found two defects
 on its first run, both real.
 
-## 1. The two verbs left, on the serializer that exists
+**Session 893 (ADRs 0830, 0831): `pages`, and what a rotated raster cannot be asked.** The other
+half of §6.2 and the RFC's own open question about the two verbs, answered by the count of files:
+`pages` reads one document, `merge` reads several, so `--insert` takes a range of *this* document
+and a path in it is a usage refusal naming `merge`. The engine is `merge::write` over a list of
+`Placement`s, so every reconciliation session 888 derived applies to a page *leaving* with no
+second construction. What is this verb's own: §7.7.3.3's `/Rotate` written — an unsigned angle
+absolute, a signed one relative to the value §7.7.3.4 gives the page, reduced modulo a whole turn,
+a zero written as no entry, an angle that is not a multiple of 90 refused by name; §12.5.3 read and
+found to bear on the viewer rather than the file, so no annotation is touched; Table 31's one
+`/Parent` making a duplicated page a second page object with its own annotations, and a page
+carrying a §12.7 widget refused by name because §12.7.4.2 makes a field's fully qualified name its
+identity. `tests/pages.rs` and `tests/pages_corpus.rs`, whose rotated-page comparison is a
+*measurement* rather than an assertion for the reason ADR 0831 records.
 
-- **`pages`** (RFC §6.2) — the single-document page edits: delete, insert, reorder, and
-  `--rotate [+|-]angle:range`. `merge` with one input already subsumes most of it, and Table 31's
-  `/Rotate` is one inheritable integer per page; what is new is the composition order the RFC
-  states ("operations compose left to right over the current page list") and the rotation grammar.
+## 1. The verb left, on the serializer that exists
+
 - **`optimize`** (RFC §6.5) is where §7.5.7's producer half is owed: the serializer generates no
   object stream, so a piece of a 1.5 document is larger than the pages it holds, and
   `--object-streams=generate|disable` is the knob the RFC names. Reachability pruning belongs here
@@ -85,11 +96,22 @@ on its first run, both real.
 - **What a piece does not carry** is now the shorter list, because `merge` built four of the five:
   the outline subset whose destinations survive, §12.4.2 page labels per piece, and name-tree
   entries still referenced are each `merge.rs`'s construction pointed the other way, and a round
-  taking them should reuse it rather than write a second one. What **neither** verb carries is the
+  taking them should reuse it rather than write a second one. What **no** verb carries is the
   **structure tree**: §14.7's `/StructTreeRoot`, the `/StructParents` number tree and the fragments
   that reach the kept pages. Every carried page still states its source's `/StructParents` integer,
   which now names nothing, and a tagged document loses its tagging with only the warning to say so.
-  That is the largest single thing this suite owes.
+  That is the largest single thing this suite owes, and ADR 0831 §2 is why it is not being paid
+  down a fragment at a time: half a structure tree would point a page's marked content at another
+  page's structure element, which is worse than the dangling key the output has now. §14.7's
+  ledger row carries the two-sided reading.
+- **The aligned rotated comparison.** `tests/pages_corpus.rs` measures the turned-raster
+  comparison and does not assert on it, because a page `W` units wide at scale `s` is
+  `ceil(W × s)` pixels wide and the leftover sliver sits on a different edge after the page turns
+  than after the raster does — worth a whole pixel, measured exactly on `issue2761.pdf` (mean
+  absolute difference 0.000 once one column is allowed for, 19.4 without). What would make it an
+  assertion is `render` reporting the sub-pixel offset it placed the page at, so the walk can
+  *derive* the whole-pixel shift instead of searching for one. That is a change to the renderer's
+  report, not to the walk. ADR 0831 §1 has the measurement.
 - **A per-input password for `merge`.** `viewer_core::Secret` is deliberately not `Clone`, so one
   `--password-fd` opens one document and a merge of several encrypted sources is a usage error
   today, by name. A per-input spelling or several `--password-fd`s would lift it; nobody has asked.
@@ -136,6 +158,7 @@ piece with this tree's own reader and its own rasteriser, and `tests/split.rs` h
 --check` over the committed fixtures alone. A corpus-wide foreign readback of the *pieces* is the
 same instrument and is owed for the same reason — a writer is attack surface in the other
 direction (RFC §11.3), and a file only this tree can read would look correct to every gate here.
-**`tests/merge_corpus.rs` has inherited the gap for a third writer**, and the merged files are the
+**`tests/merge_corpus.rs` and `tests/pages_corpus.rs` have inherited the gap for a third and a
+fourth writer**, and the merged files are the
 ones most worth showing a foreign reader: they are the only outputs this tree *builds* a §12.7
 form, a §8.11 configuration and a §7.9.6 name tree for rather than copies.

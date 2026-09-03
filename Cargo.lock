@@ -3189,6 +3189,7 @@ dependencies = [
  "pdf-render",
  "pdf-syntax",
  "png",
+ "raster-compare",
  "rayon",
  "render-cpu",
  "thiserror 2.0.19",

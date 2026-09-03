@@ -50,6 +50,7 @@ use std::sync::Mutex;
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::merge::{Input, MergePlan};
+use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
@@ -121,6 +122,10 @@ const VALUED: &[&str] = &[
     "--icon",
     "--remove",
     "--every",
+    "--delete",
+    "--rotate",
+    "--move",
+    "--insert",
 ];
 
 /// Every flag this program knows, so an unknown one is a usage error rather than ignored.
@@ -149,6 +154,10 @@ const KNOWN: &[&str] = &[
     "--remove",
     "--every",
     "--collate",
+    "--delete",
+    "--rotate",
+    "--move",
+    "--insert",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -411,6 +420,11 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
             }))
         }
         "merge" => Ok(Plan::Merge(merge_plan(arguments, names("merge")?)?)),
+        "pages" => Ok(Plan::Pages(PagesPlan {
+            source: 0,
+            edits: page_edits(arguments)?,
+            names: names("pages")?,
+        })),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
             action: attachments_action(arguments, output)?,
@@ -418,6 +432,103 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
     }
+}
+
+/// `pages`: the edit flags in the order they were written on the command line.
+///
+/// RFC 0002 section 6.2's composition rule is left to right over the current page list, so the
+/// *order* of the flags is data and `Arguments::value` — which takes the last of a repeated
+/// flag — is the wrong accessor for all four. They are read off `flags` instead, which is argv
+/// order.
+fn page_edits(arguments: &Arguments) -> Result<Vec<Edit>, Failure> {
+    let mut edits = Vec::new();
+    for (flag, value) in &arguments.flags {
+        let Some(value) = value.as_deref() else {
+            continue;
+        };
+        edits.push(match flag.as_str() {
+            "--delete" => Edit::Delete(selection(value, flag)?),
+            "--rotate" => rotation(value)?,
+            "--move" => {
+                let (pages, to) = at_position(value, ':', "--move")?;
+                Edit::Move {
+                    pages: selection(pages, flag)?,
+                    to,
+                }
+            }
+            "--insert" => {
+                // One input, and the boundary between this verb and `merge` is the count of
+                // files rather than the kind of edit (RFC 0002 sections 4.1 and 6.2). A
+                // path here is the other verb's request, said by name.
+                if value.contains(".pdf") || value.contains('/') {
+                    return Err(Failure::Usage(format!(
+                        "--insert {value:?}: pages takes one input, so --insert takes a range \
+                         of this document; another file's pages are what merge is for"
+                    )));
+                }
+                let (pages, at) = at_position(value, '@', "--insert")?;
+                Edit::Insert {
+                    pages: selection(pages, flag)?,
+                    at,
+                }
+            }
+            _ => continue,
+        });
+    }
+    if edits.is_empty() {
+        return Err(Failure::Usage(
+            "pages needs at least one of --delete, --rotate, --move or --insert".to_owned(),
+        ));
+    }
+    Ok(edits)
+}
+
+/// One range, with the flag named in the error.
+fn selection(text: &str, flag: &str) -> Result<Selection, Failure> {
+    text.parse()
+        .map_err(|error| Failure::Usage(format!("{flag} {text:?}: {error}")))
+}
+
+/// `range<sep>position`, split at the **last** separator so a range may contain one.
+fn at_position<'a>(
+    value: &'a str,
+    separator: char,
+    flag: &str,
+) -> Result<(&'a str, usize), Failure> {
+    let (pages, position) = value.rsplit_once(separator).ok_or_else(|| {
+        Failure::Usage(format!(
+            "{flag} {value:?}: takes a range and a position, as 5{separator}1"
+        ))
+    })?;
+    let position = position
+        .parse::<usize>()
+        .map_err(|error| Failure::Usage(format!("{flag} {value:?}: {position:?}: {error}")))?;
+    Ok((pages, position))
+}
+
+/// `[+|-]angle:range` — qpdf's spelling, and RFC 0002 section 6.2's.
+///
+/// A sign makes the angle relative to the page's effective §7.7.3.3 rotation; no sign makes it
+/// absolute. The split is at the **first** colon, because the range after it may hold colons of
+/// its own (`:odd`).
+fn rotation(value: &str) -> Result<Edit, Failure> {
+    let (angle, range) = value.split_once(':').ok_or_else(|| {
+        Failure::Usage(format!(
+            "--rotate {value:?}: takes an angle and a range, as +90:1-end"
+        ))
+    })?;
+    let relative = angle.starts_with('+') || angle.starts_with('-');
+    let degrees = angle
+        .parse::<i64>()
+        .map_err(|error| Failure::Usage(format!("--rotate {value:?}: {angle:?}: {error}")))?;
+    Ok(Edit::Rotate {
+        angle: if relative {
+            Angle::Relative(degrees)
+        } else {
+            Angle::Absolute(degrees)
+        },
+        pages: selection(range, "--rotate")?,
+    })
 }
 
 /// `merge`: one input per positional argument, in the order their pages appear.
@@ -784,6 +895,7 @@ verbs:
   images       the images the pages embed     -o 'img-%d.png' | --list
   split        one document into many        -o 'page-%d.pdf'
   merge        several documents into one    a.pdf b.pdf [--collate] -o out.pdf
+  pages        one document's pages edited   --delete | --rotate | --move | --insert
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
@@ -857,6 +969,32 @@ merge:
   would write two such fields is refused by name (exit 4). A signature crosses without its /V
   (§12.8.1), the outline destinations that leave the merge become §7.3.10's null, and
   /Info, the structure tree and /Metadata are not carried and are named in a warning.
+
+pages:
+  one input, one output, and every flag may repeat; the edits compose left to right over the
+  running page list, so each range is read against the list as the edits before it left it
+  --delete <selection>       take these pages out
+  --rotate [+|-]angle:range  §7.7.3.3's /Rotate, a multiple of 90, clockwise when displayed:
+                             90:1 sets page 1 to 90, +90:1-end turns every page a quarter
+                             further than it is displayed now — the sign is what makes it
+                             relative, and a relative angle composes with the rotation
+                             §7.7.3.4 gives the page rather than with what it states itself
+  --move <range>:<position>  move these pages so the first lands at that position,
+                             counted from 1; one past the end appends
+  --insert <range>@<position>  a second copy of these pages before that position. This
+                             verb reads one file, so the range is this document's; another
+                             file's pages are merge's. A page that appears twice is two page
+                             objects (Table 31 gives a page one /Parent) with its content and
+                             resources shared, and its annotations copied with it — a page
+                             carrying a §12.7 widget is refused by name (exit 4), because a
+                             field's fully qualified name is its identity (§12.7.4.2)
+  the output is a new document on the same construction as merge, so the same reconciliations
+  apply when a page leaves: a destination to a deleted page becomes §7.3.10's null (exit 3),
+  §12.4.2's labels are written one entry per surviving page, and §12.3.3's outline, §7.9.6's
+  name trees, §8.11's groups and §12.7's fields cross as they do there. §14.7's structure tree
+  is **not** carried by any verb of this suite: a tagged document loses its tagging, its pages
+  keep the /StructParents integers their producer wrote, and those name nothing at all in the
+  output. Said in a warning, every time.
 
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)

@@ -1271,3 +1271,73 @@ fn without_annotations_the_page_contents_alone_are_drawn() {
     assert_eq!((w1, h1), (w2, h2), "the same box either way");
     assert_ne!(with, without, "the annotations' appearances are marks");
 }
+
+/// `pages` through the program: the flag order is the composition order, `--rotate` takes
+/// qpdf's `[+|-]angle:range`, and the three refusals the argument grammar owns say so on stderr.
+///
+/// The library's own tests (`tests/pages.rs`) hold the clauses; this holds the *command line*,
+/// which is where RFC 0002 section 6.2's "operations compose left to right over the current page
+/// list" actually lives — `Arguments::value` takes the last of a repeated flag, so a verb whose
+/// flags are data in argv order has to read them off argv.
+#[test]
+fn pages_edits_compose_in_the_order_they_were_written() {
+    let path = committed("PDF20_AN001-BPC.pdf");
+    let path = path.to_str().expect("utf-8");
+    let dir = scratch();
+
+    // Two deletions of position 1 take out the first two pages, not the first and the third.
+    let (code, _stdout, stderr) = run(
+        &dir,
+        &[
+            "pages", path, "--delete", "1", "--delete", "1", "-o", "two.pdf",
+        ],
+    );
+    assert!(code == 0 || code == 3, "{stderr}");
+    let two = std::fs::read(dir.join("two.pdf")).expect("the output");
+    let (code, _stdout, stderr) = run(&dir, &["pages", path, "--delete", "1-2", "-o", "both.pdf"]);
+    assert!(code == 0 || code == 3, "{stderr}");
+    assert_eq!(
+        two,
+        std::fs::read(dir.join("both.pdf")).expect("the output"),
+        "two deletions of position 1 are one deletion of 1-2"
+    );
+
+    // §7.7.3.3: a multiple of 90, and the sign is what makes it relative.
+    for (argument, accepted) in [
+        ("+90:1", true),
+        ("180:1-end:odd", true),
+        ("-90:r1", true),
+        ("45:1", false),
+        ("90", false),
+    ] {
+        let (got, _stdout, stderr) =
+            run(&dir, &["pages", path, "--rotate", argument, "-o", "r.pdf"]);
+        // 3 rather than 0 because this fixture states constructs no verb of the suite carries,
+        // and saying so is what exit 3 is for.
+        if accepted {
+            assert!(got == 0 || got == 3, "--rotate {argument}: {got}: {stderr}");
+        } else {
+            assert_eq!(got, 1, "--rotate {argument}: {stderr}");
+        }
+    }
+
+    // The boundary between this verb and `merge` is the count of files, so a path in --insert
+    // is a usage refusal that names the other verb (ADR 0830).
+    let (code, _stdout, stderr) = run(
+        &dir,
+        &["pages", path, "--insert", "other.pdf:1@1", "-o", "x.pdf"],
+    );
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("merge"), "{stderr}");
+
+    // A position the list does not have, and one past the end which appends.
+    let (code, _stdout, stderr) = run(&dir, &["pages", path, "--move", "1:99", "-o", "x.pdf"]);
+    assert_eq!(code, 1, "{stderr}");
+    let (code, _stdout, stderr) = run(&dir, &["pages", path, "--move", "1:6", "-o", "end.pdf"]);
+    assert!(code == 0 || code == 3, "{stderr}");
+
+    // No edit at all is a usage error rather than a copy of the input.
+    let (code, _stdout, stderr) = run(&dir, &["pages", path, "-o", "x.pdf"]);
+    assert_eq!(code, 1, "{stderr}");
+    assert!(stderr.contains("--delete"), "{stderr}");
+}

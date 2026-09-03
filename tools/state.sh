@@ -152,6 +152,9 @@ section_writer() {
     run "merge over the corpus (RFC 0002 section 9's layers 2 and 3, plus each reconciliation)" \
         '^transform-merge:' \
         cargo test --profile gates -p pdf-transform --test merge_corpus -- --ignored --nocapture
+    run "pages over the corpus (a quarter turn and a page out, RFC 0002 section 9's layers 2 and 3)" \
+        '^transform-pages:' \
+        cargo test --profile gates -p pdf-transform --test pages_corpus -- --ignored --nocapture
 }
 
 section_dates() {

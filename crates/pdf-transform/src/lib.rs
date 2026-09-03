@@ -52,6 +52,7 @@ pub mod attachments;
 pub mod images;
 pub mod json;
 pub mod merge;
+pub mod pages;
 pub mod pattern;
 pub mod range;
 pub mod render;
@@ -262,6 +263,8 @@ pub enum Plan {
     Split(split::SplitPlan),
     /// Several documents into one — RFC 0002 section 6.2.
     Merge(merge::MergePlan),
+    /// One document's pages deleted, inserted, moved and rotated — RFC 0002 section 6.2.
+    Pages(pages::PagesPlan),
 }
 
 impl Plan {
@@ -276,6 +279,7 @@ impl Plan {
             Self::Images(plan) => plan.source,
             Self::Attachments(plan) => plan.source,
             Self::Split(plan) => plan.source,
+            Self::Pages(plan) => plan.source,
             Self::Merge(plan) => plan.inputs.first().map_or(0, |input| input.source),
         }
     }
@@ -325,7 +329,10 @@ impl Plan {
             // `restriction::certification_permits` records — Table 257 is about "changes to the
             // document", and a merge leaves every source's bytes where they were and writes a
             // different file beside them.
-            Self::Split(_) | Self::Merge(_) => Some(Operation::Assemble),
+            //
+            // **`pages` is the operation the bit's sentence describes word for word** — "insert,
+            // rotate, or delete pages" — so it is the same answer and no separate reading.
+            Self::Split(_) | Self::Merge(_) | Self::Pages(_) => Some(Operation::Assemble),
         }
     }
 }
@@ -429,6 +436,53 @@ pub enum Refusal {
         /// Every reason the document gave, worded, joined by `; `.
         reasons: String,
     },
+    /// §7.7.3.3: `--rotate` was given an angle that is not a multiple of 90.
+    ///
+    /// > The value shall be a multiple of 90.
+    ///
+    /// A usage error rather than a rounding: the caller asked for a page state the clause has
+    /// no way to write, and guessing which quarter turn was meant would be this program
+    /// deciding what a document says.
+    #[error("§7.7.3.3 makes /Rotate \"a multiple of 90\", and {degrees} is not one")]
+    Rotation {
+        /// The angle asked for.
+        degrees: i64,
+    },
+    /// A `pages` edit names a position the running page list does not have.
+    #[error(
+        "source {at}: no position {position}; the page list has {count} page(s), so the \
+             positions are 1 to {count} and one past the end appends"
+    )]
+    Position {
+        /// Which source.
+        at: usize,
+        /// The position asked for, counted from 1.
+        position: usize,
+        /// How long the list was.
+        count: usize,
+    },
+    /// §12.7.4.2: `--insert` would put a page carrying a widget annotation into the document
+    /// twice.
+    ///
+    /// > In addition, actual field dictionaries with the same fully qualified field name shall
+    /// > have the same field type ( FT ), value ( V ), and default value ( DV ).
+    ///
+    /// A widget is a field's representation on a page. Duplicating one is either a second field
+    /// under a name the clause governs — a field this program would have invented — or a second
+    /// representation of the same field, which needs an entry in that field's own `/Kids`. Both
+    /// are a form edited rather than a page duplicated, so the operation is declined by name.
+    #[error(
+        "source {at}: page {page} carries a widget annotation, and §12.7.4.2 makes a field's \
+         fully qualified name its identity; duplicating the page would either invent a second \
+         field under that name or need an entry written into the field's own /Kids, and this \
+         verb does neither"
+    )]
+    DuplicateWidget {
+        /// Which source.
+        at: usize,
+        /// The page, counted from 1.
+        page: usize,
+    },
     /// `--to-page` names a page the document does not have.
     #[error("source {at}: no page {page}; the document has {count}")]
     NoSuchPage {
@@ -483,7 +537,9 @@ impl Refusal {
     #[must_use]
     pub fn exit(&self) -> Exit {
         match self {
-            Self::Pattern(_) => Exit::Usage,
+            // A pattern that cannot name the outputs, an angle §7.7.3.3 cannot state, a
+            // position the page list does not have: three ways of writing an argument wrong.
+            Self::Pattern(_) | Self::Rotation { .. } | Self::Position { .. } => Exit::Usage,
             // Both are this program declining a well-formed request by name: a policy, or a
             // document whose cross-reference table it will not chain an update to.
             //
@@ -493,7 +549,8 @@ impl Refusal {
             Self::Restricted { .. }
             | Self::Unanswered { .. }
             | Self::Update { .. }
-            | Self::FieldCollision { .. } => Exit::Refused,
+            | Self::FieldCollision { .. }
+            | Self::DuplicateWidget { .. } => Exit::Refused,
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }
@@ -627,6 +684,15 @@ pub enum Origin {
         /// The sources it drew pages from, in input order.
         sources: Vec<usize>,
         /// How many pages it holds.
+        pages: usize,
+        /// How many indirect objects it was written with.
+        objects: u32,
+    },
+    /// One document's own pages, edited — `pages`'s output.
+    Edited {
+        /// Which source.
+        source: usize,
+        /// How many pages the output holds.
         pages: usize,
         /// How many indirect objects it was written with.
         objects: u32,
@@ -800,6 +866,16 @@ impl Output {
                 ("pages".to_owned(), Value::count(*pages)),
                 ("objects".to_owned(), Value::Integer(i64::from(*objects))),
             ],
+            Origin::Edited {
+                source,
+                pages,
+                objects,
+            } => vec![
+                ("kind".to_owned(), Value::text("edited")),
+                ("source".to_owned(), Value::count(*source)),
+                ("pages".to_owned(), Value::count(*pages)),
+                ("objects".to_owned(), Value::Integer(i64::from(*objects))),
+            ],
             Origin::Attachment { source, name } => vec![
                 ("kind".to_owned(), Value::text("attachment")),
                 ("source".to_owned(), Value::count(*source)),
@@ -925,6 +1001,7 @@ pub fn apply(
         Plan::Attachments(plan) => attachments::run(plan, first, sinks, &mut report)?,
         Plan::Split(plan) => split::run(plan, first, sinks, &mut report)?,
         Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
+        Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, &mut report)?,
     }
     Ok(report)
 }

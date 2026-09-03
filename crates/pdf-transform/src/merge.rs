@@ -249,6 +249,42 @@ pub struct Input {
     pub pages: Selection,
 }
 
+/// One page of the output: which document it comes from, which page of it, and what §7.7.3.3
+/// `/Rotate` the output states for it.
+///
+/// The engine below writes a document out of a list of these, and the two verbs on it differ
+/// only in how they build the list: `merge` concatenates or interleaves several documents'
+/// selections, `pages` edits one document's list in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Placement {
+    /// The document's position among the opened ones.
+    pub(crate) at: usize,
+    /// Its page, zero-based.
+    pub(crate) page: usize,
+    /// The `/Rotate` to write, where an edit decided one; `None` leaves the page's own — or,
+    /// where §7.7.3.4 gave it one, its ancestor's, flattened as every inheritable attribute is.
+    pub(crate) rotate: Option<i64>,
+}
+
+/// Whether one source page may take more than one place in the output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Duplicates {
+    /// Table 31 gives a page one `/Parent`, so naming it twice is [`Refusal::PageTwice`].
+    ///
+    /// `merge`'s answer: a merge that named one page twice is a plan whose author meant
+    /// something this verb cannot tell from a mistake.
+    Refuse,
+    /// The second and later occurrences cross as **their own page objects**.
+    ///
+    /// `pages --insert`'s answer, and Table 31 is what makes it the only one: `/Parent` is
+    /// "( Required; shall be an indirect reference ) The page tree node that is the immediate
+    /// parent of this page object", so two places in one tree need two page objects. The
+    /// content stream, the resources and everything below them are shared references — nothing
+    /// in a page's closure points back at the page except its annotations, which are duplicated
+    /// with it.
+    Copy,
+}
+
 /// How deep a value tree is rewritten before its tail is dropped.
 ///
 /// The parser's own `max_depth` is 256, so nothing it admitted is deeper.
@@ -330,6 +366,14 @@ struct Merge<'a> {
     renames: Vec<BTreeMap<Vec<u8>, Vec<u8>>>,
     /// Per document, the signature fields whose `/V` does not cross (§12.8.1).
     unsigned: Vec<BTreeSet<ObjectId>>,
+    /// While a duplicated page is being built, its annotations' own numbering.
+    ///
+    /// A page duplicated by `pages --insert` gets its own annotation objects (Table 172 gives
+    /// an annotation one `/P`), and an annotation that names another — §12.5.6.14's `/Popup`,
+    /// §12.5.6.10's `/IRT` — has to name the duplicate's copy rather than the original's. So
+    /// the whole of the page's `/Annots` is numbered before any of it is built, and this map
+    /// redirects every reference into that set while the page is under construction.
+    redirect: BTreeMap<(usize, ObjectId), ObjectId>,
     /// Objects whose contents have still to be reached.
     pending: VecDeque<(usize, ObjectId)>,
     /// Objects that cross changed, and the slot each was given.
@@ -341,6 +385,9 @@ struct Merge<'a> {
 impl Merge<'_> {
     /// The new number for a source object, or `None` where the walk stops at it.
     fn map(&mut self, from: usize, id: ObjectId) -> Option<ObjectId> {
+        if let Some(instead) = self.redirect.get(&(from, id)) {
+            return Some(*instead);
+        }
         if let Some(already) = self.assembly.copied(from, id) {
             return Some(already);
         }
@@ -582,7 +629,7 @@ fn rename_destinations(dict: &Dictionary, renames: &BTreeMap<Vec<u8>, Vec<u8>>) 
 ///
 /// > If such an attribute is omitted from a page object, its value shall be inherited from an
 /// > ancestor node in the page tree.
-fn inherited(document: &Document, page: ObjectId, key: &str) -> Option<Object> {
+pub(crate) fn inherited(document: &Document, page: ObjectId, key: &str) -> Option<Object> {
     let mut at = document
         .get(page)
         .as_dict()
@@ -611,8 +658,8 @@ struct Scope<'s> {
     contributing: &'s [usize],
     /// The plan's own source index for each opened document, for a sentence a person reads.
     sources: &'s [usize],
-    /// The output's pages, as `(document position, page index)`.
-    order: &'s [(usize, usize)],
+    /// The output's pages, in the order they are written.
+    order: &'s [Placement],
 }
 
 impl Scope<'_> {
@@ -692,31 +739,73 @@ pub(crate) fn run(
     }
 
     let order = order(&resolved, plan.collate);
-    if order.is_empty() {
-        return Err(Refusal::Assembly(
-            "a merge of no pages would write a document whose page tree has no leaf, and \
-             §7.7.3.2 makes /Kids \"an array of indirect references to the immediate children\" \
-             of a node that has some"
-                .to_owned(),
-        ));
-    }
     // Table 31 gives a page "( Required; shall be an indirect reference ) The page tree node
     // that is the immediate parent of this page object" — one parent, so one place in the tree.
     let mut seen = BTreeSet::new();
-    for (at, index) in &order {
-        if !seen.insert((*at, *index)) {
+    for place in &order {
+        if !seen.insert((place.at, place.page)) {
             let source = resolved
                 .iter()
-                .find(|input| input.at == *at)
-                .map_or(*at, |input| input.source);
+                .find(|input| input.at == place.at)
+                .map_or(place.at, |input| input.source);
             return Err(Refusal::PageTwice {
                 at: source,
-                page: index.saturating_add(1),
+                page: place.page.saturating_add(1),
             });
         }
     }
 
-    let expanded = plan.names.expand(&Fill {
+    let assembled = write(
+        &order,
+        documents,
+        sources,
+        Duplicates::Refuse,
+        &plan.names,
+        sinks,
+        report,
+    )?;
+    report.outputs.push(Output {
+        name: assembled.name,
+        bytes: assembled.bytes,
+        sanitised: assembled.sanitised,
+        origin: Origin::Merged {
+            sources: resolved.iter().map(|input| input.source).collect(),
+            pages: order.len(),
+            objects: assembled.objects,
+        },
+    });
+    Ok(())
+}
+
+/// One file written out of a list of placements: what both verbs on the serializer share.
+///
+/// The output's name, expanded from the pattern; its size and object count, for the caller's
+/// own [`Origin`]. The caller pushes the [`Output`], because what an output *is* — a merge of
+/// several documents, or one document's pages edited — is the verb's word rather than this
+/// function's.
+///
+/// # Errors
+///
+/// [`Refusal::Assembly`] where the document cannot be built, [`Refusal::FieldCollision`] where
+/// §12.7.4.2 forbids it, and [`Refusal::Sink`] where the output cannot be written.
+pub(crate) fn write(
+    order: &[Placement],
+    documents: &[Document],
+    sources: &[usize],
+    duplicates: Duplicates,
+    names: &Pattern,
+    sinks: &dyn Sinks,
+    report: &mut Report,
+) -> Result<Assembled, Refusal> {
+    if order.is_empty() {
+        return Err(Refusal::Assembly(
+            "a document of no pages would have a page tree with no leaf, and §7.7.3.2 makes \
+             /Kids \"an array of indirect references to the immediate children\" of a node that \
+             has some"
+                .to_owned(),
+        ));
+    }
+    let expanded = names.expand(&Fill {
         ordinal: 1,
         count: 1,
         page: None,
@@ -724,11 +813,11 @@ pub(crate) fn run(
         title: None,
     });
     let mut warnings = Vec::new();
-    let assembly = assemble(&order, documents, sources, &mut warnings)?;
+    let assembly = assemble(order, documents, sources, duplicates, &mut warnings)?;
 
     // `Document::version` is already §7.5.2's header raised by Table 29's `/Version` where the
     // catalog states a later one, so the highest of these is the highest any source claims —
-    // which is why the merged catalog states no `/Version` of its own.
+    // which is why the written catalog states no `/Version` of its own.
     let version = documents
         .iter()
         .filter_map(Document::version)
@@ -748,29 +837,41 @@ pub(crate) fn run(
     drop(writer);
 
     report.warnings.append(&mut warnings);
-    report.outputs.push(Output {
+    Ok(Assembled {
         name: expanded.name,
         bytes: written.bytes,
         sanitised: expanded.sanitised,
-        origin: Origin::Merged {
-            sources: resolved.iter().map(|input| input.source).collect(),
-            pages: order.len(),
-            objects: written.objects,
-        },
-    });
-    Ok(())
+        objects: written.objects,
+    })
 }
 
-/// The output's pages, as `(document position, page index)` in the order they are written.
+/// What [`write`] produced, for the verb that asked for it to account for.
+pub(crate) struct Assembled {
+    /// The name the sink was opened with.
+    pub(crate) name: String,
+    /// How many bytes were written.
+    pub(crate) bytes: u64,
+    /// Whether the name had a byte replaced by sanitisation.
+    pub(crate) sanitised: bool,
+    /// How many indirect objects it took.
+    pub(crate) objects: u32,
+}
+
+/// The output's pages, in the order they are written.
 ///
 /// Concatenated by default, and interleaved under `--collate` — pdftk's `shuffle`, taking one
 /// page from each input in turn until every input is spent, which is what makes two scanned
 /// sides of a stack of paper into one document.
-fn order(resolved: &[Resolved], collate: bool) -> Vec<(usize, usize)> {
+fn order(resolved: &[Resolved], collate: bool) -> Vec<Placement> {
+    let place = |at: usize, page: usize| Placement {
+        at,
+        page,
+        rotate: None,
+    };
     if !collate {
         return resolved
             .iter()
-            .flat_map(|input| input.pages.iter().map(|index| (input.at, *index)))
+            .flat_map(|input| input.pages.iter().map(|index| place(input.at, *index)))
             .collect();
     }
     let longest = resolved
@@ -782,7 +883,7 @@ fn order(resolved: &[Resolved], collate: bool) -> Vec<(usize, usize)> {
     for round in 0..longest {
         for input in resolved {
             if let Some(index) = input.pages.get(round) {
-                out.push((input.at, *index));
+                out.push(place(input.at, *index));
             }
         }
     }
@@ -798,9 +899,10 @@ fn order(resolved: &[Resolved], collate: bool) -> Vec<(usize, usize)> {
 ///
 /// [`Refusal::Assembly`] and [`Refusal::FieldCollision`].
 fn assemble<'a>(
-    order: &[(usize, usize)],
+    order: &[Placement],
     documents: &'a [Document],
     sources: &[usize],
+    duplicates: Duplicates,
     warnings: &mut Vec<Warning>,
 ) -> Result<Assembly<'a>, Refusal> {
     /// The one sentence every numbering failure gets, since they all mean the same thing.
@@ -810,9 +912,9 @@ fn assemble<'a>(
     // that decides which source's name wins a §7.9.6 collision and which states a first-wins
     // catalog entry.
     let mut contributing: Vec<usize> = Vec::new();
-    for (at, _) in order {
-        if !contributing.contains(at) {
-            contributing.push(*at);
+    for place in order {
+        if !contributing.contains(&place.at) {
+            contributing.push(place.at);
         }
     }
 
@@ -829,6 +931,7 @@ fn assemble<'a>(
         all_pages,
         renames,
         unsigned,
+        redirect: BTreeMap::new(),
         pending: VecDeque::new(),
         to_rebuild: VecDeque::new(),
         dropped: 0,
@@ -867,7 +970,7 @@ fn assemble<'a>(
         placed_tops.push((*at, *id, placed));
     }
 
-    let pages = reserve_pages(&mut merge, order, sources)?;
+    let pages = reserve_pages(&mut merge, order, sources, duplicates)?;
 
     let scope = Scope {
         contributing: &contributing,
@@ -875,11 +978,11 @@ fn assemble<'a>(
         order,
     };
     let intents = plan_intents(documents, &contributing);
-    for (at, id, placed) in &pages {
-        let page = build_page(&mut merge, *at, *id, tree, &intents);
+    for page in &pages {
+        let built = build_page(&mut merge, page, tree, &intents);
         merge
             .assembly
-            .place(*placed, page)
+            .place(page.placed, built)
             .map_err(|error| Refusal::Assembly(error.to_string()))?;
     }
     splice_outline(&mut merge, &placed_tops, outlines)?;
@@ -898,7 +1001,7 @@ fn assemble<'a>(
 
     let kids: Vec<Object> = pages
         .iter()
-        .map(|(_, _, placed)| Object::Reference(*placed))
+        .map(|page| Object::Reference(page.placed))
         .collect();
     let mut node = Dictionary::new();
     node.insert(
@@ -931,33 +1034,67 @@ fn assemble<'a>(
 /// [`Refusal::Assembly`] where a page is not an indirect object or the numbering is exhausted.
 fn reserve_pages(
     merge: &mut Merge<'_>,
-    order: &[(usize, usize)],
+    order: &[Placement],
     sources: &[usize],
-) -> Result<Vec<(usize, ObjectId, ObjectId)>, Refusal> {
+    duplicates: Duplicates,
+) -> Result<Vec<PlacedPage>, Refusal> {
     let documents = merge.documents;
     let mut pages = Vec::with_capacity(order.len());
-    for (at, index) in order {
-        let document = documents.get(*at).ok_or_else(|| {
-            Refusal::Assembly("the merge names a document it was not given".to_owned())
+    let mut seen = BTreeSet::new();
+    for place in order {
+        let document = documents.get(place.at).ok_or_else(|| {
+            Refusal::Assembly("the plan names a document it was not given".to_owned())
         })?;
         let id = Pages::new(document)
-            .get(*index)
+            .get(place.page)
             .and_then(|page| page.id)
             .ok_or_else(|| {
                 Refusal::Assembly(format!(
                     "page {} of source {} is not an indirect object, and a page tree's /Kids is \
                      \"an array of indirect references\" (§7.7.3.2)",
-                    index.saturating_add(1),
-                    sources.get(*at).copied().unwrap_or(*at)
+                    place.page.saturating_add(1),
+                    sources.get(place.at).copied().unwrap_or(place.at)
                 ))
             })?;
-        let placed = merge
-            .assembly
-            .replace(*at, id)
-            .map_err(|error| Refusal::Assembly(error.to_string()))?;
-        pages.push((*at, id, placed));
+        // The first occurrence stands in for the source page, so every reference to it from
+        // anywhere in the closure — a destination, an annotation's `/P` — reaches a page rather
+        // than §7.3.10's null. A second occurrence is a page object of its own, which nothing
+        // in the source names, and it is only reached from the tree's `/Kids`.
+        let duplicate = !seen.insert((place.at, place.page));
+        let placed = if duplicate && matches!(duplicates, Duplicates::Copy) {
+            merge
+                .assembly
+                .reserve()
+                .map_err(|error| Refusal::Assembly(error.to_string()))?
+        } else {
+            merge
+                .assembly
+                .replace(place.at, id)
+                .map_err(|error| Refusal::Assembly(error.to_string()))?
+        };
+        pages.push(PlacedPage {
+            at: place.at,
+            id,
+            placed,
+            rotate: place.rotate,
+            duplicate,
+        });
     }
     Ok(pages)
+}
+
+/// One page of the output with its slot taken: what [`build_page`] needs to fill it.
+struct PlacedPage {
+    /// The document's position among the opened ones.
+    at: usize,
+    /// The source page object.
+    id: ObjectId,
+    /// Its number in the output.
+    placed: ObjectId,
+    /// The `/Rotate` an edit decided, where one did.
+    rotate: Option<i64>,
+    /// Whether an earlier placement already stands in for this source page.
+    duplicate: bool,
 }
 
 /// §12.3.3's spliced chain, placed: each top-level item with the merged outline as its parent
@@ -1019,15 +1156,16 @@ fn report_losses(merge: &Merge<'_>, scope: &Scope<'_>, warnings: &mut Vec<Warnin
 }
 
 /// One emitted page: the source's dictionary, `/Parent` renamed, §7.7.3.4's inheritance
-/// flattened onto it, §14.11.5's array written on where the merge put it there, and every
-/// reference and renamed destination in it carried.
+/// flattened onto it, §14.11.5's array written on where the merge put it there, §7.7.3.3's
+/// `/Rotate` where an edit decided one, and every reference and renamed destination in it
+/// carried.
 fn build_page(
     merge: &mut Merge<'_>,
-    from: usize,
-    source: ObjectId,
+    page: &PlacedPage,
     tree: ObjectId,
     intents: &Intents,
 ) -> Object {
+    let (from, source) = (page.at, page.id);
     // §7.7.3.3 makes a page a dictionary, and `Pages` would not have counted anything else as
     // one — so an empty dictionary here is a page the reader already disowned, not a panic.
     let dict = match merge
@@ -1038,6 +1176,14 @@ fn build_page(
         Some(Object::Dictionary(dict)) => dict,
         _ => Dictionary::new(),
     };
+    // A duplicated page's annotations are its own: Table 172 makes `/P` "[a]n indirect
+    // reference to the page object with which this annotation is associated", one page, so a
+    // second placement of the page needs a second set. They are numbered before anything is
+    // built so that an annotation naming another — §12.5.6.14's `/Popup`, §12.5.6.10's `/IRT` —
+    // names the copy on this page rather than the original on the other one.
+    if page.duplicate {
+        merge.redirect = duplicate_annotations(merge, from, &dict);
+    }
     let mut out = Dictionary::new();
     for (key, value) in dict.iter() {
         if key.as_bytes() == b"Parent" {
@@ -1055,6 +1201,17 @@ fn build_page(
             out.insert(Name::new(key.as_bytes()), carried);
         }
     }
+    // §7.7.3.3: "The number of degrees by which the page shall be rotated clockwise when
+    // displayed or printed. The value shall be a multiple of 90. Default value: 0." So a
+    // rotation of zero is stated by saying nothing, and any other is stated outright —
+    // replacing whatever the page or, through §7.7.3.4, its ancestor said, because the
+    // ancestor is not coming along.
+    if let Some(degrees) = page.rotate {
+        out.remove("Rotate");
+        if degrees != 0 {
+            out.insert(Name::new(&b"Rotate"[..]), Object::Integer(degrees));
+        }
+    }
     // §14.11.5's page-level home, written only where the page does not state one of its own —
     // the clause makes the page's the array that "shall be used", so a page that states one
     // has already answered.
@@ -1066,6 +1223,83 @@ fn build_page(
         out.insert(Name::new(&b"OutputIntents"[..]), carried);
     }
     out.insert(Name::new(&b"Parent"[..]), Object::Reference(tree));
+    if page.duplicate {
+        let annotations = std::mem::take(&mut merge.redirect);
+        for ((_, id), placed) in &annotations {
+            let copy = build_annotation(merge, from, *id, page.placed, &annotations);
+            // The slot was reserved a moment ago and nothing else can have filled it.
+            drop(merge.assembly.place(*placed, copy));
+        }
+    }
+    Object::Dictionary(out)
+}
+
+/// Every annotation of a page about to be duplicated, given a number of its own.
+///
+/// Only an annotation that is an indirect object: one written directly into the `/Annots` array
+/// is a value rather than an object, so the copy of the array is already a copy of it.
+fn duplicate_annotations(
+    merge: &mut Merge<'_>,
+    from: usize,
+    page: &Dictionary,
+) -> BTreeMap<(usize, ObjectId), ObjectId> {
+    let mut out = BTreeMap::new();
+    let Some(Object::Array(items)) = page.get("Annots").map(|value| {
+        merge
+            .documents
+            .get(from)
+            .map_or_else(|| value.clone(), |document| document.resolve(value))
+    }) else {
+        return out;
+    };
+    for item in &items {
+        let Some(id) = item.as_reference() else {
+            continue;
+        };
+        if !matches!(
+            merge.documents.get(from).map(|document| document.get(id)),
+            Some(Object::Dictionary(_))
+        ) {
+            continue;
+        }
+        if let Ok(placed) = merge.assembly.reserve() {
+            out.insert((from, id), placed);
+        }
+    }
+    out
+}
+
+/// One duplicated annotation: the source's entries with `/P` naming the page it is now on.
+///
+/// Every reference into the duplicated set is redirected while this is built, so an annotation
+/// that names another names the copy beside it.
+fn build_annotation(
+    merge: &mut Merge<'_>,
+    from: usize,
+    source: ObjectId,
+    page: ObjectId,
+    within: &BTreeMap<(usize, ObjectId), ObjectId>,
+) -> Object {
+    let Some(Object::Dictionary(dict)) = merge
+        .documents
+        .get(from)
+        .map(|document| document.get(source))
+    else {
+        return Object::Null;
+    };
+    merge.redirect.clone_from(within);
+    let mut out = Dictionary::new();
+    for (key, value) in dict.iter() {
+        if key.as_bytes() == b"P" {
+            continue;
+        }
+        let carried = merge.carry(from, value, 0);
+        out.insert(key.clone(), carried);
+    }
+    merge.redirect.clear();
+    // Table 172: "( Optional except as noted below; PDF 1.3; indirect reference ) An indirect
+    // reference to the page object with which this annotation is associated."
+    out.insert(Name::new(&b"P"[..]), Object::Reference(page));
     Object::Dictionary(out)
 }
 
@@ -2285,14 +2519,15 @@ fn final_key(merge: &Merge<'_>, at: usize, key: &[u8]) -> Vec<u8> {
 ///
 /// `None` where no contributing document states any, which is most of them: a merged document
 /// that labels nothing is a merged document with no `/PageLabels`, exactly as its sources were.
-fn merge_page_labels(merge: &mut Merge<'_>, order: &[(usize, usize)]) -> Option<Object> {
+fn merge_page_labels(merge: &mut Merge<'_>, order: &[Placement]) -> Option<Object> {
     let documents = merge.documents;
     let labels: Vec<PageLabels> = documents.iter().map(PageLabels::read).collect();
     if labels.iter().all(PageLabels::is_empty) {
         return None;
     }
     let mut nums = Vec::new();
-    for (position, (at, index)) in order.iter().enumerate() {
+    for (position, place) in order.iter().enumerate() {
+        let (at, index) = (&place.at, &place.page);
         let mut entry = Dictionary::new();
         // "There is no default numbering style; if no S entry is present, page labels shall
         // consist solely of a label prefix with no numeric portion."
@@ -2383,9 +2618,9 @@ fn build_catalog(
                 source,
                 page: None,
                 detail: format!(
-                    "this source states /{} and the merged document carries none of them; \
-                     merging them is doc/todo/57's, and /Info is a deliberate omission whose \
-                     reason is in this module",
+                    "this source states /{} and the written document carries none of them; \
+                     §14.7's structure tree is the largest of them and doc/todo/57 has it, and \
+                     /Info is a deliberate omission whose reason is in this module",
                     left_behind.join(", /")
                 ),
             });
