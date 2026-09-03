@@ -1,8 +1,9 @@
 # A document's restrictions are the reader's to set, and they have levels
 
-Status: **the reading, the four levels and the verdict are one module (ADR 0212, session 373;
-ADR 0803, session 872); what is left is the event a window sends for *ask* and *warn* and the
-command that answers it.** No user interface is to be built until the project owner asks for one.
+Status: **the reading, the four levels, the verdict, the events and the command are built (ADR
+0212, session 373; ADR 0803, session 872; ADR 0814, session 885); what is left is a way for a
+person to *choose* a level and a dialogue to answer the question with.** No user interface is to
+be built until the project owner asks for one.
 Priority: 38 — capability, and low priority by the owner's own words
 Clauses: §7.6.4.2 (Table 22's `/P`), §12.8.2.2 (`/DocMDP`), §12.8.6 and Table 258 (usage rights),
 §12.7.5.5 (Table 236's signature field lock — the one restriction addressed to a *named field*
@@ -60,20 +61,67 @@ a file written in, not only against the viewer's edits. `pdf-transform` consumes
 opening the file — and `viewer-core` supplies `Off` and `On` through `RestrictionLevel::level`
 and matches every verdict, the two it cannot produce in one arm that refuses visibly. ADR 0803.
 
+## What the eight-hundred-and-eighty-fifth session built
+
+**The event and the command, which is what the section below called the whole of what was left.**
+`RestrictionLevel` has all four levels; `Viewer::standing` asks `decide` once per edit and matches
+all four verdicts, none of them quietly:
+
+| level | what a window receives | what happens to the edit |
+|---|---|---|
+| `Off` | nothing | done |
+| `On` | `Event::Refused { document, operation, notes }` | not done |
+| `Warn` | `Event::Warned { document, operation, notes }`, **after** the `Dirty` it caused | done |
+| `Ask` | `Event::Asking { document, operation, notes }` | held, until `Command::Answer { document, proceed }` |
+
+*Ask* is the `Event::PasswordRequired` shape the section below asked for: the edit is **resolved**
+before it is held, so what goes ahead on a `yes` is what was asked for at the moment it was asked
+(`open::Done`'s rule); one question is outstanding per document, a second replaces it, and a `no`
+forgets the edit and says nothing, because a question declined is neither the document doing
+something nor this program refusing. `notes::Standing` chooses the tail of every sentence, because
+a reason ending "was not done" is a lie under *warn* and premature under *ask*.
+
+**All four cross every boundary this tree has**: `viewer-confined`'s wire (`ANSWER` as command 26,
+`ASKING`/`WARNED`/`ATTACHMENTS_CHANGED` as events 16–18, `RestrictionLevel` as codes 0–3), and the
+C ABI as `PDFV_RESTRICT_ASK`, `PDFV_RESTRICT_WARN`, `pdfv_answer` and three event kinds that moved
+`PDFV_EVENT_KIND_COUNT` 16 → 19.
+
+**No window has a dialogue yet**, by the owner's word that the gestures follow the HTML mockups, so
+each of the four answers *ask* with `viewer_host::unanswerable` and `proceed: false` — out loud, the
+same closed-dialogue choice `pdf-transform` makes with `Refusal::Unanswered`. That is what keeps the
+level from silently behaving like *on*, and it is the one thing a window still owes.
+
+**§7.11.4's attach and detach are the levels' second consumer**, and the third if `pdf-transform`
+counts. `Edit::Attach { bytes, name, description, mime, home }` and `Edit::Detach { name }` are
+edits in `viewer-core`'s log beside the immutable document, replayed by undo and redo, written by
+§7.5.6's incremental update at `Command::Save` and at no other time. **Which of Table 22's bits
+governs one depends on §7.11.4.1's home, decided from the table's own words** (ADR 0814, and the
+§7.6.4.2 ledger row): a file filed in §7.7.4's `/EmbeddedFiles` tree is bit 4's residual —
+"[m]odify the contents of the document by operations other than those controlled by bits 6, 9, and
+11" — so `Operation::Modify`; a file filed by §12.5.6.15's annotation is bit 6's "[a]dd or modify
+text annotations", because that clause makes the file part of the annotation and bit 4's own row
+hands whatever bit 6 controls to bit 6, so `Operation::Annotate`. The consequence is pinned by a
+test: a certification at §12.8.2.2's level 3 admits a file on a page and withholds one in the tree.
+
 ## What is left
 
-- **The event and the command, in `viewer-core` and its windows.** *Ask* is `Verdict::Ask`
-  reaching a host as an event carrying the operation and the reasons, the edit held, and a
-  `Command` that answers it — the `Event::PasswordRequired` shape; *warn* is the edit applied and
-  an event saying what the document asserted. `RestrictionLevel` grows its two variants the same
-  day, and `Viewer::refusal`'s one arm becomes three. They are not shipped because a variant
-  nothing produces and nothing answers is a level that silently behaves like another one.
-  Nothing here is `#[non_exhaustive]`, so adding them fails every consumer's compile until it says
-  what it does, which is what makes waiting safe rather than lazy.
-- **A user interface**, when the owner asks for one. A menu with four entries and, probably, the
-  per-document override the viewer-wide value does not express today. **A command line is not one**,
-  which is worth stating because it is what kept two hosts without any way out for the whole of
-  their lives: nothing in the owner's instruction was blocking the flag, and nobody checked.
+- **A way to choose a level, and a dialogue to answer with.** A menu with four entries and,
+  probably, the per-document override the viewer-wide value does not express today — plus a prompt
+  for `Event::Asking` in each window. **A command line is not one**, which is worth restating
+  because it is what kept two hosts without any way out for the whole of their lives: nothing in
+  the owner's instruction was blocking the flag, and nobody checked.
+- **The gestures that send `Edit::Attach` and `Edit::Detach`.** No drag-and-drop, no command
+  palette, no file dialog was built in the eight-hundred-and-eighty-fifth session, by the owner's
+  word that the mockups are being reviewed first. What each window gained is the *display* half:
+  the files tab is rebuilt from `Query::Attachments` when `Event::AttachmentsChanged` says the list
+  moved. The C ABI has `pdfv_attach` and `pdfv_detach` already, because an ABI has no gestures.
+- **The payload's descriptor route across the confinement.** `Edit::Attach` ships its bytes on the
+  wire today, as `Command::Open` ships a document's. Round 883 made the *document's* descriptor
+  cross with `SCM_RIGHTS`; that branch was not on `main` when 885 branched, so building against it
+  would have been building against a branch that does not exist. The day a source descriptor route
+  exists, an attach is the second thing that should take it — the host opens the file, the worker
+  never sees a path, and a large attachment stops being copied through a pipe. `encode_edit`'s
+  arm 4 is where it lands.
 - **Table 22's bit 5, and the copy operation nothing here can name.** The bit is "[c]opy or
   otherwise extract text and graphics from the document", and this crate hands a host a *readback*
   — the same `Query::Selection` that a drag asks sixty times a second in order to draw a
@@ -87,8 +135,8 @@ and matches every verdict, the two it cannot produce in one arm that refuses vis
 - **Annex O's `ef`, which is the same four levels arriving from `doc/todo/39`.** "[S]ecurity should
   be strongly considered when opening an embedded file … a PDF processor may choose to prompt the
   user or even prevent opening of the file" — a *prompt*, which is exactly the ask level, over an
-  operation (`Command::Extract`) that no document restricts today. It is the second consumer the
-  levels are waiting for.
+  operation (`Command::Extract`) that no document restricts today. The level exists now; what is
+  missing is `Operation` reaching that path at all.
 - **Assembling and faithful printing** (Table 22 bits 11 and 12) are named in `restriction::Bit`
   and consumed by nothing, each saying why; bit 3 is consumed since session 872, by
   `pdf-transform`'s page render. `Operation` gets an arm for 11 the day `split`, `merge` or
@@ -98,8 +146,10 @@ and matches every verdict, the two it cannot produce in one arm that refuses vis
 ## What not to do
 
 - **No user interface**, by the owner's instruction, until it is asked for.
-- **No level enum shipped with one caller**, which is why two of four are absent rather than
-  stubbed. ADR 0178's lesson.
+- **No level enum shipped with one caller**, which is why two of four were absent rather than
+  stubbed for five hundred sessions and arrived in the eight-hundred-and-eighty-fifth *with* the
+  event and the command. ADR 0178's lesson, and it is discharged rather than retired: the next
+  level-shaped thing here — a per-document override, `Operation` for bit 5 — is under it too.
 - **No weakening of what is written.** §7.5.6's incremental update, `Document`'s immutability and
   the signature-withdrawal rule are correctness, not policy: a save that exceeds a usage-rights
   grant must still remove the `/UR3`, because §12.8.6 makes the signature a claim about the file

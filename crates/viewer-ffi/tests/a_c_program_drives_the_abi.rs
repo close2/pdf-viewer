@@ -202,7 +202,7 @@ fn a_c_program_opens_a_document_turns_a_page_asks_a_query_and_gets_pixels() {
 /// for "black point" lands, and the page after it draws.
 fn what_it_printed(said: &str) {
     for expected in [
-        "abi 1 (header 1), 16 event kind(s) (header 16)",
+        "abi 1 (header 1), 19 event kind(s) (header 19)",
         "Opened says document 1 has 5 page(s)",
         "page 1 of 5 (5 page(s) in the document)",
         "outline: 14 row(s)",

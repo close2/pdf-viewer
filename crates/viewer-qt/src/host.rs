@@ -1932,6 +1932,25 @@ impl Host {
             // this host's own because it names the word the argument parser takes, and this host
             // wrote its own copy of it for sessions while taking no such word (ADR 0604).
             Event::Refused { notes, .. } => self.say(&viewer_host::refused(&notes)),
+            // The other two of `CLAUDE.md`'s four levels, since the eight-hundred-and-eighty-fifth
+            // session (ADR 0814). *Warn* is a sentence after an edit that went ahead. *Ask* is a
+            // question this window has no dialogue for yet — the gestures follow the owner's
+            // mockups (`doc/todo/38`) — so it answers no, out loud, rather than letting the level
+            // behave like *on* in silence; `viewer_host::unanswerable` is the sentence.
+            Event::Warned { notes, .. } => self.say(&viewer_host::warned(&notes)),
+            Event::Asking {
+                document, notes, ..
+            } => {
+                self.say(&viewer_host::unanswerable(&notes));
+                queue.push_back(Command::Answer {
+                    document,
+                    proceed: false,
+                });
+            }
+            // §7.11.4's list moved under the files tab: rebuilt from the same answer it was
+            // built from, which is the only thing a window may do here this round — display
+            // the list it already shows.
+            Event::AttachmentsChanged { .. } => self.build_panels(),
         }
     }
 

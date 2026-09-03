@@ -170,6 +170,27 @@ gained two entry points and its first struct passed by value since the ABI was w
 a function in one namespace. `PDFV_ABI_VERSION` did not move, because a struct *added* is a shape
 an old caller never passes. ADR 0737.
 
+**And the eight-hundred-and-eighty-fifth added two `Edit`s, a `Command`, three `Event`s and two
+levels — the largest single addition since the vocabulary was frozen, and every one of them owed by
+one feature.** The project owner's *"I am missing adding embedded files"* is `Edit::Attach { bytes,
+name, description, mime, home }` and `Edit::Detach { name }`, §7.11.4's file put into one of
+§7.11.4.1's two homes or taken out of the tree, as entries in the log beside the immutable document.
+What that dragged in is the *policy*: an edit a document restricts had two answers here and
+`CLAUDE.md` names four, so `RestrictionLevel` gained `Ask` and `Warn`, and each arrived **with the
+message that makes it a level rather than a variant nothing answers** — `Event::Asking` answered by
+`Command::Answer { document, proceed }`, which is `Event::PasswordRequired`'s shape, and
+`Event::Warned` after the edit and after the `Dirty` it caused (`doc/todo/38`'s standing condition,
+ADR 0178's lesson). `Event::AttachmentsChanged` is the third, and it passes this file's own test for
+a message: a host sent the edit but not the *verdict* — an attach under `On` moved nothing — and an
+undo names no edit at all. **Every consumer that matches these enumerations exhaustively failed to compile**, `PDFV_EVENT_KIND_COUNT` moved
+16 → **19** for the second time in its life, and the C ABI gained three entry points (`pdfv_attach`,
+`pdfv_detach`, `pdfv_answer`) and four constants. `PDFV_ABI_VERSION` did not move, because every
+addition is a shape an old caller never passes. **No host gained a gesture**: the owner is reviewing
+the flows as mockups first, so each window gained only the display half — the files tab rebuilt from
+`Query::Attachments` when the list moves — and each answers `Event::Asking` with
+`viewer_host::unanswerable` and `proceed: false`, out loud, because a window that cannot ask must
+not let *ask* behave like *on* in silence. ADR 0814.
+
 Read by: anybody writing a host, adding a `Command`, `Event` or `Query`, or asking what the
 crate boundary permits. `doc/HANDOVER.md`'s reader table points a round writing a host here, and ADRs 0116 to 0121
 are the argument.
@@ -268,7 +289,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   `Undo`, `Redo`, `Save`, **`Extract { name }`**, **`Find(Find)`** — Annex O's `search` and a find
   bar's *next*, one page per step because rule 4 forbids blocking and rule 3 leaves no clock to
   budget with; 5.84 s is what a 1023-page sweep costs and no host may be blocked for it (ADR 0250) —
-  `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, **`Present(PresentationMode)`**,
+  `Supply { purpose, bytes }`, **`Restrict(RestrictionLevel)`**, **`Answer { document, proceed }`** —
+  the second half of `RestrictionLevel::Ask`, and the only command whose whole content is one
+  bit only a person can supply (ADR 0814) — **`Present(PresentationMode)`**,
   **`Layout(PageLayout)`**, `Tick { millis }`, `RenderReady { token, rendered }`.
   **`Layout` is the fourth policy value and the six-hundred-and-sixth session's**, on Table 29's
   `/PageLayout`. What only this crate can do is *arrange* the pages — a host holds no page extents,
@@ -310,7 +333,12 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   **`Refused { document, operation, notes }`** — an operation this reader declined *on the
   document's instructions*, and deliberately not `Reported`: that one says what the **document**
   could not do, and this says what the reader's own policy did. It carries the operation so that
-  it can become a question (ADR 0212) —
+  it can become a question (ADR 0212) — and since the eight-hundred-and-eighty-fifth it has:
+  **`Asking { document, operation, notes }`** is the same list under `RestrictionLevel::Ask`, held
+  until `Command::Answer`, and **`Warned { document, operation, notes }`** the same list under
+  `Warn`, after the edit — so `Refused` is now the answer of exactly one level —
+  **`AttachmentsChanged { document }`**, §7.11.4's list moving under a host that cannot work out
+  for itself whether its edit was performed (ADR 0814) —
   `Reported { document, page: Option<usize>, notes }` — the `None` page is what the *document*
   says about itself (§12.11, §12.8, §7.11.4), said before any page is drawn.
 - `Query` → `Answer`: `PageCount`, `CurrentPage`, **`View`** — the page, the magnification and the
@@ -399,6 +427,22 @@ annotation is named by **object** where a field is named by §12.7.4.2's qualifi
 annotation has no name for anything to address it by. And an annotation the *file* states is
 deliberately not answered by `Query::FreeTextAt` at all: appending an object is the writing
 `CLAUDE.md` permits and replacing the producer's is a decision nobody has made.
+
+**And §7.11.4's file since the eight-hundred-and-eighty-fifth** (ADR 0814), which is the third
+kind of thing an `Edit` adds: not a value put into something the document holds, and not an
+annotation, but a *file*. `Edit::Attach { bytes, name, description, mime, home }` takes the file
+whole — rule 2 gives the host the filesystem, so what crosses is bytes and never a path — and
+`AttachHome` chooses between §7.11.4.1's two: the document's `/EmbeddedFiles` tree, or §12.5.6.15's
+annotation on the page under a **point** of the viewport, mapped like `Edit::FreeText`'s corners.
+`Edit::Detach { name }` takes an entry out of the tree by the key `Query::Attachments` answered
+with. Four things came with it. `Query::Attachments` now answers the **log's** view rather than the
+file's, so a file attached this sitting is listed before anything is saved and one detached is out
+of it at once — which is why `Event::AttachmentsChanged` had to exist. The name is **one namespace
+across both homes**, under §7.9.6's "[t]he keys shall not overlap", so that a detach by name is
+never ambiguous. Which of Table 22's bits governs the edit depends on the home, so `operation_of`
+answers `Operation::Annotate` for a page and `Operation::Modify` for the tree — the argument is in
+ADR 0814 and on the §7.6.4.2 ledger row. And **no host gained a gesture**: a window may display the
+list and nothing more until the owner's mockups are reviewed.
 
 **And a *form* since the three-hundred-and-ninety-eighth** (ADR 0235). `Query::Fields` answers with
 every field that has a widget on the page being shown — §12.7.5's type, the flags of Tables 227, 229,

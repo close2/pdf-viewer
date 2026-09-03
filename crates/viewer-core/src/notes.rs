@@ -254,24 +254,58 @@ pub(crate) fn losses(open: &mut crate::open::Open) -> Vec<String> {
     )]
 }
 
-/// Why a document does not permit an operation, in sentences a host can show.
+/// What became of an operation a document restricts, for the sentences that say why.
+///
+/// One value per verdict a window can receive, because the *tail* of every sentence
+/// [`restricted`] words depends on it: a reason that ends "it was not done" is a lie under
+/// *warn*, where it was, and premature under *ask*, where nobody has answered yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Standing {
+    /// `Level::On`: the operation was not performed.
+    Refused,
+    /// `Level::Ask`: the operation is held until the person answers.
+    Asked,
+    /// `Level::Warn`: the operation was performed and the reasons are said after it.
+    Warned,
+}
+
+impl Standing {
+    /// The clause of the sentence that says what happened to the operation.
+    fn tail(self, operation: pdf_model::restriction::Operation) -> String {
+        match self {
+            Self::Refused => format!("{} was not done", operation.as_str()),
+            Self::Asked => format!("{} is waiting on your answer", operation.as_str()),
+            Self::Warned => format!(
+                "{} was done anyway, because this reader is set to warn rather than obey",
+                operation.as_str()
+            ),
+        }
+    }
+}
+
+/// Why a document does not permit an operation, in sentences a host can show, and what became
+/// of it.
 ///
 /// The other half of [`about`], and the same vocabulary: what a document asserts is read by
 /// `pdf_model::restriction`, which answers with clauses and levels, and the words are here
 /// because words about a document belong where the rest of this program's words about one are.
-/// One sentence per restriction, in the order `pdf_model::restriction::asserted` found them.
+/// One sentence per restriction, in the order `pdf_model::restriction::asserted` found them,
+/// each ending in [`Standing`]'s clause.
 ///
 /// **A function of the restrictions rather than of the document**, since the
 /// eight-hundred-and-seventy-second session: the reading and the policy are both
-/// `pdf_model::restriction::decide`'s, and what reaches here is what the verdict carried — the
-/// same list *ask* and *warn* will need worded at exactly this moment, when they arrive.
-pub(crate) fn refusal(
+/// `pdf_model::restriction::decide`'s, and what reaches here is what the verdict carried. Since
+/// the eight-hundred-and-eighty-fifth the same list is worded for all three verdicts a window
+/// receives, which is what that session's comment here said it would need (ADR 0814).
+pub(crate) fn restricted(
     operation: pdf_model::restriction::Operation,
     restrictions: &[pdf_model::restriction::Restriction],
+    standing: Standing,
 ) -> Vec<String> {
     use pdf_model::restriction::Restriction;
     use pdf_model::signature::Modification;
 
+    let tail = standing.tail(operation);
     restrictions
         .iter()
         .map(|restriction| match *restriction {
@@ -281,27 +315,23 @@ pub(crate) fn refusal(
             Restriction::Certified { level } => match level {
                 Modification::None => format!(
                     "this document's author certified it as final (§12.8.2.2's /P 1), so it \
-                     permits no change at all — {} was not done",
-                    operation.as_str()
+                     permits no change at all — {tail}"
                 ),
                 Modification::FormFilling => format!(
                     "this document's author permitted only form filling and signing (§12.8.2.2's \
-                     /P 2), which does not include {} — it was not done",
+                     /P 2), which does not include {} — {tail}",
                     operation.as_str()
                 ),
                 // Level 3 and an undefined level both permit, so `asserted` never names them
                 // here; saying which one arrived is better than a sentence that claims a rule.
-                other => format!(
-                    "this document's /DocMDP states {other:?}, and {} was not done",
-                    operation.as_str()
-                ),
+                other => format!("this document's /DocMDP states {other:?} — {tail}"),
             },
             // §7.6.4.2's Table 22, and §7.6.4.1's sentence about it: "PDF readers shall respect
             // the intent of the document creator by restricting user access to an encrypted PDF
             // file according to the permissions contained in the file."
             Restriction::AccessDenied { bit } => format!(
                 "this document's encryption does not grant {} (§7.6.4.2's Table 22, bit {}) — \
-                 it was not done",
+                 {tail}",
                 operation.as_str(),
                 bit.position()
             ),
@@ -312,8 +342,7 @@ pub(crate) fn refusal(
             // document's encryption or its author's certification.
             Restriction::FieldLocked => format!(
                 "a signature in this document locks this field against further change \
-                 (§12.7.5.5's /Lock) — {} was not done",
-                operation.as_str()
+                 (§12.7.5.5's /Lock) — {tail}"
             ),
             // §12.8.2.4 states a consequence where §12.7.5.5 states a prohibition, and the
             // sentence keeps them apart: "any modifications to specific form fields shall
@@ -321,8 +350,7 @@ pub(crate) fn refusal(
             // forbids the edit — it says what the edit costs, which is what the clause says.
             Restriction::FieldCovered => format!(
                 "a signature in this document covers this field, and changing it invalidates \
-                 that signature (§12.8.2.4's FieldMDP) — {} was not done",
-                operation.as_str()
+                 that signature (§12.8.2.4's FieldMDP) — {tail}"
             ),
             // §12.5.3's Table 167 bit 10: "If set, do not allow the contents of the annotation to
             // be modified by the user." Bit 8's `Locked` is named in the same breath because it
@@ -330,8 +358,7 @@ pub(crate) fn refusal(
             // "does not restrict changes to the annotation's contents".
             Restriction::AnnotationLocked => format!(
                 "this annotation is marked LockedContents (§12.5.3's Table 167, bit 10), so its \
-                 text may not be changed — {} was not done",
-                operation.as_str()
+                 text may not be changed — {tail}"
             ),
         })
         .collect()

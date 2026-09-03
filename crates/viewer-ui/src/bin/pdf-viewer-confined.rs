@@ -450,6 +450,44 @@ impl Host {
         }
     }
 
+    /// §7.6.4.1's prompt, which is the one arm of [`Self::event`] long enough to be its own.
+    ///
+    /// "an interactive PDF processor *should* prompt", and this window is one (ADR 0718; the
+    /// refusal it replaces was ADR 0713's scope decision). The policy — how many attempts, what
+    /// exhaustion means — is `viewer_host::password`'s, shared with the three established
+    /// windows.
+    fn password_required(&mut self) {
+        if self.chrome.is_none() {
+            match Chrome::new() {
+                Ok(chrome) => self.chrome = Some(chrome),
+                Err(said) => {
+                    // A build whose compiled-in faces will not parse cannot draw the card;
+                    // refusing by name is what is left (trap 5).
+                    self.stop(format!(
+                        "{} is encrypted and this build cannot draw the prompt ({said}); open \
+                         it in pdf-viewer, pdf-viewer-gtk or pdf-viewer-qt",
+                        self.path.display()
+                    ));
+                    return;
+                }
+            }
+        }
+        match self.asking.required() {
+            Ask::Prompt { attempt, of } => {
+                self.password
+                    .ask(viewer_host::password::prompt(&self.name(), attempt, of));
+                self.card_changed();
+            }
+            Ask::Exhausted => {
+                // Stop asking and leave the window open — `viewer_host::password`'s rule: no
+                // host may make `Exhausted` mean the window closes.
+                eprintln!("note: {}", viewer_host::password::EXHAUSTED);
+                self.heading = format!("{} — {}", self.name(), viewer_host::password::EXHAUSTED);
+                self.retitle();
+            }
+        }
+    }
+
     /// What this window does about each event the confined viewer sent back.
     ///
     /// Exhaustive on purpose: a message added to the boundary must fail to compile here rather
@@ -473,52 +511,18 @@ impl Host {
                 // The worker survives an open it refused; only this document is over.
                 self.stop(format!("cannot open {}: {reason}", self.path.display()));
             }
-            Event::PasswordRequired { .. } => {
-                // §7.6.4.1: an interactive processor *should* prompt, and this window is one
-                // (ADR 0718; the refusal it replaces was ADR 0713's scope decision). The policy
-                // — how many attempts, what exhaustion means — is `viewer_host::password`'s,
-                // shared with the three established windows.
-                if self.chrome.is_none() {
-                    match Chrome::new() {
-                        Ok(chrome) => self.chrome = Some(chrome),
-                        Err(said) => {
-                            // A build whose compiled-in faces will not parse cannot draw the
-                            // card; refusing by name is what is left (trap 5).
-                            self.stop(format!(
-                                "{} is encrypted and this build cannot draw the prompt \
-                                 ({said}); open it in pdf-viewer, pdf-viewer-gtk or \
-                                 pdf-viewer-qt",
-                                self.path.display()
-                            ));
-                            return;
-                        }
-                    }
-                }
-                match self.asking.required() {
-                    Ask::Prompt { attempt, of } => {
-                        self.password
-                            .ask(viewer_host::password::prompt(&self.name(), attempt, of));
-                        self.card_changed();
-                    }
-                    Ask::Exhausted => {
-                        // Stop asking and leave the window open — `viewer_host::password`'s
-                        // rule: no host may make `Exhausted` mean the window closes.
-                        eprintln!("note: {}", viewer_host::password::EXHAUSTED);
-                        self.heading =
-                            format!("{} — {}", self.name(), viewer_host::password::EXHAUSTED);
-                        self.retitle();
-                    }
-                }
-            }
-            // Four arms with nothing to do, and each for its own reason, kept in one place so
+            Event::PasswordRequired { .. } => self.password_required(),
+            // Five arms with nothing to do, and each for its own reason, kept in one place so
             // that a message added to the boundary still breaks this build: a `Closed` follows
             // this window's own `Close` and nothing else; a `Transition` never fires because this
             // window sends no `Command::Tick` and starts no presentation; a `Searched` answers a
-            // `Find` this window never sends; and a `Dirty` reports an edit no key here can make.
+            // `Find` this window never sends; a `Dirty` reports an edit no key here can make; and
+            // an `AttachmentsChanged` names a list this window shows no panel for (ADR 0713).
             Event::Closed(_)
             | Event::Transition { .. }
             | Event::Dirty { .. }
-            | Event::Searched { .. } => {}
+            | Event::Searched { .. }
+            | Event::AttachmentsChanged { .. } => {}
             Event::PageChanged {
                 index, label, of, ..
             } => {
@@ -562,6 +566,22 @@ impl Host {
                 for note in notes {
                     eprintln!("refused by the document's restrictions: {note}");
                 }
+            }
+            // The other two of `CLAUDE.md`'s four levels (ADR 0814). This window makes no edit
+            // and sets no level, so neither arrives; both are answered all the same, in the
+            // direction that obeys, so that a level added to this window later cannot behave
+            // like another one in silence.
+            Event::Warned { notes, .. } => {
+                eprintln!("note: {}", viewer_host::warned(&notes));
+            }
+            Event::Asking {
+                document, notes, ..
+            } => {
+                eprintln!("note: {}", viewer_host::unanswerable(&notes));
+                self.dispatch(&Command::Answer {
+                    document,
+                    proceed: false,
+                });
             }
             Event::Reported { page, notes, .. } => {
                 for note in notes {

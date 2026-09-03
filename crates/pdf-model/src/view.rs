@@ -157,6 +157,29 @@ pub struct ViewState {
     /// thing from never having touched it: the first draws nothing and the second draws Table
     /// 166's `/Contents`.
     retyped: BTreeMap<ObjectId, String>,
+    /// §7.11.4's embedded files a person **attached** this session, in the order they did.
+    ///
+    /// The seventh thing in this struct that comes from outside the document, and the second
+    /// that adds objects rather than changing one: a file put into the document is not authoring
+    /// any more than an annotation is, and it leaves through the same §7.5.6 update. Each carries
+    /// the object numbers its stream and its specification will be written under, allocated when
+    /// it was attached for [`Self::added`]'s reason — and where the home is a page, the annotation
+    /// that files it is an entry of `added`, so the icon is drawn and written by the code every
+    /// other added annotation takes. ADR 0814.
+    filed: Vec<Filed>,
+    /// The `/EmbeddedFiles` keys of the file's own entries a person **detached** this session.
+    ///
+    /// Keys rather than objects, because a name tree files by key (§7.7.4) and what a person
+    /// pointed at was a row named by one. What the entry alone reached is marked free when the
+    /// save writes the tree without it — §7.5.6's "shall be marked as deleted by means of their
+    /// cross-reference entries" — and what another home still reaches is left in use and said.
+    unfiled: Vec<Vec<u8>>,
+    /// How many object numbers this state has handed out since it last held nothing added.
+    ///
+    /// One counter for annotations and attachments alike, and it only ever grows while anything
+    /// allocated is still held: an attachment detached again and an annotation added after it
+    /// would otherwise be given the same number, and the log names annotations by number.
+    allocated: u32,
 }
 
 /// The resource name the `/DA` of a free text annotation this program creates uses.
@@ -188,6 +211,89 @@ pub struct Added {
     pub page: ObjectId,
     /// The annotation dictionary, whole, as §7.5.6 will write it.
     pub dict: Dictionary,
+}
+
+/// §7.11.4's embedded file a person is putting into the document, and where.
+///
+/// What `viewer-core`'s edit log resolves an attach to, and what a replay hands back to
+/// [`ViewState::attach`]: the bytes shared rather than copied, because a log entry, an undo and
+/// a redo all hold the same file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filing {
+    /// The file.
+    pub bytes: crate::attachment::filing::Payload,
+    /// The name it is filed under — §7.7.4's key in the tree, and Table 43's `/F` and `/UF`
+    /// either way, which Table 32 says the key "should match".
+    pub name: String,
+    /// Table 43's `/Desc`, and Table 166's `/Contents` where the home is a page.
+    pub description: Option<String>,
+    /// Table 44's `/Subtype`, the media type, where the person's program knows one.
+    pub media_type: Option<String>,
+    /// Which of §7.11.4.1's homes.
+    pub home: FilingHome,
+}
+
+/// Which of §7.11.4.1's two homes a file goes into.
+///
+/// > An embedded file stream shall be included in a PDF file in one of the following ways:
+///
+/// — a file specification's `/EF`, which "shall be used for file attachment annotations …
+/// which associate the embedded file with a location on a page in the document", or the
+/// `EmbeddedFiles` entry of the name dictionary, which associates it "with the document as a
+/// whole".
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilingHome {
+    /// §7.7.4's `/EmbeddedFiles` tree: the document as a whole.
+    Document,
+    /// §12.5.6.15's annotation on a page, at a rectangle in the page's default user space.
+    Page {
+        /// The page, which is `Page::id`.
+        page: ObjectId,
+        /// Table 166's `/Rect`.
+        rect: [f32; 4],
+    },
+}
+
+/// One file a person attached this session, with the numbers it will be written under.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filed {
+    /// What was attached, and where.
+    pub filing: Filing,
+    /// §7.7.4's key: [`Filing::name`] as §7.9.2's text string, which is what the tree compares.
+    pub key: Vec<u8>,
+    /// The object §7.11.4's stream will be written under.
+    pub stream: ObjectId,
+    /// The object §7.11.3's file specification will be written under.
+    pub specification: ObjectId,
+    /// The annotation filing it, where the home is a page — an entry of the additions.
+    pub annotation: Option<ObjectId>,
+}
+
+/// Why [`ViewState::attach`] declined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AttachRefusal {
+    /// The document, or this session, already files something under this name.
+    ///
+    /// §7.9.6: a name tree's keys "shall not overlap", and a second file under one key would be
+    /// either a replacement nobody asked for or a tree the clause forbids. One namespace for both
+    /// homes, so that a detach by name is never ambiguous.
+    #[error("a file is already embedded under this name (ISO 32000-2 §7.9.6)")]
+    NameTaken,
+}
+
+/// What [`ViewState::detach`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Detached {
+    /// A file this session attached is forgotten, together with its annotation where it had one.
+    Filed,
+    /// A file the document's own tree names will be left out of the tree the next save writes.
+    Unfiled,
+    /// Nothing is embedded under this name in the tree or in this session, so nothing happened.
+    ///
+    /// A file §12.5.6.15's annotation carries in the *file's* own `/Annots` is among these:
+    /// taking it out would be deleting the producer's annotation, which is `doc/todo/33`'s and
+    /// not this verb's.
+    Nothing,
 }
 
 /// Which of §12.5.6.10's four text markup annotations to add.
@@ -540,6 +646,9 @@ impl ViewState {
             widget_appearances: WidgetAppearances::default(),
             added: Vec::new(),
             retyped: BTreeMap::new(),
+            filed: Vec::new(),
+            unfiled: Vec::new(),
+            allocated: 0,
         }
     }
 
@@ -815,7 +924,7 @@ impl ViewState {
         );
         // Table 167 bit 3.
         dict.insert(Name::new(&b"F"[..]), Object::Integer(4));
-        let id = self.next_free_object(document);
+        let id = self.allocate(document);
         self.added.push(Added { id, page, dict });
         Some(id)
     }
@@ -925,7 +1034,7 @@ impl ViewState {
         );
         style.insert(Name::new(&b"W"[..]), Object::Integer(0));
         dict.insert(Name::new(&b"BS"[..]), Object::Dictionary(style));
-        let id = self.next_free_object(document);
+        let id = self.allocate(document);
         self.added.push(Added { id, page, dict });
         self.set_free_text(document, id, text);
         Some(id)
@@ -1099,14 +1208,17 @@ impl ViewState {
         Some((widget, dict))
     }
 
-    /// A number no object in the file and no annotation already added is using.
+    /// A number no object in the file and nothing already added or attached is using, and
+    /// which nothing after this call will be given.
     ///
     /// The same rule [`Update::beside`] applies, and for the same reason: §7.5.5 makes `/Size`
     /// "one greater than the highest object number used in the file" and 68 of the corpus's 974
     /// documents write a cross-reference entry beyond their own, so the larger of the two wins.
-    /// The count of annotations already added is added on top, because those numbers are spoken
-    /// for even though nothing has been written yet.
-    fn next_free_object(&self, document: &Document) -> ObjectId {
+    /// The count already handed out is added on top, because those numbers are spoken for even
+    /// though nothing has been written yet — and it is a count that only grows while anything
+    /// allocated is held (see [`Self::allocated`]), so a number is never given twice in one
+    /// sitting.
+    fn allocate(&mut self, document: &Document) -> ObjectId {
         let highest = document.xref().object_numbers().max().unwrap_or_default();
         let stated = document
             .trailer()
@@ -1115,11 +1227,188 @@ impl ViewState {
             .and_then(|size| u32::try_from(size).ok())
             .unwrap_or_default();
         let base = highest.saturating_add(1).max(stated);
-        let number = base.saturating_add(u32::try_from(self.added.len()).unwrap_or(u32::MAX));
+        let number = base.saturating_add(self.allocated);
+        self.allocated = self.allocated.saturating_add(1);
         ObjectId {
             number,
             generation: 0,
         }
+    }
+
+    /// Starts the numbering again once nothing allocated is held any more.
+    ///
+    /// A replay clears every addition and every attachment before it re-applies the log, and the
+    /// numbers a replay hands out have to be the ones the log recorded — so the counter starts
+    /// from nothing exactly when the state does.
+    fn release_numbers_if_nothing_is_held(&mut self) {
+        if self.added.is_empty() && self.filed.is_empty() {
+            self.allocated = 0;
+        }
+    }
+
+    /// §7.11.4: puts a file into the document, in one of §7.11.4.1's two homes.
+    ///
+    /// Nothing is written: the stream and the specification are allocated their numbers and
+    /// built at save time by [`Self::save`], through `crate::attachment::filing` — the same
+    /// writer `pdf-transform attachments --attach` uses. Where the home is a page, the
+    /// §12.5.6.15 annotation is added to [`Self::additions`] at once, so the page draws its icon
+    /// before anything is saved and the same code writes it that writes every other added
+    /// annotation. Table 187's `/Name` is the table's default, `PushPin`.
+    ///
+    /// # Errors
+    ///
+    /// [`AttachRefusal::NameTaken`] where the document's tree — less what this session detached
+    /// — or this session already files something under the name.
+    pub fn attach(&mut self, document: &Document, filing: Filing) -> Result<(), AttachRefusal> {
+        let key = pdf_syntax::text_string::encode_text_string(&filing.name);
+        if self.attachment_named(document, &filing.name) {
+            return Err(AttachRefusal::NameTaken);
+        }
+        let stream = self.allocate(document);
+        let specification = self.allocate(document);
+        let annotation = match filing.home {
+            FilingHome::Document => None,
+            FilingHome::Page { page, rect } => {
+                let id = self.allocate(document);
+                let dict = crate::attachment::filing::file_attachment_annotation(
+                    page,
+                    rect,
+                    specification,
+                    crate::attachment::filing::DEFAULT_ICON,
+                    filing.description.as_deref(),
+                );
+                self.added.push(Added { id, page, dict });
+                Some(id)
+            }
+        };
+        self.filed.push(Filed {
+            filing,
+            key,
+            stream,
+            specification,
+            annotation,
+        });
+        Ok(())
+    }
+
+    /// §7.11.4: takes a file out of the document, by the name it is filed under.
+    ///
+    /// A file this session attached is simply forgotten — its annotation too, where it had one.
+    /// A file the document's own tree names is left out of the tree the next save writes, and
+    /// what that entry alone reached is marked free then; the decision about what "alone" means
+    /// is `crate::attachment::filing::freed_by_removing`'s and the same one the transform makes.
+    pub fn detach(&mut self, document: &Document, name: &str) -> Detached {
+        let key = pdf_syntax::text_string::encode_text_string(name);
+        if let Some(at) = self.filed.iter().position(|filed| filed.key == key) {
+            let filed = self.filed.remove(at);
+            if let Some(annotation) = filed.annotation {
+                self.added.retain(|added| added.id != annotation);
+            }
+            self.release_numbers_if_nothing_is_held();
+            return Detached::Filed;
+        }
+        if self.unfiled.contains(&key) {
+            return Detached::Nothing;
+        }
+        let Ok(catalog) = document.catalog() else {
+            return Detached::Nothing;
+        };
+        let tree =
+            crate::attachment::filing::Tree::read(document, &catalog, &|id| document.get(id));
+        if tree.holds(&key) {
+            self.unfiled.push(key);
+            return Detached::Unfiled;
+        }
+        Detached::Nothing
+    }
+
+    /// Whether anything — the document's tree less what was detached, or this session — files
+    /// a file under this name.
+    #[must_use]
+    pub fn attachment_named(&self, document: &Document, name: &str) -> bool {
+        let key = pdf_syntax::text_string::encode_text_string(name);
+        if self.filed.iter().any(|filed| filed.key == key) {
+            return true;
+        }
+        if self.unfiled.contains(&key) {
+            return false;
+        }
+        document.catalog().is_ok_and(|catalog| {
+            crate::attachment::filing::Tree::read(document, &catalog, &|id| document.get(id))
+                .holds(&key)
+        })
+    }
+
+    /// §7.11.4's embedded files as this state has them: the document's own list, less what was
+    /// detached, plus what was attached to the document as a whole.
+    ///
+    /// The list a panel shows, so it answers for the same home the document's own list answers
+    /// for — the tree, and the catalog's `/AF` beside it — and not for a file this session put
+    /// on a *page*: that one is where §12.5.6.15 put it, drawn as its icon, and after a save and
+    /// a reopen it would be in the home the tree does not list (ADR 0295). A list that showed it
+    /// before the save and not after would be a list that changed under a person who changed
+    /// nothing.
+    ///
+    /// An attached file's record is the one [`crate::attachment::read`] would build from the
+    /// objects a save writes — the same stream, so that extracting it decodes the same bytes.
+    #[must_use]
+    pub fn attachments(&self, document: &Document) -> Vec<crate::attachment::Attachment> {
+        let mut out: Vec<crate::attachment::Attachment> = crate::attachment::attachments(document)
+            .into_iter()
+            .filter(|attachment| {
+                let key = pdf_syntax::text_string::encode_text_string(&attachment.name);
+                !self.unfiled.contains(&key)
+            })
+            .collect();
+        for filed in &self.filed {
+            if !matches!(filed.filing.home, FilingHome::Document) {
+                continue;
+            }
+            let Object::Stream(stream) = crate::attachment::filing::embedded_file_stream(
+                &filed.filing.bytes,
+                filed.filing.media_type.as_deref(),
+                None,
+            ) else {
+                continue;
+            };
+            out.push(crate::attachment::Attachment {
+                name: filed.filing.name.clone(),
+                file_name: Some(filed.filing.name.clone()),
+                description: filed.filing.description.clone(),
+                media_type: filed.filing.media_type.clone(),
+                size: i64::try_from(filed.filing.bytes.len()).ok(),
+                created: None,
+                modified: None,
+                checksum: Some(
+                    <md5::Md5 as md5::Digest>::digest(filed.filing.bytes.bytes()).to_vec(),
+                ),
+                relationship: crate::attachment::Relationship::Unspecified,
+                stream,
+            });
+        }
+        out
+    }
+
+    /// Every file this session attached, in order — what a save writes.
+    #[must_use]
+    pub fn attached(&self) -> &[Filed] {
+        &self.filed
+    }
+
+    /// The names of the document's own files this session detached, in order.
+    pub fn detached(&self) -> impl Iterator<Item = String> + '_ {
+        self.unfiled.iter().map(|key| pdf_syntax::text_string(key))
+    }
+
+    /// Forgets every attach and every detach.
+    ///
+    /// The fourth of the clears a replay starts from, beside [`Self::clear_all_fields`],
+    /// [`Self::clear_all_additions`] and [`Self::clear_all_free_text`]. The annotations that
+    /// filed page attachments are additions and go with the second; this takes the files.
+    pub fn clear_all_attachments(&mut self) {
+        self.filed.clear();
+        self.unfiled.clear();
+        self.release_numbers_if_nothing_is_held();
     }
 
     /// Every annotation a person added to one page, in the order they added them.
@@ -1156,6 +1445,7 @@ impl ViewState {
     /// one before any of it.
     pub fn clear_all_additions(&mut self) {
         self.added.clear();
+        self.release_numbers_if_nothing_is_held();
     }
 
     /// Forgets every retyping of a free text annotation the file states.
@@ -1506,6 +1796,7 @@ impl ViewState {
     pub fn save(&self, document: &Document) -> Result<Written, pdf_syntax::write::UpdateError> {
         let mut update = Update::beside(document);
         let mut withheld = Vec::new();
+        let (freed, still_reached) = self.write_filings(document, &mut update);
         self.write_additions(document, &mut update);
         let unappeared = self.write_retypings(document, &mut update);
         for (widget, entered) in &self.edited {
@@ -1586,18 +1877,122 @@ impl ViewState {
             }
         }
         if !update.is_empty()
-            && let Some((id, catalog)) = withdrawn_usage_rights(document)
+            && let Some((id, catalog)) = withdrawn_usage_rights(document, &update)
         {
             update.put(id, Object::Dictionary(catalog));
         }
-        let bytes = pdf_syntax::write::incremental_update(document, &update.replacements)?;
+        let bytes =
+            pdf_syntax::write::incremental_update_freeing(document, &update.replacements, &freed)?;
         withheld.sort_unstable();
         withheld.dedup();
         Ok(Written {
             bytes,
             withheld,
             unappeared,
+            still_reached,
         })
+    }
+
+    /// Writes every file a person attached and takes every detached entry out of the tree.
+    ///
+    /// Three objects per file attached to the document — §7.11.4's stream, §7.11.3's
+    /// specification and the tree that names them — and two per file attached to a page, whose
+    /// annotation [`Self::write_additions`] writes with the rest. The tree is rewritten once,
+    /// holding the document's entries less the detached ones plus the attached ones, and the
+    /// objects a detached entry alone reached are the answer's first half: §7.5.6, "[d]eleted
+    /// objects shall be left unchanged in the PDF file, but shall be marked as deleted by means
+    /// of their cross-reference entries". The second half names every detached file whose stream
+    /// another home still reaches, and which therefore stays in use.
+    ///
+    /// **First in the update, and through `Update::current`**, because the catalog is a holder
+    /// this may rewrite and [`withdrawn_usage_rights`] may rewrite it after: two rewrites of one
+    /// object compose only if the second reads the first.
+    fn write_filings(
+        &self,
+        document: &Document,
+        update: &mut Update,
+    ) -> (Vec<ObjectId>, Vec<(String, String)>) {
+        use crate::attachment::filing;
+
+        let mut freed = Vec::new();
+        let mut still_reached = Vec::new();
+        for filed in &self.filed {
+            update.reserve(filed.stream);
+            update.reserve(filed.specification);
+        }
+        for filed in &self.filed {
+            update.put(
+                filed.stream,
+                filing::embedded_file_stream(
+                    &filed.filing.bytes,
+                    filed.filing.media_type.as_deref(),
+                    None,
+                ),
+            );
+            update.put(
+                filed.specification,
+                filing::file_specification(
+                    &filed.key,
+                    filed.stream,
+                    filed.filing.description.as_deref(),
+                ),
+            );
+        }
+        let tree_changes = self
+            .filed
+            .iter()
+            .any(|filed| matches!(filed.filing.home, FilingHome::Document));
+        if !tree_changes && self.unfiled.is_empty() {
+            return (freed, still_reached);
+        }
+        let (Ok(catalog), Some(root_id)) = (
+            document.catalog(),
+            document
+                .trailer()
+                .get("Root")
+                .and_then(Object::as_reference),
+        ) else {
+            // A document with no catalog or no `/Root` is one `incremental_update` refuses by
+            // name, so nothing is lost by writing no tree for it.
+            return (freed, still_reached);
+        };
+        let catalog = update.current(document, root_id).unwrap_or(catalog);
+        let tree = filing::Tree::read(document, &catalog, &|id| {
+            update.current_object(document, id)
+        });
+        let mut entries = tree.entries;
+        for key in &self.unfiled {
+            let Some(at) = entries.iter().position(|(existing, _)| existing == key) else {
+                continue;
+            };
+            let (_, value) = entries.remove(at);
+            match filing::freed_by_removing(document, &value) {
+                Ok(objects) => freed.extend(objects),
+                Err(homes) => still_reached.push((pdf_syntax::text_string(key), homes)),
+            }
+        }
+        for filed in &self.filed {
+            if matches!(filed.filing.home, FilingHome::Document) {
+                entries.push((filed.key.clone(), Object::Reference(filed.specification)));
+            }
+        }
+        let tree_id = update.allocate();
+        update.put(tree_id, filing::tree_root(entries));
+        filing::point_holder_at_tree(
+            &mut update.replacements,
+            tree_id,
+            filing::Holder {
+                catalog,
+                root_id,
+                names_entry: tree.names_entry,
+                names_dict: tree.names_dict,
+                tree_entry: tree.tree_entry,
+            },
+        );
+        // The old root is what the holder rewrite reuses where the tree was indirect, so it is
+        // never both replaced and freed.
+        freed.retain(|id| !update.replacements.contains_key(id));
+        (freed, still_reached)
     }
 
     /// Writes every free text annotation of the file's own that a person retyped.
@@ -2627,20 +3022,30 @@ fn interactive_form(document: &Document) -> Option<(ObjectId, Dictionary)> {
 /// returns `None` for all four. It is written because the
 /// clause is, not because a file asked — trap 11's discipline with the answer the other way up.
 /// ADR 0159.
-fn withdrawn_usage_rights(document: &Document) -> Option<(ObjectId, Dictionary)> {
+fn withdrawn_usage_rights(document: &Document, update: &Update) -> Option<(ObjectId, Dictionary)> {
     use crate::signature::Right;
 
     let rights = crate::signature::permissions(document).usage_rights?;
     if rights.grants(Right::FillInForm) && rights.grants(Right::FullSave) {
         return None;
     }
-    let catalog = document.catalog().ok()?;
+    // As the update has it, where an earlier rewrite — §7.11.4's tree holder — replaced it: two
+    // rewrites of one object compose only if the second reads the first. A catalog the trailer
+    // states *directly* is nobody's replacement and has no number to be replaced under, so
+    // `Document::catalog` still answers for that one and this function still withdraws from it.
+    let root = document
+        .trailer()
+        .get("Root")
+        .and_then(Object::as_reference);
+    let catalog = root
+        .and_then(|id| update.current(document, id))
+        .or_else(|| document.catalog().ok())?;
     if let Some(id) = catalog.get("Perms").and_then(Object::as_reference) {
-        let mut perms = document.get(id).as_dict().cloned()?;
+        let mut perms = update.current(document, id)?;
         perms.remove("UR3");
         return Some((id, perms));
     }
-    let id = document.trailer().get("Root")?.as_reference()?;
+    let id = root?;
     let mut catalog = catalog;
     let mut perms = catalog.get("Perms")?.as_dict().cloned()?;
     perms.remove("UR3");
@@ -2858,6 +3263,15 @@ pub struct Written {
     /// annotations. Empty unless a retyped annotation's `/DA` names a font its document does not
     /// define. See [`ViewState::save`].
     pub unappeared: Vec<ObjectId>,
+    /// Every file detached from the tree whose stream another home still reaches, with the
+    /// sentence naming the home.
+    ///
+    /// Not a failure and not silence: §7.11.4.1 gives an embedded file more than one home, so
+    /// the tree letting go of an entry is not a deletion where the catalog's `/AF` or a page's
+    /// annotation still names the stream — the entry is gone from the tree and the objects stay
+    /// in use, and the person who asked is told which. Empty for every detach of a file with one
+    /// home, which is every file in the corpus's trees.
+    pub still_reached: Vec<(String, String)>,
 }
 
 /// §12.7.4.2's qualified name of the field a widget belongs to, or the widget's own object.

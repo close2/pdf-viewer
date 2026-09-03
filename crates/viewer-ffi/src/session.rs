@@ -572,6 +572,40 @@ impl Session {
         }))
     }
 
+    /// §7.11.4: put a file into the document, in one of §7.11.4.1's two homes.
+    #[must_use]
+    pub fn attach(
+        &mut self,
+        bytes: Vec<u8>,
+        name: String,
+        description: Option<String>,
+        mime: Option<String>,
+        home: viewer_core::AttachHome,
+    ) -> Events {
+        self.handle(Command::Edit(Edit::Attach {
+            bytes: bytes.into(),
+            name,
+            description,
+            mime,
+            home,
+        }))
+    }
+
+    /// §7.11.4: take an embedded file out of the document, by the name it is filed under.
+    #[must_use]
+    pub fn detach(&mut self, name: String) -> Events {
+        self.handle(Command::Edit(Edit::Detach { name }))
+    }
+
+    /// The person's answer to [`viewer_core::Event::Asking`].
+    #[must_use]
+    pub fn answer(&mut self, document: u64, proceed: bool) -> Events {
+        self.handle(Command::Answer {
+            document: DocumentId(document),
+            proceed,
+        })
+    }
+
     /// Undo the last edit.
     #[must_use]
     pub fn undo(&mut self) -> Events {

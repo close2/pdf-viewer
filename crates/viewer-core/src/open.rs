@@ -194,6 +194,13 @@ pub(crate) struct Open {
     pub(crate) focus: Option<ObjectId>,
     /// §12.7.6.4's import, waiting for the host to supply the file.
     pub(crate) importing: Option<ImportData>,
+    /// An edit the document restricts, held until the person answers `Event::Asking`.
+    ///
+    /// The *ask* level's whole state: resolved already, for [`Done`]'s reason — what goes ahead
+    /// on a `yes` is what was asked for at the moment it was asked — and one at a time, because
+    /// a second question while the first stands is a person who moved on. `Command::Answer` takes
+    /// it, and a `no` drops it without a word.
+    pub(crate) asking: Option<Held>,
     /// Everything a person has changed, in the order they changed it.
     ///
     /// The log `CLAUDE.md`'s rule 1 asks for: the document is immutable, so an edit is an entry
@@ -550,6 +557,47 @@ pub(crate) enum Done {
         /// What it now says.
         text: String,
     },
+    /// §7.11.4's file, put into one of §7.11.4.1's homes — the page and the rectangle resolved,
+    /// where the home is a page, out of the viewport the point was measured in.
+    ///
+    /// The bytes are shared rather than copied, because the log, an undo and a redo all hold
+    /// this one file and a replay hands it to `ViewState::attach` again.
+    Attach {
+        /// What, and where.
+        filing: pdf_model::view::Filing,
+    },
+    /// §7.11.4's file, taken out by the name it is filed under.
+    Detach {
+        /// The `/EmbeddedFiles` key.
+        name: String,
+    },
+}
+
+impl Done {
+    /// Whether applying or unapplying this entry moves the list `Query::Attachments` answers.
+    ///
+    /// What `Event::AttachmentsChanged` is sent for, and a file attached to a *page* counts:
+    /// the list does not show it, but the page does, and a host listing files beside a page it
+    /// draws is owed the same signal either way.
+    pub(crate) fn moves_attachments(&self) -> bool {
+        matches!(self, Self::Attach { .. } | Self::Detach { .. })
+    }
+}
+
+/// What [`Open::commit`] changed that a host has an event for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Committed {
+    /// Whether [`Open::dirty`] answers differently now.
+    pub(crate) dirty_changed: bool,
+    /// Whether the entry moves the list `Query::Attachments` answers.
+    pub(crate) attachments: bool,
+}
+
+/// An edit held for `Command::Answer`, which is the *ask* level's whole state.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Held {
+    /// What was asked for, resolved.
+    pub(crate) done: Done,
 }
 
 /// A page, interpreted.
@@ -679,6 +727,7 @@ impl Open {
             inside: None,
             focus: None,
             importing: None,
+            asking: None,
             log: Vec::new(),
             cursor: 0,
             saved_at: 0,
@@ -899,10 +948,43 @@ impl Open {
         &self,
         edit: crate::command::Edit,
         drag: Option<[(f32, f32); 2]>,
+        dropped: Option<(usize, (f32, f32))>,
     ) -> Option<Done> {
         match edit {
             crate::command::Edit::SetField { field, value } => {
                 Some(Done::SetField { field, value })
+            }
+            crate::command::Edit::Detach { name } => Some(Done::Detach { name }),
+            crate::command::Edit::Attach {
+                bytes,
+                name,
+                description,
+                mime,
+                home,
+            } => {
+                let home = match home {
+                    crate::command::AttachHome::Document => pdf_model::view::FilingHome::Document,
+                    crate::command::AttachHome::Page { .. } => {
+                        // The page under the point rather than the current page, for the reason
+                        // `Markup` takes the selection's: Table 29's continuous arrangements
+                        // put several on the screen, and a person dropped the file on one.
+                        let (index, point) = dropped?;
+                        let page = self.page(index)?;
+                        pdf_model::view::FilingHome::Page {
+                            page: page.id?,
+                            rect: pdf_model::attachment::filing::rect_around(point),
+                        }
+                    }
+                };
+                Some(Done::Attach {
+                    filing: pdf_model::view::Filing {
+                        bytes,
+                        name,
+                        description,
+                        media_type: mime,
+                        home,
+                    },
+                })
             }
             crate::command::Edit::SetFreeText { annotation, text } => {
                 Some(Done::SetFreeText { annotation, text })
@@ -976,8 +1058,18 @@ impl Open {
         self.view.clear_all_fields();
         self.view.clear_all_additions();
         self.view.clear_all_free_text();
+        self.view.clear_all_attachments();
         for edit in log.iter().take(self.cursor) {
             match edit {
+                // An attach the log holds was accepted when it was made, and the name it was
+                // refused for cannot have arrived since — the log is the only writer — so a
+                // refusal here is not a case; `let _ =` says so rather than unwrapping.
+                Done::Attach { filing } => {
+                    let _ = self.view.attach(&self.document, filing.clone());
+                }
+                Done::Detach { name } => {
+                    self.view.detach(&self.document, name);
+                }
                 Done::SetField { field, value } => {
                     self.view.set_field(&self.document, field, value);
                 }
@@ -1021,6 +1113,25 @@ impl Open {
     /// Records that everything up to the cursor has been written to a file.
     pub(crate) fn saved(&mut self) {
         self.saved_at = self.cursor;
+    }
+
+    /// Adds one resolved edit to the log and applies it.
+    ///
+    /// A new edit after an undo discards what was undone: the log is one sequence with a cursor,
+    /// which is what makes a replay of its prefix the whole of the state. Answers whether the
+    /// document's unsaved mark changed, and whether the attachment list moved — the two facts
+    /// the caller has events for.
+    pub(crate) fn commit(&mut self, done: Done) -> Committed {
+        let before = self.dirty();
+        let attachments = done.moves_attachments();
+        self.log.truncate(self.cursor);
+        self.log.push(done);
+        self.cursor = self.log.len();
+        self.replay();
+        Committed {
+            dirty_changed: self.dirty() != before,
+            attachments,
+        }
     }
 
     /// The text position a point in one page's display-list coordinates selects.

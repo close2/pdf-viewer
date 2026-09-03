@@ -85,9 +85,15 @@ one markup subtype whose text *is* the annotation and therefore the one whose ge
 from a drag rather than from a selection (ADR 0238) — **and the producer's own free text annotation
 can be retyped**, which is §7.5.6's second case rather than a second kind of writing, with Table
 167's `LockedContents` asked as a policy and its `Locked` deliberately not, on the table's own
-sentence (ADR 0304); and the result can be **saved** — the file it
+sentence (ADR 0304); a person can **put a file into the document and take one out** — §7.11.4's
+embedded file, in either of §7.11.4.1's two homes: the name tree, or §12.5.6.15's annotation on
+the page under the point it was dropped on, which draws its icon before anything is saved (ADR
+0814) — with §7.9.6's one namespace over both homes, an undo that forgets it and a list that
+answers the log rather than the file; and the result can be **saved** — the file it
 was opened from, unchanged, with §7.5.6's incremental update appended, which is the one kind of
-writing `CLAUDE.md` permits.
+writing `CLAUDE.md` permits. **No window has a gesture for the attach yet**, by the owner's word
+that the flows are being reviewed as mockups first; the C ABI has `pdfv_attach` and `pdfv_detach`,
+because an ABI has no gestures.
 
 **Page one goes to the graphics device**, decided by the project owner and written into
 `CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
@@ -303,7 +309,12 @@ annotation added, a page rendered, a file extracted, a file written in — each 
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
-answer) and the viewer supplies the two a window answers today. The suite has its own gate, with
+answer) and **the viewer supplies all four since the eight-hundred-and-eighty-fifth session**:
+*refuse* is `Event::Refused`, *warn* is the edit done and `Event::Warned` after the `Dirty` it
+caused, and *ask* is `Event::Asking` with the edit held until `Command::Answer` settles it — the
+`Event::PasswordRequired` shape, and the condition `doc/todo/38` set for shipping a level at all.
+No window can put the question yet, so each answers it `false` out loud rather than letting *ask*
+behave like *on* (ADR 0814). The suite has its own gate, with
 RFC 0002 §12's perf floor and its inventories held to the document's own structure. ADRs 0800,
 0801, 0802, 0803.
 
