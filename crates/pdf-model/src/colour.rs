@@ -1152,6 +1152,16 @@ impl ColourSpace {
         // supported", and where that entry is absent "the colour space that shall be used is
         // DeviceGray , DeviceRGB , or DeviceCMYK , depending on whether the value of N is 1 , 3 ,
         // or 4". Both are below.
+        //
+        // **[`pdf_syntax::Damage::CheckValue`] is refused here too, and deliberately rather than
+        // by the sentence above.** ADR 0836 separated a `FlateDecode` stream that is whole by
+        // RFC 1951 and wrong by RFC 1950's check value from one that broke, and the prefix
+        // argument does not reach it — so this is a second decision and it turns on what a
+        // refusal costs. For a font program it costs the page its text, which is why ADR 0836
+        // admits one there and lets the program's own grammar judge it; here Table 65 states the
+        // producer's own alternative, so declining a profile whose bytes are not the ones that
+        // were compressed costs a *stated* space rather than a missing one. The population is
+        // `pdf-model --example damaged_stream_census`, which counts the profiles this reaches.
         if let Ok(decoded) = document.decoded_stream_data_reported(stream)
             && decoded.damage.is_none()
             && let Some(profile) = crate::icc::Profile::parse(&decoded.data)

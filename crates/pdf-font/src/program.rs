@@ -253,10 +253,39 @@ pub(crate) fn embedded_program(
 /// `/FontFile2` decodes to **168 808 bytes, which is its `/Length1` exactly**, and draws
 /// **A C E F** where the file's six CJK glyphs belong.
 ///
+/// **[`Damage::CheckValue`] is neither of those two and is refused for a reason of its own.** It
+/// is a `FlateDecode` stream that reached RFC 1951's final block and produced every byte the
+/// encoded data describes, over which RFC 1950's Adler-32 disagrees (ADR 0836) — so there is no
+/// prefix, no shortfall against Table 125's extent, and nothing above reaches it. What it *does*
+/// say is the one thing that decides this: the bytes are not the bytes that were compressed. A
+/// checksum over a whole stream never says which of them, so a program admitted on one is a
+/// program of the right length whose content may not be its own, which is the paragraph above's
+/// case arriving by another road.
+///
+/// **Admitting it was measured before it was declined, and `issue13316_reduced.pdf` is what
+/// declined it.** That file's `/FontFile2` is exactly this shape: 168 808 bytes, its `/Length1`
+/// to the byte, RFC 1951 whole, and an Adler-32 that is not the one over them. Read as a program
+/// it loads, and the page draws **A C E F** where `pdftoppm` draws five CJK glyphs and reports
+/// nothing at all — because §9.6.5.4's `/Differences` names (`/g5167` and its four neighbours)
+/// reach no glyph through the Adobe Glyph List and the program carries no `post` table, so the
+/// clause's own closing permission takes over ("a PDF processor may supply a mapping of its
+/// choosing") and the codes' own characters are what it supplies. Marks that stand *in place of*
+/// the producer's are ADR 0106's substitutive failure and ADR 0459 already decided them.
+///
+/// **What the refusal costs is known and is written down rather than assumed.**
+/// `PDFIUM-407-0.pdf` is the other side: three `/FontFile2` streams of this shape, of which two
+/// carry a font that draws its page's German field labels exactly as `poppler` and `mupdf` draw
+/// them — 8.507 levels of ink against their 15.919 and 15.175 while they are refused, 13.102 when
+/// they are not. Both references read the same bytes and `mupdf` says so out loud
+/// (`ignoring zlib error: incorrect data check`). That is evidence about a *file*, not about the
+/// rule, and the rule is the one this tree already holds: a page missing marks and saying so
+/// beats a page carrying marks nobody wrote.
+///
 /// # Errors
 ///
 /// [`FontError::Malformed`] where the decode stopped short of the program the file states, where
-/// no clause states an extent, or where the damage is a corruption rather than a truncation.
+/// no clause states an extent, where the damage is a corruption rather than a truncation, or
+/// where the filter's check value disagrees over bytes that are otherwise whole.
 fn whole_program(
     document: &Document,
     dict: &Dictionary,
@@ -273,11 +302,22 @@ fn whole_program(
         .and_then(|extent| decoded.data.get(..extent));
     whole.map(Arc::from).ok_or_else(|| FontError::Malformed {
         name: name.to_owned(),
-        detail: format!(
-            "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix of a font \
-             program is a directory describing bytes that are not there",
-            decoded.data.len()
-        ),
+        // Two sentences for two damages, because one of them was printed over both and was
+        // false of the commoner: a stream that reached RFC 1951's final block is not a prefix,
+        // and a report saying it is describes a file nobody has. ADR 0836.
+        detail: match damage {
+            Damage::CheckValue => format!(
+                "/{key} decoded whole and its check value disagrees ({} bytes): RFC 1950's \
+                 Adler-32 says these are not the bytes that were compressed, and a font program \
+                 whose content may not be its own draws glyphs in place of the producer's",
+                decoded.data.len()
+            ),
+            Damage::Truncated | Damage::Corrupt => format!(
+                "/{key} decoded only as far as its damage ({damage:?}, {} bytes): a prefix of a \
+                 font program is a directory describing bytes that are not there",
+                decoded.data.len()
+            ),
+        },
     })
 }
 

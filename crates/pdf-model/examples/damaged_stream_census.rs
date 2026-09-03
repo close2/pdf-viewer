@@ -275,6 +275,9 @@ struct Tally {
     contents_truncated: usize,
     /// Of those, the ones whose damage is [`Damage::Corrupt`].
     contents_corrupt: usize,
+    /// Of those, the ones whose damage is [`Damage::CheckValue`] — the deflate data was whole
+    /// and RFC 1950's check value over it was not (ADR 0836).
+    contents_check_value: usize,
     /// Documents whose page-one `/Contents` reported [`ContentIssue::Undecodable`] — nothing
     /// survived at all, which is the case the prefix rule cannot help.
     contents_undecodable: usize,
@@ -290,6 +293,12 @@ struct Tally {
     documents_with_damage: usize,
     /// Damaged streams by the consumer that reads them, indexed by [`Role::index`].
     damaged_by_role: [usize; Role::ALL.len()],
+    /// Of those, the ones whose damage is [`Damage::CheckValue`], indexed the same way.
+    ///
+    /// The population ADR 0836 reaches, which is the whole reason to break the count out: a
+    /// stream that satisfies RFC 1951 and fails RFC 1950 is not a prefix of anything, so what
+    /// each consumer does with it is a separate decision from what it does with the other two.
+    check_value_by_role: [usize; Role::ALL.len()],
     /// Reports naming damage, over every page of every document holding a damaged stream.
     ///
     /// Distinct reports rather than damaged streams: `Interpreter::note` keys by the report, so
@@ -326,6 +335,9 @@ struct Tally {
     documents_with_short_functions: usize,
     /// The documents worth naming, with what they said.
     witnesses: Vec<String>,
+    /// Every stream ADR 0836 reclassified, named — the population a round has to look at rather
+    /// than count, because what each consumer should do with one is decided per consumer.
+    check_value_witnesses: Vec<String>,
 }
 
 impl Tally {
@@ -335,12 +347,20 @@ impl Tally {
         self.contents_damaged += other.contents_damaged;
         self.contents_truncated += other.contents_truncated;
         self.contents_corrupt += other.contents_corrupt;
+        self.contents_check_value += other.contents_check_value;
         self.contents_undecodable += other.contents_undecodable;
         self.contents_kept += other.contents_kept;
         self.contents_drew += other.contents_drew;
         self.streams += other.streams;
         self.streams_damaged += other.streams_damaged;
         self.documents_with_damage += other.documents_with_damage;
+        for (slot, count) in self
+            .check_value_by_role
+            .iter_mut()
+            .zip(other.check_value_by_role)
+        {
+            *slot += count;
+        }
         for (slot, count) in self.damaged_by_role.iter_mut().zip(other.damaged_by_role) {
             *slot += count;
         }
@@ -356,6 +376,8 @@ impl Tally {
         self.short_functions += other.short_functions;
         self.documents_with_short_functions += other.documents_with_short_functions;
         self.witnesses.extend(other.witnesses);
+        self.check_value_witnesses
+            .extend(other.check_value_witnesses);
     }
 }
 
@@ -378,13 +400,14 @@ fn main() {
     }
 
     println!(
-        "{} files, {} opened: {} page-one /Contents damaged ({} truncated, {} corrupt), \
-         {} undecodable",
+        "{} files, {} opened: {} page-one /Contents damaged ({} truncated, {} corrupt, \
+         {} whole with a check value that disagrees), {} undecodable",
         total.files,
         total.opened,
         total.contents_damaged,
         total.contents_truncated,
         total.contents_corrupt,
+        total.contents_check_value,
         total.contents_undecodable,
     );
     println!(
@@ -399,7 +422,12 @@ fn main() {
     for role in Role::ALL {
         let count = total.damaged_by_role[role.index()];
         if count > 0 {
-            println!("    {count} damaged: {}", role.label());
+            let checked = total.check_value_by_role[role.index()];
+            println!(
+                "    {count} damaged ({checked} of them a whole deflate stream whose check \
+                 value disagrees): {}",
+                role.label()
+            );
         }
     }
     println!(
@@ -425,6 +453,9 @@ fn main() {
         total.documents_with_short_functions,
     );
     for witness in &total.witnesses {
+        println!("    {witness}");
+    }
+    for witness in &total.check_value_witnesses {
         println!("    {witness}");
     }
 }
@@ -595,6 +626,15 @@ fn every_stream(
             tally.streams_damaged += 1;
             let role = Role::of(document, stream, number, &named);
             tally.damaged_by_role[role.index()] += 1;
+            if damage == Damage::CheckValue {
+                tally.check_value_by_role[role.index()] += 1;
+                tally.check_value_witnesses.push(format!(
+                    "{name}: object {number}, {}, {} bytes whole with a check value that \
+                     disagrees",
+                    role.label(),
+                    decoded.data.len()
+                ));
+            }
             damaged.push((number, damage, decoded.data.len(), role));
         }
         // The shipped statement of §7.3.8.2's arithmetic, asked with no resources: an image
@@ -690,6 +730,7 @@ fn examine(path: &Path) -> Tally {
                 match damage {
                     Damage::Truncated => tally.contents_truncated = 1,
                     Damage::Corrupt => tally.contents_corrupt = 1,
+                    Damage::CheckValue => tally.contents_check_value = 1,
                 }
                 damaged_contents = Some((*damage, *kept));
             }
