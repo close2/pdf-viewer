@@ -145,6 +145,16 @@ same things. What RFC 0003 consumes is the seam — a `Plan`, `Sources`, `Sinks`
 `Budget` and a `Report`, with no path, clock or process inside any of them — and the seam has now
 survived six verbs' worth of contact, one of which writes whole files.
 
+**Taken in session 899** (ADRs 0840, 0841, `doc/todo/58`): `pdf-vfs` is RFC 0003's core, read side
+only, and it consumes the seam for six of its eight generators — `Plan::Split` for a page taken
+out, `Plan::Render` for a page drawn, `Plan::Images` for a page's pictures, `Plan::Attachments` for
+an embedded file — with a test holding the first byte for byte against `apply`'s own output, so a
+second implementation of any of them fails a gate rather than going unnoticed. **The seam gained
+exactly one thing**, and it is three lines: `Source::document`, because three of that crate's
+generators are `pdf-model` readers no verb covers and a consumer that opened the document itself
+would need a second `Secret` — which `viewer_core::secret` deliberately makes impossible. That is
+the whole cost of the hand-off, and it is the strongest evidence the seam's shape was right.
+
 ## 3. One thing still without its dependency
 
 - `pdf_transform::Operation` moved into `pdf_model::restriction` in session 872 (ADR 0803);
