@@ -409,7 +409,7 @@ impl Host {
         }
         self.dispatch(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             // The password is deliberately not kept on this side (`password_answered` says why),
             // so an encrypted document asks for it again — §7.6.4.1's card, exactly as at launch.
             password: None,
@@ -948,7 +948,7 @@ impl Host {
         // host keeping no copy — priced in `doc/todo/15` §5 and paid at most `ATTEMPTS` times.
         self.dispatch(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: Some(secret),
             fragment: None,
         });
@@ -1067,7 +1067,7 @@ impl ApplicationHandler for Host {
         });
         self.dispatch(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         });

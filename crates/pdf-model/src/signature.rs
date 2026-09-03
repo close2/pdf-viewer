@@ -68,6 +68,8 @@
 //! requirements on a `PAdES` signature, which are checkable without cryptography and which no
 //! corpus document exercises.
 
+use std::borrow::Cow;
+
 use crate::cms::{self, CmsError, Digest, SignatureAlgorithm, SignedData};
 use crate::dsa::{self, DsaError};
 use crate::ecdsa::{self, EcdsaError};
@@ -75,7 +77,7 @@ use crate::eddsa::{self, EdDsaError};
 use crate::pkcs1::{self, Pkcs1Error};
 use crate::pss;
 use crate::x509::{self, X509Error};
-use pdf_syntax::{Dictionary, Document, Object};
+use pdf_syntax::{Dictionary, Document, FileBytes, Object};
 
 /// Most signatures read from one document.
 ///
@@ -631,10 +633,13 @@ impl Signature {
     /// The bytes this signature was made over: the file with `/ByteRange`'s hole in it.
     ///
     /// Slices rather than one buffer, because the ranges of a 3 MB document describe 3 MB and
-    /// joining them to hash them would copy the whole file. `None` where any pair names bytes
-    /// outside the file, which is the same condition [`Coverage::Malformed`] reports.
+    /// joining them to hash them would copy the whole file — borrowed where the file is in
+    /// memory, and read range by range where it is on disk, which is the one read of a signed
+    /// document's bytes that nothing can avoid: a digest is over every one of them. `None` where
+    /// any pair names bytes outside the file, which is the same condition [`Coverage::Malformed`]
+    /// reports.
     #[must_use]
-    pub fn signed_bytes<'a>(&self, file: &'a [u8]) -> Option<Vec<&'a [u8]>> {
+    pub fn signed_bytes<'a>(&self, file: &'a FileBytes) -> Option<Vec<Cow<'a, [u8]>>> {
         if self.byte_range.is_empty() {
             return None;
         }
@@ -643,7 +648,16 @@ impl Signature {
             let start = usize::try_from(start).ok()?;
             let length = usize::try_from(length).ok()?;
             let end = start.checked_add(length)?;
-            pieces.push(file.get(start..end)?);
+            if end > file.len() {
+                return None;
+            }
+            let piece = file.read(start..end);
+            // A read that came back short is a file that ended early on disk, which is the
+            // same fact about the range as a pair past the end.
+            if piece.len() != length {
+                return None;
+            }
+            pieces.push(piece);
         }
         Some(pieces)
     }
@@ -676,7 +690,7 @@ impl Signature {
     ///
     /// Read [`Integrity`] before reading a result: [`Integrity::Unchanged`] is not "valid".
     #[must_use]
-    pub fn integrity(&self, file: &[u8]) -> Integrity {
+    pub fn integrity(&self, file: &FileBytes) -> Integrity {
         // §12.8.3.2: "For signing PDF files using PKCS #1, the only value of SubFilter that should
         // be used is adbe.x509.rsa_sha1". Table 255 says such a `/Contents` "should be either a
         // DER-encoded PKCS #1 binary data object, a DER-encoded CMS binary data object or a
@@ -692,6 +706,7 @@ impl Signature {
         let Some(signed) = self.signed_bytes(file) else {
             return Integrity::RangeNotInThisFile;
         };
+        let signed: Vec<&[u8]> = signed.iter().map(AsRef::as_ref).collect();
         let cms = match self.signed_data() {
             Ok(cms) => cms,
             Err(error) => return Integrity::Unreadable(error),
@@ -765,13 +780,14 @@ impl Signature {
                   splitting them apart would scatter the one match that keeps a signature \
                   algorithm and a key from being paired wrongly"
     )]
-    pub fn authenticity(&self, file: &[u8]) -> Authenticity {
+    pub fn authenticity(&self, file: &FileBytes) -> Authenticity {
         if self.contents.is_empty() {
             return Authenticity::NoSignatureValue;
         }
         let Some(signed) = self.signed_bytes(file) else {
             return Authenticity::RangeNotInThisFile;
         };
+        let signed: Vec<&[u8]> = signed.iter().map(AsRef::as_ref).collect();
         // §12.8.3.2: "For signing PDF files using PKCS #1, the only value of SubFilter that should
         // be used is adbe.x509.rsa_sha1 … The certificate chain of the signer shall be stored in
         // the Cert entry." So there is no CMS object to read: `/Contents` is the signature and
@@ -2160,7 +2176,7 @@ mod tests {
     };
     use crate::cms::{Digest, fixtures};
     use crate::x509::fixtures::{CERTIFICATE, EC_CERTIFICATE, PKCS1_SIGNATURE, hex};
-    use pdf_syntax::Document;
+    use pdf_syntax::{Document, FileBytes};
 
     /// Builds a document from object bodies numbered from 1.
     fn document(objects: &[&str]) -> Document {
@@ -2708,7 +2724,7 @@ mod tests {
         let file = b"the signed bytes";
         let signature = pkcs1_signature(file.len() as u64, hex(CERTIFICATE));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::Rsa,
@@ -2720,7 +2736,7 @@ mod tests {
         // §12.8.3.2's signature is over the document's own bytes, so question 2 settles question
         // 1 here: change one byte of the file and the same signature stops verifying.
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha1,
                 family: Family::Rsa,
@@ -2747,7 +2763,7 @@ mod tests {
         let file = b"the signed bytes";
         let signature = pkcs1_signature(file.len() as u64, hex(EC_CERTIFICATE));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::KeyNotVerifiable {
                 algorithm: "1.2.840.10045.2.1".to_owned(),
             },
@@ -2762,7 +2778,7 @@ mod tests {
         let mut signature = pkcs1_signature(file.len() as u64, Vec::new());
         signature.chain = Vec::new();
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::NoSignerCertificate { certificates: 0 }
         );
     }
@@ -2847,7 +2863,7 @@ mod tests {
             format_version: None,
         };
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::Dsa,
@@ -2858,7 +2874,7 @@ mod tests {
         );
         // And question 2 settles question 1 in this shape, which is what `Signed` records.
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::Dsa,
@@ -2922,7 +2938,7 @@ mod tests {
                 &ec::hex(value),
             ));
             assert_eq!(
-                signature.authenticity(file),
+                signature.authenticity(&FileBytes::from(file)),
                 Authenticity::Verified {
                     digest,
                     family: Family::Ecdsa(curve),
@@ -2933,7 +2949,7 @@ mod tests {
                 curve.name()
             );
             assert_eq!(
-                signature.authenticity(b"the signed byteS"),
+                signature.authenticity(&FileBytes::from(b"the signed byteS")),
                 Authenticity::NotUnderThatKey {
                     digest,
                     family: Family::Ecdsa(curve),
@@ -2973,7 +2989,7 @@ mod tests {
             &crate::ecdsa::fixtures::hex(crate::eddsa::fixtures::ED25519_SIGNATURE),
         ));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha512,
                 family: Family::EdDsa,
@@ -2982,7 +2998,7 @@ mod tests {
             }
         );
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha512,
                 family: Family::EdDsa,
@@ -3012,7 +3028,7 @@ mod tests {
             &ec::hex(ec::BP256_SIGNATURE),
         ));
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::CurveNotVerifiable {
                 curve: "1.3.36.3.3.2.8.1.1.7 (brainpoolP256r1)".to_owned(),
             }
@@ -3078,7 +3094,7 @@ mod tests {
             format_version: None,
         };
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::RsaPss,
@@ -3088,7 +3104,7 @@ mod tests {
             "the signer states no signed attributes, so RFC 5652 signs the byte range itself"
         );
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::RsaPss,
@@ -3131,7 +3147,7 @@ mod tests {
             format_version: None,
         };
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::KeyDoesNotMatchAlgorithm {
                 algorithm: "2.16.840.1.101.3.4.3.2".to_owned(),
                 key: "1.2.840.113549.1.1.1".to_owned(),
@@ -3255,7 +3271,7 @@ mod tests {
         ));
         signature.sub_filter = Some("ETSI.CAdES.detached".to_owned());
         assert_eq!(
-            signature.authenticity(file),
+            signature.authenticity(&FileBytes::from(file)),
             Authenticity::Verified {
                 digest: Digest::Sha256,
                 family: Family::Ecdsa(crate::ecdsa::Curve::P256),
@@ -3265,7 +3281,7 @@ mod tests {
             "ISO/TS 32002 Table 3 covers ETSI.CAdES.detached by name"
         );
         assert_eq!(
-            signature.authenticity(b"the signed byteS"),
+            signature.authenticity(&FileBytes::from(b"the signed byteS")),
             Authenticity::NotUnderThatKey {
                 digest: Digest::Sha256,
                 family: Family::Ecdsa(crate::ecdsa::Curve::P256),

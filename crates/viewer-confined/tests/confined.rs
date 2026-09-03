@@ -63,7 +63,7 @@ fn opened() -> (Confined, Vec<Event>) {
     let events = confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes: specification_bytes(),
+            bytes: specification_bytes().into(),
             password: None,
             fragment: None,
         })
@@ -120,7 +120,7 @@ fn clone_command(command: &Command) -> Command {
         },
         Command::Open { id, .. } => Command::Open {
             id: *id,
-            bytes: specification_bytes(),
+            bytes: specification_bytes().into(),
             password: None,
             fragment: None,
         },
@@ -219,7 +219,7 @@ fn the_confined_process_draws_the_page_this_one_would_have() {
         },
         Command::Open {
             id: DOCUMENT,
-            bytes: Vec::new(),
+            bytes: Vec::new().into(),
             password: None,
             fragment: None,
         },
@@ -280,7 +280,7 @@ fn turning_a_page_and_magnifying_it_both_draw_behind_the_filter() {
         },
         Command::Open {
             id: DOCUMENT,
-            bytes: Vec::new(),
+            bytes: Vec::new().into(),
             password: None,
             fragment: None,
         },
@@ -386,7 +386,7 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
         confined
             .handle(&Command::Open {
                 id: DOCUMENT,
-                bytes: bytes.clone(),
+                bytes: bytes.clone().into(),
                 password: None,
                 fragment: None,
             })
@@ -395,7 +395,7 @@ fn every_panel_answer_crosses_a_real_document_unchanged() {
         let mut here = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
         for _ in here.handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         }) {}
@@ -598,7 +598,7 @@ fn an_attachment_is_listed_here_and_checked_against_what_the_worker_extracted() 
     confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -686,7 +686,7 @@ fn a_form_crosses_the_boundary_and_can_be_filled_in_through_it() {
     confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes: bytes.clone(),
+            bytes: bytes.clone().into(),
             password: None,
             fragment: None,
         })
@@ -695,7 +695,7 @@ fn a_form_crosses_the_boundary_and_can_be_filled_in_through_it() {
     let mut here = Viewer::new(VIEWPORT.0, VIEWPORT.1, 1.0);
     for _ in here.handle(Command::Open {
         id: DOCUMENT,
-        bytes,
+        bytes: bytes.into(),
         password: None,
         fragment: None,
     }) {}
@@ -768,7 +768,7 @@ fn a_confined_host_selects_several_items_of_a_list_box() {
     confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -914,7 +914,7 @@ fn a_document_with_a_sandboxed_codec_draws_inside_the_confinement() {
     let events = confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1022,7 +1022,7 @@ fn a_document_that_will_not_finish_is_cancelled_and_the_host_gets_its_thread_bac
     let opening = std::thread::spawn(move || {
         let opened = confined.handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         });
@@ -1084,7 +1084,7 @@ fn crosses_as(bytes: Vec<u8>, viewport: (u32, u32)) -> viewer_confined::Crossing
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1155,7 +1155,7 @@ fn a_page_whose_marks_cross_is_shipped_without_being_drawn() {
     confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1235,7 +1235,7 @@ fn a_host_drawing_marks_that_will_not_finish_interrupts_its_own_draw() {
     confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -1638,7 +1638,7 @@ fn warm_then_confine(bytes: Vec<u8>) -> ! {
     let mut drew = false;
     for event in viewer.handle(Command::Open {
         id: DOCUMENT,
-        bytes,
+        bytes: bytes.into(),
         password: None,
         fragment: None,
     }) {
@@ -1755,7 +1755,7 @@ fn confined_probe() {
             let mut drew = false;
             for event in viewer.handle(Command::Open {
                 id: DOCUMENT,
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             }) {
@@ -1954,7 +1954,7 @@ fn a_scanned_page_crosses_the_confinement_as_pixels() {
     confined
         .handle(&Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })

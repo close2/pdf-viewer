@@ -40,7 +40,7 @@ fn opened(name: &str, fragment: &str) -> Option<(Viewer, Vec<Event>)> {
     let events = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: Some(fragment.to_owned()),
         })
@@ -601,7 +601,7 @@ fn an_embedded_file_carries_the_parameters_after_it() {
     let opened: Vec<Event> = second
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment,
         })
@@ -667,7 +667,7 @@ fn no_fragment_changes_nothing() {
     let events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -712,7 +712,7 @@ fn a_search_parameter_selects_the_first_matching_word_in_the_document() {
     let mut events: Vec<Event> = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: Some(format!("search=%22{needle}%22")),
         })

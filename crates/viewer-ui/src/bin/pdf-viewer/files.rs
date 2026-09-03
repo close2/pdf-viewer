@@ -70,7 +70,7 @@ impl App {
         self.fragment.clone_from(&fragment);
         queue.push_back(Command::Open {
             id: crate::DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment,
         });

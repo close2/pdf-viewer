@@ -271,7 +271,7 @@ fn signer_key(cms: &cms::SignedData<'_>) -> String {
 }
 
 /// Every signature one document states, read for the three identifiers it carries.
-fn census(path: &str, bytes: &[u8], document: &Document) -> Counts {
+fn census(path: &str, bytes: &pdf_syntax::FileBytes, document: &Document) -> Counts {
     let mut counts = Counts {
         opened: 1,
         ..Counts::default()

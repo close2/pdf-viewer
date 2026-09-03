@@ -81,7 +81,7 @@ fn main() {
     let opened = viewer
         .handle(Command::Open {
             id: DocumentId(1),
-            bytes: bytes.clone(),
+            bytes: bytes.clone().into(),
             password: None,
             fragment: None,
         })

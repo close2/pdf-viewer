@@ -119,7 +119,7 @@ fn main() {
         let id = DocumentId(u64::try_from(index).unwrap_or(0).saturating_add(1));
         match confined.handle(&Command::Open {
             id,
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         }) {

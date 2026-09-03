@@ -115,7 +115,7 @@ fn main() {
     let events = confined
         .handle(&Command::Open {
             id: DocumentId(1),
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })
@@ -223,7 +223,7 @@ fn main() {
         confined
             .handle(&Command::Open {
                 id: DocumentId(id),
-                bytes: ballasted(ballast),
+                bytes: ballasted(ballast).into(),
                 password: None,
                 fragment: None,
             })
@@ -249,7 +249,7 @@ fn main() {
         }
         let mut pending = vec![Command::Open {
             id: DocumentId(1),
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         }];

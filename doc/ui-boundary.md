@@ -258,7 +258,9 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   (ADR 0256).
 - `Command`: `Open { id, bytes, password, fragment }` — the password a `viewer_core::Secret` since
   the six-hundred-and-ninety-fifth session, because this enum derives `Debug` and two hosts trace a
-  command by printing one (ADR 0545) — `Close`, `Focus`, `Resize { width, height, scale }`,
+  command by printing one (ADR 0545), and the bytes a `pdf_syntax::FileBytes` since the
+  eight-hundred-and-eighty-first, whole in memory or open on disk and read where the file's offsets
+  point (ADR 0809) — `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
   `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
   §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —
@@ -549,7 +551,11 @@ is set in the same Helvetica on a machine with no fonts installed.
 2. **No filesystem in the core.** The host supplies bytes; the core produces bytes. Not new
    policy — `Request::Import` and `Request::Resolve` already do exactly this, argued in ADRs 0090
    and 0104: "a document naming a file is a document asking this machine for something, and
-   whether to give it is not a rendering decision."
+   whether to give it is not a rendering decision." **A file the host opened and handed over as a
+   `pdf_syntax::FileBytes` on disk keeps the rule** (ADR 0809): the host chose the path and opened
+   it, and the core reads through the handle it was given and never a path of its own — what a
+   *path* is to the core is unchanged, and what changed is that the host need not read the whole
+   file to hand it over.
 3. **No clock.** §12.4.4's transitions and `/Dur` auto-advance arrive as `Command::Tick { millis }`.
 4. **No threads the core was not handed**, and no blocking.
 5. **No toolkit or graphics type in `viewer-core`'s public API.** Tier 2 (below) lives in a

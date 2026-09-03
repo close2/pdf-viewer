@@ -29,7 +29,10 @@ rule had been written down and never instrumented, which is the same shape as ev
 project has found stale — with the difference that this one is about a number, so the instrument
 settles it.
 
-**And the instrument now says the rule holds, by a route nobody had considered.** 41% of the open
+**And the instrument now says the rule holds, by a route nobody had considered.** (That is the
+*parsing* half of the sentence; the *bytes* half — "not the whole file" — was false until the
+eight-hundred-and-eighty-first session read the file on disk where its offsets point, ADR 0809,
+and `examples/open_cost` prints both routes.) 41% of the open
 went in ADR 0180; what was left went *beside* the window in ADR 0182 and is joined after a device
 bring-up that costs 13 to 19 ms. Measured in the two-hundred-and-eighty-ninth session, three runs
 each:

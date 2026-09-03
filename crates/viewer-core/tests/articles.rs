@@ -66,7 +66,7 @@ fn opened() -> Viewer {
     let opened = viewer
         .handle(Command::Open {
             id: DocumentId(1),
-            bytes: two_page_thread(),
+            bytes: two_page_thread().into(),
             password: None,
             fragment: None,
         })
@@ -154,7 +154,7 @@ fn a_document_with_no_threads_answers_with_an_empty_list() {
     let opened = viewer
         .handle(Command::Open {
             id: DocumentId(1),
-            bytes,
+            bytes: bytes.into(),
             password: None,
             fragment: None,
         })

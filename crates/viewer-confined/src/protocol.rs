@@ -1039,10 +1039,19 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             password,
             fragment,
         } => {
+            // The confined process has no file system, so a document open on disk crosses as
+            // its bytes, whole — read once and kept, or refused by name where this process
+            // cannot hold it (ADR 0809). The host that spawns a worker reads the file whole
+            // itself, so this arm sees a file on disk only from a host that chose otherwise.
+            let whole = bytes.whole().map_err(|_| Uncarried {
+                message: "Command::Open",
+                reason: "the document is on disk and this process cannot hold it whole to \
+                         send it to the confined process",
+            })?;
             writer
                 .u8(k::OPEN)
                 .document(*id)
-                .bytes(bytes)
+                .bytes(whole)
                 .option_str(password.as_ref().map(viewer_core::Secret::reveal))
                 .option_str(fragment.as_deref());
         }
@@ -1216,7 +1225,7 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
     let command = match reader.u8(what)? {
         k::OPEN => Command::Open {
             id: reader.document(what)?,
-            bytes: reader.owned_bytes("a document's bytes")?,
+            bytes: reader.owned_bytes("a document's bytes")?.into(),
             password: reader.option_string("a password")?.map(Into::into),
             fragment: reader.option_string("a fragment identifier")?,
         },
@@ -3121,7 +3130,7 @@ mod tests {
         let commands = vec![
             Command::Open {
                 id: DocumentId(7),
-                bytes: b"%PDF-2.0".to_vec(),
+                bytes: b"%PDF-2.0".to_vec().into(),
                 password: Some("secret".to_owned().into()),
                 fragment: Some("page=3".to_owned()),
             },
@@ -3279,7 +3288,7 @@ mod tests {
     fn a_password_crosses_the_transport_unchanged() {
         let command = Command::Open {
             id: DocumentId(7),
-            bytes: b"%PDF-2.0".to_vec(),
+            bytes: b"%PDF-2.0".to_vec().into(),
             password: Some("m\u{fc}hsam gew\u{e4}hlt".to_owned().into()),
             fragment: None,
         };
@@ -3444,7 +3453,7 @@ mod tests {
         let events: Vec<Event> = viewer
             .handle(Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -4596,7 +4605,7 @@ mod tests {
         let events: Vec<Event> = viewer
             .handle(Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             })
@@ -4803,7 +4812,7 @@ mod tests {
             let mut viewer = viewer_core::Viewer::new(900, 1200, 1.0);
             for _ in viewer.handle(Command::Open {
                 id: DocumentId(1),
-                bytes,
+                bytes: bytes.into(),
                 password: None,
                 fragment: None,
             }) {}
@@ -4914,7 +4923,7 @@ mod tests {
         let messages = [
             encode_command(&Command::Open {
                 id: DocumentId(3),
-                bytes: b"%PDF-2.0\n1 0 obj".to_vec(),
+                bytes: b"%PDF-2.0\n1 0 obj".to_vec().into(),
                 password: Some("p".to_owned().into()),
                 fragment: None,
             })

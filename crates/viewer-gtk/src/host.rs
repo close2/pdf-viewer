@@ -178,7 +178,7 @@ pub struct Host {
     /// The directory §12.7.6.4's policy resolves against.
     directory: Option<PathBuf>,
     /// The file, kept because §7.6.4.1's second attempt opens it again with a password.
-    bytes: Vec<u8>,
+    bytes: pdf_syntax::FileBytes,
     /// Annex O's fragment, where the host was given one.
     fragment: Option<String>,
     /// Tier 1's worker for the pictures this window makes *for itself* — §12.3.4's miniatures and
@@ -415,13 +415,16 @@ impl Host {
         restrictions: viewer_core::RestrictionLevel,
         trace: Trace,
     ) -> Result<Rc<RefCell<Self>>, HostError> {
-        let bytes = pdf_syntax::read_file(path).map_err(|error| HostError::Unreadable {
-            path: path.to_owned(),
-            error: error.to_string(),
-        })?;
+        // Open on disk rather than read whole: the core reads what page one needs through the
+        // handle, and the file's size stops being the launch's cost (ADR 0809).
+        let bytes =
+            pdf_syntax::FileBytes::on_disk(path).map_err(|error| HostError::Unreadable {
+                path: path.to_owned(),
+                error: error.to_string(),
+            })?;
         trace.say(
             Topic::Launch,
-            format_args!("read {} bytes of {}", bytes.len(), path.display()),
+            format_args!("opened {} bytes of {} on disk", bytes.len(), path.display()),
         );
         Ok(Rc::new_cyclic(|me| {
             let chrome = Rc::new(RefCell::new(Chrome {

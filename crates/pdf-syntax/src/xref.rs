@@ -22,6 +22,7 @@
 use std::collections::BTreeMap;
 
 use crate::error::{SyntaxError, SyntaxResult};
+use crate::file::FileBytes;
 use crate::object::{Dictionary, Object, ObjectId};
 use crate::parser::{Limits, Parser};
 
@@ -271,26 +272,26 @@ pub(crate) const HEADER_SEARCH_WINDOW: usize = 1024;
 /// [`SyntaxError::NoHeader`] if the file has neither header *and* no objects could be
 /// found either, and [`SyntaxError::NoCrossReferences`] if neither the table nor a scan
 /// yields any object.
-pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
+pub fn read(file: &FileBytes, limits: Limits) -> SyntaxResult<XrefTable> {
     // The header may be preceded by junk — files served through mail gateways acquire it —
     // so the specification's "first line" is relaxed to "somewhere near the start".
-    let header_window = input.len().min(HEADER_SEARCH_WINDOW);
-    let start = input.get(..header_window).unwrap_or_default();
+    let header_window = file.len().min(HEADER_SEARCH_WINDOW);
+    let start = file.read(0..header_window);
     // §12.7.8.2.2 gives an FDF file a header of its own — `%FDF-1.n` where a PDF writes
     // `%PDF-n.m` — and §12.7.8.2.1 makes the rest of the file structure clause 7's, §7.5.2's
     // offset rule below included. So the *second* marker is searched for only where the first
     // is absent: a PDF whose first kilobyte happens to contain `%FDF-` is still measured from
     // its own header, and an FDF file stops being measured from byte zero by accident.
-    let header_at = position_of(start, *b"%PDF-").or_else(|| position_of(start, *b"%FDF-"));
+    let header_at = position_of(&start, *b"%PDF-").or_else(|| position_of(&start, *b"%FDF-"));
 
-    if let Some(table) = read_from_startxref(input, header_at.unwrap_or(0), limits)
+    if let Some(table) = read_from_startxref(file, header_at.unwrap_or(0), limits)
         && !table.is_empty()
     {
         return Ok(table);
     }
 
     // The table was absent, unreadable, or empty. Scan.
-    rebuild(input, limits, header_at.is_some())
+    rebuild(file, limits, header_at.is_some())
 }
 
 /// Reconstructs a cross-reference table by scanning the file for objects.
@@ -305,6 +306,12 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
 ///
 /// `had_header` decides only which error is reported when nothing is found.
 ///
+/// **A scan reads every byte, so a file on disk is read whole here** ([`FileBytes::whole`]) —
+/// once, and kept — and a file the process cannot hold whole is refused by name rather than
+/// scanned a window at a time, because a window would read it all twice over and could not
+/// carry a header that straddles two. An intact document never reaches this function
+/// (ADR 0809).
+///
 /// **What it returns is the outermost level of the file and no more.** §7.5.7's compressed
 /// objects have no header to scan for, and the table this hands back therefore names the object
 /// streams themselves and not one object inside them; [`crate::Document::open`] finishes the job
@@ -315,7 +322,18 @@ pub fn read(input: &[u8], limits: Limits) -> SyntaxResult<XrefTable> {
 ///
 /// [`SyntaxError::NoHeader`] where the file has neither header and no objects could be found,
 /// and [`SyntaxError::NoCrossReferences`] where it had one and they still could not.
-pub fn rebuild(input: &[u8], limits: Limits, had_header: bool) -> SyntaxResult<XrefTable> {
+pub fn rebuild(file: &FileBytes, limits: Limits, had_header: bool) -> SyntaxResult<XrefTable> {
+    let input = match file.whole() {
+        Ok(input) => input,
+        Err(no_room) => {
+            return Err(SyntaxError::NoCrossReferences {
+                detail: format!(
+                    "the cross-reference table was unusable and the file could not be scanned: \
+                     {no_room}"
+                ),
+            });
+        }
+    };
     // A missing header does not stop this. Files lose their header to transfer damage and
     // to producers that never wrote one, and the objects after it are usually intact — so
     // refusing on the header alone rejects documents both poppler and mupdf recover and
@@ -404,8 +422,8 @@ fn position_of(window: &[u8], marker: [u8; 5]) -> Option<usize> {
 /// because a file whose header is at zero adds zero.
 ///
 /// Returns `None` when the chain cannot be read at all, leaving the caller to scan.
-fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<XrefTable> {
-    let mut next = find_startxref(input)?.saturating_add(base);
+fn read_from_startxref(file: &FileBytes, base: usize, limits: Limits) -> Option<XrefTable> {
+    let mut next = find_startxref(file)?.saturating_add(base);
     let mut table = XrefTable::default();
     let mut visited = std::collections::BTreeSet::new();
     // Every section's entries in read order — newest first, and a hybrid file's `/XRefStm`
@@ -419,11 +437,11 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
         if !visited.insert(next) {
             break;
         }
-        if next >= input.len() {
+        if next >= file.len() {
             break;
         }
 
-        let Some(section) = read_section(input, next, base, limits) else {
+        let Some(section) = read_section(file, next, base, limits) else {
             break;
         };
         entries.extend(section.entries);
@@ -439,7 +457,7 @@ fn read_from_startxref(input: &[u8], base: usize, limits: Limits) -> Option<Xref
             .get("XRefStm")
             .and_then(Object::as_integer)
             .and_then(|value| usize::try_from(value).ok())
-            && let Some(extra) = read_section(input, hybrid.saturating_add(base), base, limits)
+            && let Some(extra) = read_section(file, hybrid.saturating_add(base), base, limits)
         {
             entries.extend(extra.entries);
             table.entries_lost = table.entries_lost.saturating_add(extra.lost);
@@ -478,26 +496,52 @@ struct Section {
     unread: Vec<(u32, u32)>,
 }
 
+/// How many bytes a cross-reference section's window starts with.
+///
+/// A classic table is about twenty bytes an entry, so this holds a section of some three
+/// thousand objects at the first read; a larger one, or a cross-reference stream whose data is
+/// longer, has the window doubled by [`FileBytes::parse_from`] until the parse examined
+/// nothing at its end, and the section is read again from the start each time. The cost of
+/// that is at most one more parse of the same section than a whole file pays, and it is paid
+/// only on disk. Larger would read bytes most files do not have here: the tail of a file is
+/// the trailer and the table, not a megabyte of either.
+const SECTION_WINDOW: usize = 64 * 1024;
+
+/// How many bytes a look at an object's header — `N G obj` — starts with.
+const HEADER_WINDOW: usize = 64;
+
 /// Reads either a classic `xref` table or a cross-reference stream at `offset`.
-fn read_section(input: &[u8], offset: usize, base: usize, limits: Limits) -> Option<Section> {
-    let mut parser = Parser::at(input, offset, limits);
-    let probe = parser.position();
+fn read_section(file: &FileBytes, offset: usize, base: usize, limits: Limits) -> Option<Section> {
+    file.parse_from(offset, SECTION_WINDOW, |input, _| {
+        // A classic table begins with the `xref` keyword.
+        let mut lexer = crate::lexer::Lexer::at(input, 0);
+        if lexer.next_token() == Some(crate::Token::Keyword(b"xref")) {
+            let section = read_classic_table(file, &mut lexer, base, limits);
+            return (section, lexer.examined());
+        }
 
-    // A classic table begins with the `xref` keyword.
-    let mut lexer = crate::lexer::Lexer::at(input, probe);
-    if lexer.next_token() == Some(crate::Token::Keyword(b"xref")) {
-        return read_classic_table(input, lexer.position(), base, limits);
-    }
-
-    // Otherwise expect `N G obj` introducing a cross-reference stream.
-    let (_, object) = parser.parse_indirect_object().ok()?;
-    let stream = object.as_stream()?.clone();
-    read_xref_stream(&stream, base, limits)
+        // Otherwise expect `N G obj` introducing a cross-reference stream.
+        let mut parser = Parser::at(input, 0, limits);
+        let section = parser
+            .parse_indirect_object()
+            .ok()
+            .and_then(|(_, object)| read_xref_stream(object.as_stream()?, base, limits));
+        (section, parser.examined())
+    })
 }
 
-/// Reads a classic `xref` table, positioned just after the keyword.
-fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) -> Option<Section> {
-    let mut lexer = crate::lexer::Lexer::at(input, offset);
+/// Reads a classic `xref` table, with `lexer` positioned just after the keyword.
+///
+/// The lexer is the caller's so that how far the reading looked comes back with the section:
+/// its input is a window of the file where the file is on disk, and [`read_section`] hands the
+/// lexer's [`crate::Lexer::examined`] to the window's reader. `file` is for the one thing a
+/// window cannot answer, which is what the object at an entry's offset calls itself.
+fn read_classic_table(
+    file: &FileBytes,
+    lexer: &mut crate::lexer::Lexer<'_>,
+    base: usize,
+    limits: Limits,
+) -> Option<Section> {
     let mut entries = Vec::new();
     let mut unread: Vec<(u32, u32)> = Vec::new();
 
@@ -526,19 +570,19 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                     // declares twelve entries and supplies eleven.
                     let entry_at = lexer.position();
                     let Some(crate::Token::Integer(position)) = lexer.next_token() else {
-                        entries.extend(realigned(input, subsection));
+                        entries.extend(realigned(file, subsection));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(entries, unread, input, entry_at, limits));
+                        return Some(finish(entries, unread, lexer, entry_at, limits));
                     };
                     let Some(crate::Token::Integer(_generation)) = lexer.next_token() else {
-                        entries.extend(realigned(input, subsection));
+                        entries.extend(realigned(file, subsection));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(entries, unread, input, entry_at, limits));
+                        return Some(finish(entries, unread, lexer, entry_at, limits));
                     };
                     let Some(crate::Token::Keyword(kind)) = lexer.next_token() else {
-                        entries.extend(realigned(input, subsection));
+                        entries.extend(realigned(file, subsection));
                         unread.push((first.saturating_add(index), count.saturating_sub(index)));
-                        return Some(finish(entries, unread, input, entry_at, limits));
+                        return Some(finish(entries, unread, lexer, entry_at, limits));
                     };
 
                     // `f` marks a free entry: the object number names nothing *in this
@@ -571,15 +615,16 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
                         unread.push((number, 1));
                     }
                 }
-                entries.extend(realigned(input, subsection));
+                entries.extend(realigned(file, subsection));
             }
             Some(crate::Token::Keyword(word)) if word == b"trailer" => {
-                let mut parser = Parser::at(input, lexer.position(), limits);
+                let mut parser = Parser::at(lexer.input(), lexer.position(), limits);
                 let trailer = parser
                     .parse_object()
                     .ok()
                     .and_then(|object| object.as_dict().cloned())
                     .unwrap_or_default();
+                lexer.note_examined(parser.examined());
                 return Some(Section {
                     entries,
                     trailer,
@@ -594,7 +639,8 @@ fn read_classic_table(input: &[u8], offset: usize, base: usize, limits: Limits) 
         }
     }
 
-    Some(finish(entries, unread, input, lexer.position(), limits))
+    let at = lexer.position();
+    Some(finish(entries, unread, lexer, at, limits))
 }
 
 /// How many of a subsection's in-use entries are checked against the objects they point at.
@@ -643,7 +689,7 @@ const SUBSECTION_WITNESSES: usize = 4;
 /// shifting a whole subsection on that evidence would turn one broken object into all of
 /// them.
 fn realigned(
-    input: &[u8],
+    file: &FileBytes,
     subsection: Vec<(u32, Option<Location>)>,
 ) -> Vec<(u32, Option<Location>)> {
     let witnesses: Vec<Option<i64>> = subsection
@@ -654,7 +700,7 @@ fn realigned(
         })
         .take(SUBSECTION_WITNESSES)
         .map(|(number, offset)| {
-            header_number_at(input, offset)
+            header_number_at(file, offset)
                 .map(|actual| i64::from(number).saturating_sub(i64::from(actual)))
         })
         .collect();
@@ -684,8 +730,15 @@ fn realigned(
 ///
 /// Reads the header alone — two integers and `obj` — rather than parsing the object, because
 /// the object may be an 800 KB image and the question is only what it calls itself.
-fn header_number_at(input: &[u8], offset: usize) -> Option<u32> {
-    let mut lexer = crate::lexer::Lexer::at(input, offset);
+fn header_number_at(file: &FileBytes, offset: usize) -> Option<u32> {
+    file.parse_from(offset, HEADER_WINDOW, |input, _| {
+        let mut lexer = crate::lexer::Lexer::at(input, 0);
+        (header_number(&mut lexer), lexer.examined())
+    })
+}
+
+/// The object number of the `N G obj` header at the lexer's cursor, if one is there.
+fn header_number(lexer: &mut crate::lexer::Lexer<'_>) -> Option<u32> {
     let Some(crate::Token::Integer(number)) = lexer.next_token() else {
         return None;
     };
@@ -701,18 +754,19 @@ fn header_number_at(input: &[u8], offset: usize) -> Option<u32> {
     u32::try_from(number).ok()
 }
 
-/// Builds a section, looking for a trailer from `offset` onwards.
+/// Builds a section, looking for a trailer from `offset` onwards in the lexer's input.
 fn finish(
     entries: Vec<(u32, Option<Location>)>,
     unread: Vec<(u32, u32)>,
-    input: &[u8],
+    lexer: &mut crate::lexer::Lexer<'_>,
     offset: usize,
     limits: Limits,
 ) -> Section {
-    let trailer = find_trailer_from(input, offset, limits).unwrap_or_default();
+    let (trailer, looked) = find_trailer_from(lexer.input(), offset, limits);
+    lexer.note_examined(looked);
     Section {
         entries,
-        trailer,
+        trailer: trailer.unwrap_or_default(),
         lost: 0,
         unread,
     }
@@ -1064,9 +1118,15 @@ fn decode_direct(stream: &crate::object::Stream, limits: Limits) -> Option<std::
 /// The cost is one backwards byte scan, paid only by a file that has already failed the window
 /// — and it is paid *instead of* a scan that reads every object header in the file, not on top
 /// of one, whenever it succeeds.
-fn find_startxref(input: &[u8]) -> Option<usize> {
-    let tail_start = input.len().saturating_sub(STARTXREF_SEARCH_WINDOW);
-    last_startxref_from(input, tail_start).or_else(|| last_startxref_from(input, 0))
+fn find_startxref(file: &FileBytes) -> Option<usize> {
+    let tail_start = file.len().saturating_sub(STARTXREF_SEARCH_WINDOW);
+    if let Some(found) = last_startxref_from(&file.read(tail_start..file.len()), 0) {
+        return Some(found);
+    }
+    // The whole file, backwards: the second look reads every byte, so a file on disk is read
+    // whole and kept, or refused by name where it cannot be held — in which case there is no
+    // `startxref` this reader can find and the caller's scan will refuse the same way.
+    last_startxref_from(file.whole().ok()?, 0)
 }
 
 /// The offset stated by the last `startxref` at or after `from`, if that keyword is there and
@@ -1087,19 +1147,28 @@ fn last_startxref_from(input: &[u8], from: usize) -> Option<usize> {
     }
 }
 
-/// Finds a `trailer` keyword at or after `offset` and parses its dictionary.
-fn find_trailer_from(input: &[u8], offset: usize, limits: Limits) -> Option<Dictionary> {
-    let haystack = input.get(offset..)?;
-    let found = haystack
+/// Finds a `trailer` keyword at or after `offset` and parses its dictionary, beside how many
+/// bytes of `input` the search and the parse looked at — the whole input where no keyword was
+/// found, which is what has a window of a file on disk grown.
+fn find_trailer_from(input: &[u8], offset: usize, limits: Limits) -> (Option<Dictionary>, usize) {
+    let Some(haystack) = input.get(offset..) else {
+        return (None, input.len());
+    };
+    let Some(found) = haystack
         .windows(b"trailer".len())
-        .position(|window| window == b"trailer")?;
+        .position(|window| window == b"trailer")
+    else {
+        return (None, input.len());
+    };
     let at = offset
         .saturating_add(found)
         .saturating_add(b"trailer".len());
-    Parser::at(input, at, limits)
+    let mut parser = Parser::at(input, at, limits);
+    let trailer = parser
         .parse_object()
         .ok()
-        .and_then(|object| object.as_dict().cloned())
+        .and_then(|object| object.as_dict().cloned());
+    (trailer, parser.examined())
 }
 
 /// Finds the last `trailer` dictionary anywhere in the file.

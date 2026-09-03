@@ -508,7 +508,7 @@ fn examine(path: &Path) -> Census {
     let opened = viewer
         .handle(Command::Open {
             id: DOCUMENT,
-            bytes,
+            bytes: bytes.into(),
             password: (!password.is_empty()).then(|| password.to_owned().into()),
             fragment: None,
         })
