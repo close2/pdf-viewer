@@ -27,9 +27,16 @@
 //!
 //! **The third fact is what the samples *mean*, and it is the dictionary's rather than the
 //! codestream's** — §7.4.9's precedence for JPEG 2000, and for a JPEG the plain reading that
-//! nothing in ISO/IEC 10918 states a PDF colour space. The last test is that one: §8.6.6.3 makes
-//! an `Indexed` sample "an index into the colour table", and this route scaled it into 0 to 1
-//! first, which sent every index of a 256-entry table onto its two darkest entries.
+//! nothing in ISO/IEC 10918 states a PDF colour space. The `Indexed` and `Lab` tests are that
+//! one: §8.6.6.3 makes an `Indexed` sample "an index into the colour table", and this route
+//! scaled it into 0 to 1 first, which sent every index of a 256-entry table onto its two
+//! darkest entries.
+//!
+//! **The fourth subject is not a disagreement at all, and it is here for the fixture.**
+//! §8.9.6.4's colour key is a test on the samples the filter delivered, so a test of it needs a
+//! codestream whose sample values are known — which is what this file's generator makes and no
+//! other test file has. The three tests at the end are that clause's, against `image_masks.rs`'s
+//! for the routes whose samples reach the unpacker unfiltered.
 
 #![expect(
     clippy::expect_used,
@@ -145,6 +152,19 @@ fn jpeg_of(width: u16, height: u16, components: u8, transform: Option<u8>) -> Ve
 /// Built as bytes rather than through the string helper the other fixtures use, because a
 /// codestream is not text and a `String` cannot hold one.
 fn pdf_with_image(codestream: &[u8], colour_space: &str, stated: (u32, u32)) -> Vec<u8> {
+    pdf_with_image_entries(codestream, colour_space, stated, "")
+}
+
+/// The same fixture with `entries` written into the image dictionary beside the required ones.
+///
+/// One entry has ever needed this and it is §8.9.6.4's `/Mask`, whose test is on the samples
+/// the filter delivered rather than on the raster they become.
+fn pdf_with_image_entries(
+    codestream: &[u8],
+    colour_space: &str,
+    stated: (u32, u32),
+    entries: &str,
+) -> Vec<u8> {
     let content = b"q 8 0 0 8 0 0 cm /Im0 Do Q";
     let mut objects: Vec<Vec<u8>> = Vec::new();
     objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
@@ -161,8 +181,8 @@ fn pdf_with_image(codestream: &[u8], colour_space: &str, stated: (u32, u32)) -> 
     let (stated_width, stated_height) = stated;
     let mut image = format!(
         "<< /Type /XObject /Subtype /Image /Width {stated_width} /Height {stated_height} \
-         /BitsPerComponent 8 /ColorSpace {colour_space} /Filter /DCTDecode /Length {} >>\n\
-         stream\n",
+         /BitsPerComponent 8 /ColorSpace {colour_space} {entries} /Filter /DCTDecode \
+         /Length {} >>\nstream\n",
         codestream.len()
     )
     .into_bytes();
@@ -542,5 +562,101 @@ fn a_dnl_marker_defines_or_redefines_the_frames_number_of_lines() {
     assert!(
         reported.contains("the JPEG frame is 8x8 where the dictionary says 8x9"),
         "the report names the DNL's count: {reported}"
+    );
+}
+
+/// The whole pixel, so that a masked sample can be told from a black one.
+fn first_pixel(bytes: Vec<u8>) -> Result<[u8; 4], String> {
+    let source = first_image(bytes)?;
+    let placed = source.at(pdf_render::Transform::IDENTITY);
+    Ok([
+        placed.data[0],
+        placed.data[1],
+        placed.data[2],
+        placed.data[3],
+    ])
+}
+
+/// §8.9.6.4's ranges reach a `DCTDecode` image, and cover the samples the filter delivered.
+///
+/// The clause's `shall` is about painting rather than about filters:
+///
+/// > Samples in the image that fall within this range shall not be painted, allowing the
+/// > existing background to show through.
+///
+/// and §8.9.5.1's Table 87 says what this filter's samples are:
+///
+/// > a RunLengthDecode or DCTDecode filter shall always deliver 8-bit samples
+///
+/// Every coefficient of this frame is zero, so its one component is 128 after JPEG's level
+/// shift, and a range containing 128 is a range containing every sample the image has.
+///
+/// It was refused by name until the eight-hundred-and-ninety-fourth session, on the clause's
+/// NOTE 2 about lossy coding — which warns and does not exclude (ADR 0832).
+#[test]
+fn a_colour_key_over_a_jpeg_hides_the_samples_it_names() {
+    let pixel = first_pixel(pdf_with_image_entries(
+        &one_component_jpeg(),
+        "/DeviceGray",
+        (8, 8),
+        "/Mask [128 128]",
+    ))
+    .expect("a colour-key /Mask on a DCTDecode image is applied rather than reported");
+    assert_eq!(
+        pixel[3], 0,
+        "every sample is 128 and the range is [128 128], so nothing is painted"
+    );
+}
+
+/// The control: the same image under a range its samples miss is painted whole.
+///
+/// Without it the test above would only show that an image with a `/Mask` comes out empty,
+/// which a dropped image does too.
+#[test]
+fn a_colour_key_a_jpegs_samples_miss_leaves_the_image_painted() {
+    let pixel = first_pixel(pdf_with_image_entries(
+        &one_component_jpeg(),
+        "/DeviceGray",
+        (8, 8),
+        "/Mask [0 0]",
+    ))
+    .expect("a colour-key /Mask on a DCTDecode image is applied rather than reported");
+    assert_eq!(
+        pixel,
+        [128, 128, 128, 255],
+        "no sample is 0, so the range covers none of them"
+    );
+}
+
+/// A sample is masked only where **every** component falls in its own range.
+///
+/// §8.9.6.4 states the conjunction outright — "if min i ≤ c i ≤ max i for all 1 ≤ i ≤ n " —
+/// and the failure it guards is the quiet one: a reader that stopped at the first component
+/// would hide colours the file asked to paint. Both cases use the same three-component frame,
+/// whose channels are all 128, so the only difference is the third range.
+#[test]
+fn a_colour_key_masks_only_where_every_component_is_inside_its_range() {
+    let covered = first_pixel(pdf_with_image_entries(
+        &three_component_jpeg(None),
+        "/DeviceRGB",
+        (8, 8),
+        "/Mask [128 128 128 128 128 128]",
+    ))
+    .expect("a three-component colour key is applied");
+    assert_eq!(
+        covered[3], 0,
+        "all three components are inside their ranges"
+    );
+
+    let missed = first_pixel(pdf_with_image_entries(
+        &three_component_jpeg(None),
+        "/DeviceRGB",
+        (8, 8),
+        "/Mask [128 128 128 128 0 0]",
+    ))
+    .expect("a three-component colour key is applied");
+    assert_eq!(
+        missed[3], 255,
+        "the third component is outside its range, so the sample is painted"
     );
 }

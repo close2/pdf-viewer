@@ -1798,10 +1798,28 @@ largest; `batch4` once its pieces land; [`40`](40-mask-chain-crop.md)'s clip cos
 rasteriser, which §8.7.3.1 NOTE 2 anticipates. In this tracker: `sumatrapdf-LINK-1532-1.pdf`, the
 one row at the dark end with two blank references, whose `/Font` entry `F1` is a reference to an
 object the file does not define — ADR 0789's side of §7.3.10, and this round did not open it;
-`sumatrapdf-404-0.pdf`, a colour-key `/Mask` on a `DCTDecode` image, which is a named refusal and
-0.36 of a level from the lighter reference; and `sumatrapdf-1550-0.pdf`, where the substituted face
-this machine offers draws none of the 148 characters asked of it, which is
-[`21`](21-font-substitution.md)'s question and not this file's.
+and `sumatrapdf-1550-0.pdf`, where the substituted face this machine offers draws none of the 148
+characters asked of it, which is [`21`](21-font-substitution.md)'s question and not this file's.
+
+**That list had a third entry until the eight-hundred-and-ninety-fourth session took it**:
+`sumatrapdf-404-0.pdf`, a colour-key `/Mask` on a `DCTDecode` image, refused by name — and the
+refusal was not the standard's. §8.9.6.4 says of the lossy filters only that their use "can produce
+unexpected results", which warns a writer about a picture and states no exception to its own
+"[s]amples in the image that fall within this range shall not be painted"; §7.4.8 excludes
+nothing either; and Table 87 says what the samples "before decoding" *are* for each filter — one
+bit for `CCITTFaxDecode` and `JBIG2Decode`, eight for `RunLengthDecode` and `DCTDecode` — which
+is where the test goes. ADR 0832 withdraws the refusal for those three and keeps it for
+`JPXDecode` alone, on the same table's sentence that the entry the ranges are bounded by "shall
+be ignored" there. `examples/colour_key_mask_census` is the population, over 90 535 documents of
+which 89 322 open: **660 state a colour key, 5935 images, and 81 of those are over a codestream —
+68 `DCTDecode` over 17 documents and 13 `CCITTFaxDecode` over 4, with no `JPXDecode` or
+`JBIG2Decode` anywhere.** Nineteen of the twenty-one documents that state one on page one
+reported it and now do not; the largest picture is `batch1/PDFBOX/PDFBOX-3631-15.pdf` at 7.9702
+of ink before and 9.1754 after, where five near-white stamps stopped covering the template's own
+`[[s|0]]` placeholders and both references draw what we now draw. `sumatrapdf-404-0.pdf` itself
+moves 5384 of 386 019 pixels by at most 2 of 255, because its `/Mask [0 0 0 0 0 0 0 0]` asks for
+exactly-zero CMYK and a lossy encoder left almost none — NOTE 2's own phenomenon, observed. Three
+rows in `doc/checks/fixed-documents.toml`.
 
 ## What the whole crawl says, now that all of it has been ranked
 

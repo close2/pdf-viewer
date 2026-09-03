@@ -681,7 +681,22 @@ fn samples_of(
                 components,
                 grid,
             } = decode_jpeg(&source.data)?;
+            // §8.9.6.4's ranges cover "colour components before decoding", which for this
+            // filter are the bytes just answered with; the conversion below replaces them, so
+            // the test is taken here and its answer applied afterwards. It cannot be applied
+            // here as well: [`convert_channels`] writes the alpha byte of a four-component
+            // frame, where it carries `k` until then, and would paint the sample back in.
+            let masked = colour_key.map(|ranges| jpeg_colour_key(&rgba, ranges));
             convert_channels(at, is_mask, components, &mut rgba, into)?;
+            if let Some(masked) = masked {
+                // The same answer [`unpack`] gives a masked sample: its position, and no
+                // opacity at all.
+                for (pixel, covered) in rgba.chunks_exact_mut(4).zip(masked) {
+                    if covered {
+                        pixel.fill(0);
+                    }
+                }
+            }
             Ok(SamplesOnGrid {
                 rgba,
                 grid,
@@ -690,7 +705,8 @@ fn samples_of(
             })
         }
         Some(b"JBIG2Decode") => {
-            let (rgba, shortfall) = decode_jbig2(at, source, width, height, is_mask, fill, into)?;
+            let (rgba, shortfall) =
+                decode_jbig2(at, source, (width, height), is_mask, fill, colour_key, into)?;
             Ok(SamplesOnGrid {
                 rgba,
                 grid: (width, height),
@@ -700,7 +716,8 @@ fn samples_of(
         }
         Some(b"JPXDecode") => decode_jpx(at, source, width, height, is_mask, fill, into),
         Some(b"CCITTFaxDecode" | b"CCF") => {
-            let (rgba, shortfall) = decode_ccitt(at, source, width, height, is_mask, fill, into)?;
+            let (rgba, shortfall) =
+                decode_ccitt(at, source, (width, height), is_mask, fill, colour_key, into)?;
             Ok(SamplesOnGrid {
                 rgba,
                 grid: (width, height),
@@ -1134,6 +1151,41 @@ fn colour_key_masks(
     })
 }
 
+/// Which of a `DCTDecode` frame's pixels §8.9.6.4's ranges cover, one flag per pixel.
+///
+/// The clause's test is on "all of its colour components before decoding", and §8.9.5.1's
+/// Table 87 says what this filter delivers those as:
+///
+/// > a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit samples, a
+/// > RunLengthDecode or DCTDecode filter shall always deliver 8-bit samples
+///
+/// So the bytes [`decode_jpeg`] answers with are the values the ranges are stated in, and
+/// nothing has to be un-decoded to compare them.
+///
+/// **A flag per pixel rather than an opacity cleared in place**, which is the one thing about
+/// this that is not obvious: the answer is wanted before [`convert_channels`] replaces the
+/// components and applied after it, because that conversion writes the fourth byte of a
+/// four-component frame — where `k` lives until then — and would paint a masked sample back
+/// in. The flags cost a quarter of what the raster beside them does.
+///
+/// `ranges` has one entry per component of the image's *colour space*, which
+/// [`colour_key_entry`] checked against the array's length; the first that many bytes of a
+/// pixel are the components [`convert_channels`] goes on to read, in each of the three
+/// pairings of space and frame it converts. A longer `ranges` than a pixel has bytes belongs
+/// to a space that conversion refuses outright, so the flags it produces are never applied.
+fn jpeg_colour_key(rgba: &[u8], ranges: &[(u32, u32)]) -> Vec<bool> {
+    rgba.chunks_exact(4)
+        .map(|pixel| {
+            ranges.iter().enumerate().all(|(component, (low, high))| {
+                pixel.get(component).is_some_and(|sample| {
+                    let raw = u32::from(*sample);
+                    raw >= *low && raw <= *high
+                })
+            })
+        })
+        .collect()
+}
+
 /// One pixel, as straight-alpha RGBA8.
 ///
 /// Split out of [`unpack`] so that the loop above is the *layout* — rows, byte boundaries,
@@ -1449,10 +1501,10 @@ fn channel(value: f32) -> u8 {
 fn decode_jbig2(
     at: Dictionaries,
     source: &ImageStream,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     is_mask: bool,
     fill: pdf_render::Color,
+    colour_key: Option<&[(u32, u32)]>,
     into: &Conversion,
 ) -> Result<(Vec<u8>, Option<String>), ImageError> {
     let Dictionaries {
@@ -1515,9 +1567,9 @@ fn decode_jbig2(
             bits: 1,
             space: &space,
             decode: &decode,
-            // §8.9.6.4's ranges are refused for a JBIG2 or CCITT image rather than applied
-            // here; `mask_entry` says why, and reports it.
-            colour_key: None,
+            // Table 87: "a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit
+            // samples", and those are the bits below, so §8.9.6.4's test is exact here.
+            colour_key,
             fill,
             into,
         },
@@ -1609,10 +1661,10 @@ fn ccitt_rows(rows: u32, end_of_block: bool, height: u32) -> u32 {
 fn decode_ccitt(
     at: Dictionaries,
     source: &ImageStream,
-    width: u32,
-    height: u32,
+    (width, height): (u32, u32),
     is_mask: bool,
     fill: pdf_render::Color,
+    colour_key: Option<&[(u32, u32)]>,
     into: &Conversion,
 ) -> Result<(Vec<u8>, Option<String>), ImageError> {
     let Dictionaries {
@@ -1731,9 +1783,9 @@ fn decode_ccitt(
             bits: 1,
             space: &space,
             decode: &decode,
-            // §8.9.6.4's ranges are refused for a JBIG2 or CCITT image rather than applied
-            // here; `mask_entry` says why, and reports it.
-            colour_key: None,
+            // As in [`decode_jbig2`]: Table 87 makes this filter's samples one bit, which is
+            // what §8.9.6.4's ranges are stated over and what [`unpack`] reads.
+            colour_key,
             fill,
             into,
         },
@@ -2808,14 +2860,51 @@ fn mask_entry(document: &Document, dict: &Dictionary, resources: &Dictionary) ->
 /// Both "shall"s are checked rather than assumed, because an array of the wrong length would
 /// otherwise mask by whichever components happened to line up.
 ///
-/// The refusal that is not about malformed input is the filtered one. The test is on the
-/// samples a filter delivers, and this crate sees those only where they reach [`unpack`]; a
-/// `DCTDecode` or `JPXDecode` image has become RGBA before then, and the clause's own NOTE 2
-/// says of exactly that pair that lossy coding "can lead to slight changes in the colour
-/// values of image samples, possibly causing samples that were intended to be masked to be
-/// unexpectedly painted". The two bilevel codecs are refused with them for one reason rather
-/// than four: a colour key over one-bit samples is a stencil written the long way, no corpus
-/// document writes one, and a rule with three exceptions is worse than a rule.
+/// # The one filter this refuses, and why the lossy ones are not it
+///
+/// **`JPXDecode` is refused, on §8.9.5.1's Table 87 and its own sentence about the entry
+/// these ranges are stated in**:
+///
+/// > If the image stream uses the JPXDecode filter, this entry is optional and shall be
+/// > ignored if present. The bit depth is determined by the PDF processor in the process of
+/// > decoding the JPEG 2000 image.
+///
+/// and §8.9.5.2 adds that for such an image the depth "can have different values per colour
+/// component". The blockquote above states one domain for every range, bounded by that same
+/// entry, so for a JPEG 2000 image the bound those integers live in is the one the standard
+/// has just taken away — and may differ between the components they are paired with. That is
+/// a gap in what the file states rather than a gap in this reader, so it is reported instead
+/// of guessed at. Not one of the 89 322 documents that opened, of the 90 535 the
+/// eight-hundred-and-ninety-fourth session walked over `doc/pdf.js`, `doc/corpora` and
+/// `corpus-cache`, states the pair — nor a `JBIG2Decode` one.
+///
+/// **The lossy filters are not refused, and this function refused all four codecs by name
+/// until the eight-hundred-and-ninety-fourth session.** §8.9.6.4 opens with a `shall`
+/// addressed to whoever paints the image:
+///
+/// > Samples in the image that fall within this range shall not be painted, allowing the
+/// > existing background to show through.
+///
+/// and says of the lossy pair only that
+///
+/// > When colour key masking is specified, the use of a DCTDecode or lossy JPXDecode filter
+/// > for the stream can produce unexpected results.
+///
+/// with NOTE 2 explaining that quantisation can leave a sample outside the range its producer
+/// meant it to fall in. That is a warning about a picture, addressed to a writer choosing a
+/// filter; it is not a permission to leave the `shall` unmet, and §7.4.8 states no such
+/// exclusion either. Refusing on it was this reader's choice wearing the clause's clothes
+/// (ADR 0832).
+///
+/// **Where the test is taken is settled by §8.9.5.1's Table 87 rather than by this crate's
+/// routing**, which is what made the withdrawal a small change:
+///
+/// > a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit samples, a
+/// > RunLengthDecode or DCTDecode filter shall always deliver 8-bit samples
+///
+/// So the bilevel pair's samples are the packed bits [`unpack`] already reads, and a
+/// `DCTDecode` frame's are the bytes [`decode_jpeg`] answers with, before
+/// [`convert_channels`] turns them into device RGB.
 fn colour_key_entry(
     document: &Document,
     dict: &Dictionary,
@@ -2827,8 +2916,12 @@ fn colour_key_entry(
             "colour-key /Mask on an image mask, which has no colour components".to_owned(),
         );
     }
-    if let Some(codec) = image_codec(document, dict) {
-        return MaskEntry::Unusable(format!("colour-key /Mask on a {codec} image"));
+    if image_codec(document, dict).as_deref() == Some("JPXDecode") {
+        return MaskEntry::Unusable(
+            "colour-key /Mask on a JPXDecode image, whose /BitsPerComponent Table 87 says \
+             shall be ignored"
+                .to_owned(),
+        );
     }
     // Asked for its component count and nothing else, so what the samples are composited
     // into does not enter: `Compositing::Device` is the question rather than an assumption.

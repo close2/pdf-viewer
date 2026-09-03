@@ -569,3 +569,27 @@ session = 891
 reports = ["MAX_TILE_COPIES"]
 ink = 10.905 .. 12.905
 why = "the second witness, and the measurement that closed the item: this page's raster is byte-identical whether MAX_TILE_COPIES cuts its two largest tilings or the bound is lifted, at 11.9049 of ink either way, for 1.87 s and 0.19 GiB against 10.53 s and 0.93 GiB (ADR 0828, 8.7.3.1). The ink therefore cannot discriminate the cut and is not asked to; what this row pins is that the floor plan draws and that the report is still MAX_TILE_COPIES rather than MAX_OPERATIONS, which is what starved its frame and title block when the per-tiling budget was tried as the page's own"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-3631-15.pdf"
+page = 1
+session = 894
+reports = ["no outline for any of the 8 code(s)"]
+ink = 8.675 .. 9.675
+why = "the page §8.9.6.4's refusal cost most: five DCTDecode stamps with /Mask [254 255 254 255 254 255], drawn opaque over the SignRequest template's own tag placeholders, so [[s|0]] and four more were hidden behind a white rectangle where poppler and mutool both show them. The ranges reach a DCTDecode image now, on Table 87's statement that the filter delivers 8-bit samples and on §8.9.6.4 warning about a lossy filter rather than excluding one (ADR 0832). The band discriminates by 0.705 of a level: the ink was 7.9702 before and is 9.1754 after, and the page darkens because what the stamps were covering is text. -16.pdf and batch5/DSS/DSS-1356-8.pdf are byte-identical copies and are not pinned twice"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/sumatrapdf/sumatrapdf-404-0.pdf"
+page = 1
+session = 894
+reports = []
+ink = 16.851 .. 17.851
+why = "the document doc/todo/03 section 44 named: a 1800x600 DeviceCMYK DCTDecode banner with /Mask [0 0 0 0 0 0 0 0], refused by name and reported as `colour-key /Mask on a DCTDecode image` until ADR 0832. What this row pins is the report, not the picture: the key covers only the samples the encoder left at exactly zero in all four channels, which is §8.9.6.4 NOTE 2's own phenomenon, so 5384 of 386 019 pixels change by at most 2 of 255 and the ink moves from 17.3522 to 17.3508. The band is the usual width and catches the banner vanishing; the empty `reports` is what fails if the refusal comes back"
+
+[[document]]
+path = "corpus-cache/safedocs/cc-main-2021-31/1899/1899883.pdf"
+page = 1
+session = 894
+reports = []
+ink = 25.011 .. 26.011
+why = "the bilevel half of the same decision, and the only witness for it in 90 535 documents: a CCITTFaxDecode image with a colour-key /Mask, which Table 87 makes exact — `a CCITTFaxDecode or JBIG2Decode filter shall always deliver 1-bit samples` — and which reached the unpacker with its ranges thrown away. No pixel moves here, because the ranges cover no sample this image has; the row pins that the report is gone and that the page still draws (ADR 0832)"
