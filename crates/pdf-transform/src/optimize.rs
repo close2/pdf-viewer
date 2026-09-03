@@ -178,7 +178,8 @@ impl Savings {
 ///
 /// # Errors
 ///
-/// [`Refusal::NoSuchSource`], [`Refusal::Assembly`] where the document cannot be rewritten at
+/// [`Refusal::NoSuchSource`], [`Refusal::Reconstructed`] where the source states its structure
+/// only through §C.4's recovery, [`Refusal::Assembly`] where the document cannot be rewritten at
 /// all, and [`Refusal::Sink`] where the output cannot be written.
 pub(crate) fn run(
     plan: &OptimizePlan,
@@ -200,7 +201,7 @@ pub(crate) fn run(
         .get("Root")
         .and_then(Object::as_reference)
     else {
-        return Err(Refusal::Assembly(
+        return Err(Refusal::Reconstructed(
             "§7.5.5's Table 15 makes /Root \"( Required; shall be an indirect reference ) The \
              catalog dictionary for the PDF file\", and this document's trailer does not state \
              one"
@@ -319,14 +320,16 @@ pub(crate) fn run(
 ///
 /// # Errors
 ///
-/// [`Refusal::Assembly`], naming which of the two clauses the document does not satisfy.
+/// [`Refusal::Reconstructed`], naming which of the two clauses the document does not satisfy —
+/// RFC 0002 section 4.4's exit 4 rather than its 2, because this tree reads and draws such a
+/// document and it is the *writer* that declines.
 fn refuse_a_document_only_recovery_reads(
     document: &Document,
     root: ObjectId,
 ) -> Result<(), Refusal> {
     let catalog = document.get(root);
     let Some(catalog) = catalog.as_dict() else {
-        return Err(Refusal::Assembly(format!(
+        return Err(Refusal::Reconstructed(format!(
             "§7.5.5's Table 15 makes /Root \"( Required; shall be an indirect reference ) The \
              catalog dictionary for the PDF file\", and object {} is not a dictionary; this \
              document is one only §C.4's recovery reads, and rewriting it would state a \
@@ -338,7 +341,7 @@ fn refuse_a_document_only_recovery_reads(
         .get("Pages")
         .map_or(Object::Null, |value| document.resolve(value));
     if pages.as_dict().is_none() {
-        return Err(Refusal::Assembly(
+        return Err(Refusal::Reconstructed(
             "§7.7.2's Table 29 makes /Pages \"( Required; shall be an indirect reference ) The \
              page tree node that shall be the root of the document's page tree\", and this \
              catalog's does not resolve to one; this document is one only §C.4's recovery pages, \
