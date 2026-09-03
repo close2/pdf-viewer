@@ -360,7 +360,15 @@ fn examine(path: &Path, tally: &Mutex<Tally>) {
             out
         }
         Err(error) => {
-            record(tally, |t| t.refused.push((name, error.to_string())));
+            // The exit status goes in beside the message because RFC 0002 section 4.4 makes it
+            // the part a caller acts on — 2 is "the *file* defeated us" and 4 is "*we*
+            // declined" — and the census is the only place the corpus says which documents fall
+            // on which side. ADR 0852: three of these were 2 while their own message said they
+            // were a refusal by name.
+            record(tally, |t| {
+                t.refused
+                    .push((name, format!("exit {}: {error}", error.exit().code())));
+            });
             return;
         }
     };

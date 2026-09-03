@@ -201,7 +201,7 @@ has the one taken in session 875.
 **The foreign readback is taken** — `tests/foreign_corpus.rs`, ADR 0839 — and this section used to
 be five paragraphs arguing for it. What it is worth recording now is what remained after it:
 
-- All four writers' output goes through `qpdf --check`, `pdftoppm`, `mutool draw`, `mutool show`
+- All five writers' output goes through `qpdf --check`, `pdftoppm`, `mutool draw`, `mutool show`
   and `pdfinfo`, and every foreign reading of a derived page is compared with that *same* reader's
   reading of the source page — never with ours, which is the oracle's question and would make a
   disagreement unattributable (traps 3 and 9).
@@ -209,7 +209,8 @@ be five paragraphs arguing for it. What it is worth recording now is what remain
   here can see: §14.7's parent tree, which only an assistive processor reads. That is ADR 0835 §5's
   prediction, confirmed on the first run.
 - **What it does not cover, and what a later round owes.** It is a *sample* — every tagged document
-  plus every eighth — because a document costs up to fourteen foreign invocations; the whole corpus
+  plus every eighth — because a document costs nineteen foreign invocations across the five
+  writers on an untagged multi-page document; the whole corpus
   is a bigger instrument and would want the reference cache `pdfref` already has. It draws page 1
   only, so a derived document's later pages are unread by anybody but us. It skips a document that
   needs a password, because the foreign readers would have to be given it too. It asks mupdf about
@@ -222,8 +223,8 @@ be five paragraphs arguing for it. What it is worth recording now is what remain
   so both readers time out on it about as often as not; a timeout takes it out of that reader's
   comparison rather than failing the run (ADR 0839 section 4). A reference cache, or a budget
   scaled to what the source render cost, would put it back.
-- **`optimize` is a fifth writer, and `tests/foreign_corpus.rs` does not know about it.** Session
-  900 added it after session 898 built the readback, so the sample goes through four writers'
-  output and not five — and a rewritten file is the one output whose whole *point* is that its
-  bytes are different, which makes it the one most worth showing somebody else. Adding it is the
-  smallest of the items above and belongs to whichever round touches that walk next.
+- **`optimize` joined the readback in session 905** (ADR 0852), so the walk now shows all five
+  writers' output to poppler, mupdf and qpdf, and the same round split qpdf's verdict into its two
+  steps: a warning where the source had none now fails the run as an error does. The rewritten
+  file is the one output whose whole *point* is that its bytes are different, and it is read
+  exactly as well as the other four.

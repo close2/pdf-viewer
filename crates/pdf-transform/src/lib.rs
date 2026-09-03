@@ -458,6 +458,20 @@ pub enum Refusal {
     /// is not an indirect object, a serializer refusal.
     #[error("{0}")]
     Assembly(String),
+    /// The source states its structure only through §C.4's recovery, so this program declines
+    /// to write a file restating it.
+    ///
+    /// Told apart from [`Refusal::Assembly`] because the two mean opposite things to a caller,
+    /// and RFC 0002 section 4.4 draws the line: 2 is "the *file* defeated us" and 4 is "*we*
+    /// declined … an unsupported construct hit on the path". This tree **opens** such a
+    /// document, finds its pages and draws them — `pdf_model::Pages` looks for what Table 31
+    /// describes, which is right for a reader — so nothing about it defeated anybody. What
+    /// happens is that a *writer* declines: Table 15's `/Root` and Table 29's `/Pages` are each
+    /// "( Required; shall be an indirect reference )", so a rewrite of a reconstruction would
+    /// state a structure no producer wrote. That is exit 4's own sentence, and the message names
+    /// the clause.
+    #[error("{0}")]
+    Reconstructed(String),
     /// A merge names one page twice, and Table 31 gives a page one `/Parent`.
     #[error(
         "source {at}: page {page} would be in the merged document twice, and Table 31 makes a \
@@ -638,7 +652,8 @@ impl Refusal {
             | Self::Update { .. }
             | Self::FieldCollision { .. }
             | Self::StructureConflict { .. }
-            | Self::DuplicateWidget { .. } => Exit::Refused,
+            | Self::DuplicateWidget { .. }
+            | Self::Reconstructed(_) => Exit::Refused,
             Self::NoSuchSource { .. }
             | Self::Unopenable { .. }
             | Self::PasswordRequired { .. }

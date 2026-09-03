@@ -33,7 +33,9 @@ use pdf_syntax::serialize::{ObjectStreams, Streams};
 use pdf_syntax::{Document, Limits, Object};
 use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing};
-use pdf_transform::{Budget, MemorySinks, Origin, Plan, Policy, Report, Source, apply};
+use pdf_transform::{
+    Budget, Exit, MemorySinks, Origin, Plan, Policy, Refusal, Report, Source, apply,
+};
 
 use support::{check_optimized, check_structure, committed};
 
@@ -381,4 +383,58 @@ fn qpdf_reads_back_what_this_writer_wrote() {
         Some(false) => panic!("qpdf --check refused the rewritten document"),
         None => eprintln!("skipped: qpdf is not installed"),
     }
+}
+
+/// A document whose `/Root` names something that is not a dictionary is refused with RFC 0002
+/// section 4.4's **exit 4**, not its exit 2.
+///
+/// The clause is the refusal's own: §7.5.5's Table 15 makes `/Root` "( Required; shall be an
+/// indirect reference ) The catalog dictionary for the PDF file", and this tree still opens such
+/// a file — `pdf_model::Pages` finds what Table 31 describes, which is right for a *reader*. So
+/// nothing about the file defeated anybody; a **writer** declined, because rewriting a
+/// reconstruction would state a structure no producer wrote. RFC 0002 section 4.4 draws exactly
+/// that line — "2 means the *file* defeated us, 4 means *we* declined" — and the status was 2
+/// for the whole of this verb's first two sessions while the refusal's own message and the
+/// round's own record both called it a refusal by name (ADR 0852).
+///
+/// **A hand-written document rather than a corpus one, and trap 4 is why that is said out
+/// loud**: what is under test is which status a *classification* carries, not how a parser reads
+/// bytes, and the corpus documents that produce it — `REDHAT-1531897-0.pdf`, `bug1020226.pdf`
+/// and `poppler-395-0-fuzzed.pdf` — are held by `tests/optimize_corpus.rs`, whose census prints
+/// each refusal's status beside its message.
+#[test]
+fn a_document_only_recovery_reads_is_refused_by_name_rather_than_reported_as_an_error() {
+    // `/Root` names object 1, which is an integer; the page tree beside it is well formed, so
+    // this tree opens the file and finds its one page.
+    let bytes: &[u8] = b"%PDF-1.7\n\
+        1 0 obj\n42\nendobj\n\
+        2 0 obj\n<< /Type /Pages /Kids [ 3 0 R ] /Count 1 >>\nendobj\n\
+        3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [ 0 0 100 100 ] >>\nendobj\n\
+        trailer\n<< /Size 4 /Root 1 0 R >>\n%%EOF\n";
+    let document =
+        Document::open_with_limits(bytes.to_vec(), Limits::DEFAULT).expect("a reader opens it");
+    assert_eq!(
+        Pages::new(&document).len(),
+        1,
+        "the premise: this is a document a reader reads, so the refusal is the writer's"
+    );
+
+    let refusal = apply(
+        &Plan::Optimize(default_plan()),
+        &[Source::new(bytes.to_vec())],
+        &MemorySinks::new(),
+        &Policy::default(),
+        &Budget::default(),
+    )
+    .expect_err("a reconstruction is not rewritten");
+    assert!(
+        matches!(refusal, Refusal::Reconstructed(_)),
+        "the kind says which side declined: {refusal}"
+    );
+    assert_eq!(refusal.exit(), Exit::Refused, "{refusal}");
+    assert_eq!(refusal.exit().code(), 4, "{refusal}");
+    assert!(
+        refusal.to_string().contains("7.5.5"),
+        "the message names the clause it refuses on: {refusal}"
+    );
 }
