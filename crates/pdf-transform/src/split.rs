@@ -46,9 +46,10 @@
 //!
 //! The catalog is synthesised. It carries `/Pages`, and the entries whose absence would change
 //! what the pages *look like*: `/Version`, `/Lang`, `/ViewerPreferences`, `/PageLayout`,
-//! `/PageMode`, §8.11's `/OCProperties`, §12.7.3's `/AcroForm` and §14.11.5's
-//! `/OutputIntents`. Everything else the source catalog states — the outline, the name trees,
-//! the structure tree, `/PageLabels`, `/Metadata` and the rest — is **not carried, and every one
+//! `/PageMode`, §8.11's `/OCProperties`, §12.7.3's `/AcroForm`, §14.11.5's
+//! `/OutputIntents` and — since session 897, through [`crate::structure`] — §14.7's
+//! `/StructTreeRoot` and `/MarkInfo`. Everything else the source catalog states — the outline,
+//! the name trees, `/PageLabels`, `/Metadata` and the rest — is **not carried, and every one
 //! of them is named in a warning**. That is RFC 0002 section 6.1's document-level carrying, and this verb does not do it yet:
 //! the outline subset whose destinations survive, page labels recomputed per piece, and name-tree
 //! entries still referenced are each a documented choice with edges of its own, and `doc/todo/57`
@@ -76,7 +77,7 @@ use std::sync::Arc;
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, Form, serialize};
+use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
 use pdf_syntax::{Document, Version};
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 
@@ -594,7 +595,7 @@ fn write_piece(job: &Job<'_>) -> Done {
             };
         }
     };
-    let written = match serialize(&assembly, job.version, job.form, &mut writer) {
+    let written = match serialize(&assembly, job.version, Options::new(job.form), &mut writer) {
         Ok(written) => written,
         Err(error) => {
             return Done {

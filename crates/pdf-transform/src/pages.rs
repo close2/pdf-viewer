@@ -136,27 +136,19 @@
 //! have to write into an object the plan never asked it to touch. Neither is a page duplicated;
 //! both are a form edited. So the operation is declined and says which page and which clause.
 //!
-//! # §14.7's structure tree, said plainly
+//! # §14.7's structure tree
 //!
-//! **No verb of this suite carries it**, `pages` included, and this is the honest statement of
-//! what that costs rather than a half-carry. §14.7.1:
+//! **Carried, since session 897** (ADR 0834), by the one reading in [`crate::structure`] that
+//! `split`, `merge` and this verb share. §14.7.1 is why it has to be both halves or neither:
 //!
 //! > A PDF document's logical structure shall be stored separately from its visible content,
 //! > with pointers from each to the other.
 //!
-//! The catalog's `/StructTreeRoot` is in `merge`'s `NOT_CARRIED`, so a source that states one is
-//! named in a warning and the output states none. The *other* half of that pair — the pointers
-//! from the content back to the structure — is Table 31's `/StructParents`, "[t]he integer key
-//! of the page's entry in the structural parent tree", and a carried page still states the
-//! integer its producer wrote. With no structure tree in the output, §14.7.5.4's parent tree
-//! does not exist, so that integer **names nothing at all**; it does not name the wrong
-//! element, which is the failure it would be if a partial tree were written. It is left as the
-//! producer stated it — dropping it would be a second edit to the page dictionary in service of
-//! a construct this verb does not write — and the warning says the tree is gone.
-//!
-//! A tagged document therefore loses its tagging to any of these verbs, with a warning to say
-//! so. `doc/todo/57` names it as the largest single thing the suite owes.
-//!
+//! So the elements whose content is on a page the output holds are kept together with the
+//! ancestors that hold them, §14.7.5.4's parent tree is rebuilt with the output's **own** keys,
+//! and Table 31's `/StructParents` on each carried page is restated to match. This paragraph
+//! said the opposite until session 900 read it: it was written when no verb carried a tree, and
+//! it stayed three rounds after one did.
 //! # Determinism
 //!
 //! The output is a function of the source and the plan: RFC 0002 section 9's first layer, with

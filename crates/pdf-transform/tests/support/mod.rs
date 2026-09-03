@@ -366,3 +366,270 @@ fn check_object_key(
         )),
     }
 }
+
+/// What §7.5.7 and §7.5.5 say about a document `optimize` wrote, judged against the clauses.
+///
+/// The same discipline as [`check_structure`] and for the same reason (trap 8): every property
+/// below is a sentence of ISO 32000-2 asked of the *output*, never a comparison with what
+/// `optimize` meant to do. A file the writer built consistently wrong would satisfy the second
+/// kind of check and fail these.
+pub(crate) struct OptimizedCheck {
+    /// How many objects the trailer's `/Size` declares, less §7.5.4's free head.
+    pub(crate) declared: usize,
+    /// How many §7.5.7 object streams the file holds.
+    pub(crate) object_streams: usize,
+    /// How many objects those carry, summed from each carrier's own `/N`.
+    pub(crate) compressed: usize,
+    /// Objects no path from `/Root` or `/Info` reaches, and which no clause excuses.
+    pub(crate) unreachable: Vec<u32>,
+    /// Everything the output states that a clause forbids, each with the clause.
+    pub(crate) faults: Vec<String>,
+}
+
+/// Reads a rewritten document and checks what §7.5.5 and §7.5.7 require of it.
+///
+/// 1. **Nothing is written that nothing reaches.** §7.5.5's Table 15 makes `/Root` "[t]he
+///    catalog dictionary for the PDF file" and §7.7.2's Table 29 the root of its object
+///    hierarchy, so after a pruning rewrite every object a reader can ask for should be one
+///    some path from `/Root` — or from the trailer's other root, §14.3.3's `/Info` — arrives
+///    at. §7.5.7 states the one exception in as many words: an object stream is an indirect
+///    object "although there might not be any references to it (of the form 243 0 R)", and
+///    §7.5.8's cross-reference stream is the same. Both are recognised by their own `/Type`.
+/// 2. **Table 16's entries.** `/Type` is `ObjStm`, `/N` is "[t]he number of indirect objects
+///    stored in the stream" and `/First` "[t]he byte offset in the decoded stream of the first
+///    compressed object" — so the header holds exactly `/N` pairs, and `/First` is where they
+///    end.
+/// 3. **"The byte offsets shall be in increasing order."**
+/// 4. **`/Extends` "[a] reference to another object stream"**, whose links "form a directed
+///    acyclic graph" — so a carrier that states one names an object whose `/Type` is `ObjStm`,
+///    and following the chain terminates.
+pub(crate) fn check_optimized(read: &Document) -> OptimizedCheck {
+    let declared = read
+        .trailer()
+        .get("Size")
+        .and_then(Object::as_integer)
+        .and_then(|size| usize::try_from(size).ok())
+        .map_or(0, |size| size.saturating_sub(1));
+    let mut out = OptimizedCheck {
+        declared,
+        object_streams: 0,
+        compressed: 0,
+        unreachable: Vec::new(),
+        faults: Vec::new(),
+    };
+
+    let mut reached: BTreeSet<ObjectId> = BTreeSet::new();
+    for key in ["Root", "Info"] {
+        if let Some(id) = read.trailer().get(key).and_then(Object::as_reference) {
+            walk_closure(read, id, &mut reached);
+        }
+    }
+
+    for number in 1..=u32::try_from(declared).unwrap_or(0) {
+        let id = ObjectId::new(number, 0);
+        let value = read.get(id);
+        if value == Object::Null {
+            continue;
+        }
+        let kind = value
+            .as_stream()
+            .and_then(|stream| stream.dict.get("Type"))
+            .and_then(Object::as_name)
+            .map(|name| name.as_bytes().to_vec());
+        match kind.as_deref() {
+            Some(b"ObjStm") => {
+                out.object_streams = out.object_streams.saturating_add(1);
+                check_object_stream(read, id, &mut out);
+                continue;
+            }
+            // §7.5.8: "[l]ike any stream, a cross-reference stream shall be an indirect
+            // object", and nothing refers to it either.
+            Some(b"XRef") => continue,
+            _ => {}
+        }
+        if !reached.contains(&id) {
+            out.unreachable.push(number);
+        }
+    }
+    out
+}
+
+/// One §7.5.7 carrier read back against Table 16 and the clause's own sentences.
+fn check_object_stream(read: &Document, id: ObjectId, out: &mut OptimizedCheck) {
+    let value = read.get(id);
+    let Some(stream) = value.as_stream() else {
+        return;
+    };
+    let Some(count) = read
+        .get_key(&stream.dict, "N")
+        .as_integer()
+        .and_then(|value| usize::try_from(value).ok())
+    else {
+        out.faults.push(format!(
+            "§7.5.7 Table 16: object stream {} states no /N, which is \"( Required ) The number \
+             of indirect objects stored in the stream\"",
+            id.number
+        ));
+        return;
+    };
+    let Some(first) = read
+        .get_key(&stream.dict, "First")
+        .as_integer()
+        .and_then(|value| usize::try_from(value).ok())
+    else {
+        out.faults.push(format!(
+            "§7.5.7 Table 16: object stream {} states no /First",
+            id.number
+        ));
+        return;
+    };
+    out.compressed = out.compressed.saturating_add(count);
+
+    let Some(data) = read.decoded_stream_data(stream) else {
+        out.faults.push(format!(
+            "§7.5.7: object stream {}'s data does not decode",
+            id.number
+        ));
+        return;
+    };
+    let Some(head) = data.get(..first) else {
+        out.faults.push(format!(
+            "§7.5.7: object stream {}'s /First {first} is past its {} decoded bytes",
+            id.number,
+            data.len()
+        ));
+        return;
+    };
+    let numbers: Vec<i64> = String::from_utf8_lossy(head)
+        .split_ascii_whitespace()
+        .filter_map(|word| word.parse::<i64>().ok())
+        .collect();
+    if numbers.len() != count.saturating_mul(2) {
+        out.faults.push(format!(
+            "§7.5.7: object stream {} states /N {count} and its header holds {} integer(s), and \
+             the clause makes the header \"N pairs of integers\"",
+            id.number,
+            numbers.len()
+        ));
+        return;
+    }
+    let mut previous: Option<i64> = None;
+    for pair in numbers.chunks_exact(2) {
+        let (member, offset) = (pair[0], pair[1]);
+        if previous.is_some_and(|last| offset <= last) {
+            out.faults.push(format!(
+                "§7.5.7: object stream {}'s offsets are not increasing, and \"[t]he byte offsets \
+                 shall be in increasing order\"",
+                id.number
+            ));
+        }
+        previous = Some(offset);
+        if first.saturating_add(usize::try_from(offset).unwrap_or(usize::MAX)) > data.len() {
+            out.faults.push(format!(
+                "§7.5.7: object stream {}'s member {member} starts past the decoded stream",
+                id.number
+            ));
+        }
+        // "The following objects shall not be stored in an object stream:", whose first
+        // bullet is "Stream objects".
+        let Ok(number) = u32::try_from(member) else {
+            out.faults.push(format!(
+                "§7.5.7: object stream {} names member {member}",
+                id.number
+            ));
+            continue;
+        };
+        if read.get(ObjectId::new(number, 0)).as_stream().is_some() {
+            out.faults.push(format!(
+                "§7.5.7: object {number} is a stream and is stored in object stream {}, and \
+                 \"[t]he following objects shall not be stored in an object stream:\", whose \
+                 first bullet is \"Stream objects\"",
+                id.number
+            ));
+        }
+    }
+
+    check_extends(read, id, out);
+}
+
+/// Table 16's `/Extends`, and the sentence that bounds it: the links "form a directed acyclic
+/// graph", so following them from one carrier has to terminate at another.
+fn check_extends(read: &Document, id: ObjectId, out: &mut OptimizedCheck) {
+    let mut at = id;
+    let mut seen = BTreeSet::new();
+    while let Some(next) = read
+        .get(at)
+        .as_stream()
+        .and_then(|stream| stream.dict.get("Extends"))
+        .and_then(Object::as_reference)
+    {
+        if !seen.insert(next) {
+            out.faults.push(format!(
+                "§7.5.7: /Extends from object stream {} is a cycle, and the clause makes the \
+                 links \"a directed acyclic graph\"",
+                id.number
+            ));
+            break;
+        }
+        let extended = read.get(next);
+        let is_carrier = extended
+            .as_stream()
+            .and_then(|stream| stream.dict.get("Type"))
+            .and_then(Object::as_name)
+            .is_some_and(|name| name.as_bytes() == b"ObjStm");
+        if !is_carrier {
+            out.faults.push(format!(
+                "§7.5.7: object stream {}'s /Extends names object {}, which is not an object \
+                 stream, and the entry is \"[a] reference to another object stream\"",
+                id.number, next.number
+            ));
+            break;
+        }
+        at = next;
+    }
+}
+
+/// Every object one root reaches, `/Length` excepted for the reason `optimize` gives.
+fn walk_closure(read: &Document, start: ObjectId, reached: &mut BTreeSet<ObjectId>) {
+    let mut queue = vec![start];
+    reached.insert(start);
+    while let Some(id) = queue.pop() {
+        let value = read.get(id);
+        collect(&value, 0, reached, &mut queue);
+    }
+}
+
+/// Every reference in one value, queued once.
+fn collect(
+    value: &Object,
+    depth: usize,
+    reached: &mut BTreeSet<ObjectId>,
+    queue: &mut Vec<ObjectId>,
+) {
+    if depth >= 256 {
+        return;
+    }
+    match value {
+        Object::Reference(id) => {
+            if reached.insert(*id) {
+                queue.push(*id);
+            }
+        }
+        Object::Array(items) => {
+            for item in items {
+                collect(item, depth.saturating_add(1), reached, queue);
+            }
+        }
+        Object::Dictionary(dict) => {
+            for (_, item) in dict.iter() {
+                collect(item, depth.saturating_add(1), reached, queue);
+            }
+        }
+        Object::Stream(stream) => {
+            for (_, item) in stream.dict.iter() {
+                collect(item, depth.saturating_add(1), reached, queue);
+            }
+        }
+        _ => {}
+    }
+}

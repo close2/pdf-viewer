@@ -1651,7 +1651,7 @@ impl Document {
     /// used to represent many objects from whose attributes a length can be inferred", and an
     /// image's `/Width`, `/Height` and `/BitsPerComponent` infer one, so for an image a stated
     /// zero contradicts the dictionary rather than agreeing with it.
-    fn states_no_data(&self, stream: &Stream) -> bool {
+    pub(crate) fn states_no_data(&self, stream: &Stream) -> bool {
         stream.data.is_empty()
             && self
                 .get_key(&stream.dict, "Length")
@@ -1769,7 +1769,7 @@ impl Document {
     ///
     /// The key may hold a single dictionary or an array with one entry per filter, and
     /// either may be indirect.
-    fn decode_parms(&self, dict: &Dictionary, index: usize) -> Option<Dictionary> {
+    pub(crate) fn decode_parms(&self, dict: &Dictionary, index: usize) -> Option<Dictionary> {
         match self.get_key(dict, "DecodeParms") {
             Object::Dictionary(parms) => Some(parms),
             Object::Array(items) => items
@@ -1781,7 +1781,7 @@ impl Document {
     }
 
     /// Returns the filter names for a stream, in application order.
-    fn filter_chain(&self, dict: &Dictionary) -> Vec<Vec<u8>> {
+    pub(crate) fn filter_chain(&self, dict: &Dictionary) -> Vec<Vec<u8>> {
         let filter = self.get_key(dict, "Filter");
         match filter {
             Object::Name(name) => vec![name.as_bytes().to_vec()],

@@ -54,7 +54,10 @@ pub use filter::{
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{DamagedDictionary, Limits, Parser};
-pub use serialize::{Assembly, AssemblyError, Form, SerializeError, Written, serialize};
+pub use serialize::{
+    Assembly, AssemblyError, Form, ObjectStreams, Options, SerializeError, Streams, Written,
+    serialize,
+};
 pub use text_string::text_string;
 pub use version::Version;
 pub use xref::{Location, XrefTable};

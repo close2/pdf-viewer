@@ -20,6 +20,9 @@
 //! pdf-transform merge       a.pdf b.pdf -o out.pdf
 //! pdf-transform merge       a.pdf:1-5 b.pdf:end-1 -o out.pdf
 //! pdf-transform merge       --collate a.pdf b.pdf -o out.pdf
+//! pdf-transform pages       in.pdf --delete r1 --rotate +90:1-end -o out.pdf
+//! pdf-transform optimize    in.pdf -o out.pdf
+//! pdf-transform optimize    in.pdf --object-streams disable --recompress none -o out.pdf
 //! ```
 
 //!
@@ -50,12 +53,14 @@ use std::sync::Mutex;
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
 use pdf_transform::merge::{Input, MergePlan};
+use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
 use pdf_transform::split::{Pieces, SplitPlan};
 
+use pdf_syntax::serialize::{ObjectStreams, Streams};
 use pdf_transform::{
     Budget, Exit, Level, Listed, Plan, Policy, Report, Secret, Sinks, Source, apply,
 };
@@ -126,6 +131,10 @@ const VALUED: &[&str] = &[
     "--rotate",
     "--move",
     "--insert",
+    "--object-streams",
+    "--recompress",
+    "--compression-level",
+    "--images",
 ];
 
 /// Every flag this program knows, so an unknown one is a usage error rather than ignored.
@@ -158,6 +167,12 @@ const KNOWN: &[&str] = &[
     "--rotate",
     "--move",
     "--insert",
+    "--no-prune",
+    "--object-streams",
+    "--recompress",
+    "--compression-level",
+    "--linearize",
+    "--images",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -425,6 +440,10 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
             edits: page_edits(arguments)?,
             names: names("pages")?,
         })),
+        "optimize" => Ok(Plan::Optimize(optimize_plan(
+            arguments,
+            names("optimize")?,
+        )?)),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
             action: attachments_action(arguments, output)?,
@@ -432,6 +451,63 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
     }
+}
+
+/// `optimize`: the two knobs RFC 0002 section 6.5 names, and the one it defers.
+///
+/// The lossless default is every pass on. `--linearize` is refused rather than ignored, because
+/// an ignored flag is a promise this program did not keep.
+fn optimize_plan(arguments: &Arguments, names: Pattern) -> Result<OptimizePlan, Failure> {
+    if arguments.switch("--linearize") {
+        return Err(Failure::Usage(
+            "--linearize: Annex F is excluded — CLAUDE.md's amended exclusion says \"Annex F \
+             stays excluded until linearisation is separately ratified\", and RFC 0002 section \
+             6.5 puts it in a phase of its own that may be declined permanently"
+                .to_owned(),
+        ));
+    }
+    if let Some(word) = arguments.value(&["--images"]) {
+        return Err(Failure::Usage(format!(
+            "--images {word:?}: lossy image optimisation needs a DCT encoder, which this tree \
+             does not have (RFC 0002 section 13's second question, doc/stack.md); no flag here \
+             re-encodes an image, deliberately"
+        )));
+    }
+    let object_streams = match arguments.value(&["--object-streams"]) {
+        None | Some("generate") => ObjectStreams::DEFAULT,
+        Some("disable") => ObjectStreams::Disable,
+        Some(other) => {
+            return Err(Failure::Usage(format!(
+                "--object-streams takes generate or disable, not {other:?}"
+            )));
+        }
+    };
+    let streams = match arguments.value(&["--recompress"]) {
+        None | Some("all") => Streams::DEFAULT,
+        Some("none") => Streams::Carry,
+        Some(other) => {
+            return Err(Failure::Usage(format!(
+                "--recompress takes all or none, not {other:?}"
+            )));
+        }
+    };
+    let streams = match (streams, arguments.parsed::<u32>(&["--compression-level"])?) {
+        (Streams::Carry, _) => Streams::Carry,
+        (Streams::Recompress { .. }, Some(level)) if level > 9 => {
+            return Err(Failure::Usage(
+                "--compression-level takes zlib's 0 to 9".to_owned(),
+            ));
+        }
+        (Streams::Recompress { .. }, Some(level)) => Streams::Recompress { level },
+        (kept, None) => kept,
+    };
+    Ok(OptimizePlan {
+        source: 0,
+        names,
+        prune: !arguments.switch("--no-prune"),
+        object_streams,
+        streams,
+    })
 }
 
 /// `pages`: the edit flags in the order they were written on the command line.
@@ -896,6 +972,7 @@ verbs:
   split        one document into many        -o 'page-%d.pdf'
   merge        several documents into one    a.pdf b.pdf [--collate] -o out.pdf
   pages        one document's pages edited   --delete | --rotate | --move | --insert
+  optimize     one document rewritten smaller, losslessly   -o out.pdf
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
@@ -948,8 +1025,8 @@ split:
   catalog. §7.7.3.4's inherited /Resources, /MediaBox, /CropBox and /Rotate are written onto
   each page, because the ancestors that carried them are not coming along. A reference to a
   page outside the piece becomes §7.3.10's null and is reported (exit 3). The outline, the
-  name trees, /PageLabels, the structure tree and /Metadata are **not** carried and every one
-  the document states is named in a warning. A piece of an encrypted document is not
+  name trees, /PageLabels and /Metadata are **not** carried and every one the document states
+  is named in a warning; §14.7's structure tree is carried, pruned to the pages the piece holds. A piece of an encrypted document is not
   encrypted, and says so.
 
 merge:
@@ -968,7 +1045,9 @@ merge:
   fully qualified field names must not collide with a different /FT, /V or /DV — a merge that
   would write two such fields is refused by name (exit 4). A signature crosses without its /V
   (§12.8.1), the outline destinations that leave the merge become §7.3.10's null, and
-  /Info, the structure tree and /Metadata are not carried and are named in a warning.
+  /Info and /Metadata are not carried and are named in a warning. §14.7's structure tree is
+  carried: the elements the merged pages reach, under one root with the output's own
+  §14.7.5.4 parent-tree keys, and a cross-source /ID collision is refused by name (exit 4).
 
 pages:
   one input, one output, and every flag may repeat; the edits compose left to right over the
@@ -992,9 +1071,33 @@ pages:
   apply when a page leaves: a destination to a deleted page becomes §7.3.10's null (exit 3),
   §12.4.2's labels are written one entry per surviving page, and §12.3.3's outline, §7.9.6's
   name trees, §8.11's groups and §12.7's fields cross as they do there. §14.7's structure tree
-  is **not** carried by any verb of this suite: a tagged document loses its tagging, its pages
-  keep the /StructParents integers their producer wrote, and those name nothing at all in the
-  output. Said in a warning, every time.
+  is carried by this verb as by the other two, pruned to the pages the output holds, with the
+  parent-tree keys and each page's /StructParents restated as the output's own.
+
+optimize:
+  one input, one output, and nothing on the page changes. Four lossless passes, all on by
+  default, each reported by --report=json with what it saved:
+  --no-prune                 keep every object the file holds. By default an object no path
+                             from §7.5.5's /Root reaches is not written, and neither is one
+                             whose value is §7.3.10's null nor the object a stream stated its
+                             /Length in — the writer re-derives /Length as a direct integer
+  --object-streams <mode>    generate (default) or disable: §7.5.7's object streams, every
+                             object the clause permits packed into a FlateDecode carrier.
+                             Generating them makes the cross-reference section a §7.5.8
+                             stream, because Table 18's type 2 entry is the only way to say
+                             where a compressed object is, and raises the header to 1.5
+  --recompress <mode>        all (default) or none: every stream decoded through the filters
+                             this tree reads and re-encoded as one FlateDecode, kept only
+                             where it is smaller. The decoded bytes are identical, so no mark
+                             changes; an image codec stops the walk and its bytes are carried
+                             inside the new outer filter
+  --compression-level <n>    zlib's 0 to 9 (default 9)
+  --linearize                refused by name: CLAUDE.md excludes Annex F until linearisation
+                             is separately ratified
+  lossy image optimisation is deliberately absent: it needs a DCT encoder this tree does not
+  have (RFC 0002 section 13's second question), and a downsampler without one would keep every
+  image under qpdf's fails-to-shrink rule and do nothing while claiming to. Optimising an
+  encrypted document produces an unencrypted one, and says so.
 
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)
