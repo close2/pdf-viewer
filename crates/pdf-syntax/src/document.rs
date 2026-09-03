@@ -1777,7 +1777,7 @@ impl Document {
     /// sometimes three times, and a Type 3 glyph description runs once per character drawn with
     /// it. A window that re-inflated the stream for each of those would trade an allocation for
     /// unbounded work, which is not the trade `doc/todo/14` is about. A tiling pattern's cell
-    /// used to be the sharpest case of that — once per site, with `MAX_TILES` allowing four
+    /// used to be the sharpest case of that — once per site, with `MAX_TILES` then allowing four
     /// thousand — and is now read *once* for the whole tiling, its sites being copies of its
     /// marks (ADR 0430).
     ///

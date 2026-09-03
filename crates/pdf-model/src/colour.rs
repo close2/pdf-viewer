@@ -2096,7 +2096,7 @@ pub enum PressIdentity {
 /// five-hundred-and-eighty-second session: the table was a `static` filled from the front and
 /// never evicted, so the ninth distinct press a *process* met was refused and which document
 /// that fell on was decided by the order the scheduler ran the eight before it in. Every other
-/// budget in this tree — `MAX_TILES`, `MAX_OPERATIONS`, `MAX_FORM_DEPTH` — is spent by the
+/// budget in this tree — `MAX_OPERATIONS`, `MAX_FORM_DEPTH`, `MAX_STATE_DEPTH` — is spent by the
 /// document that reaches it, and this one now is too: a page naming nine presses is refused the
 /// ninth on every run and on every machine, and a page naming one is never refused whatever
 /// else the process has open. ADR 0416 is the diagnosis and `doc/todo/49`'s third-bound section

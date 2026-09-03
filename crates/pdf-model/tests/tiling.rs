@@ -351,38 +351,22 @@ fn the_pattern_matrix_moves_the_tiling() {
     );
 }
 
-/// A pattern small enough to need more tiles than the bound allows must be reported.
-#[test]
-fn an_unreasonable_number_of_tiles_is_reported_rather_than_drawn() {
-    let tiny = dotted_cell(1, "1 0 0 rg").replace("/XStep 20 /YStep 20", "/XStep 0.05 /YStep 0.05");
-    let bytes = pdf_with(&tiny, "/Pattern cs /P0 scn 0 0 100 100 re f");
-    let document = Document::open(bytes).expect("valid PDF");
-    let page = pdf_model::Pages::new(&document).get(0).expect("page one");
-    let interpretation = pdf_model::interpret(&document, &page);
-
-    let reported = format!("{:?}", interpretation.unsupported);
-    assert!(
-        reported.contains("MAX_TILES"),
-        "four million tiles should be refused and said so: {reported}"
-    );
-}
-
-/// …and the sites the bound *does* afford are painted rather than thrown away with the rest.
+/// Every site a fill states is painted, however many that is, while the budget affords them.
 ///
 /// §8.7.3.1 asks the processor to "paint the cell on the current page as many times as necessary
-/// to fill an area". `MAX_TILES` is why some pages cannot have as many times as necessary; it is
-/// not a reason to paint the cell **no** times, which is what this did until the
-/// six-hundred-and-forty-seventh session, on `7803372.pdf` of the crawl — two table
-/// columns hatched at `/XStep 1.6` that `poppler`, `mupdf` and `ghostscript` fill and this tree
-/// left white. ADR 0477.
-///
-/// The expected geometry is the arithmetic rather than a picture: the fill spans 0 to 100 at a
-/// step of 1 with a unit cell, so [`span`](../src/content/pattern.rs)'s floor and ceil give 102
-/// columns and 102 rows; 4096 sites buy every column and `4096 / 102 = 40` rows, laid down from
-/// the span's first row, which is the **bottom** of the page in pattern space. So the lowest 40
-/// units of the page carry the pattern and the rest does not.
+/// to fill an area". Until the eight-hundred-and-eighty-second session a constant, `MAX_TILES`,
+/// capped that at 4096 sites whatever the cell held — so this fixture, a unit cell at a unit
+/// step over a 100-unit fill, which [`span`](../src/content/pattern.rs)'s floor and ceil make 102
+/// columns by 102 rows, painted its lowest forty rows and reported the rest (ADR 0477, on
+/// `7803372.pdf` of the crawl, two hatched table columns this tree left white). ADR 0810 retired
+/// the constant: the sites are copies charged to `MAX_OPERATIONS` and to the tiling's own
+/// `MAX_TILE_COPIES` (ADR 0430, ADR 0810), an empty cell loops nothing, a site the fill cannot
+/// reach is not copied, and the count a file states is bounded by the commands it costs rather than
+/// by a number of its own. So the whole square carries the pattern and nothing is reported — the top row that
+/// used to be the control for "past the budget" is now the control for "the budget was not the
+/// question". `hostile_budgets.rs` holds the case that *does* reach the budget.
 #[test]
-fn the_tiles_the_bound_affords_are_painted() {
+fn every_site_the_fill_states_is_painted() {
     let unit = dotted_cell(1, "1 0 0 rg")
         .replace("/BBox [0 0 20 20]", "/BBox [0 0 1 1]")
         .replace("/XStep 20 /YStep 20", "/XStep 1 /YStep 1")
@@ -393,9 +377,10 @@ fn the_tiles_the_bound_affords_are_painted() {
     let interpretation = pdf_model::interpret(&document, &page);
 
     let reported = format!("{:?}", interpretation.unsupported);
-    assert!(
-        reported.contains("MAX_TILES"),
-        "ten thousand tiles are still over the bound and still said so: {reported}"
+    assert_eq!(
+        reported, "[]",
+        "ten thousand sites of a one-command cell are inside the operations budget and refused \
+         nowhere: {reported}"
     );
 
     let list = interpretation.display_list;
@@ -408,12 +393,12 @@ fn the_tiles_the_bound_affords_are_painted() {
     assert_eq!(
         pixel(&raster, 50, 90),
         (255, 0, 0, 255),
-        "the affordable rows are the bottom forty and must carry the cell"
+        "the bottom of the square carries the cell, as it always did"
     );
     assert_eq!(
-        pixel(&raster, 50, 10).3,
-        0,
-        "and the rows past the budget are the ones left unpainted"
+        pixel(&raster, 50, 10),
+        (255, 0, 0, 255),
+        "and so does the top, which the retired count used to leave unpainted"
     );
 }
 

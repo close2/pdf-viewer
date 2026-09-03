@@ -1640,6 +1640,77 @@ nothing can be replaced there because the subroutines the charstrings call are w
 — which `mupdf` and `poppler` draw at 0.6 to 1.1 levels of ink through FreeType's tolerance and
 this tree reports; and `FOP-2699-7.pdf`'s `MissingCharstrings`, a one-reference page.
 
+### 43. What the eight-hundred-and-eighty-second took: `batch5/PDFIUM`, and a count that was never a cost
+
+**The directory, surveyed whole under the four rules** — `--data 8 --tree 12`, 3.0 s, 1.30 GiB
+peak, on the tree with round 879 merged; **10.0 s and 1.36 GiB after this round's change**, which
+is what drawing the hatching costs and is recorded because a survey line that moved for a reason
+is worth more than one that did not move. The line, a baseline for this directory and never a
+ratchet:
+
+| directory | documents | line |
+|---|---|---|
+| `batch5/PDFIUM` | 379 | 7 unopenable, 2 locked, 2 encrypted beyond us, 19 pageless, 66 incomplete, 0 slow |
+
+**The rate is the tracker's shape, and it is the highest so far.** 66 of 379 is **17.4%**
+incomplete — above `poppler`'s 11.5%, and for the same reason one step further: a pdfium issue
+attachment is a fuzzer's output far more often than a document anybody wrote. The seven unusable
+are one issue's seven files (`PDFIUM-325-0` to `-6`), each with no usable cross-reference table
+and no object header anywhere; the two locked want a password; the two encrypted are one `/R 6`
+whose crypt filter method §7.6.4.1 does not pair with and one `/R 5` (§7.6.4.2 Table 21 states no
+algorithm for it); and the **19 pageless are sixteen files numbered `PDFIUM-1205-0` to `-1256-0`, one
+issue after another, plus `-1023-0`, `-360-1` and `-512-0`**, every one of them "no first page" —
+section 34's population again and not chased here. Ranked by report, one document counted once per kind: 17 `Content`, 16 `Font`, 15
+`Text`, 11 `MediaBox`, 8 `Image`, 8 `Annotation`, 7 `Operator`, 5 `CompositedInParts`, 3
+`Shading`, 3 `MissingResource`, 2 `TextKnockout`, 2 `LimitReached` (both `MAX_TILES`), one each of
+`TransparencyGroup`, `PageDictionary` and `DamagedContentStream`.
+
+**Ranked by ink** — ours flattened on white against `pdftoppm -cropbox` and `mutool draw` at
+72 dpi over all 66 incomplete pages, round 876's script — **the head is at the light end with both
+references agreeing to a hundredth of a level**: `PDFIUM-1122-0.pdf`, ours **70.92** against
+`poppler` 80.51 and `mupdf` 80.52, reporting `MAX_TILES` and nothing else. Then `PDFIUM-407-0.pdf`
+(ours 4.15, `poppler` 7.85, `mupdf` 7.48: a JPEG whose samples stop 561 bytes short and a
+`/FontFile2` decoded only as far as its damage), `PDFIUM-1497-2.pdf` (ours 5.79, `poppler` 10.15,
+`mupdf` 7.59: the second `MAX_TILES` page), and the three revisions of `PDFIUM-1475` (ours 9.01
+against 9.91 and 9.95: a JPEG that begins with `ADBE`, and a CID font under `Identity-H` with no
+program). `PDFIUM-1236-1.pdf` is ours 0 against 0.73 and 0.73 — a JBIG2 stream that ends early,
+which both references draw the same prefix of. At the dark end, one-reference evidence only:
+`PDFIUM-466-0.pdf` (ours 12.55, `poppler` 0, `mupdf` 76.5) and `PDFIUM-366-0.pdf` (ours 10.81,
+`poppler` 0, `mupdf` 10.78). Seven rows have a missing panel.
+
+**The head is a fill of 4480 sites under a bound of 4096.** A 10-unit cell over an A4 sheet's
+frame is 4480 sites of a two-command cell, and `MAX_TILES` afforded every column and the whole
+rows from the bottom that 4096 buys, so the top of the sheet was white. ADR 0271 had already concluded the count was the wrong
+quantity — all 48 crawled documents that reached it terminate with it lifted — and kept it for one
+measurement: an *empty* cell executes no operator and copies no command, so its loop ran the trip
+count the file states, 3.6 × 10¹¹ for `/XStep 0.001` over 600 units. ADR 0810, three things and
+none a count of sites: a cell with no marks replicated any number of times is no marks, so
+`repeat_cell` does not enter the loop for one; a site is only copied where the fill's interior can
+reach its cell — `pattern/reach.rs` scans the path onto the lattice a row at a time, and
+`7680183.pdf`'s 249 hatched polygons fell from 539 729 sites to 112 499; and every other site is a
+copy charged before it is made to the page's budget and to the tiling's own, `MAX_TILE_COPIES` of
+65 536 *commands* — the cost in its unit, sixteen times the count at a one-command cell, chosen
+after the alternative was measured: charged to the page's budget alone, `PDFIUM-1497-2.pdf`'s two
+largest tilings took the whole four million and the frame and title block after them, eleven
+seconds where the count took two. The sheet draws at 80.52 by the ranking's instrument, square for
+square against `mupdf` at four times magnification; the fixed-documents gate reads 161.052 and that
+is the band. ADR 0477's two crawl rows moved with it — `7803372.pdf`'s hatched columns from 11.1 to
+18.9 by the gate's instrument, `4650000.pdf` from 49.2 to 57.3, inside its references' 43.7 to 62.9.
+What still wants more than the copies budget is `2760154.pdf`'s 762 930 sites and
+`PDFIUM-1497-2.pdf`'s 448 632, and what they want is a cell rendered once and replicated by the
+rasteriser, which [`49`](49-restrictions-worth-re-examining.md) carries with both as witnesses.
+`batch5/PDFIUM` is **65 incomplete** after it, `PDFIUM-1497-2.pdf` being the one page that still
+reports a budget and reporting `MAX_TILE_COPIES` for it.
+
+**What is left here**: `batch5`'s other nineteen trackers; `batch4` once its pieces land;
+[`40`](40-mask-chain-crop.md)'s clip cost; [`10`](10-bounds-that-cap-size.md)'s file-backed
+reader; and [`49`](49-restrictions-worth-re-examining.md)'s budget on commands that prices them.
+In this tracker: `PDFIUM-1497-2.pdf`, the other `MAX_TILES` page, now `MAX_TILE_COPIES` on its two
+largest tilings and [`49`](49-restrictions-worth-re-examining.md)'s witness; `PDFIUM-407-0.pdf`, a short JPEG and a damaged
+`/FontFile2` where the two references disagree with each other by a third of a level; and
+`PDFIUM-1236-1.pdf`, whose truncated JBIG2 both references draw a prefix of and this tree reports —
+the same question ADR 0794 answered for CCITT, one filter over.
+
 ## What the whole crawl says, now that all of it has been ranked
 
 The paragraph this file has never been able to write, and every figure in it is this round's own

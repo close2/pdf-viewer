@@ -81,8 +81,8 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   `viewer-ffi` lift it; neither parses a document).
 - **The sandbox, and `--no-sandbox` as the flag that trades it.** Already a flag, already the safe
   default, already prints what it gave up.
-- **The resource budgets** (`MAX_OPERATIONS` 4 M, `MAX_FORM_DEPTH`, `MAX_TILES`, the decode
-  deadline). These are what stand between a decompression bomb and the machine. A "trusted
+- **The resource budgets** (`MAX_OPERATIONS` 4 M, `MAX_FORM_DEPTH`, `MAX_TILES` until ADR 0810, the
+  decode deadline). These are what stand between a decompression bomb and the machine. A "trusted
   document" flag that lifted them is *plausible* but should be argued as a whole, not per constant.
   **What they cost is measured, over 65 944 crawled documents** (ADR 0269): 48 reach `MAX_TILES`,
   31 `MAX_OPERATIONS`, 4 `MAX_FORM_DEPTH` and 1 `MAX_STATE_DEPTH` — **84 refusals over 83
@@ -97,7 +97,7 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
   | bound | the population, lifted | why it stays |
   |---|---|---|
   | `MAX_FORM_DEPTH` **64** | ~~**all four documents are cycles** — lifted to 256, all four reach 256~~ ~~True of the crawl's four and `MOZILLA`'s seven, and false of `batch2/GHOSTSCRIPT`'s sixteen: fourteen are cycles and two are finite nestings~~ **Decided in the eight-hundred-and-seventy-fourth (ADR 0793), and the population was the instrument's**: a tiling cell was run at `MAX_FORM_DEPTH - 1`, so lifting the constant lifted the cell's start with it and a cell holding two levels of forms reached *any* bound. At 64, with one counter in `Interpreter::run` for every kind of nested stream, **twenty-five of the twenty-seven witnesses draw whole reporting nothing** — the two real nestings among them — and `GHOSTSCRIPT-698226-0` and `700301-0` report the bound at 64 and at 256 alike, which is what a cycle is. The value is a stack figure: about 4 KiB a level for a form, 5 for a group, 9 for a Type 3 glyph under `[profile.release]` (`examples/form_depth_cost`), against the 2 MiB every thread `interpret` runs on has by default | the attack it exists for — and the cell was outside it: a pattern whose cell fills with itself overflowed the stack until that session. Unbounded recursion exhausts the *stack*, which the confined worker's 4 GiB ceiling does not see and which Rust turns into an abort rather than a report |
-  | `MAX_TILES` 4096 | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop |
+  | ~~`MAX_TILES` 4096~~ **retired in the eight-hundred-and-eighty-second (ADR 0810)** | all 48 terminate, 0.06–14.2 s, wanting 4104–895 500 tiles; **14 of 48 want under twice the bound** | 1 000 000 *empty* tiles interpret in 889 ms **reporting nothing** — an empty cell executes no operator, so `MAX_OPERATIONS` never sees it and this is the only bound on the loop — **and an empty cell need not be looped at all**, which is what retired the count: a cell with no marks replicated any number of times is no marks, so the loop is not entered, and every other site is a copy bounded in commands, `MAX_TILE_COPIES` |
   | `MAX_OPERATIONS` 4 M | all 31 terminate, wanting 4.1–53.6 M **lexer tokens** — the word was *operators* here and in ADR 0271 and the counter was counting tokens (ADR 0306) — 0.27–49.9 s; the worst peaks at 1.57 GB for 495 marks | **a count is not a cost** — one `sh` paints the page — so no larger number bounds the time either. The cancel does, at 0.83–1.97 ms |
   | `MAX_STATE_DEPTH` 256 | one document, wanting **337** | ISO 32000-2 §C.2's Table C.1 prints **28** as the depth a writer could rely on. 256 is nine times the standard's own figure and the document wants twelve times it |
 
@@ -167,7 +167,24 @@ places: `MASK_BUDGET` (32 MB), the confined worker's address-space ceiling (4 Gi
 **Raised by ADR 0271 and not taken there**, because neither is a constant to move — each is a
 change to *what* is bounded, and both need the argument before the code.
 
-- **`MAX_TILES` bounds a count where it means to bound work.** `7680183.pdf` wants 42 282 tiles
+- ~~**`MAX_TILES` bounds a count where it means to bound work.**~~ **Retired in the
+  eight-hundred-and-eighty-second session** (ADR 0810), on the sentence at the end of this bullet
+  turned round: the empty-cell measurement said the count could not be dropped in favour of
+  `MAX_OPERATIONS` *while the loop ran for an empty cell*, and a cell with no marks replicated any
+  number of times is no marks, so it does not. Every other site is a copy charged before it is
+  made to the page's budget and to the tiling's own — `MAX_TILE_COPIES`, 65 536 *commands*, the
+  cost in its unit, sixteen times the count at a one-command cell — and only copied where the
+  fill's interior reaches its cell (`pattern/reach.rs`), with the prefix cut to whole rows.
+  **Why a per-tiling bound survives at all was measured**: charging copies to the page's budget
+  alone let `PDFIUM-1497-2.pdf`'s two largest tilings — 448 632 and 389 205 sites of a
+  four-command cell — take the whole four million, starving the frame and title block after
+  them, in eleven seconds and 0.9 GiB where the count drew the page in 2.2 s; the same page under
+  the copies budget is 2.2 s, 0.19 GiB and every mark. **What is open is now one item with two
+  witnesses**: `2760154.pdf` (762 930 sites) and `PDFIUM-1497-2.pdf` want more copies than any
+  budget in commands can afford at a page turn, and what they want is a cell rendered *once* and
+  replicated by the rasteriser — §8.7.3.1's NOTE 2's own suggestion — which is a paint the
+  display list does not have and three backends would have to draw. The argument that was here
+  is kept for what it measured: `7680183.pdf` wants 42 282 tiles
   and takes 14.2 s; `2760154.pdf` wants 765 440 and takes 8.7. So the number that decides admits
   the expensive document and refuses the cheap one, and raising it would move an arbitrary line
   rather than a wrong one. **And a chain of nested patterns is the same shape one level up**
@@ -212,9 +229,11 @@ change to *what* is bounded, and both need the argument before the code.
   cost — but the *rate* this file quotes was measured through the old unit and a round re-running
   the survey should expect the `MAX_OPERATIONS` row to fall.
 
-Neither is a defect today: both bounds refuse loudly and both refuse 0.127% of the web. This is
-here so that a round which wants to admit `MAX_TILES`' 48 knows the price is a new mechanism
-rather than a bigger number.
+Neither was a defect when this was written: both bounds refused loudly and both refused 0.127% of
+the web. This was here so that a round which wanted to admit `MAX_TILES`' 48 knew the price was a
+new mechanism rather than a bigger number — and the mechanism turned out to be one line, the
+empty cell not looped and the copies bounded in their own unit (ADR 0810); all but the two that
+want a hundred thousand sites are admitted whole.
 
 **"Refuse loudly" was true and was not the whole sentence, and the half it left out was a defect —
 the six-hundred-and-forty-seventh session** (ADR 0477). `MAX_TILES` refused loudly *and refused the
