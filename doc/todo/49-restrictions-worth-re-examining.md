@@ -179,11 +179,33 @@ change to *what* is bounded, and both need the argument before the code.
   alone let `PDFIUM-1497-2.pdf`'s two largest tilings — 448 632 and 389 205 sites of a
   four-command cell — take the whole four million, starving the frame and title block after
   them, in eleven seconds and 0.9 GiB where the count drew the page in 2.2 s; the same page under
-  the copies budget is 2.2 s, 0.19 GiB and every mark. **What is open is now one item with two
+  the copies budget is 2.2 s, 0.19 GiB and every mark. ~~**What was open is one item with two
   witnesses**: `2760154.pdf` (762 930 sites) and `PDFIUM-1497-2.pdf` want more copies than any
   budget in commands can afford at a page turn, and what they want is a cell rendered *once* and
   replicated by the rasteriser — §8.7.3.1's NOTE 2's own suggestion — which is a paint the
-  display list does not have and three backends would have to draw. The argument that was here
+  display list does not have and three backends would have to draw.~~ **Closed by argument and by
+  measurement in the eight-hundred-and-ninety-first session** (ADRs 0827 and 0828), and the
+  premise went first: §8.7.3.1 has no such note. The two printed under it are Table 74's — a
+  `/BBox` of zero height or width still painting one pixel, and `/XStep` and `/YStep` differing
+  from the box — and the sentence about a cell "evaluated once and then replicated" is §11.6.7's
+  **NOTE 1**, which says it of the *opaque* imaging model and gives it back in the transparent one
+  only "in the common case in which the pattern consists entirely of objects painted with the
+  Normal blend mode". `doc/todo/11` had caught the same misattribution in itself four sessions
+  after making it, and three other places in this tree kept it. Then the price, both arms in one
+  sitting with the two constants lifted in a scratch build (`examples/open_one`, scale 1, the
+  machine idle): `PDFIUM-1497-2.pdf` draws a **byte-identical** raster whole or cut — 11.9049 of
+  ink either way, the two PNGs equal to the byte — for 1.87 s and 0.19 GiB against 10.53 s and
+  0.93 GiB; `2760154.pdf` is 0.33 s and 0.02 GiB against 2.08 s and 0.42 GiB, and everything the
+  budget withholds from it is worth a mean of 1.087 of 255 (33.583 of ink against 34.670), the
+  pale wash behind its title. **Ninety-four and eighty-one per cent of those gaps are
+  rasterisation**, not the display list, so the paint that keeps this tree's geometry replication
+  would buy the peak and between a twentieth and a fifth of the time and leave both pages looking
+  as they do; the paint that would buy the rest is a device-resolution tile blitted per site,
+  which bakes a flattening resolution into a display list that has none (`doc/todo/11`'s own words
+  about the same construction) and composites tile edges with one another where §11.6.2 forbids it
+  — the 13% loss ADR 0213 removed — and which two of the three backends are other repositories
+  with no notion of a pattern. Both pages have rows in `doc/checks/fixed-documents.toml` now, so
+  the figures above are a gate's rather than this file's. The argument that was here
   is kept for what it measured: `7680183.pdf` wants 42 282 tiles
   and takes 14.2 s; `2760154.pdf` wants 765 440 and takes 8.7. So the number that decides admits
   the expensive document and refuses the cheap one, and raising it would move an arbitrary line

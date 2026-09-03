@@ -164,28 +164,64 @@ pub(crate) struct Constructed {
     /// Empty for every construction that draws only paths, which is most of them — a
     /// rectangle in a device colour names no resource.
     pub resources: Dictionary,
-    /// Whether Table 166's `/Rect` bounds what this construction drew.
-    ///
-    /// **Five subtypes state their geometry in default user space and are therefore not bounded
-    /// by it**: §12.5.6.7's `/L`, §12.5.6.9's `/Vertices`, §12.5.6.10's `/QuadPoints`,
-    /// §12.5.6.13's `/InkList` and §12.5.6.6's `/CL` are all "in default user space", which is
-    /// the page's space and not a box's — so a file whose `/Rect` does not contain them has
-    /// written a bounding box that is wrong, and the marks the clause states are still where the
-    /// clause states them.
-    ///
-    /// **The fifth was missing from ADR 0193's table**, which listed the four it found while
-    /// drawing a line annotation. Table 177's `/CL` uses that ADR's own words — "the starting,
-    /// knee point, and ending coordinates of the line in default user space" — so a free text
-    /// annotation belongs on the list, and joining it costs its *text* nothing: §12.7.4.3's own
-    /// example puts "any required graphics state changes, such as clipping" inside the
-    /// construction, so [`crate::variable_text::lay_out`] clips the value to the box itself
-    /// rather than relying on a `/BBox`.
-    ///
-    /// Every other construction here *derives* its geometry from `/Rect` — an icon on the square
-    /// inside it, a border along it, a field's text laid out in it — and stays inside by
-    /// construction, so bounding those changes nothing except in the one case where it must not:
-    /// §12.7.4.3's value, which is clipped to the field it does not fit in.
+    /// Whether Table 166's `/Rect` bounds what this construction drew — [`bounded_by_rect`] of
+    /// this annotation's subtype, carried beside the stream so that a caller holding the
+    /// construction need not ask again.
     pub bounded: bool,
+}
+
+/// Whether Table 166's `/Rect` bounds the marks a subtype's own clause states.
+///
+/// **Six subtypes state their geometry in default user space and are therefore not bounded by
+/// it**: §12.5.6.7's `/L`, §12.5.6.9's `/Vertices` (a `Polygon` and a `PolyLine` alike),
+/// §12.5.6.10's `/QuadPoints`, §12.5.6.13's `/InkList` and §12.5.6.6's `/CL` are all "in default
+/// user space", which is the page's space and not a box's — so a file whose `/Rect` does not
+/// contain them has written a bounding box that is wrong, and the marks the clause states are
+/// still where the clause states them.
+///
+/// **The standard states the fallback where it means one**, which is what makes the silence here
+/// a silence rather than an omission. §12.5.6.5's Table 176 gives a *link's* `/QuadPoints` one in
+/// as many words:
+///
+/// > If this entry is not present, or the PDF processor does not recognise it, or if any
+/// > coordinates in the QuadPoints array lie outside the region specified by Rect then the
+/// > activation region for the link annotation shall be defined by its Rect entry.
+///
+/// §12.5.6.10's Table 182 states the same array for a *mark* rather than for a region and gives
+/// it no such sentence, and neither do Table 178's `/L`, Table 180's `/Vertices`, Table 186's
+/// `/InkList` or Table 177's `/CL`.
+///
+/// **The fifth was missing from ADR 0193's table**, which listed the four it found while
+/// drawing a line annotation. Table 177's `/CL` uses that ADR's own words — "the starting,
+/// knee point, and ending coordinates of the line in default user space" — so a free text
+/// annotation belongs on the list, and joining it costs its *text* nothing: §12.7.4.3's own
+/// example puts "any required graphics state changes, such as clipping" inside the
+/// construction, so [`crate::variable_text::lay_out`] clips the value to the box itself
+/// rather than relying on a `/BBox`.
+///
+/// Every other construction here *derives* its geometry from `/Rect` — an icon on the square
+/// inside it, a border along it, a field's text laid out in it — and stays inside by
+/// construction, so bounding those changes nothing except in the one case where it must not:
+/// §12.7.4.3's value, which is clipped to the field it does not fit in.
+///
+/// **This is a predicate rather than a field because `crate::annotation` asks it twice**, and for
+/// a hundred and ninety-seven sessions the second question was decided by the wrong rule: an
+/// annotation with no appearance stream and a `/Rect` covering no area was dropped before
+/// [`construct`] was reached, which is §12.5.5's arithmetic — a stored stream's `/BBox` scaled
+/// onto no extent — applied to a construction that never goes through it. ADR 0825.
+pub(crate) fn bounded_by_rect(subtype: &[u8]) -> bool {
+    !matches!(
+        subtype,
+        b"Line"
+            | b"Polygon"
+            | b"PolyLine"
+            | b"Ink"
+            | b"Highlight"
+            | b"Underline"
+            | b"StrikeOut"
+            | b"Squiggly"
+            | b"FreeText"
+    )
 }
 
 /// A colour read from an appearance-characteristics array.
@@ -283,18 +319,7 @@ pub(crate) fn construct(
     rect: [f32; 4],
 ) -> Constructed {
     let mut stream = Stream::new();
-    let bounded = !matches!(
-        subtype,
-        b"Line"
-            | b"Polygon"
-            | b"PolyLine"
-            | b"Ink"
-            | b"Highlight"
-            | b"Underline"
-            | b"StrikeOut"
-            | b"Squiggly"
-            | b"FreeText"
-    );
+    let bounded = bounded_by_rect(subtype);
     let outcome = match subtype {
         b"Link" => link(document, annotation, &mut stream),
         b"Square" | b"Circle" => square_or_circle(document, annotation, &mut stream, subtype),

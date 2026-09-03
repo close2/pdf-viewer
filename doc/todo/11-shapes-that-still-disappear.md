@@ -571,7 +571,10 @@ Three things that were written here and are worth keeping:
   tiles as a single transparency group against "artifacts due to multiple marking of pixels along
   the boundaries between adjacent tiles", and `tile` has built that group since the
   hundred-and-seventeenth session. Compositing inside a group is still compositing; the loss was
-  *inside* it. (This file said §8.7.3.1's NOTE 2 for four sessions. The note is §11.6.7's.)
+  *inside* it. (This file said §8.7.3.1's NOTE 2 for four sessions. The note is §11.6.7's — and that
+  correction reached this file and none of the three others that had copied it, which is how the
+  eight-hundred-and-ninety-first session found `doc/todo/49`, ADR 0810 and `pattern.rs` still
+  citing it; ADR 0827.)
 - **The general case is still open, and no page in the corpus names it.** Two *different* marks
   hanging out of opposite edges of the box and meeting at the boundary: the clipped pair is then
   the right set of points, there is no repeat to fold, and joining them would mean either a
