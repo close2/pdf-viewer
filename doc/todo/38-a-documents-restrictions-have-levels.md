@@ -27,6 +27,8 @@ reader from the document — and nothing here is negotiable in that direction.
 |---|---|---|
 | §12.8.2.2's `/DocMDP` | states which of Table 257's levels withholds which operation | `restriction::asserted` |
 | §7.6.4.2's Table 22 | **consulted at last**, for bit 6 and bit 9, with `/R` deciding bit 9 | `restriction::withheld` |
+
+**The population that reaches `withheld` grew in the eight-hundred-and-eighty-seventh session**, which is worth a line here because this file is about what a *document* asserts over a reader: `/R` 5 was refused by `pdf-syntax` and its Table 22 flags therefore reached nothing at all. 33 of the 41 `/R` 5 documents among the 90 535 in `doc/pdf.js`, `doc/corpora/` and `corpus-cache/` now open, 19 of them withholding at least one of the two operations this program has — and their flags arrive through §7.6.4.4.9's encrypted `/Perms` block, which outranks the plaintext `/P`, so what is obeyed for them is the copy a producer could not silently edit. ADR 0820.
 | §12.8.6's `/Perms` | composes the two, because the clause says a permission needs *each* handler | `restriction::asserted` |
 | §12.8.2.3's `/UR3` | unchanged, and deliberately: a grant is not a restriction | `view::withdrawn_usage_rights` |
 

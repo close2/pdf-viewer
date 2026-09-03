@@ -548,10 +548,17 @@ Trap 11 on the other side of the wire. A report is only as good as the condition
 
 `pdf-syntax/tests/encryption.rs::an_unspecified_revision_is_refused_by_name` opened
 `issue21579.pdf` and asserted the refusal's sentence contained `"/R 5"`. Delete §7.6.4.2's refusal
-entirely — accept revision 5, which Table 21 says "[s]hall not be used" and states no algorithm for
-— and the same document is declined a few lines later by §7.6.4.1's crypt-filter pairing, whose
-sentence begins *"/R 5 with a crypt filter method"*. The substring is there, the test is green, and
-the clause the test is named after is not implemented at all. Two ledger rows rested on it.
+entirely — accept revision 5, which Table 21 says "[s]hall not be used" — and the same document is
+declined a few lines later by §7.6.4.1's crypt-filter pairing, whose sentence begins *"/R 5 with a
+crypt filter method"*. The substring is there, the test is green, and the clause the test is named
+after is not implemented at all. Two ledger rows rested on it.
+
+**This paragraph used to add "and states no algorithm for" to Table 21's sentence, and the
+eight-hundred-and-eighty-seventh session implemented the revision** (ADR 0820), which changes
+nothing about the trap and is worth one line all the same: the counterfactual above — *accept
+revision 5 and watch the test stay green* — is now the tree's actual behaviour, and the test that
+survives asserts on `/R 7`. A trap keeps its incident; it does not keep the incident's claims about
+the standard.
 
 The tell is that the expected value was assembled from the *input* rather than from the answer: a
 document stating `/R 5` will have `/R 5` in almost any sentence about it. So:

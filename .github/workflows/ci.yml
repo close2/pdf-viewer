@@ -272,8 +272,9 @@ jobs:
         run: cargo build --release --bin pdf-viewer --bin pdf-sandbox-worker
 
       # LICENSE and NOTICE travel with the binaries because they have to: this program is
-      # MIT and contains BSD-3-Clause font programs and SIL OFL 1.1 Liberation Sans, and
-      # both licences oblige a binary distribution to carry their notices. `pdf-viewer
+      # Apache-2.0 and contains BSD-3-Clause font programs and SIL OFL 1.1 Liberation Sans,
+      # and all three licences oblige a binary distribution to carry their notices --
+      # Apache-2.0 section 4 asks for the licence and for the NOTICE file itself. `pdf-viewer
       # --licences` prints the same text, and a file beside the executable is what someone
       # unpacking a tarball can actually find.
       #

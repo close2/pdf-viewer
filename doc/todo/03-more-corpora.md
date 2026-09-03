@@ -1595,8 +1595,12 @@ form "n crawled documents unranked" and this file's header says so.
 — below `MOZILLA`'s 2.47% only, and below the pdf.js gate's 6.98% — because an Apache FOP issue
 attachment is most often a document FOP *produced* rather than one it could not read: the two
 unusable files are two members of one `.zip` with no usable cross-reference table and no object
-header anywhere, and the one encrypted file is `/R 5`, which §7.6.4.2's Table 21 states no
-algorithm for. Ranked by report, one document counted once per kind: 12 `Font`, 9 `Operator`, 5
+header anywhere, and the one encrypted file is `/R 5`. **That was recorded here as "which
+§7.6.4.2's Table 21 states no algorithm for", and the eight-hundred-and-eighty-seventh session
+implemented the revision** (ADR 0820): `FOP-2248-1.pdf` is one of 41 `/R 5` documents among the
+90 535 in `doc/pdf.js`, `doc/corpora/` and `corpus-cache/`, of which 33 now open, and it is one of the 8 that want a password nobody here has. The
+line above is the survey as it was measured and stays as it was; what it would say today is *0
+encrypted beyond us, 1 locked*. Ranked by report, one document counted once per kind: 12 `Font`, 9 `Operator`, 5
 `Annotation`, 5 `Text`, 4 `Image`, 2 `Shading`, one each of `NoninvertibleMatrix`,
 `MissingResource` and `TransparencyGroup`. Six of the nine `Operator` documents are one producer's
 habit — FOP 0.20.3rc writing `Tc` inside a `TJ` array, which §7.3.6 admits only objects into — and
