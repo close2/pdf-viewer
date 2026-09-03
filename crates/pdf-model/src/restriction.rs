@@ -103,9 +103,10 @@ pub enum Bit {
     FillInForm,
     /// 11 — "( Security handlers of revision 3 or greater ) Assemble the document (insert,
     /// rotate, or delete pages and create document outline items or thumbnail images), even if
-    /// bit 4 is clear". **Nothing consumes it**: this program inserts, rotates and deletes no
-    /// page, and `doc/todo/57`'s `split`, `merge` and `pages` are the verbs that will. Named so
-    /// that the day they land the bit is a lookup rather than a reading.
+    /// bit 4 is clear". Consumed by [`Operation::Assemble`] since session 886, when
+    /// `pdf_transform`'s `split` became the first verb to take a document's pages into a new
+    /// document; the doc comment here said "**nothing consumes it**" and named that verb as the
+    /// one that would.
     Assemble,
     /// 12 — "( Security handlers of revision 3 or greater ) Print the document to a
     /// representation from which a faithful digital copy of the PDF content could be generated,
@@ -145,7 +146,8 @@ impl Bit {
             Self::Extract => Some(Operation::Extract),
             Self::Annotate => Some(Operation::Annotate),
             Self::FillInForm => Some(Operation::FillInForm),
-            Self::Assemble | Self::PrintFaithfully => None,
+            Self::Assemble => Some(Operation::Assemble),
+            Self::PrintFaithfully => None,
         }
     }
 
@@ -231,6 +233,21 @@ pub enum Operation {
     /// annotations, form filling and page assembly out of bit 4, and an embedded file is none of
     /// those three, so bit 4 is the bit that binds it (ADR 0802).
     Modify,
+    /// Taking a document's pages into a new document — `pdf_transform`'s `split`.
+    ///
+    /// Table 22 bit 11, and the clause names the operation in as many words: "[a]ssemble the
+    /// document (insert, rotate, or delete pages and create document outline items or thumbnail
+    /// images)". A split writes a file made of pages the source stated, which is inserting and
+    /// deleting pages by any reading of that sentence.
+    ///
+    /// The bit exists only "( Security handlers of revision 3 or greater )"; at revision 2 its
+    /// position is inside the range Table 22 reserves and requires to be 1, so consulting it
+    /// there would let every conforming revision-2 document be assembled. At that revision the
+    /// operation falls back to bit 4 — "modify the contents of the document by operations other
+    /// than those controlled by bits 6, 9, and 11", whose carve-out for bit 11 is exactly what
+    /// does not exist at revision 2. The same construction [`Operation::FillInForm`] uses for
+    /// bit 9, for the same reason.
+    Assemble,
 }
 
 impl Operation {
@@ -243,6 +260,7 @@ impl Operation {
             Self::Print => "rendering a page",
             Self::Extract => "extracting from the document",
             Self::Modify => "modifying the document",
+            Self::Assemble => "assembling a document out of these pages",
         }
     }
 
@@ -262,7 +280,8 @@ impl Operation {
             Self::FillInForm | Self::Annotate => Bit::Annotate,
             Self::Print => Bit::Print,
             Self::Extract => Bit::Extract,
-            Self::Modify => Bit::Modify,
+            Self::Assemble if revision >= 3 => Bit::Assemble,
+            Self::Modify | Self::Assemble => Bit::Modify,
         }
     }
 }
@@ -436,9 +455,17 @@ const LOCKED_CONTENTS: i64 = 1 << 9;
 /// certification withholds neither at any level; and **attaching a file is a change no level
 /// permits** — it is not form filling, a page template, a signature or an annotation — so
 /// [`Operation::Modify`] is withheld at all three.
+///
+/// **And neither is assembling a new document out of this one's pages**, which is the reading
+/// [`Operation::Assemble`] gets here and it is the same reading as extracting's. Every sentence
+/// of Table 257 is about a change that "shall invalidate the signature" — the signature *of this
+/// document* — and a split leaves the signed bytes exactly where they were and writes a
+/// different file beside them. What the new file does or does not carry of the certification is
+/// its own question and not this one; Table 22's bit 11 is where a document says it does not
+/// want its pages taken apart, and that bit is read.
 fn certification_permits(level: Modification, operation: Operation) -> bool {
     match operation {
-        Operation::Print | Operation::Extract => true,
+        Operation::Print | Operation::Extract | Operation::Assemble => true,
         Operation::Modify => matches!(level, Modification::Unknown(_)),
         Operation::FillInForm | Operation::Annotate => match level {
             Modification::None => false,

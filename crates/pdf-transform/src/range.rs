@@ -160,19 +160,44 @@ impl Selection {
         count: usize,
         label: impl Fn(usize) -> Option<String>,
     ) -> Result<Vec<usize>, ResolveError> {
+        Ok(self.groups(count, label)?.concat())
+    }
+
+    /// Resolves the selection **one comma-separated item at a time**, in selection order.
+    ///
+    /// [`Self::resolve`] is this flattened, and that is how it is implemented. The difference
+    /// matters to one verb: RFC 0002 section 6.1's `split --pages 1-3,7-end` writes *two* files, one
+    /// per comma-separated group, so the grammar's own commas are the piece boundaries and a
+    /// verb that only ever saw the flattened list could not find them.
+    ///
+    /// An exclusion is not a group. `x` "remove[s] these pages from the running selection", so
+    /// it is applied to every group selected so far and contributes none of its own — which
+    /// keeps `1-10,x5` one piece of nine pages rather than a piece and an absence.
+    ///
+    /// # Errors
+    ///
+    /// [`Self::resolve`]'s.
+    pub fn groups(
+        &self,
+        count: usize,
+        label: impl Fn(usize) -> Option<String>,
+    ) -> Result<Vec<Vec<usize>>, ResolveError> {
         if count == 0 {
             return Err(ResolveError::NoPages);
         }
-        let mut selected: Vec<usize> = Vec::new();
+        let mut groups: Vec<Vec<usize>> = Vec::new();
         for item in &self.items {
             let pages = item.pages(count, &label)?;
             if item.exclude {
-                selected.retain(|page| !pages.contains(page));
+                for group in &mut groups {
+                    group.retain(|page| !pages.contains(page));
+                }
             } else {
-                selected.extend(pages);
+                groups.push(pages);
             }
         }
-        Ok(selected)
+        groups.retain(|group| !group.is_empty());
+        Ok(groups)
     }
 }
 

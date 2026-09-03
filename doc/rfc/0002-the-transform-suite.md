@@ -2,10 +2,12 @@
 
 Status: **accepted** — 2026-09-01, by the owner's word: "Please start the command line features."
 Round: 785, commissioned by the owner; implementation from round 867 (ADR 0800), on the long-lived
-branch `round-867`. **§13's seven questions were not individually answered**: the recommendations
-this document makes stand as defaults, each recorded as a stated assumption in ADR 0800 §6 for the
-owner to overrule, and §11's amendment of `CLAUDE.md` is not yet ratified because no writer has
-landed.
+branch `round-867`. **§11 was ratified on 2026-09-03**, by the owner's word: "RFC 002 and 003 are
+approved." §11.1's redrawn exclusion is in `CLAUDE.md` as of session 886 (ADR 0816), and §11.2's
+narrowing of the ledger's `writer-side` status went with it. **§13's remaining questions were not
+individually answered**: question 1 is the one the ratification settles; the recommendations this
+document makes on the other six stand as defaults, each recorded as a stated assumption in ADR
+0800 §6 for the owner to overrule.
 Companions: RFC 0001 (the survey this argues from), RFCs 0003–0005 (file-system faces,
 print, text editing — each consumes the transform layer proposed here). The number 0002
 held at merge (round 788); no collision arose.
@@ -337,8 +339,11 @@ reconciliations are a long tail of individually small decisions, each of which m
 documented choice rather than an accident.
 
 **Open questions.** Collation grouping syntax (`--collate=n` per qpdf?); whether `pages` and
-`merge` are truly two verbs or one (`merge` with a single input and edit flags subsumes `pages`;
-two verbs are kept in the proposal because the common cases read better).
+`merge` are truly two verbs or one — **answered in session 893 (ADR 0830): two verbs, and the
+boundary is the count of files rather than the kind of edit.** `pages` reads one document and
+`merge` reads several, which is what §4.1 already says of both, so `pages --insert` takes a range
+of its own input and another file's pages are a usage refusal naming `merge`. The engine is
+shared: `merge::write` takes a list of placements and both verbs build one.
 
 ### 6.3 `images` — extract embedded images
 

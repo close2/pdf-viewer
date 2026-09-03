@@ -14,6 +14,12 @@
 //! pdf-transform attachments in.pdf --remove report.csv -o out.pdf
 //! pdf-transform render      in.pdf --page-box media --no-annotations -o 'page-%d.png'
 //! pdf-transform images      in.pdf --no-mask -o 'img-%d.png'
+//! pdf-transform split       in.pdf -o 'page-%d.pdf'
+//! pdf-transform split       in.pdf --every 10 -o 'part-%d.pdf'
+//! pdf-transform split       in.pdf --pages 1-3,7-end -o 'sel-%d.pdf'
+//! pdf-transform merge       a.pdf b.pdf -o out.pdf
+//! pdf-transform merge       a.pdf:1-5 b.pdf:end-1 -o out.pdf
+//! pdf-transform merge       --collate a.pdf b.pdf -o out.pdf
 //! ```
 
 //!
@@ -43,9 +49,12 @@ use std::sync::Mutex;
 
 use pdf_transform::attachments::{Action, AttachmentsPlan, OnPage, Payload, parse_iso_8601};
 use pdf_transform::images::ImagesPlan;
+use pdf_transform::merge::{Input, MergePlan};
+use pdf_transform::pages::{Angle, Edit, PagesPlan};
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
+use pdf_transform::split::{Pieces, SplitPlan};
 
 use pdf_transform::{
     Budget, Exit, Level, Listed, Plan, Policy, Report, Secret, Sinks, Source, apply,
@@ -112,6 +121,11 @@ const VALUED: &[&str] = &[
     "--rect",
     "--icon",
     "--remove",
+    "--every",
+    "--delete",
+    "--rotate",
+    "--move",
+    "--insert",
 ];
 
 /// Every flag this program knows, so an unknown one is a usage error rather than ignored.
@@ -138,6 +152,12 @@ const KNOWN: &[&str] = &[
     "--rect",
     "--icon",
     "--remove",
+    "--every",
+    "--collate",
+    "--delete",
+    "--rotate",
+    "--move",
+    "--insert",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -260,20 +280,7 @@ fn run() -> Result<Exit, Failure> {
         ));
     }
     let plan = plan(&arguments, output)?;
-
-    let [path] = arguments.positional.as_slice() else {
-        return Err(Failure::Usage(format!(
-            "exactly one input file, and {} were given",
-            arguments.positional.len()
-        )));
-    };
-    let path = PathBuf::from(path);
-    let bytes = pdf_syntax::FileBytes::on_disk(&path)
-        .map_err(|error| Failure::Unreadable(path.clone(), error))?;
-    let source = match arguments.parsed::<u32>(&["--password-fd"])? {
-        Some(fd) => Source::with_password(bytes, password_from(fd)?),
-        None => Source::new(bytes),
-    };
+    let sources = open_inputs(&arguments, &plan)?;
 
     let policy = Policy {
         restrictions: match arguments.value(&["--restrictions"]) {
@@ -299,9 +306,9 @@ fn run() -> Result<Exit, Failure> {
     }
 
     let report = if to_stdout {
-        apply(&plan, &[source], &StdoutSinks::default(), &policy, &budget)?
+        apply(&plan, &sources, &StdoutSinks::default(), &policy, &budget)?
     } else {
-        apply(&plan, &[source], &FileSinks, &policy, &budget)?
+        apply(&plan, &sources, &FileSinks, &policy, &budget)?
     };
 
     for warning in &report.warnings {
@@ -391,6 +398,33 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 },
             }))
         }
+        "split" => {
+            let every = arguments.parsed::<usize>(&["--every"])?;
+            if every == Some(0) {
+                return Err(Failure::Usage("--every counts from 1".to_owned()));
+            }
+            // Three ways of saying where the cuts are, and the default is the one every
+            // toolbox has: one file per page (pdftk's `burst`, poppler's `pdfseparate`).
+            // `--pages` without `--every` cuts at the selection's own commas, which is RFC
+            // 0002 section 6.1's `--pages 1-3,7-end` writing two files.
+            let pieces = match (every, arguments.value(&["--pages"])) {
+                (Some(every), _) => Pieces::Every(every),
+                (None, Some(_)) => Pieces::Groups,
+                (None, None) => Pieces::EachPage,
+            };
+            Ok(Plan::Split(SplitPlan {
+                source: 0,
+                pages,
+                pieces,
+                names: names("split")?,
+            }))
+        }
+        "merge" => Ok(Plan::Merge(merge_plan(arguments, names("merge")?)?)),
+        "pages" => Ok(Plan::Pages(PagesPlan {
+            source: 0,
+            edits: page_edits(arguments)?,
+            names: names("pages")?,
+        })),
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
             source: 0,
             action: attachments_action(arguments, output)?,
@@ -398,6 +432,190 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
         "" => Err(Failure::Usage("no verb given".to_owned())),
         other => Err(Failure::Usage(format!("no such verb: {other:?}"))),
     }
+}
+
+/// `pages`: the edit flags in the order they were written on the command line.
+///
+/// RFC 0002 section 6.2's composition rule is left to right over the current page list, so the
+/// *order* of the flags is data and `Arguments::value` — which takes the last of a repeated
+/// flag — is the wrong accessor for all four. They are read off `flags` instead, which is argv
+/// order.
+fn page_edits(arguments: &Arguments) -> Result<Vec<Edit>, Failure> {
+    let mut edits = Vec::new();
+    for (flag, value) in &arguments.flags {
+        let Some(value) = value.as_deref() else {
+            continue;
+        };
+        edits.push(match flag.as_str() {
+            "--delete" => Edit::Delete(selection(value, flag)?),
+            "--rotate" => rotation(value)?,
+            "--move" => {
+                let (pages, to) = at_position(value, ':', "--move")?;
+                Edit::Move {
+                    pages: selection(pages, flag)?,
+                    to,
+                }
+            }
+            "--insert" => {
+                // One input, and the boundary between this verb and `merge` is the count of
+                // files rather than the kind of edit (RFC 0002 sections 4.1 and 6.2). A
+                // path here is the other verb's request, said by name.
+                if value.contains(".pdf") || value.contains('/') {
+                    return Err(Failure::Usage(format!(
+                        "--insert {value:?}: pages takes one input, so --insert takes a range \
+                         of this document; another file's pages are what merge is for"
+                    )));
+                }
+                let (pages, at) = at_position(value, '@', "--insert")?;
+                Edit::Insert {
+                    pages: selection(pages, flag)?,
+                    at,
+                }
+            }
+            _ => continue,
+        });
+    }
+    if edits.is_empty() {
+        return Err(Failure::Usage(
+            "pages needs at least one of --delete, --rotate, --move or --insert".to_owned(),
+        ));
+    }
+    Ok(edits)
+}
+
+/// One range, with the flag named in the error.
+fn selection(text: &str, flag: &str) -> Result<Selection, Failure> {
+    text.parse()
+        .map_err(|error| Failure::Usage(format!("{flag} {text:?}: {error}")))
+}
+
+/// `range<sep>position`, split at the **last** separator so a range may contain one.
+fn at_position<'a>(
+    value: &'a str,
+    separator: char,
+    flag: &str,
+) -> Result<(&'a str, usize), Failure> {
+    let (pages, position) = value.rsplit_once(separator).ok_or_else(|| {
+        Failure::Usage(format!(
+            "{flag} {value:?}: takes a range and a position, as 5{separator}1"
+        ))
+    })?;
+    let position = position
+        .parse::<usize>()
+        .map_err(|error| Failure::Usage(format!("{flag} {value:?}: {position:?}: {error}")))?;
+    Ok((pages, position))
+}
+
+/// `[+|-]angle:range` — qpdf's spelling, and RFC 0002 section 6.2's.
+///
+/// A sign makes the angle relative to the page's effective §7.7.3.3 rotation; no sign makes it
+/// absolute. The split is at the **first** colon, because the range after it may hold colons of
+/// its own (`:odd`).
+fn rotation(value: &str) -> Result<Edit, Failure> {
+    let (angle, range) = value.split_once(':').ok_or_else(|| {
+        Failure::Usage(format!(
+            "--rotate {value:?}: takes an angle and a range, as +90:1-end"
+        ))
+    })?;
+    let relative = angle.starts_with('+') || angle.starts_with('-');
+    let degrees = angle
+        .parse::<i64>()
+        .map_err(|error| Failure::Usage(format!("--rotate {value:?}: {angle:?}: {error}")))?;
+    Ok(Edit::Rotate {
+        angle: if relative {
+            Angle::Relative(degrees)
+        } else {
+            Angle::Absolute(degrees)
+        },
+        pages: selection(range, "--rotate")?,
+    })
+}
+
+/// `merge`: one input per positional argument, in the order their pages appear.
+fn merge_plan(arguments: &Arguments, names: Pattern) -> Result<MergePlan, Failure> {
+    if arguments.value(&["--pages"]).is_some() {
+        return Err(Failure::Usage(
+            "merge takes a range per input, as file.pdf:1-5, rather than one --pages for all of \
+             them"
+                .to_owned(),
+        ));
+    }
+    if arguments.positional.is_empty() {
+        return Err(Failure::Usage(
+            "merge needs at least one input file".to_owned(),
+        ));
+    }
+    let mut inputs = Vec::new();
+    for (source, spec) in arguments.positional.iter().enumerate() {
+        let (_, selection) = input_spec(spec);
+        inputs.push(Input {
+            source,
+            pages: selection.unwrap_or_else(Selection::all),
+        });
+    }
+    Ok(MergePlan {
+        inputs,
+        collate: arguments.switch("--collate"),
+        names,
+    })
+}
+
+/// One positional argument split into a path and, where it has one, a page selection.
+///
+/// `merge` takes its ranges per input — `a.pdf:1-5` — because one `--pages` cannot say
+/// different things about different files. The split is at the **last** colon and only where
+/// what follows it parses as §4.2's range grammar, so a file whose name contains a colon and no
+/// range is still opened by its own name.
+fn input_spec(spec: &str) -> (PathBuf, Option<Selection>) {
+    if let Some((path, range)) = spec.rsplit_once(':')
+        && let Ok(selection) = range.parse::<Selection>()
+        && !path.is_empty()
+    {
+        return (PathBuf::from(path), Some(selection));
+    }
+    (PathBuf::from(spec), None)
+}
+
+/// The files the plan reads, opened into [`Source`]s.
+///
+/// **One `--password-fd` opens one document**, which is `viewer_core::Secret`'s own rule: it is
+/// deliberately not `Clone`, because "[a] copy is a second buffer to clear and a second lifetime
+/// to reason about". So a merge of more than one input with a password is a usage error rather
+/// than a password quietly used for a file it was not typed for; a per-input fd is what would
+/// lift it and nobody has asked for one.
+fn open_inputs(arguments: &Arguments, plan: &Plan) -> Result<Vec<Source>, Failure> {
+    let wanted = if matches!(plan, Plan::Merge(_)) {
+        arguments.positional.len()
+    } else {
+        1
+    };
+    if arguments.positional.len() != wanted {
+        return Err(Failure::Usage(format!(
+            "exactly {wanted} input file(s), and {} were given",
+            arguments.positional.len()
+        )));
+    }
+    let mut password = arguments.parsed::<u32>(&["--password-fd"])?;
+    if password.is_some() && wanted > 1 {
+        return Err(Failure::Usage(
+            "--password-fd opens one document, and this merge reads several; a password is one \
+             file's"
+                .to_owned(),
+        ));
+    }
+    let mut sources = Vec::with_capacity(wanted);
+    for spec in &arguments.positional {
+        let (path, _) = input_spec(spec);
+        // On disk rather than read whole: ADR 0809's window, so that a merge of six-gigabyte
+        // inputs costs each one's trailer, table and selected pages rather than its bytes.
+        let bytes = pdf_syntax::FileBytes::on_disk(&path)
+            .map_err(|error| Failure::Unreadable(path.clone(), error))?;
+        sources.push(match password.take() {
+            Some(fd) => Source::with_password(bytes, password_from(fd)?),
+            None => Source::new(bytes),
+        });
+    }
+    Ok(sources)
 }
 
 /// `attachments`: exactly one of its five actions, from the flags.
@@ -675,6 +893,9 @@ usage: pdf-transform <verb> <file.pdf> [options] -o <name>
 verbs:
   render       pages to raster images        -o 'page-%d.png' | -o -
   images       the images the pages embed     -o 'img-%d.png' | --list
+  split        one document into many        -o 'page-%d.pdf'
+  merge        several documents into one    a.pdf b.pdf [--collate] -o out.pdf
+  pages        one document's pages edited   --delete | --rotate | --move | --insert
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
@@ -718,6 +939,63 @@ images:
                         <name>.mask.pgm
   every image is decoded to PNG with its mask in the alpha; an XObject once, an inline
   image (BI … ID … EI) at every placement
+split:
+  --pages <selection>   which pages (default: all), and without --every the selection's own
+                        commas are where the cuts are: --pages 1-3,7-end writes two files
+  --every <n>           pieces of n pages; --every 1 is one file per page, the default
+  each piece is a new document: the source's page objects, their whole object closure and
+  their content streams carried byte for byte, under a new one-level page tree and a new
+  catalog. §7.7.3.4's inherited /Resources, /MediaBox, /CropBox and /Rotate are written onto
+  each page, because the ancestors that carried them are not coming along. A reference to a
+  page outside the piece becomes §7.3.10's null and is reported (exit 3). The outline, the
+  name trees, /PageLabels, the structure tree and /Metadata are **not** carried and every one
+  the document states is named in a warning. A piece of an encrypted document is not
+  encrypted, and says so.
+
+merge:
+  a.pdf b.pdf …         the inputs, in the order their pages appear; a range per input, as
+                        a.pdf:1-5 or b.pdf:end-1, using the same grammar as --pages
+  --collate             interleave the inputs a page at a time (pdftk's shuffle) instead of
+                        concatenating them
+  the merged document is a new file: every page's object closure and content streams carried
+  byte for byte under one page tree, with §7.7.3.4's inherited /Resources, /MediaBox, /CropBox
+  and /Rotate written onto each page. What is reconciled, and where each choice comes from:
+  §8.11's optional content groups and their initial states are unioned; §7.9.6's name trees
+  are merged and a colliding key is renamed, with every /Dest and /GoTo naming a renamed
+  destination rewritten to match; §12.3.3's outlines are spliced into one chain; §12.4.2's
+  labels are written one entry per page; and §14.11.5's output intent goes onto each source's
+  own pages where the sources disagree, which is the home the clause gives it. §12.7.4.2's
+  fully qualified field names must not collide with a different /FT, /V or /DV — a merge that
+  would write two such fields is refused by name (exit 4). A signature crosses without its /V
+  (§12.8.1), the outline destinations that leave the merge become §7.3.10's null, and
+  /Info, the structure tree and /Metadata are not carried and are named in a warning.
+
+pages:
+  one input, one output, and every flag may repeat; the edits compose left to right over the
+  running page list, so each range is read against the list as the edits before it left it
+  --delete <selection>       take these pages out
+  --rotate [+|-]angle:range  §7.7.3.3's /Rotate, a multiple of 90, clockwise when displayed:
+                             90:1 sets page 1 to 90, +90:1-end turns every page a quarter
+                             further than it is displayed now — the sign is what makes it
+                             relative, and a relative angle composes with the rotation
+                             §7.7.3.4 gives the page rather than with what it states itself
+  --move <range>:<position>  move these pages so the first lands at that position,
+                             counted from 1; one past the end appends
+  --insert <range>@<position>  a second copy of these pages before that position. This
+                             verb reads one file, so the range is this document's; another
+                             file's pages are merge's. A page that appears twice is two page
+                             objects (Table 31 gives a page one /Parent) with its content and
+                             resources shared, and its annotations copied with it — a page
+                             carrying a §12.7 widget is refused by name (exit 4), because a
+                             field's fully qualified name is its identity (§12.7.4.2)
+  the output is a new document on the same construction as merge, so the same reconciliations
+  apply when a page leaves: a destination to a deleted page becomes §7.3.10's null (exit 3),
+  §12.4.2's labels are written one entry per surviving page, and §12.3.3's outline, §7.9.6's
+  name trees, §8.11's groups and §12.7's fields cross as they do there. §14.7's structure tree
+  is **not** carried by any verb of this suite: a tagged document loses its tagging, its pages
+  keep the /StructParents integers their producer wrote, and those name nothing at all in the
+  output. Said in a warning, every time.
+
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)
   --description <text>  Table 43's /Desc

@@ -28,6 +28,12 @@ png.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
 
+# The oracle's own comparison, for one gate: RFC 0002 section 9 asks for "the
+# rotation-transformed comparison for rotate", and a page rotated a quarter turn is rasterised on
+# a different grid, so the measure it is held to is the tree's own rather than a second one
+# written here (`tests/pages_corpus.rs`).
+[dev-dependencies]
+raster-compare.workspace = true
 
 [lints]
 workspace = true
