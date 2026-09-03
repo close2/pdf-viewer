@@ -64,13 +64,18 @@ pub enum FilterRefusal {
     },
 }
 
-/// Why a decode stopped before the filter's own end-of-data.
+/// Why a decode did not convert the information back to its original form.
 ///
 /// **Not an error**: the bytes that came out are what the encoder's own algorithm produced
 /// from the bytes that were there, and ISO 32000-2 §7.4.1 asks a reader to "invoke the
 /// corresponding decoding filter" — which is what was done. What the decode did *not* achieve
 /// is the rest of that sentence, "to convert the information back to its original form", and
 /// the difference between those two is exactly this value. ADR 0343.
+///
+/// **Two of the three stop short of the filter's own end-of-data and the third does not**, which
+/// is why this sentence no longer says "stopped before" as it did until ADR 0836:
+/// [`Self::CheckValue`] is a decode that reached the end and produced every byte the encoded
+/// data describes, over which the check value the stream carries disagrees.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Damage {
     /// The encoded data ran out before the filter's end-of-data marker.
@@ -96,6 +101,26 @@ pub enum Damage {
     /// unrecoverable. Everything *before* it is not: the decoder emitted it from bits the
     /// producer's compressor wrote.
     Corrupt,
+    /// The decode reached the filter's end-of-data and the check value over its bytes disagrees.
+    ///
+    /// **`FlateDecode` alone reaches this, and it is a third statement rather than a grade of
+    /// [`Self::Corrupt`].** §7.4.4.1 makes two documents normative — the Flate method "is fully
+    /// defined in Internet RFC 1950 , and Internet RFC 1951 " — and they say different things
+    /// about a stream: RFC 1951 defines the deflate data and its final block, RFC 1950 wraps it
+    /// in a header and an Adler-32 over the *uncompressed* data. A stream that satisfies the
+    /// first and fails the second has produced every byte the encoded data describes, and there
+    /// is no point in it past which the bytes are not the producer's — which is what
+    /// [`Self::Corrupt`]'s prefix argument rests on and why that argument does not reach here.
+    ///
+    /// **It is still reported**, because RFC 1950's compliance note requires a decompressor that
+    /// meets a wrong check value to indicate an error, and because a checksum over a whole stream
+    /// says *that* something differs and never *what*: it cannot tell one altered byte in an
+    /// unused glyph from a tail of noise. So the value carries the error indication to whoever
+    /// consumes the bytes, and what decides whether they are usable is the grammar of the thing
+    /// they are — a font program's table directory, an image's extent, a content stream's
+    /// operators — rather than a 32-bit sum over all of it. ADR 0836; [`only_the_check_value`]
+    /// is what tells this from a deflate stream that really broke.
+    CheckValue,
 }
 
 /// What a filter stage produced, and whether it is all of it.
@@ -795,6 +820,20 @@ fn inflate(data: &[u8], zlib_header: bool, limits: Limits) -> Result<Decoded, Fi
         {
             finish(&out, None, limits)
         }
+        // A stream whose deflate data is whole and whose RFC 1950 check value disagrees is not
+        // a prefix at all: every byte the encoded data describes came out. Asked after the two
+        // arms above and, like them, never of a decode that produced nothing — that answer is
+        // [`flate`]'s cue to try the other framing.
+        Stopped::Damaged(Damage::Corrupt)
+            if !out.is_empty()
+                && only_the_check_value(
+                    data,
+                    zlib_header,
+                    u64::try_from(out.len()).unwrap_or(u64::MAX),
+                ) =>
+        {
+            finish(&out, Some(Damage::CheckValue), limits)
+        }
         Stopped::Damaged(damage) => finish(&out, Some(damage), limits),
     }
 }
@@ -883,7 +922,10 @@ fn ended_on_a_block(encoded: &[u8], zlib_header: bool) -> bool {
             Turn::Again => {}
             // The framed decoder answered `Truncated` over these bytes, so a raw replay that
             // ends or breaks over them is two decoders disagreeing rather than an answer.
-            Turn::Whole | Turn::Damaged(Damage::Corrupt) => return false,
+            // [`turn`] classifies a decoder's status into `Truncated` and `Corrupt` only —
+            // `CheckValue` is decided one level up, by [`only_the_check_value`] — so the third
+            // arm here is unreachable and is written out rather than caught by a wildcard.
+            Turn::Whole | Turn::Damaged(Damage::Corrupt | Damage::CheckValue) => return false,
             Turn::Damaged(Damage::Truncated) => break,
         }
     }
@@ -893,11 +935,73 @@ fn ended_on_a_block(encoded: &[u8], zlib_header: bool) -> bool {
     matches!(status, Ok(flate2::Status::StreamEnd)) && decoder.total_out() == before_out
 }
 
+/// Whether a deflate decode that reported corruption had in fact read RFC 1951's final block,
+/// leaving RFC 1950's check value as the only thing that disagreed.
+///
+/// **A checksum failure arrives as the same error as a malformed bit stream, and until ADR 0836
+/// this module called it one.** `flate2` answers `Err` for both, because zlib's `inflate` reports
+/// `Z_DATA_ERROR` for `incorrect data check` exactly as it does for a back-reference past the
+/// window — and the two are opposite statements about the bytes already handed over. A malformed
+/// stream stopped at a definite bit and everything after it is absent; a wrong check value is a
+/// decode that ran to the end of RFC 1951's final block and produced every byte the encoded data
+/// describes.
+///
+/// # The decidable test
+///
+/// RFC 1950's framing is a two-byte header, the deflate data, and a four-byte Adler-32; the
+/// check value is the last thing consumed and the only thing in it that a decoder verifies
+/// *after* writing its output. So replaying the same bytes through a **raw** decoder — where
+/// there is no check value to satisfy — separates the two: a replay that reaches `StreamEnd`
+/// having written the same number of bytes the framed decode produced is a deflate stream that
+/// was whole, and the framed decoder's error was the trailer's. A replay that breaks instead, or
+/// ends at a different length, is a decoder disagreeing with itself and gets `false` — the answer
+/// this function can defend.
+///
+/// `produced` is the framed decode's own output length and is not a formality: without it a
+/// replay that ended early for its own reasons would be read as agreement.
+///
+/// The cost is one extra inflate on the damaged path only, thrown away a scratch buffer at a
+/// time so that a bomb costs the buffer rather than its decode — [`ended_on_a_block`]'s second
+/// way out, taken again for the same reason. `zlib_header` false means there is no check value
+/// in the input at all, so there is nothing here to be the explanation and the answer is `false`.
+fn only_the_check_value(encoded: &[u8], zlib_header: bool, produced: u64) -> bool {
+    /// Room for one turn of the replay's output, which is thrown away.
+    const SINK: usize = 8192;
+
+    if !zlib_header {
+        return false;
+    }
+    let Some(raw) = raw_deflate(encoded, zlib_header) else {
+        return false;
+    };
+
+    let mut sink = [0u8; SINK];
+    let mut decoder = flate2::Decompress::new(false);
+    let mut consumed = 0usize;
+    loop {
+        let input = raw.get(consumed..).unwrap_or_default();
+        let (before_in, before_out) = (decoder.total_in(), decoder.total_out());
+        let status = decoder.decompress(input, &mut sink, flate2::FlushDecompress::None);
+        consumed = consumed.saturating_add(
+            usize::try_from(decoder.total_in().saturating_sub(before_in)).unwrap_or(usize::MAX),
+        );
+        let progressed = decoder.total_in() != before_in || decoder.total_out() != before_out;
+        match turn(&status, progressed) {
+            Turn::Again => {}
+            Turn::Whole => return decoder.total_out() == produced,
+            // The raw replay broke or ran out where the framed decode reached the trailer, so
+            // the two decoders disagree and the framed one's `Corrupt` stands.
+            Turn::Damaged(_) => return false,
+        }
+    }
+}
+
 /// The deflate bits of `encoded`, past white space and past RFC 1950's two-byte header.
 ///
 /// `None` where there is no such thing to hand back: an input that is white space to its end, a
 /// zlib header these two bytes do not make, or one whose `FDICT` names a dictionary a raw
-/// decoder would not have. See [`ended_on_a_block`], which is the only caller.
+/// decoder would not have. See [`ended_on_a_block`] and [`only_the_check_value`], its two
+/// callers, both of which replay a stream a framed decoder has already refused.
 fn raw_deflate(encoded: &[u8], zlib_header: bool) -> Option<&[u8]> {
     let start = encoded
         .iter()
@@ -1232,6 +1336,11 @@ struct Inflate {
     /// whole-buffer decode of the same stream does not. The population is a chain whose second
     /// or later stage is a deflate **and** whose producer flushed without finishing; the
     /// corpus holds none.
+    ///
+    /// [`only_the_check_value`] reads it for the same reason and pays the same price where it is
+    /// absent, over the same population one condition wider: a deflate behind another filter
+    /// whose RFC 1950 trailer disagrees reports [`Damage::Corrupt`] here where a whole-buffer
+    /// decode reports [`Damage::CheckValue`]. ADR 0836.
     replayable: Option<Arc<[u8]>>,
 }
 
@@ -2035,6 +2144,15 @@ impl Inflate {
                         .is_some_and(|encoded| ended_on_a_block(encoded, self.zlib_header))
                 {
                     Standing::Ended
+                } else if damage == Damage::Corrupt
+                    && self.replayable.as_deref().is_some_and(|encoded| {
+                        only_the_check_value(encoded, self.zlib_header, self.produced)
+                    })
+                {
+                    // The deflate data was whole and RFC 1950's check value over it was not:
+                    // the window has been handed every byte the encoded data describes, and
+                    // saying so is the report rather than a stop. ADR 0836.
+                    Standing::Damaged(Damage::CheckValue)
                 } else {
                     Standing::Damaged(damage)
                 }
@@ -3773,6 +3891,96 @@ mod tests {
                 matches!(ended, super::Pumped::Damaged(_, super::Damage::Truncated)),
                 "through {window} bytes: {ended:?}"
             );
+        }
+    }
+
+    /// A whole deflate stream under a check value that disagrees is not a prefix, and says which.
+    ///
+    /// ISO 32000-2 §7.4.4.1 makes both of RFC 1950 and RFC 1951 normative for `FlateDecode`, and
+    /// they are separable: the deflate data here is untouched and reaches its final block, and
+    /// the four Adler-32 bytes RFC 1950 wraps it in are not the ones over that data. Every byte
+    /// the encoder was given comes back, which is what [`super::Damage::CheckValue`] says and
+    /// what [`super::Damage::Corrupt`] would deny. ADR 0836.
+    ///
+    /// Both compression levels are here for the same reason the flush test has them: `best`
+    /// ends in a Huffman block and `none` in a stored one, and the replay has to reach the final
+    /// block of either.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn a_whole_stream_under_a_wrong_check_value_is_not_a_prefix() {
+        let payload: Vec<u8> = (0..9_000u32).flat_map(u32::to_be_bytes).collect();
+        for level in [flate2::Compression::best(), flate2::Compression::none()] {
+            let mut encoded = {
+                use std::io::Write as _;
+                let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), level);
+                encoder.write_all(&payload).expect("in-memory write");
+                encoder.finish().expect("finish")
+            };
+            // RFC 1950 section 2.2's trailer is the last four bytes; one flipped bit in it is a
+            // check value over data nobody compressed, and nothing else about the stream moves.
+            let last = encoded.len().saturating_sub(1);
+            let byte = encoded.get_mut(last).expect("a trailer");
+            *byte ^= 0x01;
+
+            let whole = super::decode_reported(b"FlateDecode", &encoded, None, Limits::DEFAULT)
+                .expect("a decode, not a refusal");
+            assert_eq!(
+                whole.damage,
+                Some(super::Damage::CheckValue),
+                "level {level:?}: the buffered route calls a wrong check value a corruption"
+            );
+            same(&whole.data, &payload, &format!("level {level:?}, buffered"));
+
+            for window in [1usize, 512, 65_536] {
+                let mut pump = chain_pump(&[super::Stage::Inflate], &encoded);
+                let (pumped, ended) = drain(&mut pump, window);
+                same(
+                    pumped.as_slice(),
+                    &payload,
+                    &format!("level {level:?}, through {window} bytes"),
+                );
+                assert!(
+                    matches!(ended, super::Pumped::Damaged(_, super::Damage::CheckValue)),
+                    "level {level:?}, through {window} bytes: {ended:?}"
+                );
+            }
+        }
+    }
+
+    /// A deflate stream that really is malformed keeps answering [`super::Damage::Corrupt`].
+    ///
+    /// The calibration the test above needs: [`super::only_the_check_value`] must separate a
+    /// trailer that disagrees from bits that do, or it would turn every corruption into a whole
+    /// stream. A stored block whose `LEN` and `NLEN` are not complements is RFC 1951 section
+    /// 3.2.4's own contradiction, at a definite bit, and the replay breaks over it exactly as the
+    /// framed decode did.
+    #[cfg_attr(
+        miri,
+        ignore = "zlib-rs's deallocation, not this tree's — see the note above"
+    )]
+    #[test]
+    fn a_deflate_stream_that_broke_is_still_corrupt() {
+        let payload: Vec<u8> = (0..9_000u32).flat_map(u32::to_be_bytes).collect();
+        let mut encoded = deflated_stored(&payload);
+        // Past RFC 1950's two-byte header: the block header byte, then `LEN` and `NLEN`. Flipping
+        // a bit of `NLEN` alone leaves the length the decoder reads and contradicts its check.
+        let at = 2 + 1 + 2;
+        let byte = encoded.get_mut(at).expect("an NLEN");
+        *byte ^= 0x01;
+
+        let decoded = super::decode_reported(b"FlateDecode", &encoded, None, Limits::DEFAULT);
+        match decoded {
+            Ok(decoded) => assert_eq!(
+                decoded.damage,
+                Some(super::Damage::Corrupt),
+                "a contradicted stored block came back as {:?}",
+                decoded.damage
+            ),
+            // Nothing survived the first block, which is this module's other honest answer.
+            Err(refusal) => assert_eq!(refusal, super::FilterRefusal::Corrupt),
         }
     }
 

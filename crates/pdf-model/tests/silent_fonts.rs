@@ -52,18 +52,26 @@ fn reports(interpretation: &pdf_model::Interpretation) -> String {
 /// A page whose only text draws nothing says so, and names the font.
 ///
 /// **The reason this page is blank changed in the round that took ADR 0343, and the new one is
-/// nearer the file.** Its `/FontFile2` is a corrupt flate stream, and what it used to report —
-/// no code reached an outline — was the symptom of a program that had arrived short. Now the
-/// filter says so itself and the program is refused for it, which names the cause.
+/// nearer the file.** Its `/FontFile2` is a damaged flate stream, and what it used to report —
+/// no code reached an outline — was the symptom rather than the cause. Now the filter says what
+/// the damage is and the program is refused for it, which names the cause.
 ///
-/// **That refusal is the point rather than a detail, and this document is why it exists.** The
-/// same round made `flate` keep every byte it decoded rather than only those from `read` calls
-/// that returned, so this program went from a prefix too short to parse to **863 bytes that
-/// parse** — and drew `A C E F` where `pdftoppm` draws the file's six CJK glyphs. A prefix of a
-/// font program is a table directory describing bytes that are not there, so it yields glyphs
-/// the producer never wrote rather than fewer of the ones it did, and the marks it would put on
-/// the page stand *in place of* the right ones rather than beside them. Trap 1 in one page:
-/// the count went up and the picture got worse.
+/// **What that damage *is* was read wrongly for as long as it was reported, and ADR 0836 read it
+/// again.** This stream is not a prefix at all: it reaches RFC 1951's final block and produces
+/// **168 808 bytes, which is its `/Length1` to the byte**, and what disagrees is RFC 1950's
+/// Adler-32 over them. So the refusal stands on the check value — the bytes are not the bytes
+/// that were compressed — and not on an extent that was never short.
+///
+/// **The refusal is the point rather than a detail, and what it costs is measured rather than
+/// assumed.** Admitted, this program loads and the page draws `A C E F` where `pdftoppm` draws
+/// five CJK glyphs, in silence. **The four letters are not the damage either**, which the same
+/// round found by opening the file: the `/Differences` array names `/g5167` and four neighbours,
+/// which reach no glyph through the Adobe Glyph List and which the program's stripped table
+/// directory has no `post` to answer for — so §9.6.5.4's closing permission takes over ("a PDF
+/// processor may supply a mapping of its choosing") and supplies the codes' own characters. The
+/// marks stand *in place of* the producer's rather than beside them, which is ADR 0106's
+/// substitutive failure and is what ADR 0459 refuses. Trap 1 in one page: admitting the stream
+/// raises the count and ruins the picture.
 #[test]
 fn a_font_that_draws_none_of_its_codes_is_reported() {
     let Some(interpretation) = page_one("issue13316_reduced.pdf") else {
@@ -74,8 +82,11 @@ fn a_font_that_draws_none_of_its_codes_is_reported() {
         "the page still draws nothing: that is the defect this reports, not one it fixes"
     );
     let said = reports(&interpretation);
+    // Two substrings, and the second is the *reason* rather than the fact of a report, because
+    // this document has now worn three different sentences and an assertion on the fact alone
+    // would have passed under all of them (trap 27).
     assert!(
-        said.contains("/F1") && said.contains("as far as its damage"),
+        said.contains("/F1") && said.contains("check value disagrees"),
         "a blank page of text must not be silent, and must name why: {said}"
     );
 }
