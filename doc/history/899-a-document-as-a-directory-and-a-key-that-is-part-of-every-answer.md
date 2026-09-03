@@ -70,9 +70,18 @@ a worker is handed its document once, as `FileBytes`, at spawn.
 
 `pdf-vfs` is new and under no corpus gate; `pdf-transform` gained a public method and no
 behaviour, and documents changed. The whole `doc/todo/02` §2 sequence was run in this worktree all
-the same, the walking lines under `tools/bounded.sh` and one at a time on the machine, waiting for
-a neighbouring round's `pages_corpus` to finish first. The results are in the round's report and
-not here.
+the same, the walking lines under `tools/bounded.sh` and one at a time on the machine, waiting for a
+neighbouring round's `pages_corpus` to finish first — and then **run whole a second time**, after
+`main` moved under round 896's merge and was merged in here, because a merge runs everything. The
+second run is the one that counts, and it is the one that includes `foreign_corpus`, the line
+`main` had gained in the meantime. The results are in the round's report and not here.
+
+One thing worth carrying out of the running rather than out of the work: **a poller that matches
+command lines deadlocks against a neighbour's poller.** This round's "wait for the machine to be
+free of walks" loop matched `pgrep -af` on the test names, and the neighbouring round's own wait
+loop had those names in *its* command line — so each waited for the other, and neither walk was
+running. The fix is the shape the neighbour already had: match the gate **binaries** under a build
+directory (`gates/deps/<name>-`), never a command line.
 
 ## 6. What the next round of this stream does first
 
