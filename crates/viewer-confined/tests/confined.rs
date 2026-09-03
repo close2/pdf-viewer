@@ -32,8 +32,13 @@ use viewer_core::{Answer, Command, DocumentId, Event, PageTarget, Query, Rendere
 /// Not a corpus file: the corpus is an optional submodule, and a test that skipped itself
 /// silently would be worse than no test.
 fn specification_bytes() -> Vec<u8> {
-    let path: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf");
+    let path = specification_path();
     std::fs::read(&path).unwrap_or_else(|error| panic!("{} is committed: {error}", path.display()))
+}
+
+/// Where that document is, for a test that opens it on disk rather than reading it.
+fn specification_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../doc/PDF20_AN001-BPC.pdf")
 }
 
 /// A corpus document's bytes, or `None` when the submodule is not checked out.
@@ -242,6 +247,80 @@ fn the_confined_process_draws_the_page_this_one_would_have() {
     // A blank raster would satisfy every equality above if both sides were blank, so this is the
     // assertion that says a page was actually drawn.
     let ink = raster.data.chunks_exact(4).filter(|p| p[0] < 200).count();
+    assert!(
+        ink > 1000,
+        "the page came back nearly blank: {ink} dark pixels"
+    );
+}
+
+/// **A document open on disk crosses as its descriptor, and the confined process draws the
+/// same page from it** (ADR 0812).
+///
+/// The host opens the file and sends nothing of it: `Command::Open` carries the file's length
+/// and the descriptor rides beside the frame with `SCM_RIGHTS`, and the worker — which can name
+/// no path and is killed for trying — reads the same open file where the document's offsets
+/// point, through `pread64`. What proves it is the page: byte-identical to the one the same
+/// document draws when it crosses as bytes, so the route changed and the pixels did not. A
+/// worker built without the descriptor arm refuses the frame, which is what this fails on.
+#[test]
+#[cfg(unix)]
+fn a_document_open_on_disk_crosses_as_a_descriptor_and_draws_the_same_page() {
+    let on_disk = pdf_syntax::FileBytes::on_disk(&specification_path())
+        .expect("the committed document opens");
+    assert!(on_disk.is_on_disk() && on_disk.descriptor().is_some());
+
+    let mut confined = Confined::start().expect("a confined viewer starts");
+    confined
+        .handle(&Command::Resize {
+            width: VIEWPORT.0,
+            height: VIEWPORT.1,
+            scale: 1.0,
+        })
+        .expect("a resize crosses");
+    let events = confined
+        .handle(&Command::Open {
+            id: DOCUMENT,
+            bytes: on_disk,
+            password: None,
+            fragment: None,
+        })
+        .expect("an open on disk crosses as a descriptor");
+    let pages = events.iter().find_map(|event| match event {
+        Event::Opened { document, pages } if *document == DOCUMENT => Some(*pages),
+        _ => None,
+    });
+    assert_eq!(pages, Some(5), "{events:?}");
+    let Reply::Frame(frames) = confined.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds the frame it drew");
+    };
+    let [from_disk] = frames.as_slice() else {
+        panic!("one frame: {}", frames.len());
+    };
+    let from_disk = pixels(from_disk);
+
+    let (mut by_bytes, _events) = opened();
+    let Reply::Frame(frames) = by_bytes.query(Query::Frame).expect("a frame crosses") else {
+        panic!("the confined viewer holds the frame it drew");
+    };
+    let [from_bytes] = frames.as_slice() else {
+        panic!("one frame: {}", frames.len());
+    };
+    let from_bytes = pixels(from_bytes);
+
+    assert_eq!(
+        (from_disk.width, from_disk.height),
+        (from_bytes.width, from_bytes.height)
+    );
+    assert_eq!(
+        differing_bytes(&from_disk.data, &from_bytes.data),
+        0,
+        "the document read through its descriptor drew a different page"
+    );
+    let ink = from_disk
+        .data
+        .chunks_exact(4)
+        .filter(|p| p[0] < 200)
+        .count();
     assert!(
         ink > 1000,
         "the page came back nearly blank: {ink} dark pixels"
@@ -1559,6 +1638,44 @@ fn a_confined_interpreter_cannot_start_a_program() {
     );
 }
 
+/// A confined interpreter can read a descriptor it was handed, where the file's offsets point.
+///
+/// The one system call ADR 0812 admitted for the document — `pread64` — proved against the
+/// kernel rather than against the list: a file opened *before* the confinement is read at an
+/// offset behind it. The next test is this one's other half.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_interpreter_can_read_a_descriptor_it_holds_where_its_offsets_point() {
+    let status = run_probe("pread");
+    assert_eq!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined interpreter could not read a descriptor it holds: {status:?}"
+    );
+}
+
+/// And it cannot ask the file system about that descriptor.
+///
+/// `fstat` is not on the allow-list, and that is the whole of what keeps a descriptor to one
+/// file from being a file system: `statx` takes a path, so admitting it for the document would
+/// let a confined process ask whether any file exists. The length crosses beside the descriptor
+/// instead. **This is the test that fails if somebody admits `statx` "for the file's length"**,
+/// and it is here so that the shape of the filter is pinned rather than described.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_confined_interpreter_cannot_stat_a_descriptor_it_holds() {
+    let status = run_probe("fstat");
+    assert_ne!(
+        status.code(),
+        Some(ALLOWED),
+        "a confined interpreter asked the file system about a descriptor and was answered"
+    );
+    assert!(
+        refused(status),
+        "expected the stat to be refused or the process killed, got {status:?}"
+    );
+}
+
 /// And it *can* still interpret and draw a page.
 ///
 /// The other half of the previous three: a filter that refused everything would pass them all and
@@ -1709,8 +1826,11 @@ fn confined_probe() {
     };
 
     // Read before the confinement, because a confined process has no filesystem — which is the
-    // whole reason a document reaches the real worker as bytes in a command.
+    // whole reason a document reaches the real worker inside a command: as bytes, or as a
+    // descriptor the host opened. The open handle beside the bytes is the second of those, for
+    // the two probes about what a confined process may do with one.
     let bytes = specification_bytes();
+    let handle = std::fs::File::open(specification_path()).expect("the committed document opens");
 
     // The one probe that must run *before* `confine()`, because what it is about is the order.
     if probe == WARM {
@@ -1740,6 +1860,16 @@ fn confined_probe() {
         // `/proc/self/maps` rather than anything under `/etc`, because it is guaranteed to exist
         // and to be readable by this user: a failure here has to be the confinement.
         "open" => std::fs::File::open("/proc/self/maps").is_ok(),
+        // One positional read of the header, which is `pread64` and nothing else; the answer is
+        // checked so that a read that returned nothing would not count as permitted.
+        "pread" => {
+            use std::os::unix::fs::FileExt as _;
+            let mut header = [0u8; 5];
+            handle
+                .read_at(&mut header, 0)
+                .is_ok_and(|read| read == 5 && &header == b"%PDF-")
+        }
+        "fstat" => handle.metadata().is_ok(),
         "socket" => std::net::UdpSocket::bind("127.0.0.1:0").is_ok(),
         "spawn" => std::process::Command::new("/bin/true").status().is_ok(),
         // Writing one line to whatever standard error the parent handed over. With a file it

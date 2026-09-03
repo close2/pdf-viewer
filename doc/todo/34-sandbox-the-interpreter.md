@@ -240,11 +240,18 @@ behind a safe signature; the construction that would justify one is a **sealed**
 seals, passes, maps and hands out `&[u8]` and parses nothing — and whether such a crate falls under
 principle 3's rule is the question to answer out loud rather than assume.
 
-And getting the descriptor across has its own cost. The document arrives *after* the spawn, so an
+~~And getting the descriptor across has its own cost. The document arrives *after* the spawn, so an
 inherited descriptor means one worker per document; the runtime alternative, `SCM_RIGHTS`, needs
 `socketpair`, `sendmsg` and `recvmsg` on the interpreter's allow-list, and
 `a_confined_interpreter_cannot_reach_the_network` is the test that would have to be weakened to get
-them. Three system calls for latency is the wrong direction.
+them. Three system calls for latency is the wrong direction.~~ **The first half of that was right
+and the second was wrong twice, and the descriptor crosses since the eight-hundred-and-eighty-third
+session** (ADR 0812) — for memory rather than latency: a 6 GB document could not cross as bytes
+at all. The *host* makes the socket pair and sends; the worker only receives, so what its
+allow-list gains is `recvmsg` on a socket it did not create and cannot create, plus `pread64` on
+the file it was handed — and `a_confined_interpreter_cannot_reach_the_network` is untouched, with
+two probes beside it pinning that the worker can read the descriptor and cannot `stat` it. The
+`memfd` question above is unchanged: that was about *mapping*, and nothing here maps.
 
 ## Two things that stayed true and are worth keeping
 

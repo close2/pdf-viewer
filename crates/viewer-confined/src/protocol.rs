@@ -389,6 +389,19 @@ pub enum ProtocolError {
         /// How many entries the table read before it holds.
         held: usize,
     },
+    /// The message says a descriptor rides beside it, and none arrived.
+    ///
+    /// A document on disk crosses as its open file, sent with `SCM_RIGHTS` beside the frame's
+    /// header (ADR 0812). A frame that states the descriptor form and arrives with nothing
+    /// beside it is one of three things — a sender on a pipe rather than a socket, a receiver
+    /// whose descriptor table was full so the kernel dropped it (`MSG_CTRUNC`), or a message
+    /// somebody made up — and in all three the honest answer is a refusal naming the field
+    /// rather than an empty document.
+    #[error("{what} was to arrive as a descriptor beside the message, and none did")]
+    NoDescriptor {
+        /// Which field.
+        what: &'static str,
+    },
     /// The message is well formed and describes a value that cannot exist.
     ///
     /// **Not a truncation and not an unknown discriminant.** Every field was there and every
@@ -1019,6 +1032,90 @@ mod command_kind {
     pub(super) const VIEW: u8 = 25;
 }
 
+/// How [`Command::Open`]'s document is held, on the wire.
+mod open_kind {
+    /// The bytes follow, whole.
+    pub(super) const BYTES: u8 = 0;
+    /// The file's length follows, and its descriptor rides beside the frame (ADR 0812).
+    pub(super) const ON_DISK: u8 = 1;
+}
+
+/// A descriptor as the sender holds it while the frame it rides beside is written.
+#[cfg(unix)]
+pub(crate) type SentDescriptor<'a> = std::os::fd::BorrowedFd<'a>;
+
+/// A descriptor as the receiver holds it: the kernel's duplicate, owned.
+#[cfg(unix)]
+pub(crate) type ReceivedDescriptor = std::os::fd::OwnedFd;
+
+/// A descriptor as the sender holds it — and on a platform that passes none, a type nothing
+/// can construct, so that the sending code reads the same on both and compiles on both.
+#[cfg(not(unix))]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SentDescriptor<'a>(std::convert::Infallible, std::marker::PhantomData<&'a ()>);
+
+/// A descriptor as the receiver holds it, on a platform that passes none: see
+/// [`SentDescriptor`].
+#[cfg(not(unix))]
+#[derive(Debug)]
+pub(crate) struct ReceivedDescriptor(std::convert::Infallible);
+
+/// Whether a document crosses as its descriptor rather than as its bytes.
+///
+/// One predicate for the two halves of the encoder — [`encode_command`]'s tag and
+/// [`command_descriptor`]'s answer — so that they cannot disagree. A file on disk crosses as a
+/// descriptor wherever the platform can pass one; elsewhere it does not cross at all, and
+/// [`encode_command`] says so by name.
+fn crosses_as_descriptor(bytes: &pdf_syntax::FileBytes) -> bool {
+    cfg!(unix) && bytes.is_on_disk()
+}
+
+/// What rides beside an encoded command: the document's open file, where it opens one on disk.
+///
+/// `None` for every other command and for a document held in memory. The transport sends it
+/// with the frame's header (`SCM_RIGHTS`, ADR 0812), and the receiving side takes it back out
+/// in [`decode_command_holding`].
+pub(crate) fn command_descriptor(command: &Command) -> Option<SentDescriptor<'_>> {
+    match command {
+        #[cfg(unix)]
+        Command::Open { bytes, .. } if crosses_as_descriptor(bytes) => bytes.descriptor(),
+        _ => None,
+    }
+}
+
+/// The document a descriptor beside the frame opens, at the length the host stated.
+#[cfg(unix)]
+fn document_from_descriptor(
+    descriptors: &mut Vec<ReceivedDescriptor>,
+    length: u64,
+) -> Result<pdf_syntax::FileBytes, ProtocolError> {
+    if descriptors.is_empty() {
+        return Err(ProtocolError::NoDescriptor {
+            what: "a document on disk",
+        });
+    }
+    // The first, because a frame carries one document and the sender attaches it to the
+    // header; anything after it is nobody's and the caller closes it.
+    let descriptor = descriptors.remove(0);
+    pdf_syntax::FileBytes::from_handle(std::fs::File::from(descriptor), length).map_err(|_| {
+        ProtocolError::Unbuildable {
+            what: "a document on disk",
+            why: "its stated length is more than this process can address",
+        }
+    })
+}
+
+/// On a platform that passes no descriptor, none can have arrived.
+#[cfg(not(unix))]
+fn document_from_descriptor(
+    _descriptors: &mut Vec<ReceivedDescriptor>,
+    _length: u64,
+) -> Result<pdf_syntax::FileBytes, ProtocolError> {
+    Err(ProtocolError::NoDescriptor {
+        what: "a document on disk",
+    })
+}
+
 /// Encodes one command.
 ///
 /// # Errors
@@ -1039,19 +1136,28 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
             password,
             fragment,
         } => {
-            // The confined process has no file system, so a document open on disk crosses as
-            // its bytes, whole — read once and kept, or refused by name where this process
-            // cannot hold it (ADR 0809). The host that spawns a worker reads the file whole
-            // itself, so this arm sees a file on disk only from a host that chose otherwise.
-            let whole = bytes.whole().map_err(|_| Uncarried {
-                message: "Command::Open",
-                reason: "the document is on disk and this process cannot hold it whole to \
-                         send it to the confined process",
-            })?;
+            writer.u8(k::OPEN).document(*id);
+            // **A file on disk crosses as its descriptor and its length, and bytes in memory
+            // cross as bytes** (ADR 0812). The confined process has no file system, and it
+            // needs none for a file somebody else opened: the host sends the open file's
+            // descriptor beside this frame with `SCM_RIGHTS` — [`command_descriptor`] is what
+            // rides beside these bytes — and the worker holds the same open file, reading it
+            // where the document's offsets point through `pread64`, the one system call the
+            // filter admits on it. The length crosses here because the worker cannot ask for
+            // it: `fstat` is not on the allow-list, deliberately. Bytes in memory are what a
+            // test hands over and what §7.11.4's extracted file is handed straight back as,
+            // and those still cross whole.
+            if crosses_as_descriptor(bytes) {
+                writer.u8(open_kind::ON_DISK).u64(as_u64(bytes.len()));
+            } else {
+                let whole = bytes.whole().map_err(|_| Uncarried {
+                    message: "Command::Open",
+                    reason: "the document is on disk, which crosses as a descriptor on a \
+                             platform that passes one, and this is not that platform",
+                })?;
+                writer.u8(open_kind::BYTES).bytes(whole);
+            }
             writer
-                .u8(k::OPEN)
-                .document(*id)
-                .bytes(whole)
                 .option_str(password.as_ref().map(viewer_core::Secret::reveal))
                 .option_str(fragment.as_deref());
         }
@@ -1213,11 +1319,30 @@ pub(crate) fn encode_command(command: &Command) -> Result<Vec<u8>, Uncarried> {
 ///
 /// [`ProtocolError`] where a field is truncated, a discriminant is not one this build defines,
 /// or bytes are left over.
+pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
+    decode_command_holding(bytes, &mut Vec::new())
+}
+
+/// Reads one command, taking the document's descriptor from what arrived beside the frame.
+///
+/// **The descriptor is consumed here and nowhere else**, so a caller that reads a frame with
+/// descriptors beside it and decodes it through this function is left holding exactly the ones
+/// no command claimed — which it closes, because a descriptor nobody asked for is not a thing a
+/// confined process should keep (ADR 0812). [`decode_command`] is this with nothing beside the
+/// bytes, which is what a fuzz target and a test hand over.
+///
+/// # Errors
+///
+/// [`ProtocolError`] as [`decode_command`], and [`ProtocolError::NoDescriptor`] where the
+/// command opens a file on disk and no descriptor arrived with it.
 #[expect(
     clippy::too_many_lines,
     reason = "one arm per variant of a `viewer-core` enum, and the count is that enum's. Splitting it would put half the vocabulary in another function and lose the property the whole module rests on: the compiler naming the variant nobody handled"
 )]
-pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
+pub(crate) fn decode_command_holding(
+    bytes: &[u8],
+    descriptors: &mut Vec<ReceivedDescriptor>,
+) -> Result<Command, ProtocolError> {
     use command_kind as k;
 
     let mut reader = Reader::new(bytes);
@@ -1225,7 +1350,19 @@ pub(crate) fn decode_command(bytes: &[u8]) -> Result<Command, ProtocolError> {
     let command = match reader.u8(what)? {
         k::OPEN => Command::Open {
             id: reader.document(what)?,
-            bytes: reader.owned_bytes("a document's bytes")?.into(),
+            bytes: match reader.u8("how a document is held")? {
+                open_kind::BYTES => reader.owned_bytes("a document's bytes")?.into(),
+                open_kind::ON_DISK => {
+                    let length = reader.u64("a document's length on disk")?;
+                    document_from_descriptor(descriptors, length)?
+                }
+                value => {
+                    return Err(ProtocolError::Unrecognised {
+                        what: "how a document is held",
+                        value: u32::from(value),
+                    });
+                }
+            },
             password: reader.option_string("a password")?.map(Into::into),
             fragment: reader.option_string("a fragment identifier")?,
         },
@@ -3275,6 +3412,91 @@ mod tests {
                 "a command changed on the way through"
             );
         }
+    }
+
+    /// A document open on disk crosses as its length and a descriptor, and decodes to the same
+    /// file — or refuses by name where the descriptor did not come (ADR 0812).
+    ///
+    /// The encoder writes no byte of the document, the descriptor is what [`command_descriptor`]
+    /// hands the transport, and a decoder given one holds the same open file at the same length;
+    /// given none, it names the field rather than answering with an empty document.
+    #[test]
+    #[cfg(unix)]
+    fn a_document_on_disk_crosses_as_a_descriptor_and_its_length() {
+        let directory =
+            std::env::temp_dir().join(format!("viewer-confined-wire-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("on-disk.pdf");
+        let content = b"%PDF-2.0\n% a document on disk, not a byte of which crosses\n";
+        std::fs::write(&path, content).unwrap();
+
+        let on_disk = pdf_syntax::FileBytes::on_disk(&path).unwrap();
+        let command = Command::Open {
+            id: DocumentId(11),
+            bytes: on_disk,
+            password: None,
+            fragment: Some("page=2".to_owned()),
+        };
+        let encoded = encode_command(&command).unwrap();
+        assert!(
+            encoded.len() < content.len(),
+            "the document's bytes were written into the frame: {} bytes",
+            encoded.len()
+        );
+        assert!(command_descriptor(&command).is_some());
+        assert!(
+            command_descriptor(&Command::Tick { millis: 1 }).is_none(),
+            "only an open on disk has a descriptor"
+        );
+
+        // Without the descriptor: refused by name.
+        assert_eq!(
+            decode_command(&encoded).unwrap_err(),
+            ProtocolError::NoDescriptor {
+                what: "a document on disk"
+            }
+        );
+
+        // With one — the kernel's duplicate, here made by `try_clone` — the same file.
+        let duplicate: std::os::fd::OwnedFd = std::fs::File::open(&path).unwrap().into();
+        let mut descriptors = vec![duplicate];
+        let decoded = decode_command_holding(&encoded, &mut descriptors).unwrap();
+        assert!(descriptors.is_empty(), "the descriptor was claimed");
+        let Command::Open {
+            id,
+            bytes,
+            fragment,
+            ..
+        } = decoded
+        else {
+            panic!("an Open decoded as something else");
+        };
+        assert_eq!(id, DocumentId(11));
+        assert_eq!(fragment.as_deref(), Some("page=2"));
+        assert!(bytes.is_on_disk());
+        assert_eq!(bytes.len(), content.len());
+        assert_eq!(bytes.whole().unwrap(), content);
+
+        // Bytes in memory still cross as bytes, and claim no descriptor.
+        let in_memory = Command::Open {
+            id: DocumentId(12),
+            bytes: content.to_vec().into(),
+            password: None,
+            fragment: None,
+        };
+        assert!(command_descriptor(&in_memory).is_none());
+        let encoded = encode_command(&in_memory).unwrap();
+        let mut unclaimed = vec![std::os::fd::OwnedFd::from(
+            std::fs::File::open(&path).unwrap(),
+        )];
+        let decoded = decode_command_holding(&encoded, &mut unclaimed).unwrap();
+        assert_eq!(unclaimed.len(), 1, "a descriptor beside bytes is nobody's");
+        let Command::Open { bytes, .. } = decoded else {
+            panic!("an Open decoded as something else");
+        };
+        assert!(!bytes.is_on_disk());
+        assert_eq!(bytes.whole().unwrap(), content);
+        std::fs::remove_dir_all(&directory).unwrap();
     }
 
     /// §7.6.4.1's password crosses whole, which the comparison above can no longer see.

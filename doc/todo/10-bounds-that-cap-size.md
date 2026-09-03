@@ -225,14 +225,29 @@ They were not architecture and did not wait for a decision, which is why they we
   parser grows until it examined nothing at the window's end — so the 5.6 GB document costs its
   trailer, its table and page one's objects, and every host that opens a file itself opens it that
   way. `tools/state.sh` does not print the figure; `examples/open_cost` does, both routes, with
-  `OPEN_COST_ROUTE=whole` for the old one. **What is left, each written down rather than left**:
+  `OPEN_COST_ROUTE=whole` for the old one. ~~**What is left, each written down rather than left**:
   the confined viewer's host still reads the file whole because its worker has no file system and
-  receives the document over a pipe (an open file descriptor handed to the worker at spawn, with
-  `pread64` allowed through the filter, is the road, and `Command::Open` would carry the length
-  rather than the bytes); a signature's `/ByteRange` digest reads its ranges into memory, which is
-  every byte of a signed file but the hole, because `cms::Digest::compute` takes slices rather than
-  a stream; a scan still reads the file whole, by design, and `Document::scan_refused` says when
-  the process could not — which no host consumes yet.
+  receives the document over a pipe; a signature's `/ByteRange` digest reads its ranges into
+  memory; a scan still reads the file whole, by design, and `Document::scan_refused` says when the
+  process could not — which no host consumes yet.~~ **All three taken in the
+  eight-hundred-and-eighty-third session** (ADR 0812): the document crosses to the confined worker
+  as its open file's descriptor beside `Command::Open` (`SCM_RIGHTS` over a socket the host makes;
+  `recvmsg` and `pread64` on the interpreter's allow-list and nothing else — not `fstat`, which
+  takes a path, so the length crosses on the wire), and `pdf-viewer-confined` holds no byte of the
+  file; a signature's ranges are digested through 64 KiB windows, every algorithm in one pass, and
+  a window the disk would not give is `Integrity::RangeNotReadable` rather than a modified document;
+  and a scan the process could not hold the file for is said once on the document's report, with
+  the length. `examples/confined_peak` prints both routes (`CONFINED_PEAK_ROUTE=whole` for the old
+  one). **What that run found and left**: a table offset that lands in a run of white space —
+  §7.2.3 makes NUL one — has ADR 0809's window grow, doubling, to the rest of the file, because the
+  parse examined every byte of every window; on a 4.6 GB file whose misplaced object sat in 2.3 GB
+  of zeros the worker's `VmHWM` reached 2.27 GB before the parse failed and the scan was refused.
+  It is graceful (a window the process cannot hold is a recorded `ReadFailure` and read as the
+  end) and it is not cheap; a reader that noticed a window of nothing but white space and stopped
+  growing would be the fix, and it has no witness outside a fixture built to show it. And the one
+  arm of `Signature::authenticity` that still holds the ranges resident is Ed25519 over the
+  document's own bytes with no signed attributes, because RFC 8032 takes the message rather than
+  a digest of it and no corpus document is that shape.
 - **`image::RasterCache`'s probe is still linear in its entries**, and after ADR 0399 those entries
   are the *distinct* images a page draws rather than the draws — which is the property a resource
   image always had, and it is what took the two witnesses from 330.5 G and 71.9 G instructions to

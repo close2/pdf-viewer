@@ -188,6 +188,7 @@ fn verdict(answer: &Authenticity) -> String {
         Authenticity::CurveNotVerifiable { curve } => format!("CurveNotVerifiable {curve}"),
         Authenticity::NoSignatureValue => "NoSignatureValue".into(),
         Authenticity::RangeNotInThisFile => "RangeNotInThisFile".into(),
+        Authenticity::RangeNotReadable => "RangeNotReadable".into(),
         Authenticity::Unreadable(_) => "Unreadable".into(),
     }
 }

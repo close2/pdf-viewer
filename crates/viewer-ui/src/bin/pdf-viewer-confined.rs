@@ -133,10 +133,11 @@ struct Arguments {
 
 /// A message's `Debug` form cut to a line, for the trace.
 ///
-/// The cut is what the other hosts apply and is load-bearing here, not cosmetic: `Command::Open`
-/// carries the whole document and a `Debug` of its bytes is five characters a byte — the first
-/// run of this program wrote three quarters of a megabyte of trace for one open. A `Secret`
-/// already prints no password whatever the length, so what the cut protects is the terminal.
+/// The cut is what the other hosts apply, and it was load-bearing here before it was cosmetic:
+/// `Command::Open` used to carry the whole document as a `Vec<u8>` whose `Debug` is five
+/// characters a byte, and the first run of this program wrote three quarters of a megabyte of
+/// trace for one open. `pdf_syntax::FileBytes` prints its length and how it is held now, and a
+/// `Secret` prints no password whatever the length, so what the cut protects is a long event.
 fn brief(message: &impl std::fmt::Debug) -> String {
     let whole = format!("{message:?}");
     if whole.chars().count() > 120 {
@@ -361,10 +362,10 @@ impl Host {
         if self.stopped.is_some() {
             return;
         }
-        let bytes = match pdf_syntax::read_file(&self.path) {
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                self.stop(format!("cannot read {}: {problem}", self.path.display()));
+                self.stop(format!("cannot open {}: {problem}", self.path.display()));
                 return;
             }
         };
@@ -409,7 +410,7 @@ impl Host {
         }
         self.dispatch(&Command::Open {
             id: DOCUMENT,
-            bytes: bytes.into(),
+            bytes,
             // The password is deliberately not kept on this side (`password_answered` says why),
             // so an encrypted document asks for it again — §7.6.4.1's card, exactly as at launch.
             password: None,
@@ -920,7 +921,7 @@ impl Host {
     ///
     /// The [`viewer_core::Secret`] moves from the card into [`Command::Open`] and is dropped
     /// with it — no copy of it stays on this side, and the trace's [`brief`] never prints one.
-    /// The file is read again rather than kept: rule 2 makes the filesystem this side's, and a
+    /// The file is opened again rather than kept: rule 2 makes the filesystem this side's, and a
     /// file that has gone away between the attempts is a fact about this machine, said out loud.
     fn password_answered(&mut self) {
         let typed = self.password.take();
@@ -934,21 +935,22 @@ impl Host {
                 return;
             }
         };
-        let bytes = match pdf_syntax::read_file(&self.path) {
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                eprintln!("note: cannot re-read {}: {problem}", self.path.display());
-                self.heading = format!("{} — cannot re-read the file", self.name());
+                eprintln!("note: cannot reopen {}: {problem}", self.path.display());
+                self.heading = format!("{} — cannot reopen the file", self.name());
                 self.retitle();
                 return;
             }
         };
         // The worker survives an open it could not finish (ADR 0597), so the retry goes to the
-        // same process: the document's bytes cross the pipe once more, which is the cost of the
-        // host keeping no copy — priced in `doc/todo/15` §5 and paid at most `ATTEMPTS` times.
+        // same process: the document's descriptor crosses once more, which since ADR 0812 costs
+        // an `open` and a `sendmsg` rather than the file's whole length down a pipe, however
+        // many of `ATTEMPTS` it is paid.
         self.dispatch(&Command::Open {
             id: DOCUMENT,
-            bytes: bytes.into(),
+            bytes,
             password: Some(secret),
             fragment: None,
         });
@@ -1053,10 +1055,14 @@ impl ApplicationHandler for Host {
         }
         self.confined = Some(confined);
 
-        let bytes = match pdf_syntax::read_file(&self.path) {
+        // Opened rather than read: the file crosses to the worker as its descriptor beside
+        // `Command::Open`, and this side holds no byte of it (ADR 0812). What it costs this window
+        // is the `open` and the metadata's length; what a 6 GB document used to cost it was 6 GB
+        // resident here and a refusal from the worker, whose budget is half its ceiling.
+        let bytes = match pdf_syntax::FileBytes::on_disk(&self.path) {
             Ok(bytes) => bytes,
             Err(problem) => {
-                self.stop(format!("cannot read {}: {problem}", self.path.display()));
+                self.stop(format!("cannot open {}: {problem}", self.path.display()));
                 return;
             }
         };
@@ -1067,7 +1073,7 @@ impl ApplicationHandler for Host {
         });
         self.dispatch(&Command::Open {
             id: DOCUMENT,
-            bytes: bytes.into(),
+            bytes,
             password: None,
             fragment: None,
         });
@@ -1289,7 +1295,7 @@ mod tests {
         assert!(!host.password.shown, "the card came down");
         assert!(host.stopped.is_none(), "the window is still a window");
         assert!(
-            host.heading.contains("cannot re-read"),
+            host.heading.contains("cannot reopen"),
             "the missing file is said, was {:?}",
             host.heading
         );

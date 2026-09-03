@@ -94,7 +94,12 @@ last two kilobytes, each cross-reference section from where the chain names it, 
 its entry, through a window the parser grows until nothing at its end was examined — so what a
 file costs to open is its trailer, its table and page one's objects rather than its length, and a
 six-gigabyte document opens in the time a small one does; a damaged file, which a scan reads whole,
-costs on disk what it cost in memory (ADR 0809). **Page one goes to the graphics device**, decided
+costs on disk what it cost in memory (ADR 0809) — and a scan the process cannot hold the file for
+is refused by name and said once on the document's report. **The confined viewer opens the same
+way**: the file crosses to its worker as an open descriptor beside `Command::Open`, read behind the
+filter through `pread64` and nothing else, so the host holds no byte of it and the six-gigabyte
+document opens through the confinement too (ADR 0812). A signature's `/ByteRange` is digested
+through 64 KiB windows of the file rather than held whole. **Page one goes to the graphics device**, decided
 by the project owner and written into `CLAUDE.md`'s startup rules. GPU bring-up is therefore *on* the critical path by choice, which
 makes what it costs a number to keep rather than a cost to hide. What each step of that timeline
 costs is [`doc/performance.md`](performance.md)'s first section, and the open half is

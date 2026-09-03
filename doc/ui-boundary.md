@@ -260,7 +260,8 @@ host toolkit  ──Command──▶  viewer-core (no threads, no I/O, no clock)
   the six-hundred-and-ninety-fifth session, because this enum derives `Debug` and two hosts trace a
   command by printing one (ADR 0545), and the bytes a `pdf_syntax::FileBytes` since the
   eight-hundred-and-eighty-first, whole in memory or open on disk and read where the file's offsets
-  point (ADR 0809) — `Close`, `Focus`, `Resize { width, height, scale }`,
+  point (ADR 0809) — and across the confinement a file on disk crosses as its open descriptor beside
+  the frame, so the confined host holds no byte of it either (ADR 0812) — `Close`, `Focus`, `Resize { width, height, scale }`,
   `GoTo(PageTarget)`, `Zoom`, `Scroll`, `SetGroup`, **`Activate(ObjectId)`**, `Pointer { at, action }`,
   `Select`, **`Focused(FocusMove)`** (§12.5.1's tab key), `Edit(Edit)` — four of them now, with
   §12.5.6.6's `FreeText` and `SetFreeText` beside `SetField` and `Markup` (ADR 0238) —
@@ -555,7 +556,9 @@ is set in the same Helvetica on a machine with no fonts installed.
    `pdf_syntax::FileBytes` on disk keeps the rule** (ADR 0809): the host chose the path and opened
    it, and the core reads through the handle it was given and never a path of its own — what a
    *path* is to the core is unchanged, and what changed is that the host need not read the whole
-   file to hand it over.
+   file to hand it over. **The confined worker keeps it the same way** (ADR 0812): the descriptor
+   it receives is the host's open file, which the filter lets it read and nothing else — not name,
+   not `stat`, not open another.
 3. **No clock.** §12.4.4's transitions and `/Dur` auto-advance arrive as `Command::Tick { millis }`.
 4. **No threads the core was not handed**, and no blocking.
 5. **No toolkit or graphics type in `viewer-core`'s public API.** Tier 2 (below) lives in a

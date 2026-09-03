@@ -301,6 +301,13 @@ pub(crate) struct Open {
     /// said twice. Host state deliberately: putting it in the page's report would make
     /// `pdf_model::interpret` depend on which pages had been read before it. ADR 0366.
     pub(crate) losses_said: usize,
+    /// Whether the reader's refusal to scan this file has been said.
+    ///
+    /// The same shape as [`Self::losses_said`] for the same reason: a scan is what the reader
+    /// runs when the cross-reference table is disproved by an object it names, and that can
+    /// happen at any page — so `pdf_syntax::Document::scan_refused` becomes `Some` whenever it
+    /// does, and the sentence is said once, when it first is. ADR 0812.
+    pub(crate) scan_refusal_said: bool,
 }
 
 /// One end of a selection: a page, and a byte offset into that page's readback.
@@ -691,6 +698,7 @@ impl Open {
             readbacks: crate::readback::Readbacks::default(),
             fonts: pdf_model::FontCache::new(),
             losses_said: 0,
+            scan_refusal_said: false,
         }
     }
 

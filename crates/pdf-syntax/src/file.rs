@@ -139,14 +139,26 @@ impl FileBytes {
         if metadata.is_dir() {
             return Err(io::Error::from(io::ErrorKind::IsADirectory));
         }
-        let length = usize::try_from(metadata.len()).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::OutOfMemory,
-                NoRoom {
-                    length: metadata.len(),
-                },
-            )
-        })?;
+        Self::from_handle(file, metadata.len())
+    }
+
+    /// Holds a file somebody else opened, at the length they measured it.
+    ///
+    /// The route for a process that holds a descriptor and cannot ask the file system about
+    /// it: the confined viewer's worker receives the document as a descriptor beside
+    /// `Command::Open` (ADR 0812) under a filter that admits `pread64` on it and nothing
+    /// else — not `fstat`, which takes a path and would be a question about the file system —
+    /// so the length crosses with the descriptor, as the host read it when it opened the
+    /// file. Nothing is read here. A length the file does not have reads as [`Self::on_disk`]
+    /// says a file that shrank or grew does: to the shorter of the two.
+    ///
+    /// # Errors
+    ///
+    /// [`NoRoom`] under [`io::ErrorKind::OutOfMemory`] for a length this reader cannot
+    /// address at all.
+    pub fn from_handle(file: File, length: u64) -> io::Result<Self> {
+        let length = usize::try_from(length)
+            .map_err(|_| io::Error::new(io::ErrorKind::OutOfMemory, NoRoom { length }))?;
         Ok(Self(Held::OnDisk(Arc::new(OnDisk {
             file,
             length,
@@ -155,6 +167,22 @@ impl FileBytes {
             #[cfg(not(unix))]
             cursor: Mutex::new(()),
         }))))
+    }
+
+    /// The open file's descriptor, where the file is on disk.
+    ///
+    /// What a host hands across a process boundary in place of the bytes: the confined
+    /// viewer sends it beside `Command::Open` with `SCM_RIGHTS`, and the worker holds the same
+    /// open file through [`Self::from_handle`] (ADR 0812). Borrowed, because the file stays
+    /// this handle's; the kernel duplicates it for the receiver.
+    #[cfg(unix)]
+    #[must_use]
+    pub fn descriptor(&self) -> Option<std::os::fd::BorrowedFd<'_>> {
+        use std::os::fd::AsFd as _;
+        match &self.0 {
+            Held::OnDisk(disk) => Some(disk.file.as_fd()),
+            Held::Owned(_) | Held::Shared(_) => None,
+        }
     }
 
     /// The file's length in bytes.
@@ -472,9 +500,10 @@ pub struct NoRoom {
 /// else is [`std::fs::read`]'s behaviour, including a file that grew between the two calls,
 /// which `read_to_end` follows.
 ///
-/// This is the route for a host that has to *hand the bytes on* — the confined viewer's, whose
-/// worker has no file system and receives the document over a pipe. A host that opens the
-/// document itself uses [`FileBytes::on_disk`] and reads none of the file it does not need.
+/// This is the route for a caller that has to *hold the bytes* — an instrument's whole-file
+/// column, a test comparing the two routes. Every window opens the document itself with
+/// [`FileBytes::on_disk`] and reads none of the file it does not need, the confined viewer
+/// included since ADR 0812: its worker receives the open file's descriptor rather than the bytes.
 ///
 /// # Errors
 ///
@@ -662,6 +691,56 @@ mod tests {
             FileBytes::on_disk(&directory).is_err(),
             "a directory is refused"
         );
+        std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
+    }
+
+    /// A file handed over as an open handle is read to the length the opener stated, and the
+    /// descriptor a host hands on is the file's own.
+    ///
+    /// The shape the confined worker receives a document in (ADR 0812): a `File` it did not
+    /// open and a length it cannot ask the file system for. A stated length shorter than the
+    /// file reads as a file of that length; one longer reads to the file's end, as
+    /// [`FileBytes::on_disk`] says a file that shrank does.
+    #[test]
+    fn a_handed_file_is_read_to_the_length_its_opener_stated() {
+        let directory = scratch("handed");
+        let path = directory.join("handed.pdf");
+        std::fs::write(&path, b"0123456789").expect("a small file");
+
+        let opened = File::open(&path).expect("opens");
+        let exact = FileBytes::from_handle(opened, 10).expect("a handle is held");
+        assert!(exact.is_on_disk());
+        assert_eq!(exact.len(), 10);
+        assert_eq!(
+            exact.read(3..7),
+            FileBytes::from(b"0123456789".to_vec()).read(3..7)
+        );
+
+        let short =
+            FileBytes::from_handle(File::open(&path).expect("opens"), 4).expect("a handle is held");
+        assert_eq!(short.len(), 4);
+        assert_eq!(short.read(0..10).as_ref(), b"0123");
+        assert_eq!(short.whole().expect("small"), b"0123");
+
+        let long = FileBytes::from_handle(File::open(&path).expect("opens"), 16)
+            .expect("a handle is held");
+        assert_eq!(long.len(), 16);
+        assert_eq!(long.read(8..16).as_ref(), b"89");
+        // A length past what a `usize` addresses is refused by name; on the 64-bit targets this
+        // runs on there is no such `u64`, so the refusal is the same arm `hold` is tested through
+        // and is not exercised here.
+
+        #[cfg(unix)]
+        {
+            assert!(
+                exact.descriptor().is_some(),
+                "a file on disk has a descriptor"
+            );
+            assert!(
+                FileBytes::from(b"abc".to_vec()).descriptor().is_none(),
+                "bytes in memory have none"
+            );
+        }
         std::fs::remove_dir_all(&directory).expect("the temporary directory is removable");
     }
 
