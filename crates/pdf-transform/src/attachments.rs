@@ -515,6 +515,23 @@ fn remove(
     let mut entries = entries;
     let (_, value) = entries.remove(position);
 
+    // The same sentence `update::delete_page` says about a page, said about an embedded file,
+    // because it is the same clause and the same surprise. RFC 0003 section 5.3 asks for it
+    // exactly here — "[a]nyone deleting an attachment *to remove its content* needs a rewrite …
+    // this RFC only insists the refusal/behaviour be stated where the user deletes" — and the
+    // nine-hundred-and-ninth session found it said on one of the two verbs only, by writing the
+    // face whose only channel for it is a log line.
+    report.warnings.push(Warning {
+        source: at,
+        page: None,
+        detail: format!(
+            "{name}: §7.5.6 leaves a deleted object's bytes in the file — \"[d]eleted objects \
+             shall be left unchanged in the PDF file, but shall be marked as deleted by means of \
+             their cross-reference entries\" — so this file's content is still in the document, \
+             unreferenced, and removing it needs a rewrite rather than an update"
+        ),
+    });
+
     // The objects this entry alone reached: the specification where the leaf held a
     // reference, and the streams under its `/EF` — unless another home still reaches one.
     let mut freed: Vec<ObjectId> = match filing::freed_by_removing(document, &value) {

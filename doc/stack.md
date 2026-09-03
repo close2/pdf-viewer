@@ -18,6 +18,7 @@ is `doc/PLAN.md` §1; `doc/crate-map.md` says which crate each choice lives in.
 | Parallelism | `rayon` |
 | Deflate | `flate2` with `zlib-rs` backend (pure Rust, ~C speed) |
 | Spec model | Arlington PDF Model → generated validation layer |
+| FUSE | `fuser`, pinned `=0.18.0`, default features — its pure-Rust `/dev/fuse` path, no libfuse and no C linkage (ADR 0861) |
 
 **Not used:** `rustybuzz`. PDF content streams carry already-positioned glyphs; shaping
 them again would move glyphs away from where the document specifies. It may return later,

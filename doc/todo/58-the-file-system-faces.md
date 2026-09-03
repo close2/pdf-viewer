@@ -1,20 +1,22 @@
 # 58 — The file-system faces: what RFC 0003 owes after its core
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
-Priority: 50-band — the core landed in session 899, the confined worker in 902 and the write side
-in 906, so what is left is a **face**: a toolchain, a decision the owner has not been asked, or a
-measurement nobody has taken.
+Priority: 50-band — the core landed in session 899, the confined worker in 902, the write side in
+906 and the FUSE face in 909, so what is left is the **second** face, a decision the owner has not
+been asked, and a measurement nobody has taken — starting with a mount, which no gate may make.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
 `doc/PDF-Declarations.pdf` (two §7.11.4 embedded files whose names hold a COLON, so it is the
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
 and 63 of 72, and none on page 1); `doc/PDF20_AN002-AF.pdf` (a different document of a different
 length, which is what the consistency tests need).
-Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`), §7.5.6, §7.7.3.2,
+Clauses: §7.5.5 (the generation key's third component, and Table 15's `/Info`), §7.5.6, §7.6.3.1,
+§7.7.2, §7.7.3.2,
 §7.7.3.3, §7.7.3.4, §7.9.4, §7.11.4, §8.9.5, §12.3.3, §12.4.2, §12.5.6.15, §12.7.4.2, §14.3.2,
 §14.3.3, §14.3.4, §14.7.5.4, §14.8.2.5.1.
-Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/confined.rs` and
-`examples/vfs_cost.rs`, `crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
-ADRs 0840, 0841, 0846, 0847, 0854, 0855.
+Code: `crates/pdf-vfs/`, its `tests/a_face.rs`, `tests/a_write.rs`, `tests/write_corpus.rs`,
+`tests/confined.rs` and `examples/vfs_cost.rs`, `crates/pdf-fuse/` and its `tests/a_face.rs`,
+`crates/confined-transport/`, `crates/pdf-transform/src/update.rs`;
+ADRs 0840, 0841, 0846, 0847, 0854, 0855, 0860, 0861.
 
 ## What is done
 
@@ -62,6 +64,23 @@ than looking like somebody else's edit, and a write staged against a generation 
 a staged write is visible in the tree and absent from the document, and every refusal has an
 `errno` the core names. ADRs 0854 and 0855.
 
+Session 909, RFC 0003's fourth landing: **the write side's corpus walk, and the FUSE face.**
+`crates/pdf-vfs/tests/write_corpus.rs` drives all five verbs over every corpus document the core
+opens, on a fresh backing per verb, and holds §7.5.6's prefix property read off the file, the
+document re-opening at the page count the edit stated, the renumbered listing, §14.7.5.4's carried
+key, and every surviving page's raster against the page it was — a comparison *between different
+ordinals*, which is what makes it a check of "an ordinal is a position". It found three defects
+(ADR 0860): a node with no `/Count` counted as zero, so an insertion under it left a two-page
+document reading as one; two documents whose catalog does not reach the tree being spliced, where
+an insertion "before page 1" came back after it and a second one changed nothing at all; and
+§7.5.6's "a deletion does not destroy bytes" said on the page verb and not the attachment one. All
+three are fixed. Sixteen documents write two different files for one plan and that is §7.6.3.1's
+requirement rather than a defect — a fresh random initialisation vector in front of every AES
+string — so what binds there is the length. And `crates/pdf-fuse` is the first *face*: `pdffs
+<file.pdf> <mountpoint>` on `fuser`'s pure-Rust path, pinned `=0.18.0`, four new locked packages,
+no C linkage, no layout knowledge, an inode per name, every refusal logged as a sentence as well
+as returned as a number, and RFC section 5.4's invalidation on a thread of its own (ADR 0861).
+
 ## 1. The departure the owner should overrule or ratify
 
 **`images/` is a directory per page** — `images/0035/01.png` — where RFC §4 draws it flat as
@@ -90,13 +109,20 @@ item still owes on the write side is three things, none of them blocking a face:
 
 ## 3. The two faces, in the RFC's own order
 
-- **The FUSE face** (`pdffs <file.pdf> <mountpoint>`), on `fuser`'s pure-Rust `/dev/fuse` path —
-  no C linkage. `doc/stack.md`'s rules decide the dependency, and RFC §7 notes that fuser's 0.17
-  typed-API rework is recent and wants pinning and vendor-watching. What the face owes beyond the
-  core: the inode table, the `notify_inval_entry`/`notify_inval_inode` invalidation **from a
-  separate task** (issuing them synchronously from a request handler can deadlock against the
-  kernel — a documented libfuse hazard), and logging each refusal's sentence, because FUSE returns
-  `EPERM` with no message channel.
+- **The FUSE face — done in session 909** (ADR 0861), and what is left of it is one thing:
+  **nothing has ever mounted it.** `crates/pdf-fuse/tests/a_face.rs` drives the face the way a
+  kernel drives it and holds everything between the kernel's verb and the core's answer, and a
+  *mount* is deliberately not in any gate — `fuser`'s pure-Rust path asks the kernel for
+  `/dev/fuse` and runs `fusermount3`, so a gate that mounted would be measuring the machine's
+  kernel configuration, its `fuse` group and `/etc/fuse.conf` rather than this tree (the same
+  argument `viewer-ffi`'s C-compiler gate makes for skipping). **What is owed is a mount by hand,
+  written up**: `pdffs doc.pdf mnt/`, then `ls`, `cp`, `grep -r`, `cp` a PDF into `pages/`, `rm`
+  one, and `fusermount3 -u`. Until somebody has done that, the wire format between
+  `fuser`'s reply objects and a real kernel is the one part of this face nothing has exercised.
+  Three smaller things the face decided by default and a mount would question: whether `readdir`'s
+  offsets survive a directory larger than one reply buffer, whether a zero attribute timeout is
+  too expensive for a file manager that stats a thousand names, and what `--allow-other` needs
+  from `/etc/fuse.conf` on this machine.
 - **The KIO face** — a C++ `MODULE` plugin subclassing `KIO::WorkerBase` over a C ABI into this
   core, the `viewer-ffi` precedent. Toolchain risk moderate: CMake, Qt 6 and KF6 enter the build
   of that one component, which lives outside the cargo workspace.
@@ -141,13 +167,20 @@ Three things this item still owes, none of them blocking a face:
   the cache, and a read puts the whole run's outputs there at once so that `cp -r` of one page's
   images costs one extraction. Caching the listing itself is a second kind of entry the cache does
   not have.
-- **The write side has no corpus walk.** Every read generator is measured against every corpus
-  document by nothing, and so is every write: `tests/a_write.rs` drives all five verbs over four
-  committed documents and one corpus document, and the transform suite's own walks do not touch
-  `Plan::Update` at all. The shape that would answer it is RFC 0002 section 9's — a walk that
-  inserts, deletes, attaches and sets over every corpus document, re-reads the result and holds
-  §7.5.6's prefix property and the page count to what the edit said. That is the next round of
-  this stream's strongest candidate, and it is what `doc/todo/02` §2 would gain a line for.
+- **The write side has a corpus walk — done in session 909** (ADR 0860), and `doc/todo/02` §2
+  gained its two lines. What is *still* unmeasured is the **read** side: every read generator —
+  `renders/`, `images/`, `text/`, `meta/` — is measured against every corpus document by nothing,
+  and `tests/a_face.rs` is four committed documents. The walk that would answer it is the same
+  shape and would cost more, because `images/` and `renders/` are where the expensive generators
+  are.
+- **`Plan::Update`'s output is read by nobody else.** `pdf-transform`'s `foreign_corpus` puts the
+  other five writers' output through `qpdf --check`, `pdftoppm` and `mutool draw`; the in-place
+  update is not in that walk, so the only reader that has ever judged it is this one. RFC 0002
+  section 9's fourth layer is exactly the instrument for it and the walk exists to be extended.
+- **The deletion verb is measured on a tenth of the corpus.** 883 of the 974 documents have one
+  page, and `update` refuses to delete a document's last one; the walk counts the refusal by name
+  and the number is in its own output. A population with more multi-page documents — the SafeDocs
+  crawl, `format-corpus` — would be a stronger denominator for that one verb.
 - **There is still no gate, and there are now numbers.** `crates/pdf-vfs/examples/vfs_cost.rs`
   prints, per document: a worker per generation in each transport, one question of each shape in
   each transport, the largest answer and the bound past which the confinement refuses one, and a

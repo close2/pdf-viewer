@@ -196,6 +196,15 @@ const TRAPPED: [&str; 3] = ["True", "False", "Unknown"];
 /// bound exists because `/Parent` is a reference a hostile file can make into a cycle.
 const MAX_ANCESTRY: usize = 64;
 
+/// How many page-tree nodes [`leaves_under`] visits before it stops counting.
+///
+/// `pdf_model`'s own `MAX_NODES_VISITED`, restated rather than shared because it is private
+/// there — and restated *because* the two have to agree: this is what a `/Count` this writer
+/// computes is compared against by the reader that will disbelieve the entry. A tree past it
+/// yields an undercount, which is the safe direction: a `/Count` a reader disbelieves is
+/// re-counted, and a `/Count` it believes over more pages than exist is not.
+const MAX_NODES_VISITED: usize = 1 << 20;
+
 /// How deep a carried value is rewritten before its tail is dropped.
 ///
 /// The parser's own `max_depth` is 256, so nothing it admitted is deeper — `merge.rs`'s
@@ -366,12 +375,111 @@ fn node_with(document: &Document, node: ObjectId, kids: Vec<Object>, count: i64)
 }
 
 /// §7.7.3.2's `/Count` as the document states it for a node, or the leaves under it counted.
+///
+/// **The second half of that sentence used to be a claim the body did not make**, and the
+/// nine-hundred-and-ninth session's write-side corpus walk is what found it: the entry was read
+/// and `unwrap_or_default()`ed, so a node that states no `/Count` counted as **zero** and an
+/// insertion under it wrote `/Count 1` over a node that now held two pages. Table 30 makes the
+/// entry required —
+///
+/// > ( Required ) The number of leaf nodes (page objects) that are descendants of this node
+/// > within the page tree.
+///
+/// — so a node without one is malformed, and what a malformed node's descendants are is a
+/// question the *tree* answers rather than the missing entry. `poppler-91414-0-53.pdf` and
+/// `-54.pdf` are the witnesses: one node, no `/Count`, one kid, and an insertion that left a
+/// two-page document reading as one page (trap 28 — the comment above a fallback is a claim
+/// about the code, and this one had outlived it).
 fn count_of(document: &Document, node: ObjectId) -> i64 {
-    document
+    if let Some(stated) = document
         .get_key_of(node, "Count")
         .map(|count| document.resolve(&count))
         .and_then(|count| count.as_integer())
-        .unwrap_or_default()
+    {
+        return stated;
+    }
+    let mut visited = 0_usize;
+    leaves_under(document, node, &mut visited, 0)
+}
+
+/// The page objects below a node, counted by walking §7.7.3.2's `/Kids`.
+///
+/// **Read exactly as `pdf_model::count_leaves` reads it**, bounds included, and that agreement is
+/// the point: the
+/// number written into `/Count` here is the number the reader on the other side of the file will
+/// count if it disbelieves the entry, so a second reading of the same tree would be a second
+/// answer. A `/Kids` that is not an array is a leaf unless the node's own `/Type` says `Pages`,
+/// because "trusting `/Type` in that direction would drop pages from files that leave it out"
+/// and Table 30 makes a declared node's missing `/Kids` an absence of children rather than a
+/// page.
+///
+/// Bounded the reader's own two ways — a depth and a node budget — rather than by a visited
+/// *set*, and the difference matters twice. A set would make this disagree with the reader on a
+/// malformed tree that reaches one node by two paths, which is the one thing this function may
+/// not do; and it is an allocation a hostile file chooses the size of, which principle 3 does
+/// not permit. `/Kids` holds references a file states and a file can state a cycle, so the depth
+/// is what stops one.
+fn leaves_under(document: &Document, node: ObjectId, visited: &mut usize, depth: usize) -> i64 {
+    if depth > MAX_ANCESTRY || *visited > MAX_NODES_VISITED {
+        return 0;
+    }
+    let Some(dict) = document.get(node).as_dict().cloned() else {
+        return 0;
+    };
+    *visited = visited.saturating_add(1);
+    let Some(kids) = document
+        .get_key(&dict, "Kids")
+        .as_array()
+        .map(<[Object]>::to_vec)
+    else {
+        let declares_a_node = document
+            .get_key(&dict, "Type")
+            .as_name()
+            .is_some_and(|name| name.as_bytes() == b"Pages");
+        return i64::from(!declares_a_node);
+    };
+    kids.iter()
+        .filter_map(Object::as_reference)
+        .map(|kid| leaves_under(document, kid, visited, depth.saturating_add(1)))
+        .fold(0_i64, i64::saturating_add)
+}
+
+/// Refuses where the page an edit is about is not one the catalog's own tree reaches.
+///
+/// ISO 32000-2 §7.7.2's Table 29 makes the catalog's entry the tree a reader enters by:
+///
+/// > ( Required; shall be an indirect reference ) The page tree node that shall be the root of
+/// > the document's page tree (see 7.7.3, "Page tree").
+///
+/// So a page whose `/Parent` chain does not pass through that object is a page the catalog does
+/// not reach, and an update that edits its chain writes a perfectly correct `/Kids` into a tree
+/// nobody enters. `pdf_model::Pages` reads such a file by scanning §7.7.3.2's own declarations
+/// instead — a recovery that has no *positions* in it, only object numbers — so an insertion
+/// "before page 1" lands after page 1, which is what `issue9418.pdf` did, and a splice into an
+/// orphan node changes nothing at all, which is what `issue21436.pdf` did. Both were found by
+/// the nine-hundred-and-ninth session's write-side corpus walk, and both are trap 5: an input
+/// this verb cannot honestly serve is refused by name rather than served wrongly.
+fn the_catalog_reaches(
+    catalog: &Dictionary,
+    chain: &[ObjectId],
+    page: usize,
+) -> Result<(), Refusal> {
+    let Some(root) = catalog.get("Pages").and_then(Object::as_reference) else {
+        return Err(Refusal::Assembly(format!(
+            "this document's catalog states no /Pages, and §7.7.2 makes it \"( Required; shall \
+             be an indirect reference ) The page tree node that shall be the root of the \
+             document's page tree\"; page {page} was found by scanning the file's own /Type \
+             /Page declarations, and a scan has no positions for an update to insert at"
+        )));
+    };
+    if chain.contains(&root) {
+        return Ok(());
+    }
+    Err(Refusal::Assembly(format!(
+        "page {page} is not under object {}, which is the page tree root this document's catalog \
+         states, so editing its /Parent chain would change a tree no reader enters",
+        root.number
+    )))
 }
 
 /// One page taken out of §7.7.3.2's tree, as §7.5.6's update.
@@ -398,6 +506,7 @@ fn delete_page(
              indirect reference )\", so this update cannot say which node to take it out of"
         )));
     }
+    the_catalog_reaches(&catalog, &chain, page)?;
 
     let tree_root = catalog.get("Pages").and_then(Object::as_reference);
 
@@ -605,6 +714,7 @@ fn insert_pages(
              indirect reference )\", so this update cannot say which node to put the pages in"
         )));
     };
+    the_catalog_reaches(&catalog, &chain, neighbour)?;
 
     let ids = carried_ids(incoming, &there, from, carried_count)?;
 

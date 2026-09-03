@@ -625,7 +625,17 @@ fn a_file_removed_is_gone_from_the_tree_and_its_objects_are_marked_free_in_place
             &Policy::default(),
             &Budget::default(),
         )?;
-        assert_eq!(report.exit(false, false), Exit::Success, "{report:?}");
+        // `Warnings` rather than `Success`, and the warning is the point: RFC 0003 section 5.3
+        // asks that §7.5.6's own consequence be said where a person deletes, and a removal
+        // leaves the file's bytes in the document, unreferenced.
+        assert_eq!(report.exit(false, false), Exit::Warnings, "{report:?}");
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.detail.contains("§7.5.6")),
+            "{report:?}"
+        );
         Ok(sinks.into_outputs().remove(0).1)
     };
     let removed = remove(&twice, "a.txt").expect("removed");
@@ -877,7 +887,8 @@ fn a_names_dictionary_that_is_indirect_is_the_object_rewritten_and_the_catalog_i
             &Budget::default(),
         )
         .expect("removed");
-        assert_eq!(report.exit(false, false), Exit::Success, "{report:?}");
+        // As above: a removal says what §7.5.6 leaves behind.
+        assert_eq!(report.exit(false, false), Exit::Warnings, "{report:?}");
         sinks.into_outputs().remove(0).1
     };
     let one_left = remove(&updated, "new.txt");

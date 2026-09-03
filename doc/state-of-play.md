@@ -390,13 +390,28 @@ abandoning one leaves the file byte for byte as it was; the commit is a temporar
 `rename(2)`d over the original, with the broker checking §7.5.6's own prefix property against the
 disk before it writes a byte; a write staged against a generation somebody else has replaced is
 `ESTALE` rather than a clobber; and the generation our own commit produces says it is *ours*
-rather than looking like somebody editing the file underneath the mount (ADR 0855). There is no
-face yet — no FUSE binary, no KIO plugin — but **there is a confined worker**, which is what a face was waiting for (ADRs 0840, 0841,
+rather than looking like somebody editing the file underneath the mount (ADR 0855). **All five of
+those verbs are walked over the corpus** since the nine-hundred-and-ninth (ADR 0860): every
+document the core opens is edited five ways, each on its own backing, and each commit is held to
+§7.5.6's prefix property read off the file, to the document re-opening at the page count the edit
+stated, to the renumbered listing, and to *every surviving page drawing bit-identically to the
+page it was* — which, because an insertion moves every ordinal down and a deletion moves every
+ordinal up, is a check of "an ordinal is a position" as well as of the writer. It found three
+things nothing else could: a page-tree node with no `/Count` counted as zero, so an insertion left
+a two-page document reading as one; two documents whose catalog does not reach the tree the edit
+was splicing into, where an insertion "before page 1" came back after it; and §7.5.6's own "a
+deletion does not destroy bytes" said where a page is deleted and not where an embedded file is.
+**And there is a face**: `pdffs <file.pdf> <mountpoint>` mounts a document as a directory on
+`fuser`'s pure-Rust path, with no C linkage, no layout knowledge of its own, an inode per *name*
+because an ordinal is a position, every refusal logged as a sentence as well as returned as a
+number, and RFC 0003 section 5.4's invalidation on a thread of its own (ADR 0861). The KIO plugin
+is still unwritten. And **there is a confined worker** under all of it (ADRs 0840, 0841,
 0846, 0847): `pdf-vfs-worker` confines itself before it reads a byte, takes the document as the
 descriptor a broker sends it, and answers the same questions with the same answers as the
 in-process one — question by question, both ways, asserted. It needs no system call the viewer's
 worker does not, measured under `strace` rather than assumed, and six probes say it is *killed* for
-asking the filesystem anything. The wire under both workers is one crate, `confined-transport`. **What a document asserts over its reader is read once, in
+asking the filesystem anything. The wire under the two *confined* workers — `pdf-view-worker` and `pdf-vfs-worker`, which is not
+all three of this tree's workers — is one crate, `confined-transport`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
 (one as consumed by nothing, saying why), the six operations — a field filled, an
 annotation added, a page rendered, a file extracted, a file written in, a document assembled out
