@@ -3,9 +3,23 @@
 //! Every other walk in this crate checks the suite's output with this tree's own parser and this
 //! tree's own rasteriser. That answers "did we write what we meant to" and cannot answer "did we
 //! write what the format says", because a misreading on the way out and the matching misreading
-//! on the way back in agree with each other. Four writers exist — `attachments --attach`,
-//! `split`, `merge` and `pages` — and until this walk none of their output had been shown to
-//! anybody else.
+//! on the way back in agree with each other. Five writers exist — `attachments --attach`,
+//! `split`, `merge`, `pages` and `optimize` — and until this walk none of their output had been
+//! shown to anybody else.
+//!
+//! # `optimize` is the one this walk was most owed
+//!
+//! The other four carry a producer's objects into a new file with their numbering, their filters
+//! and their object-stream membership mostly as they were. `optimize` is the verb whose whole
+//! *point* is that the bytes are different: every object is renumbered, §7.5.7 packs what it
+//! permits into object streams, §7.5.8's cross-reference stream replaces the table, and §7.4's
+//! encoding of every stream may be rewritten. So it is the output with the most to get wrong in
+//! a way this tree's own reader would agree with — session 900's own walk found a recompressed
+//! image whose `/DecodeParms` had been rebuilt in the *source's* numbering while every raster
+//! stayed bit-identical — and it is the first thing this project writes that an older reader may
+//! decline outright, because §7.5.7 and §7.5.8 are 1.5 constructs. A reader that cannot read an
+//! object stream at all is that reader's limitation and is reported as one; a reader that reads
+//! them and draws a different page is ours.
 //!
 //! # The comparison is foreign-to-foreign, and that is the whole design
 //!
@@ -78,9 +92,11 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use pdf_render::Raster;
+use pdf_syntax::serialize::{ObjectStreams, Streams};
 use pdf_syntax::{Document, Limits, SyntaxError};
 use pdf_transform::attachments::{Action, AttachmentsPlan, Payload};
 use pdf_transform::merge::{Input, MergePlan};
+use pdf_transform::optimize::OptimizePlan;
 use pdf_transform::pages::{Edit, PagesPlan};
 use pdf_transform::range::Selection;
 use pdf_transform::split::{Pieces, SplitPlan};
@@ -99,9 +115,12 @@ const DPI: u32 = 48;
 
 /// One in this many corpus documents joins the rendering lane.
 ///
-/// A bound on the wall clock rather than a statement about the corpus: a document costs up to
-/// fourteen foreign process invocations, and the walk is meant to be run on every round that
-/// touches a writer.
+/// A bound on the wall clock rather than a statement about the corpus, and the arithmetic is
+/// worth stating rather than a round number: the source costs four foreign invocations
+/// (`pdftoppm`, `mutool draw`, `qpdf --check`, `pdfinfo`) and each writer three, before the two
+/// `mutool show` calls a tagged document adds on each side — so an untagged multi-page document
+/// is nineteen processes across the five writers, and the whole corpus would be a walk nobody
+/// runs. The walk is meant to be run on every round that touches a writer.
 const STRIDE: usize = 8;
 
 /// How long any one foreign program is given before it is killed.
@@ -117,7 +136,7 @@ const PAYLOAD: &[u8] = b"pdf-transform foreign readback witness 898\n";
 const NAME: &str = "pdf-transform-witness-898.txt";
 
 /// The verbs, in the order the census prints them.
-const VERBS: [&str; 4] = ["attach", "split", "merge", "pages"];
+const VERBS: [&str; 5] = ["attach", "split", "merge", "pages", "optimize"];
 
 /// The foreign renderers, and what each is called in the census.
 const READERS: [Reference; 2] = [Reference::Poppler, Reference::MuPdf];
@@ -182,6 +201,8 @@ struct Lane {
     qpdf_held: usize,
     /// It accepted the source and reported errors in what we wrote.
     qpdf_lost: Vec<(String, String)>,
+    /// It accepted the source with nothing to say and has warnings about what we wrote.
+    qpdf_warned: Vec<(String, String)>,
     /// Per reader: the derived page and the source page drew bit-identically.
     identical: [usize; READERS.len()],
     /// A reader drew both and they differ.
@@ -299,11 +320,12 @@ fn first_output(plan: &Plan, sources: &[Source], sinks: MemorySinks) -> Result<V
     Ok(outputs.remove(0).1)
 }
 
-/// The four derived files, each of which states the source's page 1 as **its own** page 1.
+/// The five derived files, each of which states the source's page 1 as **its own** page 1.
 ///
-/// That is what makes one comparison serve all four: `attach` writes §7.5.6's update over the
-/// whole document, `split` takes page 1 out, `merge` puts page 1 first, and `pages` takes the
-/// *last* page out. A one-page document has no page for `pages` to remove and leaves that lane.
+/// That is what makes one comparison serve all five: `attach` writes §7.5.6's update over the
+/// whole document, `split` takes page 1 out, `merge` puts page 1 first, `pages` takes the *last*
+/// page out, and `optimize` rewrites the whole document with its page order untouched. A
+/// one-page document has no page for `pages` to remove and leaves that lane.
 fn derive(
     bytes: &[u8],
     second: &[u8],
@@ -352,6 +374,20 @@ fn derive(
         &[Source::new(bytes.to_vec()), Source::new(second.to_vec())],
         MemorySinks::new(),
     );
+    // The shipped defaults rather than a configuration of this walk's own: what is being shown
+    // to another reader is what `pdf-transform optimize` writes for a person, object streams and
+    // recompression included, because those are the two passes an older reader may decline.
+    let optimized = first_output(
+        &Plan::Optimize(OptimizePlan {
+            source: 0,
+            names: "out.pdf".parse().expect("a pattern"),
+            prune: true,
+            object_streams: ObjectStreams::DEFAULT,
+            streams: Streams::DEFAULT,
+        }),
+        &[Source::new(bytes.to_vec())],
+        MemorySinks::new(),
+    );
     let mut out = vec![("attach", attach), ("split", split), ("merge", merged)];
     if pages >= 2 {
         out.push((
@@ -369,6 +405,7 @@ fn derive(
             ),
         ));
     }
+    out.push(("optimize", optimized));
     out
 }
 
@@ -687,7 +724,14 @@ fn examine(path: &Path, second: &[u8], base: &Path, tally: &Mutex<Tally>) {
         }
         lane(tally, verb, |l| l.written = l.written.saturating_add(1));
 
-        // Structural soundness, as a change of verdict rather than as a verdict.
+        // Structural soundness, as a change of verdict rather than as a verdict. qpdf answers 0
+        // for a sound file, 3 where it has warnings and 2 where it found errors, so a *fall* is
+        // either of the two steps and both are asked for separately: a file it had nothing to
+        // say about becoming one it complains about is a smaller signal than an error, and it is
+        // the signal `optimize` is most likely to produce, because that verb rewrites every
+        // object's number, packs what §7.5.7 permits into object streams and re-encodes streams
+        // — three things a reader can dislike without failing on. Collapsing the two into "no
+        // worse" would have made the smaller one unsayable (trap 11).
         if let (Some(source_code), Some(code)) = (source_qpdf, qpdf_code(&derived_path)) {
             if code == 2 && source_code != 2 {
                 lane(tally, verb, |l| {
@@ -696,6 +740,14 @@ fn examine(path: &Path, second: &[u8], base: &Path, tally: &Mutex<Tally>) {
                         format!(
                             "qpdf --check answered {source_code} for the source and {code} here"
                         ),
+                    ));
+                });
+            } else if code == 3 && source_code == 0 {
+                lane(tally, verb, |l| {
+                    l.qpdf_warned.push((
+                        name.clone(),
+                        "qpdf --check had nothing to say about the source and warns about this                          file"
+                            .to_owned(),
                     ));
                 });
             } else {
@@ -872,6 +924,7 @@ fn census(tally: &Tally, documents: usize, elapsed: Duration) {
         );
         print_list(&format!("{verb}: refused by name"), &lane.refused);
         print_list(&format!("{verb}: qpdf lost a sound file"), &lane.qpdf_lost);
+        print_list(&format!("{verb}: qpdf gained a warning"), &lane.qpdf_warned);
         print_list(
             &format!("{verb}: a reader could not draw ours"),
             &lane.unreadable,
@@ -925,6 +978,10 @@ fn verdict(tally: &Tally) {
         assert!(
             lane.qpdf_lost.is_empty(),
             "{verb}: qpdf --check accepted the source and reports errors in what we wrote"
+        );
+        assert!(
+            lane.qpdf_warned.is_empty(),
+            "{verb}: qpdf --check had nothing to say about the source and warns about what we              wrote"
         );
         assert!(
             lane.unreadable.is_empty(),
