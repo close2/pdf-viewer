@@ -174,6 +174,21 @@ here:
   failure is a thing to re-run alone before it is a thing to diagnose — and `ps` rather than
   `pgrep -af '…corpus…'` is what finds the neighbour, because a build is not a walk and the
   memory rule's own grep does not name it.
+
+  **The nine-hundred-and-sixth session is the third witness and the largest swing recorded**:
+  `pdf-transform`'s gate carries RFC 0002 section 12's floor of 40 pages a second and reported
+  **33.3** while a neighbouring round ran a `render_at` sweep at 120 % of a core with a
+  fifteen-minute load average of 19.69. The same tree, quiet, reported **198.3** — five times the
+  floor, six times the failing figure. Two things follow, and the second is the one that is new.
+  **The predicate a round waits on has to match the gate's kind**: the memory rule's "one corpus
+  walk at a time" is about *memory*, so waiting on other rounds' gate binaries is right for a
+  walk and blind to a sweep or a build, which are what a *clock* competes with. And **a poller
+  that reads command lines can match itself** — `ps -eo args=` prints the polling `grep`'s own
+  arguments, which contain the very path pattern being searched for, so the predicate never goes
+  empty and the wait never ends. `readlink /proc/PID/exe` is what a process *is* rather than what
+  it was asked to be, and no pattern of the poller's can appear in it. Round 899's deadlock was
+  the same mistake in its other direction, and both are the reason a wait predicate is worth as
+  much care as the gate it guards.
 - **One of these commands runs a C compiler**, and it is the only gate in this sequence that does.
   `viewer-ffi::a_c_program_drives_the_abi` builds `crates/viewer-ffi/c/open_a_page.c` against the
   crate's own header with `-Wall -Wextra -Werror`, links it against the `cdylib` — which it asks

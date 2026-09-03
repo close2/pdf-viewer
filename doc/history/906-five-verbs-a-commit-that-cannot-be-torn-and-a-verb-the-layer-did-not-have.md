@@ -3,8 +3,9 @@
 2026-09-03. Argued in [ADR 0854](../adr/0854-a-page-tree-edited-in-place-and-a-commit-that-cannot-be-observed-half-done.md)
 and [ADR 0855](../adr/0855-a-write-in-flight-is-in-the-tree-and-not-in-the-document-and-ask-has-nobody-to-ask.md).
 The **third** implementation round of [RFC 0003](../rfc/0003-file-system-faces.md), on round 902's
-branch because it continues that landing; `main` moved under round 905's `optimize` walk while
-this round ran and was merged in before the sequence was run whole a second time.
+branch because it continues that landing; `main` moved **twice** under this round — round 905's
+`optimize` walk and then round 904's soft masks — and each was merged in and the sequence run
+whole again after it.
 
 `doc/todo/58` §2 was the whole scope: RFC §5.2's five write verbs, "[e]ach row of `LAYOUT` already
 states what it means, so what is owed is the transform call and the transactional shape, not a
@@ -85,14 +86,32 @@ are in that list now.
 
 The change→gate map's core, plus everything `pdf-transform` is under: the transform gate and its
 six corpus walks, one walk at a time on the machine, the poller matching the gate **binaries**
-under a build directory rather than the test names (round 899's lesson). Run whole, and then
-**run whole a second time** after `main` moved under round 905 and was merged in here, because a
-merge runs everything; the second run is the one that counts. The results are in the round's
-report and not here.
+under a build directory rather than the test names (round 899's lesson). Run whole **three
+times**: once on the round's own tree, once after round 905's `optimize` walk was merged in, and
+once after round 904's soft masks. A merge runs everything, so the last run is the one that
+counts. The results are in the round's report and not here.
 
-One thing worth carrying out of the running rather than out of the work: the merge of `main` did
-not conflict in any Rust file and still broke the build twice, both times in a test that neither
-branch had touched. Round 902 gave `RenderPlan` a `strips` field and round 905 wrote two new
+**The one gate that failed was a clock, and it was measuring the machine.**
+`pdf-transform`'s gate carries RFC 0002 section 12's floor of 40 pages a second and reported 33.3
+in the third run, while round 907 was running a `render_at` sweep at 120 % of a core and the
+fifteen-minute load average stood at 19.69. Quiet, the same tree reports **198.3** — five times
+the floor. Nothing this round touches is on that path; round 904's soft masks, merged in just
+before, are not on it either, because the two hundred pages of the standard the gate draws place
+no soft mask.
+
+Two lessons, and the second is the one that is new. **The predicate a round waits on has to match
+the gate's kind**: this round's poller waited for other rounds' gate *binaries*, which is exactly
+right for the memory rule — one corpus walk at a time — and blind to a sweep or a build, which
+are what a clock competes with. And **a poller that reads command lines can match itself**: the
+replacement matched `ps -eo args=`, whose output includes the polling `grep`'s own arguments,
+which contain the very path pattern being searched for, so the predicate could never go empty.
+`readlink /proc/PID/exe` is what a process *is* rather than what it was asked to be. Round 899's
+deadlock was the same mistake pointing the other way, and `doc/todo/02` section 2 now carries both
+beside the two earlier witnesses.
+
+One thing worth carrying out of the running rather than out of the work: the first merge of `main`
+did not conflict in any Rust file and still broke the build twice, both times in a test that
+neither branch had touched. Round 902 gave `RenderPlan` a `strips` field and round 905 wrote two new
 suites that construct one; each side compiled, and only the merged tree has a `RenderPlan`
 literal missing a field. A clean three-way merge is not a compiling tree, and the sequence's
 first line is what says so.
