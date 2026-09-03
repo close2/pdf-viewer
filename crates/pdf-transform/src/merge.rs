@@ -223,7 +223,7 @@ use std::sync::Arc;
 use pdf_model::Pages;
 use pdf_model::page_label::PageLabels;
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId, Stream};
-use pdf_syntax::serialize::{Assembly, Form, serialize};
+use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
 use pdf_syntax::{Document, Version};
 
 use crate::pattern::{Fill, Pattern};
@@ -927,7 +927,7 @@ pub(crate) fn write(
         name: expanded.name.clone(),
         error,
     })?;
-    let written = serialize(&assembly, version, form, &mut writer)
+    let written = serialize(&assembly, version, Options::new(form), &mut writer)
         .map_err(|error| Refusal::Assembly(format!("{}: {error}", expanded.name)))?;
     writer.flush().map_err(|error| Refusal::Sink {
         name: expanded.name.clone(),

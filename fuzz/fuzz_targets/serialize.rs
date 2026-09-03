@@ -23,7 +23,7 @@
 )]
 
 use libfuzzer_sys::fuzz_target;
-use pdf_syntax::serialize::{Assembly, Form, serialize};
+use pdf_syntax::serialize::{Assembly, Form, Options, serialize};
 use pdf_syntax::{Document, Limits, Object, ObjectId, Version};
 
 /// How many objects one input may carry into the assembly.
@@ -66,8 +66,12 @@ fuzz_target!(|data: &[u8]| {
 
     for form in [Form::Table, Form::Stream] {
         let mut bytes = Vec::new();
-        let Ok(written) = serialize(&assembly, Version { major: 1, minor: 7 }, form, &mut bytes)
-        else {
+        let Ok(written) = serialize(
+            &assembly,
+            Version { major: 1, minor: 7 },
+            Options::new(form),
+            &mut bytes,
+        ) else {
             continue;
         };
         // The count the writer reports is a count of the bytes it wrote, and a caller that

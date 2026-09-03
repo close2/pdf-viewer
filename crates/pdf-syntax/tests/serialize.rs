@@ -25,7 +25,9 @@
 use std::fmt::Write as _;
 
 use pdf_syntax::object::{Dictionary, Name, Object, ObjectId};
-use pdf_syntax::serialize::{Assembly, AssemblyError, Form, SerializeError, serialize};
+use pdf_syntax::serialize::{
+    Assembly, AssemblyError, Form, ObjectStreams, Options, SerializeError, Streams, serialize,
+};
 use pdf_syntax::{Document, Limits, Version};
 
 /// Assembles a file out of object bodies, with a §7.5.4 classic cross-reference table.
@@ -90,8 +92,13 @@ fn copy_whole(assembly: &mut Assembly<'_>, document: &Document, highest: u32) {
 /// Writes an assembly, failing loudly.
 fn write_out(assembly: &Assembly<'_>, form: Form) -> (Vec<u8>, pdf_syntax::Written) {
     let mut bytes = Vec::new();
-    let written = serialize(assembly, Version { major: 1, minor: 7 }, form, &mut bytes)
-        .expect("the assembly writes");
+    let written = serialize(
+        assembly,
+        Version { major: 1, minor: 7 },
+        Options::new(form),
+        &mut bytes,
+    )
+    .expect("the assembly writes");
     (bytes, written)
 }
 
@@ -146,7 +153,7 @@ fn a_cross_reference_stream_raises_the_headers_version_to_the_clauses() {
     serialize(
         &assembly,
         Version { major: 1, minor: 3 },
-        Form::Stream,
+        Options::new(Form::Stream),
         &mut bytes,
     )
     .expect("the assembly writes");
@@ -174,6 +181,15 @@ fn the_form_of_a_document_is_the_kind_its_own_last_section_uses() {
 /// A transform makes these deliberately — a page's closure stops at the piece's edge — so the
 /// requirement is that the reference becomes null *and is counted*, never that it is quietly
 /// carried into a file naming an object number nothing defines.
+///
+/// **What the null then looks like in the file changed in session 900, and §7.3.7 is why.** This
+/// test asserted that `/Absent null ` appeared in the bytes; the entry is now dropped instead,
+/// because "[a] dictionary entry whose value is null … shall be treated the same as if the entry
+/// does not exist" and `crate::parser` already drops a direct null on the way *in* for that same
+/// sentence. Writing one out therefore made this program's writer and its reader disagree about
+/// what the file said — invisibly by the clause, and visibly in bytes on a second pass, which is
+/// what `optimize`'s idempotence gate measures. The count is unchanged and is what carries the
+/// fact.
 #[test]
 fn a_reference_the_assembly_does_not_hold_is_written_as_null_and_counted() {
     let source = open(file_of(
@@ -192,17 +208,17 @@ fn a_reference_the_assembly_does_not_hold_is_written_as_null_and_counted() {
         "the one reference out of the assembly was not counted"
     );
     assert!(
-        bytes.windows(13).any(|window| window == b"/Absent null "),
-        "the clause's own answer is written out, rather than the entry being dropped"
+        !bytes.windows(7).any(|window| window == b"/Absent"),
+        "§7.3.7 makes the entry the same as no entry, so it is not written"
     );
 
     let read = open(bytes);
     let catalog = read.catalog().unwrap();
     let pages = read.get_key(&catalog, "Pages");
     let pages = pages.as_dict().unwrap();
-    // §7.3.7 then makes the two indistinguishable to a reader — "a dictionary entry whose value
-    // is null shall be treated the same as if the entry does not exist" — which is why the
-    // bytes are asserted above and the reading here.
+    // §7.3.7 makes the two indistinguishable to a reader — "[a] dictionary entry whose value is
+    // null … shall be treated the same as if the entry does not exist" — so a reader of the
+    // output finds exactly what a reader of the source found through the dangling reference.
     assert!(
         read.get_key(pages, "Absent").is_null(),
         "the dangling entry must not resolve to anything"
@@ -319,7 +335,7 @@ fn an_assembly_with_no_root_is_refused() {
     let error = serialize(
         &assembly,
         Version { major: 1, minor: 7 },
-        Form::Table,
+        Options::new(Form::Table),
         &mut bytes,
     )
     .expect_err("a file with no catalog is not a file");
@@ -346,7 +362,7 @@ fn a_slot_reserved_and_never_placed_is_refused() {
     let error = serialize(
         &assembly,
         Version { major: 1, minor: 7 },
-        Form::Table,
+        Options::new(Form::Table),
         &mut bytes,
     )
     .expect_err("an unplaced slot is refused");
@@ -473,4 +489,204 @@ fn two_sources_are_renumbered_into_one_file() {
         Some(&b"second"[..]),
         "the second source's page came across"
     );
+}
+
+/// §7.5.7's two prohibitions this writer has to test for, and what it keeps outside because of
+/// them.
+///
+/// > The following objects shall not be stored in an object stream:
+///
+/// — whose first bullet is "Stream objects" — and, further down the clause:
+///
+/// > An object in an object stream shall not consist solely of an object reference.
+///
+/// The fixture states one of each — the page's content stream, and an object whose whole value
+/// is `3 0 R` — so a carrier that took either would be visible as a member count.
+#[test]
+fn an_object_stream_carries_what_the_clause_permits_and_nothing_it_forbids() {
+    let source = open(file_of(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R /OpenAction 5 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R >>",
+            "<< /Length 26 >>\nstream\n0 0 1 rg 10 10 50 50 re f\nendstream",
+            "3 0 R",
+        ],
+        "",
+    ));
+    let mut assembly = Assembly::new(vec![&source]);
+    copy_whole(&mut assembly, &source, 5);
+    let mut bytes = Vec::new();
+    let written = serialize(
+        &assembly,
+        Version { major: 1, minor: 7 },
+        Options {
+            form: Form::Table,
+            object_streams: ObjectStreams::DEFAULT,
+            streams: Streams::Carry,
+        },
+        &mut bytes,
+    )
+    .expect("the assembly writes");
+
+    assert_eq!(written.object_streams, 1, "one carrier for five objects");
+    assert_eq!(
+        written.compressed, 3,
+        "the catalog, the page tree and the page are compressed; the content stream and the \
+         bare reference are not"
+    );
+
+    let read = open(bytes);
+    // Table 18's type 2 entry only exists in a cross-reference stream, so asking for object
+    // streams asked for one of those whatever `Options::form` said.
+    assert_eq!(
+        read.trailer()
+            .get("Type")
+            .and_then(Object::as_name)
+            .map(|name| name.as_bytes().to_vec()),
+        Some(b"XRef".to_vec())
+    );
+}
+
+/// A generated object stream is one this tree's own reader reads back, member for member.
+///
+/// RFC 0002 section 9's second layer over the construct §7.5.7 owed: every object that went
+/// into a carrier comes out of it with the value it went in with, and the file states the same
+/// document it did before.
+#[test]
+fn a_generated_object_stream_reads_back_through_this_trees_own_reader() {
+    // Forty small dictionaries beside the page, because the construct pays off over many
+    // objects and not over three: one carrier's `FlateDecode` container and its Table 16
+    // entries cost more than they save on a document of four objects, which is the honest
+    // shape of NOTE 1's "more compactly" and is why this fixture is not `one_page`.
+    const EXTRA: u32 = 40;
+    let mut bodies: Vec<String> = vec![
+        format!(
+            "<< /Type /Catalog /Pages 2 0 R /Filler [{}] >>",
+            (5..5 + EXTRA)
+                .map(|number| format!("{number} 0 R"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_owned(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R >>".to_owned(),
+        "<< /Length 26 >>\nstream\n0 0 1 rg 10 10 50 50 re f\nendstream".to_owned(),
+    ];
+    for number in 0..EXTRA {
+        bodies.push(format!(
+            "<< /Index {number} /Note (a dictionary that says very little, at some length) >>"
+        ));
+    }
+    let highest = 4 + EXTRA;
+    let refs: Vec<&str> = bodies.iter().map(String::as_str).collect();
+    let source = open(file_of(&refs, ""));
+
+    let mut plain = Assembly::new(vec![&source]);
+    copy_whole(&mut plain, &source, highest);
+    let (loose, _) = write_out(&plain, Form::Stream);
+
+    let mut assembly = Assembly::new(vec![&source]);
+    copy_whole(&mut assembly, &source, highest);
+    let mut packed = Vec::new();
+    let written = serialize(
+        &assembly,
+        Version { major: 1, minor: 7 },
+        Options {
+            form: Form::Stream,
+            object_streams: ObjectStreams::DEFAULT,
+            streams: Streams::Carry,
+        },
+        &mut packed,
+    )
+    .expect("the assembly writes");
+    assert!(written.compressed >= 3);
+    assert!(
+        packed.len() < loose.len(),
+        "§7.5.7 NOTE 1: object streams store objects \"more compactly\""
+    );
+
+    let loose = open(loose);
+    let packed = open(packed);
+    for number in 1..=highest {
+        let id = ObjectId::new(number, 0);
+        assert_eq!(
+            format!("{:?}", packed.get(id)),
+            format!("{:?}", loose.get(id)),
+            "object {number} came out of its carrier as something else"
+        );
+    }
+}
+
+/// A stream re-encoded states the same decoded bytes, and one that cannot shrink is carried.
+///
+/// `CLAUDE.md`'s amended exclusion permits recompression "without reinterpretation", which is
+/// exactly this pair of claims: what the stream decodes to does not change, and a stream whose
+/// re-encoding is not smaller keeps its producer's bytes.
+#[test]
+fn a_recompressed_stream_decodes_to_what_it_did_and_never_grows() {
+    // A content stream long enough to be worth deflating, stored with no filter at all.
+    let content = "0 0 1 rg ".repeat(200);
+    let source = open(file_of(
+        &[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R >>",
+            &format!(
+                "<< /Length {} >>\nstream\n{content}\nendstream",
+                content.len()
+            ),
+        ],
+        "",
+    ));
+    let before = source.get(ObjectId::new(4, 0));
+    let before = before.as_stream().expect("the fixture states a stream");
+
+    let mut assembly = Assembly::new(vec![&source]);
+    copy_whole(&mut assembly, &source, 4);
+    let mut bytes = Vec::new();
+    let written = serialize(
+        &assembly,
+        Version { major: 1, minor: 7 },
+        Options {
+            form: Form::Table,
+            object_streams: ObjectStreams::Disable,
+            streams: Streams::DEFAULT,
+        },
+        &mut bytes,
+    )
+    .expect("the assembly writes");
+    assert_eq!(written.recompressed, 1, "the one stream was re-encoded");
+    assert!(written.saved > 0);
+
+    let read = open(bytes);
+    let after = read.get(ObjectId::new(4, 0));
+    let after = after.as_stream().expect("the output states a stream");
+    assert!(
+        after.data.len() < before.data.len(),
+        "a re-encoding that is not smaller must not be taken"
+    );
+    assert_eq!(
+        read.decoded_stream_data(after).map(|data| data.to_vec()),
+        Some(content.into_bytes()),
+        "the decoded bytes are the producer's"
+    );
+
+    // A second pass over this writer's own output finds nothing left to save, which is what
+    // makes `optimize` idempotent one clause down.
+    let mut again = Assembly::new(vec![&read]);
+    copy_whole(&mut again, &read, 4);
+    let mut second = Vec::new();
+    let written = serialize(
+        &again,
+        Version { major: 1, minor: 7 },
+        Options {
+            form: Form::Table,
+            object_streams: ObjectStreams::Disable,
+            streams: Streams::DEFAULT,
+        },
+        &mut second,
+    )
+    .expect("the assembly writes");
+    assert_eq!(written.recompressed, 0);
+    assert_eq!(written.saved, 0);
 }

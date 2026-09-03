@@ -52,6 +52,7 @@ pub mod attachments;
 pub mod images;
 pub mod json;
 pub mod merge;
+pub mod optimize;
 pub mod pages;
 pub mod pattern;
 pub mod range;
@@ -266,6 +267,8 @@ pub enum Plan {
     Merge(merge::MergePlan),
     /// One document's pages deleted, inserted, moved and rotated — RFC 0002 section 6.2.
     Pages(pages::PagesPlan),
+    /// One document rewritten smaller — RFC 0002 section 6.5.
+    Optimize(optimize::OptimizePlan),
 }
 
 impl Plan {
@@ -281,6 +284,7 @@ impl Plan {
             Self::Attachments(plan) => plan.source,
             Self::Split(plan) => plan.source,
             Self::Pages(plan) => plan.source,
+            Self::Optimize(plan) => plan.source,
             Self::Merge(plan) => plan.inputs.first().map_or(0, |input| input.source),
         }
     }
@@ -333,7 +337,17 @@ impl Plan {
             //
             // **`pages` is the operation the bit's sentence describes word for word** — "insert,
             // rotate, or delete pages" — so it is the same answer and no separate reading.
-            Self::Split(_) | Self::Merge(_) | Self::Pages(_) => Some(Operation::Assemble),
+            //
+            // **And `optimize` is the same operation for the same sentence.** Table 22 bit 11
+            // is "[a]ssemble the document (insert, rotate, or delete pages …)", and a
+            // rewritten file is the document's own pages assembled into a new one: the same
+            // pages, in the same order, stated more compactly. Nothing here is a Table 22
+            // operation of its own — there is no bit for "make this smaller" — and answering
+            // `None` would make the one verb whose whole output is a derived file the one verb
+            // no policy is asked about.
+            Self::Split(_) | Self::Merge(_) | Self::Pages(_) | Self::Optimize(_) => {
+                Some(Operation::Assemble)
+            }
         }
     }
 }
@@ -713,6 +727,15 @@ pub enum Origin {
         /// How many indirect objects it was written with.
         objects: u32,
     },
+    /// One document rewritten smaller — `optimize`'s output.
+    Optimized {
+        /// Which source.
+        source: usize,
+        /// How many pages it holds, which is how many the source held.
+        pages: usize,
+        /// What each pass changed.
+        savings: optimize::Savings,
+    },
     /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
     /// byte, and then what was added.
     Updated {
@@ -822,8 +845,20 @@ impl Report {
 impl Output {
     /// One output as JSON.
     fn to_json(&self) -> Value {
-        let origin = match &self.origin {
-            Origin::Page {
+        Value::Object(vec![
+            ("name".to_owned(), Value::text(self.name.clone())),
+            ("bytes".to_owned(), Value::bytes(self.bytes)),
+            ("sanitised".to_owned(), Value::Bool(self.sanitised)),
+            ("origin".to_owned(), Value::Object(self.origin.to_json())),
+        ])
+    }
+}
+
+impl Origin {
+    /// One origin's fields, in the order RFC 0002 section 4.5's report states them.
+    fn to_json(&self) -> Vec<(String, Value)> {
+        match self {
+            Self::Page {
                 source,
                 page,
                 label,
@@ -837,7 +872,7 @@ impl Output {
                 ("width".to_owned(), Value::Integer(i64::from(*width))),
                 ("height".to_owned(), Value::Integer(i64::from(*height))),
             ],
-            Origin::Image {
+            Self::Image {
                 source,
                 page,
                 object,
@@ -855,7 +890,7 @@ impl Output {
                 ("width".to_owned(), Value::Integer(i64::from(*width))),
                 ("height".to_owned(), Value::Integer(i64::from(*height))),
             ],
-            Origin::Piece {
+            Self::Piece {
                 source,
                 first_page,
                 pages,
@@ -869,7 +904,7 @@ impl Output {
                 ("label".to_owned(), Value::optional(label.clone())),
                 ("objects".to_owned(), Value::Integer(i64::from(*objects))),
             ],
-            Origin::Merged {
+            Self::Merged {
                 sources,
                 pages,
                 objects,
@@ -882,7 +917,7 @@ impl Output {
                 ("pages".to_owned(), Value::count(*pages)),
                 ("objects".to_owned(), Value::Integer(i64::from(*objects))),
             ],
-            Origin::Edited {
+            Self::Edited {
                 source,
                 pages,
                 objects,
@@ -892,23 +927,30 @@ impl Output {
                 ("pages".to_owned(), Value::count(*pages)),
                 ("objects".to_owned(), Value::Integer(i64::from(*objects))),
             ],
-            Origin::Attachment { source, name } => vec![
+            Self::Optimized {
+                source,
+                pages,
+                savings,
+            } => {
+                let mut fields = vec![
+                    ("kind".to_owned(), Value::text("optimized")),
+                    ("source".to_owned(), Value::count(*source)),
+                    ("pages".to_owned(), Value::count(*pages)),
+                ];
+                fields.extend(savings.to_json());
+                fields
+            }
+            Self::Attachment { source, name } => vec![
                 ("kind".to_owned(), Value::text("attachment")),
                 ("source".to_owned(), Value::count(*source)),
                 ("name".to_owned(), Value::text(name.clone())),
             ],
-            Origin::Updated { source, attached } => vec![
+            Self::Updated { source, attached } => vec![
                 ("kind".to_owned(), Value::text("updated")),
                 ("source".to_owned(), Value::count(*source)),
                 ("attached".to_owned(), Value::text(attached.clone())),
             ],
-        };
-        Value::Object(vec![
-            ("name".to_owned(), Value::text(self.name.clone())),
-            ("bytes".to_owned(), Value::bytes(self.bytes)),
-            ("sanitised".to_owned(), Value::Bool(self.sanitised)),
-            ("origin".to_owned(), Value::Object(origin)),
-        ])
+        }
     }
 }
 
@@ -1018,6 +1060,7 @@ pub fn apply(
         Plan::Split(plan) => split::run(plan, first, sinks, &mut report)?,
         Plan::Merge(plan) => merge::run(plan, &wanted, &opened, sinks, &mut report)?,
         Plan::Pages(plan) => pages::run(plan, 0, &opened, sinks, &mut report)?,
+        Plan::Optimize(plan) => optimize::run(plan, 0, &opened, sinks, &mut report)?,
     }
     Ok(report)
 }
