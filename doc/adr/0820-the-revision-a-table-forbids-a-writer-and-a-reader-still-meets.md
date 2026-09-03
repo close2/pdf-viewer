@@ -68,6 +68,15 @@ the specification, and it decays.** This one survived eight hundred sessions.
 
 ## What could not be obtained, said plainly
 
+**One sentence of this section is false and session 892 proved it by doing the thing.** "[T]here is
+no network access from this account" was inferred rather than tested; DNS, TLS and HTTPS all work
+from this shell, and the supplement, PDFBox's `StandardSecurityHandler.java` and a `/R` 5 document
+with a published owner password were all fetched in minutes. The section is left standing because
+it is the record of what this round believed, and because what it cost is the lesson: a round
+reasoning from an untested constraint gave up the one document that answers its own open question.
+ADR 0829, and `doc/habits.md`.
+
+
 **The supplement itself is not in this tree and could not be read.** `doc/md/` holds fourteen ISO
 and PDF Association documents and the supplement is not among them; there is no network access
 from this account. **PDFBox is not on this machine either** — the owner's suggested source. A
@@ -109,12 +118,19 @@ anything.
 | user validation: `SHA-256(password ‖ user validation salt)` against `U[0..32]` | supplement's Algorithm 3.2a; §7.6.4.4.10's Algorithm 11 with the hash substituted | **verified**, same equality |
 | user key: that hash over the key salt, then AES-256-CBC, zero IV, no padding, over `/UE` | supplement; §7.6.4.3.3 step (e) with the hash substituted | **verified**: the 32 bytes it yields decrypt both the page and the `/Perms` block |
 | `/Perms`: AES-256 ECB, `"adb"` at bytes 9–11, `/P` little-endian at 0–3, `T`/`F` at byte 8 | §7.6.4.4.12's Algorithm 13, **verbatim and unchanged** | **verified**: the block gives back exactly the `/P -1084` and `/EncryptMetadata true` written in the clear beside it |
-| owner validation and owner key, salted with the whole 48-byte `/U` | §7.6.4.3.3 steps (c) and (d) with the hash substituted | **not verified against a real file** — no `/R 5` document here has a known owner password. Verified against a fixture whose `/O` and `/OE` were computed *outside this tree* and which wraps the **real** file key, so the branch is shown to reach the key the real ciphertext was encrypted under |
+| owner validation and owner key, salted with the whole 48-byte `/U` | §7.6.4.3.3 steps (c) and (d) with the hash substituted | **verified against a real file since session 892** — qpdf's `c-r5-in.pdf` publishes both passwords *and* the file encryption key they unwrap, and both branches reach it (ADR 0829). When this row was written it read *not verified*: no `/R 5` document here had a known owner password, and the fixture's `/O` and `/OE` were computed **outside this tree** around the real `/UE`'s key |
 | `/U` and `/O` longer than 48 bytes: read the three sections off the front | **evidence** | 8 of the 41 `/R 5` documents the census below counts write both as 127 bytes — 48 significant followed by NUL — and they are exactly the 8 declaring ExtensionLevel 3 |
 | crypt-filter pairing: `AESV3` or `Identity`, never `V2` or `AESV2` | Table 20's `/V` 5 row; §7.6.4.1's own sentence names revisions 4 and 6 and skips 5 | argument; a refusal by name rather than a 32-byte key handed to AES-128 |
-| **password preprocessing: SASLprep, then UTF-8, then truncate to 127 bytes** | **the one step resting on a reading rather than on a checked sentence about revision 5** | see below |
+| **password preprocessing: SASLprep, then UTF-8, then truncate to 127 bytes** | **settled in session 892** — the `ExtensionLevel` 3 supplement states it twice, once in Algorithm 3.2a step 1 and once with the Normalize and BIDI options named (ADR 0829). When this row was written it was the one step resting on a reading rather than on a checked sentence | see below, and read it as the record of what the reading was |
 
 ### The one step that rests on a reading
+
+**Session 892 settled this, and the section below is left as it was written.** The supplement was
+fetched — over the network this round believed absent — and it states the preparation twice, in
+Algorithm 3.2a step 1 and again under *Password Algorithms* with the Normalize and BIDI options
+named. The reading recorded below was right, and what follows is the record of a reading made
+without the document rather than a live question. ADR 0829.
+
 
 §7.6.4.3.3's preamble binds steps (a) and (b) to "[w]henever UTF-8 password is used below", and
 "below" is the algorithm revision 5 shares. Taking the structure from Algorithm 2.A and its
