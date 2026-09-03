@@ -3,7 +3,8 @@
 2026-09-03. Argued in [ADR 0854](../adr/0854-a-page-tree-edited-in-place-and-a-commit-that-cannot-be-observed-half-done.md)
 and [ADR 0855](../adr/0855-a-write-in-flight-is-in-the-tree-and-not-in-the-document-and-ask-has-nobody-to-ask.md).
 The **third** implementation round of [RFC 0003](../rfc/0003-file-system-faces.md), on round 902's
-branch because it continues that landing; `main` had not moved since round 898's merge.
+branch because it continues that landing; `main` moved under round 905's `optimize` walk while
+this round ran and was merged in before the sequence was run whole a second time.
 
 `doc/todo/58` §2 was the whole scope: RFC §5.2's five write verbs, "[e]ach row of `LAYOUT` already
 states what it means, so what is owed is the transform call and the transactional shape, not a
@@ -17,7 +18,7 @@ Touched: **`crates/pdf-transform/src/update.rs`** (new — the fourth writer) an
 `crates/pdf-vfs/tests/a_write.rs` (new); `crates/pdf-vfs/src/{lib.rs,worker.rs,wire.rs,
 generation.rs,layout.rs}`, `crates/pdf-vfs/tests/{a_face.rs,confined.rs}`;
 `crates/pdf-transform/tests/{optimize.rs,optimize_corpus.rs}` (a merge artefact — round 902's
-`RenderPlan::strips` beside round 905's new suite); `doc/conformance/ledger.toml` (ten rows);
+`RenderPlan::strips` beside round 905's new suite, which had never been compiled together); `doc/conformance/ledger.toml` (ten rows);
 `doc/rfc/0003-…`, `doc/todo/58-…`, `doc/todo/02-every-round.md`, `doc/state-of-play.md`,
 `doc/crate-map.md`; two ADRs, this file.
 
@@ -84,8 +85,17 @@ are in that list now.
 
 The change→gate map's core, plus everything `pdf-transform` is under: the transform gate and its
 six corpus walks, one walk at a time on the machine, the poller matching the gate **binaries**
-under a build directory rather than the test names (round 899's lesson). The results are in the
-round's report and not here.
+under a build directory rather than the test names (round 899's lesson). Run whole, and then
+**run whole a second time** after `main` moved under round 905 and was merged in here, because a
+merge runs everything; the second run is the one that counts. The results are in the round's
+report and not here.
+
+One thing worth carrying out of the running rather than out of the work: the merge of `main` did
+not conflict in any Rust file and still broke the build twice, both times in a test that neither
+branch had touched. Round 902 gave `RenderPlan` a `strips` field and round 905 wrote two new
+suites that construct one; each side compiled, and only the merged tree has a `RenderPlan`
+literal missing a field. A clean three-way merge is not a compiling tree, and the sequence's
+first line is what says so.
 
 ## 6. What the next round of this stream does first
 

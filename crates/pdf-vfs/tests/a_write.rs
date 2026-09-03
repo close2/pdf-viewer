@@ -283,8 +283,25 @@ fn a_write_that_is_never_flushed_is_in_the_tree_and_not_in_the_document() {
     assert_eq!(on_disk(&backing), before);
     assert_eq!(vfs.pending().len(), 1);
 
+    // `ftruncate(2)` on a staged file, which is what a face passes a `setattr` with a size to —
+    // and the only truncation this tree implements, because `O_TRUNC` on a create is what
+    // starting the staging buffer empty already is.
+    vfs.truncate(id, 4).expect("truncated");
+    assert_eq!(
+        vfs.stat("/attachments/half.txt").expect("stat").size,
+        Some(4)
+    );
+    assert_eq!(read(&vfs, "/attachments/half.txt"), b"half");
+    vfs.truncate(id, 6).expect("grown");
+    assert_eq!(
+        read(&vfs, "/attachments/half.txt"),
+        b"half\0\0",
+        "growing a file fills with zero bytes, as a sparse write to a real one does"
+    );
+    assert_eq!(on_disk(&backing), before, "and none of it reached the file");
+
     let abandoned = vfs.release(id).expect("never flushed");
-    assert_eq!(abandoned.size, 11);
+    assert_eq!(abandoned.size, 6);
     assert!(abandoned.sentence().contains("nothing was committed"));
     assert_eq!(on_disk(&backing), before, "the document is untouched");
     assert!(!names(&vfs, "/attachments").contains(&"half.txt".to_owned()));

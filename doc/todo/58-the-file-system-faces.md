@@ -1,8 +1,9 @@
 # 58 — The file-system faces: what RFC 0003 owes after its core
 
 Status: **open**, the standing item of RFC 0003's stream, as `doc/todo/57` is of RFC 0002's.
-Priority: 50-band — the core landed in session 899 and every remaining piece is blocked on a
-decision, a toolchain, or the write side that the core's own table already describes.
+Priority: 50-band — the core landed in session 899, the confined worker in 902 and the write side
+in 906, so what is left is a **face**: a toolchain, a decision the owner has not been asked, or a
+measurement nobody has taken.
 Corpus witnesses: `doc/PDF20_AN001-BPC.pdf` (five pages, §12.3.3's outline, §12.4.2's labels);
 `doc/PDF-Declarations.pdf` (two §7.11.4 embedded files whose names hold a COLON, so it is the
 sanitisation witness); `doc/Tagged-PDF-Best-Practice-Guide.pdf` (images on pages 35, 36, 51, 60
@@ -45,7 +46,6 @@ there. The allow-list found a defect on the way: `pdf_transform::render` asked t
 cores it had, which is an `openat` a confined process is killed for, so `RenderPlan` gained
 `strips` (ADR 0847 §2). Six probes hold the boundary rather than describing it, and a worker that
 dies is a named error with a fresh worker behind it rather than a hang.
-
 
 Session 906, RFC 0003's third landing: **the write side, and the transaction around it.** All five
 of §5.2's verbs work — a PDF copied into `pages/` inserts its pages at the position the name
