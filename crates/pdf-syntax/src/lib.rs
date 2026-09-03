@@ -33,6 +33,7 @@ pub mod filter;
 pub mod lexer;
 pub mod object;
 pub mod parser;
+pub mod serialize;
 pub mod text_string;
 pub mod tree;
 pub mod version;
@@ -53,6 +54,7 @@ pub use filter::{
 pub use lexer::{Lexer, Token};
 pub use object::{Dictionary, Name, Object, ObjectId, Stream};
 pub use parser::{DamagedDictionary, Limits, Parser};
+pub use serialize::{Assembly, AssemblyError, Form, SerializeError, Written, serialize};
 pub use text_string::text_string;
 pub use version::Version;
 pub use xref::{Location, XrefTable};

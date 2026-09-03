@@ -295,17 +295,33 @@ saves use: `attachments --attach` files a new embedded file in §7.7.4's tree, w
 and checksum from the bytes and no date unless one is given; `--attach --to-page N` files it by a
 §12.5.6.15 annotation on the page instead, drawn with this tree's own icon; and `--remove NAME`
 takes an entry out of the tree and marks the objects it alone reached free, by the one of
-§7.5.4's two mechanisms an update can use. One page-range grammar for every verb, with §12.4.2's
+§7.5.4's two mechanisms an update can use. **And since session 886 it writes whole files as well**,
+on `pdf_syntax::serialize` — RFC 0002 §10's structure-preserving serializer, admitted by
+`CLAUDE.md`'s redrawn authoring exclusion, which the owner ratified on 2026-09-03. It emits
+structure and never content: §7.5.2's header, a body of indirect objects, §7.5.4's table or
+§7.5.8's stream in the form the sources themselves use, §7.5.5's trailer and §14.4's two
+identifiers, with every stream's bytes crossing encoded and untouched and only its `/Length`
+re-derived from what was written; a reference to an object the output does not hold becomes
+§7.3.10's null and is counted. `split` is the first verb on it — one file per page, per group of
+*n*, or per comma-separated group of the selection — each piece the source's own page objects
+under a new one-level page tree, §7.7.3.4's four inheritable attributes flattened onto each page
+because the ancestors that carried them are not coming along, and the whole object closure
+carried with them. What a piece does not carry — the outline, the name trees, `/PageLabels`, the
+structure tree, `/Metadata` — is named in the report rather than dropped in silence. One
+page-range grammar for every verb, with §12.4.2's
 labels addressable as `@iv`. **What a document asserts over its reader is read once, in
 `pdf_model::restriction`, for every operation this tree performs**: every Table 22 bit is named
-(two as consumed by nothing, each saying why), the five operations — a field filled, an
-annotation added, a page rendered, a file extracted, a file written in — each read their bit at
+(one as consumed by nothing, saying why), the six operations — a field filled, an
+annotation added, a page rendered, a file extracted, a file written in, a document assembled out
+of another's pages — each read their bit at
 the document's revision and §12.8.2.2's certification besides, and the four levels are one type
 whose verdict a caller matches exhaustively. `pdf-transform` honours all four (`--restrictions`
 takes `off`, the default, `on` and `warn`; a pipe's *ask* is a refusal that says nobody could
 answer) and the viewer supplies the two a window answers today. The suite has its own gate, with
-RFC 0002 §12's perf floor and its inventories held to the document's own structure. ADRs 0800,
-0801, 0802, 0803.
+RFC 0002 §12's perf floor and its inventories held to the document's own structure, and two
+corpus walks beside it: the writer's, and `split`'s — every corpus document's first page taken
+out, re-read, and drawn against the source page bit for bit. ADRs 0800,
+0801, 0802, 0803, 0804, 0816, 0817, 0818.
 
 **It can tell a person that a signed document changed after it was signed, and whether its
 signature verifies.** §12.8.1 divides verifying a signature into three questions and only the

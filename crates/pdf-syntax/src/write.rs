@@ -149,9 +149,29 @@ impl std::fmt::Write for HexSink<'_> {
 
 /// §7.3.3's real number, written so that it reads back as itself.
 ///
-/// The clause's own note on precision — "a conforming writer shall not use an exponential
-/// format" — rules out `{:e}`, and an integral value is written without a fractional part
-/// because that is what every producer does and what the type in a dictionary usually is.
+/// Two rules, and both are the clause's:
+///
+/// > A PDF writer shall not use the PostScript language syntax for numbers with non-decimal
+/// > radices (such as 16#FFFE) or in exponential format (such as 6.02E23).
+///
+/// which rules out `{:e}`; and "[w]herever a real number is expected, an integer may be used
+/// instead", which is why an integral value is written without a fractional part — that is what
+/// every producer does and what the type in a dictionary usually is.
+///
+/// **The fractional case wrote six decimal places until the eight-hundred-and-eighty-sixth
+/// session, and six is not enough.** Annex C's Table C.1 says that "[m]odern computers often
+/// represent and process real numbers using IEEE Standard for Floating-Point Arithmetic (IEEE
+/// 754) single or double precision", and this reader parses one into an `f64`; rounding it to
+/// six places on the way out changes the number. Nothing noticed while the only writer was
+/// §7.5.6's update, because a form field's `/Rect` survives the rounding — but a serializer
+/// rewrites every dictionary of every object it carries, and a Type 3 font's `/FontMatrix`, a
+/// shading's `/Coords` and a function's `/C0` do not. **Seven corpus documents drew differently
+/// after `split` because of it**, all of them off by one antialiasing level on a glyph's edge,
+/// which is what six places does to `0.0009765625`.
+///
+/// What is written instead is the **shortest decimal that reads back as the same double**,
+/// which is what Rust's `Display` for `f64` produces and which never uses an exponent — so the
+/// clause's prohibition is met by the same formatting that fixes the precision.
 fn real(value: f64) -> String {
     if !value.is_finite() {
         // §7.3.3 has no spelling for an infinity or a NaN, and a file containing one would be
@@ -170,14 +190,7 @@ fn real(value: f64) -> String {
         let _ = write!(text, "{integral}");
         return text;
     }
-    let mut text = format!("{value:.6}");
-    while text.ends_with('0') {
-        text.pop();
-    }
-    if text.ends_with('.') {
-        text.pop();
-    }
-    text
+    format!("{value}")
 }
 
 /// Appends ISO 32000-2 §7.5.6's incremental update to a document's own bytes.

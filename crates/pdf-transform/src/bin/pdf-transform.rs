@@ -14,6 +14,9 @@
 //! pdf-transform attachments in.pdf --remove report.csv -o out.pdf
 //! pdf-transform render      in.pdf --page-box media --no-annotations -o 'page-%d.png'
 //! pdf-transform images      in.pdf --no-mask -o 'img-%d.png'
+//! pdf-transform split       in.pdf -o 'page-%d.pdf'
+//! pdf-transform split       in.pdf --every 10 -o 'part-%d.pdf'
+//! pdf-transform split       in.pdf --pages 1-3,7-end -o 'sel-%d.pdf'
 //! ```
 
 //!
@@ -46,6 +49,7 @@ use pdf_transform::images::ImagesPlan;
 use pdf_transform::pattern::Pattern;
 use pdf_transform::range::Selection;
 use pdf_transform::render::{ImageFormat, RenderPlan, Sizing, parse_boundary};
+use pdf_transform::split::{Pieces, SplitPlan};
 
 use pdf_transform::{
     Budget, Exit, Level, Listed, Plan, Policy, Report, Secret, Sinks, Source, apply,
@@ -112,6 +116,7 @@ const VALUED: &[&str] = &[
     "--rect",
     "--icon",
     "--remove",
+    "--every",
 ];
 
 /// Every flag this program knows, so an unknown one is a usage error rather than ignored.
@@ -138,6 +143,7 @@ const KNOWN: &[&str] = &[
     "--rect",
     "--icon",
     "--remove",
+    "--every",
     "--password-fd",
     "--restrictions",
     "--report",
@@ -389,6 +395,27 @@ fn plan(arguments: &Arguments, output: Option<&str>) -> Result<Plan, Failure> {
                 } else {
                     names("images")?
                 },
+            }))
+        }
+        "split" => {
+            let every = arguments.parsed::<usize>(&["--every"])?;
+            if every == Some(0) {
+                return Err(Failure::Usage("--every counts from 1".to_owned()));
+            }
+            // Three ways of saying where the cuts are, and the default is the one every
+            // toolbox has: one file per page (pdftk's `burst`, poppler's `pdfseparate`).
+            // `--pages` without `--every` cuts at the selection's own commas, which is RFC
+            // 0002 section 6.1's `--pages 1-3,7-end` writing two files.
+            let pieces = match (every, arguments.value(&["--pages"])) {
+                (Some(every), _) => Pieces::Every(every),
+                (None, Some(_)) => Pieces::Groups,
+                (None, None) => Pieces::EachPage,
+            };
+            Ok(Plan::Split(SplitPlan {
+                source: 0,
+                pages,
+                pieces,
+                names: names("split")?,
             }))
         }
         "attachments" => Ok(Plan::Attachments(AttachmentsPlan {
@@ -673,6 +700,7 @@ usage: pdf-transform <verb> <file.pdf> [options] -o <name>
 verbs:
   render       pages to raster images        -o 'page-%d.png' | -o -
   images       the images the pages embed     -o 'img-%d.png' | --list
+  split        one document into many        -o 'page-%d.pdf'
   attachments  embedded files (ISO 32000-2 §7.11.4), from the name tree, the catalog's
                /AF and every page's file attachment annotations
                --list | --save-all -o dir/ | --save <name> -o <file>
@@ -716,6 +744,19 @@ images:
                         <name>.mask.pgm
   every image is decoded to PNG with its mask in the alpha; an XObject once, an inline
   image (BI … ID … EI) at every placement
+split:
+  --pages <selection>   which pages (default: all), and without --every the selection's own
+                        commas are where the cuts are: --pages 1-3,7-end writes two files
+  --every <n>           pieces of n pages; --every 1 is one file per page, the default
+  each piece is a new document: the source's page objects, their whole object closure and
+  their content streams carried byte for byte, under a new one-level page tree and a new
+  catalog. §7.7.3.4's inherited /Resources, /MediaBox, /CropBox and /Rotate are written onto
+  each page, because the ancestors that carried them are not coming along. A reference to a
+  page outside the piece becomes §7.3.10's null and is reported (exit 3). The outline, the
+  name trees, /PageLabels, the structure tree and /Metadata are **not** carried and every one
+  the document states is named in a warning. A piece of an encrypted document is not
+  encrypted, and says so.
+
 attachments --attach:
   --name <name>         the name the file is filed under (default: the file's own name)
   --description <text>  Table 43's /Desc

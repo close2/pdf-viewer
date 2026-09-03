@@ -89,15 +89,27 @@ pub enum Status {
     /// fifty-seven sessions in this status wrongly (ADR 0204). A status whose *definition*
     /// names a device the standard does not is a status that invites the mistake.
     Inapplicable,
-    /// The requirement addresses a PDF generator.
+    /// The requirement addresses a generator of the *content* this program does not generate.
     ///
-    /// **The wording was "we do not create files" until the five-hundred-and-tenth session**,
-    /// which is the exclusion's form from before the hundred-and-thirty-seventh amended it:
-    /// this program has written since the hundred-and-thirty-fifth, and what it writes is
-    /// §7.5.6's incremental update. `CLAUDE.md` excludes *authoring*, not writing, and
-    /// `ledger.toml`'s header carried the retired sentence because this enum is where the
-    /// generated header's vocabulary lives — the generator held the sentence a session had
-    /// corrected in the file, and stamped it back (ADR 0345).
+    /// **The wording was "we do not create files" until the five-hundred-and-tenth session and
+    /// "this program writes only §7.5.6's updates" until the eight-hundred-and-eighty-sixth**,
+    /// each time because the exclusion behind it had moved and this enum had not. The first
+    /// correction followed `CLAUDE.md`'s amendment for §7.5.6's incremental update; the second
+    /// follows RFC 0002 §11.1's, ratified 2026-09-03 (ADR 0816), which admits a whole-file
+    /// serializer — `pdf_syntax::serialize` — for deriving a new document from documents that
+    /// exist.
+    ///
+    /// **So the boundary this status now names is `CLAUDE.md`'s own enforceable test: does the
+    /// operation invent marks?** This program emits §7.5.2's header, §7.5.3's body, §7.5.4's
+    /// and §7.5.8's cross-reference sections, §7.5.5's trailer and §14.4's identifiers, and
+    /// decides nothing about what is on a page. A requirement is `writer-side` when it is
+    /// addressed to whoever decided the content, or to a construct this program's writers do
+    /// not emit — §7.6's encryption on the way out and Annex F's linearisation are both of the
+    /// second kind, and both stop being `writer-side` the day a writer emits them.
+    ///
+    /// `ledger.toml`'s header carries whichever sentence is here, because this enum is where
+    /// the generated header's vocabulary lives; the generator once held a sentence a session
+    /// had corrected in the file and stamped it back (ADR 0345).
     WriterSide,
     /// Covered by principle 5's closed exclusion list, which the row must name.
     OutOfScope,
@@ -179,8 +191,11 @@ pub enum Exclusion {
     Xfa,
     /// JavaScript and script-driven form behaviour. Field *appearance* is not excluded.
     Script,
-    /// Writer-side requirements: they address a PDF generator, and this program's one form
-    /// of writing is §7.5.6's incremental update (see [`Status::WriterSide`]).
+    /// Writer-side requirements: they address whoever generated the content, or a construct
+    /// this program's writers do not emit (see [`Status::WriterSide`]). Annex F's linearisation
+    /// is the standing member — `CLAUDE.md` keeps it excluded "until linearisation is
+    /// separately ratified", which is a statement about this program's writers rather than
+    /// about the annex.
     WriterSide,
 }
 

@@ -54,6 +54,7 @@ pub mod json;
 pub mod pattern;
 pub mod range;
 pub mod render;
+pub mod split;
 
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -255,6 +256,8 @@ pub enum Plan {
     Images(images::ImagesPlan),
     /// §7.11.4's embedded files, listed or extracted — RFC 0002 section 6.6.
     Attachments(attachments::AttachmentsPlan),
+    /// One document into many — RFC 0002 section 6.1.
+    Split(split::SplitPlan),
 }
 
 impl Plan {
@@ -265,6 +268,7 @@ impl Plan {
             Self::Render(plan) => plan.source,
             Self::Images(plan) => plan.source,
             Self::Attachments(plan) => plan.source,
+            Self::Split(plan) => plan.source,
         }
     }
 
@@ -284,6 +288,10 @@ impl Plan {
                     Some(Operation::Modify)
                 }
             },
+            // Table 22's bit 11 names this operation in as many words — "[a]ssemble the
+            // document (insert, rotate, or delete pages …)" — and a split is a file made of
+            // pages the source stated. `pdf_model::restriction` has the reading.
+            Self::Split(_) => Some(Operation::Assemble),
         }
     }
 }
@@ -529,6 +537,19 @@ pub enum Origin {
         /// The name the document files it under.
         name: String,
     },
+    /// A new document assembled out of a source's pages — `split`'s output.
+    Piece {
+        /// Which source.
+        source: usize,
+        /// The first source page it holds, counted from 1.
+        first_page: usize,
+        /// How many pages it holds.
+        pages: usize,
+        /// The first page's §12.4.2 label, where the document states one.
+        label: Option<String>,
+        /// How many indirect objects the piece was written with.
+        objects: u32,
+    },
     /// The source document with §7.5.6's incremental update appended: its own bytes, byte for
     /// byte, and then what was added.
     Updated {
@@ -671,6 +692,20 @@ impl Output {
                 ("width".to_owned(), Value::Integer(i64::from(*width))),
                 ("height".to_owned(), Value::Integer(i64::from(*height))),
             ],
+            Origin::Piece {
+                source,
+                first_page,
+                pages,
+                label,
+                objects,
+            } => vec![
+                ("kind".to_owned(), Value::text("piece")),
+                ("source".to_owned(), Value::count(*source)),
+                ("first_page".to_owned(), Value::count(*first_page)),
+                ("pages".to_owned(), Value::count(*pages)),
+                ("label".to_owned(), Value::optional(label.clone())),
+                ("objects".to_owned(), Value::Integer(i64::from(*objects))),
+            ],
             Origin::Attachment { source, name } => vec![
                 ("kind".to_owned(), Value::text("attachment")),
                 ("source".to_owned(), Value::count(*source)),
@@ -771,6 +806,7 @@ pub fn apply(
         Plan::Render(plan) => render::run(plan, &document, sinks, budget, &mut report)?,
         Plan::Images(plan) => images::run(plan, &document, sinks, &mut report)?,
         Plan::Attachments(plan) => attachments::run(plan, &document, sinks, &mut report)?,
+        Plan::Split(plan) => split::run(plan, &document, sinks, &mut report)?,
     }
     Ok(report)
 }

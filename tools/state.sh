@@ -146,6 +146,9 @@ section_writer() {
     run "the transform writer over the corpus (attach, read back, remove)" \
         '^transform-writer:' \
         cargo test --profile gates -p pdf-transform --test writer_corpus -- --ignored --nocapture
+    run "split over the corpus (RFC 0002 section 9's layers 2 and 3, first page)" \
+        '^transform-split:' \
+        cargo test --profile gates -p pdf-transform --test split_corpus -- --ignored --nocapture
 }
 
 section_dates() {
