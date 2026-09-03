@@ -155,6 +155,13 @@ section_writer() {
     run "pages over the corpus (a quarter turn and a page out, RFC 0002 section 9's layers 2 and 3)" \
         '^transform-pages:' \
         cargo test --profile gates -p pdf-transform --test pages_corpus -- --ignored --nocapture
+    # RFC 0002 section 9's fourth layer, and the only gate here that asks somebody else: the four
+    # writers' output read by poppler, mupdf and qpdf, each foreign reading compared with that
+    # same reader's reading of the source. It prints a skip line under its own prefix where the
+    # readers are not installed, so this line stays green on a machine without them.
+    run "the four writers' output read by poppler, mupdf and qpdf (RFC 0002 section 9's foreign readback)" \
+        '^transform-foreign:' \
+        cargo test --profile gates -p pdf-transform --test foreign_corpus -- --ignored --nocapture
 }
 
 section_dates() {

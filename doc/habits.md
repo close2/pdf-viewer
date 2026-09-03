@@ -380,6 +380,15 @@ reading in this project goes through them:
 
 ### The ledger, and claims about this tree
 
+- **A constraint on what this round *can do* decays exactly like a claim about the standard, and it
+  is cheaper to test than to reason about.** The eight-hundred-and-eighty-seventh session wrote "there
+  is no network access from this account" into ADR 0820 and settled a step of §7.6.4.3.3 from a reading
+  because of it. There is network access, and always was: DNS, TLS and HTTPS all answer from the shell,
+  and the five minutes it took to find that out produced the Adobe supplement that defines revision 5,
+  Apache PDFBox's handler, and a `/R` 5 document with a **published owner password** — the one thing
+  that round recorded as unobtainable. **An environmental limit a round is about to reason from is one
+  command away from being checked**, and a round that reasons from it instead spends its whole budget
+  inside a constraint that does not exist. ADR 0829.
 - **When two clauses describe one mechanism, reviewing one leaves the other lying.** Four instances
   in ten sessions; the check is one `grep` for the *other* clause a family cites.
 - **"This crate does not have X" is a claim about the crate, and the crate is greppable.**

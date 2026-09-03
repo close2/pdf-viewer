@@ -32,7 +32,12 @@ thiserror.workspace = true
 # rotation-transformed comparison for rotate", and a page rotated a quarter turn is rasterised on
 # a different grid, so the measure it is held to is the tree's own rather than a second one
 # written here (`tests/pages_corpus.rs`).
+# And the harness that invokes the reference renderers, for one more: RFC 0002 section 9's
+# foreign readback (`tests/foreign_corpus.rs`) shows what the four writers produce to poppler and
+# mupdf, and how those two are spawned — the flags, the budget, the version probe — is a reading
+# this tree has already paid for once (trap 3).
 [dev-dependencies]
+pdfref.workspace = true
 raster-compare.workspace = true
 
 [lints]

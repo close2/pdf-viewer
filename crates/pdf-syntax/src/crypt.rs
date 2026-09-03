@@ -47,6 +47,14 @@
 //! Table 20's `/V` 5 entry sends it to §7.6.3.3's Algorithm 1.A with a 256-bit key, which is
 //! what this module already ran for revision 6.
 //!
+//! **The supplement has been read since the eight-hundred-and-ninety-second session**, and
+//! the round that implemented revision 5 had to take it from a reading of §7.6.4.3.3 instead.
+//! Every step of Algorithm 3.2a agrees with what that reading produced — the three sections
+//! of `/O` and `/U`, both validations, both key unwraps, the `/Perms` block — and so does the
+//! one step ADR 0820 singled out as resting on a reading alone and as disagreeing with pdf.js
+//! and Apache `PDFBox`: the password preparation [`utf8_password`] does. It rests on the
+//! extension's own sentence now. ADR 0829.
+//!
 //! ADR 0820 records which steps rest on a normative sentence and which on evidence.
 //!
 //! Refused, each with a named reason rather than a guess:
@@ -925,24 +933,57 @@ fn crypt_filters(
         }
     }
 
-    // Table 20: "Default value: Identity" for both `/StmF` and `/StrF`.
-    let select = |key: &str| -> Method {
-        get(key)
-            .as_name()
-            .map_or(Method::Identity, |name| match filters.get(name) {
-                Some(method) => *method,
-                None => Method::Identity,
-            })
+    // Table 20: "Default value: Identity" for both `/StmF` and `/StrF` — **the default for an
+    // entry that is absent**, which is not the same as a default for one that names something
+    // `/CF` does not define. The same rows say "[t]he name shall be a key in the CF dictionary
+    // or a standard crypt filter name specified in "Table 26 - Standard crypt filter names"",
+    // and `/CF`'s own row says "[e]very crypt filter used in the document shall have an entry
+    // in this dictionary, except for the standard crypt filter names". A name that is neither
+    // breaks both, and reading it as the default is how a document comes to be drawn from its
+    // own ciphertext with nothing said (trap 5).
+    //
+    // **What is left is decided by `/V` rather than guessed.** Table 20's `/V` 5 row states the
+    // algorithm outright — the document is encrypted "using 7.6.3.3, "Algorithm 1.A: Encryption
+    // of data using the AES algorithms" with a file encryption key length of 256 bits" — and
+    // §7.6.4.1 limits this handler to "the Identity crypt filter … and crypt filters named
+    // StdCF", so an undefined filter at `/V` 5 leaves exactly one method available. `/V` 4's row
+    // says "Algorithm 1 … with a file encryption key length of 128 bits", and Algorithm 1 is RC4
+    // *or* AES — Table 25's `V2` and `AESV2` both fit it — so nothing is determined there and the
+    // file is refused by name instead of decrypted with a coin toss.
+    let select = |key: &str| -> SyntaxResult<Method> {
+        let Some(name) = get(key).as_name().cloned() else {
+            return Ok(Method::Identity);
+        };
+        // Table 20's `/CF`: "Any keys in the CF dictionary that are listed in "Table 26 -
+        // Standard crypt filter names" shall be ignored by a PDF processor. Instead, the PDF
+        // processor shall use properties of the respective standard crypt filters." Table 26
+        // lists one name, so this is that whole sentence.
+        if name.as_bytes() == b"Identity" {
+            return Ok(Method::Identity);
+        }
+        if let Some(method) = filters.get(&name) {
+            return Ok(*method);
+        }
+        if version == 5 {
+            return Ok(Method::AesV3);
+        }
+        Err(SyntaxError::UnsupportedEncryption {
+            detail: format!(
+                "/{key} names the crypt filter /{}, which /CF does not define and Table 26 does \
+                 not list (Table 20)",
+                name.as_bytes().escape_ascii()
+            ),
+        })
     };
-    let stream = select("StmF");
-    let string = select("StrF");
+    let stream = select("StmF")?;
+    let string = select("StrF")?;
     // Table 20's `/EFF`, whose own sentence states both halves of this: it is "[t]he name of
     // the crypt filter that shall be used when encrypting embedded file streams that do not
     // have their own crypt filter specifier", and "[i]f this entry is not present, and the
     // embedded file stream does not contain a crypt filter specifier, the stream shall be
     // encrypted using the default stream crypt filter specified by StmF."
     let embedded_file = match get("EFF").as_name() {
-        Some(_) => select("EFF"),
+        Some(_) => select("EFF")?,
         None => stream,
     };
 
@@ -1138,21 +1179,43 @@ fn pdf_doc_encode(password: &str) -> SyntaxResult<Vec<u8>> {
 /// not have produced it. So the refusal is reported as a wrong password rather than as an
 /// unsupported file.
 ///
-/// # Revision 5 takes the same two steps, and that is a reading rather than a quotation
+/// # Revision 5 takes the same two steps, and the extension says so in its own words
 ///
-/// The clause above says "revision 6", and §7.6.4.3.3's preamble binds steps (a) and (b) to
-/// "[w]henever UTF-8 password is used below" — which is inside the algorithm revision 5
-/// shares. The `ExtensionLevel` 3 supplement's Algorithm 3.2a states the same two steps in the
-/// same order at its own step 1, so both readings agree, and this tree cannot check the
-/// second against a copy of the document (ADR 0820 says so plainly rather than implying
-/// otherwise).
+/// This used to read *and that is a reading rather than a quotation*, because the document
+/// that defines revision 5 was not on this machine. It is now, and it settles the question
+/// outright — the **Adobe Supplement to ISO 32000-1, `BaseVersion` 1.7, `ExtensionLevel` 3**
+/// (June 2008), the "deprecated proprietary Adobe extension" Table 21 points at, states the
+/// preparation twice. Its Algorithm 3.2a opens at step 1 with "The password string is
+/// generated from Unicode input by processing the input string with the SASLprep (IETF RFC
+/// 4013) profile of stringprep (IETF RFC 3454), and then converting to a UTF-8
+/// representation", and its *Password Algorithms* preamble names the two options as well:
+/// "All passwords for revision 5 are based on Unicode. Preprocessing of a user-entered
+/// password consists first of normalizing its representation by applying the “SASLPrep”
+/// profile (see RFC 4013) of the “stringprep” algorithm (see RFC 3454) to the supplied
+/// password using the Normalize and BIDI options." Those are the supplement's sentences, not
+/// ISO 32000-2's, so they are quoted here in prose rather than as a rustdoc blockquote, which
+/// the conformance gate resolves against `doc/md/` alone. ADR 0829 has them under their own
+/// headings with the provenance of the copy they were read from.
 ///
-/// **It is very nearly unobservable, which is why it is safe to decide it this way.**
-/// `SASLprep` is the identity on every ASCII password and on the empty one, so it can only
-/// separate two readers on a password carrying a character the profile normalises away or
-/// prohibits. pdf.js applies it at revision 6 and not at revision 5 and opens the corpus's
-/// revision-5 document exactly as this does, because that document's password is `pässwört`
-/// — outside ASCII, and fixed by `SASLprep`.
+/// **So this reader is right and two others are wrong**, which is worth saying only because
+/// the disagreement was the reason to look: pdf.js applies `SASLprep` at revision 6 and not at
+/// revision 5, and Apache `PDFBox` guards it with `dicRevision == REVISION_6` on both the
+/// reading and the writing side. Two implementations agreeing is evidence about a reading and
+/// never a target (`CLAUDE.md` principle 5); here the document they are about disagrees with
+/// them.
+///
+/// **What the disagreement can cost is small and now bounded.** `SASLprep` is the identity on
+/// every ASCII password and on the empty one, so the three readers can only separate on a
+/// password carrying a character the profile normalises away or prohibits — and a writer
+/// following the supplement produced the prepared form, so a reader that skips the step
+/// cannot authenticate against it at all. The corpus cannot see the difference: its one
+/// revision-5 witness with a known password is `issue21579.pdf`, whose `pässwört` is outside
+/// ASCII and which `SASLprep` leaves exactly as it is, so pdf.js opens it as this does.
+#[expect(
+    clippy::doc_markdown,
+    reason = "the supplement's two sentences are quoted verbatim, and a quotation with backticks \
+              added to please a lint is no longer a quotation"
+)]
 fn utf8_password(password: &str) -> SyntaxResult<Vec<u8>> {
     let prepared = stringprep::saslprep(password).map_err(|_| SyntaxError::PasswordRequired)?;
     let mut bytes = prepared.as_bytes().to_vec();

@@ -972,3 +972,200 @@ fn the_corpus_revision_five_document_opens() {
     assert!(!permissions.owner, "pässwört is the user password here");
     assert!(!permissions.annotate, "/P -1084 clears bit 6");
 }
+
+// §7.6.4.3.3's owner branch at revision 5, against a document with *published* passwords
+// ---------------------------------------------------------------------------------------
+
+/// A second revision-5 document, and the one that takes the owner branch off a computed value.
+///
+/// The `OWNER_ENTRY` and `OWNER_ENCRYPTION` of the fixture above were computed outside this tree,
+/// because no revision-5 document reachable from here had a known owner password. One does now,
+/// and it is a
+/// real producer's file rather than anything assembled: `c-r5-in.pdf` from qpdf's test suite,
+/// whose `encryption.test` publishes **both** of its passwords — `user3` and `owner3` — and its
+/// file encryption key, `35EA16A4…`, in `c-r5-key-owner.out` and `c-r5-key-user.out`. It declares
+/// `/Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 3 >> >>`, which is the extension
+/// revision 5 belongs to.
+///
+/// **The published key is what makes the owner branch checkable rather than merely exercised.**
+/// Everything below is that file's own bytes — its `/O`, `/OE`, `/U`, `/UE`, `/Perms`, `/P` and
+/// page-one content stream — and that stream was encrypted under that key by its producer. So
+/// `owner3` reaching a *different* key would decrypt page one to noise; reaching *the* key gives
+/// back the producer's operators. That is the assertion, and it is the shape the fixture above
+/// uses for the user branch.
+///
+/// The file is not vendored here — this is its encryption dictionary and one content stream,
+/// which is all the algorithm touches — and ADR 0829 records where it was fetched from and what
+/// was checked against it.
+mod qpdf_revision_five {
+    use pdf_syntax::{Document, Limits};
+
+    use super::{assemble, hex, hex_string, page_one_content};
+
+    /// `c-r5-in.pdf`'s `/O`: the owner hash, its validation salt and its key salt.
+    const OWNER_ENTRY: &str = "584A5353C424C1F963B6B5F0A092D720F07BF120EB329ADD8663FE33A8589ADC\
+                               AD4FCA2653793D0994948F7F6F30A035";
+
+    /// Its `/OE`: the file encryption key wrapped under the owner key.
+    const OWNER_ENCRYPTION: &str =
+        "50B2415E8DC204235C837E85B6A336AE857B366EDE9E9CC7D30657DB00033EC3";
+
+    /// Its `/U`: the user hash, its validation salt and its key salt.
+    const USER_ENTRY: &str = "D77CD882AF29E7BEC7579157187616C324A6A00E8B90F0959E6B01F83972065E\
+                              C5B7C45121F5963430FFE03A06A22301";
+
+    /// Its `/UE`: the same file encryption key wrapped under the user key.
+    const USER_ENCRYPTION: &str =
+        "86560D35A15C067457DCBFB57EDD495CB0F5C2C1CE77C9CF462A496CE484CCFD";
+
+    /// Its `/Perms` — §7.6.4.4.9's Algorithm 10 block, keyed by the file encryption key.
+    const PERMS: &str = "89719CE226A730C2189960BB533450AD";
+
+    /// Its page one, `FlateDecode` under AES-256 ciphertext with the initialisation vector first.
+    const CONTENT: &str = "0E1C2A38465462707E8C9AA8B6C4D2E0D6E4415171CBB7D0D151601873B635C36\
+                           7BED1964B9AF57C598205E65D1C035A596C335911A1F4682DE06AA6A39B5882DB\
+                           54904FF161783A4D5CB2C78CCC4B1F";
+
+    /// What that stream inflates to once decrypted, which no wrong key can produce.
+    const CONTENT_PLAINTEXT: &str = "(Potato 0) Tj";
+
+    /// The user password qpdf's `encryption.test` publishes for it.
+    const USER_PASSWORD: &str = "user3";
+
+    /// The owner password the same file publishes — the one this tree had none of.
+    const OWNER_PASSWORD: &str = "owner3";
+
+    /// The plaintext `/P`, which the `/Perms` block above agrees with.
+    const FLAGS: i32 = -2052;
+
+    /// The document, with `c-r5-in.pdf`'s encryption dictionary reproduced as it is written.
+    ///
+    /// **Including its missing `/CF`, which is what this file found.** The document states
+    /// `/StmF /StdCF /StrF /StdCF` and carries no crypt-filter dictionary at all, so `StdCF` is
+    /// named and never defined — against Table 20's `shall` on both rows. Until the
+    /// eight-hundred-and-ninety-second session this reader took Table 20's "Default value:
+    /// Identity" for that case, authenticated the password, and then handed the page's own
+    /// ciphertext to `FlateDecode` with nothing said; the fixture failed on exactly that, which is
+    /// what a real producer's bytes are for (trap 4). `crypt::crypt_filters` now takes the method
+    /// Table 20's `/V` 5 row states and refuses where `/V` determines none.
+    fn document() -> Vec<u8> {
+        let content = hex(CONTENT);
+        let mut stream = format!(
+            "<< /Length {} /Filter /FlateDecode >>\nstream\n",
+            content.len()
+        )
+        .into_bytes();
+        stream.extend_from_slice(&content);
+        stream.extend_from_slice(b"\nendstream");
+
+        let objects = vec![
+            b"<< /Type /Catalog /Pages 2 0 R \
+               /Extensions << /ADBE << /BaseVersion /1.7 /ExtensionLevel 3 >> >> >>"
+                .to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+               /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+                .to_vec(),
+            stream,
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+                .to_vec(),
+            format!(
+                "<< /Filter /Standard /Length 256 /O {} /OE {} /P {FLAGS} /Perms {} /R 5 \
+                 /StmF /StdCF /StrF /StdCF /U {} /UE {} /V 5 >>",
+                hex_string(&hex(OWNER_ENTRY)),
+                hex_string(&hex(OWNER_ENCRYPTION)),
+                hex_string(&hex(PERMS)),
+                hex_string(&hex(USER_ENTRY)),
+                hex_string(&hex(USER_ENCRYPTION)),
+            )
+            .into_bytes(),
+        ];
+
+        assemble(&objects, "/Root 1 0 R /Encrypt 6 0 R")
+    }
+
+    /// Both of a real revision-5 document's passwords, and the one key they have to agree on.
+    ///
+    /// §7.6.4.3.3 steps (c) and (d) are the owner half — the hash salted with the whole 48-byte
+    /// `/U` — and steps (e) is the user half. The clause ends both with "[t]he 32-byte result is
+    /// the file encryption key", *the* key rather than one each, and this is the document that
+    /// can say so: qpdf prints the same `35EA16A4…` for `--password=user3` and for
+    /// `--password=owner3`, and the page below was encrypted under it.
+    #[test]
+    fn both_published_passwords_reach_the_key_the_page_was_encrypted_under() {
+        for (password, is_owner) in [(USER_PASSWORD, false), (OWNER_PASSWORD, true)] {
+            let document = Document::open_with_password(document(), Limits::DEFAULT, password)
+                .unwrap_or_else(|error| panic!("{password} should authenticate: {error}"));
+
+            let content = page_one_content(&document, "c-r5-in.pdf");
+            assert!(
+                String::from_utf8_lossy(&content).contains(CONTENT_PLAINTEXT),
+                "{password} should reach the file encryption key, got {:?}",
+                String::from_utf8_lossy(&content)
+            );
+
+            let permissions = document.permissions().expect("the document is encrypted");
+            assert_eq!(permissions.owner, is_owner, "which role {password} matched");
+            assert_eq!(permissions.revision, 5);
+        }
+    }
+
+    /// §7.6.4.4.12's Algorithm 13 on the same document: the block agrees with the plaintext `/P`.
+    ///
+    /// The fixture above this module proves the encrypted copy *outranks* `/P` by writing a
+    /// different one; this proves it is read correctly where a real producer wrote both. −2052 is
+    /// 0xFFFFF7FC, which clears position 12 alone of the eight positions Table 22 names — and
+    /// qpdf's own `c-r5-key-owner.out` reads the same file as "print high resolution: not
+    /// allowed" with every other operation allowed.
+    #[test]
+    fn the_perms_block_agrees_with_the_plaintext_flags_it_was_written_beside() {
+        let document = Document::open_with_password(document(), Limits::DEFAULT, USER_PASSWORD)
+            .expect("the user password should authenticate");
+        let permissions = document.permissions().expect("the document is encrypted");
+
+        assert!(permissions.print, "bit 3");
+        assert!(permissions.modify, "bit 4");
+        assert!(permissions.copy, "bit 5");
+        assert!(permissions.annotate, "bit 6");
+        assert!(permissions.fill_forms, "bit 9");
+        assert!(permissions.assemble, "bit 11");
+        assert!(
+            !permissions.print_faithfully,
+            "bit 12 is the one −2052 clears"
+        );
+    }
+}
+
+/// A `/StmF` naming a crypt filter `/CF` does not define, where `/V` determines no method.
+///
+/// The other half of the rule the module above found. Table 20's `/V` 4 row says the document is
+/// encrypted "using 7.6.3.2, "Algorithm 1: Encryption of data using the RC4 or AES algorithms" …
+/// with a file encryption key length of 128 bits", and Algorithm 1 is RC4 *or* AES — Table 25's
+/// `V2` and `AESV2` both answer to it. So an undefined filter leaves the method genuinely
+/// undetermined here, and trap 5's rule applies: the refusal is by name rather than a coin toss,
+/// and rather than the silent `Identity` that produced a page of ciphertext at `/V` 5.
+#[test]
+fn an_undefined_crypt_filter_is_refused_where_the_version_names_no_method() {
+    let objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 0 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] >>".to_vec(),
+        format!(
+            "<< /Filter /Standard /V 4 /R 4 /Length 128 /StmF /StdCF /StrF /StdCF \
+             /O {} /U {} /P -1 >>",
+            hex_string(&[0x11; 32]),
+            hex_string(&[0x22; 32]),
+        )
+        .into_bytes(),
+    ];
+    let bytes = assemble(&objects, "/Root 1 0 R /Encrypt 4 0 R");
+
+    let refused = Document::open_with_password(bytes, Limits::DEFAULT, "");
+    match refused {
+        Err(SyntaxError::UnsupportedEncryption { detail }) => assert!(
+            detail.contains("/StmF") && detail.contains("/StdCF"),
+            "the refusal should name the entry and the filter, got {detail:?}"
+        ),
+        other => panic!("an undefined crypt filter should be refused by name, got {other:?}"),
+    }
+}

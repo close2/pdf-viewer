@@ -201,6 +201,9 @@ pub(crate) struct Carry {
     speaks_for: usize,
     /// Elements that reach no carried page, so are not written.
     dropped: u64,
+    /// §14.7.5.4 array members the source filled with an element and the output writes as
+    /// §7.3.9's null, because the element is not in the hierarchy the output carries.
+    orphaned_items: u64,
     /// Elements with a marked-content child and no `/Pg` to place it on.
     unplaceable: u64,
     /// Content items dropped because the page they name is not in the output.
@@ -263,6 +266,7 @@ impl Carry {
             suspects: false,
             speaks_for: contributing.first().map_or(0, |at| source_of(*at)),
             dropped: 0,
+            orphaned_items: 0,
             unplaceable: 0,
             dropped_items: 0,
             duplicated_pages: 0,
@@ -967,8 +971,14 @@ impl Carry {
     /// A page's value is the source's array at its own length and in its own order, because the
     /// array is indexed by the marked-content identifiers in a content stream this suite carries
     /// byte for byte. An object's value is one reference, which is the clause's other bullet.
-    fn parent_tree(&self, host: &dyn Host) -> Option<Object> {
+    ///
+    /// The distinction the code below turns on: a page's *array* is resolved and its *members*
+    /// are not. Resolving a member would throw away the identity this module maps; leaving the
+    /// array unresolved wrote a one-long `[null]` for every source that states it out of line,
+    /// which is most of them (ADR 0838).
+    fn parent_tree(&mut self, host: &dyn Host) -> Option<Object> {
         let mut nums: Vec<(i64, Object)> = Vec::new();
+        let mut orphaned = 0_u64;
         for (at, old, new) in &self.page_sources {
             let Some(value) = host
                 .source(*at)
@@ -976,14 +986,31 @@ impl Carry {
             else {
                 continue;
             };
-            let mapped = match value {
+            // The array itself may be an indirect object — §7.3.10 makes a reference equivalent
+            // to what it names, and most producers write this one out of line — so the *array*
+            // is resolved while its members are not. `resolve` follows one object rather than
+            // the tree under it, so every member arrives as the reference this module maps.
+            let array = host
+                .source(*at)
+                .map_or(Object::Null, |document| document.resolve(&value));
+            let mapped = match array {
                 Object::Array(items) => Object::Array(
                     items
                         .iter()
-                        .map(|item| self.element_reference(*at, item))
+                        .map(|item| {
+                            let mapped = self.element_reference(*at, item);
+                            // A member the source filled and this carry could not: the element
+                            // it named is not in the hierarchy the output holds, so the slot is
+                            // §7.3.9's null and an assistive reader finds nothing at that
+                            // marked-content identifier. Counted so that it is said out loud.
+                            if item.as_reference().is_some() && mapped == Object::Null {
+                                orphaned = orphaned.saturating_add(1);
+                            }
+                            mapped
+                        })
                         .collect(),
                 ),
-                other => Object::Array(vec![self.element_reference(*at, &other)]),
+                _ => Object::Array(vec![self.element_reference(*at, &value)]),
             };
             nums.push((*new, mapped));
         }
@@ -1007,14 +1034,16 @@ impl Carry {
         }
         let mut node = Dictionary::new();
         node.insert(Name::new(&b"Nums"[..]), Object::Array(array));
+        self.orphaned_items = self.orphaned_items.saturating_add(orphaned);
         Some(Object::Dictionary(node))
     }
 
     /// One source's parent-tree value for a key, left as the tree states it.
     ///
-    /// Unresolved, because §14.7.5.4's values *are* references — "the value shall be an indirect
-    /// reference to the parent structure element" — and resolving one throws away the identity
-    /// this module maps.
+    /// Unresolved, because §14.7.5.4's object-key value *is* a reference — "the value shall be an
+    /// indirect reference to the parent structure element" — and resolving one throws away the
+    /// identity this module maps. A page key's value is an array, and [`Self::parent_tree`]
+    /// resolves that one level itself, for the reason stated there.
     fn source_entry(document: &Document, key: i64) -> Option<Object> {
         let root = structure_root(Some(document))?;
         let Object::Dictionary(tree) = root
@@ -1057,6 +1086,21 @@ impl Carry {
                 "§14.7.5: {} content item(s) name a page the output does not hold and were \
                  dropped from their element's /K",
                 self.dropped_items
+            ));
+        }
+        if self.orphaned_items > 0 {
+            // §14.7.2 makes the structure hierarchy what `/StructTreeRoot`'s `/K` reaches and
+            // Table 355 makes `/P` required, so an element a source's parent tree names but its
+            // own hierarchy does not reach is in the file and not in the tree. This carry keeps
+            // the hierarchy, so the array position goes to null — which is a marked-content
+            // sequence an assistive reader will now find nothing for, and two corpus documents
+            // do it (ADR 0839).
+            said(format!(
+                "§14.7.5.4: {} parent-tree entr{} name a structure element the source's own \
+                 hierarchy does not reach (§14.7.2, Table 355's required /P), so the output \
+                 states §7.3.9's null there and that marked content has no structure",
+                self.orphaned_items,
+                if self.orphaned_items == 1 { "y" } else { "ies" }
             ));
         }
         if self.unplaceable > 0 {

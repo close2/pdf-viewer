@@ -3,8 +3,9 @@
 Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
 are approved"), so the serializer, four verbs and §14.7's structure tree are done; what is left is
-**`optimize`**, `split --at-bookmarks`, the foreign readback, the RFC 0003 hand-off, and the §13
-questions the owner has not been asked again.
+**`optimize`**, `split --at-bookmarks`, the RFC 0003 hand-off, and the §13 questions the owner has
+not been asked again. **The foreign readback is no longer among them**: session 898 built it
+(ADR 0839), and §5 below records what it found rather than what it is for.
 Corpus witnesses: `issue11124.pdf`, `bug1065245.pdf`, `images_1bit_grayscale.pdf` (inline
 images, `--native`); `issue21570.pdf` (a JPEG under an `/SMask`); `issue2177.pdf` (a crop box a
 quarter of its media box); `attachment.pdf` (an `/EmbeddedFiles` tree to attach into);
@@ -178,21 +179,29 @@ The transform gate's floor is a wall-clock number over 24 threads, and ADR 0801 
 a cost that shows only where a CPU-second is worth what it was, at two or four threads — would
 pass it. The instrument for that class is the thread curve in ADR 0801, taken by hand with
 `RAYON_NUM_THREADS`; a round that touches `render`'s parallel shape re-takes it, and ADR 0804
-has the one taken in session 875. The writer's walk judges every update with this tree's own
-reader and nothing else (trap 8, said in its file): `tests/writer.rs` holds `qpdf --check` over
-the committed fixtures, and a corpus-wide *foreign* readback of the transform's updates —
-poppler and mupdf listing the file back, the shape `save_round_trip.rs` has for the viewer's
-edits — is the instrument ADR 0334 priced and nobody has taken for this writer. **The
-serializer's walk has the same shape and the same gap**: `tests/split_corpus.rs` judges every
-piece with this tree's own reader and its own rasteriser, and `tests/split.rs` holds `qpdf
---check` over the committed fixtures alone. A corpus-wide foreign readback of the *pieces* is the
-same instrument and is owed for the same reason — a writer is attack surface in the other
-direction (RFC §11.3), and a file only this tree can read would look correct to every gate here.
-**`tests/merge_corpus.rs` and `tests/pages_corpus.rs` have inherited the gap for a third and a
-fourth writer**, and the merged files are the
-ones most worth showing a foreign reader: they are the only outputs this tree *builds* a §12.7
-form, a §8.11 configuration, a §7.9.6 name tree and — since session 897 — a §14.7 structure tree
-for, rather than copies. **The structure tree sharpens the argument rather than adding to it**: it
-is the part of a derived document that only an assistive processor reads, so a tree only this tree
-can make sense of is the one a raster gate is least placed to notice. ADR 0835 records that as the
-fifth reason the instrument is owed.
+has the one taken in session 875.
+
+**The foreign readback is taken** — `tests/foreign_corpus.rs`, ADR 0839 — and this section used to
+be five paragraphs arguing for it. What it is worth recording now is what remained after it:
+
+- All four writers' output goes through `qpdf --check`, `pdftoppm`, `mutool draw`, `mutool show`
+  and `pdfinfo`, and every foreign reading of a derived page is compared with that *same* reader's
+  reading of the source page — never with ours, which is the oracle's question and would make a
+  disagreement unattributable (traps 3 and 9).
+- **It found one defect immediately** (ADR 0838), and it was in the one thing no other instrument
+  here can see: §14.7's parent tree, which only an assistive processor reads. That is ADR 0835 §5's
+  prediction, confirmed on the first run.
+- **What it does not cover, and what a later round owes.** It is a *sample* — every tagged document
+  plus every eighth — because a document costs up to fourteen foreign invocations; the whole corpus
+  is a bigger instrument and would want the reference cache `pdfref` already has. It draws page 1
+  only, so a derived document's later pages are unread by anybody but us. It skips a document that
+  needs a password, because the foreign readers would have to be given it too. It asks mupdf about
+  §14.7 and poppler only about `/MarkInfo` — no installed tool reports a *rendered* structure tree,
+  and `mutool draw -F stext -O structure` is not in mupdf 1.28. And it says nothing about the
+  outline, the name trees or the form, all of which a foreign reader could be asked about and none
+  of which any of them prints.
+- **One document is out of the rendering comparison on wall clock alone.** `issue19517.pdf` costs
+  poppler 23.9 s and mupdf 17.6 s on the source *and* on the derived file, against a 20 s budget,
+  so both readers time out on it about as often as not; a timeout takes it out of that reader's
+  comparison rather than failing the run (ADR 0839 section 4). A reference cache, or a budget
+  scaled to what the source render cost, would put it back.
