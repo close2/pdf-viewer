@@ -83,7 +83,7 @@ use std::path::PathBuf;
 use pdf_render::Raster;
 use raster_compare::Comparison;
 
-pub use cache::Cache;
+pub use cache::{Cache, Runs};
 pub use extract::{ExtractionCache, ExtractionError, Extractor};
 pub use normalise::Normalisation;
 pub use reference::{Reference, Testimony};

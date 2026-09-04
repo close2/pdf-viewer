@@ -2504,6 +2504,17 @@ fn the_word_boxes_we_place_agree_with_the_references() {
         "extraction cache: {} hits, {} misses, {} remembered timeouts",
         stats.hits, stats.misses, stats.remembered_timeouts
     );
+    // The cost floor, on `pdfref::Runs`'s rules: the line above says what the cache did, this
+    // one says how often `pdftotext` and `mutool` were actually run, and a page extracted twice
+    // in one walk is a program spawned for an answer already in hand. A count rather than a
+    // clock, so a neighbouring round's load cannot move it. ADR 0898.
+    let runs = cache.runs();
+    println!("extractors: {runs}");
+    assert!(
+        runs.holds(),
+        "an extractor ran again for a page the cache had kept: {runs}, repeated: {:?}",
+        cache.repeated_keys()
+    );
 
     assert!(pairs_total > 0, "no word was matched anywhere");
     assert!(

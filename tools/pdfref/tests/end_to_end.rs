@@ -413,3 +413,108 @@ fn the_cache_key_carries_the_page_box_flags() {
         );
     }
 }
+
+/// The cost floor: a page asked for twice runs the renderer once, from two work directories.
+///
+/// **This is the counted invariant `pdfref::Runs` states, checked at the scale a unit test can
+/// reach**, and the second work directory is what makes it discriminate rather than pass by
+/// construction. `Reference::command_signature` replaces the output path with `<out>` precisely
+/// so that where the harness happens to put its artefacts is not in the key; with that
+/// substitution taken out — the cheapest defect this floor is for, and the one
+/// `pdfref::cache`'s own module comment worries about from the other direction — the second
+/// request is a miss under a different key, the renderer runs a second time for a page it has
+/// already drawn, and `repeated` rises to 1 against an `unstored` of 0.
+///
+/// `Statistics` cannot see that: to it the second request is one more miss, indistinguishable
+/// from the first request for a page nobody has asked about. That is the whole reason a cost
+/// floor counts the *program running* rather than what the cache did (trap 33, ADR 0894).
+#[test]
+fn a_page_asked_for_twice_runs_the_renderer_once() {
+    let work_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-runs");
+    let pdf = fixture(&work_dir);
+    let reference = Reference::Poppler;
+    if !reference.is_available() {
+        println!(
+            "skipped: {reference} is not installed ({})",
+            reference.package_hint()
+        );
+        return;
+    }
+
+    let cache = pdfref::Cache::at(work_dir.join("entries"));
+    cache
+        .clear()
+        .expect("an empty cache directory is removable");
+    let elsewhere = work_dir.join("elsewhere");
+
+    for artefacts in [&work_dir, &elsewhere, &work_dir] {
+        cache
+            .render(reference, &pdf, PAGE_ONE, DPI, artefacts)
+            .expect("the fixture renders");
+    }
+
+    let runs = cache.runs();
+    assert_eq!(
+        runs,
+        pdfref::Runs {
+            ran: 1,
+            repeated: 0,
+            unstored: 0
+        },
+        "three requests for one page ran one renderer; repeated: {:?}",
+        cache.repeated_keys()
+    );
+    assert!(
+        runs.repeated <= runs.unstored,
+        "the floor itself: {runs:?}, repeated: {:?}",
+        cache.repeated_keys()
+    );
+}
+
+/// And the ceiling is what makes the floor honest rather than merely strict.
+///
+/// A cache that can store nothing re-runs the renderer for every request, which is not a defect
+/// — it is what `PDFREF_CACHE=off` is for, and it is how the oracle proves the cache changes no
+/// verdict. So a run that is repeated is forgiven exactly when the run before it was kept
+/// nowhere, and `repeated <= unstored` holds with both sides moving together.
+#[test]
+fn a_cache_that_stores_nothing_re_runs_the_renderer_and_says_so() {
+    let work_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pdfref-runs-off");
+    let pdf = fixture(&work_dir);
+    let reference = Reference::Poppler;
+    if !reference.is_available() {
+        println!(
+            "skipped: {reference} is not installed ({})",
+            reference.package_hint()
+        );
+        return;
+    }
+
+    let cache = pdfref::Cache::disabled();
+    for _ in 0..2 {
+        cache
+            .render(reference, &pdf, PAGE_ONE, DPI, &work_dir)
+            .expect("the fixture renders");
+    }
+
+    let runs = cache.runs();
+    assert_eq!(
+        runs,
+        pdfref::Runs {
+            ran: 2,
+            repeated: 1,
+            unstored: 2
+        },
+        "a disabled cache keeps nothing, so both runs are unstored"
+    );
+    assert!(runs.repeated <= runs.unstored, "the floor holds: {runs:?}");
+    assert_eq!(
+        cache.statistics(),
+        pdfref::cache::Statistics {
+            hits: 0,
+            misses: 0,
+            remembered_timeouts: 0
+        },
+        "and neither request reached the cache at all, which is what `Statistics` cannot see"
+    );
+}
