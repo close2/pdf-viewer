@@ -741,7 +741,7 @@ impl Exit {
 }
 
 /// What was done: every output, every inventory entry, every warning, every refusal.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Report {
     /// The files written, in output order.
     pub outputs: Vec<Output>,
@@ -754,7 +754,7 @@ pub struct Report {
 }
 
 /// One file written.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Output {
     /// The name the sink was opened with.
     pub name: String,
@@ -767,7 +767,7 @@ pub struct Output {
 }
 
 /// Where an output came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Origin {
     /// A rendered page.
     Page {
@@ -781,6 +781,13 @@ pub enum Origin {
         width: u32,
         /// Its height.
         height: u32,
+        /// The sub-pixel strip of that raster the page does not reach, on each axis.
+        ///
+        /// Where the renderer put the page inside the pixels it wrote. A caller comparing this
+        /// raster with one of a differently shaped page — the same page turned a quarter turn is
+        /// the case that forced this — needs it to know which edge the leftover fraction is on;
+        /// see [`render::Overrun`].
+        overrun: render::Overrun,
     },
     /// An image: an `XObject`, or §8.9.7's inline image.
     Image {
@@ -984,6 +991,7 @@ impl Origin {
                 label,
                 width,
                 height,
+                overrun,
             } => vec![
                 ("kind".to_owned(), Value::text("page")),
                 ("source".to_owned(), Value::count(*source)),
@@ -991,6 +999,8 @@ impl Origin {
                 ("label".to_owned(), Value::optional(label.clone())),
                 ("width".to_owned(), Value::Integer(i64::from(*width))),
                 ("height".to_owned(), Value::Integer(i64::from(*height))),
+                ("overrun_across".to_owned(), Value::Number(overrun.across)),
+                ("overrun_down".to_owned(), Value::Number(overrun.down)),
             ],
             Self::Image {
                 source,

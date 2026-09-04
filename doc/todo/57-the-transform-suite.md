@@ -1,11 +1,13 @@
 # 57 — The transform suite: what RFC 0002 still owes after its first three landings
 
-Status: **open**, on the long-lived branch the transform rounds share (`round-867` onward).
+Status: **open**, and no longer on a branch: `round-867` was merged into `main` and closed in
+session 915, so what is left below is `main`'s.
 Priority: 50-band — RFC 0002 §13's first question was answered on 2026-09-03 ("RFC 002 and 003
 are approved"), so the serializer, **all five writing verbs** and §14.7's structure tree are
 done, and session 910 finished `split` — its last mode and the three document-level constructs a
-piece carries. **What is left is four things and two of them are the owner's**: the aligned
-rotated comparison and a per-input password for `merge` are small and nobody has asked for either;
+piece carries. **What is left is three things and two of them are the owner's**: a per-input password for
+`merge` is small and nobody has asked for it, and the aligned rotated comparison is half done — the
+alignment landed in session 915 and the assertion still wants a tolerance derived (ADR 0873);
 the confinement tranche and RFC §13's second question (a DCT encoder, which JPEG output and
 `optimize --images` both wait on) are the two the owner decides. The stream is otherwise finished. **The foreign readback is no longer among them**: session 898
 built it (ADR 0839), and §5 below records what it found rather than what it is for.
@@ -18,7 +20,7 @@ suite's own gate runs over ISO 32000-2's PDF.
 Clauses: §7.6.4.2 Table 22 (item 3). §7.5.7's producer half was the debt this file carried from
 session 886 and session 900 paid it, so that row is `implemented` and no longer names one.
 Code: `crates/pdf-transform/`, `crates/pdf-syntax/src/serialize.rs`, ADRs 0800, 0801, 0802,
-0803, 0804, 0816, 0817, 0818, 0821, 0830, 0831, 0834, 0835, 0842, 0843, 0862, 0863.
+0803, 0804, 0816, 0817, 0818, 0821, 0830, 0831, 0834, 0835, 0842, 0843, 0862, 0863, 0873.
 
 ## What is done
 
@@ -155,14 +157,18 @@ an at-bookmarks piece is a different *shape* to show another reader.
   identifier" and this program has no basis for inventing one; and a piece still leaves `/Metadata`,
   `/Threads`, `/SpiderInfo`, `/Collection`, `/Perms`, `/Legal`, `/Requirements` and `/DPartRoot`
   behind, each named in the report where the source states one.
-- **The aligned rotated comparison.** `tests/pages_corpus.rs` measures the turned-raster
-  comparison and does not assert on it, because a page `W` units wide at scale `s` is
-  `ceil(W × s)` pixels wide and the leftover sliver sits on a different edge after the page turns
-  than after the raster does — worth a whole pixel, measured exactly on `issue2761.pdf` (mean
-  absolute difference 0.000 once one column is allowed for, 19.4 without). What would make it an
-  assertion is `render` reporting the sub-pixel offset it placed the page at, so the walk can
-  *derive* the whole-pixel shift instead of searching for one. That is a change to the renderer's
-  report, not to the walk. ADR 0831 §1 has the measurement.
+- **The aligned rotated comparison — the alignment is done and the assertion is not.** Session 915
+  did what ADR 0831 §1 priced: `render` states the sub-pixel strip of raster the page does not
+  reach (`Origin::Page`'s `overrun_across` and `overrun_down`), and `tests/pages_corpus.rs` derives
+  the whole-column shift from it instead of searching for one. Over the 905 rotated pages the worst
+  mean falls from 26.44 levels to 15.84, the least similar tile from −0.4325 to 0.0021, and 17
+  pages become byte-identical; shifted the other way the same walk reports 39.19, −0.4272 and none,
+  which is the calibration. **What is still owed is the assertion**, and it needs a tolerance stated
+  against the two terms that remain: the grid, which turns with the page and which no integer shift
+  undoes (`issue15150.pdf`, five levels of 255 at an overrun of zero), and the sub-pixel remainder
+  an integer shift leaves, at most half a pixel and 0.5000 at its worst over the corpus. Both are
+  statements about this renderer's antialiasing rather than about the writer, so a round that picks
+  a number has curve-fitted and a round that derives one has finished the item. ADR 0873.
 - **A per-input password for `merge`.** `viewer_core::Secret` is deliberately not `Clone`, so one
   `--password-fd` opens one document and a merge of several encrypted sources is a usage error
   today, by name. A per-input spelling or several `--password-fd`s would lift it; nobody has asked.

@@ -22,6 +22,15 @@ pub enum Value {
     Bool(bool),
     /// A signed integer: a count, an index, a page, a byte size.
     Integer(i64),
+    /// A real number: a measurement rather than a count.
+    ///
+    /// RFC 8259 section 6 admits one and gives it no range or precision, so what is written is
+    /// Rust's own shortest representation that reads back as the same `f64` — which makes the
+    /// report deterministic, since the same measurement is the same digits on every run. A value
+    /// JSON has no spelling for (an infinity, a NaN) is written as `null` rather than as a token
+    /// no parser accepts; nothing in this report can produce one, and a number that cannot be
+    /// written is better said to be absent than to break the document around it.
+    Number(f64),
     /// A string, escaped on the way out.
     Text(String),
     /// An array, in the order given.
@@ -87,6 +96,10 @@ impl Value {
             Self::Bool(value) => out.push_str(if *value { "true" } else { "false" }),
             Self::Integer(value) => {
                 let _ = write!(out, "{value}");
+            }
+            Self::Number(value) if !value.is_finite() => out.push_str("null"),
+            Self::Number(value) => {
+                let _ = write!(out, "{value:?}");
             }
             Self::Text(value) => escape(value, out),
             Self::Array(items) if items.is_empty() => out.push_str("[]"),

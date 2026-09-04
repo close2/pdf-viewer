@@ -360,11 +360,36 @@ pub enum PageRefusal {
     Raster(render_cpu::CpuRasterError),
 }
 
-/// One page rendered: the raster and what the interpreter could not draw.
+/// How much of the raster the page does not reach, on each axis, in pixels.
+///
+/// A page `W` units wide at scale `s` is `ceil(W × s)` pixels wide, and the strip between
+/// `W × s` and that ceiling is raster the page does not cover. `TargetSpec::for_page` anchors
+/// the page at the raster's **top-left** corner on both axes (ADR 0064), so that strip is on the
+/// right of the raster across and at the bottom of it down, and each is less than one whole pixel
+/// because the ceiling is taken of the same number.
+///
+/// ISO 32000-2 states none of this — §10.7 leaves scan conversion to the device and says nothing
+/// about a page whose size is not a whole number of pixels — so this is the renderer's documented
+/// choice reported rather than a requirement met. It is reported because a caller comparing two
+/// rasters of *different* page geometry cannot otherwise know where the page sits inside either:
+/// turn a page a quarter turn and the strip moves from one edge to another, which is worth up to a
+/// whole pixel of placement and which ADR 0831 section 1 had to search for rather than derive.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Overrun {
+    /// Columns of raster to the right of the page's right edge, in `0.0..1.0`.
+    pub across: f64,
+    /// Rows of raster below the page's bottom edge, in `0.0..1.0`.
+    pub down: f64,
+}
+
+/// One page rendered: the raster, where the page sits inside it, and what the interpreter could
+/// not draw.
 #[derive(Debug)]
 pub struct Rendered {
     /// The pixels.
     pub raster: Raster,
+    /// The sub-pixel strip of raster the page does not reach, on each axis.
+    pub overrun: Overrun,
     /// What the interpreter met and could not draw, in its own words.
     pub unsupported: Vec<String>,
 }
@@ -397,14 +422,35 @@ pub fn render_page(
     let raster = rasterizer
         .rasterize(&list, target)
         .map_err(PageRefusal::Raster)?;
+    let overrun = overrun_of(list.page_size, scale, target.width, target.height);
     Ok(Rendered {
         raster,
+        overrun,
         unsupported: interpretation
             .unsupported
             .iter()
             .map(crate::describe)
             .collect(),
     })
+}
+
+/// The sub-pixel strip of raster the page does not reach, on each axis.
+///
+/// Derived from the same three numbers `TargetSpec::for_page` builds the target out of — the
+/// page's extent in user space, the scale, and the raster's integer size — so it says where the
+/// renderer put the page rather than where a second implementation of the rounding would have.
+/// `pixel_extent` takes the ceiling, so each value is in `0.0..1.0` for any raster that was
+/// built; a caller holding one built some other way gets the arithmetic clamped to that range
+/// rather than a negative number.
+fn overrun_of(page: Size, scale: f32, width: u32, height: u32) -> Overrun {
+    let strip = |extent: f32, pixels: u32| {
+        let exact = f64::from(extent) * f64::from(scale);
+        (f64::from(pixels) - exact).clamp(0.0, 1.0)
+    };
+    Overrun {
+        across: strip(page.width, width),
+        down: strip(page.height, height),
+    }
 }
 
 /// Encodes a raster in the format, deterministically: no timestamp chunk, no text chunk, the
@@ -598,6 +644,7 @@ impl Job<'_> {
             Ok(rendered) => rendered,
             Err(refusal) => return declined(refusal.to_string()),
         };
+        let overrun = rendered.overrun;
         let warnings = rendered
             .unsupported
             .into_iter()
@@ -623,6 +670,7 @@ impl Job<'_> {
                 label,
                 width: rendered.raster.width,
                 height: rendered.raster.height,
+                overrun,
             },
         })
         .map_err(|error| Problem::Sink(expanded.name, error));
