@@ -1,7 +1,8 @@
 # 0893 — A `/Font` entry that is §7.3.10's null object, and why the page stays without its text
 
 Session 926. Status: **accepted**, and the half a round should not decide alone is
-[`doc/questions/Q27`](../questions/Q27-a-font-the-file-does-not-carry.md).
+[`doc/questions/Q35`](../questions/Q35-a-font-the-file-does-not-carry.md) — asked here as `Q27`
+and renumbered by session 934, which is that file's own first paragraph.
 
 ## Context
 
@@ -77,7 +78,7 @@ Three reasons, in the order they bind:
 
 Whether a *reader* should nevertheless offer the guess — a legible letter with a substituted face
 and invented advances, marked as such — is a product question about what this program shows a
-person, not a question the specification answers. It is `Q27`, with a recommendation, and the tree's
+person, not a question the specification answers. It is `Q35`, with a recommendation, and the tree's
 behaviour meanwhile is the paragraph above.
 
 ## What it is worth, measured

@@ -2169,7 +2169,7 @@ engineering drawing's labels belong, because the codes shown are `<000102…0c>`
 So the guess reads as the document on one page and destroys the other, nothing in the file tells
 them apart, and §9.5 makes every input to a substitution an entry of the dictionary that is missing.
 The refusal is kept and argued in ADR 0893; whether a *reader* should offer the guess anyway is
-[`Q27`](../questions/Q27-a-font-the-file-does-not-carry.md).
+[`Q35`](../questions/Q35-a-font-the-file-does-not-carry.md).
 
 **What is held**: `pdfminer.six-391-0.pdf` at −0.018, an image whose samples stop at 3 bytes of the
 59 850 its dictionary infers — §7.3.8.2, drawn as far as it carries and reported (unchanged); and

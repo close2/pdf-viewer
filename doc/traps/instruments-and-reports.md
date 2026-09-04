@@ -754,3 +754,18 @@ guard's blind spot, in the units the figure is in.
 It is trap 33's shape in the other dimension. There a counter named the wrong **event**; here a
 probe names the right work in the wrong **state**, and both come back with a clean number about a
 question nobody asked.
+
+**And there is a third dimension, which is the units — the sharpest of the three, because nothing
+in the gate's shape hints at it.** The same gate's `peak_mib` is a *memory* high-water, classified
+as needing the guard, and the guard is a **clock**. Session 934 ran the sequence on a machine with
+9 GiB free after two neighbours' corpus walks: the calibration probe read 0.706 ms inside
+`0.62 .. 0.78`, so the run judged, and all four documents' memory high-waters came in a quarter
+below their minima together — 99, 103, 104 and 116 MiB against floors of 127, 131, 132 and 143. Nine
+re-runs on the same binary with 29 GiB free read 161 to 182 MiB, inside every band, two of them
+judging every figure with nothing outside. `open_peak_mib`, the memory figure with **no graphics
+device in it**, did not move by a megabyte in either state, which names the mechanism as the
+driver's allocation — the thing the harness's own doc comment already says nothing in the process
+can see. A clock cannot sense an allocator, and would read in band on a machine with a gigabyte free
+and on one with sixty. So: *the same work, in the same state, and in the same units* — and the third
+of those is the one a `steady: false` classification can look like it has already handled. ADR
+0909.

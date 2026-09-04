@@ -14,6 +14,20 @@ and no round needs to read anything else to know what is waiting.
 - **One question per file**, numbered in the order they were asked. A number is never reused, and
   an answered question keeps its `Q` file beside the owner's `A` file, because the argument that
   raised it is worth as much as the answer.
+- **The number comes from the round's own reserved block, never from `ls`.** Parallel rounds branch
+  from trees that cannot see each other, so the highest number in this directory is a claim about
+  one branch rather than about the project: on 2026-09-04 rounds 926 and 927 each took `Q27` by
+  reading it, honestly, on the same day, and the two met in a merge three rounds later
+  ([ADR 0908](../adr/0908-two-questions-called-q27.md); session 934 renumbered one of them to
+  `Q35`, which is why the numbers here have a gap). The allocator is the block a round is given in
+  its instruction — that is the one counter every round can see — and a gap between blocks is
+  correct rather than a mistake to tidy.
+- **A collision cannot reach `main` unnoticed**, which is the half the tree can enforce:
+  `tools/conformance/tests/questions.rs` fails when two `Q` files share a number, when an `A` file
+  answers no `Q`, when an `A` file's name is not its `Q` file's with the letter changed, or when a
+  filename here is not `<letter><number>-<slug>.md`. It runs in `cargo test -p conformance`, which
+  is the last line of `doc/todo/02` §2's sequence and which every merge round runs. It makes the
+  duplicate loud rather than impossible; the reserved block above is what makes it unlikely.
 - **Every `Q` file says four things**: the question, why it cannot be settled without the owner,
   **what the tree does meanwhile** (there is always something: a default, a refusal, a reading
   held), and a recommendation. A question with no recommendation is a round asking the owner to do

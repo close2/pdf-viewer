@@ -105,6 +105,47 @@ judged — there was no quiet machine to derive a band on), and a figure that is
 probe declined it and what all three probes read. What is owed is the band for that first-pass
 probe, about ten minutes of an idle machine, and it is the first of `Q29`'s three options.
 
+## The figure that failed next is not a clock at all — the nine-hundred-and-thirty-fourth
+
+**No band was moved for the third round running either**, and the machine was quieter for none of
+it: session 934 sampled the one-minute load average every thirty seconds for seventy-five minutes —
+151 samples, **minimum 3.30, median 12.86, maximum 61.55, and 62 % of them above 10** — with three
+neighbouring rounds rather than two: 932, 933 and a 935 that appeared during the round and ran
+`launch_path` probes of its own. So the first-pass band above is still owed.
+
+What that round found instead is a **second** guard failure of a different kind, and ADR 0909 is the
+reading. Run inside `doc/todo/02` §2 on a machine with ~9 GiB free after two neighbours' corpus
+walks, the line exited **101 on all four `peak_mib` figures at once** — 99.1, 103.1, 104.2 and 116.5
+MiB against floors of 127, 131, 132 and 143 — with the calibration probe at **0.706 ms, inside its
+band**, which is what let the run judge them. Nine re-runs alone, on a binary the merge had not
+touched a line of, with 29 GiB free: **161 to 182 MiB on every document on every run**, inside every
+band, two of the runs judging with nothing outside at all.
+
+| | the failing run | the nine runs alone |
+|---|---|---|
+| free memory | ~9 GiB, 19 GiB of swap in use | 29 GiB, 45 available |
+| calibration probe | 0.706 ms, in band | 0.708 .. 0.745 ms |
+| `peak_mib`, four documents | 99.1, 103.1, 104.2, 116.5 | 161–164, 168–169, 168–169, 180–182 |
+| `open_peak_mib`, no device in it | 7, 8, 18 MiB, in band | 7, 8, 18 MiB, in band |
+
+The last row names the mechanism: what moves is the resident set of a process that has brought the
+**graphics device** up, which this file's harness already records falling 12 % between two runs an
+hour apart while the bands were being derived. Under memory pressure it falls by 40 %.
+
+**So `peak_mib` is a memory figure whose only guard is a clock**, and a clock reads in band on a
+machine with a gigabyte free and on one with sixty. That is trap 34's third dimension — the same
+work, in the same *state*, and in the same **units** — and it is the one a `steady: false`
+classification looks like it has already handled.
+
+**What is owed here is a third probe**, beside the processor's and the disk's: what the machine had
+available when the sample was taken, banded as the disk probe is, so a pressed machine *declines*
+`peak_mib` rather than failing it. Its band needs the same idle ten minutes the first-pass band
+does, so the two are one errand. **And there is a cheaper question that is not a probe**: a minimum
+on a memory high-water exists to catch "we stopped doing the work", which the command counts,
+`open_peak_mib` and the timings already witness four other ways — whether principle 2's memory
+high-water should be a ceiling rather than a band is a real question, and it is a change to a gate
+another round built, which is the same sentence that stopped three rounds widening one.
+
 ## Why this is a todo and not a caveat
 
 `CLAUDE.md`'s startup section states two rules this path breaks:

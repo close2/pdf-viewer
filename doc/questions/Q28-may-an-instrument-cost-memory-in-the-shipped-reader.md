@@ -3,17 +3,25 @@
 Asked by round 929, which built the floor `Q27` asked about for three of the seven walks and hit
 this on the fourth.
 
-**The number 27 was taken twice, and this file is where that is written down.** Round 927 asked
+**The number 27 was taken twice, and this file is where that was written down.** Round 927 asked
 `Q27-cost-floors-for-the-other-seven-walks` on its own branch and round 926 asked
 `Q27-a-font-the-file-does-not-carry` on `main`, on the same day; the two met for the first time in
-this round's merge, and both are now in the directory. Nothing dangles — every reference to either
-resolves, because each cites its own filename — but this README's "a number is never reused" is
-broken by a pair of parallel rounds rather than by anybody's mistake, and renaming either would
-falsify an ADR and a history file that already cite it. **It is left for the merging round or the
-owner to settle**, and recorded here rather than fixed unilaterally, because a third state would be
-worse than two. The lesson for the convention is the one the parallel-round agreements already
+this round's merge, and both were then in the directory. Nothing dangled — every reference to
+either resolved, because each cited its own filename — but this README's "a number is never
+reused" was broken by a pair of parallel rounds rather than by anybody's mistake, and renaming
+either would have moved an ADR and a history file that already cited it, so round 929 recorded it
+here rather than fixing it unilaterally.
+
+**Settled by session 934**, the round that merged 929: the font question is now
+[`Q35`](Q35-a-font-the-file-does-not-carry.md) — the cheaper of the two to move, by eight named
+sites against seventeen — every reference to it was moved with it, and `Q27` is the cost-floor
+question alone. The lesson for the convention is the one the parallel-round agreements already
 teach elsewhere: a counter shared between rounds needs an allocator, and `ls doc/questions/` is not
-one when two branches cannot see each other.
+one when two branches cannot see each other. What the tree can enforce is that a collision cannot
+reach `main` unnoticed, which is
+`tools/conformance/tests/questions.rs`; the allocator itself is the reserved block a round is given
+in its instruction, and `README.md` now says so.
+[ADR 0908](../adr/0908-two-questions-called-q27.md).
 
 ## The question
 

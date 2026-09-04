@@ -1,8 +1,17 @@
-# Q27 — Should a reader guess a font the file does not carry at all?
+# Q35 — Should a reader guess a font the file does not carry at all?
 
 Raised by session 926, out of `corpus-cache/tika-issue-tracker/batch5/pdfminer.six`'s ink ranking.
 The reading is [ADR 0893](../adr/0893-a-font-dictionary-that-is-the-null-object.md); this is the
 half that is not the specification's to answer.
+
+**Asked as `Q27`, and renumbered here by session 934.** Rounds 926 and 927 both took the number 27
+on 2026-09-04 from branches that could not see each other, and round 929's merge is where the two
+met; `Q28` recorded the collision rather than fixing it unilaterally. This file is the one that
+moved, because it was named in fewer places than the other — three links and five mentions against
+sixteen mentions — and it took a number out of session 934's own reserved block, which is the only
+number a round can know is free while its neighbours are running.
+[ADR 0908](../adr/0908-two-questions-called-q27.md) is the argument, and `README.md` now carries
+the rule and the check that keeps it.
 
 ## The question
 

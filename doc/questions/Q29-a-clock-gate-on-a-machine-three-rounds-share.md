@@ -5,7 +5,8 @@ and found that the figure is fine, the code is fine, and the *machine* is the th
 claim about — a machine this project has not had to itself since parallel rounds began.
 
 `Q28` is round 929's and `Q27` was taken twice on the same day by rounds 926 and 927, which is its
-own small finding; this is the next free number after those.
+own small finding; this is the next free number after those. (Session 934 settled that collision by
+renumbering the font question to `Q35`; `Q27` is the cost-floor question alone.)
 
 ## What the tree does meanwhile
 
@@ -55,6 +56,25 @@ Round 931's own recommendation is **1 and then 2 together**: band the busy probe
 run declines honestly, and keep a stated quiet run for the clock figures so that declining is not
 the same as not measuring. The band derivation is about ten minutes of an otherwise idle machine
 and is the only part that needs anything the project does not already have.
+
+## Evidence session 934 added
+
+Session 934 was sent to derive option 1's band if the machine was quiet. **It was not** — 151
+samples of the one-minute load average, every thirty seconds for seventy-five minutes, read a
+**minimum of 3.30, a median of 12.86 and a maximum of 61.55, with 62 % of them above 10**, and a
+*fourth* round appeared while it ran. No band was derived, for the third round running.
+
+What that round found makes recommendation 1 **necessary and not sufficient**, and the reason is
+worth having before the answer is given. Its `doc/todo/02` §2 run failed the launch line on all four
+`peak_mib` figures at once — a quarter below their minima, together — with the calibration probe at
+**0.706 ms, inside its band**, on a machine left with ~9 GiB free by two neighbours' corpus walks.
+Nine re-runs alone on the identical binary read 161 to 182 MiB, inside every band. A busy-*clock*
+probe would have declined none of it, because the clock was fine: `peak_mib` is a **memory** figure
+whose only guard is a clock, and what moves it is the graphics driver's allocation under memory
+pressure. ADR 0909 and `doc/todo/42` have the figures.
+
+So whichever of the three options is chosen, the clock half is not the whole of it: this gate's
+memory figures need a memory probe, on the same idle ten minutes option 1 already asks for.
 
 ## What is *not* being asked
 
