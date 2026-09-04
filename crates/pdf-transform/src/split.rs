@@ -1233,7 +1233,7 @@ fn carry_name_trees(piece: &mut Piece<'_>, job: &Job<'_>, held: &BTreeSet<usize>
 /// Whether this destination value names a page the piece holds.
 fn lands_in(job: &Job<'_>, held: &BTreeSet<usize>, value: &Object) -> bool {
     Destination::read(job.document, value)
-        .and_then(|destination| destination.page_index_with(job.document, job.pages, job.indices))
+        .and_then(|destination| destination.page_index_with(job.document, job.indices))
         .is_some_and(|index| held.contains(&index))
 }
 
@@ -1269,9 +1269,7 @@ fn keep_items(job: &Job<'_>, held: &BTreeSet<usize>, items: &[Item]) -> Vec<Kept
         let lands_here = item
             .destination
             .as_ref()
-            .and_then(|destination| {
-                destination.page_index_with(job.document, job.pages, job.indices)
-            })
+            .and_then(|destination| destination.page_index_with(job.document, job.indices))
             .is_some_and(|index| held.contains(&index));
         if !lands_here && children.is_empty() {
             continue;

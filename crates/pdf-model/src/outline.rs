@@ -173,10 +173,31 @@ impl Outline {
     /// nothing, because a heading whose link is broken still names the section that follows it.
     #[must_use]
     pub fn section_at(&self, document: &Document, pages: &Pages<'_>, index: usize) -> Option<&str> {
+        // **One walk of the page tree for the whole outline, rather than one per item.**
+        // `Pages::index_of` cannot skip a subtree, so resolving every item's destination
+        // separately is quadratic in the document: ISO 32000-2's 988 items over its 1023 pages
+        // cost 344 ms, on a path a person takes by pressing an arrow key. See `Pages::indices`.
+        self.section_at_with(document, &pages.indices(), index)
+    }
+
+    /// [`Self::section_at`], against a page index the caller already holds.
+    ///
+    /// **The walk this saves is the largest single item in a large document's open**, which is
+    /// why the two are separate: [`Pages::indices`] resolves every node of §7.7.3's tree, and on
+    /// ISO 32000-2 — 1023 pages — that is about six milliseconds and more than a third of what
+    /// opening the document costs. `pdf_syntax::Document` is immutable, so the map is a function
+    /// of the file and is the same map on every page turn; a caller that keeps it pays the walk
+    /// once for the life of the document instead of once per turn (session 925, ADR 0890).
+    #[must_use]
+    pub fn section_at_with(
+        &self,
+        document: &Document,
+        indices: &BTreeMap<ObjectId, usize>,
+        index: usize,
+    ) -> Option<&str> {
         fn walk<'a>(
             items: &'a [Item],
             document: &Document,
-            pages: &Pages<'_>,
             indices: &BTreeMap<ObjectId, usize>,
             index: usize,
             best: &mut Option<(usize, &'a str)>,
@@ -184,22 +205,17 @@ impl Outline {
             for item in items {
                 if let Some(page) = item
                     .destination
-                    .and_then(|destination| destination.page_index_with(document, pages, indices))
+                    .and_then(|destination| destination.page_index_with(document, indices))
                     && page <= index
                     && best.is_none_or(|(at, _)| page >= at)
                 {
                     *best = Some((page, item.title.as_str()));
                 }
-                walk(&item.children, document, pages, indices, index, best);
+                walk(&item.children, document, indices, index, best);
             }
         }
-        // **One walk of the page tree for the whole outline, rather than one per item.**
-        // `Pages::index_of` cannot skip a subtree, so resolving every item's destination
-        // separately is quadratic in the document: ISO 32000-2's 988 items over its 1023 pages
-        // cost 344 ms, on a path a person takes by pressing an arrow key. See `Pages::indices`.
-        let indices = pages.indices();
         let mut best = None;
-        walk(&self.items, document, pages, &indices, index, &mut best);
+        walk(&self.items, document, indices, index, &mut best);
         best.map(|(_, title)| title)
     }
 }

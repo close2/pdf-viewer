@@ -38,6 +38,12 @@ struct Fixture<'a> {
     square: &'a str,
     triangle: &'a str,
     content: &'a str,
+    /// The font dictionary's `/Encoding` value, verbatim. §9.6.5.1 permits a name here as
+    /// well as a dictionary, so this is a string rather than a fixed reference.
+    encoding: &'a str,
+    /// The `/CharProcs` dictionary's body, verbatim, so that a named encoding's glyph names
+    /// can be the keys.
+    char_procs: &'a str,
 }
 
 impl Default for Fixture<'_> {
@@ -50,6 +56,8 @@ impl Default for Fixture<'_> {
             square: "1000 0 0 0 750 750 d1\n0 0 750 750 re f",
             triangle: "1000 0 d0\n0 0 m 375 750 l 750 0 l f",
             content: "BT /FT3 10 Tf 0 0 Td (ab) Tj ET",
+            encoding: "6 0 R",
+            char_procs: "<< /square 8 0 R /triangle 9 0 R >>",
         }
     }
 }
@@ -63,6 +71,8 @@ impl Fixture<'_> {
             square,
             triangle,
             content,
+            encoding,
+            char_procs,
         } = *self;
         let body = format!(
             "1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n\
@@ -71,10 +81,10 @@ impl Fixture<'_> {
              /Resources << /Font << /FT3 5 0 R >> >> /Contents 4 0 R >>\nendobj\n\
              4 0 obj\n<< /Length {} >>\nstream\n{content}\nendstream\nendobj\n\
              5 0 obj\n<< /Type /Font /Subtype /Type3 /FontBBox [0 0 750 750] \
-             /FontMatrix {font_matrix} /CharProcs 7 0 R /Encoding 6 0 R \
+             /FontMatrix {font_matrix} /CharProcs 7 0 R /Encoding {encoding} \
              /FirstChar 97 /LastChar 98 /Widths {widths} >>\nendobj\n\
              6 0 obj\n<< /Type /Encoding /Differences [97 /square /triangle] >>\nendobj\n\
-             7 0 obj\n<< /square 8 0 R /triangle 9 0 R >>\nendobj\n\
+             7 0 obj\n{char_procs}\nendobj\n\
              8 0 obj\n<< /Length {} >>\nstream\n{square}\nendstream\nendobj\n\
              9 0 obj\n<< /Length {} >>\nstream\n{triangle}\nendstream\nendobj\n",
             content.len() + 1,
@@ -618,6 +628,96 @@ fn a_d1_glyph_description_drops_an_image_and_keeps_an_image_mask() {
         image_transforms(&mask).len(),
         1,
         "an image mask designates where the inherited colour is painted, so it is not ignored"
+    );
+}
+
+/// A named encoding is an encoding: §9.6.4's step a) delegates to §9.6.5, and §9.6.5.1 lets
+/// the entry be a name.
+///
+/// Table 110's `/Encoding` cell requires a dictionary *of the file*. §9.6.4's step a) is what a
+/// processor runs:
+///
+/// > a) Look up the character code in the font's Encoding entry, as described in 9.6.5,
+/// > "Character encoding" to obtain a glyph name.
+///
+/// and §9.6.5.1 says what may be there:
+///
+/// > The value of the Encoding entry shall be either a named encoding (the name of one of the
+/// > predefined encodings MacRomanEncoding , MacExpertEncoding , or WinAnsiEncoding ) or an
+/// > encoding dictionary.
+///
+/// Until the nine-hundred-and-twenty-sixth session this reader took the first form as no encoding
+/// at all and refused the whole font, which cost every glyph on a page.
+#[test]
+fn a_named_encoding_maps_codes_to_glyph_names_out_of_annex_d() {
+    let interpretation = Fixture {
+        encoding: "/WinAnsiEncoding",
+        // WinAnsiEncoding names code 97 `/a` and code 98 `/b`, which are the keys §9.6.4's
+        // step b) then looks up.
+        char_procs: "<< /a 8 0 R /b 9 0 R >>",
+        ..Fixture::default()
+    }
+    .interpret();
+    assert!(
+        interpretation.is_complete(),
+        "a Type 3 font whose /Encoding is a predefined encoding is drawn, not reported: {:?}",
+        interpretation.unsupported
+    );
+    assert_eq!(
+        fill_origins(&interpretation).len(),
+        2,
+        "one fill per glyph, the two codes reaching /a and /b through Annex D's table"
+    );
+}
+
+/// The names a named encoding produces are Annex D's, so a `/CharProcs` keyed by the font's
+/// own procedure names reaches none of them and paints nothing.
+///
+/// This is the other half of the clause and it is what stops the change above from being a guess.
+/// §9.6.4's step b):
+///
+/// > If the name is not present as a key in CharProcs , no glyph shall be painted.
+///
+/// So the encoding decides the *name* and `/CharProcs` decides whether there is a glyph. The page
+/// is complete either way — a code that paints nothing is the clause's own outcome, not a failure.
+#[test]
+fn a_named_encodings_names_that_char_procs_has_no_key_for_paint_nothing() {
+    let interpretation = Fixture {
+        encoding: "/WinAnsiEncoding",
+        ..Fixture::default()
+    }
+    .interpret();
+    assert!(
+        interpretation.is_complete(),
+        "§9.6.4 step b) makes an absent key an outcome rather than a failure: {:?}",
+        interpretation.unsupported
+    );
+    assert!(
+        fill_origins(&interpretation).is_empty(),
+        "/square and /triangle are not what WinAnsiEncoding names codes 97 and 98"
+    );
+}
+
+/// An `/Encoding` name this reader has no table for is still no encoding, and the font is
+/// refused rather than drawn from a table it invented.
+///
+/// §9.6.5.1 lists three predefined encodings and this tree accepts `StandardEncoding` beside
+/// them; anything else names a mapping the standard does not define, so there is nothing to
+/// look a code up in. The refusal is trap 5: what cannot be drawn stays loud.
+#[test]
+fn an_encoding_name_that_is_not_a_predefined_encoding_is_no_encoding() {
+    let interpretation = Fixture {
+        encoding: "/NotAnEncoding",
+        ..Fixture::default()
+    }
+    .interpret();
+    assert!(
+        interpretation
+            .unsupported
+            .iter()
+            .any(|report| format!("{report:?}").contains("/Encoding names no glyph")),
+        "an unknown encoding name is reported: {:?}",
+        interpretation.unsupported
     );
 }
 

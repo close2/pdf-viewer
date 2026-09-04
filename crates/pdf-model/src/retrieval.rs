@@ -82,7 +82,7 @@ pub fn sections(document: &Document, pages: &Pages<'_>, outline: &Outline) -> Ve
         .iter()
         .map(|(_, item)| {
             item.destination
-                .and_then(|destination| destination.page_index_with(document, pages, &indices))
+                .and_then(|destination| destination.page_index_with(document, &indices))
         })
         .collect();
     let last = pages.len().saturating_sub(1);

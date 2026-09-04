@@ -632,3 +632,35 @@ session = 912
 reports = ["font /F16's /CharProcs states 41 entr(ies) and then stops being readable at byte 20678", "39 of the 49 glyph names its /Encoding states have a description here and 10 do not and paint nothing"]
 ink = 3.630 .. 5.630
 why = "doc/todo/03 section 47's head twice over, and the only witness anywhere for either half. Object 76 is /F16's /CharProcs, whose bytes stop mid-entry at `/a112 57` under another stream's data. Session 908 stopped read_dictionary_body walking out of that object and taking object 78's entries (ADR 0858), which took the page from 4.6304 of ink to 1.70076 and left forty glyph procedures behind the door ADR 0784 built. Session 912 takes them (ADR 0866): §9.6.4's step b) states the residue outright — `If the name is not present as a key in CharProcs, no glyph shall be painted` — so a subset of the entries substitutes nothing; Table 110's /Widths is in the whole font dictionary, so no advance moves; and §9.6.5.3 makes /Differences the complete encoding, so what is lost is a list rather than a guess. 39 of the 49 encoded names have the producer's own description here and 10 do not, and the page draws its Finnish problem sheet with those ten letters as holes. Ink 4.63038, which is 2.87 above poppler 1.75734, mupdf 1.66218 and hayro 1.69921 — all three discard the object entirely — and 4.31 below ghostscript 8.93729, which draws glyphs for names whose descriptions are physically not in the file. The band is the usual width and is what fails if the door is shut again; `reports` carries both halves of the one report, so it fails if the prefix's size changes and if the naming of what was lost does. ADRs 0866, 0858, 0784"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch5/pdfminer.six/pdfminer.six-56-0.pdf"
+page = 1
+session = 926
+reports = []
+ink = 0.758 .. 1.358
+why = "doc/todo/03 section 48's head, and the first of the four documents ADR 0892 gives their text back. Both of this bank statement's Type 3 fonts state /Encoding /WinAnsiEncoding and key their /CharProcs by Annex D's own names, and this tree read Table 110's `An encoding dictionary whose Differences array shall specify the complete character encoding for this font` as the shape of the lookup rather than as a requirement on the file — so the font was refused outright and the page drew two rules and one glyph. §9.6.4's step a) delegates instead: `Look up the character code in the font's Encoding entry, as described in 9.6.5, Character encoding, to obtain a glyph name`, and §9.6.5.1 permits a name there. Ink 0.319 and three reports before, 1.058 and none after, and the page is line for line what pdftoppm draws. **The band is ±0.3 rather than the file's usual ±1.0 and says so here**: the page is a five-line table on an A4 sheet, so the text this row exists to pin is worth 0.739 of a level and a ±1.0 band would admit the two-rules-and-one-glyph page it stands against. ADR 0892"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4863-3.pdf"
+page = 1
+session = 926
+reports = []
+ink = 0.751 .. 2.751
+why = "the sharpest of ADR 0892's four, because the page drew **nothing at all**: ink 0.000 and three reports before, 1.751 and none after. Two Type 3 fonts, both /Encoding /WinAnsiEncoding, and fifteen text operations that were the only marks on the sheet — so the refusal took the whole page rather than part of it. The band is the file's usual ±1.0 and is what fails if the page goes blank again. ADR 0892"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4516-4.pdf"
+page = 1
+session = 926
+reports = []
+ink = 3.306 .. 3.386
+why = "ADR 0892's smallest, and the row that shows what the report half is for: twelve text operations on a page whose other marks are worth 3.27, so the fix moves the ink by **0.080** — 3.266 before and 3.346 after — while taking two reports to none. **The band is ±0.04**, an eighth of the usual, because at ±1.0 it would pin nothing this document is about; it is safe to write that tight only because this check uses this tree's own raster and no reference (the file's header), so nothing but a real change to what we draw can move it. If a legitimate change ever does, `reports = []` is the half that still fails the moment the Type 3 font is refused again. ADR 0892"
+
+[[document]]
+path = "corpus-cache/tika-issue-tracker/batch1/PDFBOX/PDFBOX-4228-0.pdf"
+page = 1
+session = 926
+reports = ["font /F15's program has no outline for any of the 20 code(s) the page shows through it"]
+ink = 23.647 .. 25.647
+why = "ADR 0892's largest recovery — 503 text operations through four Type 3 fonts, all four stating /Encoding /WinAnsiEncoding — on a dense French newspaper page. Ink 21.923 and six reports before, 24.647 and one after; measured at 72 dpi against the references the same change puts us at 12.323 where poppler is 13.165 and mupdf 11.920, which is inside the interval they bracket. The band is the file's usual ±1.0 and excludes the before value by more than that again. `reports` is not empty and that is this row's second job: /F15 is a different population — a font program with no outline for any of the 20 codes the page shows through it, doc/todo/21's — so the row fails both if the Type 3 fonts are refused again and if that unrelated report ever disappears without anybody noticing. ADR 0892"
